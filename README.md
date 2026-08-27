@@ -7,6 +7,7 @@ Bouwdossier voor de eerste Catapulze Job Intelligence-slice: vacatures/aanvragen
 | Doc | Wat |
 |---|---|
 | [`docs/BUILD_BRIEF.md`](docs/BUILD_BRIEF.md) | Productdoel, Ideal State Criteria, systeemgrens, kernmodel, fasering, open besluiten |
+| [`docs/plans/2026-08-27-2022-feat-slice-a-read-path-plan.md`](docs/plans/2026-08-27-2022-feat-slice-a-read-path-plan.md) | Slice A read-path implementatieplan (`ce-plan`, implementation-ready) |
 | [`docs/IMPLEMENTATION_BACKLOG.md`](docs/IMPLEMENTATION_BACKLOG.md) | Geordende taken met afhankelijkheden en acceptatiecriteria |
 | [`docs/brainstorms/2026-08-27-techstack-brainstorm.md`](docs/brainstorms/2026-08-27-techstack-brainstorm.md) | 12 stack-besluiten met bewijs en omgooi-triggers |
 | [`docs/AGENT_NATIVE_ARCHITECTURE.md`](docs/AGENT_NATIVE_ARCHITECTURE.md) | Tool-oppervlak, capability map, registry-contract, approval-matrix, agents-als-prompts |
