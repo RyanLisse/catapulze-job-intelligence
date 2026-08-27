@@ -1,0 +1,31 @@
+{
+  "name": "@ji/db",
+  "type": "module",
+  "exports": {
+    ".": {
+      "default": "./src/index.ts"
+    },
+    "./*": {
+      "default": "./src/*.ts"
+    }
+  },
+  "scripts": {
+    "db:push": "PATH=\"./node_modules/.bin:$PATH\" drizzle-kit push",
+    "db:generate": "PATH=\"./node_modules/.bin:$PATH\" drizzle-kit generate",
+    "db:migrate:deploy": "PATH=\"./node_modules/.bin:$PATH\" drizzle-kit migrate",
+    "db:studio": "PATH=\"./node_modules/.bin:$PATH\" drizzle-kit studio",
+    "db:migrate": "PATH=\"./node_modules/.bin:$PATH\" drizzle-kit migrate"
+  },
+  "dependencies": {
+    "@ji/env": "workspace:*",
+    "@neondatabase/serverless": "^1.1.0",
+    "dotenv": "catalog:",
+    "drizzle-orm": "^0.45.2",
+    "zod": "catalog:"
+  },
+  "devDependencies": {
+    "@ji/config": "workspace:*",
+    "drizzle-kit": "^0.31.10",
+    "typescript": "catalog:"
+  }
+}

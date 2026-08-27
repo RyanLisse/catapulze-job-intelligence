@@ -5,7 +5,7 @@ Bouwdossier voor de eerste Catapulze Job Intelligence-slice: vacatures/aanvragen
 ## Documenten
 
 | Doc | Wat |
-|---|---|
+| --- | --- |
 | [`docs/BUILD_BRIEF.md`](docs/BUILD_BRIEF.md) | Productdoel, Ideal State Criteria, systeemgrens, kernmodel, fasering, open besluiten |
 | [`docs/plans/2026-08-27-2022-feat-slice-a-read-path-plan.md`](docs/plans/2026-08-27-2022-feat-slice-a-read-path-plan.md) | Slice A read-path implementatieplan (`ce-plan`, implementation-ready) |
 | [`docs/IMPLEMENTATION_BACKLOG.md`](docs/IMPLEMENTATION_BACKLOG.md) | Geordende taken met afhankelijkheden en acceptatiecriteria |
@@ -30,3 +30,29 @@ Bun + TypeScript + Effect-TS + Drizzle · Postgres (zones staging/curated/marts,
 Discovery-consolidatie afgerond 27 augustus 2026. Open: Neon vs Postgres on-box, Spott.io-contract (DEC-006), leveranciersaccounts en ToS-besluiten per bron (zie `SOURCE_MATRIX.md`).
 
 De inhoud is gebaseerd op de Ryan/Robbie-call van 27 augustus 2026, het bestaande Lovable/Neon-prototype, de gedeelde analyses en publieke bronverificatie. Transcriptuitspraken zijn requirements-input, geen automatisch genomen architectuurbesluiten.
+
+## Lokaal draaien
+
+De app is een Bun-monorepo (Better-T-Stack): Next.js op poort 3001, Hono/tRPC op poort 3000, Drizzle + Neon, Better Auth. Workspace-packages staan onder de scope `@ji`.
+
+```bash
+bun install
+cp apps/server/.env.example apps/server/.env
+cp apps/web/.env.example apps/web/.env
+```
+
+Vul in `apps/server/.env` ten minste `DATABASE_URL` (Neon) en `BETTER_AUTH_SECRET` (`openssl rand -base64 32`). Push daarna het auth-schema en start beide apps:
+
+```bash
+bun run db:push
+bun run dev
+```
+
+| App | URL                   |
+| --- | --------------------- |
+| Web | http://localhost:3001 |
+| API | http://localhost:3000 |
+
+Handige scripts: `bun run dev:web`, `bun run dev:server`, `bun run db:studio`, `bun run check`, `bun run fix`.
+
+Scripts zetten `PATH="./node_modules/.bin:$PATH"` (relatief), omdat de parent-map `clients:catapulze` een dubbele punt bevat en een absoluut `node_modules/.bin`-pad Unix-`PATH` daardoor splitst.

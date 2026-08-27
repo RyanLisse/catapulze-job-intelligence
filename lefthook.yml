@@ -1,0 +1,12 @@
+# Lefthook configuration
+# https://github.com/evilmartians/lefthook
+
+pre-commit:
+  parallel: true
+  jobs:
+    - name: oxlint
+      run: PATH="./node_modules/.bin:$PATH" oxlint --fix {staged_files}
+      stage_fixed: true
+    - name: oxfmt
+      run: PATH="./node_modules/.bin:$PATH" oxfmt --write {staged_files}
+      stage_fixed: true

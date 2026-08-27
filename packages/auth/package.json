@@ -1,0 +1,24 @@
+{
+  "name": "@ji/auth",
+  "type": "module",
+  "exports": {
+    ".": {
+      "default": "./src/index.ts"
+    },
+    "./*": {
+      "default": "./src/*.ts"
+    }
+  },
+  "scripts": {},
+  "dependencies": {
+    "@ji/db": "workspace:*",
+    "@ji/env": "workspace:*",
+    "better-auth": "catalog:",
+    "dotenv": "catalog:",
+    "zod": "catalog:"
+  },
+  "devDependencies": {
+    "@ji/config": "workspace:*",
+    "typescript": "catalog:"
+  }
+}
