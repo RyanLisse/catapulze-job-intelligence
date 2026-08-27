@@ -12,6 +12,7 @@ Bouwdossier voor de eerste Catapulze Job Intelligence-slice: vacatures/aanvragen
 | [`docs/brainstorms/2026-08-27-techstack-brainstorm.md`](docs/brainstorms/2026-08-27-techstack-brainstorm.md) | 12 stack-besluiten met bewijs en omgooi-triggers |
 | [`docs/AGENT_NATIVE_ARCHITECTURE.md`](docs/AGENT_NATIVE_ARCHITECTURE.md) | Tool-oppervlak, capability map, registry-contract, approval-matrix, agents-als-prompts |
 | [`docs/SOURCE_MATRIX.md`](docs/SOURCE_MATRIX.md) | Geverifieerde bronmatrix (DEC-002): ladder-indeling, wat nog geregeld moet worden |
+| [`docs/linear/`](docs/linear/README.md) | Linear roadmap import (Gate 0 + Slice A/B/C/Later). Slice A fully issued; later slices are containers |
 | [`docs/sources/tenderned.md`](docs/sources/tenderned.md) | Ingest-recept TenderNed (eerste nieuwe bron) |
 | [`docs/COSTS.md`](docs/COSTS.md) | Kostenkaart, live geverifieerd; P0 / jaar 1 / jaar 2 |
 | [`docs/REQUIREMENTS_V2.json`](docs/REQUIREMENTS_V2.json) | Requirements v2 (concept 26-08) + v1→v2-veldmapping |
