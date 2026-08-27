@@ -1,0 +1,21 @@
+# OS / editor
+.DS_Store
+Thumbs.db
+
+# Agent/session state
+.omc/
+.claude/settings.local.json
+
+# Private call transcript (PII) — bewaar lokaal, niet in git
+.fireflies-transcript.json
+.fireflies-request.json
+
+# Benchmark build output
+docs/research/bench/gf_go
+docs/research/bench/mh_go
+docs/research/bench/gofetch/gofetch
+docs/research/bench/rs/target/
+
+# Secrets
+.env
+.env.*
