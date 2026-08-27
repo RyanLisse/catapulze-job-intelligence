@@ -1,25 +1,30 @@
-# Doelplaat-export — status
+# Doelplaat-export — volledig (2026-08-27)
 
 Bron: artifact "Catapulze Architectuur Explorer" (doelarchitectuur v1.1, 25-08-2026) — https://claude.ai/code/artifact/93692ad4-4974-4204-986b-d955d28576dc
+Methode: Interceptor (echte Chrome, read-only) + iframe-bron opgehaald; JS-literals `MODEL`, `JI`, `JI_REQ` naar JSON gedumpt; `schema.json` gegenereerd met de artifact-eigen `jiSchema()`. Byte-identiek geverifieerd tegen de gerenderde panelen. Details: `EXTRACT_LOG.md`.
 
-| Onderdeel | Status | Bestand |
+| Bestand | Inhoud | UI-paneel |
 |---|---|---|
-| Hoofdplaat — volledige tekst (4 lagen, 2 verticale balken, koppelvlakken, vervolgstappen, laaglogica) | ✅ geëxporteerd 27-08 | `doelplaat-v1.1-tekst.md` |
-| Beslissingen (logboek) | ✅ overgenomen uit paneel | hieronder |
-| Deep dive Job Intelligence — tab Bronnen (29) | ✅ | `../SOURCE_MATRIX.md` (geverifieerd) |
-| Deep dive — tab Requirements + Mapping v1→v2 | ✅ | `../REQUIREMENTS_V2.json` |
-| Volledig model (JSON) | ❌ nog niet | zit in cross-origin iframe; "Download JSON" in de viewer, of artifact delen met dit account |
-| Documenten-lijst | ❌ nog niet | idem |
-| Datamodel (entiteiten) / spec v0.2 §4 (75 velden) | ❌ nog niet | "JSON van de spec" in de deep dive |
-| Deep dive tabs Overzicht · Pipeline · Datalaag · Config & stack · Fasen & compliance · JSON Schema · v1-analyse | ❌ nog niet | idem |
+| `model.json` | Volledig model: 6 lagen, 33 componenten, 4 vervolgstappen, entiteiten, documenten, beslissingen | Volledig model (JSON) |
+| `componenten.md` | Per laag/component/stap: Uitleg · Data & stromen · JSON · Documenten | zijpanelen `#g/…`, `#c/…`, `#s/…` |
+| `documenten.md` | Documentenlijst (globaal + per component) | Documenten |
+| `datamodel.md` | Entiteiten met velden en uitleg | Datamodel (entiteiten) |
+| `beslissingen.json` / `.md` | Logboek (6 besluiten, 25-08) | Beslissingen |
+| `spec.json` | Job Intelligence specificatie v0.2 (incl. bronnen) | Deep dive → JSON van de spec |
+| `requirements.json` | Requirements v2 + mapping v1→v2 (authentiek; kopie in `../REQUIREMENTS_V2.json`) | Deep dive → JSON van de requirements |
+| `schema.json` | JSON Schema van het canonieke `aanvraag`-model | Deep dive → JSON Schema |
+| `deep-dive-overzicht.md` · `-pipeline.md` · `-datamodel.md` (75 velden) · `-datalaag.md` · `-config-stack.md` · `-fasen-compliance.md` · `-json-schema.md` · `-v1-analyse.md` | Zichtbare tekst per tab | Deep dive: Job Intelligence |
+| `doelplaat-v1.1-tekst.md` | Volledige paginatekst van de hoofdplaat | hoofdplaat |
 
-## Beslissingen (logboek, alle 2026-08-25)
+Niet apart geëxporteerd (zit in `spec.json` / `requirements.json` en in `../SOURCE_MATRIX.md`): tabs Bronnen, Requirements, Mapping v1 → v2. Download-knoppen niet gebruikt.
 
-| Beslissing | Toelichting |
-|---|---|
-| Naam datastroom: Catapulze Job Intelligence | Losse module; platformen + werkenbij-sites; analyse/search erop |
-| Eerst specificeren, dan bouwen (vanaf nul) | Spec beschrijft de gewenste eindsituatie, los van v1 — *heroverwogen 27-08: v1-scrapers hergebruiken, spec groeit uit de slice* |
-| Uniforme datastructuur + DWH als harde eis | Essentieel voor Robbie |
-| Spott.io als ATS/CRM | Gekozen; inrichting volgt |
-| Datalaag/Company OS op cloud-agnostische stack | Postgres + object storage, MCP, LangGraph/Pydantic AI, LiteLLM — *27-08: Manticore erbij, Trigger.dev als orkestratie, TS i.p.v. Python* |
-| DWH-technologie nog niet gekozen | Keuze en laadpatroon horen bij de specificatie — *27-08: Postgres + DuckLake voor analytics* |
+## Beslissingen (logboek, 25-08) met stand 27-08
+
+| Beslissing | Toelichting | Stand 27-08 |
+|---|---|---|
+| Naam datastroom: Catapulze Job Intelligence | Losse module; platformen + werkenbij-sites; analyse/search erop | ongewijzigd |
+| Eerst specificeren, dan bouwen (vanaf nul) | Spec beschrijft de eindsituatie, los van v1 | **heroverwogen**: v1-scrapers hergebruiken, spec groeit uit de slice |
+| Uniforme datastructuur + DWH als harde eis | Essentieel voor Robbie | ongewijzigd; DWH = Postgres + DuckLake |
+| Spott.io als ATS/CRM | Gekozen; inrichting volgt | ongewijzigd; contract (DEC-006) open |
+| Datalaag/Company OS op cloud-agnostische stack | Postgres + object storage, MCP, LangGraph/Pydantic AI, LiteLLM | **aangevuld**: Manticore, Trigger.dev, TypeScript i.p.v. Python |
+| DWH-technologie nog niet gekozen | Keuze en laadpatroon horen bij de specificatie | **gekozen**: Postgres on-box (open: Neon-overgang) + DuckLake |
