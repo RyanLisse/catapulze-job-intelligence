@@ -5,41 +5,8 @@ import { createTRPCClient, httpBatchLink } from "@trpc/client";
 import { createTRPCOptionsProxy } from "@trpc/tanstack-react-query";
 import { toast } from "sonner";
 
-const getServerUrl = (url: string) => {
-  const processEnv = (
-    globalThis as {
-      process?: { env?: Record<string, string | undefined> };
-    }
-  ).process?.env;
-  if (typeof window === "undefined" && processEnv?.SERVER_URL) {
-    return processEnv.SERVER_URL.endsWith("/")
-      ? processEnv.SERVER_URL.slice(0, -1)
-      : processEnv.SERVER_URL;
-  }
+import { stripTrailingSlash } from "@/lib/server-url";
 
-  const normalized = url.endsWith("/") ? url.slice(0, -1) : url;
-
-  if (!normalized.startsWith("/")) {
-    return normalized;
-  }
-
-  if (typeof window !== "undefined") {
-    return `${window.location.origin}${normalized}`;
-  }
-
-  const vercelUrl =
-    processEnv?.VERCEL_ENV === "production"
-      ? (processEnv?.VERCEL_PROJECT_PRODUCTION_URL ?? processEnv?.VERCEL_URL)
-      : (processEnv?.VERCEL_URL ?? processEnv?.VERCEL_PROJECT_PRODUCTION_URL);
-  if (vercelUrl) {
-    const origin = vercelUrl.startsWith("http")
-      ? vercelUrl
-      : `https://${vercelUrl}`;
-    return `${origin}${normalized}`;
-  }
-
-  return `http://localhost:3000${normalized}`;
-};
 export const queryClient = new QueryClient({
   queryCache: new QueryCache({
     onError: (error, query) => {
@@ -64,7 +31,7 @@ const trpcClient = createTRPCClient<AppRouter>({
           credentials: "include",
         });
       },
-      url: `${getServerUrl(env.NEXT_PUBLIC_SERVER_URL)}/trpc`,
+      url: `${stripTrailingSlash(env.NEXT_PUBLIC_SERVER_URL)}/trpc`,
     }),
   ],
 });

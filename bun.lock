@@ -11,6 +11,7 @@
       },
       "devDependencies": {
         "@ji/config": "workspace:*",
+        "@oxlint/plugins": "1.80.0",
         "@types/bun": "catalog:",
         "husky": "^9.1.7",
         "lefthook": "2.1.10",
@@ -124,6 +125,15 @@
       "devDependencies": {
         "@ji/config": "workspace:*",
         "drizzle-kit": "^0.31.10",
+        "typescript": "catalog:",
+      },
+    },
+    "packages/domain": {
+      "name": "@ji/domain",
+      "version": "0.0.0",
+      "devDependencies": {
+        "@ji/config": "workspace:*",
+        "@types/bun": "catalog:",
         "typescript": "catalog:",
       },
     },
@@ -437,6 +447,8 @@
 
     "@ji/db": ["@ji/db@workspace:packages/db"],
 
+    "@ji/domain": ["@ji/domain@workspace:packages/domain"],
+
     "@ji/env": ["@ji/env@workspace:packages/env"],
 
     "@ji/ui": ["@ji/ui@workspace:packages/ui"],
@@ -562,6 +574,8 @@
     "@oxlint/binding-win32-ia32-msvc": ["@oxlint/binding-win32-ia32-msvc@1.80.0", "", { "os": "win32", "cpu": "ia32" }, "sha512-xhRWBMpLxZvgKAH6+DJZmpP+W8Y8UdQOSU1JfxSWNXsaBaRGW77j+1hCuNHlzj7OH4SPN8fYd1q0o2qrDtoVyw=="],
 
     "@oxlint/binding-win32-x64-msvc": ["@oxlint/binding-win32-x64-msvc@1.80.0", "", { "os": "win32", "cpu": "x64" }, "sha512-yAnO7lwBYQnz2pcfBPIGQQZWIX5zd5R/1aAKIF3oE+TVj7IhoHcROjOkz3sRDngzqhfPKfFaXqug5j5rE5dn6Q=="],
+
+    "@oxlint/plugins": ["@oxlint/plugins@1.80.0", "", {}, "sha512-QRgH1XqQEYNHa4f1vvPQ5fAdNdncHGIUG1ZWLlGIZHky3qwCEeAKYitZNbZMtaXtAQAAFFTOwqUfzESvimqZNA=="],
 
     "@quansync/fs": ["@quansync/fs@1.0.0", "", { "dependencies": { "quansync": "^1.0.0" } }, "sha512-4TJ3DFtlf1L5LDMaM6CanJ/0lckGNtJcMjQ1NAV6zDmA0tEHKZtxNKin8EgPaVX1YzljbxckyT2tJrpQKAtngQ=="],
 

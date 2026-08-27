@@ -53,6 +53,18 @@ bun run dev
 | Web | http://localhost:3001 |
 | API | http://localhost:3000 |
 
-Handige scripts: `bun run dev:web`, `bun run dev:server`, `bun run db:studio`, `bun run check`, `bun run fix`.
+Handige scripts: `bun run dev:web`, `bun run dev:server`, `bun run db:studio`, `bun run check`, `bun run fix`, `bun test`, `bun run check-layering`, `bun run check-secrets`.
+
+Een verse clone heeft alleen **bun** nodig (geen extra globale linters of test runners):
+
+```bash
+bun install
+bun test
+bun run check-types
+bun run check-layering
+bun run check-secrets
+```
+
+`bun test` draait met `--max-concurrency 2` en zonder `--watch`, zodat de suite stopt. `check-layering` weigert imports van `@ji/db` / drizzle vanuit `apps/web`. `check-secrets` scant getrackte bestanden op duidelijke secret-patronen; `.env.example` bevat alleen namen en placeholders.
 
 Scripts zetten `PATH="./node_modules/.bin:$PATH"` (relatief), omdat de parent-map `clients:catapulze` een dubbele punt bevat en een absoluut `node_modules/.bin`-pad Unix-`PATH` daardoor splitst.

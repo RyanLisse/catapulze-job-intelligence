@@ -40,6 +40,8 @@ Thumbs.db
 .openwiki/
 openwiki/
 .claude/settings.local.json
+.cursor/skills/verify-job-intelligence/.run/
+.cursor/skills/verify-job-intelligence/artifacts/
 
 # Private call transcript (PII) — bewaar lokaal, niet in git
 .fireflies-transcript.json

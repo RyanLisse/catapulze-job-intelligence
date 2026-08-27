@@ -1,0 +1,2 @@
+[test]
+# JI-001: bun test must run and exit. Do not pass --watch in scripts or CI.
