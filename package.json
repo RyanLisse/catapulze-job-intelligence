@@ -1,0 +1,69 @@
+{
+  "name": "catapulze-job-intelligence",
+  "private": true,
+  "workspaces": {
+    "packages": [
+      "apps/*",
+      "packages/*"
+    ],
+    "catalog": {
+      "dotenv": "^17.4.2",
+      "zod": "^4.4.3",
+      "typescript": "^6.0.3",
+      "@types/bun": "^1.3.14",
+      "hono": "^4.12.32",
+      "@trpc/server": "^11.18.0",
+      "better-auth": "1.7.1",
+      "lucide-react": "^1.27.0",
+      "next-themes": "^0.4.6",
+      "react": "^19.2.8",
+      "react-dom": "^19.2.8",
+      "sonner": "^2.0.7",
+      "@trpc/client": "^11.18.0",
+      "@tailwindcss/postcss": "^4.3.3",
+      "@types/react": "^19.2.17",
+      "@types/react-dom": "^19.2.3",
+      "tailwindcss": "^4.3.3"
+    }
+  },
+  "type": "module",
+  "scripts": {
+    "dev": "PATH=\"./node_modules/.bin:$PATH\" turbo run dev",
+    "build": "PATH=\"./node_modules/.bin:$PATH\" turbo run build",
+    "check-types": "PATH=\"./node_modules/.bin:$PATH\" turbo run check-types",
+    "dev:web": "PATH=\"./node_modules/.bin:$PATH\" turbo run dev -F web --",
+    "dev:server": "PATH=\"./node_modules/.bin:$PATH\" turbo run dev -F server --",
+    "db:push": "PATH=\"./node_modules/.bin:$PATH\" turbo run db:push -F @ji/db --",
+    "db:studio": "PATH=\"./node_modules/.bin:$PATH\" turbo run db:studio -F @ji/db --",
+    "db:generate": "PATH=\"./node_modules/.bin:$PATH\" turbo run db:generate -F @ji/db --",
+    "db:migrate": "PATH=\"./node_modules/.bin:$PATH\" turbo run db:migrate -F @ji/db --",
+    "docker:build": "docker compose build",
+    "docker:up": "docker compose up -d --build",
+    "docker:down": "docker compose down",
+    "docker:logs": "docker compose logs -f",
+    "check": "PATH=\"./node_modules/.bin:$PATH\" ultracite check",
+    "fix": "PATH=\"./node_modules/.bin:$PATH\" ultracite fix",
+    "test": "PATH=\"./node_modules/.bin:$PATH\" bun test --max-concurrency 2",
+    "check-layering": "PATH=\"./node_modules/.bin:$PATH\" bun scripts/check-layering.ts",
+    "check-secrets": "PATH=\"./node_modules/.bin:$PATH\" bun scripts/check-secrets-scan.ts",
+    "prepare": "PATH=\"./node_modules/.bin:$PATH\" husky"
+  },
+  "dependencies": {
+    "@ji/env": "workspace:*",
+    "dotenv": "catalog:",
+    "zod": "catalog:"
+  },
+  "devDependencies": {
+    "@ji/config": "workspace:*",
+    "@oxlint/plugins": "1.80.0",
+    "@types/bun": "catalog:",
+    "husky": "^9.1.7",
+    "lefthook": "2.1.10",
+    "oxfmt": "0.65.0",
+    "oxlint": "1.80.0",
+    "turbo": "^2.10.7",
+    "typescript": "catalog:",
+    "ultracite": "7.9.4"
+  },
+  "packageManager": "bun@1.3.14"
+}

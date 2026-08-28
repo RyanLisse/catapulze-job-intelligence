@@ -1,0 +1,30 @@
+{
+  "name": "server",
+  "type": "module",
+  "main": "src/index.ts",
+  "scripts": {
+    "build": "PATH=\"./node_modules/.bin:$PATH\" tsdown",
+    "check-types": "PATH=\"./node_modules/.bin:$PATH\" tsc -b",
+    "compile": "bun build --compile --minify --sourcemap --bytecode ./src/index.ts --outfile server",
+    "dev": "bun run --hot src/index.ts",
+    "start": "bun run dist/index.mjs"
+  },
+  "dependencies": {
+    "@hono/trpc-server": "^0.4.2",
+    "@ji/api": "workspace:*",
+    "@ji/auth": "workspace:*",
+    "@ji/db": "workspace:*",
+    "@ji/env": "workspace:*",
+    "@trpc/server": "catalog:",
+    "better-auth": "catalog:",
+    "dotenv": "catalog:",
+    "hono": "catalog:",
+    "zod": "catalog:"
+  },
+  "devDependencies": {
+    "@ji/config": "workspace:*",
+    "@types/bun": "catalog:",
+    "tsdown": "^0.22.14",
+    "typescript": "catalog:"
+  }
+}
