@@ -54,6 +54,7 @@ Versus JI-NFR-06 "infra fase 1 < €300/mnd": voorlopige P0-infra ≈ €210 (LL
 Postgres 16 draait vanaf P0 on-box naast Manticore. Budgetteer Postgres als primaire, niet-rebuildbare state: het krijgt CPU-, geheugen- en diskprioriteit. Manticore mag worden begrensd of naar een aparte search-box verhuizen omdat de index uit Postgres plus raw storage kan worden herbouwd. Kies een aparte DB-host of managed Postgres zodra HA vereist is of metingen aantonen dat disk-, RAM- of CPU-concurrentie de database-SLO bedreigt.
 
 De tabel bewijst geen operationele backup/restore. Productieklaar vereist continue WAL off-site en een periodiek geslaagde restore naar een lege geïsoleerde database.
+Implementatie- en production-readinessbewijs blijft daarom open onder RJC-347.
 
 ## Ondoorzichtig / sales-contact
 

@@ -187,8 +187,9 @@ The live Lovable/Neon prototype already has product shape (~242k rows) but fails
 - Langfuse eval loop for qualification prompts (design only in Slice A).
 - Firecrawl/Browserbase (not required for the two P0 HTTP sources).
 
-### Open Questions
+### Questions and Status
 
+- Q1. **Resolved 28 Aug.** DEC-005 / RJC-321 selects a new, dedicated PostgreSQL 16 system of record in Docker/on-box. The current Motian/Lovable-Neon remains untouched and is used only as a read-only migration source. RJC-347 remains open for implementation evidence.
 - Q2. **Deferred.** DEC-006 Spott contract. Slice B only.
 - Q3. **Deferred.** DEC-008 exact retention days. Conservative default in A3.
 - Q4. **Deferred.** Onefellow unauthenticated edge function: replay allowed? Not a P0 source.
@@ -201,7 +202,7 @@ The live Lovable/Neon prototype already has product shape (~242k rows) but fails
 ### Assumptions
 
 - A1. Donderdag scope is Slice A read path, not Spot export (DEC-001 inferred; BUILD_BRIEF Slice A + brainstorm next step).
-- A2. DEC-005 is final: P0 uses a new on-box Postgres 16 in Docker with portable SQL. Existing Motian-Neon is a read-only backfill source and receives no new Catapulze writes.
+- A2. DEC-005 is final: P0 uses a new on-box Postgres 16 in Docker with portable SQL. Existing Motian-Neon is a read-only backfill source and receives no new Catapulze writes. Managed Postgres is an exit option only if accepted HA/RTO/RPO proves infeasible on-box or measured contention breaches the database budgets.
 - A3. DEC-008: Slice A drops contact fields on normalise; raw payloads retain source bytes under object-storage lifecycle (90 days unless Robbie sets otherwise); audit events are not deleted by the same job.
 - A4. Connector ToS for TenderNed (CC-0, §16 noted) and Inhuurdesk (no bot clause found 27 Aug) are `voorwaarden_status: toegestaan` as recorded in SOURCE_MATRIX. Robbie can revoke.
 - A5. Search SLO p95 ≤ 100 ms is the 27 Aug rewrite of JI-NFR-02, not the BUILD_BRIEF 750 ms proposal.
@@ -589,7 +590,7 @@ Implementer may adjust layout; unit file lists stay authoritative.
 - No Spott write path is callable.
 - No abandoned spike code in the default branch diff.
 - README describes compose, env names, and how to run search locally.
-- Open Q2–Q5 remain labeled deferred/blocking as above; none silently treated as solved.
+- Q1 records the accepted DEC-005 decision while RJC-347 remains open for implementation evidence; Q2–Q5 remain labeled deferred/blocking as above.
 
 **Per unit**
 
@@ -610,7 +611,7 @@ Implementer may adjust layout; unit file lists stay authoritative.
 
 ## System-Wide Impact
 
-- **Data:** New on-box Postgres 16 is the SoR. Motian-Neon remains read-only and dual-runs only as an import source until JI-MIG-06, which this plan does not close.
+- **Data:** New, dedicated PostgreSQL 16 SoR in Docker/on-box. v1 Motian/Lovable-Neon remains untouched as a read-only migration source. Dual-running until JI-MIG-06, which this plan does not close; RJC-347 remains open for implementation evidence.
 - **Search:** Motian/Lovable title-fast path is not reused. Index is derived and rebuildable from Postgres+raw.
 - **Authz:** Agents and UI share the handler pipeline. MCP list filtering is not authorization.
 - **Ops:** Trigger.dev Cloud and Upstash become runtime dependencies. Postgres backup, restore and capacity are production gates. Manticore is a second process to monitor, but its rebuildable index yields resources to Postgres.
@@ -625,7 +626,7 @@ Implementer may adjust layout; unit file lists stay authoritative.
 | TenderNed JSON “may change without notice” | Fixture schema tests; alert on unexpected shape (tenderned.md risk 1) |
 | Manticore RT durability vs Postgres | Outbox + rebuild job from curated; SearchAdapter fallback stub exists but is not the product path |
 | p95 100 ms missed at 200k | Versioned benchmark fails closed; do not ship “instant” claim; reopen OpenSearch only on measured miss (brainstorm omgooi-trigger) |
-| On-box Postgres data loss or resource contention (DEC-005) | Protected external volume; continuous off-site WAL; isolated restore drill; DB-first resource budgets; move to separate/managed DB on HA need or measured SLO threat |
+| On-box Postgres data loss, unmet HA/RTO/RPO, or resource contention (DEC-005) | Protected external volume; continuous off-site WAL; isolated restore drill; DB-first resource budgets; move to separate/managed DB only on accepted HA need or measured SLO threat |
 | ToS change on Inhuurdesk | `voorwaarden_status` can pause without code change |
 | Trigger.dev bill > $150–200 | concurrencyKey per bron; skip unchanged hashes; omgooi to self-host is documented, not this slice |
 | Effect Schema ↔ MCP Standard Schema impedance | One adapter module; registry tests encode round-trip |

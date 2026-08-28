@@ -18,13 +18,15 @@ Methode: Interceptor (echte Chrome, read-only) + iframe-bron opgehaald; JS-liter
 
 Niet apart geëxporteerd (zit in `spec.json` / `requirements.json` en in `../SOURCE_MATRIX.md`): tabs Bronnen, Requirements, Mapping v1 → v2. Download-knoppen niet gebruikt.
 
-## Beslissingen (logboek, 25-08) met stand 27-08
+## Beslissingen (logboek, 25-08) met stand 28-08
 
-| Beslissing | Toelichting | Stand 27-08 |
+| Beslissing | Toelichting | Stand 28-08 |
 |---|---|---|
 | Naam datastroom: Catapulze Job Intelligence | Losse module; platformen + werkenbij-sites; analyse/search erop | ongewijzigd |
 | Eerst specificeren, dan bouwen (vanaf nul) | Spec beschrijft de eindsituatie, los van v1 | **heroverwogen**: v1-scrapers hergebruiken, spec groeit uit de slice |
 | Uniforme datastructuur + DWH als harde eis | Essentieel voor Robbie | ongewijzigd; DWH = Postgres + DuckLake |
 | Spott.io als ATS/CRM | Gekozen; inrichting volgt | ongewijzigd; contract (DEC-006) open |
 | Datalaag/Company OS op cloud-agnostische stack | Postgres + object storage, MCP, LangGraph/Pydantic AI, LiteLLM | **aangevuld**: Manticore, Trigger.dev, TypeScript i.p.v. Python |
-| DWH-technologie nog niet gekozen | Keuze en laadpatroon horen bij de specificatie | **gekozen**: Postgres on-box (open: Neon-overgang) + DuckLake |
+| DWH-technologie nog niet gekozen | Keuze en laadpatroon horen bij de specificatie | **gekozen (DEC-005/RJC-321):** dedicated PostgreSQL 16 in Docker/on-box + DuckLake; huidige Motian/Lovable-Neon blijft onaangeroerde read-only migratiebron; managed Postgres/Neon alleen als escape hatch |
+
+De keuze is Accepted/Done; implementatie en production-readinessbewijs zijn dat niet. Die blijven open onder RJC-347.

@@ -1,6 +1,6 @@
 # Catapulze Job Intelligence — bouwbrief
 
-Status: discovery-consolidatie, 27 augustus 2026<br>
+Status: discovery-consolidatie, besluitstatus bijgewerkt 28 augustus 2026<br>
 Eigenaren: Robbie (product/toegang), Ryan (architectuur/uitvoering)
 
 ## 1. Uitkomst
@@ -231,7 +231,9 @@ In de call is genoemd:
 
 Een volledige productieklare implementatie van “alle bronnen” is niet betrouwbaar te plannen zolang de bronmatrix ontbreekt. De datum is wel haalbaar als prototype-doel voor één verticale slice met een beperkte, expliciet geaccepteerde bronset en zichtbaar bewijs per acceptance criterion.
 
-## 12. Open besluiten die werk blokkeren
+## 12. Besluiten en resterende blockers
+
+DEC-005 / RJC-321 is op 28 augustus 2026 geaccepteerd en afgerond: een nieuwe, dedicated PostgreSQL 16 in Docker/on-box wordt het system of record. De huidige Motian/Lovable-Neon blijft onaangeroerd en dient alleen als read-only migratiebron. [ADR-0004](adr/ADR-0004-postgres-environment-strategy.md) legt de omgevingsstrategie en escape hatch vast. Dit architectuurbesluit is nog geen production-readinessbewijs; implementatie en validatie blijven open onder RJC-347.
 
 1. Definitieve bronmatrix: URLs, landen, prioriteit, methode, auth, rate limits en eigenaar.
 2. Donderdagscope: alleen read path of ook Spot/Spott-export.

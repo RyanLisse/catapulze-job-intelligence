@@ -20,6 +20,7 @@ import { catalog, issuesInCreateOrder } from "./issues.mjs";
 const HERE = dirname(fileURLToPath(import.meta.url));
 const API = "https://api.linear.app/graphql";
 const RYAN_EMAIL = "ryan@ryanlisse.com";
+const CATALOG_MARKER_PREFIX = "catapulze-linear-catalog-id";
 
 const args = new Set(process.argv.slice(2));
 const dumpJson = args.has("--dump-json");
@@ -213,6 +214,14 @@ async function ensureProject(team) {
 }
 
 async function ensureMilestones(project) {
+  if (dryRun && project.id === "dry-project") {
+    return Object.fromEntries(
+      catalog.milestones.map((milestone) => [
+        milestone.key,
+        { id: `dry-ms-${milestone.key}`, name: milestone.name },
+      ]),
+    );
+  }
   const data = await gql(
     `query($id: String!) {
       project(id: $id) {
@@ -221,9 +230,7 @@ async function ensureMilestones(project) {
     }`,
     { id: project.id },
   );
-  const existing = new Map(
-    (data.project?.projectMilestones?.nodes ?? []).map((m) => [m.name, m]),
-  );
+  const existing = new Map((data.project?.projectMilestones?.nodes ?? []).map((m) => [m.name, m]));
   const map = {};
   for (const milestone of catalog.milestones) {
     const found = existing.get(milestone.name);
@@ -311,7 +318,7 @@ async function existingProjectIssues(project) {
       `query($id: String!, $after: String) {
         project(id: $id) {
           issues(first: 100, after: $after) {
-            nodes { id identifier url title }
+            nodes { id identifier url title description }
             pageInfo { hasNextPage endCursor }
           }
         }
@@ -323,10 +330,81 @@ async function existingProjectIssues(project) {
     if (!conn.pageInfo.hasNextPage) break;
     after = conn.pageInfo.endCursor;
   }
-  return new Map(nodes.map((n) => [n.title, n]));
+  return nodes;
 }
 
-function resolveStateId(issue, states, hasCycle) {
+export function catalogMarker(catalogId) {
+  return `<!-- ${CATALOG_MARKER_PREFIX}: ${catalogId} -->`;
+}
+
+export function descriptionWithCatalogMarker(issue) {
+  const marker = catalogMarker(issue.id);
+  return issue.description.includes(marker)
+    ? issue.description
+    : `${issue.description.trimEnd()}\n\n${marker}`;
+}
+
+function titleCatalogId(title) {
+  const match = /^\[([^\]]+)\](?:\s|$)/u.exec(title);
+  return match?.[1] ?? null;
+}
+
+function uniqueMatch(issue, strategy, candidates) {
+  if (candidates.length > 1) {
+    const identifiers = candidates
+      .map((candidate) => candidate.identifier ?? candidate.id)
+      .join(", ");
+    throw new Error(`Ambiguous Linear match for ${issue.id} via ${strategy}: ${identifiers}`);
+  }
+  return candidates[0] ?? null;
+}
+
+export function findExistingIssue(issue, existingIssues) {
+  const strategies = [];
+  if (issue.linearId) {
+    strategies.push([
+      "linearId",
+      existingIssues.filter((candidate) => candidate.id === issue.linearId),
+    ]);
+  }
+  if (issue.linearIdentifier) {
+    strategies.push([
+      "linearIdentifier",
+      existingIssues.filter(
+        (candidate) => candidate.identifier?.toLowerCase() === issue.linearIdentifier.toLowerCase(),
+      ),
+    ]);
+  }
+  const marker = catalogMarker(issue.id);
+  strategies.push(
+    [
+      "description marker",
+      existingIssues.filter((candidate) => candidate.description?.includes(marker)),
+    ],
+    [
+      "title catalog id",
+      existingIssues.filter(
+        (candidate) => titleCatalogId(candidate.title)?.toLowerCase() === issue.id.toLowerCase(),
+      ),
+    ],
+    ["exact title", existingIssues.filter((candidate) => candidate.title === issue.title)],
+  );
+
+  let match = null;
+  for (const [strategy, candidates] of strategies) {
+    const candidate = uniqueMatch(issue, strategy, candidates);
+    if (!candidate) continue;
+    if (match && match.id !== candidate.id) {
+      throw new Error(
+        `Conflicting Linear identity signals for ${issue.id}: ${match.identifier ?? match.id} and ${candidate.identifier ?? candidate.id}`,
+      );
+    }
+    match = candidate;
+  }
+  return match;
+}
+
+export function resolveStateId(issue, states, hasCycle) {
   const todo = findState(states, { want: "Todo", type: "unstarted" });
   const backlog = findState(states, { want: "Backlog", type: "backlog" }) ?? todo;
   const done = findState(states, { want: "Done", type: "completed" });
@@ -336,6 +414,20 @@ function resolveStateId(issue, states, hasCycle) {
   if (issue.status === "Todo") return todo?.id;
   if (issue.status === "Done") return done?.id;
   return backlog?.id;
+}
+
+export function buildExistingIssueUpdate(issue, states, hasCycle) {
+  const stateId = resolveStateId(issue, states, hasCycle);
+  if (!stateId) {
+    throw new Error(
+      `No Linear workflow state resolves catalog status ${issue.status} for ${issue.id}`,
+    );
+  }
+  return {
+    title: issue.title,
+    description: descriptionWithCatalogMarker(issue),
+    stateId,
+  };
 }
 
 async function applyToLinear() {
@@ -370,11 +462,12 @@ async function applyToLinear() {
   const states = teamDetail.team.states.nodes;
   const activeCycle = teamDetail.team.activeCycle;
   const hasCycle = Boolean(activeCycle?.id);
-  console.error(hasCycle ? `Active cycle: ${activeCycle.number}` : "No active cycle; U1–U3 go to Backlog");
+  console.error(
+    hasCycle ? `Active cycle: ${activeCycle.number}` : "No active cycle; U1–U3 go to Backlog",
+  );
 
   const assign =
-    process.env.LINEAR_ASSIGN_IF_RYAN === "1" &&
-    boot.viewer.email?.toLowerCase() === RYAN_EMAIL
+    process.env.LINEAR_ASSIGN_IF_RYAN === "1" && boot.viewer.email?.toLowerCase() === RYAN_EMAIL
       ? boot.viewer.id
       : null;
   if (boot.viewer.email?.toLowerCase() === RYAN_EMAIL && assign) {
@@ -384,33 +477,63 @@ async function applyToLinear() {
   const project = await ensureProject(team);
   const milestones = await ensureMilestones(project);
   const labels = await ensureLabels(team);
-  const existing = dryRun ? new Map() : await existingProjectIssues(project);
+  const existing =
+    dryRun && project.id === "dry-project" ? [] : await existingProjectIssues(project);
   const created = new Map();
 
   for (const issue of issuesInCreateOrder()) {
-    const already = existing.get(issue.title);
+    const already = findExistingIssue(issue, existing);
     if (already) {
-      created.set(issue.id, already);
-      console.error(`Exists ${already.identifier}: ${issue.title}`);
+      const input = buildExistingIssueUpdate(issue, states, hasCycle);
+      if (dryRun) {
+        created.set(issue.id, { ...already, ...input });
+        console.error(`[dry-run] would update ${already.identifier}: ${issue.title}`);
+        continue;
+      }
+      const result = await gql(
+        `mutation($id: String!, $input: IssueUpdateInput!) {
+          issueUpdate(id: $id, input: $input) {
+            success
+            issue { id identifier url title }
+          }
+        }`,
+        { id: already.id, input },
+      );
+      if (!result.issueUpdate.success) {
+        throw new Error(`issueUpdate failed: ${issue.title}`);
+      }
+      created.set(issue.id, result.issueUpdate.issue);
+      console.error(`Updated ${already.identifier}: ${issue.title}`);
       continue;
     }
     const parent = issue.parent ? created.get(issue.parent) : null;
     const labelIds = issue.labels.map((name) => labels[name]?.id).filter(Boolean);
+    const stateId = resolveStateId(issue, states, hasCycle);
+    if (!stateId) {
+      throw new Error(
+        `No Linear workflow state resolves catalog status ${issue.status} for ${issue.id}`,
+      );
+    }
     const input = {
       teamId: team.id,
       title: issue.title,
-      description: issue.description,
+      description: descriptionWithCatalogMarker(issue),
       projectId: project.id,
       projectMilestoneId: milestones[issue.milestone]?.id,
       parentId: parent?.id,
       labelIds,
       priority: issue.priority,
-      stateId: resolveStateId(issue, states, hasCycle),
+      stateId,
       cycleId: issue.status === "TodoIfCycle" && hasCycle ? activeCycle.id : undefined,
       assigneeId: assign,
     };
     if (dryRun) {
-      created.set(issue.id, { id: `dry-${issue.id}`, identifier: issue.id, url: "(dry-run)", title: issue.title });
+      created.set(issue.id, {
+        id: `dry-${issue.id}`,
+        identifier: issue.id,
+        url: "(dry-run)",
+        title: issue.title,
+      });
       console.error(`[dry-run] would create ${issue.title}`);
       continue;
     }
@@ -487,13 +610,15 @@ async function applyToLinear() {
   );
 }
 
-if (dumpJson || dumpCsv) {
-  dumpFiles();
-}
+if (import.meta.main) {
+  if (dumpJson || dumpCsv) {
+    dumpFiles();
+  }
 
-if (apply || dryRun) {
-  applyToLinear().catch((error) => {
-    console.error(error);
-    process.exit(1);
-  });
+  if (apply || dryRun) {
+    applyToLinear().catch((error) => {
+      console.error(error);
+      process.exit(1);
+    });
+  }
 }

@@ -27,6 +27,7 @@ default = true
 
 [[plugin]]
 name = "actionlint"
+affects_cache = [".github/actionlint.yaml"]
 
 [[plugin]]
 name = "shellcheck"

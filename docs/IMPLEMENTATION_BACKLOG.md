@@ -10,12 +10,14 @@ De volgorde hieronder maximaliseert een werkende verticale slice. `P0` is nodig 
 | DEC-002 | P0 | Lever definitieve bronmatrix/deep dive | Robbie | Iedere bron heeft URL, land, prioriteit, methode, auth, frequentie, eigenaar en ToS/AVG-status |
 | DEC-003 | P0 | Leg schema en deduperegels vast | Samen | Verplichte velden, unknown-gedrag en drie dedupe-niveaus zijn geaccepteerd |
 | DEC-004 | P0 | Leg searchcontract en SLO vast | Robbie | Syntax, velden, filters, p95/p99 en benchmarkqueryset zijn testbaar |
-| DEC-005 | P0 | Leg Postgres 16 on-box vanaf P0 vast; Motian-Neon blijft alleen read-only importbron | Ryan | Besluit, datastroom, backfill, rollback en managed/HA-exitcriteria zijn beschreven |
+| DEC-005 | P0 | Leg Postgres 16 on-box vanaf P0 vast; Motian-Neon blijft alleen read-only importbron | Ryan | **Accepted/Done (RJC-321, 28-08):** besluit, datastroom, backfill, rollback en managed/HA-exitcriteria zijn beschreven |
 | DEC-006 | P1 | Bevestig Spot/Spott-product, URL, API en sandbox | Robbie | Officiële docs, sandbox, minimale write scope en unieke ID zijn beschikbaar |
 | DEC-007 | P1 | Stel scrape- en hostingbudget vast | Robbie | Maandbudget en alarmeringsdrempels zijn bekend |
 | DEC-008 | P0 | Definieer raw-data-minimalisatie en retentie | Robbie + Ryan | PII-scan, toegestane velden, bewaartermijn, verwijderpad en uitzonderingen zijn vóór ingest vastgelegd |
 
 ## Epic A — foundation en data
+
+DEC-005 rondt de architectuurkeuze af, niet de implementatie. Provisioning, migraties, operationele validatie en production-readinessbewijs blijven open onder RJC-347.
 
 | ID | Prio | Taak | Afhankelijk | Acceptance criteria |
 |---|---:|---|---|---|
