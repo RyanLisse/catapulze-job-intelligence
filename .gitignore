@@ -80,6 +80,7 @@ lerna-debug.log*
 # Testing
 coverage
 .nyc_output
+.artifacts/crabbox/
 
 # Misc
 *.tgz

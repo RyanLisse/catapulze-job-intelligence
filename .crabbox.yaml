@@ -1,0 +1,90 @@
+---
+provider: exe-dev
+target: linux
+profile: catapulze-job-intelligence-exe-dev
+
+# Keep this secondary lane bounded and reproducible. GitHub CI remains the
+# required merge gate; see docs/adr/ADR-0002-execution-lanes-github-crabbox-exedev.md.
+ttl: 60m
+idleTimeout: 15m
+
+exeDev:
+  # exe.dev exposes region as operator account state, not as a Crabbox v0.46
+  # repo field. The skill fixes and reads back FRA before a paid run, while
+  # EXE_DEV_REGION=FRA makes that cohort boundary explicit in run evidence.
+  # Multi-arch exeuntu image resolved on 2026-08-28. It includes Docker,
+  # Compose, Git, rsync, curl, and the exe.dev SSH bootstrap.
+  image: ghcr.io/boldsoftware/exeuntu@sha256:a85bf5d50de2d3dbe079b0a4c5ee5ef03f5c806e88d36eaeb432dddbaca2017f
+  cpus: 4
+  memory: 8GB
+  disk: 30GB
+  workRoot: /tmp/crabbox
+  noEmail: true
+
+sync:
+  delete: true
+  checksum: false
+  gitSeed: true
+  fingerprint: true
+  timeout: 15m
+  warnFiles: 50000
+  warnBytes: 5368709120
+  failFiles: 150000
+  failBytes: 21474836480
+  exclude:
+    - .cache
+    - .next
+    - .openwiki
+    - .omc
+    - .turbo
+    - coverage
+    - dist
+    - logs
+    - node_modules
+    # Crabbox v0.46 applies these rules in order (last match wins). Exclude
+    # every real dotenv variant, then re-include only the tracked templates
+    # needed by the clean-room smoke script. This also works when gitSeed
+    # cannot authenticate and Crabbox falls back to manifest sync.
+    - ".env*"
+    - "!.env.example"
+    - "!**/.env.example"
+
+run:
+  preflightTools:
+    - bash
+    - curl
+    - docker
+    - git
+    - rsync
+
+env:
+  allow:
+    - CI
+    - EXE_DEV_REGION
+    - NODE_OPTIONS
+
+jobs:
+  exe-dev-shadow:
+    provider: exe-dev
+    target: linux
+    ttl: 60m
+    idleTimeout: 15m
+    shell: true
+    command: bash scripts/crabbox-exe-dev-shadow.sh
+    junit:
+      - .artifacts/crabbox/exe-dev-shadow/junit.xml
+    artifactGlobs:
+      - .artifacts/crabbox/exe-dev-shadow/**
+    requiredArtifacts:
+      - .artifacts/crabbox/exe-dev-shadow/phases.jsonl
+      - .artifacts/crabbox/exe-dev-shadow/execution-fingerprint.json
+      - .artifacts/crabbox/exe-dev-shadow/report.md
+      - .artifacts/crabbox/exe-dev-shadow/junit.xml
+      - .artifacts/crabbox/exe-dev-shadow/manifest.sha256
+    downloads:
+      - .artifacts/crabbox/exe-dev-shadow/phases.jsonl=.artifacts/crabbox/exe-dev-shadow/phases.jsonl
+      - .artifacts/crabbox/exe-dev-shadow/execution-fingerprint.json=.artifacts/crabbox/exe-dev-shadow/execution-fingerprint.json
+      - .artifacts/crabbox/exe-dev-shadow/report.md=.artifacts/crabbox/exe-dev-shadow/report.md
+      - .artifacts/crabbox/exe-dev-shadow/junit.xml=.artifacts/crabbox/exe-dev-shadow/junit.xml
+      - .artifacts/crabbox/exe-dev-shadow/manifest.sha256=.artifacts/crabbox/exe-dev-shadow/manifest.sha256
+    stop: always
