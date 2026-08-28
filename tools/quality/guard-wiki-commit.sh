@@ -8,19 +8,26 @@ other_staged=0
 wiki_files=""
 other_files=""
 
-while IFS= read -r file; do
-  case "$file" in
-    openwiki/INSTRUCTIONS.md) continue ;;
-    openwiki/*)
-      wiki_staged=1
-      wiki_files="${wiki_files} ${file}"
-      ;;
-    *)
-      other_staged=1
-      other_files="${other_files} ${file}"
-      ;;
-  esac
-done < <(git diff --cached --name-only --diff-filter=ACMR)
+staged_files="$(git diff --cached --name-only --diff-filter=ACMRD)" || {
+  echo "guard-wiki-commit: failed to inspect staged files" >&2
+  exit 1
+}
+
+if [[ -n "$staged_files" ]]; then
+  while IFS= read -r file; do
+    case "$file" in
+      openwiki/INSTRUCTIONS.md) continue ;;
+      openwiki/*)
+        wiki_staged=1
+        wiki_files="${wiki_files} ${file}"
+        ;;
+      *)
+        other_staged=1
+        other_files="${other_files} ${file}"
+        ;;
+    esac
+  done <<<"$staged_files"
+fi
 
 if [[ "$wiki_staged" -eq 1 && "$other_staged" -eq 1 ]]; then
   echo "guard-wiki-commit: refuse mixed commit — openwiki/ staged with other changes."

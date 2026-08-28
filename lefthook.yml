@@ -1,3 +1,4 @@
+---
 # Lefthook — sole owner of `.git/hooks` (never run `qlty githooks install`).
 # https://github.com/evilmartians/lefthook
 

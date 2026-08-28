@@ -5,7 +5,8 @@ export default defineConfig({
   ...ultracite,
   ignorePatterns: [
     ...ultracite.ignorePatterns,
-    "**/openwiki",
+    "docs/**",
+    "openwiki/**",
     ".claude/**",
     ".cursor/**",
     ".omc/**",

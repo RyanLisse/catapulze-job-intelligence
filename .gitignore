@@ -55,6 +55,12 @@ docs/research/bench/rs/target/
 
 # Logs
 logs
+.qlty/configs/
+.qlty/logs
+.qlty/out
+.qlty/plugin_cachedir
+.qlty/results
+.qlty/sources/
 .evlog/
 *.log
 npm-debug.log*

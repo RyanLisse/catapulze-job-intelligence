@@ -59,14 +59,16 @@ Handige scripts: `bun run dev:web`, `bun run dev:server`, `bun run db:studio`, `
 
 | Script | Wanneer |
 | --- | --- |
-| `bun run fix` | Auto-fix op bestanden gewijzigd t.o.v. `origin/main` (Ultracite/Oxlint/Oxfmt) |
+| `bun run fix` | Auto-fix op branch-, staged, unstaged en untracked wijzigingen (Ultracite/Oxlint/Oxfmt) |
 | `bun run check` | Lint op gewijzigde bestanden + Qlty (`--no-formatters`) |
 | `bun run gate` | Volledige pre-push gate: Ultracite, Qlty, types, layering, secrets, tests |
 | `bun run wiki` | OpenWiki lokaal bijwerken |
 
 `fix:all` / `check:all` formatteren of linten de hele tree — bewust escape hatch, niet voor dagelijks gebruik. Pre-commit gebruikt Lefthook met `{staged_files}`; Husky is verwijderd. Qlty-config staat in `.qlty/qlty.toml` (geen `qlty fmt`, nooit `qlty githooks install`).
 
-Een verse clone heeft alleen **bun** nodig (geen extra globale linters of test runners):
+`bun run check` en `bun run gate` vereisen de [Qlty CLI](https://docs.qlty.sh/cli/installation). Ze falen bewust wanneer Qlty ontbreekt, zodat een ontbrekende quality-owner nooit als groen wordt gerapporteerd.
+
+Een verse clone heeft voor de basisvalidatie alleen **bun** nodig (geen extra globale linters of test runners):
 
 ```bash
 bun install

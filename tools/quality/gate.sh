@@ -15,12 +15,13 @@ fi
 echo "gate: ultracite check (all)"
 ultracite check
 
-if command -v qlty >/dev/null 2>&1; then
-  echo "gate: qlty check --all --no-formatters"
-  qlty check --all --no-formatters
-else
-  echo "gate: qlty CLI not installed; skipping Qlty checks (config wired in .qlty/qlty.toml)"
+if ! command -v qlty >/dev/null 2>&1; then
+  echo "gate: qlty CLI is required; install it from https://docs.qlty.sh/cli/installation" >&2
+  exit 1
 fi
+
+echo "gate: qlty check --all --jobs 2 --no-upgrade-check --no-progress --no-formatters"
+qlty check --all --jobs 2 --no-upgrade-check --no-progress --no-formatters
 
 echo "gate: check-types"
 bun run check-types
