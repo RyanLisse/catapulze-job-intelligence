@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "PATH=\"./node_modules/.bin:$PATH\" next dev --port 3001",
-    "build": "PATH=\"./node_modules/.bin:$PATH\" next build",
+    "build": "PATH=\"./node_modules/.bin:$PATH\" next build --webpack",
     "check-types": "PATH=\"./node_modules/.bin:$PATH\" tsc --noEmit",
     "start": "PATH=\"./node_modules/.bin:$PATH\" next start"
   },

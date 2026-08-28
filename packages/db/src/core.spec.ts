@@ -19,6 +19,7 @@ import {
 const defaultTestDatabaseUrl = "postgresql://ji:ji@127.0.0.1:5432/ji_test";
 
 const testDatabaseUrl = process.env.DATABASE_TEST_URL ?? defaultTestDatabaseUrl;
+const testDatabaseRequired = process.env.DATABASE_TEST_URL !== undefined;
 
 const migrationsFolder = path.join(import.meta.dir, "migrations");
 
@@ -65,6 +66,9 @@ describe("core schema migrations", () => {
   beforeAll(async () => {
     postgresAvailable = await isPostgresAvailable();
     if (!postgresAvailable) {
+      if (testDatabaseRequired) {
+        throw new Error("Required test database is unavailable");
+      }
       return;
     }
 
