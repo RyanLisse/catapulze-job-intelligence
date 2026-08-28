@@ -25,6 +25,8 @@ Een meting:
 6. bewaart geen volledige environment, tokens, querytekst, vacature-ID’s, persoonsgegevens of willekeurige URL’s;
 7. schrijft machineleesbare JSON en een menselijke Markdown-samenvatting als vluchtig buildartifact, niet als groeiende historie in Git.
 
+Een record is alleen git-bound met een volledige SHA-1 (40 hextekens) of SHA-256 (64 hextekens) én een expliciete dirty/clean-status. Ontbreken beide velden, dan blijft het diagnostisch bewijs; gedeeltelijke of malformed bindingen zijn ongeldig. Rapportages sluiten git-unbound records uit van aantallen, totalen en percentielen en tonen het aantal uitsluitingen apart.
+
 De standaardfasen zijn:
 
 - delivery: queue, provisioning, checkout/sync, runtime-setup, install, services-ready, lint, typecheck, unit, integration, build, e2e, artifact-upload en cleanup;

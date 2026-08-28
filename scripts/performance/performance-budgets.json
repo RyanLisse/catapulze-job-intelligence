@@ -1,0 +1,40 @@
+{
+  "schemaVersion": 1,
+  "selectorVersion": 1,
+  "policy": {
+    "mode": "observe-only",
+    "minimumSamples": { "warn": 10, "enforce": 20 },
+    "confirmationCount": 3,
+    "note": "No accepted performance baseline or delivery budget exists yet; thresholds remain null until evidence is approved."
+  },
+  "safetyCap": {
+    "metric": "ci.total.duration",
+    "unit": "minutes",
+    "statistic": "single-run",
+    "absoluteThreshold": 20,
+    "relativeThresholdPercent": null,
+    "enforcement": "hard-timeout",
+    "source": "Existing CI timeout contract"
+  },
+  "deliveryPhases": [
+    "install",
+    "gate",
+    "ultracite",
+    "qlty",
+    "typecheck",
+    "performance-typecheck",
+    "ci-metrics-typecheck",
+    "layering",
+    "secrets",
+    "test",
+    "build"
+  ],
+  "measurementContract": {
+    "metric": "command.duration",
+    "unit": "milliseconds",
+    "statistic": "p95",
+    "cohortSelector": { "version": 1, "match": "exact-cohortFingerprint" },
+    "absoluteThreshold": null,
+    "relativeThresholdPercent": null
+  }
+}

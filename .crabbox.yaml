@@ -1,14 +1,18 @@
 ---
+# Validated against Crabbox v0.46.0.
+# Credentials, account policy and purchase authority belong in operator config,
+# never in this repository file. GitHub CI remains the required merge gate.
 provider: exe-dev
 target: linux
-profile: catapulze-job-intelligence-exe-dev
+architecture: amd64
+profile: performance-evidence
 
-# Keep this secondary lane bounded and reproducible. GitHub CI remains the
-# required merge gate; see docs/adr/ADR-0002-execution-lanes-github-crabbox-exedev.md.
-ttl: 60m
-idleTimeout: 15m
+lease:
+  idleTimeout: 10m
+  ttl: 45m
 
 exeDev:
+  controlHost: exe.dev
   # exe.dev exposes region as operator account state, not as a Crabbox v0.46
   # repo field. The skill fixes and reads back FRA before a paid run, while
   # EXE_DEV_REGION=FRA makes that cohort boundary explicit in run evidence.
@@ -17,7 +21,7 @@ exeDev:
   image: ghcr.io/boldsoftware/exeuntu@sha256:a85bf5d50de2d3dbe079b0a4c5ee5ef03f5c806e88d36eaeb432dddbaca2017f
   cpus: 4
   memory: 8GB
-  disk: 30GB
+  disk: 40GB
   workRoot: /tmp/crabbox
   noEmail: true
 
@@ -43,9 +47,8 @@ sync:
     - node_modules
     # Crabbox v0.46 applies these rules in order (last match wins). Exclude
     # every real dotenv variant, then re-include only the two path-addressable
-    # tracked templates. Crabbox v0.46 treats a basename-only negation as a
-    # match at every depth, so the root Compose template is generated from
-    # fixed non-secret defaults by the clean-room script when gitSeed is absent.
+    # tracked templates. The root Compose template is generated from fixed
+    # non-secret defaults by the clean-room script when gitSeed is absent.
     - ".env*"
     - "!apps/server/.env.example"
     - "!apps/web/.env.example"
@@ -64,10 +67,99 @@ env:
     - EXE_DEV_REGION
     - NODE_OPTIONS
 
+actions:
+  workflow: .github/workflows/crabbox.yml
+  job: hydrate
+  ref: main
+  runnerLabels:
+    - crabbox
+  ephemeral: true
+
+profiles:
+  performance-evidence:
+    env:
+      CI: "1"
+      DATABASE_TEST_URL: postgresql://ji:ji@127.0.0.1:5432/ji_test
+      NEXT_PUBLIC_SERVER_URL: http://localhost:3000
+      PERF_CACHE_STATE: unknown
+      PERF_CONCURRENCY: "2"
+      PERF_JUNIT_PATH: .artifacts/test-results/remote-junit.xml
+      PERF_METRICS_DIR: .artifacts/performance/remote
+      PERF_POSTGRES_IMAGE_DIGEST: sha256:57c72fd2a128e416c7fcc499958864df5301e940bca0a56f58fddf30ffc07777
+      PERF_POSTGRES_VERSION: "16"
+      PERF_EXECUTOR: crabbox
+      PERF_PROVIDER: exe-dev
+      PERF_RUNNER: exe-dev
+      PERF_MACHINE: 4cpu-8gb-40gb
+      PERF_TOOLCHAIN: bun-1.3.14
+      PERF_WORKFLOW: remote-performance
+      PERF_JOB: ordered-pair
+    artifactGlobs:
+      - ".artifacts/performance/**"
+      - ".artifacts/test-results/**"
+    doctor:
+      enabled: true
+      tools: [bun, docker]
+      minDiskGB: 20
+      requireDocker: true
+      requireCompose: true
+
 jobs:
+  performance-exe-dev:
+    provider: exe-dev
+    target: linux
+    architecture: amd64
+    profile: performance-evidence
+    ttl: 45m
+    idleTimeout: 10m
+    hydrate:
+      actions: true
+      githubRunner: true
+      waitTimeout: 20m
+      keepAliveMinutes: 45
+    actions:
+      workflow: .github/workflows/crabbox.yml
+      job: hydrate
+      ref: main
+    shell: true
+    # The shared hydrated workspace and service do not prove cold/warm state.
+    # Sequence position stays explicit without claiming an unverified cache state.
+    command: |
+      set -e
+      mkdir -p .artifacts/performance/remote .artifacts/test-results
+      echo CRABBOX_PHASE:gate-first
+      PERF_RUN_KIND=unknown \
+        PERF_SEQUENCE_POSITION=1 \
+        PERF_JUNIT_PATH=.artifacts/test-results/remote-junit.first.xml \
+        bun run gate:timed
+      echo CRABBOX_PHASE:build-first
+      PERF_RUN_KIND=unknown PERF_SEQUENCE_POSITION=1 bun run build:timed
+      echo CRABBOX_PHASE:gate-second
+      PERF_RUN_KIND=unknown \
+        PERF_SEQUENCE_POSITION=2 \
+        PERF_JUNIT_PATH=.artifacts/test-results/remote-junit.second.xml \
+        bun run gate:timed
+      echo CRABBOX_PHASE:build-second
+      PERF_RUN_KIND=unknown PERF_SEQUENCE_POSITION=2 bun run build:timed
+      echo CRABBOX_PHASE:report
+      bun scripts/performance/report.ts --output-dir .artifacts/performance/remote
+    junit:
+      - .artifacts/test-results/remote-junit.first.attempt-1.unknown.xml
+      - .artifacts/test-results/remote-junit.second.attempt-1.unknown.xml
+    artifactGlobs:
+      - ".artifacts/performance/**"
+      - ".artifacts/test-results/**"
+    requiredArtifacts:
+      - .artifacts/performance/remote/report.md
+      - .artifacts/test-results/remote-junit.first.attempt-1.unknown.xml
+      - .artifacts/test-results/remote-junit.second.attempt-1.unknown.xml
+    label: catapulze-performance-exe-dev
+    stop: always
+
   exe-dev-shadow:
     provider: exe-dev
     target: linux
+    architecture: amd64
     ttl: 60m
     idleTimeout: 15m
     shell: true

@@ -124,7 +124,7 @@ De on-box datastroom, read-only backfill, restore/rollback en operationele exit-
 ## Notes
 This is a **product / architecture decision**, not a Slice A coding task.
 
-**Decision (28 Aug 2026):** the new Catapulze system of record is **Postgres 16 on-box from P0**, provisioned with Docker Compose. Motian-Neon is exclusively a **read-only import source** for the legacy backfill; Catapulze never writes to it and does not use it as an application fallback or dual-write target. The schema remains portable PostgreSQL.
+**Accepted/Done 28-08-2026 as RJC-321:** the new Catapulze system of record is **Postgres 16 on-box from P0**, provisioned with Docker Compose. Motian-Neon is exclusively a **read-only import source** for the legacy backfill; Catapulze never writes to it and does not use it as an application fallback or dual-write target. The schema remains portable PostgreSQL.
 
 This avoids a later Neon-to-on-box migration and keeps Postgres, the outbox worker, and Manticore on the same private host/network. U8 owns the idempotent Motian-Neon backfill with retained `v1_id` provenance.
 
@@ -136,6 +136,8 @@ Production gates:
 - if HA becomes required, or measured disk/RAM contention threatens the database SLO, move Postgres to a dedicated DB host or managed PostgreSQL. Managed Neon remains an explicit exit option only when database operations are no longer carried in-house.
 
 Rollback is backup/WAL restore of the Catapulze database plus replayable, idempotent imports; it is never a write-back or failover to Motian-Neon.
+
+This decision does not prove implementation or production readiness; that evidence remains open under RJC-347.
 
 ## Links
 - Plan: `docs/plans/2026-08-27-2022-feat-slice-a-read-path-plan.md`

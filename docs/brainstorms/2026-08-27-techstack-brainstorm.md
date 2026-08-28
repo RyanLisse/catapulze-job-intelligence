@@ -56,6 +56,18 @@ vervangings-naad, geen gelijktijdige-engines-laag; migraties alleen getest op le
 tracker-automatisering op deel-PR's; score-drempels als gate; ongebonden groei van directe DB-toegang.
 Noot: layering wordt naast Effect-TS ook door CI-guards afgedwongen — het typesysteem ziet niet alles.
 
+## Besluit na deze brainstorm (28-08-2026)
+
+De hieronder nog als open genoteerde keuze is inmiddels **superseded** door DEC-005/RJC-321
+(Accepted/Done): Catapulze gebruikt een nieuwe, dedicated PostgreSQL 16 in Docker/on-box als
+system of record. De huidige Motian/Lovable-Neon blijft onaangeroerd en dient uitsluitend als
+read-only migratiebron. Managed Postgres/Neon is alleen een latere escape hatch wanneer
+geaccepteerde HA/RTO/RPO-eisen on-box onhaalbaar blijken of gemeten contention de afgesproken
+budgetten overschrijdt. Implementatie- en production-readinessbewijs blijven open onder RJC-347.
+
+De oorspronkelijke Neon-optie hieronder blijft staan als historisch brainstormspoor; zij is geen
+actieve aanbeveling meer.
+
 ## Requirements-deltas (v2 JSON, 26 aug)
 
 Stack-gebonden herschrijven, intentie intact: JI-DAT-01 Pydantic → Effect Schema · JI-INT-01 FastAPI →
@@ -66,7 +78,7 @@ Conflicten: JI-INT-04 (auto-push boven drempel) → push via approval-snapshot, 
 goedkeurt (mens | score@versie); JI-NFR-01 zegt 20k/dag = 600k/mnd — bevestigd als ontwerpschaal;
 JI-DAT-01 75-velds model is doel, geen P0-gate (model groeit uit de slice).
 
-## Open vragen
+## Open vragen ten tijde van de brainstorm
 
 - DEC-002 bronmatrix (bepaalt echt fetch-volume en Firecrawl/Browserbase-subset); DEC-006 Spott.io-contract.
 - Kosten zijn op 27 augustus op live pagina's geverifieerd (`COSTS.md`). De eerdere ramingen bevatten Neon; DEC-005 trekt die raming af, maar externe volumes en de uiteindelijke WAL/off-site-backupvoet moeten nog live worden geprijsd.
