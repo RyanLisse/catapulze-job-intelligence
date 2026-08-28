@@ -53,7 +53,18 @@ bun run dev
 | Web | http://localhost:3001 |
 | API | http://localhost:3000 |
 
-Handige scripts: `bun run dev:web`, `bun run dev:server`, `bun run db:studio`, `bun run check`, `bun run fix`, `bun test`, `bun run check-layering`, `bun run check-secrets`.
+Handige scripts: `bun run dev:web`, `bun run dev:server`, `bun run db:studio`, `bun run fix`, `bun run check`, `bun run gate`, `bun run wiki`, `bun test`, `bun run check-layering`, `bun run check-secrets`.
+
+## Quality (vier werkwoorden)
+
+| Script | Wanneer |
+| --- | --- |
+| `bun run fix` | Auto-fix op bestanden gewijzigd t.o.v. `origin/main` (Ultracite/Oxlint/Oxfmt) |
+| `bun run check` | Lint op gewijzigde bestanden + Qlty (`--no-formatters`) |
+| `bun run gate` | Volledige pre-push gate: Ultracite, Qlty, types, layering, secrets, tests |
+| `bun run wiki` | OpenWiki lokaal bijwerken |
+
+`fix:all` / `check:all` formatteren of linten de hele tree — bewust escape hatch, niet voor dagelijks gebruik. Pre-commit gebruikt Lefthook met `{staged_files}`; Husky is verwijderd. Qlty-config staat in `.qlty/qlty.toml` (geen `qlty fmt`, nooit `qlty githooks install`).
 
 Een verse clone heeft alleen **bun** nodig (geen extra globale linters of test runners):
 

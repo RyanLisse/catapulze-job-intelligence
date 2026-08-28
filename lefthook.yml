@@ -1,12 +1,20 @@
-# Lefthook configuration
+# Lefthook — sole owner of `.git/hooks` (never run `qlty githooks install`).
 # https://github.com/evilmartians/lefthook
 
 pre-commit:
   parallel: true
   jobs:
-    - name: oxlint
-      run: PATH="./node_modules/.bin:$PATH" oxlint --fix {staged_files}
+    - name: wiki-guard
+      run: bash tools/quality/guard-wiki-commit.sh
+    - name: ultracite
+      glob: "*.{ts,tsx,js,jsx,mjs,cjs,json,yml,yaml}"
+      exclude:
+        - docs/**
+        - openwiki/**
+      run: bash tools/quality/fix-staged.sh {staged_files}
       stage_fixed: true
-    - name: oxfmt
-      run: PATH="./node_modules/.bin:$PATH" oxfmt --write {staged_files}
-      stage_fixed: true
+
+pre-push:
+  jobs:
+    - name: gate
+      run: PATH="./node_modules/.bin:$PATH" bun run gate
