@@ -31,6 +31,7 @@ const SECRET_KEY_PATTERN =
   /(?:^|[-_])(?:api[-_]?key|auth(?:orization)?|cookie|credential|database[-_]?url|dsn|password|secret|token)$/iu;
 const CLOUD_CREDENTIAL_KEY_PATTERN =
   /^(?:aws[-_]?(?:access[-_]?key[-_]?id|secret[-_]?access[-_]?key|session[-_]?token)|x[-_]?(?:amz|goog)[-_]?(?:credential|security[-_]?token))$/iu;
+const COMPACT_DATABASE_CREDENTIAL_KEY_PATTERN = /^(?:MYSQL_PWD|PGPASSWORD)$/iu;
 const SENSITIVE_CREDENTIAL_FLAG_PATTERN =
   /^(?:-u|--user|--proxy-user|--(?:[a-z\d]+[-_])*(?:api[-_]?key|auth(?:orization)?|cookie|credential|database[-_]?url|dsn|password|secret|token)|--(?:aws[-_]?(?:access[-_]?key[-_]?id|secret[-_]?access[-_]?key|session[-_]?token)|x[-_]?(?:amz|goog)[-_]?(?:credential|security[-_]?token)))$/iu;
 const CREDENTIAL_URL_PATTERN = /(?<scheme>[a-z][a-z\d+.-]*:\/\/)[^/\s@]+@/giu;
@@ -46,6 +47,8 @@ const ARBITRARY_URL_PATTERN = /\b[a-z][a-z\d+.-]*:\/\/\S+/giu;
 const FULL_GIT_SHA_PATTERN = /^(?:[a-f\d]{40}|[a-f\d]{64})$/iu;
 const INLINE_SECRET_VALUE_PATTERN =
   /(?<prefix>\b(?:access[-_]?token|api[-_]?key|auth(?:orization)?|client[-_]?secret|credential|database[-_]?url|dsn|password|refresh[-_]?token|secret|token)(?:=|:|\/))[^/\s?&]+/giu;
+const INLINE_COMPACT_DATABASE_CREDENTIAL_PATTERN =
+  /(?<prefix>\b(?:MYSQL_PWD|PGPASSWORD)=)[^\r\n]*/giu;
 const SAFE_METADATA_VALUE_PATTERN = /^[\w./:@+?&=% -]+$/u;
 const SAFE_METADATA_KEYS = new Set([
   "branch",
@@ -100,12 +103,70 @@ export const redactEvidenceText = (value: string): string =>
     .replaceAll(INLINE_CREDENTIAL_FLAG_PATTERN, "$<prefix>[REDACTED]")
     .replaceAll(INLINE_SENSITIVE_HEADER_PATTERN, "$<prefix> [REDACTED]")
     .replaceAll(/\bBearer\s+[^\s'";,]+/giu, "Bearer [REDACTED]")
+    .replaceAll(
+      INLINE_COMPACT_DATABASE_CREDENTIAL_PATTERN,
+      "$<prefix>[REDACTED]"
+    )
     .replaceAll(INLINE_SECRET_VALUE_PATTERN, "$<prefix>[REDACTED]");
 
 const isSensitiveAssignmentKey = (key: string): boolean =>
   key.startsWith("-")
     ? SENSITIVE_CREDENTIAL_FLAG_PATTERN.test(key)
-    : SECRET_KEY_PATTERN.test(key) || CLOUD_CREDENTIAL_KEY_PATTERN.test(key);
+    : SECRET_KEY_PATTERN.test(key) ||
+      CLOUD_CREDENTIAL_KEY_PATTERN.test(key) ||
+      COMPACT_DATABASE_CREDENTIAL_KEY_PATTERN.test(key);
+
+const redactCompactDatabaseAssignment = (value: string): string | null => {
+  const openingQuote = value[0] === '"' || value[0] === "'" ? value[0] : null;
+  const hasClosingQuote =
+    openingQuote !== null && value.length > 1 && value.endsWith(openingQuote);
+  const assignment =
+    openingQuote === null
+      ? value
+      : value.slice(1, hasClosingQuote ? -1 : undefined);
+  const separator = assignment.indexOf("=");
+  if (separator < 1) {
+    return null;
+  }
+  const key = assignment.slice(0, separator);
+  if (!COMPACT_DATABASE_CREDENTIAL_KEY_PATTERN.test(key)) {
+    return null;
+  }
+  const opening = openingQuote ?? "";
+  const closing = hasClosingQuote ? (openingQuote ?? "") : "";
+  return `${opening}${key}=[REDACTED]${closing}`;
+};
+
+const redactAssignmentArgument = (argument: string): string | null => {
+  const directCompactDatabaseAssignment =
+    redactCompactDatabaseAssignment(argument);
+  if (directCompactDatabaseAssignment !== null) {
+    return directCompactDatabaseAssignment;
+  }
+
+  const equalsIndex = argument.indexOf("=");
+  if (equalsIndex < 1) {
+    return null;
+  }
+  const key = argument.slice(0, equalsIndex);
+  const value = argument.slice(equalsIndex + 1);
+  const isAssignmentKey = /^(?:--?)?[a-z_][a-z\d_-]*$/iu.test(key);
+  if (isAssignmentKey && isSensitiveAssignmentKey(key)) {
+    return `${key}=[REDACTED]`;
+  }
+  const nestedCompactDatabaseAssignment =
+    redactCompactDatabaseAssignment(value);
+  if (isAssignmentKey && nestedCompactDatabaseAssignment !== null) {
+    return `${key}=${nestedCompactDatabaseAssignment}`;
+  }
+  if (
+    (key === "--header" || key === "--proxy-header") &&
+    SENSITIVE_HEADER_PATTERN.test(value)
+  ) {
+    return `${key}=${value.slice(0, value.indexOf(":"))}: [REDACTED]`;
+  }
+  return null;
+};
 
 export const redactCommand = (command: string[]): string[] => {
   const redacted: string[] = [];
@@ -132,6 +193,12 @@ export const redactCommand = (command: string[]): string[] => {
       continue;
     }
 
+    const redactedAssignment = redactAssignmentArgument(argument);
+    if (redactedAssignment !== null) {
+      redacted.push(redactedAssignment);
+      continue;
+    }
+
     if (
       argument === "-H" ||
       argument === "--header" ||
@@ -140,26 +207,6 @@ export const redactCommand = (command: string[]): string[] => {
       redacted.push(argument);
       redactHeaderNext = true;
       continue;
-    }
-
-    const equalsIndex = argument.indexOf("=");
-    if (equalsIndex > 0) {
-      const key = argument.slice(0, equalsIndex);
-      const value = argument.slice(equalsIndex + 1);
-      const isAssignmentKey = /^(?:--?)?[a-z_][a-z\d_-]*$/iu.test(key);
-      if (isAssignmentKey && isSensitiveAssignmentKey(key)) {
-        redacted.push(`${key}=[REDACTED]`);
-        continue;
-      }
-      if (
-        (key === "--header" || key === "--proxy-header") &&
-        SENSITIVE_HEADER_PATTERN.test(value)
-      ) {
-        redacted.push(
-          `${key}=${value.slice(0, value.indexOf(":"))}: [REDACTED]`
-        );
-        continue;
-      }
     }
 
     if (SENSITIVE_CREDENTIAL_FLAG_PATTERN.test(argument)) {
@@ -204,6 +251,25 @@ export const validateDatasetIdentity = (
   }
 };
 
+const NON_NEGATIVE_INTEGER_PATTERN = /^(?:0|[1-9]\d*)$/u;
+
+const optionalMetadataInteger = (
+  value: string | undefined,
+  key: "concurrency" | "item-count"
+): number | null => {
+  if (value === undefined) {
+    return null;
+  }
+  const parsed = Number(value);
+  if (
+    !NON_NEGATIVE_INTEGER_PATTERN.test(value) ||
+    !Number.isSafeInteger(parsed)
+  ) {
+    throw new Error(`Metadata ${key} must be a non-negative safe integer`);
+  }
+  return parsed;
+};
+
 export const parseMetadata = (entries: string[]): PerformanceMetadata => {
   const metadata: PerformanceMetadata = {};
 
@@ -239,19 +305,14 @@ export const parseMetadata = (entries: string[]): PerformanceMetadata => {
         );
       }
     }
+    if (key === "concurrency" || key === "item-count") {
+      optionalMetadataInteger(value, key);
+    }
     metadata[key] = redactEvidenceText(value);
   }
 
   validateDatasetIdentity(metadata);
   return metadata;
-};
-
-const optionalInteger = (value: string | undefined): number | null => {
-  if (value === undefined) {
-    return null;
-  }
-  const parsed = Number(value);
-  return Number.isInteger(parsed) && parsed >= 0 ? parsed : null;
 };
 
 export const createCohortDimensions = (input: {
@@ -268,13 +329,19 @@ export const createCohortDimensions = (input: {
     bun: input.runtime.bun,
     cacheState: input.metadata["cache-state"] ?? null,
     commandFingerprint: input.commandFingerprint,
-    concurrency: optionalInteger(input.metadata.concurrency),
+    concurrency: optionalMetadataInteger(
+      input.metadata.concurrency,
+      "concurrency"
+    ),
     cpuCount: input.runtime.cpuCount,
     cpuModel: input.runtime.cpuModel,
     datasetDigest: input.metadata["dataset-digest"] ?? null,
     executor: input.executor,
     indexState: input.metadata["index-state"] ?? null,
-    itemCount: optionalInteger(input.metadata["item-count"]),
+    itemCount: optionalMetadataInteger(
+      input.metadata["item-count"],
+      "item-count"
+    ),
     job: input.metadata.job ?? null,
     label: input.label,
     machine:
@@ -420,6 +487,12 @@ const formatDuration = (durationMs: number): string =>
 const formatOptionalDuration = (durationMs: number | null): string =>
   durationMs === null ? "n/a" : formatDuration(durationMs);
 
+const escapeMarkdownTableCell = (value: string): string =>
+  value
+    .replaceAll("\\", "\\\\")
+    .replaceAll("|", "\\|")
+    .replaceAll(/\r\n?|\n/gu, " ");
+
 export const renderRecordMarkdown = (record: PerformanceRecord): string => {
   const command = record.command.map(shellQuote).join(" ");
   return `# Performance: ${record.label}
@@ -452,7 +525,7 @@ export const renderAggregateMarkdown = (
   const tableRows = rows
     .map(
       (row) =>
-        `| ${row.label} | ${row.cohort} | ${row.failed === 0 ? "passed" : "failed"} | ${row.samples} | ${row.passed} | ${row.failed} | ${formatDuration(row.successfulTotalMs)} | ${formatOptionalDuration(row.p50Ms)} | ${formatOptionalDuration(row.p95Ms)} | ${row.passed < 100 ? "low N" : "stable N"} |`
+        `| ${escapeMarkdownTableCell(row.label)} | ${escapeMarkdownTableCell(row.cohort)} | ${row.failed === 0 ? "passed" : "failed"} | ${row.samples} | ${row.passed} | ${row.failed} | ${formatDuration(row.successfulTotalMs)} | ${formatOptionalDuration(row.p50Ms)} | ${formatOptionalDuration(row.p95Ms)} | ${row.passed < 100 ? "low N" : "stable N"} |`
     )
     .join("\n");
 
@@ -540,18 +613,27 @@ const validateCredentialRedaction = (
   }
 };
 
-const cohortIdentityMatchesRecord = (record: PerformanceRecord): boolean =>
-  isDeepStrictEqual(
-    record.cohortDimensions,
-    createCohortDimensions({
-      commandFingerprint: record.commandFingerprint,
-      executor: record.executor,
-      label: record.label,
-      metadata: record.metadata,
-      runKind: record.runKind,
-      runtime: record.runtime,
-    })
-  );
+const cohortIdentityMatchesRecord = (
+  record: PerformanceRecord,
+  filename: string
+): boolean => {
+  try {
+    return isDeepStrictEqual(
+      record.cohortDimensions,
+      createCohortDimensions({
+        commandFingerprint: record.commandFingerprint,
+        executor: record.executor,
+        label: record.label,
+        metadata: record.metadata,
+        runKind: record.runKind,
+        runtime: record.runtime,
+      })
+    );
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    throw new PerformanceSchemaError(filename, detail);
+  }
+};
 
 const validateRecordInvariants = (
   record: PerformanceRecord,
@@ -582,7 +664,7 @@ const validateRecordInvariants = (
   if (fingerprintCohort(record.cohortDimensions) !== record.cohortFingerprint) {
     throw new PerformanceSchemaError(filename, "cohortFingerprint mismatch");
   }
-  if (!cohortIdentityMatchesRecord(record)) {
+  if (!cohortIdentityMatchesRecord(record, filename)) {
     throw new PerformanceSchemaError(
       filename,
       "cohortDimensions do not match record identity"

@@ -36,6 +36,7 @@ const missingRecordFailureSchema: z.ZodType<MissingRecordFailure> = z
 
 const boundOperation = "GET /v1/records/search";
 const noOpReporter = (): void => undefined;
+const reporterExitProbeReady = "reporter-exit-probe-ready";
 const reporterExitProbe = String.raw`
   import { z } from "zod";
   import {
@@ -70,6 +71,7 @@ const reporterExitProbe = String.raw`
   if (!result.ok) {
     throw new Error(result.error.message);
   }
+  console.log("${reporterExitProbeReady}");
   await result.registry.createInvoker({
     capabilityId: "records.probe",
     operation: "GET /probe",
@@ -847,6 +849,28 @@ describe("internal error reporting", () => {
       stderr: "pipe",
       stdout: "pipe",
     });
+    const readinessResult = await Promise.race([
+      child.stdout
+        .getReader()
+        .read()
+        .then(({ done, value }) => {
+          if (done || !value) {
+            return "closed" as const;
+          }
+          return new TextDecoder()
+            .decode(value)
+            .includes(reporterExitProbeReady)
+            ? ("ready" as const)
+            : ("unexpected-output" as const);
+        }),
+      Bun.sleep(10_000).then(() => "readiness-timeout" as const),
+    ]);
+    if (readinessResult !== "ready") {
+      child.kill();
+      await child.exited;
+    }
+    expect(readinessResult).toBe("ready");
+
     const exitResult = await Promise.race([
       child.exited,
       Bun.sleep(1000).then(() => "timeout" as const),
@@ -1094,6 +1118,29 @@ describe("capability registry construction", () => {
         expect(result.error.code).toBe("INVALID_CAPABILITY");
         expect(result.error.field).toBe(field);
       }
+    }
+  });
+
+  it("returns INVALID_CAPABILITY when schema interface inspection throws", () => {
+    const base = createReadCapability(() => ({ ok: true, value: [] }));
+    const hostileSchema = {
+      get safeParseAsync(): never {
+        throw new Error("hostile schema getter");
+      },
+    };
+
+    // SAFETY: The hostile schema verifies that JavaScript definitions cannot
+    // escape the typed construction boundary through an accessor.
+    const result = createCapabilityRegistry(
+      [{ ...base, inputSchema: hostileSchema } as never],
+      { reportInternalError: noOpReporter }
+    );
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error.code).toBe("INVALID_CAPABILITY");
+      expect(result.error.capabilityId).toBe("records.search");
+      expect(result.error.field).toBe("inputSchema");
     }
   });
 

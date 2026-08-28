@@ -624,8 +624,16 @@ const toDescriptor = (capability: AnyCapability): CapabilityDescriptor =>
     outcome: capability.outcome,
   });
 
-const hasZodSchemaInterface = (value: unknown): boolean =>
-  isRecord(value) && typeof value.safeParseAsync === "function";
+const hasZodSchemaInterface = (value: unknown): boolean => {
+  if (!isRecord(value)) {
+    return false;
+  }
+  try {
+    return typeof value.safeParseAsync === "function";
+  } catch {
+    return false;
+  }
+};
 
 const validateCapability = (
   capability: AnyCapability

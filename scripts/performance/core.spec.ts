@@ -18,7 +18,11 @@ import {
   writeRecord,
 } from "./core";
 import type { PerformanceRecord } from "./core";
-import { DATASET_DIGEST_PATTERN, isDatasetDigest } from "./record";
+import {
+  DATASET_DIGEST_PATTERN,
+  isDatasetDigest,
+  PerformanceSchemaError,
+} from "./record";
 
 const record = (
   label: string,
@@ -130,6 +134,16 @@ describe("performance records", () => {
         "X-Amz-Security-Token=query-style-argument",
         "https://example.com/object?X-Amz-Credential=scope%2Frequest&x_amz_security_token=session&X-Goog-Credential=google%2Frequest&safe=visible",
         "AWS_REGION=eu-west-1",
+        "PGPASSWORD=postgres-secret",
+        "MYSQL_PWD=mysql-secret",
+        "--env=PGPASSWORD=nested-postgres-secret",
+        "wrapper=MYSQL_PWD=nested-mysql-secret",
+        "PGPASSWORD=postgres value with spaces",
+        "MYSQL_PWD=mysql value with spaces",
+        "--env=PGPASSWORD=nested postgres value with spaces",
+        "wrapper=MYSQL_PWD=nested mysql value with spaces",
+        "--env='PGPASSWORD=quoted postgres value with spaces'",
+        'wrapper="MYSQL_PWD=quoted mysql value with spaces"',
       ])
     ).toEqual([
       "curl",
@@ -169,6 +183,16 @@ describe("performance records", () => {
       "X-Amz-Security-Token=[REDACTED]",
       "[REDACTED_URL]",
       "AWS_REGION=eu-west-1",
+      "PGPASSWORD=[REDACTED]",
+      "MYSQL_PWD=[REDACTED]",
+      "--env=PGPASSWORD=[REDACTED]",
+      "wrapper=MYSQL_PWD=[REDACTED]",
+      "PGPASSWORD=[REDACTED]",
+      "MYSQL_PWD=[REDACTED]",
+      "--env=PGPASSWORD=[REDACTED]",
+      "wrapper=MYSQL_PWD=[REDACTED]",
+      "--env='PGPASSWORD=[REDACTED]'",
+      'wrapper="MYSQL_PWD=[REDACTED]"',
     ]);
   });
 
@@ -199,6 +223,23 @@ describe("performance records", () => {
     expect(() => parseMetadata(["sequence-position=10001"])).toThrow(
       "integer from 1 through 10000"
     );
+    for (const key of ["concurrency", "item-count"] as const) {
+      for (const value of [
+        "-1",
+        "1.5",
+        "01",
+        " 1",
+        "abc",
+        "9007199254740992",
+      ]) {
+        expect(() => parseMetadata([`${key}=${value}`])).toThrow(
+          `Metadata ${key} must be a non-negative safe integer`
+        );
+        expect(() =>
+          record("test", 1, 0, { metadata: { [key]: value } })
+        ).toThrow(`Metadata ${key} must be a non-negative safe integer`);
+      }
+    }
     for (const datasetDigest of [
       "",
       "   ",
@@ -226,6 +267,73 @@ describe("performance records", () => {
     );
     expect(evidence).not.toContain("private-value");
     expect(evidence).not.toContain("example.invalid");
+  });
+
+  test("redacts compact database credentials from general evidence text", () => {
+    const evidence = redactEvidenceText(
+      "spawn failed with PGPASSWORD=postgres value with spaces and trailing context\nretry used MYSQL_PWD=mysql value with spaces and more context"
+    );
+
+    expect(evidence).toBe(
+      "spawn failed with PGPASSWORD=[REDACTED]\nretry used MYSQL_PWD=[REDACTED]"
+    );
+  });
+
+  test("rejects compact database credentials during record readback", async () => {
+    const directory = await mkdtemp(
+      path.join(tmpdir(), "ji-performance-compact-db-credentials-")
+    );
+    try {
+      const commandRecord = record("command", 1);
+      commandRecord.command = [
+        "docker",
+        "--env=PGPASSWORD=postgres value with spaces",
+        'wrapper="MYSQL_PWD=mysql value with spaces"',
+      ];
+      commandRecord.commandFingerprint = fingerprintCommand(
+        commandRecord.command
+      );
+      commandRecord.cohortDimensions = createCohortDimensions({
+        commandFingerprint: commandRecord.commandFingerprint,
+        executor: commandRecord.executor,
+        label: commandRecord.label,
+        metadata: commandRecord.metadata,
+        runKind: commandRecord.runKind,
+        runtime: commandRecord.runtime,
+      });
+      commandRecord.cohortFingerprint = fingerprintCohort(
+        commandRecord.cohortDimensions
+      );
+      const commandDirectory = path.join(directory, "command");
+      await Bun.write(
+        path.join(commandDirectory, "command.json"),
+        JSON.stringify(commandRecord)
+      );
+      await expect(readRecords(commandDirectory)).rejects.toThrow(
+        "command.json: command contains unredacted credentials"
+      );
+
+      const errorRecord = record("error", 1, 0, {
+        commandExitCode: null,
+        commandStatus: "not-started",
+        measurementError: {
+          message:
+            "PGPASSWORD=postgres value with spaces and context\nMYSQL_PWD=mysql value with spaces and context",
+          stage: "spawn",
+        },
+        wrapperStatus: "spawn-failed",
+      });
+      const errorDirectory = path.join(directory, "error");
+      await Bun.write(
+        path.join(errorDirectory, "error.json"),
+        JSON.stringify(errorRecord)
+      );
+      await expect(readRecords(errorDirectory)).rejects.toThrow(
+        "error.json: measurementError contains unredacted evidence text"
+      );
+    } finally {
+      await rm(directory, { force: true, recursive: true });
+    }
   });
 
   test("rejects unredacted URL tokens during record readback", async () => {
@@ -584,6 +692,101 @@ describe("performance records", () => {
     expect(rows.find((row) => row.cohort.includes("unknown"))?.samples).toBe(2);
     expect(rows.reduce((total, row) => total + row.failed, 0)).toBe(1);
     expect(renderAggregateMarkdown([warm, failed])).toContain("low N");
+  });
+
+  test("escapes restored cohort runtime fields in Markdown tables", async () => {
+    const directory = await mkdtemp(
+      path.join(tmpdir(), "ji-performance-markdown-cohort-")
+    );
+    try {
+      const restored = record("test", 100);
+      restored.runtime = {
+        ...restored.runtime,
+        arch: "arm64\n| forged | row |",
+        os: "darwin|injected",
+      };
+      restored.cohortDimensions = createCohortDimensions({
+        commandFingerprint: restored.commandFingerprint,
+        executor: restored.executor,
+        label: restored.label,
+        metadata: restored.metadata,
+        runKind: restored.runKind,
+        runtime: restored.runtime,
+      });
+      restored.cohortFingerprint = fingerprintCohort(restored.cohortDimensions);
+      await Bun.write(
+        path.join(directory, "restored.json"),
+        JSON.stringify(restored)
+      );
+
+      const report = renderAggregateMarkdown(await readRecords(directory));
+      expect(report).toContain(
+        "darwin\\|injected/arm64 \\| forged \\| row \\|"
+      );
+      expect(report).not.toContain("\n| forged | row |");
+    } finally {
+      await rm(directory, { force: true, recursive: true });
+    }
+  });
+
+  test("rejects malformed numeric cohort metadata during readback", async () => {
+    const directory = await mkdtemp(
+      path.join(tmpdir(), "ji-performance-numeric-metadata-")
+    );
+    try {
+      const invalid = record("test", 100);
+      invalid.metadata.concurrency = "not-a-number";
+      await Bun.write(
+        path.join(directory, "invalid.json"),
+        JSON.stringify(invalid)
+      );
+
+      const readback = readRecords(directory);
+      await expect(readback).rejects.toBeInstanceOf(PerformanceSchemaError);
+      await expect(readback).rejects.toThrow(
+        "invalid.json: Metadata concurrency must be a non-negative safe integer"
+      );
+    } finally {
+      await rm(directory, { force: true, recursive: true });
+    }
+  });
+
+  test("keeps numeric metadata runtime and JSON schema grammar equivalent", async () => {
+    const schema = await Bun.file(
+      "scripts/performance/performance-record.schema.json"
+    ).json();
+    const concurrencyPattern = String(
+      schema.$defs.metadata.properties.concurrency.pattern
+    );
+    const itemCountPattern = String(
+      schema.$defs.metadata.properties["item-count"].pattern
+    );
+    expect(itemCountPattern).toBe(concurrencyPattern);
+
+    const schemaRegex = new RegExp(concurrencyPattern, "u");
+    const candidates = [
+      "0",
+      "1",
+      "9007199254740990",
+      "9007199254740991",
+      "",
+      "01",
+      "-1",
+      "1.5",
+      "9007199254740992",
+      "9999999999999999",
+    ];
+    for (const candidate of candidates) {
+      const runtimeAccepts = (() => {
+        try {
+          parseMetadata([`concurrency=${candidate}`]);
+          return true;
+        } catch {
+          return false;
+        }
+      })();
+      expect(schemaRegex.test(candidate)).toBe(runtimeAccepts);
+    }
   });
 
   test("excludes git-unbound records from aggregate evidence", () => {
