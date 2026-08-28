@@ -1,0 +1,40 @@
+# Lokale Docker/Coolify-lane
+
+Deze lane maakt de lokale productieachtige route reproduceerbaar terwijl de Hetzner-host nog niet beschikbaar is. De huidige Compose-stack bevat Postgres 16, de API en de webapp. Manticore, Redis en object storage worden pas toegevoegd wanneer de applicatiecode daarvan afhankelijk is.
+
+## Lokale Docker-proef
+
+Vereisten: Bun 1.3.14, Docker Desktop/OrbStack en een lege of bestaande Docker-volume-naam.
+
+```bash
+bun install --frozen-lockfile
+cp .env.example .env
+cp apps/server/.env.example apps/server/.env
+cp apps/web/.env.example apps/web/.env
+openssl rand -base64 32
+# zet de gegenereerde waarde in .env als BETTER_AUTH_SECRET
+bun run docker:smoke
+```
+
+De smoke-test bouwt de images, wacht eerst alleen op Postgres, voert daarna de Drizzle-migratie uit en start vervolgens de API en webapp met `--wait`. Zo kan `/readyz` terecht eisen dat de migratie al aanwezig is. Daarna controleert de test `/readyz` en de webroot. `docker compose down` wordt na afloop uitgevoerd; het vooraf aangemaakte externe Postgres-volume blijft behouden. Gebruik nooit `docker compose down -v` voor dit volume.
+
+## Coolify-proef
+
+Maak in een lokale Linux-VM of lokale Coolify-installatie één project en importeer deze GitHub-repository. Configureer twee langlevende Docker-applications:
+
+1. `server`: Dockerfile `apps/server/Dockerfile`, poort `3000`, healthcheck `/readyz`.
+2. `web`: Dockerfile `apps/web/Dockerfile`, poort `3001`, build argument `NEXT_PUBLIC_SERVER_URL` met de publieke API-URL.
+
+Maak daarnaast een Postgres 16 service met een persistent volume. De database is uitsluitend intern bereikbaar op servicenaam `postgres`; publiceer poort 5432 niet. Initialiseer op een leeg volume eerst de afzonderlijke admin-, migrator- en app-rollen uit `tools/postgres/init/10-bootstrap-roles.sh`. Als de Coolify-databaseservice geen init-script kan mounten, voer dezelfde bootstrap eenmalig als admin uit en leg alleen het resultaat vast, nooit de secretwaarden. Geef de server uitsluitend `DATABASE_URL` met de interne app-rol-URL en voeg de Better Auth- en CORS-secrets toe via Coolify's secret/configuration UI. De server-runtime krijgt geen admin- of migrator-credential.
+
+Configureer een aparte one-shot migrator-job op basis van `apps/server/Dockerfile`. Alleen deze job krijgt `MIGRATION_DATABASE_URL` en voert vóór iedere server-release uit:
+
+```bash
+cd /app && bun run db:migrate
+```
+
+De repository staat in die image op `/app`. Laat de job na een succesvolle migratie stoppen en rol alleen dan de server uit. Hergebruik de migrator-URL nooit als runtimevariabele van de server en voer de job niet met de app-credential uit. Configureer de web-domain via de Coolify-proxy en zet `NEXT_PUBLIC_SERVER_URL` zowel als build argument als runtimevariabele op de publiek bereikbare API-domain; `server:3000` mag nooit in browsercode terechtkomen.
+
+## Nog geen productie-bewijs
+
+Deze lokale lane bewijst image builds, env-wiring, migraties, readiness en basis-restarts. Productie blijft geblokkeerd totdat private firewall-poorten, off-site WAL/base backups, een geteste lege restore, monitoring/alerts, resourceprioriteit en DNS/TLS op de Hetzner-host met bewijs zijn gevalideerd. Lokale credentials en testdata mogen niet naar productie worden hergebruikt.

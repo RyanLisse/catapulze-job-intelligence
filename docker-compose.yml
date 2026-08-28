@@ -38,7 +38,7 @@ services:
       context: .
       dockerfile: apps/web/Dockerfile
       args:
-        NEXT_PUBLIC_SERVER_URL: http://localhost:3000
+        NEXT_PUBLIC_SERVER_URL: ${NEXT_PUBLIC_SERVER_URL:-http://localhost:3000}
     init: true
     ports:
       - "3001:3001"
@@ -47,7 +47,7 @@ services:
         required: false
     environment:
       SERVER_URL: http://server:3000
-      NEXT_PUBLIC_SERVER_URL: http://server:3000
+      NEXT_PUBLIC_SERVER_URL: ${NEXT_PUBLIC_SERVER_URL:-http://localhost:3000}
     depends_on:
       server:
         condition: service_healthy

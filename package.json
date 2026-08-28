@@ -42,6 +42,7 @@
     "docker:up": "docker compose up -d --build",
     "docker:down": "docker compose down",
     "docker:logs": "docker compose logs -f",
+    "docker:smoke": "bash scripts/docker-compose-smoke.sh",
     "check": "PATH=\"./node_modules/.bin:$PATH\" bash tools/quality/check-changed.sh",
     "check:all": "PATH=\"./node_modules/.bin:$PATH\" ultracite check",
     "fix": "PATH=\"./node_modules/.bin:$PATH\" bash tools/quality/fix-changed.sh",
