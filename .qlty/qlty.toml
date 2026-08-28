@@ -42,6 +42,21 @@ name = "osv-scanner"
 
 [[plugin]]
 name = "trufflehog"
+version = "3.82.12"
+drivers = ["lint-local-dev"]
+
+# TruffleHog 3.82.12 re-execs through Overseer even with --no-update. The
+# project-local driver keeps the same verified-secret policy while bypassing
+# that crash-prone supervisor path on macOS.
+[plugins.definitions.trufflehog.drivers.lint-local-dev]
+script = "trufflehog --local-dev filesystem --json --fail --only-verified --no-update --user-agent-suffix=qlty ${target}"
+success_codes = [0, 183]
+output = "stdout"
+output_format = "trufflehog"
+cache_results = true
+batch = true
+suggested = "targets"
+output_missing = "parse"
 
 [[plugin]]
 name = "checkov"

@@ -31,11 +31,26 @@ untracked_files="$(git ls-files --others --exclude-standard)" || {
   exit 1
 }
 
+filtered_untracked_files="$(
+  printf '%s\n' "$untracked_files" | while IFS= read -r file; do
+    if [[ -z "$file" ]]; then
+      continue
+    fi
+    # libgit2 can leave an empty atomic-write scratchfile behind. Ignore only
+    # that untracked zero-byte artifact class; tracked files and non-empty
+    # lookalikes remain quality inputs.
+    if [[ "$file" == _git2_* && ! -s "$file" ]]; then
+      continue
+    fi
+    printf '%s\n' "$file"
+  done
+)"
+
 printf '%s\n%s\n%s\n%s\n' \
   "$branch_files" \
   "$staged_files" \
   "$worktree_files" \
-  "$untracked_files" \
+  "$filtered_untracked_files" \
   | sort -u \
   | while IFS= read -r file; do
   case "$file" in

@@ -6,6 +6,14 @@ cd "$ROOT"
 
 PATH="./node_modules/.bin:$PATH"
 
+if [[ -z "${QLTY_JOBS:-}" ]]; then
+  if [[ "$(uname -s)" == "Darwin" ]]; then
+    QLTY_JOBS=1
+  else
+    QLTY_JOBS=2
+  fi
+fi
+
 hooks_path="$(git config --get core.hooksPath 2>/dev/null || true)"
 if [[ -n "$hooks_path" ]]; then
   echo "gate: core.hooksPath is set to '$hooks_path' (expected unset; run bun install / lefthook install)"
@@ -20,8 +28,8 @@ if ! command -v qlty >/dev/null 2>&1; then
   exit 1
 fi
 
-echo "gate: qlty check --all --jobs 2 --no-upgrade-check --no-progress --no-formatters"
-qlty check --all --jobs 2 --no-upgrade-check --no-progress --no-formatters
+echo "gate: qlty check --all --jobs $QLTY_JOBS --no-upgrade-check --no-progress --no-formatters"
+bash tools/quality/run-qlty.sh check --all --jobs "$QLTY_JOBS" --no-upgrade-check --no-progress --no-formatters
 
 echo "gate: check-types"
 bun run check-types
