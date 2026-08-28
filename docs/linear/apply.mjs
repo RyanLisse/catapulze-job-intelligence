@@ -308,7 +308,7 @@ async function existingProjectIssues(project) {
   let after = null;
   for (;;) {
     const data = await gql(
-      `query($id: ID!, $after: String) {
+      `query($id: String!, $after: String) {
         project(id: $id) {
           issues(first: 100, after: $after) {
             nodes { id identifier url title }
