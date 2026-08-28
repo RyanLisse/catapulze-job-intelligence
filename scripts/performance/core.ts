@@ -39,10 +39,16 @@ const INLINE_CREDENTIAL_FLAG_PATTERN =
   /(?<prefix>(?:^|\s)(?:-u|--user|--proxy-user|--(?:[a-z\d]+[-_])*(?:api[-_]?key|auth(?:orization)?|cookie|credential|database[-_]?url|dsn|password|secret|token))(?:=|\s+))[^\s]+/giu;
 const SECRET_QUERY_PATTERN =
   /(?<prefix>[?&](?:access[-_]?token|api[-_]?key|auth|aws[-_]?access[-_]?key[-_]?id|client[-_]?secret|credential|id[-_]?token|oauth[-_]?(?:consumer[-_]?key|nonce|signature|token)|password|refresh[-_]?token|secret|sig|signature|token|x[-_]?(?:amz|goog)[-_]?(?:credential|security[-_]?token|signature))=)[^&\s]+/giu;
-const SENSITIVE_HEADER_PATTERN =
-  /^(?:authorization|cookie|proxy-authorization)\s*:/iu;
-const INLINE_SENSITIVE_HEADER_PATTERN =
-  /(?<prefix>(?:^|\s)(?:authorization|cookie|proxy-authorization)\s*:)\s*[^\s]+(?:\s+[^\s]+)?/giu;
+const SENSITIVE_HEADER_NAME_SOURCE =
+  "(?:authorization|cookie|proxy-authorization|set-cookie|x[-_]?api[-_]?key|(?:[a-z\\d]+[-_])*(?:api[-_]?key|access[-_]?token|auth[-_]?token|client[-_]?secret|key|secret|token))";
+const SENSITIVE_HEADER_PATTERN = new RegExp(
+  `^${SENSITIVE_HEADER_NAME_SOURCE}\\s*:`,
+  "iu"
+);
+const INLINE_SENSITIVE_HEADER_PATTERN = new RegExp(
+  `(?<prefix>(?<![a-z\\d_-])${SENSITIVE_HEADER_NAME_SOURCE}\\s*:)\\s*[^\\r\\n]*`,
+  "giu"
+);
 const ARBITRARY_URL_PATTERN = /\b[a-z][a-z\d+.-]*:\/\/\S+/giu;
 const FULL_GIT_SHA_PATTERN = /^(?:[a-f\d]{40}|[a-f\d]{64})$/iu;
 const INLINE_SECRET_VALUE_PATTERN =
@@ -137,6 +143,23 @@ const redactCompactDatabaseAssignment = (value: string): string | null => {
   return `${opening}${key}=[REDACTED]${closing}`;
 };
 
+const redactSensitiveHeader = (value: string): string | null => {
+  const openingQuote = value[0] === '"' || value[0] === "'" ? value[0] : null;
+  const hasClosingQuote =
+    openingQuote !== null && value.length > 1 && value.endsWith(openingQuote);
+  const header =
+    openingQuote === null
+      ? value
+      : value.slice(1, hasClosingQuote ? -1 : undefined);
+  if (!SENSITIVE_HEADER_PATTERN.test(header)) {
+    return null;
+  }
+  const name = header.slice(0, header.indexOf(":"));
+  const opening = openingQuote ?? "";
+  const closing = hasClosingQuote ? (openingQuote ?? "") : "";
+  return `${opening}${name}: [REDACTED]${closing}`;
+};
+
 const redactAssignmentArgument = (argument: string): string | null => {
   const directCompactDatabaseAssignment =
     redactCompactDatabaseAssignment(argument);
@@ -159,11 +182,9 @@ const redactAssignmentArgument = (argument: string): string | null => {
   if (isAssignmentKey && nestedCompactDatabaseAssignment !== null) {
     return `${key}=${nestedCompactDatabaseAssignment}`;
   }
-  if (
-    (key === "--header" || key === "--proxy-header") &&
-    SENSITIVE_HEADER_PATTERN.test(value)
-  ) {
-    return `${key}=${value.slice(0, value.indexOf(":"))}: [REDACTED]`;
+  if (key === "--header" || key === "--proxy-header") {
+    const redactedHeader = redactSensitiveHeader(value);
+    return redactedHeader === null ? null : `${key}=${redactedHeader}`;
   }
   return null;
 };
@@ -181,15 +202,14 @@ export const redactCommand = (command: string[]): string[] => {
     }
     if (redactHeaderNext) {
       redacted.push(
-        SENSITIVE_HEADER_PATTERN.test(argument)
-          ? `${argument.slice(0, argument.indexOf(":"))}: [REDACTED]`
-          : redactEvidenceText(argument)
+        redactSensitiveHeader(argument) ?? redactEvidenceText(argument)
       );
       redactHeaderNext = false;
       continue;
     }
-    if (SENSITIVE_HEADER_PATTERN.test(argument)) {
-      redacted.push(`${argument.slice(0, argument.indexOf(":"))}: [REDACTED]`);
+    const directSensitiveHeader = redactSensitiveHeader(argument);
+    if (directSensitiveHeader !== null) {
+      redacted.push(directSensitiveHeader);
       continue;
     }
 
@@ -219,13 +239,12 @@ export const redactCommand = (command: string[]): string[] => {
       redacted.push("-u[REDACTED]");
       continue;
     }
-    if (
-      argument.startsWith("-H") &&
-      SENSITIVE_HEADER_PATTERN.test(argument.slice(2))
-    ) {
-      const header = argument.slice(2, argument.indexOf(":"));
-      redacted.push(`-H${header}: [REDACTED]`);
-      continue;
+    if (argument.startsWith("-H")) {
+      const redactedHeader = redactSensitiveHeader(argument.slice(2));
+      if (redactedHeader !== null) {
+        redacted.push(`-H${redactedHeader}`);
+        continue;
+      }
     }
 
     redacted.push(redactEvidenceText(argument));
@@ -493,6 +512,15 @@ const escapeMarkdownTableCell = (value: string): string =>
     .replaceAll("|", "\\|")
     .replaceAll(/\r\n?|\n/gu, " ");
 
+const renderMarkdownCodeBlock = (value: string): string => {
+  const longestBacktickRun = Math.max(
+    0,
+    ...(value.match(/`+/gu) ?? []).map((run) => run.length)
+  );
+  const fence = "`".repeat(Math.max(3, longestBacktickRun + 1));
+  return `${fence}text\n${value}\n${fence}`;
+};
+
 export const renderRecordMarkdown = (record: PerformanceRecord): string => {
   const command = record.command.map(shellQuote).join(" ");
   return `# Performance: ${record.label}
@@ -508,7 +536,7 @@ export const renderRecordMarkdown = (record: PerformanceRecord): string => {
 | Git SHA | ${record.git.sha ?? "unavailable"} |
 | Dirty | ${record.git.dirty ?? "unavailable"} |
 
-\`${command}\`
+${renderMarkdownCodeBlock(command)}
 `;
 };
 

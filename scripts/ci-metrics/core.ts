@@ -73,6 +73,17 @@ export interface WorkflowMetrics {
   notes: string[];
 }
 
+// These terminal conclusions prove an execution failure. Action-required,
+// neutral, skipped, cancelled, and stale runs intentionally do not.
+const provenFailureConclusions = new Set([
+  "failure",
+  "startup_failure",
+  "timed_out",
+]);
+
+const isProvenFailureConclusion = (conclusion: string | null): boolean =>
+  conclusion !== null && provenFailureConclusions.has(conclusion);
+
 const timestamp = (value: string | null | undefined): number | null => {
   if (!value) {
     return null;
@@ -93,6 +104,30 @@ const duration = (
   return completed - started;
 };
 
+const hasCompletedJobWithoutCompletionTimestamp = (
+  jobs: WorkflowJobInput[]
+): boolean =>
+  jobs.some(
+    (job) => job.status === "completed" && timestamp(job.completed_at) === null
+  );
+
+const workflowCompletionBoundary = (run: WorkflowRunInput): number | null =>
+  run.status === "completed" ? timestamp(run.updated_at) : null;
+
+const lastCompletionBoundary = (
+  run: WorkflowRunInput,
+  jobCompletions: number[],
+  hasMissingCompletion: boolean
+): number | null => {
+  if (hasMissingCompletion) {
+    return workflowCompletionBoundary(run);
+  }
+  if (jobCompletions.length === 0) {
+    return workflowCompletionBoundary(run);
+  }
+  return Math.max(...jobCompletions);
+};
+
 const elapsed = (
   started: number | null,
   completed: number | null
@@ -106,6 +141,24 @@ interface AttemptBoundary {
   note: string | null;
   queueBoundary: number | null;
 }
+
+interface FailureCandidate {
+  at: number;
+  source: string;
+}
+
+const workflowFailureCandidates = (
+  run: WorkflowRunInput,
+  completionBoundary: number | null
+): FailureCandidate[] => {
+  if (
+    !isProvenFailureConclusion(run.conclusion) ||
+    completionBoundary === null
+  ) {
+    return [];
+  }
+  return [{ at: completionBoundary, source: "workflow run" }];
+};
 
 const attemptBoundary = (
   run: WorkflowRunInput,
@@ -177,21 +230,25 @@ export const calculateWorkflowMetrics = (
   const jobCompletions = jobs
     .map((job) => timestamp(job.completedAt))
     .filter((value): value is number => value !== null);
+  const hasCompletedJobWithoutCompletion =
+    hasCompletedJobWithoutCompletionTimestamp(inputJobs);
   const firstJobStart =
     jobStarts.length > 0
       ? Math.min(...jobStarts)
       : timestamp(run.run_started_at);
-  const lastJobCompletion =
-    jobCompletions.length > 0
-      ? Math.max(...jobCompletions)
-      : timestamp(run.updated_at);
+  const workflowCompletion = workflowCompletionBoundary(run);
+  const lastJobCompletion = lastCompletionBoundary(
+    run,
+    jobCompletions,
+    hasCompletedJobWithoutCompletion
+  );
   const boundary = attemptBoundary(run, firstJobStart);
 
-  const failureCandidates: { at: number; source: string }[] = [];
+  const failureCandidates = workflowFailureCandidates(run, workflowCompletion);
   for (const job of jobs) {
     for (const step of job.steps) {
       const failedAt = timestamp(step.completedAt);
-      if (step.conclusion === "failure" && failedAt !== null) {
+      if (isProvenFailureConclusion(step.conclusion) && failedAt !== null) {
         failureCandidates.push({
           at: failedAt,
           source: `${job.name} / ${step.name}`,
@@ -199,7 +256,7 @@ export const calculateWorkflowMetrics = (
       }
     }
     const failedAt = timestamp(job.completedAt);
-    if (job.conclusion === "failure" && failedAt !== null) {
+    if (isProvenFailureConclusion(job.conclusion) && failedAt !== null) {
       failureCandidates.push({ at: failedAt, source: job.name });
     }
   }
@@ -218,6 +275,13 @@ export const calculateWorkflowMetrics = (
   if (missingDurationCount > 0) {
     notes.push(
       `${missingDurationCount} job(s) lacked a complete timestamp pair and were excluded from jobComputeSumMs.`
+    );
+  }
+  if (hasCompletedJobWithoutCompletion) {
+    notes.push(
+      workflowCompletion === null
+        ? "At least one completed job lacked completed_at and no workflow completion boundary was available; execution and end-to-end timing remain unavailable rather than understated."
+        : "At least one completed job lacked completed_at; execution and end-to-end timing use the workflow updated_at completion boundary rather than an understated partial job boundary."
     );
   }
   if (run.conclusion === "cancelled") {
@@ -241,10 +305,7 @@ export const calculateWorkflowMetrics = (
     },
     schemaVersion: 1,
     timing: {
-      endToEndMs: elapsed(
-        boundary.elapsedBoundary,
-        lastJobCompletion ?? timestamp(run.updated_at)
-      ),
+      endToEndMs: elapsed(boundary.elapsedBoundary, lastJobCompletion),
       executionCriticalPathMs: elapsed(firstJobStart, lastJobCompletion),
       firstFailureSource: firstFailure?.source ?? null,
       jobComputeSumMs: jobs.reduce(

@@ -132,6 +132,30 @@ describe("workflow timing metrics", () => {
     expect(metrics.timing.firstFailureSource).toBe("verify / Tests");
   });
 
+  test.each(["failure", "timed_out", "startup_failure"])(
+    "treats %s as a proven failure conclusion",
+    (conclusion) => {
+      const metrics = calculateWorkflowMetrics(run({ conclusion }), [
+        job({ conclusion }),
+      ]);
+
+      expect(metrics.timing.timeToFirstFailureMs).toBe(660_000);
+      expect(metrics.timing.firstFailureSource).toBe("verify");
+    }
+  );
+
+  test.each(["action_required", "neutral", "skipped", "cancelled", "stale"])(
+    "does not treat %s as a proven failure conclusion",
+    (conclusion) => {
+      const metrics = calculateWorkflowMetrics(run({ conclusion }), [
+        job({ conclusion }),
+      ]);
+
+      expect(metrics.timing.timeToFirstFailureMs).toBeNull();
+      expect(metrics.timing.firstFailureSource).toBeNull();
+    }
+  );
+
   test("separates parallel critical-path elapsed from compute sum", () => {
     const metrics = calculateWorkflowMetrics(run(), [
       job({
@@ -160,6 +184,55 @@ describe("workflow timing metrics", () => {
     expect(metrics.timing.jobComputeSumMs).toBe(0);
     expect(metrics.notes.join(" ")).toContain("cancelled");
     expect(metrics.notes.join(" ")).toContain("excluded");
+  });
+
+  test("uses the workflow completion boundary when one completed job lacks completed_at", () => {
+    const metrics = calculateWorkflowMetrics(run(), [
+      job({ completed_at: "2026-08-28T10:05:00.000Z", id: 1, name: "fast" }),
+      job({ completed_at: null, id: 2, name: "missing completion" }),
+    ]);
+
+    expect(metrics.timing.executionCriticalPathMs).toBe(660_000);
+    expect(metrics.timing.endToEndMs).toBe(720_000);
+    expect(metrics.notes.join(" ")).toContain(
+      "workflow updated_at completion boundary"
+    );
+  });
+
+  test("makes end timing unavailable when a completed job and workflow lack completion", () => {
+    const metrics = calculateWorkflowMetrics(
+      run({ status: "in_progress", updated_at: null }),
+      [
+        job({ completed_at: "2026-08-28T10:05:00.000Z", id: 1, name: "fast" }),
+        job({ completed_at: null, id: 2, name: "missing completion" }),
+      ]
+    );
+
+    expect(metrics.timing.executionCriticalPathMs).toBeNull();
+    expect(metrics.timing.endToEndMs).toBeNull();
+    expect(metrics.notes.join(" ")).toContain(
+      "remain unavailable rather than understated"
+    );
+  });
+
+  test("keeps in-progress jobless workflow end timing unavailable", () => {
+    const metrics = calculateWorkflowMetrics(
+      run({ conclusion: null, status: "in_progress" }),
+      []
+    );
+
+    expect(metrics.timing.executionCriticalPathMs).toBeNull();
+    expect(metrics.timing.endToEndMs).toBeNull();
+  });
+
+  test("reports a completed jobless startup failure at the workflow boundary", () => {
+    const metrics = calculateWorkflowMetrics(
+      run({ conclusion: "startup_failure" }),
+      []
+    );
+
+    expect(metrics.timing.timeToFirstFailureMs).toBe(720_000);
+    expect(metrics.timing.firstFailureSource).toBe("workflow run");
   });
 
   test("returns null when no trustworthy timing boundary exists", () => {

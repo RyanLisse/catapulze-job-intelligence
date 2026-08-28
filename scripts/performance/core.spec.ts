@@ -15,6 +15,7 @@ import {
   redactCommand,
   redactEvidenceText,
   renderAggregateMarkdown,
+  renderRecordMarkdown,
   writeRecord,
 } from "./core";
 import type { PerformanceRecord } from "./core";
@@ -124,6 +125,22 @@ describe("performance records", () => {
         "-ualice:compact-secret",
         "-HAuthorization: Basic compact-basic",
         "--proxy-header=Proxy-Authorization: Basic proxy-basic",
+        "-H",
+        "X-API-Key: api header value with spaces",
+        "--header",
+        "'X-Auth-Token: quoted token header value'",
+        '--header="X-Client-Secret: wrapped secret header value"',
+        "-HX-Custom-Token: compact token header value",
+        "-H",
+        "X_API_KEY: underscore api key value",
+        "--header=X-ApiKey: separatorless api key value",
+        "--header=XApiKey: compact x api key value",
+        "-H",
+        "Set-Cookie: session=private; HttpOnly",
+        "request header=X-API-Key: embedded api key value",
+        "payload=(X_API_KEY: embedded underscore key value",
+        "metadata;X-ApiKey: embedded separatorless key value",
+        "response Set-Cookie: session=embedded-private; Secure",
         "https://example.com/oauth?access_token=access&oauth_signature=signed&x-amz-signature=aws&mode=fast",
         "AWS_SECRET_ACCESS_KEY=aws-secret",
         "aws-access-key-id=AKIAEXAMPLE",
@@ -173,6 +190,22 @@ describe("performance records", () => {
       "-u[REDACTED]",
       "-HAuthorization: [REDACTED]",
       "--proxy-header=Proxy-Authorization: [REDACTED]",
+      "-H",
+      "X-API-Key: [REDACTED]",
+      "--header",
+      "'X-Auth-Token: [REDACTED]'",
+      '--header="X-Client-Secret: [REDACTED]"',
+      "-HX-Custom-Token: [REDACTED]",
+      "-H",
+      "X_API_KEY: [REDACTED]",
+      "--header=X-ApiKey: [REDACTED]",
+      "--header=XApiKey: [REDACTED]",
+      "-H",
+      "Set-Cookie: [REDACTED]",
+      "request header=X-API-Key: [REDACTED]",
+      "payload=(X_API_KEY: [REDACTED]",
+      "metadata;X-ApiKey: [REDACTED]",
+      "response Set-Cookie: [REDACTED]",
       "[REDACTED_URL]",
       "AWS_SECRET_ACCESS_KEY=[REDACTED]",
       "aws-access-key-id=[REDACTED]",
@@ -277,6 +310,113 @@ describe("performance records", () => {
     expect(evidence).toBe(
       "spawn failed with PGPASSWORD=[REDACTED]\nretry used MYSQL_PWD=[REDACTED]"
     );
+  });
+
+  test("redacts API-key and Set-Cookie headers from evidence", () => {
+    const evidence = redactEvidenceText(
+      "request header=X-API-Key: alpha beta gamma\npayload=(X_API_KEY: delta epsilon zeta\nmetadata;X-ApiKey: eta theta iota\ncompact=XApiKey: kappa lambda mu\nresponse Set-Cookie: session=private; HttpOnly"
+    );
+
+    expect(evidence).toBe(
+      "request header=X-API-Key: [REDACTED]\npayload=(X_API_KEY: [REDACTED]\nmetadata;X-ApiKey: [REDACTED]\ncompact=XApiKey: [REDACTED]\nresponse Set-Cookie: [REDACTED]"
+    );
+  });
+
+  test("rejects API-key and Set-Cookie headers during readback", async () => {
+    const directory = await mkdtemp(
+      path.join(tmpdir(), "ji-performance-api-key-headers-")
+    );
+    try {
+      const invalid = record("headers", 1);
+      invalid.command = [
+        "request header=X-API-Key: alpha beta gamma",
+        "payload=(X_API_KEY: delta epsilon zeta",
+        "metadata;X-ApiKey: eta theta iota",
+        "compact=XApiKey: kappa lambda mu",
+        "response Set-Cookie: session=private; HttpOnly",
+      ];
+      invalid.commandFingerprint = fingerprintCommand(invalid.command);
+      invalid.cohortDimensions = createCohortDimensions({
+        commandFingerprint: invalid.commandFingerprint,
+        executor: invalid.executor,
+        label: invalid.label,
+        metadata: invalid.metadata,
+        runKind: invalid.runKind,
+        runtime: invalid.runtime,
+      });
+      invalid.cohortFingerprint = fingerprintCohort(invalid.cohortDimensions);
+      await Bun.write(
+        path.join(directory, "headers.json"),
+        JSON.stringify(invalid)
+      );
+
+      await expect(readRecords(directory)).rejects.toThrow(
+        "headers.json: command contains unredacted credentials"
+      );
+
+      const errorRecord = record("header-error", 1, 0, {
+        commandExitCode: null,
+        commandStatus: "not-started",
+        measurementError: {
+          message:
+            "request header=X_API_KEY: alpha beta gamma\nresponse Set-Cookie: session=private",
+          stage: "spawn",
+        },
+        wrapperStatus: "spawn-failed",
+      });
+      const errorDirectory = path.join(directory, "error");
+      await Bun.write(
+        path.join(errorDirectory, "header-error.json"),
+        JSON.stringify(errorRecord)
+      );
+      await expect(readRecords(errorDirectory)).rejects.toThrow(
+        "header-error.json: measurementError contains unredacted evidence text"
+      );
+    } finally {
+      await rm(directory, { force: true, recursive: true });
+    }
+  });
+
+  test("keeps ordinary key-like header names and words visible", async () => {
+    const evidence =
+      "Keyboard: qwerty\nMonkey: banana\nXApiKeyboard: visible\nKeyboard and Monkey stay visible";
+    const command = [
+      "curl",
+      "-H",
+      "Keyboard: qwerty",
+      "--header=Monkey: banana",
+      "note=XApiKeyboard: visible",
+      "Keyboard and Monkey stay visible",
+    ];
+
+    expect(redactEvidenceText(evidence)).toBe(evidence);
+    expect(redactCommand(command)).toEqual(command);
+
+    const directory = await mkdtemp(
+      path.join(tmpdir(), "ji-performance-safe-key-headers-")
+    );
+    try {
+      const safe = record("safe-headers", 1);
+      safe.command = command;
+      safe.commandFingerprint = fingerprintCommand(safe.command);
+      safe.cohortDimensions = createCohortDimensions({
+        commandFingerprint: safe.commandFingerprint,
+        executor: safe.executor,
+        label: safe.label,
+        metadata: safe.metadata,
+        runKind: safe.runKind,
+        runtime: safe.runtime,
+      });
+      safe.cohortFingerprint = fingerprintCohort(safe.cohortDimensions);
+      await Bun.write(
+        path.join(directory, "safe-headers.json"),
+        JSON.stringify(safe)
+      );
+
+      expect(await readRecords(directory)).toHaveLength(1);
+    } finally {
+      await rm(directory, { force: true, recursive: true });
+    }
   });
 
   test("rejects compact database credentials during record readback", async () => {
@@ -444,6 +584,25 @@ describe("performance records", () => {
     } finally {
       await rm(directory, { force: true, recursive: true });
     }
+  });
+
+  test("contains arbitrary command Markdown inside a collision-safe code fence", () => {
+    const unsafeCommand =
+      "tool ```\n# Forged heading\n[forged link](https://example.invalid)\n````";
+    const rendered = renderRecordMarkdown(
+      record("markdown", 1, 0, { command: [unsafeCommand] })
+    );
+    const opening = rendered.indexOf("`````text\n");
+    const forgedHeading = rendered.indexOf("# Forged heading");
+    const forgedLink = rendered.indexOf("[forged link]");
+    const closing = rendered.lastIndexOf("\n`````");
+
+    expect(opening).toBeGreaterThan(-1);
+    expect(forgedHeading).toBeGreaterThan(opening);
+    expect(forgedLink).toBeGreaterThan(forgedHeading);
+    expect(closing).toBeGreaterThan(forgedLink);
+    expect(rendered.slice(0, opening)).not.toContain("# Forged heading");
+    expect(rendered.slice(closing + 6)).not.toContain("[forged link]");
   });
 
   test("rejects labels that can corrupt Markdown evidence during readback", async () => {
