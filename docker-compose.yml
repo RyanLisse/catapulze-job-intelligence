@@ -1,6 +1,21 @@
 name: catapulze-job-intelligence
 
 services:
+  postgres:
+    image: postgres:16-alpine
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: ji
+      POSTGRES_PASSWORD: ji
+      POSTGRES_DB: ji_test
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ji -d ji_test"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
   web:
     build:
       context: .
