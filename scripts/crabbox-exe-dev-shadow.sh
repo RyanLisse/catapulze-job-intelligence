@@ -22,6 +22,8 @@ readonly DATASET_PROFILE="repository-correctness-suite"
 RUN_STATUS="failed"
 COMPOSE_DATABASE_STARTED="false"
 COMPOSE_COMMAND=()
+POSTGRES_IMAGE="unavailable"
+POSTGRES_VERSION="unavailable"
 
 mkdir -p "$EVIDENCE_DIR"
 rm -f "$PHASES_FILE" "$FINGERPRINT_FILE" "$REPORT_FILE" "$JUNIT_FILE" "$DATABASE_JUNIT_FILE" "$MANIFEST_FILE"
@@ -137,29 +139,55 @@ write_fingerprint() {
   bun_version="$(bun --version 2>/dev/null || printf 'unavailable')"
   cpu_count="$(getconf _NPROCESSORS_ONLN 2>/dev/null || printf 'unknown')"
   dataset_manifest="$({
-    git ls-files | LC_ALL=C sort | while IFS= read -r dataset_path; do
-      if [[ "$dataset_path" == *.spec.ts || "$dataset_path" == ".env.example" || "$dataset_path" == */.env.example || "$dataset_path" == "docker-compose.yml" || "$dataset_path" == packages/db/src/migrations/* ]]; then
-        sha256sum "$dataset_path"
-      fi
+    find . \( \
+      -path './.artifacts' -o \
+      -path './.cache' -o \
+      -path './.git' -o \
+      -path './.omc' -o \
+      -path './.openwiki' -o \
+      -path './.turbo' -o \
+      -path './coverage' -o \
+      -path './logs' -o \
+      -path './node_modules' -o \
+      -path '*/.next' -o \
+      -path '*/coverage' -o \
+      -path '*/dist' -o \
+      -path '*/logs' -o \
+      -path '*/node_modules' \
+    \) -prune -o -type f \( \
+      -name '*.spec.ts' -o \
+      -path './.env.example' -o \
+      -path '*/.env.example' -o \
+      -path './docker-compose.yml' -o \
+      -path './packages/db/src/migrations/*' \
+    \) -print0 | LC_ALL=C sort -z | while IFS= read -r -d '' dataset_path; do
+      sha256sum "${dataset_path#./}"
     done
   })"
   dataset_digest="$(printf '%s\n' "$dataset_manifest" | sha256sum | awk '{print $1}')"
   dataset_file_count="$(printf '%s\n' "$dataset_manifest" | awk 'NF {count += 1} END {print count + 0}')"
-  git_sha="$(git rev-parse HEAD 2>/dev/null || printf 'unknown')"
-  git_state="clean"
-  if [[ -n "$(git status --porcelain 2>/dev/null)" ]]; then
-    git_state="dirty"
+  # Crabbox's ordinary sync does not transfer .git. Accept source identity only
+  # when the caller explicitly transfers it; otherwise preserve that absence.
+  git_sha="${CRABBOX_SOURCE_GIT_SHA:-unavailable}"
+  git_state="${CRABBOX_SOURCE_GIT_STATE:-unavailable}"
+  if [[ ! "$git_sha" =~ ^[0-9a-fA-F]{40}$ ]]; then
+    git_sha="unavailable"
+  fi
+  if [[ "$git_state" != "clean" && "$git_state" != "dirty" && "$git_state" != "unavailable" ]]; then
+    git_state="unavailable"
   fi
   memory_kib="$(awk '/^MemTotal:/ {print $2}' /proc/meminfo 2>/dev/null || true)"
   memory_kib="${memory_kib:-unknown}"
   os_name="$(uname -s)"
   os_release="$(uname -r)"
 
-  printf '{\n  "executor": "crabbox",\n  "provider": "exe-dev",\n  "profile": "%s",\n  "region": "%s",\n  "image": "%s",\n  "bunImage": "%s",\n  "os": "%s",\n  "osRelease": "%s",\n  "architecture": "%s",\n  "cpuCount": "%s",\n  "memoryKiB": "%s",\n  "bunVersion": "%s",\n  "bunLockDigest": "sha256:%s",\n  "gitSha": "%s",\n  "gitState": "%s",\n  "attempt": "%s",\n  "workload": "%s",\n  "runKind": "%s",\n  "cacheState": "%s",\n  "datasetProfile": "%s",\n  "datasetDigest": "sha256:%s",\n  "datasetFileCount": %d,\n  "concurrency": 2\n}\n' \
+  printf '{\n  "executor": "crabbox",\n  "provider": "exe-dev",\n  "profile": "%s",\n  "region": "%s",\n  "image": "%s",\n  "bunImage": "%s",\n  "postgresImage": "%s",\n  "postgresVersion": "%s",\n  "os": "%s",\n  "osRelease": "%s",\n  "architecture": "%s",\n  "cpuCount": "%s",\n  "memoryKiB": "%s",\n  "bunVersion": "%s",\n  "bunLockDigest": "sha256:%s",\n  "gitSha": "%s",\n  "gitState": "%s",\n  "attempt": "%s",\n  "workload": "%s",\n  "runKind": "%s",\n  "cacheState": "%s",\n  "datasetProfile": "%s",\n  "datasetDigest": "sha256:%s",\n  "datasetFileCount": %d,\n  "concurrency": 2\n}\n' \
     "$PROFILE" \
     "$(json_escape "${EXE_DEV_REGION:-missing}")" \
     "$EXECUTOR_IMAGE" \
     "$BUN_IMAGE" \
+    "$(json_escape "$POSTGRES_IMAGE")" \
+    "$(json_escape "$POSTGRES_VERSION")" \
     "$(json_escape "$os_name")" \
     "$(json_escape "$os_release")" \
     "$(json_escape "$architecture")" \
@@ -176,6 +204,17 @@ write_fingerprint() {
     "$DATASET_PROFILE" \
     "$dataset_digest" \
     "$dataset_file_count" >"$FINGERPRINT_FILE"
+}
+
+resolve_postgres_fingerprint() {
+  local image_without_digest
+
+  POSTGRES_IMAGE="$({
+    "${COMPOSE_COMMAND[@]}" config --format json
+  } | bun -e 'const config = JSON.parse(await Bun.stdin.text()); process.stdout.write(config.services.postgres.image);')"
+  image_without_digest="${POSTGRES_IMAGE%%@*}"
+  POSTGRES_VERSION="${image_without_digest##*:}"
+  POSTGRES_VERSION="${POSTGRES_VERSION%%-*}"
 }
 
 write_report() {
@@ -292,7 +331,7 @@ export PATH="${HOME}/.local/bin:${PATH}"
 run_phase "runtime-setup" "install Bun ${EXPECTED_BUN_VERSION} from pinned image" ensure_bun
 run_phase "install" "bun install --frozen-lockfile --ignore-scripts" bun install --frozen-lockfile --ignore-scripts
 run_phase "typecheck" "bun run check-types -- --concurrency=2" bun run check-types -- --concurrency=2
-run_phase "lint" "bun run check-layering" bun run check-layering
+run_phase "layering" "bun run check-layering" bun run check-layering
 run_phase "secret-scan" "bun run check-secrets" bun run check-secrets
 run_phase "unit" "bun test --max-concurrency 2 --reporter=junit" \
   bun test --max-concurrency 2 --path-ignore-patterns '**/dist/**' --reporter=junit --reporter-outfile="$JUNIT_FILE"
@@ -307,6 +346,7 @@ export MIGRATION_DATABASE_URL="postgresql://${POSTGRES_MIGRATOR_USER}:${POSTGRES
 export DATABASE_TEST_URL="$MIGRATION_DATABASE_URL"
 export DATABASE_APP_TEST_URL="postgresql://${POSTGRES_APP_USER}:${POSTGRES_APP_PASSWORD}@127.0.0.1:${POSTGRES_HOST_PORT}/${POSTGRES_DB}"
 COMPOSE_COMMAND=(docker compose --env-file "$COMPOSE_ENV_FILE")
+resolve_postgres_fingerprint
 run_phase "database-integration" "REQUIRE_DATABASE_TESTS=1 bun test packages/db/src/core.spec.ts --reporter=junit" run_database_integration
 cleanup_database
 run_phase "integration" "COMPOSE_ENV_FILE=<generated> bun run docker:smoke" env COMPOSE_ENV_FILE="$COMPOSE_ENV_FILE" bun run docker:smoke
