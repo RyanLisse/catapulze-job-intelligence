@@ -42,12 +42,13 @@ sync:
     - logs
     - node_modules
     # Crabbox v0.46 applies these rules in order (last match wins). Exclude
-    # every real dotenv variant, then re-include only the tracked templates
-    # needed by the clean-room smoke script. This also works when gitSeed
-    # cannot authenticate and Crabbox falls back to manifest sync.
+    # every real dotenv variant, then re-include only the two path-addressable
+    # tracked templates. Crabbox v0.46 treats a basename-only negation as a
+    # match at every depth, so the root Compose template is generated from
+    # fixed non-secret defaults by the clean-room script when gitSeed is absent.
     - ".env*"
-    - "!.env.example"
-    - "!**/.env.example"
+    - "!apps/server/.env.example"
+    - "!apps/web/.env.example"
 
 run:
   preflightTools:
@@ -73,6 +74,7 @@ jobs:
     command: bash scripts/crabbox-exe-dev-shadow.sh
     junit:
       - .artifacts/crabbox/exe-dev-shadow/junit.xml
+      - .artifacts/crabbox/exe-dev-shadow/database-junit.xml
     artifactGlobs:
       - .artifacts/crabbox/exe-dev-shadow/**
     requiredArtifacts:
@@ -80,11 +82,13 @@ jobs:
       - .artifacts/crabbox/exe-dev-shadow/execution-fingerprint.json
       - .artifacts/crabbox/exe-dev-shadow/report.md
       - .artifacts/crabbox/exe-dev-shadow/junit.xml
+      - .artifacts/crabbox/exe-dev-shadow/database-junit.xml
       - .artifacts/crabbox/exe-dev-shadow/manifest.sha256
     downloads:
       - .artifacts/crabbox/exe-dev-shadow/phases.jsonl=.artifacts/crabbox/exe-dev-shadow/phases.jsonl
       - .artifacts/crabbox/exe-dev-shadow/execution-fingerprint.json=.artifacts/crabbox/exe-dev-shadow/execution-fingerprint.json
       - .artifacts/crabbox/exe-dev-shadow/report.md=.artifacts/crabbox/exe-dev-shadow/report.md
       - .artifacts/crabbox/exe-dev-shadow/junit.xml=.artifacts/crabbox/exe-dev-shadow/junit.xml
+      - .artifacts/crabbox/exe-dev-shadow/database-junit.xml=.artifacts/crabbox/exe-dev-shadow/database-junit.xml
       - .artifacts/crabbox/exe-dev-shadow/manifest.sha256=.artifacts/crabbox/exe-dev-shadow/manifest.sha256
     stop: always

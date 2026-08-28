@@ -10,7 +10,9 @@ readonly PHASES_FILE="${EVIDENCE_DIR}/phases.jsonl"
 readonly FINGERPRINT_FILE="${EVIDENCE_DIR}/execution-fingerprint.json"
 readonly REPORT_FILE="${EVIDENCE_DIR}/report.md"
 readonly JUNIT_FILE="${EVIDENCE_DIR}/junit.xml"
+readonly DATABASE_JUNIT_FILE="${EVIDENCE_DIR}/database-junit.xml"
 readonly MANIFEST_FILE="${EVIDENCE_DIR}/manifest.sha256"
+readonly COMPOSE_ENV_FILE="/tmp/catapulze-crabbox-compose-${$}.env"
 readonly WORKLOAD="exe-dev-shadow-correctness"
 readonly PROFILE="catapulze-job-intelligence-exe-dev"
 readonly RUN_KIND="cold"
@@ -18,9 +20,11 @@ readonly CACHE_STATE="repository-unprimed-provider-image-unknown"
 readonly DATASET_PROFILE="repository-correctness-suite"
 
 RUN_STATUS="failed"
+COMPOSE_DATABASE_STARTED="false"
+COMPOSE_COMMAND=()
 
 mkdir -p "$EVIDENCE_DIR"
-rm -f "$PHASES_FILE" "$FINGERPRINT_FILE" "$REPORT_FILE" "$JUNIT_FILE" "$MANIFEST_FILE"
+rm -f "$PHASES_FILE" "$FINGERPRINT_FILE" "$REPORT_FILE" "$JUNIT_FILE" "$DATABASE_JUNIT_FILE" "$MANIFEST_FILE"
 : >"$PHASES_FILE"
 
 monotonic_ms() {
@@ -188,7 +192,7 @@ write_report() {
     printf -- "- Dataset profile: \`%s\`\n" "$DATASET_PROFILE"
     printf -- "- Recorded phases: \`%s\`\n" "$phase_count"
     printf -- "- Generated at: \`%s\`\n" "$(iso_timestamp)"
-    printf "\nSee \`phases.jsonl\`, \`execution-fingerprint.json\`, and \`junit.xml\` for machine-readable evidence.\n"
+    printf "\nSee \`phases.jsonl\`, \`execution-fingerprint.json\`, \`junit.xml\`, and \`database-junit.xml\` for machine-readable evidence.\n"
   } >"$REPORT_FILE"
 }
 
@@ -196,11 +200,68 @@ write_manifest() {
   local artifact
 
   : >"$MANIFEST_FILE"
-  for artifact in "$PHASES_FILE" "$FINGERPRINT_FILE" "$REPORT_FILE" "$JUNIT_FILE"; do
+  for artifact in "$PHASES_FILE" "$FINGERPRINT_FILE" "$REPORT_FILE" "$JUNIT_FILE" "$DATABASE_JUNIT_FILE"; do
     if [[ -f "$artifact" ]]; then
       sha256sum "$artifact" >>"$MANIFEST_FILE"
     fi
   done
+}
+
+cleanup_database() {
+  if [[ "$COMPOSE_DATABASE_STARTED" == "true" ]]; then
+    "${COMPOSE_COMMAND[@]}" down >/dev/null 2>&1 || true
+    COMPOSE_DATABASE_STARTED="false"
+  fi
+}
+
+write_compose_env() {
+  # Fixed clean-room placeholders mirror the tracked root template without
+  # requiring a basename-wide .env.example sync exception in Crabbox v0.46.
+  # No operator or 1Password values are read into this file.
+  printf '%s\n' \
+    'POSTGRES_ADMIN_USER=ji_admin' \
+    'POSTGRES_ADMIN_PASSWORD=ji_admin_local' \
+    'POSTGRES_DB=ji_test' \
+    'POSTGRES_MIGRATOR_USER=ji_migrator' \
+    'POSTGRES_MIGRATOR_PASSWORD=ji_migrator_local' \
+    'POSTGRES_APP_USER=ji_app' \
+    'POSTGRES_APP_PASSWORD=ji_app_local' \
+    'POSTGRES_HOST_PORT=5432' \
+    'POSTGRES_DATA_VOLUME=catapulze-postgres-p0' \
+    'CATAPULZE_DATABASE_URL=postgresql://ji_app:ji_app_local@postgres:5432/ji_test' \
+    'BETTER_AUTH_SECRET=replace-with-at-least-32-characters' \
+    'BETTER_AUTH_URL=http://localhost:3000' \
+    'CORS_ORIGIN=http://localhost:3001' \
+    'NEXT_PUBLIC_SERVER_URL=http://localhost:3000' \
+    'POSTGRES_CPU_LIMIT=2.0' \
+    'POSTGRES_MEMORY_LIMIT=4g' \
+    'POSTGRES_MEMORY_RESERVATION=1g' \
+    'POSTGRES_SHM_SIZE=512m' >"$COMPOSE_ENV_FILE"
+}
+
+run_database_integration() {
+  local volume_name
+
+  if [[ -n "$("${COMPOSE_COMMAND[@]}" ps -aq)" ]]; then
+    printf 'exe.dev shadow: stop the existing Compose stack before database integration\n' >&2
+    return 1
+  fi
+
+  volume_name="$({
+    "${COMPOSE_COMMAND[@]}" config --format json
+  } | bun -e 'const config = JSON.parse(await Bun.stdin.text()); process.stdout.write(config.volumes.postgres_data.name);')"
+  POSTGRES_DATA_VOLUME="$volume_name" bash tools/postgres/ensure-volume.sh
+  COMPOSE_DATABASE_STARTED="true"
+  "${COMPOSE_COMMAND[@]}" up -d --wait postgres
+
+  env \
+    DATABASE_APP_TEST_URL="$DATABASE_APP_TEST_URL" \
+    DATABASE_TEST_URL="$DATABASE_TEST_URL" \
+    REQUIRE_DATABASE_TESTS=1 \
+    bun test packages/db/src/core.spec.ts \
+      --max-concurrency 2 \
+      --reporter=junit \
+      --reporter-outfile="$DATABASE_JUNIT_FILE"
 }
 
 finalize_evidence() {
@@ -209,7 +270,17 @@ finalize_evidence() {
   write_manifest
 }
 
-trap finalize_evidence EXIT
+on_exit() {
+  local exit_status=$?
+
+  trap - EXIT
+  cleanup_database
+  rm -f "$COMPOSE_ENV_FILE"
+  finalize_evidence
+  exit "$exit_status"
+}
+
+trap on_exit EXIT
 
 if [[ "${EXE_DEV_REGION:-}" != "$EXPECTED_REGION" ]]; then
   printf 'exe.dev shadow: EXE_DEV_REGION must be %s; verify the account region before running\n' "$EXPECTED_REGION" >&2
@@ -226,14 +297,19 @@ run_phase "secret-scan" "bun run check-secrets" bun run check-secrets
 run_phase "unit" "bun test --max-concurrency 2 --reporter=junit" \
   bun test --max-concurrency 2 --path-ignore-patterns '**/dist/**' --reporter=junit --reporter-outfile="$JUNIT_FILE"
 
+write_compose_env
 set -a
-# This tracked file contains non-secret Compose placeholders.
-# shellcheck disable=SC1091
-source .env.example
+# shellcheck disable=SC1090
+source "$COMPOSE_ENV_FILE"
 set +a
 
 export MIGRATION_DATABASE_URL="postgresql://${POSTGRES_MIGRATOR_USER}:${POSTGRES_MIGRATOR_PASSWORD}@127.0.0.1:${POSTGRES_HOST_PORT}/${POSTGRES_DB}"
-run_phase "integration" "COMPOSE_ENV_FILE=.env.example bun run docker:smoke" env COMPOSE_ENV_FILE=.env.example bun run docker:smoke
+export DATABASE_TEST_URL="$MIGRATION_DATABASE_URL"
+export DATABASE_APP_TEST_URL="postgresql://${POSTGRES_APP_USER}:${POSTGRES_APP_PASSWORD}@127.0.0.1:${POSTGRES_HOST_PORT}/${POSTGRES_DB}"
+COMPOSE_COMMAND=(docker compose --env-file "$COMPOSE_ENV_FILE")
+run_phase "database-integration" "REQUIRE_DATABASE_TESTS=1 bun test packages/db/src/core.spec.ts --reporter=junit" run_database_integration
+cleanup_database
+run_phase "integration" "COMPOSE_ENV_FILE=<generated> bun run docker:smoke" env COMPOSE_ENV_FILE="$COMPOSE_ENV_FILE" bun run docker:smoke
 run_phase "build" "bun run build -- --concurrency=2" bun run build -- --concurrency=2
 
 RUN_STATUS="success"
