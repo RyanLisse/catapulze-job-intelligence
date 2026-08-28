@@ -5,6 +5,9 @@
     ".": {
       "default": "./src/index.ts"
     },
+    "./scd2": {
+      "default": "./src/scd2.ts"
+    },
     "./*": {
       "default": "./src/*.ts"
     }
@@ -25,7 +28,9 @@
   },
   "devDependencies": {
     "@ji/config": "workspace:*",
+    "@types/bun": "catalog:",
     "drizzle-kit": "^0.31.10",
+    "postgres": "^3.4.7",
     "typescript": "catalog:"
   }
 }
