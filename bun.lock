@@ -95,6 +95,19 @@
         "typescript": "catalog:",
       },
     },
+    "packages/application": {
+      "name": "@ji/application",
+      "version": "0.0.0",
+      "dependencies": {
+        "@ji/connectors": "workspace:*",
+        "@ji/domain": "workspace:*",
+      },
+      "devDependencies": {
+        "@ji/config": "workspace:*",
+        "@types/bun": "catalog:",
+        "typescript": "catalog:",
+      },
+    },
     "packages/auth": {
       "name": "@ji/auth",
       "dependencies": {
@@ -112,6 +125,18 @@
     "packages/config": {
       "name": "@ji/config",
       "version": "0.0.0",
+    },
+    "packages/connectors": {
+      "name": "@ji/connectors",
+      "version": "0.0.0",
+      "dependencies": {
+        "@ji/domain": "workspace:*",
+      },
+      "devDependencies": {
+        "@ji/config": "workspace:*",
+        "@types/bun": "catalog:",
+        "typescript": "catalog:",
+      },
     },
     "packages/db": {
       "name": "@ji/db",
@@ -443,9 +468,13 @@
 
     "@ji/api": ["@ji/api@workspace:packages/api"],
 
+    "@ji/application": ["@ji/application@workspace:packages/application"],
+
     "@ji/auth": ["@ji/auth@workspace:packages/auth"],
 
     "@ji/config": ["@ji/config@workspace:packages/config"],
+
+    "@ji/connectors": ["@ji/connectors@workspace:packages/connectors"],
 
     "@ji/db": ["@ji/db@workspace:packages/db"],
 
