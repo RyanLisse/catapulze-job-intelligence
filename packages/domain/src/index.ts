@@ -12,6 +12,19 @@ export {
   type TariefEenheid,
 } from "./aanvraag";
 export {
+  BOOLEAN_PARSER_VERSION,
+  parseBooleanQuery,
+  type BooleanAnd,
+  type BooleanNode,
+  type BooleanNot,
+  type BooleanOr,
+  type BooleanParseError,
+  type BooleanParseResult,
+  type BooleanParserVersion,
+  type BooleanPhrase,
+  type BooleanTerm,
+} from "./boolean";
+export {
   BRON_STATUSES,
   VOORWAARDEN_STATUSES,
   type AgentContextId,
