@@ -19,7 +19,9 @@ import {
 const defaultTestDatabaseUrl = "postgresql://ji:ji@127.0.0.1:5432/ji_test";
 
 const testDatabaseUrl = process.env.DATABASE_TEST_URL ?? defaultTestDatabaseUrl;
-const testDatabaseRequired = process.env.DATABASE_TEST_URL !== undefined;
+const testDatabaseRequired =
+  process.env.REQUIRE_DATABASE_TESTS === "1" ||
+  process.env.DATABASE_TEST_URL !== undefined;
 
 const migrationsFolder = path.join(import.meta.dir, "migrations");
 

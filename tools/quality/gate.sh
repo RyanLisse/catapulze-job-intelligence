@@ -33,6 +33,6 @@ echo "gate: check-secrets"
 bun run check-secrets
 
 echo "gate: test"
-bun test --max-concurrency 2
+REQUIRE_DATABASE_TESTS=1 bun test --max-concurrency 2
 
 echo "gate: passed"

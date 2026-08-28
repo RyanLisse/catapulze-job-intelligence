@@ -68,6 +68,8 @@ Handige scripts: `bun run dev:web`, `bun run dev:server`, `bun run db:studio`, `
 
 `bun run check` en `bun run gate` vereisen de [Qlty CLI](https://docs.qlty.sh/cli/installation). Ze falen bewust wanneer Qlty ontbreekt, zodat een ontbrekende quality-owner nooit als groen wordt gerapporteerd.
 
+`bun run gate` vereist daarnaast een bereikbare test-Postgres en voert de migratie- en constrainttests echt uit. Start lokaal alleen de testservice met `docker compose up -d postgres` en stop die na de gate met `docker compose down`. Een gewone `bun test` mag zonder Postgres draaien en slaat uitsluitend die integratiesuite over.
+
 Een verse clone heeft voor de basisvalidatie alleen **bun** nodig (geen extra globale linters of test runners):
 
 ```bash
