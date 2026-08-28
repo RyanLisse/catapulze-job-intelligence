@@ -96,8 +96,8 @@ De scheiding is bewust:
 
 | Onderdeel | Voorgestelde default | Reden |
 |---|---|---|
-| System of record | Nieuwe, schone Neon/Postgres-database | Snel starten, bestaande trage app isoleren, portable Postgres behouden |
-| Bestaande data | Read-only import/backfill met herkomst | Niets weggooien en migratierisico beperken |
+| System of record | Nieuwe Postgres 16 on-box in Docker vanaf P0 (DEC-005) | Geen extra Neon-kosten of latere Neon→on-box-migratie; lage latency naar outbox-worker en Manticore |
+| Bestaande data | Motian-Neon uitsluitend als read-only import/backfillbron met herkomst | Niets weggooien, geen nieuwe Catapulze-writes naar v1 en migratierisico beperken |
 | Raw data | Onveranderlijke JSON-payload per bronwaarneming | Replay, debugging en nieuwe normalisatie mogelijk maken |
 | Search MVP | Postgres FTS + GIN, `pg_trgm` en een eigen geteste Boolean-parser | Geen aparte cluster voordat een benchmark dat rechtvaardigt |
 | Search-evolutie | `SearchAdapter` met OpenSearch als volgende implementatie | Schaalpad zonder vroege lock-in |
@@ -106,6 +106,19 @@ De scheiding is bewust:
 | AI/vision bij scrapers | Alleen exception-based diagnose | Dagelijkse visuele vergelijking is onnodig duur |
 | Spot/Spott-write | Smalle `export_approved_jobs`-actie | Geen generieke CRUD/SQL en duidelijk effectcontract |
 | Deployment | Kleine losse services/workers, remote uitgevoerd | Isolatie en schaalbaarheid zonder persoonlijke laptop als runtime |
+
+### DEC-005 production gates
+
+Het on-box-besluit accepteert databasebeheer als expliciete operationele verantwoordelijkheid. Productie is daarom pas klaar wanneer:
+
+1. Postgres op een vooraf aangemaakt, extern beschermd volume staat dat buiten de Compose-lifecycle valt; `docker compose down -v` is verboden;
+2. `5432` niet publiek is en alleen via het private service-/hostnetwerk bereikbaar is;
+3. continue WAL-archivering off-site staat, retentie en encryptie zijn vastgelegd en een restore naar een lege geïsoleerde database periodiek slaagt;
+4. monitoring en alerts minimaal beschikbaarheid, diskruimte, WAL/back-uplag, verbindingen, locks, querylatency, CPU en geheugen dekken;
+5. resourcegrenzen en capaciteitsmarges zijn gemeten, waarbij Postgres voorrang krijgt boven de rebuildbare Manticore-index;
+6. een aparte DB-host of managed Postgres wordt gekozen zodra HA nodig is of meetbare disk-, RAM- of CPU-concurrentie de database-SLO bedreigt.
+
+Deze criteria zijn acceptatiegates. Dit document claimt niet dat continue back-up of restore al operationeel is bewezen.
 
 ### Pas kiezen na bewijs
 
@@ -226,12 +239,11 @@ Een volledige productieklare implementatie van “alle bronnen” is niet betrou
 4. Exacte Boolean-syntax en velden.
 5. Canoniek schema, betekenis/periode van het tarief- of prijsveld en verplichte/optionele velden.
 6. Dedupebeleid binnen en tussen bronnen.
-7. Bestaande versus nieuwe Neon-database en backfillstrategie.
-8. Spot/Spott-contract: correcte productnaam en URL, API/MCP, write scopes, unieke ID en sandbox.
-9. Scrapefrequentie/freshness-SLA per bron en alert-eigenaar.
-10. Kostenplafond per maand en per bron/run.
-11. Demo-, staging- en productieomgeving.
-12. Juridische grondslag en risicoklasse vóór Candidate Intelligence.
+7. Spot/Spott-contract: correcte productnaam en URL, API/MCP, write scopes, unieke ID en sandbox.
+8. Scrapefrequentie/freshness-SLA per bron en alert-eigenaar.
+9. Kostenplafond per maand en per bron/run.
+10. Demo-, staging- en productieomgeving, inclusief eigenaar en ritme voor backup-/restore-tests.
+11. Juridische grondslag en risicoklasse vóór Candidate Intelligence.
 
 ## 13. Bronbetrouwbaarheid
 

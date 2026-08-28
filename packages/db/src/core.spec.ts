@@ -16,9 +16,14 @@ import {
   sourceRecord,
 } from "./schema";
 
-const defaultTestDatabaseUrl = "postgresql://ji:ji@127.0.0.1:5432/ji_test";
+const defaultAppDatabaseUrl =
+  "postgresql://ji_app:ji_app_local@127.0.0.1:5432/ji_test";
 
-const testDatabaseUrl = process.env.DATABASE_TEST_URL ?? defaultTestDatabaseUrl;
+const testDatabaseUrl =
+  process.env.DATABASE_TEST_URL ??
+  "postgresql://ji_migrator:ji_migrator_local@127.0.0.1:5432/ji_test";
+const appDatabaseUrl =
+  process.env.DATABASE_APP_TEST_URL ?? defaultAppDatabaseUrl;
 const testDatabaseRequired =
   process.env.REQUIRE_DATABASE_TESTS === "1" ||
   process.env.DATABASE_TEST_URL !== undefined;
@@ -46,6 +51,14 @@ const forbiddenTables = [
   { name: "candidate", schema: "curated" },
   { name: "aanvraag_contact", schema: "curated" },
 ];
+
+const requireRow = <Row>(row: Row | undefined, description: string): Row => {
+  if (row === undefined) {
+    throw new Error(`Expected ${description}`);
+  }
+
+  return row;
+};
 
 const isPostgresAvailable = async (): Promise<boolean> => {
   const probe = postgres(testDatabaseUrl, { connect_timeout: 2, max: 1 });
@@ -88,6 +101,7 @@ describe("core schema migrations", () => {
       expect(postgresAvailable).toBe(false);
       return;
     }
+    const database = db;
 
     const schemas = await db.execute<{ schema_name: string }>(sql`
       SELECT schema_name
@@ -103,7 +117,7 @@ describe("core schema migrations", () => {
     ]);
 
     const tableChecks = requiredTables.map(async (entry) => {
-      const rows = await db.execute<{ table_name: string }>(sql`
+      const rows = await database.execute<{ table_name: string }>(sql`
         SELECT table_name
         FROM information_schema.tables
         WHERE table_schema = ${entry.schema}
@@ -116,7 +130,7 @@ describe("core schema migrations", () => {
     await Promise.all(tableChecks);
 
     const forbiddenChecks = forbiddenTables.map(async (entry) => {
-      const rows = await db.execute<{ table_name: string }>(sql`
+      const rows = await database.execute<{ table_name: string }>(sql`
         SELECT table_name
         FROM information_schema.tables
         WHERE table_schema = ${entry.schema}
@@ -129,13 +143,76 @@ describe("core schema migrations", () => {
     await Promise.all(forbiddenChecks);
   });
 
+  it("keeps migration and runtime roles non-superuser and runtime read-only for DDL", async () => {
+    if (!postgresAvailable || !sqlClient) {
+      expect(postgresAvailable).toBe(false);
+      return;
+    }
+
+    const appClient = postgres(appDatabaseUrl, { max: 1 });
+
+    try {
+      const migrationRoles = await sqlClient<
+        [{ rolcreaterole: boolean; rolcreatedb: boolean; rolsuper: boolean }]
+      >`
+        SELECT rolcreaterole, rolcreatedb, rolsuper
+        FROM pg_roles
+        WHERE rolname = current_user
+      `;
+      const appRoles = await appClient<
+        [
+          {
+            canCreateCurated: boolean;
+            canReadMigrationJournal: boolean;
+            rolcreaterole: boolean;
+            rolcreatedb: boolean;
+            rolsuper: boolean;
+          },
+        ]
+      >`
+        SELECT
+          has_schema_privilege(current_user, 'curated', 'CREATE') AS "canCreateCurated",
+          has_table_privilege(
+            current_user,
+            'drizzle.__drizzle_migrations',
+            'SELECT'
+          ) AS "canReadMigrationJournal",
+          rolcreaterole,
+          rolcreatedb,
+          rolsuper
+        FROM pg_roles
+        WHERE rolname = current_user
+      `;
+      const migrationRole = requireRow(
+        migrationRoles[0],
+        "the active migration role"
+      );
+      const appRole = requireRow(appRoles[0], "the active application role");
+
+      expect(migrationRole).toEqual({
+        rolcreatedb: false,
+        rolcreaterole: false,
+        rolsuper: false,
+      });
+      expect(appRole).toEqual({
+        canCreateCurated: false,
+        canReadMigrationJournal: true,
+        rolcreatedb: false,
+        rolcreaterole: false,
+        rolsuper: false,
+      });
+    } finally {
+      await appClient.end({ timeout: 5 });
+    }
+  });
+
   it("rejects duplicate source_record hash per bron", async () => {
     if (!postgresAvailable || !db) {
       expect(postgresAvailable).toBe(false);
       return;
     }
 
-    const [bronRow] = await db
+    const bronRows = await db
       .insert(bron)
       .values({
         categorie: "overheidsportaal",
@@ -144,11 +221,13 @@ describe("core schema migrations", () => {
         voorwaardenStatus: "toegestaan",
       })
       .returning({ id: bron.id });
+    const bronRow = requireRow(bronRows[0], "the inserted source");
 
-    const [runRow] = await db
+    const runRows = await db
       .insert(scrapeRun)
       .values({ bronId: bronRow.id })
       .returning({ id: scrapeRun.id });
+    const runRow = requireRow(runRows[0], "the inserted scrape run");
 
     await db.insert(sourceRecord).values({
       bronId: bronRow.id,
@@ -212,7 +291,7 @@ describe("core schema migrations", () => {
       return;
     }
 
-    const [bronRow] = await db
+    const bronRows = await db
       .insert(bron)
       .values({
         categorie: "jobboard",
@@ -221,15 +300,17 @@ describe("core schema migrations", () => {
         voorwaardenStatus: "toegestaan",
       })
       .returning({ id: bron.id });
+    const bronRow = requireRow(bronRows[0], "the inserted source");
 
-    const [runRow] = await db
+    const runRows = await db
       .insert(scrapeRun)
       .values({ bronId: bronRow.id })
       .returning({ id: scrapeRun.id });
+    const runRow = requireRow(runRows[0], "the inserted scrape run");
 
     const seenAt = new Date("2026-08-28T08:00:00.000Z");
 
-    const [aanvraagRow] = await db
+    const aanvraagRows = await db
       .insert(aanvraag)
       .values({
         beschrijving: "Eerste beschrijving",
@@ -248,8 +329,9 @@ describe("core schema migrations", () => {
         versie: 1,
       })
       .returning({ id: aanvraag.id });
+    const aanvraagRow = requireRow(aanvraagRows[0], "the inserted aanvraag");
 
-    const [firstVersie] = await db
+    const firstVersies = await db
       .insert(aanvraagVersie)
       .values({
         aanvraagId: aanvraagRow.id,
@@ -264,6 +346,10 @@ describe("core schema migrations", () => {
         geldigTot: aanvraagVersie.geldigTot,
         id: aanvraagVersie.id,
       });
+    const firstVersie = requireRow(
+      firstVersies[0],
+      "the initial aanvraag version"
+    );
 
     expect(firstVersie.geldigTot).toBeNull();
 

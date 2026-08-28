@@ -329,10 +329,12 @@ async function existingProjectIssues(project) {
 function resolveStateId(issue, states, hasCycle) {
   const todo = findState(states, { want: "Todo", type: "unstarted" });
   const backlog = findState(states, { want: "Backlog", type: "backlog" }) ?? todo;
+  const done = findState(states, { want: "Done", type: "completed" });
   if (issue.status === "TodoIfCycle") {
     return hasCycle ? todo?.id : backlog?.id;
   }
   if (issue.status === "Todo") return todo?.id;
+  if (issue.status === "Done") return done?.id;
   return backlog?.id;
 }
 

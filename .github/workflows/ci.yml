@@ -19,22 +19,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
-      DATABASE_TEST_URL: postgresql://ji:ji@127.0.0.1:5432/ji_test
       NEXT_PUBLIC_SERVER_URL: http://localhost:3000
-    services:
-      postgres:
-        image: postgres:16-alpine
-        env:
-          POSTGRES_DB: ji_test
-          POSTGRES_PASSWORD: ji
-          POSTGRES_USER: ji
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U ji -d ji_test"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 10
     steps:
       - name: Check out repository
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
@@ -48,10 +33,25 @@ jobs:
         uses: qltysh/qlty-action/install@08a0a862c159eae9b9003081da6663d96efef637  # v2.3.0
 
       - name: Install locked dependencies
-        run: bun ci
+        run: bun install --frozen-lockfile
+
+      - name: Start isolated PostgreSQL
+        env:
+          POSTGRES_DATA_VOLUME: catapulze-postgres-ci
+        run: |
+          docker volume create "$POSTGRES_DATA_VOLUME"
+          docker compose --env-file .env.example up -d --wait postgres
 
       - name: Verify
         run: bun run gate
 
       - name: Build
         run: bun run build -- --concurrency=2
+
+      - name: Stop isolated PostgreSQL
+        if: always()
+        env:
+          POSTGRES_DATA_VOLUME: catapulze-postgres-ci
+        run: |
+          docker compose --env-file .env.example down -v
+          docker volume rm "$POSTGRES_DATA_VOLUME"

@@ -38,6 +38,7 @@
     "db:generate": "PATH=\"./node_modules/.bin:$PATH\" turbo run db:generate -F @ji/db --",
     "db:migrate": "PATH=\"./node_modules/.bin:$PATH\" turbo run db:migrate -F @ji/db --",
     "docker:build": "docker compose build",
+    "docker:volume:create": "bash tools/postgres/ensure-volume.sh",
     "docker:up": "docker compose up -d --build",
     "docker:down": "docker compose down",
     "docker:logs": "docker compose logs -f",
@@ -47,7 +48,7 @@
     "fix:all": "PATH=\"./node_modules/.bin:$PATH\" ultracite fix",
     "gate": "PATH=\"./node_modules/.bin:$PATH\" bash tools/quality/gate.sh",
     "wiki": "openwiki code --update --print",
-    "test": "PATH=\"./node_modules/.bin:$PATH\" bun test --max-concurrency 2",
+    "test": "PATH=\"./node_modules/.bin:$PATH\" bun test --max-concurrency 2 --path-ignore-patterns '**/dist/**'",
     "check-layering": "PATH=\"./node_modules/.bin:$PATH\" bun scripts/check-layering.ts",
     "check-secrets": "PATH=\"./node_modules/.bin:$PATH\" bun scripts/check-secrets-scan.ts",
     "prepare": "PATH=\"./node_modules/.bin:$PATH\" lefthook install --reset-hooks-path"

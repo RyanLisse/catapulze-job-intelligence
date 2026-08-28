@@ -1,6 +1,6 @@
 # Implementatiebacklog
 
-De volgorde hieronder maximaliseert een werkende verticale slice. `P0` is nodig voor de eerste gecontroleerde read path; `P1` maakt Spot/Spott-export en productie-operatie mogelijk. Taken met `DEC` zijn echte productbesluiten en geen engineering-invulwerk.
+De volgorde hieronder maximaliseert een werkende verticale slice. `P0` is nodig voor de eerste gecontroleerde read path en sluit ook de database-production-readiness gate. `P1` voegt de bredere Spot/Spott-export en operationele workflows toe. Taken met `DEC` zijn echte productbesluiten en geen engineering-invulwerk.
 
 ## Gate 0 — besluiten en toegang
 
@@ -10,7 +10,7 @@ De volgorde hieronder maximaliseert een werkende verticale slice. `P0` is nodig 
 | DEC-002 | P0 | Lever definitieve bronmatrix/deep dive | Robbie | Iedere bron heeft URL, land, prioriteit, methode, auth, frequentie, eigenaar en ToS/AVG-status |
 | DEC-003 | P0 | Leg schema en deduperegels vast | Samen | Verplichte velden, unknown-gedrag en drie dedupe-niveaus zijn geaccepteerd |
 | DEC-004 | P0 | Leg searchcontract en SLO vast | Robbie | Syntax, velden, filters, p95/p99 en benchmarkqueryset zijn testbaar |
-| DEC-005 | P0 | Kies nieuwe of bestaande Neon-database | Ryan | Datastroom, backfill en rollback zijn beschreven |
+| DEC-005 | P0 | Leg Postgres 16 on-box vanaf P0 vast; Motian-Neon blijft alleen read-only importbron | Ryan | Besluit, datastroom, backfill, rollback en managed/HA-exitcriteria zijn beschreven |
 | DEC-006 | P1 | Bevestig Spot/Spott-product, URL, API en sandbox | Robbie | Officiële docs, sandbox, minimale write scope en unieke ID zijn beschikbaar |
 | DEC-007 | P1 | Stel scrape- en hostingbudget vast | Robbie | Maandbudget en alarmeringsdrempels zijn bekend |
 | DEC-008 | P0 | Definieer raw-data-minimalisatie en retentie | Robbie + Ryan | PII-scan, toegestane velden, bewaartermijn, verwijderpad en uitzonderingen zijn vóór ingest vastgelegd |
@@ -21,7 +21,7 @@ De volgorde hieronder maximaliseert een werkende verticale slice. `P0` is nodig 
 |---|---:|---|---|---|
 | JI-000 | P0 | Audit huidige Motion/Neon-scrapers en search | DEC-002 | Per bestaande bron zijn laatste succes, waarschuwing, volume, parser, index/querypad en besluit `reuse|repair|replace` vastgelegd |
 | JI-001 | P0 | Maak repository/runtime-skelet zonder watch mode | DEC-001 | Lint, typecheck en gerichte tests draaien met maximaal 2 workers; processen stoppen na test |
-| JI-002 | P0 | Implementeer Postgres-migraties voor het kernmodel | DEC-003, DEC-005 | Alle entiteiten uit de bouwbrief bestaan met FK’s, unique constraints en timestamps |
+| JI-002 | P0 | Implementeer Postgres-migraties voor het kernmodel | DEC-003, DEC-005 | Alle entiteiten uit de bouwbrief bestaan met FK’s, unique constraints en timestamps; runtime gebruikt `postgres-js` en migreert reproduceerbaar vanaf leeg Postgres 16 |
 | JI-003 | P0 | Bouw configureerbaar bronnenregister | DEC-002 | Bronnen hebben `ready|blocked|deferred`, juridische gebruiksstatus en geen secrets in database of repo |
 | JI-004 | P0 | Definieer typed connector- en ingestcontract | JI-002, DEC-008 | Connector kan pagineren/checkpointen en levert geminimaliseerde versioned raw records en runmetrics binnen het retentiebeleid |
 | JI-005 | P0 | Bouw import/backfill voor bestaande Neon-data | JI-002 | Herhaalbaar, read-only aan bronzijde, aantallen en rejects gereconcilieerd |
@@ -67,6 +67,7 @@ De volgorde hieronder maximaliseert een werkende verticale slice. `P0` is nodig 
 | JI-034 | P1 | Voeg exception-based screenshot/AI-diagnose toe | JI-033 | Alleen anomaly triggert analyse; kostenlimiet, bewijs en menselijke review zijn verplicht |
 | JI-035 | P1 | Meet kosten per bron, run en effect | DEC-007, JI-030 | Dag-/maandbudget, waarschuwing en harde grens werken |
 | JI-036 | P1 | Maak replay- en backfill-runbooks | JI-005, JI-009 | Een gekozen run/bron kan zonder data- of effectduplicatie worden herhaald |
+| JI-037 | P0 | Maak on-box Postgres production-ready | JI-002, DEC-005 | Admin, migrator en app zijn gescheiden en least-privilege; extern beschermd volume en private `5432` zijn afgedwongen; continue WAL gaat off-site; een restore naar een lege geïsoleerde database is bewezen; DB/disk/WAL/back-up/query/resources hebben alerts; Postgres heeft voorrang op Manticore; HA/managed-exitcriteria zijn gemeten en vastgelegd |
 
 ## Epic E — security, privacy en evidence
 
@@ -76,7 +77,7 @@ De volgorde hieronder maximaliseert een werkende verticale slice. `P0` is nodig 
 | JI-041 | P0 | Implementeer minimale rollen | JI-001 | Search, approval, export en beheer hebben aparte capabilities; deny by default |
 | JI-042 | P0 | Voeg append-only audit events toe | JI-002 | Belangrijke data-, besluit- en effectevents hebben actor, versie, tijd en correlatie-ID |
 | JI-043 | P0 | Implementeer retentie en verwijdering voor vacaturedata | DEC-003, DEC-008 | Raw, index, audit en exports volgen geteste bewaartermijnen; verwijdering/anonimisering werkt door in afgeleide stores met auditbewijs |
-| JI-044 | P1 | Maak evidencepack per release | JI-016, JI-024, JI-032 | Huidige commit, tests, benchmark, bronreconciliatie en end-to-end receipt zijn aanwezig |
+| JI-044 | P1 | Maak evidencepack per release | JI-016, JI-024, JI-032, JI-037 | Huidige commit, tests, benchmark, bronreconciliatie, actuele backup-/restore-evidence en end-to-end receipt zijn aanwezig |
 
 ## Epic F — verificatie en oplevering
 

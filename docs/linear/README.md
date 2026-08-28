@@ -1,6 +1,6 @@
 # Linear setup — Job Intelligence
 
-Linear was **not** available in the cloud-agent harness (no Linear MCP namespace, no `LINEAR_API_KEY` / `LINEAR_API_TOKEN`). This directory is the import pack so the board can be created in one pass once a key exists.
+The live Linear workspace is available and DEC-005 is recorded as `RJC-321` (`Done`). This directory remains the reproducible source/import pack for the Job Intelligence board; U10 (`RJC-347`) deliberately remains open.
 
 **Answer to “should we create all slices?”:** yes — as **roadmap containers**. Only **Slice A** is fully issued with acceptance criteria. Slice B/C are placeholder epics; Candidate Intelligence and Company OS are epic stubs with no build children.
 
@@ -9,7 +9,7 @@ Linear was **not** available in the cloud-agent harness (no Linear MCP namespace
 | Container | Linear shape | Spec depth |
 |---|---|---|
 | **Gate 0** | Milestone + `gate-0` label + parent issue | DEC-001..008 as **product decisions**, not engineering tasks |
-| **Slice A** | Milestone + `slice-a` + parent epic | Full U1–U9 issues (goal, AC, blocked-by, plan/PR links) |
+| **Slice A** | Milestone + `slice-a` + parent epic | Full U1–U10 issues (goal, AC, blocked-by, plan/PR links) |
 | **Slice B** | Milestone + `slice-b` + parent epic | Four placeholders, all blocked on **DEC-006** |
 | **Slice C** | Milestone + `slice-c` + parent epic | Four placeholders — **not** one issue per of 23 bronnen |
 | **Later** | Milestone + `later` | Two epic stubs, zero build issues |
@@ -65,7 +65,7 @@ Regenerate dumps after editing `issues.mjs`:
 node docs/linear/apply.mjs --dump-json --dump-csv
 ```
 
-## Exact issue list (31)
+## Exact issue list (32)
 
 Plan for Slice A units: [`docs/plans/2026-08-27-2022-feat-slice-a-read-path-plan.md`](../plans/2026-08-27-2022-feat-slice-a-read-path-plan.md) · [PR #4](https://github.com/RyanLisse/catapulze-job-intelligence/pull/4)
 
@@ -78,12 +78,12 @@ Plan for Slice A units: [`docs/plans/2026-08-27-2022-feat-slice-a-read-path-plan
 | DEC-002 | Lever definitieve bronmatrix / deep dive | Backlog |
 | DEC-003 | Leg schema en deduperegels vast | Backlog |
 | DEC-004 | Leg searchcontract en SLO vast | Backlog |
-| DEC-005 | Kies nieuwe of bestaande Neon-database | Backlog |
+| DEC-005 | Gebruik Postgres 16 on-box; Motian-Neon alleen als read-only importbron | Done (`RJC-321`) |
 | DEC-006 | Bevestig Spot/Spott-product, URL, API en sandbox | Backlog — **blocks Slice B** |
 | DEC-007 | Stel scrape- en hostingbudget vast | Backlog |
 | DEC-008 | Definieer raw-data-minimalisatie en retentie | Backlog |
 
-### Slice A — fully issued (U1–U9)
+### Slice A — fully issued (U1–U10)
 
 | Id | Title | Blocked by | Status |
 |---|---|---|---|
@@ -96,9 +96,12 @@ Plan for Slice A units: [`docs/plans/2026-08-27-2022-feat-slice-a-read-path-plan
 | U6 | Boolean parser, SearchAdapter, Manticore | U2, U5 | Backlog |
 | U7 | Capability registry, REST, and MCP | U3, U6 | Backlog |
 | U9 | Lean search UI | U7 | Backlog |
-| U8 | Observability, Neon backfill, e2e, review pack | U4, U5, U6, U7 | Backlog |
+| U8 | Observability, Motian-Neon read-only backfill, e2e, review pack | U4, U5, U6, U7 | Backlog |
+| U10 | On-box Postgres production hardening | U2 | Backlog — **open P0 production gate** |
 
-Sequencing: U1 → U2 → U3. U8 and U9 may proceed in parallel after U7.
+Sequencing: U1 → U2 → U3. U8 and U9 may proceed in parallel after U7. U10 may proceed after U2, but remains open until private networking, protected persistence, monitoring/resource limits, continuous off-site WAL and an isolated restore are evidenced.
+
+DEC-005 is inhoudelijk definitief in deze catalogus: de nieuwe Catapulze-database is Postgres 16 on-box vanaf P0. Motian-Neon blijft uitsluitend een read-only bron voor de historische U8-backfill. Productie vereist een beschermd persistent volume, private poort 5432, continue WAL/off-site backups met een bewezen restore, monitoring en resourceprioriteit voor Postgres. HA-behoefte of meetbare disk/RAM-concurrentie is de exit-trigger naar een aparte DB-host of managed PostgreSQL.
 
 ### Slice B — placeholders, blocked on DEC-006
 

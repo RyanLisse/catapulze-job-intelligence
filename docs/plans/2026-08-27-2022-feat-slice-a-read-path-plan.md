@@ -39,6 +39,7 @@ The live Lovable/Neon prototype already has product shape (~242k rows) but fails
 
 - **Slice A is read-only plus QuerySnapshot.** Export, receipts, and standing approval stay Slice B. Governs R1, R12, R13.
 - **Manticore RT is the search engine; Postgres stays SoR.** BUILD_BRIEF §5 Postgres-FTS default is superseded by the 27 Aug search research. `tsvector` remains a rebuild path, not the P0 query engine. Governs R7, R8.
+- **DEC-005: Postgres 16 is on-box in Docker from P0.** The new Catapulze database is the SoR; Motian-Neon is a read-only import source only. Production requires protected persistence, private networking, tested off-site restore, monitoring, and database-first resource priority. Governs R17, R21.
 - **First connectors are TenderNed then Inhuurdesk.** Indeed is out until an allowed route exists (JI-007). Governs R4, R5.
 - **Canonical domain language is Dutch (`aanvraag`, `bron`).** Package and infra names stay English. Governs R2.
 - **75-field `aanvraag` model is the target schema, not the Slice A completeness gate.** Unknown stays explicit. Governs R3, R6.
@@ -80,6 +81,7 @@ The live Lovable/Neon prototype already has product shape (~242k rows) but fails
 - R18. Secrets exist only at runtime via `secret_ref`. Repo, logs, and UI scans stay clean.
 - R19. Slice A curated rows do not persist candidate or contact PII. Raw retention follows DEC-008 conservative default in Assumptions.
 - R20. Connector parsers are versioned and rollbackable. Fixture contract tests detect source drift without live overload.
+- R21. Production Postgres 16 separates admin, migrator and least-privilege runtime roles; uses an external protected volume, no public `5432`, continuous off-site WAL archiving with a tested restore, monitoring and resource limits. Postgres has priority over rebuildable Manticore. HA need or measured disk/RAM/CPU contention that threatens the DB SLO triggers a separate DB host or managed Postgres.
 
 ### Actors
 
@@ -124,6 +126,11 @@ The live Lovable/Neon prototype already has product shape (~242k rows) but fails
   - **Steps:** MCP tool → same handler pipeline as REST/UI (auth, role, rate-limit, audit).
   - **Outcome:** Preview by default; `full: true` opt-in. No DB credentials in the agent.
   - **Covered by:** R14, R15
+- F8. Production database recovery
+  - **Trigger:** Scheduled restore drill against the latest accepted backup chain.
+  - **Steps:** Provision an empty isolated target → restore base backup plus WAL → run migrations/read-only integrity checks → record recovery point, duration, SHA, and evidence → destroy the drill target.
+  - **Outcome:** Recovery is demonstrated without changing the production database. Missing or stale WAL, an unencrypted/unreachable backup, or a failed integrity check blocks production readiness.
+  - **Covered by:** R21
 
 ### Acceptance Examples
 
@@ -135,6 +142,7 @@ The live Lovable/Neon prototype already has product shape (~242k rows) but fails
 - AE6. Covers R3. Given Inhuurdesk HTML with no structured tarief, when normalised, then `tarief_*` is `unknown` and the phrase stays in beschrijving.
 - AE7. Covers R16. Given a connector returning 200 with zero new/changed vs a 7-day baseline drop past threshold, then one silence event is emitted and a second identical event is deduped.
 - AE8. Covers R18. Given a configured `secret_ref`, when config is dumped to logs or GET bron, then the secret value is absent.
+- AE9. Covers R21. Given an empty isolated Postgres 16 target, when the documented restore drill runs from off-site backup plus WAL, then the expected migration journal and integrity checks pass and the evidence records recovery point and duration without exposing production `5432`.
 
 ### Success Criteria
 
@@ -143,6 +151,7 @@ The live Lovable/Neon prototype already has product shape (~242k rows) but fails
 - SC3. 200k benchmark profile records p50/p95/p99; p95 > 100 ms at SearchAdapter fails the gate (R11).
 - SC4. `check-capability-coverage` and `check-capability-registry` fail a PR that adds a UI action without MCP+REST wiring (R15).
 - SC5. Wednesday review pack contains SHA, environment, bron runs, reconciliation, golden queries, latency report, and open Gate-0 items (JI-054).
+- SC6. Production readiness remains failed until JI-037 has current evidence for private networking, protected persistence, monitoring/resource limits, continuous WAL archival, and a successful isolated restore.
 
 ### Scope Boundaries
 
@@ -153,7 +162,8 @@ The live Lovable/Neon prototype already has product shape (~242k rows) but fails
 - TenderNed + Inhuurdesk connectors, raw object storage, normalisation, three-level dedupe, lifecycle.
 - SearchAdapter + Boolean parser + Manticore RT + outbox projector.
 - Lean search UI, saved searches, QuerySnapshot, MCP+REST, capability registry, markeren.
-- Neon read-only backfill, run metrics, source-silence events.
+- Motian-Neon read-only backfill into the new on-box Postgres, run metrics, source-silence events.
+- On-box Postgres production gates and restore evidence (JI-037); a configured volume or backup job alone is not proof.
 - JSON-LD adapter seam (config-driven) so BlueTrail/Hero/Pro-Act can follow without a new architecture.
 
 **Deferred for later (Slice B / C / product)**
@@ -173,13 +183,12 @@ The live Lovable/Neon prototype already has product shape (~242k rows) but fails
 
 **Deferred to follow-up work (plan-local)**
 
-- Coolify/Hetzner production topology beyond a compose-able local/dev stack.
+- Coolify/Hetzner app topology beyond the database safety gates in R21/JI-037.
 - Langfuse eval loop for qualification prompts (design only in Slice A).
 - Firecrawl/Browserbase (not required for the two P0 HTTP sources).
 
 ### Open Questions
 
-- Q1. **Deferred.** DEC-005 Neon vs Postgres on-box for year-1 volume. See Assumptions A2. Does not block Slice A schema.
 - Q2. **Deferred.** DEC-006 Spott contract. Slice B only.
 - Q3. **Deferred.** DEC-008 exact retention days. Conservative default in A3.
 - Q4. **Deferred.** Onefellow unauthenticated edge function: replay allowed? Not a P0 source.
@@ -192,7 +201,7 @@ The live Lovable/Neon prototype already has product shape (~242k rows) but fails
 ### Assumptions
 
 - A1. Donderdag scope is Slice A read path, not Spot export (DEC-001 inferred; BUILD_BRIEF Slice A + brainstorm next step).
-- A2. P0 database is a new Neon Postgres with vanilla SQL so the schema can move on-box later. Existing Neon is read-only source for backfill.
+- A2. DEC-005 is final: P0 uses a new on-box Postgres 16 in Docker with portable SQL. Existing Motian-Neon is a read-only backfill source and receives no new Catapulze writes.
 - A3. DEC-008: Slice A drops contact fields on normalise; raw payloads retain source bytes under object-storage lifecycle (90 days unless Robbie sets otherwise); audit events are not deleted by the same job.
 - A4. Connector ToS for TenderNed (CC-0, §16 noted) and Inhuurdesk (no bot clause found 27 Aug) are `voorwaarden_status: toegestaan` as recorded in SOURCE_MATRIX. Robbie can revoke.
 - A5. Search SLO p95 ≤ 100 ms is the 27 Aug rewrite of JI-NFR-02, not the BUILD_BRIEF 750 ms proposal.
@@ -210,7 +219,7 @@ The live Lovable/Neon prototype already has product shape (~242k rows) but fails
 - KTD7. **Connector ladder is config, not subclasses per brand.** Categories `feed | json-api | json-ld | html`. TenderNed = json-api; Inhuurdesk = json-api with HTML description. Playwright adapters exist as types only in Slice A.
 - KTD8. **Identity: exact `(bron_id, bron_referentie)` first; cross-source grouping is conservative and reversible.** No auto-merge of curated rows. Uncertain links create `dedup_groep` in reviewable state. MinHash may wait; exact+normalized title/org/start is enough for P0. Embeddings are out.
 - KTD9. **Roles: `recruiter | operator | admin`. Deny by default.** Recruiter: search, detail, mark, saved search, snapshot. Operator: bron runs and health. Admin: policy and bron activation. M365 login is human-only and may be a stub session in Slice A if SSO is not ready.
-- KTD10. **Local compose: Postgres, Manticore, object storage (MinIO or Hetzner-compatible), Redis.** Neon is the shared P0 SoR. Manticore is not a Neon addon.
+- KTD10. **Postgres 16 on-box from P0; Motian-Neon read-only.** Local compose contains Postgres, Manticore, object storage (MinIO or Hetzner-compatible), and Redis. Production Postgres uses a pre-created external protected volume, private-only `5432`, continuous encrypted off-site WAL archiving, a scheduled isolated restore drill, and database monitoring/resource limits. Postgres has priority; Manticore is derived and rebuildable. HA need or measured disk/RAM/CPU contention that threatens the DB SLO triggers a separate DB host or managed Postgres.
 
 ### High-Level Technical Design
 
@@ -287,7 +296,7 @@ SearchAdapter maps AST + filters to Manticore and never to ad-hoc SQL LIKE.
 
 ### Sequencing
 
-U1 → U2 → U3. U4 needs U3. U5 needs U2 and U3. U6 needs U2 and U5. U7 needs U6. U9 needs U7. U8 needs U4, U6, and U7. U8 and U9 may proceed in parallel after U7.
+U1 → U2 → U3. U4 needs U3. U5 needs U2 and U3. U6 needs U2 and U5. U7 needs U6. U9 needs U7. U8 needs U4, U6, and U7. U10 needs U2. U8 and U9 may proceed in parallel after U7; U10 may proceed after U2 but remains an open production-readiness gate until its recovery and operations evidence passes.
 
 ### Sources and Research
 
@@ -353,14 +362,15 @@ Implementer may adjust layout; unit file lists stay authoritative.
 - **Requirements:** R2, R3, R6, R7, R19. JI-002, JI-DAT-02/03/06/07.
 - **Dependencies:** U1
 - **Files:**
-  - Create: `packages/infra/src/db/schema/*.ts`, `drizzle/0001_core.sql` (or drizzle meta as chosen), `packages/domain/src/aanvraag.ts`, `packages/domain/src/ids.ts`
-  - Test: `packages/infra/src/db/schema/core.spec.ts`
+  - Modify: `packages/db/src/schema/*.ts`, `packages/db/src/migrations/*.sql`, `packages/db/src/index.ts`
+  - Test: `packages/db/src/core.spec.ts`
 - **Approach:**
   1. Entities: `bron`, `scrape_run`, `source_record` (pointer+hash, not payload), `aanvraag_observation`, `aanvraag`, `aanvraag_versie`, `aanvraag_bron_link`, `dedup_groep`, `saved_search`, `query_snapshot`, `audit_event`, `outbox_event`, `agent_context` stub.
   2. UUIDs, `timestamptz`, `numeric` money + currency column.
   3. Unique `(bron_id, bron_referentie)` and unique content hash per bron.
-  4. No contact tables in Slice A.
-- **Execution note:** Migration tests run against compose Postgres, not production Neon.
+  4. Runtime and tests use `postgres-js` through Drizzle; no Neon-specific runtime driver.
+  5. No contact tables in Slice A.
+- **Execution note:** Migration tests run against empty compose Postgres 16. They do not mutate production or Motian-Neon.
 - **Patterns to follow:** KTD2, KTD3; `docs/doelplaat/schema.json` required keys for identity/provenance.
 - **Test scenarios:**
   - Happy: migrate up on empty DB; required tables exist with FKs.
@@ -524,6 +534,29 @@ Implementer may adjust layout; unit file lists stay authoritative.
   - Integration: e2e read-path test green on fixtures.
 - **Verification:** Review pack fills without a Spott sandbox.
 
+### U10. On-box Postgres production hardening
+
+- **Goal:** Close R21 and JI-037 without treating configuration as recovery evidence.
+- **Requirements:** R21, SC6. DEC-005, JI-037.
+- **Dependencies:** U2
+- **Files:**
+  - Create or modify: production Compose/Coolify configuration, backup configuration, monitoring rules, and a versioned restore runbook/evidence template.
+  - Test: isolated restore drill and database integrity checks.
+- **Approach:**
+  1. Separate admin, non-superuser migrator and non-superuser runtime credentials; runtime gets no role/database/schema-create privileges.
+  2. Pre-create and protect the external Postgres volume; production automation never invokes `docker compose down -v`.
+  3. Bind `5432` only to the private network and verify it is unreachable from the public internet.
+  4. Archive WAL continuously to encrypted off-site object storage with explicit retention and alerting on lag/failure.
+  5. Restore base backup plus WAL into an empty isolated Postgres 16 target; record recovery point, duration, migration journal, integrity result, environment, and commit SHA.
+  6. Monitor availability, disk, WAL/back-uplag, connections, locks, query latency, CPU, and memory. Alert before disk or resource exhaustion.
+  7. Set CPU/memory/disk budgets so Postgres wins contention; throttle or move Manticore first because its index is rebuildable.
+  8. Re-evaluate topology when HA is required or measured disk/RAM/CPU contention threatens the DB SLO; move Postgres to a separate host or managed service.
+- **Test scenarios:**
+  - Happy: AE9 restore drill passes on an empty isolated target.
+  - Edge: Manticore reaches its resource ceiling while Postgres remains within its reserved budget and SLO.
+  - Error: public `5432`, stale/missing WAL, failed restore, backup lag, or low disk blocks the production-readiness gate.
+- **Verification:** Current restore and monitoring evidence is attached to the release pack. A mounted volume, successful backup upload, or green container healthcheck alone does not pass.
+
 ---
 
 ## Verification Contract
@@ -540,6 +573,9 @@ Implementer may adjust layout; unit file lists stay authoritative.
 | E2E read path | `bun test tests/e2e/read-path.spec.ts` | U8 | JI-052 |
 | Benchmark | `bun run bench:search --profile benchmarks/search/profile.json` | U6/U8 | p95 ≤ 100 ms at adapter or explicit fail in review pack |
 | Live smoke | documented opt-in, not CI | U4 | one TenderNed page + one Inhuurdesk listing |
+| Postgres exposure | external network probe plus host/Compose inspection | U10 | `5432` unreachable publicly and only private service path works |
+| Backup and restore | isolated Postgres 16 restore drill from off-site base backup + WAL | U10/release | journal/integrity pass with recorded recovery point and duration |
+| DB capacity | monitoring dashboard and alert test | U10/release | DB/disk/WAL/back-up/query/resources visible; alerts route; Postgres budget has priority |
 
 `release:validate` is the union of the PR gates plus e2e and a filled `docs/review/` pack. Behavioral skill eval for qualification prompts is not required in Slice A.
 
@@ -549,11 +585,11 @@ Implementer may adjust layout; unit file lists stay authoritative.
 
 **Global**
 
-- Product Contract R1–R20 have evidence or an explicit out-of-scope note in Scope Boundaries.
+- Product Contract R1–R21 have evidence or an explicit out-of-scope note in Scope Boundaries.
 - No Spott write path is callable.
 - No abandoned spike code in the default branch diff.
 - README describes compose, env names, and how to run search locally.
-- Open Q1–Q5 remain labeled deferred/blocking as above; none silently treated as solved.
+- Open Q2–Q5 remain labeled deferred/blocking as above; none silently treated as solved.
 
 **Per unit**
 
@@ -568,15 +604,16 @@ Implementer may adjust layout; unit file lists stay authoritative.
 | U7 | AE4–AE5 (HTTP/MCP) pass; coverage scripts pass |
 | U9 | AE3 and AE5 (UI) pass; no export control rendered |
 | U8 | e2e read-path green; silence event shape tested; review template filled once |
+| U10 | private port, protected volume, monitoring/resource alerts, continuous WAL and isolated restore all have current evidence |
 
 ---
 
 ## System-Wide Impact
 
-- **Data:** New SoR. v1 Neon remains. Dual-running until JI-MIG-06, which this plan does not close.
+- **Data:** New on-box Postgres 16 is the SoR. Motian-Neon remains read-only and dual-runs only as an import source until JI-MIG-06, which this plan does not close.
 - **Search:** Motian/Lovable title-fast path is not reused. Index is derived and rebuildable from Postgres+raw.
 - **Authz:** Agents and UI share the handler pipeline. MCP list filtering is not authorization.
-- **Ops:** Trigger.dev Cloud and Upstash become runtime dependencies. Manticore is a second process to monitor (heartbeat via search health).
+- **Ops:** Trigger.dev Cloud and Upstash become runtime dependencies. Postgres backup, restore and capacity are production gates. Manticore is a second process to monitor, but its rebuildable index yields resources to Postgres.
 - **Privacy:** Raw may contain PII from source HTML. Access is preview-gated. Retention job is required before claiming DEC-008 done.
 
 ---
@@ -588,7 +625,7 @@ Implementer may adjust layout; unit file lists stay authoritative.
 | TenderNed JSON “may change without notice” | Fixture schema tests; alert on unexpected shape (tenderned.md risk 1) |
 | Manticore RT durability vs Postgres | Outbox + rebuild job from curated; SearchAdapter fallback stub exists but is not the product path |
 | p95 100 ms missed at 200k | Versioned benchmark fails closed; do not ship “instant” claim; reopen OpenSearch only on measured miss (brainstorm omgooi-trigger) |
-| Neon cost vs on-box (DEC-005) | Portable schema; measure CU before moving |
+| On-box Postgres data loss or resource contention (DEC-005) | Protected external volume; continuous off-site WAL; isolated restore drill; DB-first resource budgets; move to separate/managed DB on HA need or measured SLO threat |
 | ToS change on Inhuurdesk | `voorwaarden_status` can pause without code change |
 | Trigger.dev bill > $150–200 | concurrencyKey per bron; skip unchanged hashes; omgooi to self-host is documented, not this slice |
 | Effect Schema ↔ MCP Standard Schema impedance | One adapter module; registry tests encode round-trip |
@@ -598,7 +635,7 @@ Implementer may adjust layout; unit file lists stay authoritative.
 | Manticore working set vs 32 GB box | P0 corpus is 200k, not 7.5M; compose + CCX33 sizing from `docs/COSTS.md`; rebuild from Postgres if the RT index is lost |
 | Registry UI-action list drifts from `apps/web` | `check-capability-coverage` fails closed; U9 cannot add a click without a registry id |
 
-**Dependencies:** bun toolchain; Neon project (or local Postgres); Trigger.dev account for scheduled polls; object storage credentials; no Spott sandbox.
+**Dependencies:** bun toolchain; Postgres 16 host and protected external volume; off-site WAL target; Motian-Neon read-only credentials for import; Trigger.dev account for scheduled polls; object storage credentials; no Spott sandbox.
 
 ---
 
@@ -618,7 +655,8 @@ Implementer may adjust layout; unit file lists stay authoritative.
 2. U4–U5: two connectors + identity (search may be SQL smoke only internally; not product).
 3. U6–U7: Boolean search + API/MCP parity.
 4. U9: lean UI.
-5. U8: evidence pack. Donderdag claim only if SC1–SC5 pass.
+5. U8: read-path evidence pack.
+6. U10: production database evidence. Production claim only if SC1–SC6 pass.
 
 ---
 

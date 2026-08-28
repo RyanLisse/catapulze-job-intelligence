@@ -3,18 +3,34 @@ name: catapulze-job-intelligence
 
 services:
   postgres:
-    image: postgres:16-alpine
+    image: postgres:16-alpine@sha256:57c72fd2a128e416c7fcc499958864df5301e940bca0a56f58fddf30ffc07777
     ports:
-      - "5432:5432"
+      - target: 5432
+        published: "${POSTGRES_HOST_PORT:-5432}"
+        host_ip: 127.0.0.1
+        protocol: tcp
     environment:
-      POSTGRES_USER: ji
-      POSTGRES_PASSWORD: ji
-      POSTGRES_DB: ji_test
+      POSTGRES_USER: ${POSTGRES_ADMIN_USER:?POSTGRES_ADMIN_USER is required}
+      POSTGRES_PASSWORD: ${POSTGRES_ADMIN_PASSWORD:?POSTGRES_ADMIN_PASSWORD is required}
+      POSTGRES_DB: ${POSTGRES_DB:?POSTGRES_DB is required}
+      POSTGRES_MIGRATOR_USER: ${POSTGRES_MIGRATOR_USER:?POSTGRES_MIGRATOR_USER is required}
+      POSTGRES_MIGRATOR_PASSWORD: ${POSTGRES_MIGRATOR_PASSWORD:?POSTGRES_MIGRATOR_PASSWORD is required}
+      POSTGRES_APP_USER: ${POSTGRES_APP_USER:?POSTGRES_APP_USER is required}
+      POSTGRES_APP_PASSWORD: ${POSTGRES_APP_PASSWORD:?POSTGRES_APP_PASSWORD is required}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./tools/postgres/init:/docker-entrypoint-initdb.d:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ji -d ji_test"]
+      test: ["CMD-SHELL", 'pg_isready -U "$$POSTGRES_USER" -d "$$POSTGRES_DB"']
       interval: 5s
       timeout: 5s
-      retries: 5
+      retries: 10
+      start_period: 10s
+    cpus: "${POSTGRES_CPU_LIMIT:-2.0}"
+    mem_limit: "${POSTGRES_MEMORY_LIMIT:-4g}"
+    mem_reservation: "${POSTGRES_MEMORY_RESERVATION:-1g}"
+    shm_size: "${POSTGRES_SHM_SIZE:-512m}"
+    stop_grace_period: 1m
     restart: unless-stopped
 
   web:
@@ -60,17 +76,28 @@ services:
       - path: apps/server/.env
         required: false
     environment:
-      CORS_ORIGIN: http://localhost:3001
+      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?BETTER_AUTH_SECRET is required}
+      BETTER_AUTH_URL: ${BETTER_AUTH_URL:?BETTER_AUTH_URL is required}
+      CORS_ORIGIN: ${CORS_ORIGIN:?CORS_ORIGIN is required}
+      DATABASE_URL: ${CATAPULZE_DATABASE_URL:?CATAPULZE_DATABASE_URL is required}
+    depends_on:
+      postgres:
+        condition: service_healthy
     healthcheck:
       test:
         [
           "CMD",
           "bun",
           "-e",
-          "fetch('http://localhost:3000/').then((r) => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))",
+          "fetch('http://localhost:3000/readyz').then((r) => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))",
         ]
       interval: 10s
       timeout: 5s
       retries: 5
       start_period: 10s
     restart: unless-stopped
+
+volumes:
+  postgres_data:
+    external: true
+    name: ${POSTGRES_DATA_VOLUME:-catapulze-postgres-p0}

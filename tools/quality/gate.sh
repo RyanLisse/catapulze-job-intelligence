@@ -33,6 +33,6 @@ echo "gate: check-secrets"
 bun run check-secrets
 
 echo "gate: test"
-REQUIRE_DATABASE_TESTS=1 bun test --max-concurrency 2
+REQUIRE_DATABASE_TESTS=1 bun test --max-concurrency 2 --path-ignore-patterns '**/dist/**'
 
 echo "gate: passed"

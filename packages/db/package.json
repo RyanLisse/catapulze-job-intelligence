@@ -13,6 +13,7 @@
     }
   },
   "scripts": {
+    "check-types": "PATH=\"./node_modules/.bin:$PATH\" tsc --noEmit",
     "db:push": "PATH=\"./node_modules/.bin:$PATH\" drizzle-kit push",
     "db:generate": "PATH=\"./node_modules/.bin:$PATH\" drizzle-kit generate",
     "db:migrate:deploy": "PATH=\"./node_modules/.bin:$PATH\" drizzle-kit migrate",
@@ -21,16 +22,15 @@
   },
   "dependencies": {
     "@ji/env": "workspace:*",
-    "@neondatabase/serverless": "^1.1.0",
     "dotenv": "catalog:",
     "drizzle-orm": "^0.45.2",
+    "postgres": "^3.4.7",
     "zod": "catalog:"
   },
   "devDependencies": {
     "@ji/config": "workspace:*",
     "@types/bun": "catalog:",
     "drizzle-kit": "^0.31.10",
-    "postgres": "^3.4.7",
     "typescript": "catalog:"
   }
 }

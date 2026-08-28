@@ -1,12 +1,10 @@
-import { createDb } from "@ji/db";
+import { db } from "@ji/db";
 import * as schema from "@ji/db/schema/auth";
 import { env } from "@ji/env/server";
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 
 export const createAuth = () => {
-  const db = createDb();
-
   const isProduction = env.NODE_ENV === "production";
 
   return betterAuth({

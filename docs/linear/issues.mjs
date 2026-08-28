@@ -59,7 +59,7 @@ Plan: [\`${PLAN_PATH}\`](${REPO}/blob/main/${PLAN_PATH}) · [PR #4](${PLAN_PR})
       key: "slice-a",
       name: "Slice A",
       description:
-        "Job Intelligence read path. Full issues U1–U9. Implementation-ready from the 27 Aug plan.",
+        "Job Intelligence read path plus the P0 database production gate. Full issues U1–U10. Implementation-ready from the 27 Aug plan.",
     },
     {
       key: "slice-b",
@@ -192,11 +192,12 @@ Plan default: Boolean over titel + volledige beschrijving; \`AND\` \`OR\` \`NOT\
     },
     {
       id: "DEC-005",
-      title: "[DEC-005] Kies nieuwe of bestaande Neon-database",
+      title:
+        "[DEC-005] Gebruik Postgres 16 on-box; Motian-Neon alleen als read-only importbron",
       kind: "decision",
       milestone: "gate-0",
       labels: ["gate-0"],
-      status: "Backlog",
+      status: "Done",
       priority: 2,
       parent: "GATE-0",
       blockedBy: [],
@@ -204,10 +205,22 @@ Plan default: Boolean over titel + volledige beschrijving; \`AND\` \`OR\` \`NOT\
         id: "DEC-005",
         prio: "P0",
         owners: "Ryan",
-        readyWhen: "Datastroom, backfill en rollback zijn beschreven.",
+        readyWhen:
+          "De on-box datastroom, read-only backfill, restore/rollback en operationele exit-gates zijn beschreven.",
         notes: `This is a **product / architecture decision**, not a Slice A coding task.
 
-Plan assumption A2: P0 database is a **new** Neon Postgres with vanilla SQL; existing Neon is read-only backfill source. Does not block Slice A schema work (U2). Year-1 on-box move stays open.`,
+**Decision (28 Aug 2026):** the new Catapulze system of record is **Postgres 16 on-box from P0**, provisioned with Docker Compose. Motian-Neon is exclusively a **read-only import source** for the legacy backfill; Catapulze never writes to it and does not use it as an application fallback or dual-write target. The schema remains portable PostgreSQL.
+
+This avoids a later Neon-to-on-box migration and keeps Postgres, the outbox worker, and Manticore on the same private host/network. U8 owns the idempotent Motian-Neon backfill with retained \`v1_id\` provenance.
+
+Production gates:
+- the Postgres data directory uses a protected persistent volume; normal operations never run \`docker compose down -v\`;
+- port 5432 is private and is not published to the internet;
+- continuous WAL archiving and off-site backups are enabled, and a restore from empty is tested before production and on a recurring schedule;
+- disk, memory, connections, WAL growth, backup freshness, and restore results are monitored; Postgres receives resource priority over the rebuildable Manticore index;
+- if HA becomes required, or measured disk/RAM contention threatens the database SLO, move Postgres to a dedicated DB host or managed PostgreSQL. Managed Neon remains an explicit exit option only when database operations are no longer carried in-house.
+
+Rollback is backup/WAL restore of the Catapulze database plus replayable, idempotent imports; it is never a write-back or failover to Motian-Neon.`,
       }),
     },
     {
@@ -506,7 +519,8 @@ Plan conservative default (A3): Slice A drops contact fields on normalise; raw p
     },
     {
       id: "U8",
-      title: "[U8] Observability, Neon backfill, e2e, review pack",
+      title:
+        "[U8] Observability, Motian-Neon read-only backfill, e2e, review pack",
       kind: "build",
       milestone: "slice-a",
       labels: ["slice-a"],
@@ -521,11 +535,38 @@ Plan conservative default (A3): Slice A drops contact fields on normalise; raw p
         blockedBy: "U4, U5, U6, U7. May proceed in parallel with U9 after U7.",
         acceptance: [
           "AE7: connector 200 with zero new/changed vs a 7-day baseline drop past threshold → one silence event; a second identical event is deduped. Event contains bron, detectietijd, laatste succes, drempel, evidence, eigenaar, runbook, dedupe key.",
-          "Neon v1 jobs imported read-only with `v1_id` provenance. Recruitment tables are not imported (JI-MIG-05).",
+          "Legacy jobs are imported read-only from Motian-Neon with `v1_id` provenance into the new on-box Postgres. Catapulze never writes to Motian-Neon; recruitment tables are not imported (JI-MIG-05).",
           "Backfill duplicate v1_id is idempotent. Unreachable source → failed run, no partial curated without raw pointer.",
           "E2E: fixture bron → raw → normalise → search → snapshot (`tests/e2e/read-path.spec.ts`).",
           "Review pack template filled once: SHA, env, bron runs, reconciliation, golden queries, latency, open Gate-0 items. No Spott sandbox required.",
           "Done: e2e read-path green; silence event shape tested; review template filled once.",
+        ],
+      }),
+    },
+    {
+      id: "U10",
+      title: "[U10] On-box Postgres production hardening",
+      kind: "build",
+      milestone: "slice-a",
+      labels: ["slice-a"],
+      status: "Backlog",
+      priority: 2,
+      parent: "SLICE-A",
+      blockedBy: ["U2"],
+      description: sliceAUnit({
+        id: "U10",
+        goal: "Close the P0 production database gate without treating Compose configuration or a successful backup upload as recovery evidence.",
+        requirements: "R21, SC6. DEC-005, JI-037.",
+        blockedBy: "U2. May proceed in parallel with the remaining Slice A units, but production readiness remains blocked until U10 is complete.",
+        acceptance: [
+          "Admin, migrator, and runtime app use distinct credentials. Migrator and app are non-superuser; the app cannot create schemas, roles, or databases and receives only the required schema usage plus DML privileges.",
+          "The Postgres data directory uses a protected external volume; production automation never invokes `docker compose down -v`.",
+          "Port 5432 is private and an external network probe proves it is unreachable from the public internet.",
+          "WAL is archived continuously to encrypted off-site storage with explicit retention and alerts for lag or failure.",
+          "AE9: the latest accepted base backup plus WAL restores into an empty isolated Postgres 16 target; migration journal and integrity checks pass; recovery point, duration, environment, and commit SHA are recorded.",
+          "Availability, disk, WAL/back-up lag, connections, locks, query latency, CPU, and memory are monitored with tested alert routing.",
+          "Resource limits give Postgres priority over rebuildable Manticore; HA need or measured contention threatening the DB SLO triggers a move to a separate DB host or managed PostgreSQL.",
+          "Done: current private-port, protected-volume, monitoring/resource-alert, continuous-WAL, and isolated-restore evidence is attached to the release pack.",
         ],
       }),
     },
@@ -683,7 +724,7 @@ Suggested later order (from SOURCE_MATRIX, not committed scope): CTM-Atom → Ne
         mapsTo: "JI-036, JI-043 (retention job beyond Slice A default)",
         goal: "A chosen run/bron can be replayed without data or effect duplication. Retention/deletion proven through derived stores.",
         notes:
-          "Placeholder only. Slice A has fixture replay + Neon v1 backfill. This expands operator runbooks and DEC-008-complete retention.",
+          "Placeholder only. Slice A has fixture replay + Motian-Neon read-only v1 backfill. This expands operator runbooks and DEC-008-complete retention.",
       }),
     },
     {
@@ -778,16 +819,16 @@ function sliceAEpic() {
 A recruiter can find current aanvragen from the Slice A sources in one screen, with documented Boolean meaning, each hit traceable to bron / bronrecord / ingest-run / normalisatieversie, and with no duplicate ingest or snapshot effects on replay.
 
 ## Scope (in)
-TenderNed + Inhuurdesk, raw object storage, normalisation, three-level dedupe, SearchAdapter + Manticore, lean UI, MCP+REST from one capability registry, QuerySnapshot (no export), Neon read-only backfill, run health.
+TenderNed + Inhuurdesk, raw object storage, normalisation, three-level dedupe, SearchAdapter + Manticore, lean UI, MCP+REST from one capability registry, QuerySnapshot (no export), Motian-Neon read-only backfill into the new on-box Postgres, run health.
 
 ## Scope (out)
 Spott.io writes, Candidate Intelligence, rung-3 Playwright logins, semantic/vector search, DuckLake, 75-field completeness as a P0 gate, Indeed until JI-007.
 
 ## Children
-U1–U9 (U8 and U9 may proceed in parallel after U7). Sequencing: U1 → U2 → U3. U4 needs U3. U5 needs U2+U3. U6 needs U2+U5. U7 needs U6. U9 needs U7. U8 needs U4+U5+U6+U7.
+U1–U10 (U8 and U9 may proceed in parallel after U7; U10 may proceed after U2). Sequencing: U1 → U2 → U3. U4 needs U3. U5 needs U2+U3. U6 needs U2+U5. U7 needs U6. U9 needs U7. U8 needs U4+U5+U6+U7. U10 needs U2 and remains an open production-readiness gate until its recovery and operations evidence passes.
 
 ## Success
-SC1–SC5 in the plan. No Spott write path is callable.
+SC1–SC6 in the plan. No Spott write path is callable. A green read path does not close U10 without current restore and operations evidence.
 
 ${links()}`;
 }

@@ -1,7 +1,7 @@
 ---
 date: 2026-08-27
 topic: techstack-job-intelligence
-status: brainstorm afgerond — één besluit open (Neon vs Postgres on-box)
+status: brainstorm afgerond — DEC-005 gesloten op 2026-08-28
 visueel: https://claude.ai/code/artifact/2e693a25-0681-4a82-a60f-efb690fd4ab0
 ---
 
@@ -40,6 +40,7 @@ motian-profiel), allemaal met opgehaalde bronnen of lokale benchmarks. Kernbevin
 | 1 | Runtime | Bun + TypeScript + Effect-TS + Drizzle + Effect Schema | ≥10M docs/mnd of Chromium on-worker |
 | 2 | Hosting | Hetzner + Coolify; 32 GB tot ~7,5M; tweede 64 GB search-box bij ~15M | HA nodig / working set > 64 GB |
 | 3 | Search | Postgres SoR + Manticore RT via outbox achter SearchAdapter | HA → OpenSearch (nieuwe AST-emitter) |
+| 13 | Database (DEC-005, 28-08) | Nieuwe Catapulze Postgres 16 on-box in Docker vanaf P0; Motian-Neon uitsluitend read-only importbron | HA vereist of gemeten disk-/RAM-/CPU-concurrentie bedreigt DB-SLO → aparte DB-host of managed Postgres |
 | 4 | Orkestratie | **Trigger.dev Cloud** (TS-runtime is de doorslag): ~$50–100/mnd op het bronmatrix-volume (~1–1,2M fetches: listing-polls 5–15 min + detail bij gewijzigde hash); fan-out per bron via batchTrigger + concurrencyKey + idempotencyKey + ttl | rekening structureel >$150–200 → self-host; Go/Rust-workers → Temporal |
 | 12 | Bronnen | Geverifieerd 27-08 (`SOURCE_MATRIX.md`): 29 rijen = 23 bronnen; 12 publiek via feed/API/JSON-LD (rung 1–2), 6 via eigen leveranciersaccount (Playwright + storageState, `secret_ref`), 4 invitation-only/geblokkeerd. Bouwvolgorde: TenderNed → Inhuurdesk → CTM-Atom → Need Staffing → JSON-LD-adapter (BlueTrail/Hero/Pro-Act) → v1-migratie → rung 3. Adapters per categorie: json-ld, feed, json-api, html, playwright-login, salesforce-vms | — |
 | 5 | Scrapers | motian packages/scrapers + dynamic-adapter; alle 28 in eigen beheer; per-bord ladder | — |
@@ -67,9 +68,19 @@ JI-DAT-01 75-velds model is doel, geen P0-gate (model groeit uit de slice).
 
 ## Open vragen
 
-- Postgres: Neon blijven tot ~7,5M of meteen on-box?
 - DEC-002 bronmatrix (bepaalt echt fetch-volume en Firecrawl/Browserbase-subset); DEC-006 Spott.io-contract.
-- Kosten geverifieerd op live pagina's (`COSTS.md`): P0 ≈ €1.250/mnd (€765 met Batch), jaar 1 ≈ €3.825, jaar 2 ≈ €4.015; LLM = 75–80 %. Hetzner heeft geen 32 GB dedicated → CCX33 cloud €43,49; AX42 64 GB ECC €99. Neon €160–250/mnd in jaar 1–2 = het on-box-argument.
+- Kosten zijn op 27 augustus op live pagina's geverifieerd (`COSTS.md`). De eerdere ramingen bevatten Neon; DEC-005 trekt die raming af, maar externe volumes en de uiteindelijke WAL/off-site-backupvoet moeten nog live worden geprijsd.
+
+## DEC-005 operationele consequenties
+
+- Het productievolume is vooraf aangemaakt, extern beschermd en valt niet onder `docker compose down`; `docker compose down -v` is verboden.
+- Postgres `5432` is niet publiek bereikbaar.
+- Continue WAL-archivering gaat off-site en telt pas als gereed na een geslaagde restore naar een lege geïsoleerde database.
+- Monitoring omvat beschikbaarheid, disk, WAL/back-uplag, verbindingen, locks, querylatency, CPU en geheugen.
+- Postgres krijgt resourceprioriteit; Manticore is uit Postgres en raw storage rebuildbaar.
+- HA-behoefte of gemeten disk-/RAM-/CPU-concurrentie is de trigger voor een aparte databasehost of managed Postgres.
+
+Deze inrichting is een productie-eis, geen claim dat backup/restore al operationeel is bewezen. Neon blijft als fallback alleen relevant wanneer Catapulze databasebeheer bewust niet zelf wil dragen.
 
 ## Geparkeerd — later, Company OS
 

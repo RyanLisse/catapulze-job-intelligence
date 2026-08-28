@@ -9,7 +9,9 @@
       "default": "./src/*.ts"
     }
   },
-  "scripts": {},
+  "scripts": {
+    "check-types": "PATH=\"./node_modules/.bin:$PATH\" tsc --noEmit"
+  },
   "dependencies": {
     "@ji/db": "workspace:*",
     "@ji/env": "workspace:*",

@@ -10,7 +10,7 @@ Bun monorepo for Catapulze Job Intelligence. Workspace packages use the `@ji` sc
 | `packages/application` | Use-case layer (bronregister, Slice A)    |
 | `packages/auth`        | Better Auth                               |
 | `packages/connectors`  | Connector contract and source adapters    |
-| `packages/db`          | Drizzle schema and Neon client            |
+| `packages/db`          | Drizzle schema and postgres-js client     |
 | `packages/domain`      | Domain types and Boolean parser (Slice A) |
 | `packages/env`         | Typed env for server and web              |
 | `packages/ui`          | Shared UI components                      |

@@ -1,4 +1,4 @@
-# Kostenkaart — geverifieerd op live prijspagina's (2026-08-27)
+# Kostenkaart — live prijssnapshot 2026-08-27, DEC-005 bijgewerkt 2026-08-28
 
 Headless Chrome (chrome-agent) op de gerenderde prijspagina's; alle prijzen ex-btw; USD→EUR 0,92 (aanname). Volumes: P0 = 200k nieuwe aanvragen/mnd; jaar 1 = 600k/mnd (ontwerpplafond); ~1–1,2M fetches/mnd; corpus 7,5M docs na 12 mnd.
 
@@ -6,10 +6,10 @@ Headless Chrome (chrome-agent) op de gerenderde prijspagina's; alle prijzen ex-b
 
 | Tool | Plan | Lijstprijs | €/mnd P0 → jaar 1 | Aanname | Bron |
 |---|---|---|---|---|---|
-| Hetzner Cloud CCX33 (8 vCPU dedicated, 32 GB, 240 GB NVMe) | — | €43,49/mnd, 20 TB verkeer | 43 | app + search-box jaar 1; **geen 32 GB dedicated lijn** | hetzner.com/cloud/general-purpose |
+| Hetzner Cloud CCX33 (8 vCPU dedicated, 32 GB, 240 GB NVMe) | — | €43,49/mnd, 20 TB verkeer | 43 | app + Postgres + search jaar 1; capaciteit en onderlinge resourceconcurrentie nog te bewijzen | hetzner.com/cloud/general-purpose |
 | Hetzner AX42 (Ryzen 8700GE, 64 GB DDR5 ECC) | dedicated | €99/mnd + €49 setup | 99 (jaar 2) | search-only box; AX41 €59 zonder ECC; CCX43 cloud €276 — niet doen | hetzner.com/dedicated-rootserver |
 | Hetzner Object Storage | base | €6,49/mnd incl. 1 TB + 1 TB egress | 6,49 | 45–90 GB raw past in base | hetzner.com/storage/object-storage |
-| Neon | Launch | $0,106/CU-h, $0,35/GB-mnd, historie $0,20/GB-mnd | 60 → 160 → 250 | 0,7 / 2 / 3 CU gem.; 10 / 50 / 80 GB | neon.com/pricing |
+| Neon | Launch | $0,106/CU-h, $0,35/GB-mnd, historie $0,20/GB-mnd | 60 → 160 → 250 | **Niet gekozen voor de nieuwe SoR**; historische prijsbasis en fallback. Motian-Neon blijft read-only importbron | neon.com/pricing |
 | Coolify | self-host | gratis (Cloud $5/mnd) | 0 | | coolify.io/pricing |
 | Trigger.dev | Hobby → Pro | Hobby $10 (50 concurrent); Pro $50 (200); small-1x $0,0000338/s; $0,000025/run | 16 → 62 | 1,1M s + 1,2M runs − credit | trigger.dev/pricing |
 | Upstash Redis | PAYG | $0,20/100k cmds; 1 GB gratis | 3 → 12 | ~5 cmds/fetch | upstash.com/pricing/redis |
@@ -37,17 +37,23 @@ Extractie 20 % × (4k in + 1k out) + scoring 100 % × (2k + 0,3k) = **1,68 B in 
 
 | Scenario | Infra | LLM (Haiku) | Totaal | Met Batch API |
 |---|---|---|---|---|
-| **(a) P0-slice** — 200k/mnd, CCX33, Neon Launch, Trigger Hobby, Firecrawl Standard, Langfuse Core, Sentry Team | ≈ €270 | €975 | **≈ €1.250/mnd** | ≈ €765 (≈ €480 met luna) |
-| **(b) Jaar 1** — 600k/mnd, 32 GB box, Firecrawl Growth, Browserbase Startup | ≈ €900 | €2.926 | **≈ €3.825/mnd** | ≈ €2.360 |
-| **(c) Jaar 2** — + AX42 64 GB search-box, Neon 3 CU | ≈ €1.090 | €2.926 | **≈ €4.015/mnd** | ≈ €2.550 |
+| **(a) P0-slice** — 200k/mnd, CCX33 met Postgres + Manticore, Trigger Hobby, Firecrawl Standard, Langfuse Core, Sentry Team | ≈ €210 | €975 | **≈ €1.190/mnd** | ≈ €705 (≈ €420 met luna) |
+| **(b) Jaar 1** — 600k/mnd, 32 GB box met Postgres + Manticore, Firecrawl Growth, Browserbase Startup | ≈ €740 | €2.926 | **≈ €3.665/mnd** | ≈ €2.200 |
+| **(c) Jaar 2** — + AX42 64 GB search-box; Postgres blijft op de DB/app-host | ≈ €840 | €2.926 | **≈ €3.765/mnd** | ≈ €2.300 |
 
-Versus JI-NFR-06 "infra fase 1 < €300/mnd": P0-infra ≈ €270 ✓ (LLM apart).
+Versus JI-NFR-06 "infra fase 1 < €300/mnd": voorlopige P0-infra ≈ €210 (LLM apart). Dit is de eerdere raming minus Neon; kosten voor het beschermde externe volume en continue off-site WAL-back-up zijn nog niet live geprijsd en kunnen dit bedrag verhogen.
 
 ## Grootste posten en hun hefboom
 
 1. **LLM-tokens (75–80 %)** — Batch API halveert Claude; scoring naar mini-klasse (luna 5× goedkoper dan Haiku); prompt-prefix cachen ($0,10/MTok); elke procentpunt minder LLM-extractie (meer deterministische parsers) ≈ €120/mnd.
 2. **Firecrawl (€367 bij Growth)** — geen pay-per-use: 100k → 200k pagina's kost 4×. Hefboom: JS-borden ≤ 100k/mnd houden (Standard), of die vijf borden on-box renderen en terug naar Hobby.
-3. **Neon (€160–250)** — hefboom: autoscaling-plafond, scale-to-zero op niet-prod branches, 1 dag historie — óf Postgres on-box bij ~7,5M docs (dan €0 extra; dit is het argument in de open Neon-vs-on-box-beslissing).
+3. **Databasebeheer (DEC-005)** — Neon à €60–250/mnd valt uit de nieuwe SoR-raming. Daarvoor komen een beschermd extern volume, continue WAL/off-site-back-up, restore-tests en monitoring terug; prijs deze posten vóór productie. Motian-Neon blijft alleen een read-only importbron.
+
+## DEC-005 kosten- en capaciteitsgrens
+
+Postgres 16 draait vanaf P0 on-box naast Manticore. Budgetteer Postgres als primaire, niet-rebuildbare state: het krijgt CPU-, geheugen- en diskprioriteit. Manticore mag worden begrensd of naar een aparte search-box verhuizen omdat de index uit Postgres plus raw storage kan worden herbouwd. Kies een aparte DB-host of managed Postgres zodra HA vereist is of metingen aantonen dat disk-, RAM- of CPU-concurrentie de database-SLO bedreigt.
+
+De tabel bewijst geen operationele backup/restore. Productieklaar vereist continue WAL off-site en een periodiek geslaagde restore naar een lege geïsoleerde database.
 
 ## Ondoorzichtig / sales-contact
 

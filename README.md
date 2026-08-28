@@ -23,28 +23,32 @@ Bouwdossier voor de eerste Catapulze Job Intelligence-slice: vacatures/aanvragen
 
 ## Stack in één regel
 
-Bun + TypeScript + Effect-TS + Drizzle · Postgres (zones staging/curated/marts, SCD2, outbox) · Manticore RT achter een SearchAdapter · Trigger.dev Cloud · Hetzner + Coolify · Redis (Upstash) voor rate-limits en geversioneerde result-cache · DuckLake voor analytics/export · MCP + REST als enig datapad · capability registry met approval-als-data.
+Bun + TypeScript + Effect-TS + Drizzle · Postgres 16 on-box in Docker (zones staging/curated/marts, SCD2, outbox) · Manticore RT achter een SearchAdapter · Trigger.dev Cloud · Hetzner + Coolify · Redis (Upstash) voor rate-limits en geversioneerde result-cache · DuckLake voor analytics/export · MCP + REST als enig datapad · capability registry met approval-als-data.
 
 ## Status
 
-Discovery-consolidatie afgerond 27 augustus 2026. Open: Neon vs Postgres on-box, Spott.io-contract (DEC-006), leveranciersaccounts en ToS-besluiten per bron (zie `SOURCE_MATRIX.md`).
+Discovery-consolidatie afgerond 27 augustus 2026. **DEC-005 is op 28 augustus 2026 definitief:** de nieuwe Catapulze-database is vanaf P0 Postgres 16 on-box in Docker; de bestaande Motian-Neon-database is uitsluitend een read-only importbron. Open: Spott.io-contract (DEC-006), leveranciersaccounts en ToS-besluiten per bron (zie `SOURCE_MATRIX.md`).
 
 De inhoud is gebaseerd op de Ryan/Robbie-call van 27 augustus 2026, het bestaande Lovable/Neon-prototype, de gedeelde analyses en publieke bronverificatie. Transcriptuitspraken zijn requirements-input, geen automatisch genomen architectuurbesluiten.
 
 ## Lokaal draaien
 
-De app is een Bun-monorepo (Better-T-Stack): Next.js op poort 3001, Hono/tRPC op poort 3000, Drizzle + Neon, Better Auth. Workspace-packages staan onder de scope `@ji`.
+De app is een Bun-monorepo (Better-T-Stack): Next.js op poort 3001, Hono/tRPC op poort 3000, Drizzle + `postgres-js`, Better Auth. Workspace-packages staan onder de scope `@ji`.
 
 ```bash
-bun install
+bun --version # vereist 1.3.14
+bun install --frozen-lockfile
+cp .env.example .env
 cp apps/server/.env.example apps/server/.env
 cp apps/web/.env.example apps/web/.env
 ```
 
-Vul in `apps/server/.env` ten minste `DATABASE_URL` (Neon) en `BETTER_AUTH_SECRET` (`openssl rand -base64 32`). Push daarna het auth-schema en start beide apps:
+De gekopieerde `_local`-credentials zijn uitsluitend voor ontwikkeling en houden de admin-, migratie- en applicatierol gescheiden. Vul in `apps/server/.env` daarnaast `BETTER_AUTH_SECRET` in (`openssl rand -base64 32`). Een vers extern volume voert de rollenbootstrap één keer uit. Drizzle gebruikt de migrator via `MIGRATION_DATABASE_URL`; de server gebruikt de beperkte app-rol via `DATABASE_URL`.
 
 ```bash
-bun run db:push
+bun run docker:volume:create
+docker compose up -d postgres
+bun run db:migrate
 bun run dev
 ```
 
@@ -52,6 +56,21 @@ bun run dev
 | --- | --------------------- |
 | Web | http://localhost:3001 |
 | API | http://localhost:3000 |
+
+## DEC-005: production baseline voor Postgres
+
+De lokale Compose-service is de ontwikkel- en testbasis; een productie-uitrol is pas geaccepteerd wanneer al deze gates met bewijs zijn gesloten:
+
+- Postgres gebruikt een vooraf aangemaakt, extern beschermd volume. `docker compose down` mag containers verwijderen, maar `docker compose down -v` is voor deze omgeving verboden.
+- Admin, migrator en runtime zijn afzonderlijke rollen. De runtime is geen superuser, kan geen rollen/databases/schema's aanmaken en krijgt alleen schema-gebruik plus DML op migrator-objecten.
+- Poort `5432` bindt niet publiek; alleen de private Docker-/hostnetwerkroute is bereikbaar.
+- Continue WAL-archivering gaat naar off-site object storage en een restore naar een lege, geïsoleerde database is periodiek end-to-end getest.
+- Databasegezondheid, disk, WAL/back-uplag, verbindingen, locks, querylatency, CPU en geheugen zijn gemonitord en gealarmeerd.
+- CPU-, geheugen- en diskbudgetten zijn vastgelegd. Postgres krijgt voorrang; de Manticore-index is afgeleid en rebuildbaar uit Postgres plus raw storage.
+- Een aparte databasehost of managed Postgres wordt de exit wanneer HA vereist is, of wanneer metingen aantonen dat disk-, RAM- of CPU-concurrentie de database-SLO bedreigt.
+- Productie gebruikt sterke, unieke credentials uit de deployment secret manager; de lokale waarden uit `.env.example` zijn daar verboden.
+
+Het externe volume en de private poortbinding zijn configuratievoorwaarden, geen bewijs dat back-up en restore al operationeel werken. Bewaar restore-evidence voordat deze omgeving als productiegeschikt wordt gemarkeerd.
 
 Handige scripts: `bun run dev:web`, `bun run dev:server`, `bun run db:studio`, `bun run fix`, `bun run check`, `bun run gate`, `bun run wiki`, `bun test`, `bun run check-layering`, `bun run check-secrets`.
 
@@ -68,12 +87,12 @@ Handige scripts: `bun run dev:web`, `bun run dev:server`, `bun run db:studio`, `
 
 `bun run check` en `bun run gate` vereisen de [Qlty CLI](https://docs.qlty.sh/cli/installation). Ze falen bewust wanneer Qlty ontbreekt, zodat een ontbrekende quality-owner nooit als groen wordt gerapporteerd.
 
-`bun run gate` vereist daarnaast een bereikbare test-Postgres en voert de migratie- en constrainttests echt uit. Start lokaal alleen de testservice met `docker compose up -d postgres` en stop die na de gate met `docker compose down`. Een gewone `bun test` mag zonder Postgres draaien en slaat uitsluitend die integratiesuite over.
+`bun run gate` vereist daarnaast een bereikbare test-Postgres en voert de migratie- en constrainttests echt uit. Maak het externe volume eenmalig met `bun run docker:volume:create`, start lokaal alleen de testservice met `docker compose up -d postgres` en stop die na de gate met `docker compose down`. Het externe volume blijft daarbij behouden; gebruik hier geen `docker compose down -v`. Een gewone `bun test` mag zonder Postgres draaien en slaat uitsluitend die integratiesuite over.
 
 Een verse clone heeft voor de basisvalidatie alleen **bun** nodig (geen extra globale linters of test runners):
 
 ```bash
-bun install
+bun install --frozen-lockfile
 bun test
 bun run check-types
 bun run check-layering
