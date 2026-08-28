@@ -2,16 +2,19 @@
 
 Bun monorepo for Catapulze Job Intelligence. Workspace packages use the `@ji` scope (Job Intelligence).
 
-| Path              | Role                           |
-| ----------------- | ------------------------------ |
-| `apps/web`        | Next.js UI on port 3001        |
-| `apps/server`     | Hono + tRPC API on port 3000   |
-| `packages/api`    | tRPC router and procedures     |
-| `packages/auth`   | Better Auth                    |
-| `packages/db`     | Drizzle schema and Neon client |
-| `packages/env`    | Typed env for server and web   |
-| `packages/ui`     | Shared UI components           |
-| `packages/config` | Shared TypeScript config       |
+| Path                   | Role                                      |
+| ---------------------- | ----------------------------------------- |
+| `apps/web`             | Next.js UI on port 3001                   |
+| `apps/server`          | Hono + tRPC API on port 3000              |
+| `packages/api`         | tRPC router and procedures                |
+| `packages/application` | Use-case layer (bronregister, Slice A)    |
+| `packages/auth`        | Better Auth                               |
+| `packages/connectors`  | Connector contract and source adapters    |
+| `packages/db`          | Drizzle schema and Neon client            |
+| `packages/domain`      | Domain types and Boolean parser (Slice A) |
+| `packages/env`         | Typed env for server and web              |
+| `packages/ui`          | Shared UI components                      |
+| `packages/config`      | Shared TypeScript config                  |
 
 Do not query Postgres from the web app. Reads and writes go through `apps/server` / `packages/api`. Secrets stay in `apps/server/.env` and `apps/web/.env` (see `.env.example` files); never commit them.
 
@@ -20,6 +23,8 @@ The parent directory name `clients:catapulze` contains a colon, which splits Uni
 Linting uses Ultracite (Oxlint + Oxfmt) plus a vendored [anti-slop](https://github.com/dmmulroy/anti-slop) plugin at `tools/oxlint/anti-slop/`. Treat that copy as owned project tooling: change the rules here rather than depending on a published package. Effect-specific anti-slop rules stay off until `effect` is a direct dependency.
 
 Do not import `@ji/db`, `drizzle-orm`, or `packages/infra` from `apps/web`. Run `bun run check-layering` after changing web imports. Run `bun test` (max 2 workers, no watch) and `bun run check-secrets` before finishing a change. Secrets stay out of git; `.env.example` lists names and placeholders only.
+
+Slice A plans and docs may reference `packages/infra`; this repo uses `@ji/db` for Postgres/Drizzle instead.
 
 ---
 
@@ -150,15 +155,26 @@ Oxlint + Oxfmt's linter will catch most issues automatically. Focus your attenti
 
 Most formatting and common issues are automatically fixed by Oxlint + Oxfmt. Run `bun x ultracite fix` before committing to ensure compliance.
 
+## Learned User Preferences
+
+- Do not commit accidental `docs/` formatter churn from pre-commit; restore or leave unstaged when committing code-only changes.
+- Commit OpenWiki updates separately from feature work (pre-commit wiki guard).
+
+## Learned Workspace Facts
+
+- Quality verbs: `bun run fix` / `check` (changed vs `origin/main`), `gate` (full pre-push), `wiki` (OpenWiki local). `fix:all` / `check:all` are deliberate whole-tree escape hatches.
+- Lefthook owns pre-commit (scoped `ultracite fix {staged_files}`) and pre-push (`gate`). Never run `qlty githooks install`.
+- Qlty (`.qlty/qlty.toml`) covers shell/workflows/secrets; Ultracite + anti-slop owns TS/JS. All `qlty check` uses `--no-formatters`; never `qlty fmt`.
+- Live app verification skill: `.cursor/skills/verify-job-intelligence/` (web 3001, API 3000).
+
 <!-- OPENWIKI:START -->
 
 ## OpenWiki
 
-This repository has a generated `openwiki/` evidence index. It is optional just-in-time context, not required startup reading.
+This repository has a committed `openwiki/` evidence index (see `openwiki/INSTRUCTIONS.md`). It is optional just-in-time context, not required startup reading.
 
 - Treat source code and tests as authoritative. A brief's unknowns and review items are verification gaps, not automatic requirements.
-- Prefer the narrowest quiet validation that proves the changed behavior. Preserve complete failure output.
-
-The scheduled OpenWiki GitHub Actions workflow refreshes the repository wiki. Do not hand-edit generated OpenWiki pages unless explicitly asked; prefer updating source code/docs and letting OpenWiki regenerate.
+- Prefer the narrowest quiet validation that proves the changed behavior. Agent completion: run `bun run fix` once after edits, not per-file ultracite.
+- Do not mix `openwiki/` changes into feature commits. Scheduled CI opens PRs on branch `openwiki/update`.
 
 <!-- OPENWIKI:END -->

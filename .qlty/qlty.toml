@@ -1,0 +1,79 @@
+# Qlty project config — cross-language smells, secrets, shell/workflow lint.
+# TS/JS lint + format: Ultracite (Oxlint/Oxfmt + anti-slop) via `bun run fix|check`.
+# Never run `qlty githooks install`; Lefthook is the sole `.git/hooks` owner.
+# Never invoke `qlty fmt`; every `qlty check` uses `--no-formatters`.
+
+config_version = "0"
+
+exclude_patterns = [
+  "**/node_modules/**",
+  "**/.turbo/**",
+  "**/dist/**",
+  "**/build/**",
+  "**/coverage/**",
+  "docs/**",
+  "openwiki/**",
+  ".cache/**",
+  "tools/oxlint/anti-slop/**",
+]
+
+test_patterns = ["**/*.spec.ts", "**/*.test.ts", "**/test/**", "**/tests/**"]
+
+[[source]]
+name = "default"
+default = true
+
+# --- Enabled plugins (no formatters) ---
+
+[[plugin]]
+name = "actionlint"
+
+[[plugin]]
+name = "shellcheck"
+
+[[plugin]]
+name = "yamllint"
+
+[[plugin]]
+name = "ripgrep"
+
+[[plugin]]
+name = "osv-scanner"
+
+[[plugin]]
+name = "trufflehog"
+
+[[plugin]]
+name = "checkov"
+
+# --- Tombstones: disabled plugins with reasons ---
+
+# Ultracite oxlint.config.ts owns TS/JS lint (pins Oxlint 1.80, jsPlugins anti-slop).
+[[plugin]]
+name = "oxc"
+mode = "disabled"
+
+# Oxfmt via Ultracite owns formatting; belt-and-braces with --no-formatters on every check.
+[[plugin]]
+name = "prettier"
+mode = "disabled"
+
+# ESLint overlaps Ultracite/Oxlint; no dual TS lint path in v1.
+[[plugin]]
+name = "eslint"
+mode = "disabled"
+
+# Biome overlaps Ultracite/Oxlint + Oxfmt.
+[[plugin]]
+name = "biome"
+mode = "disabled"
+
+# Product discovery docs in docs/ are not Markdown-lint targets.
+[[plugin]]
+name = "markdownlint"
+mode = "disabled"
+
+# Shell formatters conflict with scoped Ultracite/Oxfmt ownership.
+[[plugin]]
+name = "shfmt"
+mode = "disabled"
