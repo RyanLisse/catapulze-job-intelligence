@@ -38,7 +38,7 @@ Thumbs.db
 # Agent/session state
 .omc/
 .openwiki/
-openwiki/
+openwiki/.run.json
 .claude/settings.local.json
 .cursor/skills/verify-job-intelligence/.run/
 .cursor/skills/verify-job-intelligence/artifacts/
@@ -55,6 +55,12 @@ docs/research/bench/rs/target/
 
 # Logs
 logs
+.qlty/configs/
+.qlty/logs
+.qlty/out
+.qlty/plugin_cachedir
+.qlty/results
+.qlty/sources/
 .evlog/
 *.log
 npm-debug.log*

@@ -53,9 +53,24 @@ bun run dev
 | Web | http://localhost:3001 |
 | API | http://localhost:3000 |
 
-Handige scripts: `bun run dev:web`, `bun run dev:server`, `bun run db:studio`, `bun run check`, `bun run fix`, `bun test`, `bun run check-layering`, `bun run check-secrets`.
+Handige scripts: `bun run dev:web`, `bun run dev:server`, `bun run db:studio`, `bun run fix`, `bun run check`, `bun run gate`, `bun run wiki`, `bun test`, `bun run check-layering`, `bun run check-secrets`.
 
-Een verse clone heeft alleen **bun** nodig (geen extra globale linters of test runners):
+## Quality (vier werkwoorden)
+
+| Script | Wanneer |
+| --- | --- |
+| `bun run fix` | Auto-fix op branch-, staged, unstaged en untracked wijzigingen (Ultracite/Oxlint/Oxfmt) |
+| `bun run check` | Lint op gewijzigde bestanden + Qlty (`--no-formatters`) |
+| `bun run gate` | Volledige pre-push gate: Ultracite, Qlty, types, layering, secrets, tests |
+| `bun run wiki` | OpenWiki lokaal bijwerken |
+
+`fix:all` / `check:all` formatteren of linten de hele tree — bewust escape hatch, niet voor dagelijks gebruik. Pre-commit gebruikt Lefthook met `{staged_files}`; Husky is verwijderd. Qlty-config staat in `.qlty/qlty.toml` (geen `qlty fmt`, nooit `qlty githooks install`).
+
+`bun run check` en `bun run gate` vereisen de [Qlty CLI](https://docs.qlty.sh/cli/installation). Ze falen bewust wanneer Qlty ontbreekt, zodat een ontbrekende quality-owner nooit als groen wordt gerapporteerd.
+
+`bun run gate` vereist daarnaast een bereikbare test-Postgres en voert de migratie- en constrainttests echt uit. Start lokaal alleen de testservice met `docker compose up -d postgres` en stop die na de gate met `docker compose down`. Een gewone `bun test` mag zonder Postgres draaien en slaat uitsluitend die integratiesuite over.
+
+Een verse clone heeft voor de basisvalidatie alleen **bun** nodig (geen extra globale linters of test runners):
 
 ```bash
 bun install

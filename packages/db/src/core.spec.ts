@@ -16,9 +16,12 @@ import {
   sourceRecord,
 } from "./schema";
 
-const defaultTestDatabaseUrl = "postgresql://ji:ji@localhost:5432/ji_test";
+const defaultTestDatabaseUrl = "postgresql://ji:ji@127.0.0.1:5432/ji_test";
 
 const testDatabaseUrl = process.env.DATABASE_TEST_URL ?? defaultTestDatabaseUrl;
+const testDatabaseRequired =
+  process.env.REQUIRE_DATABASE_TESTS === "1" ||
+  process.env.DATABASE_TEST_URL !== undefined;
 
 const migrationsFolder = path.join(import.meta.dir, "migrations");
 
@@ -65,6 +68,9 @@ describe("core schema migrations", () => {
   beforeAll(async () => {
     postgresAvailable = await isPostgresAvailable();
     if (!postgresAvailable) {
+      if (testDatabaseRequired) {
+        throw new Error("Required test database is unavailable");
+      }
       return;
     }
 
@@ -153,13 +159,15 @@ describe("core schema migrations", () => {
     });
 
     await expect(
-      db.insert(sourceRecord).values({
-        bronId: bronRow.id,
-        bronReferentie: "TN-2",
-        contentHash: "hash-a",
-        rawPayloadRef: "raw/tenderned/2026/08/28/run/tn-2.json",
-        scrapeRunId: runRow.id,
-      })
+      Promise.resolve(
+        db.insert(sourceRecord).values({
+          bronId: bronRow.id,
+          bronReferentie: "TN-2",
+          contentHash: "hash-a",
+          rawPayloadRef: "raw/tenderned/2026/08/28/run/tn-2.json",
+          scrapeRunId: runRow.id,
+        })
+      )
     ).rejects.toThrow();
   });
 
@@ -170,29 +178,31 @@ describe("core schema migrations", () => {
     }
 
     await expect(
-      db.execute(sql`
-        INSERT INTO curated.aanvraag (
-          bron_referentie,
-          content_hash,
-          raw_payload_ref,
-          scrape_run_id,
-          titel,
-          beschrijving,
-          extractie_methode,
-          eerste_gezien_op,
-          laatst_gezien_op
-        ) VALUES (
-          'TN-999',
-          'hash-direct',
-          'raw/direct.json',
-          gen_random_uuid(),
-          'Platform engineer',
-          'Beschrijving',
-          'api',
-          NOW(),
-          NOW()
-        )
-      `)
+      Promise.resolve(
+        db.execute(sql`
+          INSERT INTO curated.aanvraag (
+            bron_referentie,
+            content_hash,
+            raw_payload_ref,
+            scrape_run_id,
+            titel,
+            beschrijving,
+            extractie_methode,
+            eerste_gezien_op,
+            laatst_gezien_op
+          ) VALUES (
+            'TN-999',
+            'hash-direct',
+            'raw/direct.json',
+            gen_random_uuid(),
+            'Platform engineer',
+            'Beschrijving',
+            'api',
+            NOW(),
+            NOW()
+          )
+        `)
+      )
     ).rejects.toThrow();
   });
 

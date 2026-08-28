@@ -41,12 +41,16 @@
     "docker:up": "docker compose up -d --build",
     "docker:down": "docker compose down",
     "docker:logs": "docker compose logs -f",
-    "check": "PATH=\"./node_modules/.bin:$PATH\" ultracite check",
-    "fix": "PATH=\"./node_modules/.bin:$PATH\" ultracite fix",
+    "check": "PATH=\"./node_modules/.bin:$PATH\" bash tools/quality/check-changed.sh",
+    "check:all": "PATH=\"./node_modules/.bin:$PATH\" ultracite check",
+    "fix": "PATH=\"./node_modules/.bin:$PATH\" bash tools/quality/fix-changed.sh",
+    "fix:all": "PATH=\"./node_modules/.bin:$PATH\" ultracite fix",
+    "gate": "PATH=\"./node_modules/.bin:$PATH\" bash tools/quality/gate.sh",
+    "wiki": "openwiki code --update --print",
     "test": "PATH=\"./node_modules/.bin:$PATH\" bun test --max-concurrency 2",
     "check-layering": "PATH=\"./node_modules/.bin:$PATH\" bun scripts/check-layering.ts",
     "check-secrets": "PATH=\"./node_modules/.bin:$PATH\" bun scripts/check-secrets-scan.ts",
-    "prepare": "PATH=\"./node_modules/.bin:$PATH\" husky"
+    "prepare": "PATH=\"./node_modules/.bin:$PATH\" lefthook install --reset-hooks-path"
   },
   "dependencies": {
     "@ji/env": "workspace:*",
@@ -57,7 +61,6 @@
     "@ji/config": "workspace:*",
     "@oxlint/plugins": "1.80.0",
     "@types/bun": "catalog:",
-    "husky": "^9.1.7",
     "lefthook": "2.1.10",
     "oxfmt": "0.65.0",
     "oxlint": "1.80.0",

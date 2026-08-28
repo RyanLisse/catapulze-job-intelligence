@@ -71,6 +71,10 @@ JI-DAT-01 75-velds model is doel, geen P0-gate (model groeit uit de slice).
 - DEC-002 bronmatrix (bepaalt echt fetch-volume en Firecrawl/Browserbase-subset); DEC-006 Spott.io-contract.
 - Kosten geverifieerd op live pagina's (`COSTS.md`): P0 ≈ €1.250/mnd (€765 met Batch), jaar 1 ≈ €3.825, jaar 2 ≈ €4.015; LLM = 75–80 %. Hetzner heeft geen 32 GB dedicated → CCX33 cloud €43,49; AX42 64 GB ECC €99. Neon €160–250/mnd in jaar 1–2 = het on-box-argument.
 
+## Geparkeerd — later, Company OS
+
+- **Convex** (besluit 27-08): niet voor Job Intelligence — het zou een tweede data-engine naast Postgres zijn ("dialect-flag"-les), verliest SQL-toegang voor DuckLake/marts, en de ingebouwde search kent geen geneste Boolean/facets; reactieve UI dekken we al met outbox → SSE. Wél kandidaat als agent-runtime voor het Company OS (agent-state, workflows, realtime run-dashboards) zodra die laag aan de beurt is. Lineage: `v0-recruitment-dashboard` (Next + Convex) was een motian-voorganger en is losgelaten richting Postgres.
+
 ## Volgende stappen
 
 → Bouwbrief §5 bijwerken (search-default, orkestratie, Redis, ladder) en backlog JI-010..016
