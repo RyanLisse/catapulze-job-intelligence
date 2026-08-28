@@ -48,7 +48,7 @@ Optional env:
 - `LINEAR_ASSIGN_IF_RYAN=1` — assign only if the key’s user email is `ryan@ryanlisse.com`
 - `--dry-run` — resolve team/project, print creates, write nothing
 
-The script is idempotent on issue **title** inside the Job Intelligence project.
+The script reconciles deterministically by configured Linear identifier, stable catalog marker, catalog-id title and finally exact title. Updates retain the catalog marker, so issue renames do not create duplicates.
 
 ## Fallback: CSV import
 

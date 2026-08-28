@@ -1,7 +1,9 @@
 # Job Intelligence — agent-native architectuur
 
-Status: ontwerp v0.1, 27 augustus 2026 · hoort bij `BUILD_BRIEF.md` (§4–§9) en `brainstorms/2026-08-27-techstack-brainstorm.md`
+Status: ontwerp v0.1, 27 augustus 2026 · kernelfundering gestart op 28 augustus 2026 · hoort bij `BUILD_BRIEF.md` (§4–§9) en `brainstorms/2026-08-27-techstack-brainstorm.md`
 Uitgangspunt: **agents zijn eersteklas burgers vanaf dag één.** Niet "eerst de app, dan MCP erop" — de tool-laag ís de app; de recruiter-UI is één rendering ervan.
+
+> Implementatiestatus: alleen de lege, deny-by-default kernel is gebouwd en getest. `packages/application/src/registry/registry.ts` bevat construction-time validatie, metadata-only discovery, gebonden invokers, per-call autorisatie, schema-validatie en begrensde interne foutrapportage; `packages/application/src/registry/registry.spec.ts` test die grenzen. `catalog.ts` houdt de productiecatalogus bewust leeg. Capability-map, coverage gate, `list_capabilities`/principal-filtering en een gedeelde UI/REST/MCP-transportpijplijn zijn doelarchitectuur en nog niet geïmplementeerd.
 
 ## 0. De vijf principes, toegepast op deze slice
 
@@ -43,36 +45,36 @@ Elke entiteit heeft volledige CRUD, tenzij de reden om dat níet te doen explici
 
 **Context-begrenzing zit in de tools.** `get_aanvraag` en `read_raw` geven standaard een preview; `full: true` is opt-in. `search_aanvragen` geeft id's + kop, niet volledige beschrijvingen. Daardoor kan een agent 200 resultaten doorlopen zonder zijn venster te vullen.
 
-## 2. Capability map — UI ↔ agent
+## 2. Capability map — UI ↔ agent (gepland)
 
-Onderhouden als data (`packages/application/registry/capabilities.ts`), niet als tabel in een doc. Deze versie is het startpunt; de drift-gates (§7) houden 'm eerlijk.
+Doel: onderhouden als data (`packages/application/registry/capabilities.ts`), niet als tabel in een doc. Dat bestand en de drift-gates bestaan nog niet. De statussen hieronder beschrijven gewenste dekking, niet gerealiseerde bindings.
 
 | Scherm | UI-actie | Tool | Status |
 |---|---|---|---|
-| Zoeken | vrije term + Boolean | `search_aanvragen` | ✅ |
-| Zoeken | facetten, bereiken, datums, sortering | `search_aanvragen(filters, sort)` | ✅ |
-| Zoeken | paginering / deelbare URL | `search_aanvragen(cursor)` — URL-staat = tool-argumenten | ✅ |
-| Zoeken | opslaan als zoekopdracht (+ alert) | `create_saved_search`, `plan_saved_search` | ✅ |
-| Zoeken | export CSV/XLSX | `export_selectie(snapshot, formaat)` → bestand in object storage | ✅ |
-| Detail | velden, groep, versies, skills, score+reden, bronlink, raw | `get_aanvraag`, `list_versies`, `get_groep`, `read_raw` | ✅ |
-| Detail | markeren relevant / niet / gevolgd | `markeer_aanvraag` | ✅ |
-| Detail | doorzetten naar Spott.io | `propose_export` → (`accept_proposal`) → `commit_export` | ✅ (gated) |
-| Detail | contactgegevens (rol recruiter) | `get_aanvraag(include_contact)` — zelfde rolcheck | ✅ |
-| Groep | splitsen / samenvoegen / primaire bron | `split_groep`, `merge_groepen`, `zet_primaire_bron` | ✅ |
-| Review-wachtrij | open voorstellen (veldcorrectie, organisatie-merge, deletes) accepteren/afwijzen | `list_proposals`, `accept_proposal`, `reject_proposal`, `withdraw_proposal` | ✅ |
-| Bronbeheer | herverwerken van opgeslagen payloads (replay) | `replay_run(bron, periode)` | ✅ |
-| Detail / Bron | notities voor agents ("context") lezen en bijwerken | `read_context`, `update_context` | ✅ |
-| Bronbeheer | config bewerken met validatie | `get_bron_config_schema`, `update_bron_config` | ✅ |
-| Bronbeheer | run now / pauzeer / test-import / circuit reset | `start_run`, `pauzeer_bron`, `start_test_import`, `reset_circuit` | ✅ |
-| Bronbeheer | onboarding-voortgang, laatste fouten met payload | `get_bron`, `list_runs`, `read_raw` | ✅ |
-| Dashboard | elke KPI en grafiek | `query_marts` — een KPI is een query die de agent ook kan stellen | ✅ |
-| Dashboard | klik-door naar zoeklijst | zelfde `search_aanvragen`-argumenten | ✅ |
-| Dashboard | bron-gezondheid, alerts | `get_bron_health`, `list_alerts`, `ack_alert` | ✅ |
-| Beheer | approval-beleid wijzigen | `update_policy` (beheerder) | ✅ |
+| Zoeken | vrije term + Boolean | `search_aanvragen` | gepland |
+| Zoeken | facetten, bereiken, datums, sortering | `search_aanvragen(filters, sort)` | gepland |
+| Zoeken | paginering / deelbare URL | `search_aanvragen(cursor)` — URL-staat = tool-argumenten | gepland |
+| Zoeken | opslaan als zoekopdracht (+ alert) | `create_saved_search`, `plan_saved_search` | gepland |
+| Zoeken | export CSV/XLSX | `export_selectie(snapshot, formaat)` → bestand in object storage | gepland |
+| Detail | velden, groep, versies, skills, score+reden, bronlink, raw | `get_aanvraag`, `list_versies`, `get_groep`, `read_raw` | gepland |
+| Detail | markeren relevant / niet / gevolgd | `markeer_aanvraag` | gepland |
+| Detail | doorzetten naar Spott.io | `propose_export` → (`accept_proposal`) → `commit_export` | gepland (gated) |
+| Detail | contactgegevens (rol recruiter) | `get_aanvraag(include_contact)` — zelfde rolcheck | gepland |
+| Groep | splitsen / samenvoegen / primaire bron | `split_groep`, `merge_groepen`, `zet_primaire_bron` | gepland |
+| Review-wachtrij | open voorstellen (veldcorrectie, organisatie-merge, deletes) accepteren/afwijzen | `list_proposals`, `accept_proposal`, `reject_proposal`, `withdraw_proposal` | gepland |
+| Bronbeheer | herverwerken van opgeslagen payloads (replay) | `replay_run(bron, periode)` | gepland |
+| Detail / Bron | notities voor agents ("context") lezen en bijwerken | `read_context`, `update_context` | gepland |
+| Bronbeheer | config bewerken met validatie | `get_bron_config_schema`, `update_bron_config` | gepland |
+| Bronbeheer | run now / pauzeer / test-import / circuit reset | `start_run`, `pauzeer_bron`, `start_test_import`, `reset_circuit` | gepland |
+| Bronbeheer | onboarding-voortgang, laatste fouten met payload | `get_bron`, `list_runs`, `read_raw` | gepland |
+| Dashboard | elke KPI en grafiek | `query_marts` — een KPI is een query die de agent ook kan stellen | gepland |
+| Dashboard | klik-door naar zoeklijst | zelfde `search_aanvragen`-argumenten | gepland |
+| Dashboard | bron-gezondheid, alerts | `get_bron_health`, `list_alerts`, `ack_alert` | gepland |
+| Beheer | approval-beleid wijzigen | `update_policy` (beheerder) | gepland |
 | Beheer | login met M365 | — | 🚫 mens-only |
 | Beheer | secrets invoeren | — | 🚫 mens-only (secret store, alleen `secret_ref` in config) |
 
-Regel voor elke PR: nieuwe UI-actie → tool in dezelfde PR, registry-entry, systeemprompt-zin, capability-map-rij. Anders faalt `check-capability-coverage`.
+Geplande PR-regel: nieuwe UI-actie → tool in dezelfde PR, registry-entry, systeemprompt-zin, capability-map-rij. De nog te bouwen `check-capability-coverage` moet dit afdwingen.
 
 ## 3. Capability registry — het contract
 
@@ -98,7 +100,7 @@ Eén entry per gebruikersuitkomst, gebonden aan één handler. Transports (UI-ac
 
 De `approval`-union dwingt een **reden bij opt-out**: `{ required: false, mode: "none", reason: "…" }`. Je kunt geen gate vergeten die je moet beargumenteren.
 
-**Van registry naar MCP en REST — één bron, twee transports** (patroon uit openship, Apache-2.0, `apps/api/src/modules/mcp/mcp-tools.ts`):
+**Gepland: van registry naar MCP en REST — één bron, twee transports** (patroon uit openship, Apache-2.0, `apps/api/src/modules/mcp/mcp-tools.ts`):
 
 - De MCP-toolcatalogus wordt **gegenereerd** uit de registry, niet met de hand geschreven: `mcp: { enabled: true }` is opt-in per capability; een hard-deny-lijst sluit credential- en auth-oppervlakken uit ongeacht de vlag.
 - Tool-annotaties (`readOnlyHint`, `destructiveHint`) komen uit de **gedeclareerde** `sideEffectClass`/`reversible`, niet uit keyword-heuristiek op de naam.
@@ -154,9 +156,9 @@ De systeemprompt wordt per run opgebouwd uit live staat, niet uit statische teks
 6. **Voltooiingsregels**: wanneer `complete_task`, wanneer `blocked`, nooit eindeloos hetzelfde proberen.
 7. `refresh_context` voor lange sessies.
 
-## 8. UI-integratie — geen stille acties
+## 8. UI-integratie — geen stille acties (gepland)
 
-UI en agents lopen door **dezelfde handlers** (registry). Elke commit schrijft een outbox-event (`aanvraag.gemarkeerd`, `export.voorgesteld`, `export.bevestigd`, `bron.gepauzeerd`); de UI abonneert via SSE op die events. Een agent-actie is dus binnen een seconde zichtbaar — inclusief wie (agent-identiteit) en waarom (reden uit de tool-call). Gedeelde werkruimte: er is geen "agent-output"-map; agents schrijven waar recruiters lezen.
+Doel: UI en agents lopen door **dezelfde handlers** (registry). Elke commit schrijft dan een outbox-event (`aanvraag.gemarkeerd`, `export.voorgesteld`, `export.bevestigd`, `bron.gepauzeerd`); de UI abonneert via SSE op die events. Deze gedeelde transportpijplijn, outbox en SSE-koppeling zijn nog niet gerealiseerd.
 
 ## 9. Verbetering over tijd
 
@@ -169,33 +171,40 @@ UI en agents lopen door **dezelfde handlers** (registry). Elke commit schrijft e
 
 Primitieven eerst. Een domein-tool komt er pas als (a) een patroon in de logs terugkomt, (b) de compositie meetbaar traag of foutgevoelig is, of (c) de stap deterministisch moet zijn (idempotente export, snapshot-creatie, retentie). `commit_export` en `create_snapshot` zijn zulke tools: geen gates-zonder-reden, maar bewuste rails.
 
-## 11. Testen
+## 11. Testen (kernel aanwezig, coverage gepland)
 
-- **Pariteitstest** uit de registry: elke UI-actie heeft een `wiredTransports`-entry voor mcp én rest; `check-capability-coverage` faalt op een `'use server'`-actie zonder agent-pad; `check-capability-registry` faalt op een geregistreerd transport dat niet bestaat.
+- **Aanwezig:** kernboundary-tests in `packages/application/src/registry/registry.spec.ts` voor immutable metadata discovery, vaste bindings, auth, schemas, duplicate detection, contractfouten en begrensde reporting.
+- **Gepland:** pariteitstest uit de registry: elke UI-actie heeft een `wiredTransports`-entry voor mcp én rest; `check-capability-coverage` faalt op een `'use server'`-actie zonder agent-pad; `check-capability-registry` faalt op een geregistreerd transport dat niet bestaat.
 - **Uitkomsttests** per agent op de eval-set (precisie kwalificatie, groep-correctheid, bron-diagnose).
 - **De ultieme test** (elk kwartaal): drie open vragen in het domein die nergens als feature bestaan — kan de harness ze beantwoorden door tools te componeren? Als het antwoord "daar heb ik geen functie voor" is, is het oppervlak te krap.
 
-## 12. Checklist-status
+## 12. Ontwerp- en implementatiestatus
+
+Alleen de registrykernel hieronder is code-backed. De overige regels beschrijven
+de gekozen doelarchitectuur of geplande productcoverage; een vinkje in deze tabel
+mag dus niet als bewijs van een aangesloten capability, transport of user flow
+worden gelezen.
 
 | Onderdeel | Status | Waar |
 |---|---|---|
-| Pariteit | ✅ ontworpen | §2, drift-gates §11 |
-| Granulariteit (primitieven, geen workflows) | ✅ | §1, §10 |
-| Composability (features = prompts) | ✅ | §5 |
+| Lege deny-by-default registrykernel | ✅ geïmplementeerd en getest | `packages/application/src/registry/registry.ts`, `registry.spec.ts` |
+| Pariteit | gepland | §2, drift-gates §11 |
+| Granulariteit (primitieven, geen workflows) | ontwerp vastgelegd; productcapabilities gepland | §1, §10 |
+| Composability (features = prompts) | ontwerp vastgelegd; runtime-evidence gepland | §5 |
 | Emergente capaciteit | ⚠️ ontwerp maakt het mogelijk; de kwartaaltest in §11 is een ritueel, geen eval — pas ✅ na de eerste ronde met vastgelegde uitkomsten | §11 |
-| Capability discovery voor gebruikers (wat kan de agent?) | ✅ `list_capabilities` = de gegenereerde MCP-catalogus (opt-in, principal-gefilterd), ook gerenderd als UI-paneel | §3 |
-| Agent en UI delen het afdwingpad | ✅ per-call subrequest door dezelfde pijplijn | §3 |
-| Dynamische ontdekking (bronnen, analytics) | ✅ | §1 |
-| CRUD-compleetheid | ✅ met beargumenteerde uitzonderingen | §1 |
-| Inputs = data, API valideert | ✅ (config als string, schema valideert) | §1 |
-| Gedeelde werkruimte / geen stille acties | ✅ | §8 |
-| `context.md`-patroon | ✅ `agent_context` per entiteit | §9 |
-| `complete_task`, geen heuristiek | ✅ | §6 |
-| Deelvoltooiing / checkpoints | ✅ | §6 |
-| Context-limieten | ✅ preview/full, summarize | §1, §6 |
-| Context-injectie (resources, capabilities, dynamisch) | ✅ | §7 |
-| Approval passend bij inzet en omkeerbaarheid | ✅ | §4 |
-| Modeltier per agent | ✅ | §5 |
+| Capability discovery voor gebruikers (wat kan de agent?) | gepland: `list_capabilities`, principal-filtering en UI-paneel | §3 |
+| Agent en UI delen het afdwingpad | gepland: per-call subrequest door dezelfde pijplijn | §3, §8 |
+| Dynamische ontdekking (bronnen, analytics) | gepland | §1 |
+| CRUD-compleetheid | doelcontract beschreven; implementatie gepland | §1 |
+| Inputs = data, API valideert | kernel valideert schema's; domeinconfig gepland | §1 |
+| Gedeelde werkruimte / geen stille acties | gepland | §8 |
+| `context.md`-patroon | gepland: `agent_context` per entiteit | §9 |
+| `complete_task`, geen heuristiek | gepland | §6 |
+| Deelvoltooiing / checkpoints | gepland | §6 |
+| Context-limieten | doelcontract beschreven: preview/full en summarize | §1, §6 |
+| Context-injectie (resources, capabilities, dynamisch) | gepland | §7 |
+| Approval passend bij inzet en omkeerbaarheid | beleid beschreven; effectpad gepland | §4 |
+| Modeltier per agent | beleid beschreven; runtimebinding gepland | §5 |
 | Mobile | n.v.t. | |
 
 ## 13. Open

@@ -1,8 +1,11 @@
 import { describe, expect, it } from "bun:test";
 import {
   copyFileSync,
+  existsSync,
   mkdirSync,
   mkdtempSync,
+  readFileSync,
+  realpathSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
@@ -14,10 +17,39 @@ const resolverSource = path.join(
   "../tools/quality/resolve-changed.sh"
 );
 
-const run = (command: string[], cwd: string): string => {
+const callerCommonDirectory = path.resolve(
+  import.meta.dir,
+  Bun.spawnSync({
+    cmd: ["git", "rev-parse", "--git-common-dir"],
+    cwd: import.meta.dir,
+    stderr: "pipe",
+    stdout: "pipe",
+  })
+    .stdout.toString()
+    .trim()
+);
+const callerCommonConfig = path.join(callerCommonDirectory, "config");
+
+const hermeticGitEnvironment = (home: string) => ({
+  GIT_CONFIG_GLOBAL: "/dev/null",
+  GIT_CONFIG_NOSYSTEM: "1",
+  GIT_TERMINAL_PROMPT: "0",
+  HOME: home,
+  LANG: "C",
+  LC_ALL: "C",
+  PATH: process.env.PATH ?? "/usr/bin:/bin",
+  TMPDIR: process.env.TMPDIR ?? tmpdir(),
+});
+
+const run = (
+  command: string[],
+  cwd: string,
+  environment: Record<string, string>
+): string => {
   const result = Bun.spawnSync({
     cmd: command,
     cwd,
+    env: environment,
     stderr: "pipe",
     stdout: "pipe",
   });
@@ -32,8 +64,24 @@ const run = (command: string[], cwd: string): string => {
 describe("resolve-changed", () => {
   it("ignores only empty untracked libgit2 scratchfiles", () => {
     const repository = mkdtempSync(path.join(tmpdir(), "ji-resolve-changed-"));
+    const gitDirectory = path.join(repository, ".git");
+    const hermeticHome = path.join(repository, "home");
+    const environment = hermeticGitEnvironment(hermeticHome);
+    const callerConfigBefore = readFileSync(callerCommonConfig, "utf-8");
+    const git = (arguments_: string[]): string =>
+      run(
+        [
+          "git",
+          `--git-dir=${gitDirectory}`,
+          `--work-tree=${repository}`,
+          ...arguments_,
+        ],
+        repository,
+        environment
+      );
 
     try {
+      mkdirSync(hermeticHome);
       const resolverTarget = path.join(
         repository,
         "tools/quality/resolve-changed.sh"
@@ -41,20 +89,32 @@ describe("resolve-changed", () => {
       mkdirSync(path.dirname(resolverTarget), { recursive: true });
       copyFileSync(resolverSource, resolverTarget);
 
-      run(["git", "init", "--initial-branch=main"], repository);
       run(
-        ["git", "config", "user.email", "quality-test@example.invalid"],
-        repository
+        ["git", "init", "--initial-branch=main", "."],
+        repository,
+        environment
       );
-      run(["git", "config", "user.name", "Quality Test"], repository);
+
+      const resolvedGitDirectory = realpathSync(
+        git(["rev-parse", "--absolute-git-dir"]).trim()
+      );
+      const resolvedWorkTree = realpathSync(
+        git(["rev-parse", "--show-toplevel"]).trim()
+      );
+      if (
+        resolvedGitDirectory !== realpathSync(gitDirectory) ||
+        resolvedWorkTree !== realpathSync(repository)
+      ) {
+        throw new Error("Temporary Git repository binding could not be proven");
+      }
+
+      git(["config", "--local", "user.email", "quality-test@example.invalid"]);
+      git(["config", "--local", "user.name", "Quality Test"]);
 
       writeFileSync(path.join(repository, "_git2_tracked"), "baseline\n");
-      run(["git", "add", "_git2_tracked"], repository);
-      run(["git", "commit", "-m", "test: add baseline"], repository);
-      run(
-        ["git", "update-ref", "refs/remotes/origin/main", "HEAD"],
-        repository
-      );
+      git(["add", "_git2_tracked"]);
+      git(["commit", "-m", "test: add baseline"]);
+      git(["update-ref", "refs/remotes/origin/main", "HEAD"]);
 
       writeFileSync(path.join(repository, "_git2_tracked"), "");
       writeFileSync(path.join(repository, "_git2_empty"), "");
@@ -62,7 +122,8 @@ describe("resolve-changed", () => {
 
       const resolved = run(
         ["bash", "tools/quality/resolve-changed.sh"],
-        repository
+        repository,
+        environment
       )
         .trim()
         .split("\n");
@@ -70,8 +131,11 @@ describe("resolve-changed", () => {
       expect(resolved).toContain("_git2_tracked");
       expect(resolved).toContain("_git2_nonempty");
       expect(resolved).not.toContain("_git2_empty");
+      expect(existsSync(gitDirectory)).toBe(true);
     } finally {
+      const callerConfigAfter = readFileSync(callerCommonConfig, "utf-8");
       rmSync(repository, { force: true, recursive: true });
+      expect(callerConfigAfter).toBe(callerConfigBefore);
     }
   });
 });
