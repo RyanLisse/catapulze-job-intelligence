@@ -202,13 +202,22 @@
     "metadata": {
       "type": "object",
       "additionalProperties": false,
+      "allOf": [
+        {
+          "if": { "required": ["dataset"] },
+          "then": { "required": ["dataset-digest"] }
+        }
+      ],
       "properties": {
         "branch": { "type": "string" },
         "cache-state": { "type": "string" },
         "commit": { "type": "string" },
         "concurrency": { "type": "string" },
         "dataset": { "type": "string" },
-        "dataset-digest": { "type": "string" },
+        "dataset-digest": {
+          "type": "string",
+          "pattern": "^[A-Za-z][A-Za-z0-9_-]*:[A-Za-z0-9][A-Za-z0-9._+-]*$"
+        },
         "item-count": { "type": "string" },
         "index-state": { "type": "string" },
         "job": { "type": "string" },
@@ -271,7 +280,7 @@
       ],
       "properties": {
         "version": { "const": 2 },
-        "label": { "type": "string" },
+        "label": { "type": "string", "pattern": "^[A-Za-z0-9_-]+$" },
         "executor": { "type": "string" },
         "runKind": { "enum": ["cold", "unknown", "warm"] },
         "commandFingerprint": { "$ref": "#/$defs/sha256" },

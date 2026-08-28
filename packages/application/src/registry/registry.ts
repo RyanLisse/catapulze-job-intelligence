@@ -323,30 +323,30 @@ interface MutableRegistryHealth {
   reporterTimeouts: number;
 }
 
-const reporterTimeout = async (
-  reporterTimeoutMs: number,
-  timeoutMarker: symbol
-): Promise<symbol> => {
-  await Bun.sleep(reporterTimeoutMs);
-  return timeoutMarker;
-};
-
 const reportBestEffort = async (
   reporter: InternalErrorReporter,
   report: InternalErrorReport,
   reporterTimeoutMs: number,
   health: MutableRegistryHealth
 ): Promise<void> => {
+  const timedOut = Symbol("reporter-timeout");
+  let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
   try {
     const reportResult = Promise.resolve(reporter(report));
-    const timedOut = Symbol("reporter-timeout");
-    const timeoutResult = reporterTimeout(reporterTimeoutMs, timedOut);
+    // oxlint-disable-next-line promise/avoid-new -- A cancellable native timer has no existing promise to reuse.
+    const timeoutResult = new Promise<symbol>((resolve) => {
+      timeoutHandle = setTimeout(resolve, reporterTimeoutMs, timedOut);
+    });
     const result = await Promise.race([reportResult, timeoutResult]);
     if (result === timedOut) {
       health.reporterTimeouts += 1;
     }
   } catch {
     health.reporterFailures += 1;
+  } finally {
+    if (timeoutHandle !== undefined) {
+      clearTimeout(timeoutHandle);
+    }
   }
 };
 
@@ -693,7 +693,7 @@ export const createCapabilityRegistry = <
   if (catalogEntries.length > 0 && typeof reporter !== "function") {
     return {
       error: {
-        capabilityId: catalogEntries[0]?.id ?? "unknown",
+        capabilityId: "unknown",
         code: "MISSING_ERROR_REPORTER",
         message: "A non-empty capability registry requires an error reporter",
       },

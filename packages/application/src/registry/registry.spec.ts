@@ -36,6 +36,65 @@ const missingRecordFailureSchema: z.ZodType<MissingRecordFailure> = z
 
 const boundOperation = "GET /v1/records/search";
 const noOpReporter = (): void => undefined;
+const reporterExitProbe = String.raw`
+  import { z } from "zod";
+  import {
+    createCapabilityRegistry,
+    defineCapability,
+  } from "./packages/application/src/registry/index.ts";
+
+  const capability = defineCapability({
+    authorization: { permission: "records:read" },
+    bindings: [{ operation: "GET /probe", transport: "rest" }],
+    effect: "read",
+    failureSchema: z.object({ code: z.string(), message: z.string() }),
+    grounding: true,
+    handler: () => {
+      throw new Error("probe failure");
+    },
+    id: "records.probe",
+    inputSchema: z.unknown(),
+    outcome: "Probe reporter cleanup",
+    outputSchema: z.unknown(),
+  });
+  let reportCalls = 0;
+  const result = createCapabilityRegistry([capability], {
+    reportInternalError: () => {
+      reportCalls += 1;
+      return reportCalls === 1
+        ? undefined
+        : Promise.reject(new Error("probe reporter rejection"));
+    },
+    reporterTimeoutMs: 2000,
+  });
+  if (!result.ok) {
+    throw new Error(result.error.message);
+  }
+  await result.registry.createInvoker({
+    capabilityId: "records.probe",
+    operation: "GET /probe",
+    transport: "rest",
+  })({}, {
+    principal: {
+      kind: "user",
+      permissions: new Set(["records:read"]),
+      subjectId: "user-1",
+    },
+    requestId: "probe-request",
+  });
+  await result.registry.createInvoker({
+    capabilityId: "records.probe",
+    operation: "GET /probe",
+    transport: "rest",
+  })({}, {
+    principal: {
+      kind: "user",
+      permissions: new Set(["records:read"]),
+      subjectId: "user-1",
+    },
+    requestId: "probe-rejection-request",
+  });
+`;
 
 const authorizedContext = (): InvocationContext => ({
   operation: boundOperation,
@@ -781,6 +840,24 @@ describe("internal error reporting", () => {
       reporterTimeouts: 1,
     });
   });
+
+  it("clears reporter timeouts after early resolve and rejection", async () => {
+    const child = Bun.spawn([process.execPath, "-e", reporterExitProbe], {
+      cwd: process.cwd(),
+      stderr: "pipe",
+      stdout: "pipe",
+    });
+    const exitResult = await Promise.race([
+      child.exited,
+      Bun.sleep(1000).then(() => "timeout" as const),
+    ]);
+    if (exitResult === "timeout") {
+      child.kill();
+      await child.exited;
+    }
+
+    expect(exitResult).toBe(0);
+  });
 });
 
 describe("capability registry construction", () => {
@@ -872,6 +949,27 @@ describe("capability registry construction", () => {
     if (!result.ok) {
       expect(result.error.code).toBe("MISSING_ERROR_REPORTER");
     }
+  });
+
+  it("does not inspect capability getters before rejecting a missing reporter", () => {
+    const capability = {
+      get id(): string {
+        throw new Error("unsafe capability getter");
+      },
+    };
+
+    // SAFETY: The deliberately hostile object verifies that missing-reporter
+    // validation returns a typed construction failure before definition access.
+    const result = createCapabilityRegistry([capability as never]);
+
+    expect(result).toEqual({
+      error: {
+        capabilityId: "unknown",
+        code: "MISSING_ERROR_REPORTER",
+        message: "A non-empty capability registry requires an error reporter",
+      },
+      ok: false,
+    });
   });
 
   it("returns a typed failure for an unknown capability id", async () => {

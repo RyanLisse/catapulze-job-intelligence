@@ -46,6 +46,43 @@ test("CLI metadata overrides explicit allowlisted environment metadata", () => {
   });
 });
 
+test("declared datasets require a digest after environment and CLI metadata merge", () => {
+  expect(() => collectMetadata({ PERF_DATASET: "jobs-v1" }, [])).toThrow(
+    "Metadata dataset requires dataset-digest"
+  );
+  expect(
+    collectMetadata({ PERF_DATASET_DIGEST: "sha256:abc123" }, [
+      "dataset=jobs-v1",
+    ])
+  ).toMatchObject({
+    dataset: "jobs-v1",
+    "dataset-digest": "sha256:abc123",
+  });
+  for (const datasetDigest of [
+    "",
+    "   ",
+    "sha256:abc123 ",
+    "sha256:first\nsecond",
+    "sha256:first\rsecond",
+    "sha256:first\tsecond",
+    "sha256:first\u0000second",
+    "sha256:first|second",
+  ]) {
+    expect(() =>
+      collectMetadata({}, [
+        "dataset=jobs-v1",
+        `dataset-digest=${datasetDigest}`,
+      ])
+    ).toThrow("dataset-digest must match <algorithm>:<digest>");
+  }
+});
+
+test("timed gate defaults unclassified runs and JUnit evidence to unknown", async () => {
+  const gate = await Bun.file("tools/quality/gate.sh").text();
+  expect(gate.match(/\$\{PERF_RUN_KIND:-unknown\}/gu)).toHaveLength(2);
+  expect(gate).not.toMatch(/PERF_RUN_KIND:-warm/u);
+});
+
 test("measure CLI propagates command exit and still writes a record", async () => {
   const directory = await mkdtemp(path.join(tmpdir(), "ji-performance-cli-"));
   try {

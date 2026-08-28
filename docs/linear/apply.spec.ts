@@ -38,7 +38,7 @@ describe("stable issue reconciliation", () => {
     };
 
     const match = findExistingIssue(issue, [existing]);
-    const update = buildExistingIssueUpdate(issue, states, false);
+    const update = buildExistingIssueUpdate(issue, states, null);
 
     expect(match?.id).toBe(existing.id);
     expect(update).toEqual({
@@ -48,6 +48,46 @@ describe("stable issue reconciliation", () => {
       stateId: "completed-id",
     });
     expect(Object.keys(update).sort()).toEqual(["description", "stateId", "title"]);
+  });
+
+  test("moves an existing TodoIfCycle issue into the active cycle", () => {
+    const issue = catalog.issues.find(({ id }) => id === "U1");
+    if (!issue) throw new Error("U1 fixture is missing from the catalog");
+
+    const update = buildExistingIssueUpdate(issue, states, {
+      id: "active-cycle-id",
+      number: 7,
+    });
+
+    expect(update).toMatchObject({
+      title: issue.title,
+      stateId: "todo-id",
+      cycleId: "active-cycle-id",
+    });
+    expect(update.description).toContain(catalogMarker("U1"));
+  });
+
+  test("clears cycle membership for TodoIfCycle when no cycle is active", () => {
+    const issue = catalog.issues.find(({ id }) => id === "U1");
+    if (!issue) throw new Error("U1 fixture is missing from the catalog");
+
+    expect(buildExistingIssueUpdate(issue, states, null)).toMatchObject({
+      stateId: "backlog-id",
+      cycleId: null,
+    });
+  });
+
+  test("leaves cycle membership unchanged for statuses that do not own it", () => {
+    const issue = {
+      id: "REGULAR-TODO",
+      title: "Regular todo",
+      description: "Keep its current cycle",
+      status: "Todo",
+    };
+    const update = buildExistingIssueUpdate(issue, states, { id: "active-cycle-id", number: 7 });
+
+    expect(update.stateId).toBe("todo-id");
+    expect(update).not.toHaveProperty("cycleId");
   });
 
   test("uses the durable catalog marker after a title changes", () => {

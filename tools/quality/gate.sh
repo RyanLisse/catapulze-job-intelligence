@@ -22,7 +22,7 @@ run_phase() {
     bun scripts/performance/measure.ts \
       --label "$label" \
       --output-dir "$PERF_METRICS_DIR" \
-      --run-kind "${PERF_RUN_KIND:-warm}" \
+      --run-kind "${PERF_RUN_KIND:-unknown}" \
       -- "$@"
     return
   fi
@@ -66,7 +66,7 @@ echo "gate: test"
 test_command=(bun test --max-concurrency 2 --path-ignore-patterns '**/dist/**')
 if [[ -n "${PERF_JUNIT_PATH:-}" ]]; then
   junit_stem="${PERF_JUNIT_PATH%.xml}"
-  junit_path="${junit_stem}.attempt-${PERF_ATTEMPT:-1}.${PERF_RUN_KIND:-warm}.xml"
+  junit_path="${junit_stem}.attempt-${PERF_ATTEMPT:-1}.${PERF_RUN_KIND:-unknown}.xml"
   mkdir -p "$(dirname -- "$junit_path")"
   test_command+=(--reporter=junit --reporter-outfile "$junit_path")
 fi

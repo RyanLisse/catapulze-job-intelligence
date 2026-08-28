@@ -66,10 +66,7 @@ export const collectMetadata = (
       environmentEntries.push(`${metadataKey}=${value}`);
     }
   }
-  return {
-    ...parseMetadata(environmentEntries),
-    ...parseMetadata(cliEntries),
-  };
+  return parseMetadata([...environmentEntries, ...cliEntries]);
 };
 
 const usage = (): never => {

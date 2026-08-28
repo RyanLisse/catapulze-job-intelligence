@@ -416,18 +416,23 @@ export function resolveStateId(issue, states, hasCycle) {
   return backlog?.id;
 }
 
-export function buildExistingIssueUpdate(issue, states, hasCycle) {
+export function buildExistingIssueUpdate(issue, states, activeCycle) {
+  const hasCycle = Boolean(activeCycle?.id);
   const stateId = resolveStateId(issue, states, hasCycle);
   if (!stateId) {
     throw new Error(
       `No Linear workflow state resolves catalog status ${issue.status} for ${issue.id}`,
     );
   }
-  return {
+  const input = {
     title: issue.title,
     description: descriptionWithCatalogMarker(issue),
     stateId,
   };
+  if (issue.status === "TodoIfCycle") {
+    input.cycleId = activeCycle?.id ?? null;
+  }
+  return input;
 }
 
 async function applyToLinear() {
@@ -484,7 +489,7 @@ async function applyToLinear() {
   for (const issue of issuesInCreateOrder()) {
     const already = findExistingIssue(issue, existing);
     if (already) {
-      const input = buildExistingIssueUpdate(issue, states, hasCycle);
+      const input = buildExistingIssueUpdate(issue, states, activeCycle);
       if (dryRun) {
         created.set(issue.id, { ...already, ...input });
         console.error(`[dry-run] would update ${already.identifier}: ${issue.title}`);

@@ -7,11 +7,18 @@ export type JsonValue =
   | JsonValue[]
   | { [key: string]: JsonValue };
 
+export const DATASET_DIGEST_PATTERN =
+  /^[A-Za-z][A-Za-z0-9_-]*:[A-Za-z0-9][A-Za-z0-9._+-]*$/u;
+
+export const isDatasetDigest = (value: string): boolean =>
+  DATASET_DIGEST_PATTERN.test(value);
+
 export interface PerformanceMetadata {
   branch?: string;
   "cache-state"?: string;
   commit?: string;
   concurrency?: string;
+  /** A declared dataset requires dataset-digest so cohorts cannot alias. */
   dataset?: string;
   "dataset-digest"?: string;
   "item-count"?: string;
@@ -171,6 +178,23 @@ const readString = (
     throw new PerformanceSchemaError(filename, `${key} must be a string`);
   }
   return String(value);
+};
+
+const SAFE_LABEL_PATTERN = /^[A-Za-z0-9_-]+$/u;
+
+const readLabel = (
+  object: JsonObject,
+  key: string,
+  filename: string
+): string => {
+  const value = readString(object, key, filename);
+  if (!SAFE_LABEL_PATTERN.test(value)) {
+    throw new PerformanceSchemaError(
+      filename,
+      `${key} must contain only letters, numbers, underscores, or hyphens`
+    );
+  }
+  return value;
 };
 
 const readNullableString = (
@@ -403,6 +427,22 @@ const readMetadata = (
       );
     }
   }
+  if (metadata.dataset !== undefined) {
+    const datasetDigest = metadata["dataset-digest"];
+    if (datasetDigest === undefined) {
+      throw new PerformanceSchemaError(
+        filename,
+        "metadata dataset requires dataset-digest"
+      );
+    }
+  }
+  const datasetDigest = metadata["dataset-digest"];
+  if (datasetDigest !== undefined && !isDatasetDigest(datasetDigest)) {
+    throw new PerformanceSchemaError(
+      filename,
+      "metadata dataset-digest must match <algorithm>:<digest> using safe characters"
+    );
+  }
   return metadata;
 };
 
@@ -464,7 +504,7 @@ const readCohort = (value: JsonValue, filename: string): CohortDimensions => {
     indexState: readNullableString(object, "indexState", filename),
     itemCount: readNullableIntegerAtLeast(object, "itemCount", filename, 0),
     job: readNullableString(object, "job", filename),
-    label: readString(object, "label", filename),
+    label: readLabel(object, "label", filename),
     machine: readString(object, "machine", filename),
     memoryBytes: readIntegerAtLeast(object, "memoryBytes", filename, 1),
     os: readString(object, "os", filename),
@@ -637,7 +677,7 @@ export const parsePerformanceRecord = (
       sha: readNullableString(git, "sha", filename),
     },
     id: readString(object, "id", filename),
-    label: readString(object, "label", filename),
+    label: readLabel(object, "label", filename),
     measurement: {
       boundary: "subprocess-spawn-to-exit",
       kind: "command-wall-clock",

@@ -18,6 +18,7 @@ import {
   writeRecord,
 } from "./core";
 import type { PerformanceRecord } from "./core";
+import { DATASET_DIGEST_PATTERN, isDatasetDigest } from "./record";
 
 const record = (
   label: string,
@@ -198,6 +199,21 @@ describe("performance records", () => {
     expect(() => parseMetadata(["sequence-position=10001"])).toThrow(
       "integer from 1 through 10000"
     );
+    for (const datasetDigest of [
+      "",
+      "   ",
+      " sha256:abc",
+      "sha256:abc ",
+      "sha256:first\nsecond",
+      "sha256:first\rsecond",
+      "sha256:first\tsecond",
+      "sha256:first\u0000second",
+      "sha256:first|second",
+    ]) {
+      expect(() =>
+        parseMetadata(["dataset=jobs-v1", `dataset-digest=${datasetDigest}`])
+      ).toThrow("dataset-digest must match <algorithm>:<digest>");
+    }
   });
 
   test("redacts arbitrary URLs, unknown query parameters, and secrets in paths", () => {
@@ -317,6 +333,41 @@ describe("performance records", () => {
       expect(files.some((file) => file.endsWith(".tmp"))).toBe(false);
       const records = await readRecords(directory);
       expect(records[0]?.durationMs).toBe(123);
+    } finally {
+      await rm(directory, { force: true, recursive: true });
+    }
+  });
+
+  test("rejects labels that can corrupt Markdown evidence during readback", async () => {
+    const directory = await mkdtemp(
+      path.join(tmpdir(), "ji-performance-label-readback-")
+    );
+    try {
+      const unsafeLabels = ["phase|injected", "phase\n| forged | row |"];
+      await Promise.all(
+        unsafeLabels.map(async (label, index) => {
+          const invalid = record("safe-label", 1);
+          if (index === 0) {
+            invalid.label = label;
+          } else {
+            invalid.cohortDimensions = {
+              ...invalid.cohortDimensions,
+              label,
+            };
+            invalid.cohortFingerprint = fingerprintCohort(
+              invalid.cohortDimensions
+            );
+          }
+          const caseDirectory = path.join(directory, String(index));
+          await Bun.write(
+            path.join(caseDirectory, "unsafe-label.json"),
+            JSON.stringify(invalid)
+          );
+          await expect(readRecords(caseDirectory)).rejects.toThrow(
+            "label must contain only letters, numbers, underscores, or hyphens"
+          );
+        })
+      );
     } finally {
       await rm(directory, { force: true, recursive: true });
     }
@@ -574,6 +625,118 @@ describe("performance records", () => {
     });
     expect(first.cohortFingerprint).toBe(second.cohortFingerprint);
     expect(first.cohortFingerprint).not.toBe(otherImage.cohortFingerprint);
+  });
+
+  test("requires a digest for declared datasets and separates dataset cohorts", () => {
+    expect(() =>
+      record("test", 100, 0, { metadata: { dataset: "jobs-v1" } })
+    ).toThrow("Metadata dataset requires dataset-digest");
+    for (const datasetDigest of [
+      "",
+      "   ",
+      " sha256:first",
+      "sha256:first\nsecond",
+      "sha256:first\rsecond",
+      "sha256:first\tsecond",
+      "sha256:first\u0000second",
+      "sha256:first|second",
+    ] as const) {
+      expect(() =>
+        record("test", 100, 0, {
+          metadata: {
+            dataset: "jobs-v1",
+            "dataset-digest": datasetDigest,
+          },
+        })
+      ).toThrow("Metadata dataset-digest must match <algorithm>:<digest>");
+    }
+
+    const first = record("test", 100, 0, {
+      metadata: { dataset: "jobs", "dataset-digest": "sha256:first" },
+    });
+    const second = record("test", 100, 0, {
+      metadata: { dataset: "jobs", "dataset-digest": "sha256:second" },
+    });
+
+    expect(first.cohortFingerprint).not.toBe(second.cohortFingerprint);
+  });
+
+  test("rejects declared datasets without a digest during readback", async () => {
+    const directory = await mkdtemp(
+      path.join(tmpdir(), "ji-performance-dataset-readback-")
+    );
+    try {
+      const invalidDigests = [
+        undefined,
+        "",
+        "   ",
+        " sha256:first",
+        "sha256:first\nsecond",
+        "sha256:first\rsecond",
+        "sha256:first\tsecond",
+        "sha256:first\u0000second",
+        "sha256:first|second",
+      ];
+      await Promise.all(
+        invalidDigests.map(async (datasetDigest, index) => {
+          const invalid = record("test", 100, 0, {
+            metadata: { dataset: "jobs", "dataset-digest": "sha256:first" },
+          });
+          if (datasetDigest === undefined) {
+            delete invalid.metadata["dataset-digest"];
+          } else {
+            invalid.metadata["dataset-digest"] = datasetDigest;
+          }
+          invalid.cohortDimensions = {
+            ...invalid.cohortDimensions,
+            datasetDigest: datasetDigest ?? null,
+          };
+          invalid.cohortFingerprint = fingerprintCohort(
+            invalid.cohortDimensions
+          );
+          const caseDirectory = path.join(directory, String(index));
+          await Bun.write(
+            path.join(caseDirectory, "invalid-dataset-digest.json"),
+            JSON.stringify(invalid)
+          );
+          await expect(readRecords(caseDirectory)).rejects.toThrow(
+            datasetDigest === undefined
+              ? "metadata dataset requires dataset-digest"
+              : "metadata dataset-digest must match <algorithm>:<digest>"
+          );
+        })
+      );
+    } finally {
+      await rm(directory, { force: true, recursive: true });
+    }
+  });
+
+  test("keeps runtime and JSON schema dataset-digest grammar identical", async () => {
+    const schema = await Bun.file(
+      "scripts/performance/performance-record.schema.json"
+    ).json();
+    const schemaPattern = String(
+      schema.$defs.metadata.properties["dataset-digest"].pattern
+    );
+    expect(schemaPattern).toBe(DATASET_DIGEST_PATTERN.source);
+
+    const schemaRegex = new RegExp(schemaPattern, "u");
+    const candidates = [
+      "sha256:first",
+      "sha-256:abc_123.test+more",
+      "",
+      "sha256:",
+      ":first",
+      "sha256:first second",
+      "sha256:first\nsecond",
+      "sha256:first\rsecond",
+      "sha256:first\tsecond",
+      "sha256:first\u0000second",
+      "sha256:first|second",
+    ];
+    for (const candidate of candidates) {
+      expect(schemaRegex.test(candidate)).toBe(isDatasetDigest(candidate));
+    }
   });
 
   test("keeps observed machine resources in cohort identity with a machine label", () => {

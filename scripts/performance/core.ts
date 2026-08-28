@@ -5,7 +5,11 @@ import { arch, cpus, platform, release, totalmem } from "node:os";
 import path from "node:path";
 import { isDeepStrictEqual } from "node:util";
 
-import { parsePerformanceRecord, PerformanceSchemaError } from "./record";
+import {
+  isDatasetDigest,
+  parsePerformanceRecord,
+  PerformanceSchemaError,
+} from "./record";
 import type {
   CohortDimensions,
   JsonValue,
@@ -186,6 +190,20 @@ export const redactCommand = (command: string[]): string[] => {
 export const fingerprintCommand = (redactedCommand: string[]): string =>
   createHash("sha256").update(JSON.stringify(redactedCommand)).digest("hex");
 
+export const validateDatasetIdentity = (
+  metadata: PerformanceMetadata
+): void => {
+  const datasetDigest = metadata["dataset-digest"];
+  if (metadata.dataset !== undefined && datasetDigest === undefined) {
+    throw new Error("Metadata dataset requires dataset-digest");
+  }
+  if (datasetDigest !== undefined && !isDatasetDigest(datasetDigest)) {
+    throw new Error(
+      "Metadata dataset-digest must match <algorithm>:<digest> using safe characters"
+    );
+  }
+};
+
 export const parseMetadata = (entries: string[]): PerformanceMetadata => {
   const metadata: PerformanceMetadata = {};
 
@@ -199,7 +217,11 @@ export const parseMetadata = (entries: string[]): PerformanceMetadata => {
     if (!SAFE_METADATA_KEYS.has(unsafeKey)) {
       throw new Error(`Metadata key is not allowlisted: ${unsafeKey}`);
     }
-    if (!value || !SAFE_METADATA_VALUE_PATTERN.test(value)) {
+    const isDatasetDigestEntry = unsafeKey === "dataset-digest";
+    if (
+      (!value || !SAFE_METADATA_VALUE_PATTERN.test(value)) &&
+      !isDatasetDigestEntry
+    ) {
       throw new Error(`Metadata contains unsupported characters: ${unsafeKey}`);
     }
     // SAFETY: Set membership above narrows this runtime string to the explicit
@@ -220,6 +242,7 @@ export const parseMetadata = (entries: string[]): PerformanceMetadata => {
     metadata[key] = redactEvidenceText(value);
   }
 
+  validateDatasetIdentity(metadata);
   return metadata;
 };
 
@@ -238,42 +261,45 @@ export const createCohortDimensions = (input: {
   commandFingerprint: string;
   runtime: PerformanceRecord["runtime"];
   metadata: PerformanceMetadata;
-}): CohortDimensions => ({
-  arch: input.runtime.arch,
-  bun: input.runtime.bun,
-  cacheState: input.metadata["cache-state"] ?? null,
-  commandFingerprint: input.commandFingerprint,
-  concurrency: optionalInteger(input.metadata.concurrency),
-  cpuCount: input.runtime.cpuCount,
-  cpuModel: input.runtime.cpuModel,
-  datasetDigest: input.metadata["dataset-digest"] ?? null,
-  executor: input.executor,
-  indexState: input.metadata["index-state"] ?? null,
-  itemCount: optionalInteger(input.metadata["item-count"]),
-  job: input.metadata.job ?? null,
-  label: input.label,
-  machine:
-    input.metadata.machine ??
-    `${input.runtime.cpuCount}cpu-${input.runtime.memoryBytes}b`,
-  memoryBytes: input.runtime.memoryBytes,
-  os: input.runtime.os,
-  osRelease: input.runtime.osRelease,
-  pipeline: input.metadata.pipeline ?? null,
-  postgresImageDigest: input.metadata["postgres-image-digest"] ?? null,
-  postgresVersion: input.metadata["postgres-version"] ?? null,
-  provider: input.metadata.provider ?? null,
-  querysetDigest: input.metadata["queryset-digest"] ?? null,
-  region: input.metadata.region ?? null,
-  runKind: input.runKind,
-  runner: input.metadata.runner ?? null,
-  suite: input.metadata.suite ?? null,
-  toolchain: input.metadata.toolchain ?? null,
-  vacuumState: input.metadata["vacuum-state"] ?? null,
-  version: 2,
-  workflow: input.metadata.workflow ?? null,
-  workloadProfile: input.metadata.profile ?? null,
-  workloadVersion: input.metadata["workload-version"] ?? null,
-});
+}): CohortDimensions => {
+  validateDatasetIdentity(input.metadata);
+  return {
+    arch: input.runtime.arch,
+    bun: input.runtime.bun,
+    cacheState: input.metadata["cache-state"] ?? null,
+    commandFingerprint: input.commandFingerprint,
+    concurrency: optionalInteger(input.metadata.concurrency),
+    cpuCount: input.runtime.cpuCount,
+    cpuModel: input.runtime.cpuModel,
+    datasetDigest: input.metadata["dataset-digest"] ?? null,
+    executor: input.executor,
+    indexState: input.metadata["index-state"] ?? null,
+    itemCount: optionalInteger(input.metadata["item-count"]),
+    job: input.metadata.job ?? null,
+    label: input.label,
+    machine:
+      input.metadata.machine ??
+      `${input.runtime.cpuCount}cpu-${input.runtime.memoryBytes}b`,
+    memoryBytes: input.runtime.memoryBytes,
+    os: input.runtime.os,
+    osRelease: input.runtime.osRelease,
+    pipeline: input.metadata.pipeline ?? null,
+    postgresImageDigest: input.metadata["postgres-image-digest"] ?? null,
+    postgresVersion: input.metadata["postgres-version"] ?? null,
+    provider: input.metadata.provider ?? null,
+    querysetDigest: input.metadata["queryset-digest"] ?? null,
+    region: input.metadata.region ?? null,
+    runKind: input.runKind,
+    runner: input.metadata.runner ?? null,
+    suite: input.metadata.suite ?? null,
+    toolchain: input.metadata.toolchain ?? null,
+    vacuumState: input.metadata["vacuum-state"] ?? null,
+    version: 2,
+    workflow: input.metadata.workflow ?? null,
+    workloadProfile: input.metadata.profile ?? null,
+    workloadVersion: input.metadata["workload-version"] ?? null,
+  };
+};
 
 export const fingerprintCohort = (dimensions: CohortDimensions): string =>
   createHash("sha256").update(JSON.stringify(dimensions)).digest("hex");
