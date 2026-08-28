@@ -15,15 +15,17 @@ Before any paid operation:
 3. Read back `ssh -o BatchMode=yes exe.dev whoami --json` and confirm its region is `FRA`. Do not start a lease when the readback differs.
 4. Export `EXE_DEV_REGION=FRA` for the Crabbox process. The shadow script requires this explicit cohort assertion and records it in the execution fingerprint.
 5. Obtain explicit cost approval for the proposed 4 CPU, 8 GB RAM, 30 GB disk VM. Authentication and region selection are not permission to create a lease.
-6. Inspect the plan with `crabbox job run --dry-run exe-dev-shadow`.
+6. Inspect the plan with `scripts/crabbox-exe-dev-shadow-run.sh --dry-run`.
 
 Run the bounded shadow lane with:
 
 ```sh
-crabbox job run exe-dev-shadow
+scripts/crabbox-exe-dev-shadow-run.sh
 ```
 
 The job uses `stop: always`. After it returns, read back provider inventory and confirm the lease was removed. If execution is interrupted, use the exact slug or `cbx_` lease ID from Crabbox state and run `crabbox stop` before continuing.
+
+The launcher validates and exports the caller's full Git SHA plus clean/dirty state. Crabbox's env allowlist transports that non-secret source identity when `.git` is unavailable after manifest sync.
 
 This named job is cold-only: it creates a new lease, starts from an unprimed repository workspace, and does not claim that the provider image cache is empty. Do not run it with `--id` and do not relabel it as warm. A genuine warm cohort requires a separate reviewed existing-lease flow.
 

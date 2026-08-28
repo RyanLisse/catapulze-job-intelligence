@@ -1,3 +1,6 @@
+import { readdir } from "node:fs/promises";
+import path from "node:path";
+
 const AWS_ACCESS_KEY = /AKIA[0-9A-Z]{16}/gu;
 const GITHUB_PAT = /ghp_[A-Za-z0-9]{36}/gu;
 const OPENAI_LIVE = /sk-live-[A-Za-z0-9]{20,}/gu;
@@ -34,13 +37,32 @@ export const collectSecretViolations = (
 };
 
 const isScannable = (relativePath: string): boolean => {
-  if (relativePath.startsWith("node_modules/")) {
-    return false;
-  }
-  if (relativePath.startsWith("openwiki/")) {
-    return false;
-  }
-  return true;
+  const pathSegments = relativePath.split("/");
+  return !pathSegments.some((segment) =>
+    [".artifacts", ".git", "node_modules", "openwiki"].includes(segment)
+  );
+};
+
+const listWorkspaceFiles = async (
+  rootDir: string,
+  relativeDirectory = ""
+): Promise<string[]> => {
+  const directory = path.join(rootDir, relativeDirectory);
+  const entries = await readdir(directory, { withFileTypes: true });
+  const nestedPaths = await Promise.all(
+    entries.map((entry): string[] | Promise<string[]> => {
+      const relativePath = path.posix.join(relativeDirectory, entry.name);
+      if (!isScannable(relativePath)) {
+        return [];
+      }
+      if (entry.isDirectory()) {
+        return listWorkspaceFiles(rootDir, relativePath);
+      }
+      return entry.isFile() ? [relativePath] : [];
+    })
+  );
+
+  return nestedPaths.flat();
 };
 
 const readIfPresent = async (
@@ -61,13 +83,15 @@ export const scanTrackedFiles = async (rootDir: string): Promise<string[]> => {
     stdout: "pipe",
   });
   const listed = await new Response(proc.stdout).text();
-  await proc.exited;
-  const paths = listed.split("\n").filter((relativePath) => {
+  const gitExitCode = await proc.exited;
+  const listedPaths = listed.split("\n").filter((relativePath) => {
     if (!relativePath) {
       return false;
     }
     return isScannable(relativePath);
   });
+  const paths =
+    gitExitCode === 0 ? listedPaths : await listWorkspaceFiles(rootDir);
   const sources = await Promise.all(
     paths.map(async (relativePath) => {
       const source = await readIfPresent(rootDir, relativePath);

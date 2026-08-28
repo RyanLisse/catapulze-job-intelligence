@@ -64,6 +64,8 @@ run:
 env:
   allow:
     - CI
+    - CRABBOX_SOURCE_GIT_SHA
+    - CRABBOX_SOURCE_GIT_STATE
     - EXE_DEV_REGION
     - NODE_OPTIONS
 
