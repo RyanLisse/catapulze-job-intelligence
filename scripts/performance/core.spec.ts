@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtemp, readdir, rm } from "node:fs/promises";
+import { mkdtemp, readFile, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
@@ -1132,12 +1132,12 @@ describe("performance records", () => {
     );
   });
 
-  test("keeps generated test results out of Git status", () => {
-    const result = Bun.spawnSync(
-      ["git", "check-ignore", "-q", ".artifacts/test-results/example.xml"],
-      { stderr: "ignore", stdout: "ignore" }
+  test("keeps generated test results out of Git status", async () => {
+    const gitignore = await readFile(
+      path.join(import.meta.dir, "../..", ".gitignore"),
+      "utf-8"
     );
-    expect(result.exitCode).toBe(0);
+    expect(gitignore.split("\n")).toContain(".artifacts/");
   });
 
   test("keeps branch and observed SHA outside canonical cohort identity", () => {

@@ -25,10 +25,6 @@ COMPOSE_COMMAND=()
 POSTGRES_IMAGE="unavailable"
 POSTGRES_VERSION="unavailable"
 
-mkdir -p "$EVIDENCE_DIR"
-rm -f "$PHASES_FILE" "$FINGERPRINT_FILE" "$REPORT_FILE" "$JUNIT_FILE" "$DATABASE_JUNIT_FILE" "$MANIFEST_FILE"
-: >"$PHASES_FILE"
-
 monotonic_ms() {
   awk '{printf "%.0f", $1 * 1000}' /proc/uptime
 }
@@ -76,15 +72,28 @@ run_phase() {
   local ended_at
   local ended_ms
   local exit_status
+  local restore_errexit="false"
+
+  if [[ $- == *e* ]]; then
+    restore_errexit="true"
+  fi
 
   started_at="$(iso_timestamp)"
   started_ms="$(monotonic_ms)"
   printf '::phase-start:: %s\n' "$label"
 
+  # Capture a failure without placing a shell function in an `if`/`||`
+  # context, both of which disable errexit throughout that function. The
+  # explicit subshell keeps intermediate failures authoritative.
   set +e
-  "$@"
+  (
+    set -e
+    "$@"
+  )
   exit_status=$?
-  set -e
+  if [[ "$restore_errexit" == "true" ]]; then
+    set -e
+  fi
 
   ended_ms="$(monotonic_ms)"
   ended_at="$(iso_timestamp)"
@@ -278,19 +287,24 @@ write_compose_env() {
     'POSTGRES_SHM_SIZE=512m' >"$COMPOSE_ENV_FILE"
 }
 
-run_database_integration() {
-  local volume_name
-
+prepare_database_integration() {
   if [[ -n "$("${COMPOSE_COMMAND[@]}" ps -aq)" ]]; then
     printf 'exe.dev shadow: stop the existing Compose stack before database integration\n' >&2
     return 1
   fi
 
+  # The phase itself runs in an errexit subshell. Record cleanup ownership in
+  # the parent only after proving there is no caller-owned stack to preserve.
+  COMPOSE_DATABASE_STARTED="true"
+}
+
+run_database_integration() {
+  local volume_name
+
   volume_name="$({
     "${COMPOSE_COMMAND[@]}" config --format json
   } | bun -e 'const config = JSON.parse(await Bun.stdin.text()); process.stdout.write(config.volumes.postgres_data.name);')"
   POSTGRES_DATA_VOLUME="$volume_name" bash tools/postgres/ensure-volume.sh
-  COMPOSE_DATABASE_STARTED="true"
   "${COMPOSE_COMMAND[@]}" up -d --wait postgres
 
   env \
@@ -319,37 +333,47 @@ on_exit() {
   exit "$exit_status"
 }
 
-trap on_exit EXIT
+main() {
+  mkdir -p "$EVIDENCE_DIR"
+  rm -f "$PHASES_FILE" "$FINGERPRINT_FILE" "$REPORT_FILE" "$JUNIT_FILE" "$DATABASE_JUNIT_FILE" "$MANIFEST_FILE"
+  : >"$PHASES_FILE"
+  trap on_exit EXIT
 
-if [[ "${EXE_DEV_REGION:-}" != "$EXPECTED_REGION" ]]; then
-  printf 'exe.dev shadow: EXE_DEV_REGION must be %s; verify the account region before running\n' "$EXPECTED_REGION" >&2
-  exit 1
+  if [[ "${EXE_DEV_REGION:-}" != "$EXPECTED_REGION" ]]; then
+    printf 'exe.dev shadow: EXE_DEV_REGION must be %s; verify the account region before running\n' "$EXPECTED_REGION" >&2
+    exit 1
+  fi
+
+  export PATH="${HOME}/.local/bin:${PATH}"
+
+  run_phase "runtime-setup" "install Bun ${EXPECTED_BUN_VERSION} from pinned image" ensure_bun
+  run_phase "install" "bun install --frozen-lockfile --ignore-scripts" bun install --frozen-lockfile --ignore-scripts
+  run_phase "typecheck" "bun run check-types -- --concurrency=2" bun run check-types -- --concurrency=2
+  run_phase "layering" "bun run check-layering" bun run check-layering
+  run_phase "secret-scan" "bun run check-secrets" bun run check-secrets
+  run_phase "unit" "bun test --max-concurrency 2 --reporter=junit" \
+    bun test --max-concurrency 2 --path-ignore-patterns '**/dist/**' --reporter=junit --reporter-outfile="$JUNIT_FILE"
+
+  write_compose_env
+  set -a
+  # shellcheck disable=SC1090
+  source "$COMPOSE_ENV_FILE"
+  set +a
+
+  export MIGRATION_DATABASE_URL="postgresql://${POSTGRES_MIGRATOR_USER}:${POSTGRES_MIGRATOR_PASSWORD}@127.0.0.1:${POSTGRES_HOST_PORT}/${POSTGRES_DB}"
+  export DATABASE_TEST_URL="$MIGRATION_DATABASE_URL"
+  export DATABASE_APP_TEST_URL="postgresql://${POSTGRES_APP_USER}:${POSTGRES_APP_PASSWORD}@127.0.0.1:${POSTGRES_HOST_PORT}/${POSTGRES_DB}"
+  COMPOSE_COMMAND=(docker compose --env-file "$COMPOSE_ENV_FILE")
+  resolve_postgres_fingerprint
+  prepare_database_integration
+  run_phase "database-integration" "REQUIRE_DATABASE_TESTS=1 bun test packages/db/src/core.spec.ts --reporter=junit" run_database_integration
+  cleanup_database
+  run_phase "integration" "COMPOSE_ENV_FILE=<generated> bun run docker:smoke" env COMPOSE_ENV_FILE="$COMPOSE_ENV_FILE" bun run docker:smoke
+  run_phase "build" "bun run build -- --concurrency=2" bun run build -- --concurrency=2
+
+  RUN_STATUS="success"
+}
+
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+  main "$@"
 fi
-
-export PATH="${HOME}/.local/bin:${PATH}"
-
-run_phase "runtime-setup" "install Bun ${EXPECTED_BUN_VERSION} from pinned image" ensure_bun
-run_phase "install" "bun install --frozen-lockfile --ignore-scripts" bun install --frozen-lockfile --ignore-scripts
-run_phase "typecheck" "bun run check-types -- --concurrency=2" bun run check-types -- --concurrency=2
-run_phase "layering" "bun run check-layering" bun run check-layering
-run_phase "secret-scan" "bun run check-secrets" bun run check-secrets
-run_phase "unit" "bun test --max-concurrency 2 --reporter=junit" \
-  bun test --max-concurrency 2 --path-ignore-patterns '**/dist/**' --reporter=junit --reporter-outfile="$JUNIT_FILE"
-
-write_compose_env
-set -a
-# shellcheck disable=SC1090
-source "$COMPOSE_ENV_FILE"
-set +a
-
-export MIGRATION_DATABASE_URL="postgresql://${POSTGRES_MIGRATOR_USER}:${POSTGRES_MIGRATOR_PASSWORD}@127.0.0.1:${POSTGRES_HOST_PORT}/${POSTGRES_DB}"
-export DATABASE_TEST_URL="$MIGRATION_DATABASE_URL"
-export DATABASE_APP_TEST_URL="postgresql://${POSTGRES_APP_USER}:${POSTGRES_APP_PASSWORD}@127.0.0.1:${POSTGRES_HOST_PORT}/${POSTGRES_DB}"
-COMPOSE_COMMAND=(docker compose --env-file "$COMPOSE_ENV_FILE")
-resolve_postgres_fingerprint
-run_phase "database-integration" "REQUIRE_DATABASE_TESTS=1 bun test packages/db/src/core.spec.ts --reporter=junit" run_database_integration
-cleanup_database
-run_phase "integration" "COMPOSE_ENV_FILE=<generated> bun run docker:smoke" env COMPOSE_ENV_FILE="$COMPOSE_ENV_FILE" bun run docker:smoke
-run_phase "build" "bun run build -- --concurrency=2" bun run build -- --concurrency=2
-
-RUN_STATUS="success"

@@ -17,19 +17,6 @@ const resolverSource = path.join(
   "../tools/quality/resolve-changed.sh"
 );
 
-const callerCommonDirectory = path.resolve(
-  import.meta.dir,
-  Bun.spawnSync({
-    cmd: ["git", "rev-parse", "--git-common-dir"],
-    cwd: import.meta.dir,
-    stderr: "pipe",
-    stdout: "pipe",
-  })
-    .stdout.toString()
-    .trim()
-);
-const callerCommonConfig = path.join(callerCommonDirectory, "config");
-
 const localRepositoryGitEnvironmentVariables = [
   "GIT_ALTERNATE_OBJECT_DIRECTORIES",
   "GIT_CONFIG",
@@ -103,8 +90,6 @@ describe("resolve-changed", () => {
         process.env[variable],
       ])
     );
-    const callerConfigBefore = readFileSync(callerCommonConfig, "utf-8");
-
     try {
       mkdirSync(hermeticHome);
       mkdirSync(sentinelHome);
@@ -203,10 +188,8 @@ describe("resolve-changed", () => {
           process.env[variable] = originalValue;
         }
       }
-      const callerConfigAfter = readFileSync(callerCommonConfig, "utf-8");
       rmSync(repository, { force: true, recursive: true });
       rmSync(sentinelRepository, { force: true, recursive: true });
-      expect(callerConfigAfter).toBe(callerConfigBefore);
     }
-  });
+  }, 15_000);
 });

@@ -14,7 +14,7 @@ Before any paid operation:
 2. Fix the exe.dev account default to the cohort region with `ssh -o BatchMode=yes exe.dev set-region FRA --json`. This changes operator account state, so run it intentionally; repository config cannot set an exe.dev region.
 3. Read back `ssh -o BatchMode=yes exe.dev whoami --json` and confirm its region is `FRA`. Do not start a lease when the readback differs.
 4. Export `EXE_DEV_REGION=FRA` for the Crabbox process. The shadow script requires this explicit cohort assertion and records it in the execution fingerprint.
-5. Obtain explicit cost approval for the proposed 4 CPU, 8 GB RAM, 30 GB disk VM. Authentication and region selection are not permission to create a lease.
+5. Obtain explicit cost approval for the proposed 4 CPU, 8 GB RAM, 40 GB disk VM. Authentication and region selection are not permission to create a lease.
 6. Inspect the plan with `scripts/crabbox-exe-dev-shadow-run.sh --dry-run`.
 
 Run the bounded shadow lane with:
