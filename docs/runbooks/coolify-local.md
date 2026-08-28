@@ -2,21 +2,41 @@
 
 Deze lane maakt de lokale productieachtige route reproduceerbaar terwijl de Hetzner-host nog niet beschikbaar is. De huidige Compose-stack bevat Postgres 16, de API en de webapp. Manticore, Redis en object storage worden pas toegevoegd wanneer de applicatiecode daarvan afhankelijk is.
 
-## Lokale Docker-proef
+## Lokale Docker-proef met 1Password
 
-Vereisten: Bun 1.3.14, Docker Desktop/OrbStack en een lege of bestaande Docker-volume-naam.
+Vereisten: Bun 1.3.14, Docker Desktop/OrbStack, 1Password CLI met een actieve sessie en een lege of bestaande Docker-volume-naam.
 
 ```bash
 bun install --frozen-lockfile
+cp .env.example .env.1password
+git check-ignore .env.1password
+```
+
+Vervang in het lokale, door Git genegeerde `.env.1password` iedere credential door een `op://`-referentie. Dat geldt minimaal voor de drie Postgres-wachtwoorden, `CATAPULZE_DATABASE_URL` en `BETTER_AUTH_SECRET`. Voeg ook `MIGRATION_DATABASE_URL` toe als referentie naar de volledige lokale migrator-URL. Niet-geheime instellingen, zoals poorten, databasenamen en resourcegrenzen, mogen gewone waarden blijven.
+
+Voer de smoke-test uit met hetzelfde referentiebestand voor zowel 1Password-injectie als alle Compose-aanroepen:
+
+```bash
+COMPOSE_ENV_FILE=.env.1password op run --env-file=.env.1password -- bun run docker:smoke
+```
+
+`op run` injecteert de opgeloste waarden alleen in het proces. Commit `.env.1password` nooit, plak geen secretwaarden in documentatie of chat en schakel de standaard outputmaskering niet uit. Gebruik geen `set -x`, `env`, `printenv` of handmatige `docker compose config` tijdens deze route: die kunnen opgeloste waarden in terminal- of CI-logs tonen.
+
+## Plaintext fallback zonder 1Password
+
+Wie 1Password niet gebruikt, kan de bestaande lokale bestanden blijven gebruiken:
+
+```bash
 cp .env.example .env
 cp apps/server/.env.example apps/server/.env
 cp apps/web/.env.example apps/web/.env
-openssl rand -base64 32
-# zet de gegenereerde waarde in .env als BETTER_AUTH_SECRET
+# Vul uitsluitend lokaal de placeholders en ontwikkelcredentials in.
 bun run docker:smoke
 ```
 
-De smoke-test bouwt de images, wacht eerst alleen op Postgres, voert daarna de Drizzle-migratie uit en start vervolgens de API en webapp met `--wait`. Zo kan `/readyz` terecht eisen dat de migratie al aanwezig is. Daarna controleert de test `/readyz` en de webroot. `docker compose down` wordt na afloop uitgevoerd; het vooraf aangemaakte externe Postgres-volume blijft behouden. Gebruik nooit `docker compose down -v` voor dit volume.
+Zonder `COMPOSE_ENV_FILE` gebruikt het script standaard `.env`. De smoke-test stopt direct wanneer de gekozen Compose-env-file ontbreekt. Voor de migratie is daarnaast óf `apps/server/.env` óf een geïnjecteerde `MIGRATION_DATABASE_URL` vereist.
+
+De smoke-test bouwt de images, wacht eerst alleen op Postgres, voert daarna de Drizzle-migratie uit en start vervolgens de API en webapp met `--wait`. Zo kan `/readyz` terecht eisen dat de migratie al aanwezig is. Daarna controleert de test `/readyz` en de webroot. `docker compose down` wordt na afloop uitgevoerd met exact dezelfde env-file; het vooraf aangemaakte externe Postgres-volume blijft behouden. Gebruik nooit `docker compose down -v` voor dit volume.
 
 ## Coolify-proef
 
