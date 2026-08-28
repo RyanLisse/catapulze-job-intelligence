@@ -25,6 +25,20 @@ export {
   type BooleanTerm,
 } from "./boolean";
 export {
+  CONNECTOR_METHODS,
+  activateBron,
+  canTransitionBronStatus,
+  requiresSecretRef,
+  shouldScheduleBronPoll,
+  validateBronConfig,
+  type ActivateBronInput,
+  type ActivateBronResult,
+  type BronConfig,
+  type BronConfigInput,
+  type BronConfigValidationIssue,
+  type ConnectorMethod,
+} from "./bron-config";
+export {
   BRON_STATUSES,
   VOORWAARDEN_STATUSES,
   type AgentContextId,
