@@ -348,6 +348,41 @@ printf '%s\\n' "\${DATABASE_URL-unset}" "\${DATABASE_TEST_URL-unset}" "\${DATABA
     expect(result.stdout.toString()).toBe("exe-dev-shadow\n");
   });
 
+  test("records the configured machine class and observed CPU model", () => {
+    const workspace = mkdtempSync(path.join(tmpdir(), "ji-shadow-machine-"));
+    const evidenceDirectory = path.join(
+      workspace,
+      ".artifacts/crabbox/exe-dev-shadow"
+    );
+    mkdirSync(evidenceDirectory, { recursive: true });
+    writeFileSync(path.join(workspace, "bun.lock"), "lockfile");
+
+    try {
+      const result = Bun.spawnSync(
+        ["bash", "-c", 'source "$SHADOW_SCRIPT"; write_fingerprint'],
+        {
+          cwd: workspace,
+          env: { ...process.env, SHADOW_SCRIPT: shadowScript },
+          stderr: "pipe",
+          stdout: "pipe",
+        }
+      );
+      const fingerprint = JSON.parse(
+        readFileSync(
+          path.join(evidenceDirectory, "execution-fingerprint.json"),
+          "utf-8"
+        )
+      );
+
+      expect(result.stderr.toString()).toBe("");
+      expect(result.exitCode).toBe(0);
+      expect(fingerprint.machine).toBe("4cpu-8gb-40gb");
+      expect(fingerprint.cpuModel.length).toBeGreaterThan(0);
+    } finally {
+      rmSync(workspace, { force: true, recursive: true });
+    }
+  });
+
   test("includes imported fixtures in the correctness dataset manifest", () => {
     const workspace = mkdtempSync(path.join(tmpdir(), "ji-shadow-dataset-"));
     const fixturesDirectory = path.join(

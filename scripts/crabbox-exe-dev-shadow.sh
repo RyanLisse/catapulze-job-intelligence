@@ -15,6 +15,7 @@ readonly MANIFEST_FILE="${EVIDENCE_DIR}/manifest.sha256"
 readonly COMPOSE_ENV_FILE="/tmp/catapulze-crabbox-compose-${$}.env"
 readonly WORKLOAD="exe-dev-shadow-correctness"
 readonly PROFILE="exe-dev-shadow"
+readonly MACHINE_CLASS="4cpu-8gb-40gb"
 readonly RUN_KIND="cold"
 readonly CACHE_STATE="repository-unprimed-provider-image-unknown"
 readonly DATASET_PROFILE="repository-correctness-suite"
@@ -167,6 +168,7 @@ write_fingerprint() {
   local bun_lock_digest
   local bun_version
   local cpu_count
+  local cpu_model
   local dataset_digest
   local dataset_file_count
   local dataset_manifest
@@ -180,6 +182,8 @@ write_fingerprint() {
   bun_lock_digest="$(sha256sum bun.lock | awk '{print $1}')"
   bun_version="$(bun --version 2>/dev/null || printf 'unavailable')"
   cpu_count="$(getconf _NPROCESSORS_ONLN 2>/dev/null || printf 'unknown')"
+  cpu_model="$(awk -F ':' '/^model name/ {sub(/^[[:space:]]+/, "", $2); print $2; exit}' /proc/cpuinfo 2>/dev/null || true)"
+  cpu_model="${cpu_model:-unknown}"
   dataset_manifest="$(write_dataset_manifest)"
   dataset_digest="$(printf '%s\n' "$dataset_manifest" | sha256sum | awk '{print $1}')"
   dataset_file_count="$(printf '%s\n' "$dataset_manifest" | awk 'NF {count += 1} END {print count + 0}')"
@@ -198,16 +202,18 @@ write_fingerprint() {
   os_name="$(uname -s)"
   os_release="$(uname -r)"
 
-  printf '{\n  "executor": "crabbox",\n  "provider": "exe-dev",\n  "profile": "%s",\n  "region": "%s",\n  "image": "%s",\n  "bunImage": "%s",\n  "postgresImage": "%s",\n  "postgresVersion": "%s",\n  "os": "%s",\n  "osRelease": "%s",\n  "architecture": "%s",\n  "cpuCount": "%s",\n  "memoryKiB": "%s",\n  "bunVersion": "%s",\n  "bunLockDigest": "sha256:%s",\n  "gitSha": "%s",\n  "gitState": "%s",\n  "attempt": "%s",\n  "workload": "%s",\n  "runKind": "%s",\n  "cacheState": "%s",\n  "datasetProfile": "%s",\n  "datasetDigest": "sha256:%s",\n  "datasetFileCount": %d,\n  "concurrency": 2\n}\n' \
+  printf '{\n  "executor": "crabbox",\n  "provider": "exe-dev",\n  "profile": "%s",\n  "region": "%s",\n  "image": "%s",\n  "bunImage": "%s",\n  "postgresImage": "%s",\n  "postgresVersion": "%s",\n  "machine": "%s",\n  "os": "%s",\n  "osRelease": "%s",\n  "architecture": "%s",\n  "cpuModel": "%s",\n  "cpuCount": "%s",\n  "memoryKiB": "%s",\n  "bunVersion": "%s",\n  "bunLockDigest": "sha256:%s",\n  "gitSha": "%s",\n  "gitState": "%s",\n  "attempt": "%s",\n  "workload": "%s",\n  "runKind": "%s",\n  "cacheState": "%s",\n  "datasetProfile": "%s",\n  "datasetDigest": "sha256:%s",\n  "datasetFileCount": %d,\n  "concurrency": 2\n}\n' \
     "$PROFILE" \
     "$(json_escape "${EXE_DEV_REGION:-missing}")" \
     "$EXECUTOR_IMAGE" \
     "$BUN_IMAGE" \
     "$(json_escape "$POSTGRES_IMAGE")" \
     "$(json_escape "$POSTGRES_VERSION")" \
+    "$MACHINE_CLASS" \
     "$(json_escape "$os_name")" \
     "$(json_escape "$os_release")" \
     "$(json_escape "$architecture")" \
+    "$(json_escape "$cpu_model")" \
     "$(json_escape "$cpu_count")" \
     "$(json_escape "$memory_kib")" \
     "$(json_escape "$bun_version")" \
