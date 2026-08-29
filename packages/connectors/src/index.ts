@@ -15,6 +15,13 @@ export {
   type DiscoverItem,
 } from "./contract";
 export {
+  loadConnectorFixture,
+  fixturePath,
+  createFixtureEnvelope,
+} from "./fixtures/load";
+export { InMemoryKnownHashStore, type KnownHashStore } from "./known-hash";
+export { ObservationKnownHashStore } from "./observation-known-hash";
+export {
   type CheckpointKey,
   type ConnectorRunProgress,
   type RunProgressStore,
@@ -64,3 +71,18 @@ export {
   type RunStartInput,
   type RunStartResult,
 } from "./run-lifecycle";
+export {
+  buildTenderNedListingUrl,
+  createTenderNedClient,
+  createTenderNedConnector,
+  requestedListingSize,
+  TENDER_NED_MAX_PAGE_SIZE,
+  TENDER_NED_PARSER_VERSION,
+  type TenderNedConnectorOptions,
+} from "./tenderned";
+export {
+  createInhuurdeskClient,
+  createInhuurdeskConnector,
+  INHUURDESK_PARSER_VERSION,
+  type InhuurdeskConnectorOptions,
+} from "./inhuurdesk";

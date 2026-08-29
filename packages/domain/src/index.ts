@@ -55,3 +55,9 @@ export {
   type VoorwaardenStatus,
 } from "./ids";
 export { UNKNOWN, isUnknown, type UnknownValue } from "./unknown";
+export {
+  DEFAULT_MISSED_POLLS_BEFORE_STALE,
+  canReopenFromClosed,
+  resolveLifecycleStatus,
+  type LifecycleTransitionInput,
+} from "./lifecycle";
