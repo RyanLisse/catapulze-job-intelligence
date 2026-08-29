@@ -1,0 +1,33 @@
+{
+  "contractVersion": "connector-fixture/v1",
+  "source": "inhuurdesk",
+  "capturedAt": "2026-08-28T10:00:00.000Z",
+  "contentType": "json",
+  "payload": {
+    "total": 2,
+    "data": [
+      {
+        "id": 101,
+        "aanvraagnummer": "IH-2026-001",
+        "title": "Senior Java Developer",
+        "client": "Alliander",
+        "location": "Duiven",
+        "hoursPerWeek": 36,
+        "startDate": "2026-09-01",
+        "endDate": "2027-03-01",
+        "description": "<p>Rolomschrijving voor senior Java developer.</p><p>Max tarief €110 incl msp fee per uur.</p>"
+      },
+      {
+        "id": 102,
+        "aanvraagnummer": "IH-2026-002",
+        "title": "Senior Java Developer",
+        "client": "Alliander",
+        "location": "Duiven",
+        "hoursPerWeek": 36,
+        "startDate": "2026-09-01",
+        "endDate": "2027-03-01",
+        "description": "<p>Tarief wordt in overleg bepaald; geen vaste max in tekst.</p>"
+      }
+    ]
+  }
+}
