@@ -181,7 +181,7 @@ const scanInputPaths = async (
         .update("symlink\0")
         .update(linkTarget)
         .digest("hex");
-      manifestLines.push(`${digest}  ${relativePath}`);
+      manifestLines.push(`${digest}  ${JSON.stringify(relativePath)}`);
       continue;
     }
     if (!stats.isFile()) {
@@ -201,7 +201,7 @@ const scanInputPaths = async (
       .update("file\0")
       .update(bytes)
       .digest("hex");
-    manifestLines.push(`${digest}  ${relativePath}`);
+    manifestLines.push(`${digest}  ${JSON.stringify(relativePath)}`);
     violations.push(
       ...collectSecretViolations(relativePath, new TextDecoder().decode(bytes))
     );
@@ -220,13 +220,24 @@ const parseInputManifest = (manifest: string): Map<string, string> => {
     if (!line) {
       continue;
     }
-    const match = /^(?<digest>[0-9a-f]{64}) {2}(?<relativePath>.+)$/u.exec(
-      line
-    );
+    const match = /^(?<digest>[0-9a-f]{64}) {2}(?<encodedPath>.+)$/u.exec(line);
     if (!match?.groups) {
       throw new Error("materialized input manifest contains an invalid line");
     }
-    const { digest, relativePath } = match.groups;
+    const { digest, encodedPath } = match.groups;
+    if (!(encodedPath.startsWith('"') && encodedPath.endsWith('"'))) {
+      throw new Error("materialized input manifest contains an invalid path");
+    }
+    let relativePath: string;
+    try {
+      // SAFETY: a valid JSON value bounded by quotes is necessarily a string.
+      relativePath = JSON.parse(encodedPath) as string;
+    } catch {
+      throw new Error("materialized input manifest contains an invalid path");
+    }
+    if (relativePath.length === 0) {
+      throw new Error("materialized input manifest contains an invalid path");
+    }
     if (entries.has(relativePath)) {
       throw new Error(`materialized input manifest repeats ${relativePath}`);
     }
@@ -276,10 +287,27 @@ const readIfPresent = async (
   relativePath: string,
   maxFileBytes: number
 ): Promise<{ source: string | null; tooLarge: boolean }> => {
-  const file = Bun.file(`${rootDir}/${relativePath}`);
-  if (!(await file.exists())) {
+  const absolutePath = path.join(rootDir, relativePath);
+  let stats;
+  try {
+    stats = await lstat(absolutePath);
+  } catch (error) {
+    if (error instanceof Error && "code" in error && error.code === "ENOENT") {
+      return { source: null, tooLarge: false };
+    }
+    throw error;
+  }
+  if (stats.isSymbolicLink()) {
+    const linkTarget = await readlink(absolutePath);
+    return {
+      source: linkTarget,
+      tooLarge: new TextEncoder().encode(linkTarget).byteLength > maxFileBytes,
+    };
+  }
+  if (!stats.isFile()) {
     return { source: null, tooLarge: false };
   }
+  const file = Bun.file(absolutePath);
   if (file.size > maxFileBytes) {
     return { source: null, tooLarge: true };
   }

@@ -45,6 +45,8 @@ sync:
     - "!.env.example"
     - "!apps/server/.env.example"
     - "!apps/web/.env.example"
+    - .fireflies-request.json
+    - .fireflies-transcript.json
     # The launcher runs Crabbox from a clean Git archive that was scanned and
     # hashed before upload. Only runtime metadata can appear outside that
     # canonical input set, so no second source-exclusion list is maintained.

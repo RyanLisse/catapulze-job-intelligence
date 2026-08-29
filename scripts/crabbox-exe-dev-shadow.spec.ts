@@ -41,7 +41,7 @@ const createLauncherFixture = (
     `const arguments_ = process.argv.slice(2);
 const manifestIndex = arguments_.indexOf("--write-manifest");
 const manifestPath = arguments_[manifestIndex + 1];
-await Bun.write(manifestPath, "${"b".repeat(64)}  scripts/check-secrets-scan.ts\\n");
+await Bun.write(manifestPath, '${"b".repeat(64)}  "scripts/check-secrets-scan.ts"\\n');
 `
   );
   createExecutable(
@@ -110,7 +110,7 @@ const launcherEnvironment = (
 
 const writeInputManifest = (workspace: string, entries: string[]): string => {
   const manifest = entries
-    .map((relativePath) => `${"b".repeat(64)}  ${relativePath}`)
+    .map((relativePath) => `${"b".repeat(64)}  ${JSON.stringify(relativePath)}`)
     .join("\n");
   const manifestPath = path.join(workspace, ".crabbox-input-manifest.sha256");
   writeFileSync(manifestPath, `${manifest}\n`);
@@ -189,6 +189,12 @@ describe("exe.dev shadow scripts", () => {
     );
     expect(crabboxConfig.split("\n")).toContain(
       '    - "!apps/web/.env.example"'
+    );
+    expect(crabboxConfig.split("\n")).toContain(
+      "    - .fireflies-request.json"
+    );
+    expect(crabboxConfig.split("\n")).toContain(
+      "    - .fireflies-transcript.json"
     );
     expect(dockerignore.split("\n")).toContain(".artifacts");
     expect(dockerignore.split("\n")).toContain("**/.artifacts");

@@ -307,11 +307,11 @@ describe("check-secrets-scan", () => {
         "scripts/performance/performance-record.schema.json",
         "scripts/shadow.spec.ts",
       ]);
-      expect(scanned.manifest).toContain("  .crabbox.yaml\n");
+      expect(scanned.manifest).toContain('  ".crabbox.yaml"\n');
       expect(scanned.manifest).toContain(
-        "  scripts/performance/performance-record.schema.json\n"
+        '  "scripts/performance/performance-record.schema.json"\n'
       );
-      expect(scanned.manifest).toContain("  scripts/shadow.spec.ts\n");
+      expect(scanned.manifest).toContain('  "scripts/shadow.spec.ts"\n');
     } finally {
       rmSync(workspace, { force: true, recursive: true });
     }
@@ -354,7 +354,7 @@ describe("check-secrets-scan", () => {
       symlinkSync("target-a", linkPath);
       const { manifest } = await createScannedInputManifest(workspace);
 
-      expect(manifest).toContain("  runtime-link\n");
+      expect(manifest).toContain('  "runtime-link"\n');
       expect(await verifyScannedInputManifest(workspace, manifest)).toEqual([]);
 
       rmSync(linkPath);
@@ -362,6 +362,39 @@ describe("check-secrets-scan", () => {
       expect(await verifyScannedInputManifest(workspace, manifest)).toEqual([
         "runtime-link does not match the materialized input manifest",
       ]);
+    } finally {
+      rmSync(workspace, { force: true, recursive: true });
+    }
+  });
+
+  it("encodes newline-containing input paths unambiguously", async () => {
+    const workspace = mkdtempSync(path.join(tmpdir(), "ji-input-newline-"));
+    const relativePath = "line\nbreak.ts";
+
+    try {
+      writeFileSync(path.join(workspace, relativePath), "safe\n");
+      const { manifest, violations } =
+        await createScannedInputManifest(workspace);
+
+      expect(violations).toEqual([]);
+      expect(manifest.split("\n").filter(Boolean)).toHaveLength(1);
+      expect(manifest).toContain('  "line\\nbreak.ts"\n');
+      expect(await verifyScannedInputManifest(workspace, manifest)).toEqual([]);
+    } finally {
+      rmSync(workspace, { force: true, recursive: true });
+    }
+  });
+
+  it("does not follow workspace symlinks during local scans", async () => {
+    const workspace = mkdtempSync(path.join(tmpdir(), "ji-scan-symlink-"));
+    const scannedRoot = path.join(workspace, "scanned");
+
+    try {
+      mkdirSync(scannedRoot);
+      writeFileSync(path.join(workspace, "outside-secret"), "x".repeat(65));
+      symlinkSync("../outside-secret", path.join(scannedRoot, "outside-link"));
+
+      expect(await scanTrackedFiles(scannedRoot, 64)).toEqual([]);
     } finally {
       rmSync(workspace, { force: true, recursive: true });
     }
