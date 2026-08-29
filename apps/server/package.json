@@ -12,9 +12,11 @@
   "dependencies": {
     "@hono/trpc-server": "^0.4.2",
     "@ji/api": "workspace:*",
+    "@ji/application": "workspace:*",
     "@ji/auth": "workspace:*",
     "@ji/db": "workspace:*",
     "@ji/env": "workspace:*",
+    "@ji/search": "workspace:*",
     "@trpc/server": "catalog:",
     "better-auth": "catalog:",
     "dotenv": "catalog:",

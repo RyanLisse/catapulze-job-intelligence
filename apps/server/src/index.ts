@@ -1,6 +1,7 @@
 import { trpcServer } from "@hono/trpc-server";
 import { createContext } from "@ji/api/context";
 import { appRouter } from "@ji/api/routers/index";
+import { createTestSliceARegistry } from "@ji/application/registry";
 import { auth } from "@ji/auth";
 import { closeDb, getDbReadiness } from "@ji/db";
 import type { DbReadinessResult } from "@ji/db/readiness";
@@ -9,6 +10,11 @@ import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { logger } from "hono/logger";
 
+import { createMcpHandler } from "./capabilities/mcp";
+import {
+  createRestCapabilityHandler,
+  restRoutesFromRegistry,
+} from "./capabilities/rest";
 import { createReadinessHandler } from "./readiness";
 
 const DEFAULT_PORT = 3000;
@@ -51,6 +57,14 @@ app.get(
   "/readyz",
   createReadinessHandler(getDbReadiness, reportReadinessFailure)
 );
+
+const sliceA = createTestSliceARegistry();
+const restRoutes = restRoutesFromRegistry(sliceA.registry);
+const restHandler = createRestCapabilityHandler(sliceA.registry, restRoutes);
+const mcpHandler = createMcpHandler(sliceA.registry);
+
+app.all("/v1/*", (context) => restHandler(context));
+app.post("/mcp", (context) => mcpHandler(context));
 
 const server = Bun.serve({
   fetch: app.fetch,

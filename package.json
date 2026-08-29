@@ -59,6 +59,8 @@
     "perf:report": "PATH=\"./node_modules/.bin:$PATH\" bun scripts/performance/report.ts",
     "check-layering": "PATH=\"./node_modules/.bin:$PATH\" bun scripts/check-layering.ts",
     "check-secrets": "PATH=\"./node_modules/.bin:$PATH\" bun scripts/check-secrets-scan.ts",
+    "check:capability-coverage": "PATH=\"./node_modules/.bin:$PATH\" bun scripts/check-capability-coverage.ts",
+    "check:capability-registry": "PATH=\"./node_modules/.bin:$PATH\" bun scripts/check-capability-registry.ts",
     "bench:search": "PATH=\"./node_modules/.bin:$PATH\" bun benchmarks/search/run.ts",
     "prepare": "PATH=\"./node_modules/.bin:$PATH\" lefthook install --reset-hooks-path"
   },
@@ -69,6 +71,7 @@
     "zod": "catalog:"
   },
   "devDependencies": {
+    "@ji/application": "workspace:*",
     "@ji/config": "workspace:*",
     "@oxlint/plugins": "1.80.0",
     "@types/bun": "catalog:",
