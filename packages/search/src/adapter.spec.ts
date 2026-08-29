@@ -3,9 +3,11 @@ import { describe, expect, it } from "bun:test";
 import { SearchAdapter } from "./adapter";
 import { MemoryResultCache } from "./cache/result-cache";
 import { InMemorySearchEngine } from "./in-memory-engine";
-import type { SearchDocument } from "./types";
+import type { SearchDocument, SearchEngine } from "./types";
 
-const sampleDocument = (overrides: Partial<SearchDocument> = {}): SearchDocument => ({
+const sampleDocument = (
+  overrides: Partial<SearchDocument> = {}
+): SearchDocument => ({
   beschrijving: "Azure platform engineer role with senior responsibilities",
   bronId: "bron-1",
   contracttype: "detachering",
@@ -19,15 +21,29 @@ const sampleDocument = (overrides: Partial<SearchDocument> = {}): SearchDocument
   ...overrides,
 });
 
+const instrumentEngine = (
+  engine: InMemorySearchEngine,
+  onSearch: () => void
+): SearchEngine => ({
+  deleteDocument: (id) => engine.deleteDocument(id),
+  getIndexVersion: () => engine.getIndexVersion(),
+  search: (params) => {
+    onSearch();
+    return engine.search(params);
+  },
+  setIndexVersion: (version) => engine.setIndexVersion(version),
+  upsertDocument: (document) => engine.upsertDocument(document),
+});
+
 describe("SearchAdapter", () => {
   it("covers AE1 with stable hit IDs across repeated searches", async () => {
     const engine = new InMemorySearchEngine();
     await engine.upsertDocument(sampleDocument({ id: "hit-a" }));
     await engine.upsertDocument(
       sampleDocument({
+        beschrijving: "Intern role",
         id: "hit-b",
         titel: "Internship Azure",
-        beschrijving: "Intern role",
       })
     );
     await engine.setIndexVersion(1);
@@ -44,24 +60,19 @@ describe("SearchAdapter", () => {
     }
 
     expect(first.hits.map((hit) => hit.id)).toEqual(["hit-a"]);
-    expect(second.hits.map((hit) => hit.id)).toEqual(first.hits.map((hit) => hit.id));
+    expect(second.hits.map((hit) => hit.id)).toEqual(
+      first.hits.map((hit) => hit.id)
+    );
   });
 
   it("returns structured syntax errors without calling the engine search path", async () => {
     const engine = new InMemorySearchEngine();
     let searchCalls = 0;
-    const instrumented = {
-      deleteDocument: engine.deleteDocument.bind(engine),
-      getIndexVersion: engine.getIndexVersion.bind(engine),
-      search: async (...args: Parameters<typeof engine.search>) => {
+    const adapter = new SearchAdapter({
+      engine: instrumentEngine(engine, () => {
         searchCalls += 1;
-        return engine.search(...args);
-      },
-      setIndexVersion: engine.setIndexVersion.bind(engine),
-      upsertDocument: engine.upsertDocument.bind(engine),
-    };
-
-    const adapter = new SearchAdapter({ engine: instrumented });
+      }),
+    });
     const result = await adapter.search({ query: "(Azure OR intern" });
 
     expect(result.ok).toBe(false);
@@ -98,19 +109,13 @@ describe("SearchAdapter", () => {
     await engine.setIndexVersion(3);
 
     let searchCalls = 0;
-    const instrumented = {
-      deleteDocument: engine.deleteDocument.bind(engine),
-      getIndexVersion: engine.getIndexVersion.bind(engine),
-      search: async (...args: Parameters<typeof engine.search>) => {
-        searchCalls += 1;
-        return engine.search(...args);
-      },
-      setIndexVersion: engine.setIndexVersion.bind(engine),
-      upsertDocument: engine.upsertDocument.bind(engine),
-    };
-
     const cache = new MemoryResultCache();
-    const adapter = new SearchAdapter({ cache, engine: instrumented });
+    const adapter = new SearchAdapter({
+      cache,
+      engine: instrumentEngine(engine, () => {
+        searchCalls += 1;
+      }),
+    });
     const query = "Azure";
 
     const first = await adapter.search({ query });

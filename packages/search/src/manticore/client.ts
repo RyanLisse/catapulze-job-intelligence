@@ -1,32 +1,15 @@
 import type { SearchFilters } from "../types";
 import { emptySearchFacets } from "../types";
-
-type JsonRecord = Record<string, unknown>;
-
-const asRecord = (value: unknown): JsonRecord | null =>
-  typeof value === "object" && value !== null && !Array.isArray(value)
-    ? (value as JsonRecord)
-    : null;
-
-const asArray = (value: unknown): unknown[] =>
-  Array.isArray(value) ? value : [];
-
-const asNumber = (value: unknown): number | null =>
-  typeof value === "number" && Number.isFinite(value) ? value : null;
-
-const asString = (value: unknown): string | null =>
-  typeof value === "string" ? value : null;
-
-export interface ManticoreSearchRequest extends JsonRecord {
-  aggs?: JsonRecord;
-  filter?: JsonRecord;
-  index: string;
-  limit: number;
-  offset: number;
-  query?: JsonRecord;
-  sort?: JsonRecord[];
-  track_total_hits?: boolean;
-}
+import { parseManticoreSearchPayload } from "./json";
+import type {
+  ManticoreDeleteBody,
+  ManticoreFilterClause,
+  ManticoreIndexedDocument,
+  ManticoreQueryBody,
+  ManticoreReplaceBody,
+  ManticoreSearchPayload,
+  ManticoreSearchRequestBody,
+} from "./json";
 
 export interface ManticoreSearchHit {
   id: string;
@@ -41,63 +24,97 @@ export interface ManticoreSearchResponse {
 }
 
 export interface ManticoreHttpClient {
-  request: (path: string, body: JsonRecord) => Promise<JsonRecord>;
+  request: (
+    path: string,
+    body:
+      | ManticoreDeleteBody
+      | ManticoreReplaceBody
+      | ManticoreSearchRequestBody
+  ) => Promise<ManticoreSearchPayload>;
 }
 
 export class FetchManticoreClient implements ManticoreHttpClient {
-  constructor(private readonly baseUrl: string) {}
+  private readonly baseUrl: string;
 
-  async request(path: string, body: JsonRecord): Promise<JsonRecord> {
+  constructor(baseUrl: string) {
+    this.baseUrl = baseUrl;
+  }
+
+  async request(
+    path: string,
+    body:
+      | ManticoreDeleteBody
+      | ManticoreReplaceBody
+      | ManticoreSearchRequestBody
+  ): Promise<ManticoreSearchPayload> {
     const response = await fetch(`${this.baseUrl}${path}`, {
       body: JSON.stringify(body),
       headers: { "Content-Type": "application/json" },
       method: "POST",
     });
 
-    const payload = (await response.json()) as JsonRecord;
+    const raw = await response.text();
+    const payload = parseManticoreSearchPayload(raw);
     if (!response.ok) {
-      const error = asString(payload.error) ?? response.statusText;
-      throw new Error(`Manticore request failed (${response.status}): ${error}`);
+      throw new Error(
+        `Manticore request failed (${response.status}): ${payload.error ?? response.statusText}`
+      );
     }
 
     return payload;
   }
 }
 
+const bucketValue = (key: string | number | undefined): string | null => {
+  if (key === undefined) {
+    return null;
+  }
+
+  return String(key);
+};
+
 const parseFacetBuckets = (
-  aggs: JsonRecord | null,
-  field: keyof ReturnType<typeof emptySearchFacets>
+  payload: ManticoreSearchPayload,
+  field: "bron_id" | "contracttype" | "locatie_land" | "status"
 ) => {
-  const facet = asRecord(aggs?.[field]);
-  const buckets = asArray(facet?.buckets);
-  return buckets
+  const facet =
+    payload.aggregations?.[field]?.buckets ??
+    payload.aggs?.[field]?.buckets ??
+    [];
+  return facet
     .map((bucket) => {
-      const row = asRecord(bucket);
-      const value = asString(row?.key) ?? asString(row?.value);
-      const count = asNumber(row?.doc_count) ?? asNumber(row?.count);
+      const value = bucketValue(bucket.key ?? bucket.value);
+      const count = bucket.doc_count ?? bucket.count ?? null;
       if (value === null || count === null) {
         return null;
       }
 
       return { count, value };
     })
-    .filter((bucket): bucket is { count: number; value: string } => bucket !== null);
+    .filter(
+      (bucket): bucket is { count: number; value: string } => bucket !== null
+    );
 };
 
+const isWrappedTotal = (
+  value: number | { value: number }
+): value is { value: number } => !Number.isFinite(value);
+
 export const parseManticoreSearchResponse = (
-  payload: JsonRecord
+  payload: ManticoreSearchPayload
 ): ManticoreSearchResponse => {
-  const hitsBlock = asRecord(payload.hits);
-  const total =
-    asNumber(hitsBlock?.total) ??
-    asNumber(asRecord(hitsBlock?.total)?.value) ??
-    0;
-  const rawHits = asArray(hitsBlock?.hits);
+  const hitsBlock = payload.hits;
+  const totalValue = hitsBlock?.total;
+  let total = 0;
+  if (totalValue !== undefined) {
+    total = isWrappedTotal(totalValue) ? totalValue.value : totalValue;
+  }
+
+  const rawHits = hitsBlock?.hits ?? [];
   const hits = rawHits
     .map((entry) => {
-      const row = asRecord(entry);
-      const id = asString(row?._id) ?? asString(asRecord(row?._source)?.id);
-      const weight = asNumber(row?._score) ?? 0;
+      const id = entry._id ?? entry._source?.id ?? null;
+      const weight = entry._score ?? 0;
       if (id === null) {
         return null;
       }
@@ -106,12 +123,11 @@ export const parseManticoreSearchResponse = (
     })
     .filter((hit): hit is ManticoreSearchHit => hit !== null);
 
-  const aggs = asRecord(payload.aggregations) ?? asRecord(payload.aggs);
   const facets = emptySearchFacets();
-  facets.bron_id = parseFacetBuckets(aggs, "bron_id");
-  facets.status = parseFacetBuckets(aggs, "status");
-  facets.locatie_land = parseFacetBuckets(aggs, "locatie_land");
-  facets.contracttype = parseFacetBuckets(aggs, "contracttype");
+  facets.bron_id = parseFacetBuckets(payload, "bron_id");
+  facets.status = parseFacetBuckets(payload, "status");
+  facets.locatie_land = parseFacetBuckets(payload, "locatie_land");
+  facets.contracttype = parseFacetBuckets(payload, "contracttype");
 
   return {
     facets,
@@ -120,8 +136,10 @@ export const parseManticoreSearchResponse = (
   };
 };
 
-const buildFilter = (filters: SearchFilters): JsonRecord | undefined => {
-  const must: JsonRecord[] = [];
+const buildFilter = (
+  filters: SearchFilters
+): ManticoreFilterClause | undefined => {
+  const must: ManticoreFilterClause[] = [];
 
   if (filters.bronIds && filters.bronIds.length > 0) {
     must.push({ in: { bron_id: [...filters.bronIds] } });
@@ -148,7 +166,8 @@ const buildFilter = (filters: SearchFilters): JsonRecord | undefined => {
   }
 
   if (filters.freshnessDays !== undefined) {
-    const cutoff = Math.floor(Date.now() / 1000) - filters.freshnessDays * 86_400;
+    const cutoff =
+      Math.floor(Date.now() / 1000) - filters.freshnessDays * 86_400;
     must.push({ range: { laatst_gezien_op: { gte: cutoff } } });
   }
 
@@ -165,12 +184,12 @@ const buildFilter = (filters: SearchFilters): JsonRecord | undefined => {
 
 export const buildManticoreSearchRequest = (
   index: string,
-  query: JsonRecord | null,
+  query: ManticoreQueryBody | null,
   filters: SearchFilters,
   limit: number,
   offset: number
-): ManticoreSearchRequest => {
-  const request: ManticoreSearchRequest = {
+): ManticoreSearchRequestBody => {
+  const request: ManticoreSearchRequestBody = {
     aggs: {
       bron_id: { terms: { field: "bron_id", size: 100 } },
       contracttype: { terms: { field: "contracttype", size: 50 } },
@@ -198,7 +217,7 @@ export const buildManticoreSearchRequest = (
 
 export const searchManticore = async (
   client: ManticoreHttpClient,
-  request: ManticoreSearchRequest
+  request: ManticoreSearchRequestBody
 ): Promise<ManticoreSearchResponse> => {
   const payload = await client.request("/search", request);
   return parseManticoreSearchResponse(payload);
@@ -207,7 +226,7 @@ export const searchManticore = async (
 export const replaceManticoreDocument = async (
   client: ManticoreHttpClient,
   index: string,
-  document: JsonRecord
+  document: ManticoreIndexedDocument
 ): Promise<void> => {
   await client.request("/replace", {
     doc: document,

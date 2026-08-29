@@ -1,5 +1,3 @@
-import type { AanvraagLifecycle } from "@ji/domain";
-
 import { evaluateBooleanAst } from "./adapter";
 import type {
   EngineSearchParams,
@@ -63,29 +61,49 @@ const matchesFilters = (
   return true;
 };
 
+const facetValueForField = (
+  document: SearchDocument,
+  field: keyof Pick<
+    SearchDocument,
+    "bronId" | "contracttype" | "locatieLand" | "status"
+  >
+): string => {
+  switch (field) {
+    case "bronId": {
+      return document.bronId;
+    }
+    case "locatieLand": {
+      return document.locatieLand;
+    }
+    case "contracttype": {
+      return document.contracttype ?? "unknown";
+    }
+    case "status": {
+      return document.status;
+    }
+    default: {
+      const _exhaustive: never = field;
+      throw new Error(`Unsupported facet field: ${String(_exhaustive)}`);
+    }
+  }
+};
+
 const countFacet = (
   documents: SearchDocument[],
   field: keyof Pick<
     SearchDocument,
-    "bronId" | "status" | "locatieLand" | "contracttype"
+    "bronId" | "contracttype" | "locatieLand" | "status"
   >
 ): SearchFacetBucket[] => {
   const counts = new Map<string, number>();
   for (const document of documents) {
-    const value =
-      field === "bronId"
-        ? document.bronId
-        : field === "locatieLand"
-          ? document.locatieLand
-          : field === "contracttype"
-            ? (document.contracttype ?? "unknown")
-            : (document.status as AanvraagLifecycle);
+    const value = facetValueForField(document, field);
     counts.set(value, (counts.get(value) ?? 0) + 1);
   }
 
   return [...counts.entries()]
     .map(([value, count]) => ({ count, value }))
-    .sort((left, right) => left.value.localeCompare(right.value));
+    .toSorted((left, right) => left.value.localeCompare(right.value));
 };
 
 const buildFacets = (documents: SearchDocument[]): SearchFacets => ({
@@ -99,8 +117,9 @@ export class InMemorySearchEngine implements SearchEngine {
   private readonly documents = new Map<string, SearchDocument>();
   private indexVersion = 0;
 
-  async deleteDocument(id: string): Promise<void> {
+  deleteDocument(id: string): Promise<void> {
     this.documents.delete(id);
+    return Promise.resolve();
   }
 
   getIndexVersion(): Promise<number> {
@@ -112,7 +131,7 @@ export class InMemorySearchEngine implements SearchEngine {
     return Promise.resolve();
   }
 
-  async search(params: EngineSearchParams): Promise<SearchEngineResult> {
+  search(params: EngineSearchParams): Promise<SearchEngineResult> {
     const matched = [...this.documents.values()].filter((document) => {
       if (!matchesFilters(document, params.filters)) {
         return false;
@@ -129,27 +148,29 @@ export class InMemorySearchEngine implements SearchEngine {
       );
     });
 
-    matched.sort((left, right) => left.id.localeCompare(right.id));
-
-    const page = matched.slice(params.offset, params.offset + params.limit);
+    const sorted = matched.toSorted((left, right) =>
+      left.id.localeCompare(right.id)
+    );
+    const page = sorted.slice(params.offset, params.offset + params.limit);
     const facets =
       this.documents.size === 0 ? emptySearchFacets() : buildFacets(matched);
 
-    return {
-      emptyReason:
-        this.documents.size === 0
-          ? "empty_index"
-          : matched.length === 0
-            ? undefined
-            : undefined,
+    let emptyReason: string | undefined;
+    if (this.documents.size === 0) {
+      emptyReason = "empty_index";
+    }
+
+    return Promise.resolve({
+      emptyReason,
       facets,
       hits: page.map((document) => ({ id: document.id, weight: 1 })),
       indexVersion: this.indexVersion,
       total: matched.length,
-    };
+    });
   }
 
-  async upsertDocument(document: SearchDocument): Promise<void> {
+  upsertDocument(document: SearchDocument): Promise<void> {
     this.documents.set(document.id, structuredClone(document));
+    return Promise.resolve();
   }
-};
+}

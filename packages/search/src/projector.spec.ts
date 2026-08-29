@@ -2,7 +2,11 @@ import { describe, expect, it } from "bun:test";
 
 import { InMemorySearchEngine } from "./in-memory-engine";
 import { drainOutboxEvents } from "./projector";
-import type { OutboxEventRecord, SearchDocument, SearchDocumentLoader } from "./types";
+import type {
+  OutboxEventRecord,
+  SearchDocument,
+  SearchDocumentLoader,
+} from "./types";
 
 const document: SearchDocument = {
   beschrijving: "Senior Azure platform engineer",
@@ -18,7 +22,11 @@ const document: SearchDocument = {
 };
 
 class StaticLoader implements SearchDocumentLoader {
-  constructor(private readonly loaded: SearchDocument | null) {}
+  private readonly loaded: SearchDocument | null;
+
+  constructor(loaded: SearchDocument | null) {
+    this.loaded = loaded;
+  }
 
   loadByAggregateId(_aggregateId: string): Promise<SearchDocument | null> {
     return Promise.resolve(this.loaded ? structuredClone(this.loaded) : null);

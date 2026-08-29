@@ -2,20 +2,35 @@ import type { BooleanNode } from "@ji/domain";
 
 import type { SearchFilters } from "./types";
 
-const stableStringify = (value: unknown): string => {
-  if (value === null || typeof value !== "object") {
-    return JSON.stringify(value);
+const stableStringifyAst = (node: BooleanNode): string => {
+  switch (node.kind) {
+    case "term": {
+      return `term:${node.value}`;
+    }
+    case "phrase": {
+      return `phrase:${node.value}`;
+    }
+    case "not": {
+      return `not(${stableStringifyAst(node.operand)})`;
+    }
+    case "and": {
+      return `and(${node.operands.map(stableStringifyAst).join(",")})`;
+    }
+    case "or": {
+      return `or(${node.operands.map(stableStringifyAst).join(",")})`;
+    }
+    default: {
+      const _exhaustive: never = node;
+      throw new Error(`Unsupported boolean node: ${String(_exhaustive)}`);
+    }
   }
+};
 
-  if (Array.isArray(value)) {
-    return `[${value.map((entry) => stableStringify(entry)).join(",")}]`;
-  }
-
-  const record = value as Record<string, unknown>;
-  const keys = Object.keys(record).sort();
-  return `{${keys
-    .map((key) => `${JSON.stringify(key)}:${stableStringify(record[key])}`)
-    .join(",")}}`;
+const stableStringifyFilters = (filters: SearchFilters): string => {
+  const entries = Object.entries(filters).toSorted(([left], [right]) =>
+    left.localeCompare(right)
+  );
+  return JSON.stringify(Object.fromEntries(entries));
 };
 
 const hashString = async (input: string): Promise<string> => {
@@ -28,12 +43,14 @@ const hashString = async (input: string): Promise<string> => {
     .join("");
 };
 
-export const hashAst = async (ast: BooleanNode): Promise<string> =>
-  hashString(stableStringify(ast));
+export const hashAst = (ast: BooleanNode): Promise<string> =>
+  hashString(stableStringifyAst(ast));
 
-export const buildCacheKey = async (
+export const buildCacheKey = (
   astHash: string,
   indexVersion: number,
   filters: SearchFilters
 ): Promise<string> =>
-  `search:v1:${astHash}:${indexVersion}:${await hashString(stableStringify(filters))}`;
+  hashString(
+    `search:v1:${astHash}:${indexVersion}:${stableStringifyFilters(filters)}`
+  );

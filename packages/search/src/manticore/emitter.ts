@@ -1,6 +1,6 @@
 import type { BooleanNode } from "@ji/domain";
 
-const MANTICORE_SPECIAL = /[!"$'()\-/@\\^|~]/;
+const MANTICORE_SPECIAL = /[!"$'()\-/@\\^|~]/u;
 
 const escapeTerm = (value: string): string => {
   if (MANTICORE_SPECIAL.test(value)) {
@@ -16,23 +16,34 @@ const escapePhrase = (value: string): string =>
 const needsGrouping = (node: BooleanNode): boolean =>
   node.kind === "or" || node.kind === "and";
 
-const emitMatchOperand = (node: BooleanNode): string => {
-  const emitted = emitMatch(node);
-  return needsGrouping(node) ? `(${emitted})` : emitted;
-};
-
 export const emitMatch = (node: BooleanNode): string => {
   switch (node.kind) {
-    case "term":
+    case "term": {
       return escapeTerm(node.value);
-    case "phrase":
+    }
+    case "phrase": {
       return `"${escapePhrase(node.value)}"`;
-    case "not":
-      return `-${emitMatchOperand(node.operand)}`;
-    case "and":
-      return node.operands.map(emitMatchOperand).join(" ");
-    case "or":
-      return node.operands.map(emitMatchOperand).join(" | ");
+    }
+    case "not": {
+      const operand = emitMatch(node.operand);
+      return needsGrouping(node.operand) ? `-(${operand})` : `-${operand}`;
+    }
+    case "and": {
+      return node.operands
+        .map((operand) => {
+          const emitted = emitMatch(operand);
+          return needsGrouping(operand) ? `(${emitted})` : emitted;
+        })
+        .join(" ");
+    }
+    case "or": {
+      return node.operands
+        .map((operand) => {
+          const emitted = emitMatch(operand);
+          return needsGrouping(operand) ? `(${emitted})` : emitted;
+        })
+        .join(" | ");
+    }
     default: {
       const _exhaustive: never = node;
       throw new Error(`Unsupported boolean node: ${String(_exhaustive)}`);
@@ -64,38 +75,52 @@ export interface ManticoreBoolQuery {
   };
 }
 
-export type ManticoreQueryClause =
-  | { match: Record<string, string> }
-  | { query_string: string };
+export interface ManticoreQueryStringClause {
+  query_string: string;
+}
 
-const clauseForNode = (node: BooleanNode): ManticoreQueryClause => ({
+export interface ManticoreMatchClause {
+  match: Record<string, string>;
+}
+
+export type ManticoreQueryClause =
+  | ManticoreMatchClause
+  | ManticoreQueryStringClause;
+
+const clauseForNode = (node: BooleanNode): ManticoreQueryStringClause => ({
   query_string: `@(${SEARCH_TEXT_FIELDS}) ${emitMatch(node)}`,
 });
 
-export const buildBoolJson = (ast: BooleanNode | null): ManticoreBoolQuery | null => {
+export const buildBoolJson = (
+  ast: BooleanNode | null
+): ManticoreBoolQuery | null => {
   if (ast === null) {
     return null;
   }
 
   switch (ast.kind) {
     case "term":
-    case "phrase":
+    case "phrase": {
       return { bool: { must: [clauseForNode(ast)] } };
-    case "not":
+    }
+    case "not": {
       return { bool: { must_not: [clauseForNode(ast.operand)] } };
-    case "and":
+    }
+    case "and": {
       return {
         bool: {
           must: ast.operands.map((operand) => clauseForNode(operand)),
         },
       };
-    case "or":
+    }
+    case "or": {
       return {
         bool: {
           minimum_should_match: 1,
           should: ast.operands.map((operand) => clauseForNode(operand)),
         },
       };
+    }
     default: {
       const _exhaustive: never = ast;
       throw new Error(`Unsupported boolean node: ${String(_exhaustive)}`);

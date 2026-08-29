@@ -1,4 +1,5 @@
-import { parseBooleanQuery, type BooleanNode } from "@ji/domain";
+import { parseBooleanQuery } from "@ji/domain";
+import type { BooleanNode } from "@ji/domain";
 
 import { buildCacheKey, hashAst } from "./ast-hash";
 import type {
@@ -101,7 +102,7 @@ export class SearchAdapter {
 
     return success;
   }
-};
+}
 
 export const evaluateBooleanAst = (
   ast: BooleanNode,
@@ -118,16 +119,21 @@ export const evaluateBooleanAst = (
 
   const evalNode = (node: BooleanNode): boolean => {
     switch (node.kind) {
-      case "term":
+      case "term": {
         return containsTerm(node.value);
-      case "phrase":
+      }
+      case "phrase": {
         return containsPhrase(node.value);
-      case "not":
+      }
+      case "not": {
         return !evalNode(node.operand);
-      case "and":
+      }
+      case "and": {
         return node.operands.every((operand) => evalNode(operand));
-      case "or":
+      }
+      case "or": {
         return node.operands.some((operand) => evalNode(operand));
+      }
       default: {
         const _exhaustive: never = node;
         throw new Error(`Unsupported boolean node: ${String(_exhaustive)}`);

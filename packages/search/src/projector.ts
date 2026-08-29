@@ -1,7 +1,7 @@
+import { readOutboxStatus } from "./outbox-payload";
 import type {
   OutboxEventRecord,
   ProjectorResult,
-  SearchDocument,
   SearchDocumentLoader,
   SearchEngine,
 } from "./types";
@@ -18,27 +18,11 @@ const STATUS_ONLY_EVENT_TYPES = new Set([
   "aanvraag.closed",
 ]);
 
-const readStatus = (
-  payload: Record<string, unknown>
-): SearchDocument["status"] | null => {
-  const status = payload.status;
-  if (
-    status === "active" ||
-    status === "stale" ||
-    status === "closed" ||
-    status === "unknown"
-  ) {
-    return status;
-  }
-
-  return null;
-};
-
 export interface ProjectOutboxEventInput {
+  engine: SearchEngine;
   event: OutboxEventRecord;
   indexVersion: number;
   loader: SearchDocumentLoader;
-  engine: SearchEngine;
 }
 
 export const projectOutboxEvent = async (
@@ -62,7 +46,7 @@ export const projectOutboxEvent = async (
   }
 
   let document = loaded;
-  const payloadStatus = readStatus(event.payload);
+  const payloadStatus = readOutboxStatus(event.payload);
   if (payloadStatus !== null) {
     document = { ...document, status: payloadStatus };
   } else if (CLOSE_EVENT_TYPES.has(event.eventType)) {
@@ -77,9 +61,9 @@ export const projectOutboxEvent = async (
 };
 
 export interface DrainOutboxInput {
+  engine: SearchEngine;
   events: OutboxEventRecord[];
   loader: SearchDocumentLoader;
-  engine: SearchEngine;
   startingIndexVersion?: number;
 }
 
@@ -87,6 +71,7 @@ export const drainOutboxEvents = async (
   input: DrainOutboxInput
 ): Promise<number> => {
   let version = input.startingIndexVersion ?? 0;
+  /* oxlint-disable no-await-in-loop -- outbox projector applies events in commit order */
   for (const event of input.events) {
     version += 1;
     await projectOutboxEvent({
@@ -96,6 +81,7 @@ export const drainOutboxEvents = async (
       loader: input.loader,
     });
   }
+  /* oxlint-enable no-await-in-loop */
 
   return version;
 };

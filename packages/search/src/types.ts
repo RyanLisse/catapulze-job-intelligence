@@ -1,5 +1,7 @@
 import type { AanvraagLifecycle, BooleanNode } from "@ji/domain";
 
+import type { OutboxEventPayload } from "./outbox-payload";
+
 export const SEARCH_INDEX_NAME = "aanvragen" as const;
 
 export interface SearchDocument {
@@ -126,7 +128,7 @@ export interface OutboxEventRecord {
   eventType: string;
   id: string;
   indexVersion: number | null;
-  payload: Record<string, unknown>;
+  payload: OutboxEventPayload;
 }
 
 export interface SearchDocumentLoader {

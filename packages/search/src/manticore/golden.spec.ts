@@ -2,26 +2,33 @@ import { describe, expect, it } from "bun:test";
 
 import { parseBooleanQuery } from "@ji/domain";
 
-import { buildQueryString } from "./emitter";
+import { SEARCH_INDEX_NAME } from "../types";
+import type { ManticoreHttpClient } from "./client";
 import {
   buildManticoreSearchRequest,
   parseManticoreSearchResponse,
-  type ManticoreHttpClient,
 } from "./client";
+import { buildQueryString } from "./emitter";
 import { ManticoreSearchEngine } from "./engine";
-import { SEARCH_INDEX_NAME } from "../types";
+import type { ManticoreRequestBody, ManticoreSearchPayload } from "./json";
 
 const AE1_QUERY = '(Azure OR "platform engineer") NOT intern';
 
 class RecordedManticoreClient implements ManticoreHttpClient {
-  readonly requests: Array<{ body: Record<string, unknown>; path: string }> =
-    [];
+  readonly requests: { body: ManticoreRequestBody; path: string }[] = [];
+  private readonly responses: Record<string, ManticoreSearchPayload>;
 
-  constructor(private readonly responses: Record<string, Record<string, unknown>>) {}
+  constructor(responses: Record<string, ManticoreSearchPayload>) {
+    this.responses = responses;
+  }
 
-  request(path: string, body: Record<string, unknown>): Promise<Record<string, unknown>> {
+  request(
+    path: string,
+    body: ManticoreRequestBody
+  ): Promise<ManticoreSearchPayload> {
     this.requests.push({ body, path });
-    const key = `${path}:${JSON.stringify(body.query ?? {})}`;
+    const queryPart = "query" in body ? (body.query ?? {}) : {};
+    const key = `${path}:${JSON.stringify(queryPart)}`;
     const response = this.responses[key];
     if (!response) {
       throw new Error(`No recorded response for ${key}`);
@@ -54,15 +61,15 @@ describe("Manticore golden queries", () => {
 
     const client = new RecordedManticoreClient({
       [`/search:${JSON.stringify(request.query ?? {})}`]: {
+        aggregations: {
+          bron_id: { buckets: [{ doc_count: 1, key: "bron-1" }] },
+          contracttype: { buckets: [{ doc_count: 1, key: "detachering" }] },
+          locatie_land: { buckets: [{ doc_count: 1, key: "NL" }] },
+          status: { buckets: [{ doc_count: 1, key: "active" }] },
+        },
         hits: {
           hits: [{ _id: "hit-a", _score: 12 }],
           total: 1,
-        },
-        aggregations: {
-          bron_id: { buckets: [{ key: "bron-1", doc_count: 1 }] },
-          status: { buckets: [{ key: "active", doc_count: 1 }] },
-          locatie_land: { buckets: [{ key: "NL", doc_count: 1 }] },
-          contracttype: { buckets: [{ key: "detachering", doc_count: 1 }] },
         },
       },
     });
@@ -85,8 +92,13 @@ describe("Manticore golden queries", () => {
 
     expect(first.hits.map((hit) => hit.id)).toEqual(["hit-a"]);
     expect(second.hits.map((hit) => hit.id)).toEqual(["hit-a"]);
-    expect(client.requests[0]?.body.query).toEqual({
-      query_string: '@(titel,beschrijving) (Azure | "platform engineer") -intern',
+    const firstRequest = client.requests[0]?.body;
+    if (!firstRequest || !("query" in firstRequest)) {
+      throw new Error("Expected search request body");
+    }
+    expect(firstRequest.query).toEqual({
+      query_string:
+        '@(titel,beschrijving) (Azure | "platform engineer") -intern',
     });
   });
 

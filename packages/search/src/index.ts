@@ -14,6 +14,7 @@ export {
   ManticoreSearchEngine,
   SEARCH_TEXT_FIELDS,
 } from "./manticore";
+export { readOutboxStatus, type OutboxEventPayload } from "./outbox-payload";
 export {
   PostgresFtsFallbackEngine,
   type PostgresFtsExecutor,

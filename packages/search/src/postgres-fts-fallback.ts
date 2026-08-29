@@ -38,19 +38,22 @@ export interface PostgresFtsExecutor {
  */
 export class PostgresFtsFallbackEngine implements SearchEngine {
   private readonly documents = new Map<string, SearchDocument>();
+  private readonly executor: PostgresFtsExecutor | undefined;
   private indexVersion = 0;
 
   constructor(
-    private readonly executor?: PostgresFtsExecutor,
+    executor?: PostgresFtsExecutor,
     seedDocuments: SearchDocument[] = []
   ) {
+    this.executor = executor;
     for (const document of seedDocuments) {
       this.documents.set(document.id, structuredClone(document));
     }
   }
 
-  async deleteDocument(id: string): Promise<void> {
+  deleteDocument(id: string): Promise<void> {
     this.documents.delete(id);
+    return Promise.resolve();
   }
 
   getIndexVersion(): Promise<number> {
@@ -91,8 +94,10 @@ export class PostgresFtsFallbackEngine implements SearchEngine {
       );
     });
 
-    matched.sort((left, right) => left.id.localeCompare(right.id));
-    const page = matched.slice(params.offset, params.offset + params.limit);
+    const sorted = matched.toSorted((left, right) =>
+      left.id.localeCompare(right.id)
+    );
+    const page = sorted.slice(params.offset, params.offset + params.limit);
 
     return {
       emptyReason: this.documents.size === 0 ? "empty_index" : undefined,
@@ -103,7 +108,8 @@ export class PostgresFtsFallbackEngine implements SearchEngine {
     };
   }
 
-  async upsertDocument(document: SearchDocument): Promise<void> {
+  upsertDocument(document: SearchDocument): Promise<void> {
     this.documents.set(document.id, structuredClone(document));
+    return Promise.resolve();
   }
-};
+}

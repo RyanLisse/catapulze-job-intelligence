@@ -13,37 +13,47 @@ import {
   FetchManticoreClient,
   replaceManticoreDocument,
   searchManticore,
-  type ManticoreHttpClient,
 } from "./client";
+import type { ManticoreHttpClient } from "./client";
 import { buildBoolJson, buildQueryString } from "./emitter";
+import type { ManticoreBoolQuery } from "./emitter";
+import type { ManticoreIndexedDocument, ManticoreQueryBody } from "./json";
 
 const documentToManticore = (
   document: SearchDocument,
   indexVersion: number
-): Record<string, string | number> => ({
+): ManticoreIndexedDocument => ({
   beschrijving: document.beschrijving,
   bron_id: document.bronId,
   contracttype: document.contracttype ?? "",
   id: document.id,
+  index_version: indexVersion,
   laatst_gezien_op: Math.floor(document.laatstGezienOp.getTime() / 1000),
   locatie_land: document.locatieLand,
   status: document.status,
   tarief_max: document.tariefMax ?? 0,
   tarief_min: document.tariefMin ?? 0,
   titel: document.titel,
-  index_version: indexVersion,
 });
 
 export class ManticoreSearchEngine implements SearchEngine {
   private indexVersion = 0;
+  private readonly client: ManticoreHttpClient;
+  private readonly indexName: string;
 
-  constructor(
-    private readonly client: ManticoreHttpClient,
-    private readonly indexName: string = SEARCH_INDEX_NAME
-  ) {}
+  constructor(client: ManticoreHttpClient, indexName = SEARCH_INDEX_NAME) {
+    this.client = client;
+    this.indexName = indexName;
+  }
 
-  static fromUrl(baseUrl: string, indexName = SEARCH_INDEX_NAME): ManticoreSearchEngine {
-    return new ManticoreSearchEngine(new FetchManticoreClient(baseUrl), indexName);
+  static fromUrl(
+    baseUrl: string,
+    indexName = SEARCH_INDEX_NAME
+  ): ManticoreSearchEngine {
+    return new ManticoreSearchEngine(
+      new FetchManticoreClient(baseUrl),
+      indexName
+    );
   }
 
   async deleteDocument(id: string): Promise<void> {
@@ -61,10 +71,8 @@ export class ManticoreSearchEngine implements SearchEngine {
 
   async search(params: EngineSearchParams): Promise<SearchEngineResult> {
     const queryString = buildQueryString(params.ast);
-    const query =
-      queryString === null
-        ? null
-        : ({ query_string: queryString } satisfies Record<string, string>);
+    const query: ManticoreQueryBody | null =
+      queryString === null ? null : { query_string: queryString };
 
     const request = buildManticoreSearchRequest(
       this.indexName,
@@ -96,11 +104,11 @@ export class ManticoreSearchEngine implements SearchEngine {
       documentToManticore(document, this.indexVersion)
     );
   }
-};
+}
 
 export const buildRecordedQuery = (
   ast: BooleanNode | null
-): Record<string, unknown> | null => {
+): ManticoreBoolQuery | ManticoreQueryBody | null => {
   if (ast === null) {
     return null;
   }
@@ -110,6 +118,5 @@ export const buildRecordedQuery = (
     return { query_string: queryString };
   }
 
-  const boolQuery = buildBoolJson(ast);
-  return boolQuery as unknown as Record<string, unknown>;
+  return buildBoolJson(ast);
 };
