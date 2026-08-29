@@ -36,6 +36,7 @@ sync:
   failFiles: 150000
   failBytes: 21474836480
   exclude:
+    - .artifacts
     - .cache
     - .next
     - .openwiki

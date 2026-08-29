@@ -32,11 +32,19 @@ const createLauncherFixture = (
     path.join(binDirectory, "git"),
     `#!/usr/bin/env bash
 set -euo pipefail
-case "$*" in
-  "rev-parse --verify HEAD") printf '%s\\n' "${sourceShaValue}" ;;
-  "status --porcelain=v1 --untracked-files=all") exit ${statusExitCode} ;;
-  *) exit 64 ;;
-esac
+for variable in GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_COMMON_DIR GIT_CONFIG GIT_CONFIG_COUNT GIT_CONFIG_PARAMETERS GIT_DIR GIT_GRAFT_FILE GIT_IMPLICIT_WORK_TREE GIT_INDEX_FILE GIT_NO_REPLACE_OBJECTS GIT_OBJECT_DIRECTORY GIT_PREFIX GIT_REPLACE_REF_BASE GIT_SHALLOW_FILE GIT_WORK_TREE; do
+  [[ -z "\${!variable+x}" ]] || exit 65
+done
+expected_workspace_root="\${EXPECTED_WORKSPACE_ROOT:-$PWD}"
+if [[ "$#" -eq 2 && "$1" == "rev-parse" && "$2" == "--show-toplevel" ]]; then
+  printf '%s\\n' "$expected_workspace_root"
+elif [[ "$#" -eq 5 && "$1" == "-C" && "$2" == "$expected_workspace_root" && "$3" == "rev-parse" && "$4" == "--verify" && "$5" == "HEAD" ]]; then
+  printf '%s\\n' "${sourceShaValue}"
+elif [[ "$#" -eq 5 && "$1" == "-C" && "$2" == "$expected_workspace_root" && "$3" == "status" && "$4" == "--porcelain=v1" && "$5" == "--untracked-files=all" ]]; then
+  exit ${statusExitCode}
+else
+  exit 64
+fi
 `
   );
   createExecutable(
@@ -51,19 +59,24 @@ printf '%s\\n' "$CRABBOX_SOURCE_GIT_SHA" "$CRABBOX_SOURCE_GIT_STATE" >"$CAPTURE_
   return { argumentsFile, binDirectory, environmentFile, workspace };
 };
 
+const launcherEnvironment = (
+  fixture: ReturnType<typeof createLauncherFixture>
+) => ({
+  ...process.env,
+  CAPTURE_ARGUMENTS: fixture.argumentsFile,
+  CAPTURE_ENVIRONMENT: fixture.environmentFile,
+  CRABBOX_EXE_DEV_CONTROL_HOST: "exe.dev",
+  EXE_DEV_REGION: "FRA",
+  EXPECTED_WORKSPACE_ROOT: fixture.workspace,
+  PATH: `${fixture.binDirectory}:${process.env.PATH ?? "/usr/bin:/bin"}`,
+});
+
 describe("exe.dev shadow scripts", () => {
   test("forwards ordinary flags with source identity", () => {
     const fixture = createLauncherFixture();
     try {
       const result = Bun.spawnSync(["bash", launcher, "--dry-run"], {
-        env: {
-          ...process.env,
-          CAPTURE_ARGUMENTS: fixture.argumentsFile,
-          CAPTURE_ENVIRONMENT: fixture.environmentFile,
-          CRABBOX_EXE_DEV_CONTROL_HOST: "exe.dev",
-          EXE_DEV_REGION: "FRA",
-          PATH: `${fixture.binDirectory}:${process.env.PATH ?? "/usr/bin:/bin"}`,
-        },
+        env: launcherEnvironment(fixture),
         stderr: "pipe",
         stdout: "pipe",
       });
@@ -78,6 +91,46 @@ describe("exe.dev shadow scripts", () => {
     } finally {
       rmSync(fixture.workspace, { force: true, recursive: true });
     }
+  });
+
+  test("isolates source fingerprinting from inherited repository bindings", () => {
+    const fixture = createLauncherFixture();
+    try {
+      const result = Bun.spawnSync(["bash", launcher, "--dry-run"], {
+        env: {
+          ...launcherEnvironment(fixture),
+          GIT_DIR: "/foreign/repository/.git",
+          GIT_INDEX_FILE: "/foreign/repository/.git/index",
+          GIT_WORK_TREE: "/foreign/repository",
+        },
+        stderr: "pipe",
+        stdout: "pipe",
+      });
+
+      expect(result.stderr.toString()).toBe("");
+      expect(result.exitCode).toBe(0);
+      expect(readFileSync(fixture.environmentFile, "utf-8")).toBe(
+        `${sourceSha}\nclean\n`
+      );
+    } finally {
+      rmSync(fixture.workspace, { force: true, recursive: true });
+    }
+  });
+
+  test("excludes generated artifacts from sync and Docker contexts", () => {
+    const repositoryRoot = path.join(import.meta.dir, "..");
+    const crabboxConfig = readFileSync(
+      path.join(repositoryRoot, ".crabbox.yaml"),
+      "utf-8"
+    );
+    const dockerignore = readFileSync(
+      path.join(repositoryRoot, ".dockerignore"),
+      "utf-8"
+    );
+
+    expect(crabboxConfig.split("\n")).toContain("    - .artifacts");
+    expect(dockerignore.split("\n")).toContain(".artifacts");
+    expect(dockerignore.split("\n")).toContain("**/.artifacts");
   });
 
   test("rejects every existing-lease id form before invoking Crabbox", () => {
