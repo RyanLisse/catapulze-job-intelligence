@@ -1,4 +1,4 @@
-FROM node:24-slim AS builder
+FROM node:24-slim@sha256:ba849c60be29959425b8734d57b8b4b7d56f98edd9504c9af091d5281095a71e AS builder
 COPY --from=oven/bun:1.3.14@sha256:e10577f0db68676a7024391c6e5cb4b879ebd17188ab750cf10024a6d700e5c4 /usr/local/bin/bun /usr/local/bin/bun
 WORKDIR /app
 
@@ -12,7 +12,7 @@ RUN cd apps/web && bun run build
 # standalone output excludes public/; ensure it exists so the runner copy never fails
 RUN mkdir -p apps/web/public
 
-FROM node:24-slim AS runner
+FROM node:24-slim@sha256:ba849c60be29959425b8734d57b8b4b7d56f98edd9504c9af091d5281095a71e AS runner
 WORKDIR /app
 ENV NODE_ENV=production
 
