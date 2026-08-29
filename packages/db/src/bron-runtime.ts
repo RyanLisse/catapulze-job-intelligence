@@ -28,6 +28,7 @@ import {
 import type { BronId } from "@ji/domain";
 import { and, desc, eq, sql } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
+import { z } from "zod";
 
 import type * as schema from "./schema";
 import { aanvraagObservation, bron, scrapeRun, sourceRecord } from "./schema";
@@ -40,6 +41,10 @@ export interface ActivateBronInput {
 }
 
 const MINIMUM_TEST_IMPORT_OBSERVATIONS = 20;
+const HISTORICAL_POINTER_PAYLOAD_SCHEMA = z.object({
+  observedAt: z.iso.datetime({ offset: true }),
+  rawPayloadRef: z.string().trim().min(1),
+});
 
 const requireMutation = <Row>(rows: Row[], description: string): Row => {
   const [row] = rows;
@@ -528,6 +533,17 @@ export class PostgresRunStore implements RunLifecycleStore {
         };
       }
 
+      const [persistedObservation] = await tx
+        .select({ id: aanvraagObservation.id })
+        .from(aanvraagObservation)
+        .where(eq(aanvraagObservation.scrapeRunId, input.key.scrapeRunId))
+        .limit(1);
+      if (persistedObservation) {
+        throw new Error(
+          "Cannot reset scrape run after observations are persisted; use a new scrapeRunId"
+        );
+      }
+
       const owned = await tx
         .update(scrapeRun)
         .set({
@@ -552,6 +568,21 @@ const requireWriteOutcome = (value: string): SourceRecordWriteOutcome => {
     throw new Error(`Invalid persisted observation outcome: ${value}`);
   }
   return value;
+};
+
+const classifyArrivalOutcome = (
+  replayOutcome: string | undefined,
+  inserted: boolean,
+  existingContentHash: string | null,
+  candidateContentHash: string
+): SourceRecordWriteOutcome => {
+  if (replayOutcome !== undefined) {
+    return requireWriteOutcome(replayOutcome);
+  }
+  if (inserted) {
+    return "new";
+  }
+  return existingContentHash === candidateContentHash ? "unchanged" : "changed";
 };
 
 interface SourcePointerOrder {
@@ -609,16 +640,35 @@ const compareSourcePointerOrder = (
   return hashDifference;
 };
 
+const toHistoricalPointer = (row: {
+  contentHash: string;
+  payload: unknown;
+  scrapeRunId: string;
+  startedAt: Date;
+}): SourcePointerOrder | null => {
+  const parsed = HISTORICAL_POINTER_PAYLOAD_SCHEMA.safeParse(row.payload);
+  if (!parsed.success) {
+    return null;
+  }
+  return {
+    contentHash: row.contentHash,
+    observedAt: parsed.data.observedAt,
+    rawPayloadRef: parsed.data.rawPayloadRef,
+    scrapeRunId: row.scrapeRunId,
+    startedAt: row.startedAt,
+  };
+};
+
 type BronRuntimeTransaction = Parameters<
   Parameters<BronRuntimeDatabase["transaction"]>[0]
 >[0];
 
-const shouldReplaceCurrentPointer = async (
+const selectCanonicalSourcePointer = async (
   tx: BronRuntimeTransaction,
   sourceRecordId: string,
   existing: typeof sourceRecord.$inferSelect,
-  candidate: SourcePointerOrder
-): Promise<boolean> => {
+  candidate: SourcePointerOrder | null
+): Promise<SourcePointerOrder> => {
   const [currentRun] = await tx
     .select({ startedAt: scrapeRun.gestart })
     .from(scrapeRun)
@@ -627,37 +677,47 @@ const shouldReplaceCurrentPointer = async (
   if (!currentRun) {
     throw new Error("Current source-record run could not be read");
   }
-  const [currentObservation] = await tx
+  const historicalRows = await tx
     .select({
-      observedAt: sql<
-        string | null
-      >`${aanvraagObservation.payload}->>'observedAt'`,
+      contentHash: aanvraagObservation.contentHash,
+      payload: aanvraagObservation.payload,
+      scrapeRunId: aanvraagObservation.scrapeRunId,
+      startedAt: scrapeRun.gestart,
     })
     .from(aanvraagObservation)
-    .where(
-      and(
-        eq(aanvraagObservation.sourceRecordId, sourceRecordId),
-        eq(aanvraagObservation.scrapeRunId, existing.scrapeRunId),
-        eq(aanvraagObservation.contentHash, existing.contentHash)
-      )
-    )
-    .orderBy(
-      desc(sql`(${aanvraagObservation.payload}->>'observedAt')::timestamptz`),
-      desc(aanvraagObservation.contentHash),
-      desc(aanvraagObservation.id)
-    )
-    .limit(1);
-  return (
-    compareSourcePointerOrder(candidate, {
+    .innerJoin(scrapeRun, eq(aanvraagObservation.scrapeRunId, scrapeRun.id))
+    .where(eq(aanvraagObservation.sourceRecordId, sourceRecordId));
+  const pointers: SourcePointerOrder[] = [
+    {
       contentHash: existing.contentHash,
-      // Migrated pointers may lack a matching immutable observation. Null sorts
-      // before any valid timestamp so a canonical candidate can repair them.
-      observedAt: currentObservation?.observedAt ?? null,
+      // The mutable legacy pointer remains a fallback when its immutable
+      // observation is missing or invalid and therefore has no observedAt.
+      observedAt: null,
       rawPayloadRef: existing.rawPayloadRef,
       scrapeRunId: existing.scrapeRunId,
       startedAt: currentRun.startedAt,
-    }) > 0
-  );
+    },
+  ];
+  if (candidate) {
+    pointers.push(candidate);
+  }
+  for (const row of historicalRows) {
+    const historicalPointer = toHistoricalPointer(row);
+    if (historicalPointer) {
+      pointers.push(historicalPointer);
+    }
+  }
+  const [maximumCandidate, ...remainingPointers] = pointers;
+  let maximum = maximumCandidate;
+  if (!maximum) {
+    throw new Error("Canonical source-pointer candidates are unavailable");
+  }
+  for (const pointer of remainingPointers) {
+    if (compareSourcePointerOrder(pointer, maximum) > 0) {
+      maximum = pointer;
+    }
+  }
+  return maximum;
 };
 
 export class PostgresObservationRecorder implements ObservationRecorder {
@@ -731,44 +791,45 @@ export class PostgresObservationRecorder implements ObservationRecorder {
           )
         )
         .limit(1);
-      if (replay) {
-        return {
-          outcome: requireWriteOutcome(replay.outcome),
-          sourceRecordId,
-        };
-      }
 
-      let outcome: SourceRecordWriteOutcome = "new";
-      if (!insertedRow) {
-        // Outcome and its metrics describe the arrival-state delta. Canonical
-        // pointer ordering below intentionally does not reclassify history.
-        outcome =
-          existing?.contentHash === record.contentHash
-            ? "unchanged"
-            : "changed";
-      }
+      // Outcome and its metrics describe the arrival-state delta. Canonical
+      // pointer ordering below intentionally does not reclassify history.
+      const outcome = classifyArrivalOutcome(
+        replay?.outcome,
+        Boolean(insertedRow),
+        existing?.contentHash ?? null,
+        record.contentHash
+      );
       const [ownedRun] = ownedRuns;
       if (!ownedRun) {
         throw new RunOwnershipLostError();
       }
-      if (
-        existing &&
-        (await shouldReplaceCurrentPointer(tx, sourceRecordId, existing, {
-          contentHash: record.contentHash,
-          observedAt: input.observation.observedAt,
-          rawPayloadRef: record.rawPayloadRef,
-          scrapeRunId: record.scrapeRunId,
-          startedAt: ownedRun.startedAt,
-        }))
-      ) {
+      if (existing) {
+        const canonicalPointer = await selectCanonicalSourcePointer(
+          tx,
+          sourceRecordId,
+          existing,
+          replay
+            ? null
+            : {
+                contentHash: record.contentHash,
+                observedAt: input.observation.observedAt,
+                rawPayloadRef: record.rawPayloadRef,
+                scrapeRunId: record.scrapeRunId,
+                startedAt: ownedRun.startedAt,
+              }
+        );
         await tx
           .update(sourceRecord)
           .set({
-            contentHash: record.contentHash,
-            rawPayloadRef: record.rawPayloadRef,
-            scrapeRunId: record.scrapeRunId,
+            contentHash: canonicalPointer.contentHash,
+            rawPayloadRef: canonicalPointer.rawPayloadRef,
+            scrapeRunId: canonicalPointer.scrapeRunId,
           })
           .where(eq(sourceRecord.id, sourceRecordId));
+      }
+      if (replay) {
+        return { outcome, sourceRecordId };
       }
 
       const observation: ConnectorObservation = {

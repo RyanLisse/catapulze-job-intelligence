@@ -707,6 +707,73 @@ describe("durable bron runtime adapters", () => {
     }
   });
 
+  it("rejects reset after immutable observations could be reordered", async () => {
+    if (!available) {
+      expect(available).toBe(false);
+      return;
+    }
+    const client = postgres(applicationUrl, { max: 1 });
+    const database = drizzle(client, { schema });
+    const bronId = crypto.randomUUID();
+    const scrapeRunId = crypto.randomUUID();
+    const key = { bronId, scrapeRunId };
+    const originalStartedAt = new Date("2026-08-29T08:00:00Z");
+    const store = new PostgresRunStore(database);
+    try {
+      await database.insert(bron).values({
+        categorie: "runtime-test",
+        id: bronId,
+        naam: `Reset ordering ${bronId}`,
+      });
+      const run = await store.start({
+        key,
+        mode: "reset",
+        progress: { checkpoint: null, metrics: emptyRunMetrics() },
+        runKind: "poll",
+        startedAt: originalStartedAt,
+      });
+      await new PostgresObservationRecorder(database).record({
+        fenceToken: run.fenceToken,
+        key,
+        observation: {
+          bronId,
+          bronReferentie: "reset-reference",
+          contentHash: "reset-hash",
+          contentType: "json",
+          contractVersion: CONNECTOR_OBSERVATION_CONTRACT_VERSION,
+          observedAt: originalStartedAt.toISOString(),
+          rawPayloadRef: "raw/reset/observation.json",
+          scrapeRunId,
+        },
+        sourceRecord: {
+          bronId,
+          bronReferentie: "reset-reference",
+          contentHash: "reset-hash",
+          rawPayloadRef: "raw/reset/observation.json",
+          scrapeRunId,
+        },
+      });
+
+      await expect(
+        store.start({
+          key,
+          mode: "reset",
+          progress: { checkpoint: null, metrics: emptyRunMetrics() },
+          runKind: "poll",
+          startedAt: new Date("2026-08-29T12:00:00Z"),
+        })
+      ).rejects.toThrow("use a new scrapeRunId");
+      const [persistedRun] = await database
+        .select({ startedAt: scrapeRun.gestart })
+        .from(scrapeRun)
+        .where(eq(scrapeRun.id, scrapeRunId));
+      expect(persistedRun?.startedAt).toEqual(originalStartedAt);
+    } finally {
+      await database.delete(bron).where(eq(bron.id, bronId));
+      await client.end({ timeout: 5 });
+    }
+  });
+
   it("rejects a stale observation before it can mutate source state", async () => {
     if (!available) {
       expect(available).toBe(false);
@@ -940,6 +1007,7 @@ describe("durable bron runtime adapters", () => {
           payload: {
             contentHash: "history-later-hash",
             observedAt: "2026-08-29T12:00:00.000Z",
+            rawPayloadRef: "raw/divergent/history-later.json",
           },
           scrapeRunId,
           sourceRecordId,
@@ -955,38 +1023,65 @@ describe("durable bron runtime adapters", () => {
           scrapeRunId,
           sourceRecordId,
         },
+        {
+          bronId,
+          contentHash: "invalid-history-hash",
+          outcome: "changed",
+          payload: {
+            contentHash: "invalid-history-hash",
+            observedAt: "2026-08-29T13:00:00.000Z",
+            rawPayloadRef: "   ",
+          },
+          scrapeRunId,
+          sourceRecordId,
+        },
       ]);
 
-      const result = await recorder.record({
-        fenceToken: run.fenceToken,
-        key,
+      const arrivalInput: Parameters<PostgresObservationRecorder["record"]>[0] =
+        {
+          fenceToken: run.fenceToken,
+          key,
+          observation: {
+            bronId,
+            bronReferentie: "divergent-reference",
+            contentHash: "arrival-hash",
+            contentType: "json",
+            contractVersion: CONNECTOR_OBSERVATION_CONTRACT_VERSION,
+            observedAt: "2026-08-29T11:00:00.000Z",
+            rawPayloadRef: "raw/divergent/arrival.json",
+            scrapeRunId,
+          },
+          sourceRecord: {
+            bronId,
+            bronReferentie: "divergent-reference",
+            contentHash: "arrival-hash",
+            rawPayloadRef: "raw/divergent/arrival.json",
+            scrapeRunId,
+          },
+        };
+      const result = await recorder.record(arrivalInput);
+      const replay = await recorder.record({
+        ...arrivalInput,
         observation: {
-          bronId,
-          bronReferentie: "divergent-reference",
-          contentHash: "arrival-hash",
-          contentType: "json",
-          contractVersion: CONNECTOR_OBSERVATION_CONTRACT_VERSION,
-          observedAt: "2026-08-29T11:00:00.000Z",
-          rawPayloadRef: "raw/divergent/arrival.json",
-          scrapeRunId,
+          ...arrivalInput.observation,
+          observedAt: "2026-08-29T14:00:00.000Z",
+          rawPayloadRef: "raw/divergent/unpersisted-replay.json",
         },
         sourceRecord: {
-          bronId,
-          bronReferentie: "divergent-reference",
-          contentHash: "arrival-hash",
-          rawPayloadRef: "raw/divergent/arrival.json",
-          scrapeRunId,
+          ...arrivalInput.sourceRecord,
+          rawPayloadRef: "raw/divergent/unpersisted-replay.json",
         },
       });
 
       expect(result).toEqual({ outcome: "changed", sourceRecordId });
+      expect(replay).toEqual(result);
       const [pointer] = await database
         .select()
         .from(sourceRecord)
         .where(eq(sourceRecord.id, sourceRecordId));
       expect(pointer).toMatchObject({
-        contentHash: "arrival-hash",
-        rawPayloadRef: "raw/divergent/arrival.json",
+        contentHash: "history-later-hash",
+        rawPayloadRef: "raw/divergent/history-later.json",
       });
       const [arrivalObservation] = await database
         .select()
