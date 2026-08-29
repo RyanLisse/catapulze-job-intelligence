@@ -110,12 +110,31 @@ trap cleanup_materialization EXIT
 # signal status once it has been reaped.
 crabbox_pid=""
 received_signal=""
+# preflight: no child exists yet, so a signal must stop the launcher before
+#   any paid work starts. starting: the child was just spawned and its pid is
+#   about to be recorded; the launcher re-checks received_signal right after.
+#   running: forward the signal to the managed child.
+launch_state="preflight"
+signal_exit_status() {
+  case "$1" in
+    INT) printf '130' ;;
+    *) printf '143' ;;
+  esac
+}
 # shellcheck disable=SC2329 # invoked indirectly by the INT/TERM traps
 forward_signal() {
   received_signal="$1"
-  if [[ -n "$crabbox_pid" ]] && kill -0 "$crabbox_pid" 2>/dev/null; then
-    kill -s "$received_signal" "$crabbox_pid" 2>/dev/null || true
-  fi
+  case "$launch_state" in
+    preflight)
+      exit "$(signal_exit_status "$received_signal")"
+      ;;
+    running)
+      if [[ -n "$crabbox_pid" ]] && kill -0 "$crabbox_pid" 2>/dev/null; then
+        kill -s "$received_signal" "$crabbox_pid" 2>/dev/null || true
+      fi
+      ;;
+    *) ;;
+  esac
 }
 trap 'forward_signal INT' INT
 trap 'forward_signal TERM' TERM
@@ -156,12 +175,22 @@ materialized_evidence="${materialized_workspace}/.artifacts/crabbox/exe-dev-shad
 workspace_evidence="${workspace_root}/.artifacts/crabbox/exe-dev-shadow"
 rm -rf -- "$workspace_evidence"
 
+if [[ -n "$received_signal" ]]; then
+  exit "$(signal_exit_status "$received_signal")"
+fi
 set +e
+launch_state="starting"
 (
   cd "$materialized_workspace" || exit 1
   exec crabbox job run "$@" exe-dev-shadow
 ) &
 crabbox_pid=$!
+launch_state="running"
+# A signal that landed between the spawn and the pid capture was only
+# recorded; deliver it to the child now.
+if [[ -n "$received_signal" ]]; then
+  kill -s "$received_signal" "$crabbox_pid" 2>/dev/null || true
+fi
 wait "$crabbox_pid"
 run_exit_status=$?
 # A trapped signal interrupts wait before the child exits; keep reaping until
@@ -178,8 +207,7 @@ if [[ -d "$materialized_evidence" ]]; then
   rsync -a --delete "${materialized_evidence}/" "${workspace_evidence}/"
 fi
 
-case "$received_signal" in
-  INT) exit 130 ;;
-  TERM) exit 143 ;;
-esac
+if [[ -n "$received_signal" ]]; then
+  exit "$(signal_exit_status "$received_signal")"
+fi
 exit "$run_exit_status"

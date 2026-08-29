@@ -41,6 +41,11 @@ const createLauncherFixture = (
   writeFileSync(
     path.join(workspace, "scripts/check-secrets-scan.ts"),
     `const arguments_ = process.argv.slice(2);
+const preflightHoldPidFile = process.env.CRABBOX_FIXTURE_PREFLIGHT_HOLD_PID;
+if (preflightHoldPidFile) {
+  await Bun.write(preflightHoldPidFile, \`\${process.pid}\\n\`);
+  await Bun.sleep(1500);
+}
 const manifestIndex = arguments_.indexOf("--write-manifest");
 const manifestPath = arguments_[manifestIndex + 1];
 await Bun.write(manifestPath, '${"b".repeat(64)}  "scripts/check-secrets-scan.ts"\\n');
@@ -582,6 +587,39 @@ printf '%s\\n' "\${DATABASE_URL-unset}" "\${DATABASE_TEST_URL-unset}" "\${DATABA
 
         expect(exitCode).toBe(143);
         expect(() => process.kill(crabboxPid, 0)).toThrow();
+        expect(
+          existsSync(
+            path.join(fixture.workspace, ".artifacts/crabbox/exe-dev-shadow")
+          )
+        ).toBe(false);
+      } finally {
+        rmSync(fixture.workspace, { force: true, recursive: true });
+      }
+    },
+    launcherFixtureTimeoutMs
+  );
+
+  test(
+    "stops before launching Crabbox when a signal arrives during preflight",
+    async () => {
+      const fixture = createLauncherFixture();
+      const pidFile = path.join(fixture.workspace, "preflight.pid");
+      try {
+        const launcherProcess = Bun.spawn(["bash", launcher, "--dry-run"], {
+          env: {
+            ...launcherEnvironment(fixture),
+            CRABBOX_FIXTURE_PREFLIGHT_HOLD_PID: pidFile,
+          },
+          stderr: "pipe",
+          stdout: "pipe",
+        });
+
+        await waitForFile(pidFile, 10_000);
+        launcherProcess.kill("SIGTERM");
+        const exitCode = await launcherProcess.exited;
+
+        expect(exitCode).toBe(143);
+        expect(existsSync(fixture.argumentsFile)).toBe(false);
         expect(
           existsSync(
             path.join(fixture.workspace, ".artifacts/crabbox/exe-dev-shadow")
