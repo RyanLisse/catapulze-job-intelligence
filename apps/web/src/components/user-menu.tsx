@@ -19,25 +19,32 @@ export default function UserMenu() {
   const { data: session, isPending } = authClient.useSession();
 
   if (isPending) {
-    return <Skeleton className="h-9 w-24" />;
+    return <Skeleton className="h-11 w-20" />;
   }
 
   if (!session) {
     return (
-      <Link href="/login">
-        <Button variant="outline">Sign In</Button>
-      </Link>
+      <Button
+        render={<Link href="/login" />}
+        nativeButton={false}
+        variant="ghost"
+        className="h-11 px-3 text-white/72 hover:bg-white/10 hover:text-white"
+      >
+        Inloggen
+      </Button>
     );
   }
 
   return (
     <DropdownMenu>
-      <DropdownMenuTrigger render={<Button variant="outline" />}>
+      <DropdownMenuTrigger
+        render={<Button variant="ghost" className="h-11 text-white/72" />}
+      >
         {session.user.name}
       </DropdownMenuTrigger>
       <DropdownMenuContent className="bg-card">
         <DropdownMenuGroup>
-          <DropdownMenuLabel>My Account</DropdownMenuLabel>
+          <DropdownMenuLabel>Mijn account</DropdownMenuLabel>
           <DropdownMenuSeparator />
           <DropdownMenuItem>{session.user.email}</DropdownMenuItem>
           <DropdownMenuItem
@@ -52,7 +59,7 @@ export default function UserMenu() {
               });
             }}
           >
-            Sign Out
+            Uitloggen
           </DropdownMenuItem>
         </DropdownMenuGroup>
       </DropdownMenuContent>
