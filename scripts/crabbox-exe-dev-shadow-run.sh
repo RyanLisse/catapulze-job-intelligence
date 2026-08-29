@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+readonly EXPECTED_CRABBOX_VERSION="0.46.0"
+
 for argument in "$@"; do
   case "$argument" in
     -id | --id | -id=* | --id=*)
@@ -69,6 +71,13 @@ for required_tool in bun crabbox python3 rsync tar; do
   fi
 done
 
+crabbox_version="$(crabbox --version)"
+if [[ "$crabbox_version" != "$EXPECTED_CRABBOX_VERSION" ]]; then
+  printf 'exe.dev shadow: expected Crabbox %s, found %s\n' \
+    "$EXPECTED_CRABBOX_VERSION" "$crabbox_version" >&2
+  exit 1
+fi
+
 monotonic_ms() {
   python3 -c 'import time; print(time.monotonic_ns() // 1_000_000)'
 }
@@ -115,6 +124,7 @@ source_manifest_file_count="$(wc -l <"$source_manifest" | tr -d ' ')"
 
 export CRABBOX_SOURCE_GIT_SHA="$source_git_sha"
 export CRABBOX_SOURCE_GIT_STATE="$source_git_state"
+export CRABBOX_CLIENT_VERSION="$crabbox_version"
 export CRABBOX_SOURCE_MANIFEST_SHA256="sha256:${source_manifest_digest}"
 export CRABBOX_SOURCE_MANIFEST_FILE_COUNT="$source_manifest_file_count"
 export CRABBOX_SOURCE_MATERIALIZATION_DURATION_MS="$((materialization_ended_ms - materialization_started_ms))"

@@ -206,7 +206,8 @@ write_fingerprint() {
   os_name="$(uname -s)"
   os_release="$(uname -r)"
 
-  printf '{\n  "executor": "crabbox",\n  "provider": "exe-dev",\n  "profile": "%s",\n  "region": "%s",\n  "image": "%s",\n  "bunImage": "%s",\n  "nodeImage": "%s",\n  "postgresImage": "%s",\n  "postgresVersion": "%s",\n  "machine": "%s",\n  "os": "%s",\n  "osRelease": "%s",\n  "architecture": "%s",\n  "cpuModel": "%s",\n  "cpuCount": "%s",\n  "memoryKiB": "%s",\n  "bunVersion": "%s",\n  "bunLockDigest": "sha256:%s",\n  "gitSha": "%s",\n  "gitState": "%s",\n  "sourceManifestDigest": "%s",\n  "sourceManifestFileCount": %d,\n  "sourceMaterializationDurationMs": %d,\n  "sourcePreflightDurationMs": %d,\n  "attempt": "%s",\n  "workload": "%s",\n  "runKind": "%s",\n  "cacheState": "%s",\n  "datasetProfile": "%s",\n  "datasetDigest": "sha256:%s",\n  "datasetFileCount": %d,\n  "concurrency": 2\n}\n' \
+  printf '{\n  "executor": "crabbox",\n  "crabboxClientVersion": "%s",\n  "provider": "exe-dev",\n  "profile": "%s",\n  "region": "%s",\n  "image": "%s",\n  "bunImage": "%s",\n  "nodeImage": "%s",\n  "postgresImage": "%s",\n  "postgresVersion": "%s",\n  "machine": "%s",\n  "os": "%s",\n  "osRelease": "%s",\n  "architecture": "%s",\n  "cpuModel": "%s",\n  "cpuCount": "%s",\n  "memoryKiB": "%s",\n  "bunVersion": "%s",\n  "bunLockDigest": "sha256:%s",\n  "gitSha": "%s",\n  "gitState": "%s",\n  "sourceManifestDigest": "%s",\n  "sourceManifestFileCount": %d,\n  "sourceMaterializationDurationMs": %d,\n  "sourcePreflightDurationMs": %d,\n  "attempt": "%s",\n  "workload": "%s",\n  "runKind": "%s",\n  "cacheState": "%s",\n  "datasetProfile": "%s",\n  "datasetDigest": "sha256:%s",\n  "datasetFileCount": %d,\n  "concurrency": 2\n}\n' \
+    "$(json_escape "${CRABBOX_CLIENT_VERSION:-unavailable}")" \
     "$PROFILE" \
     "$(json_escape "${EXE_DEV_REGION:-missing}")" \
     "$EXECUTOR_IMAGE" \

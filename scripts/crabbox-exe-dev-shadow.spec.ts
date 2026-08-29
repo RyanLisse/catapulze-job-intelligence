@@ -71,6 +71,10 @@ fi
     path.join(binDirectory, "crabbox"),
     `#!/usr/bin/env bash
 set -euo pipefail
+if [[ "$#" -eq 1 && "$1" == "--version" ]]; then
+  printf '%s\\n' "\${CRABBOX_VERSION_OUTPUT:-0.46.0}"
+  exit 0
+fi
 printf '%s\\n' "$@" >"$CAPTURE_ARGUMENTS"
 printf '%s\\n' "$CRABBOX_SOURCE_GIT_SHA" "$CRABBOX_SOURCE_GIT_STATE" >"$CAPTURE_ENVIRONMENT"
 printf '%s\\n' "$PWD" >"$CAPTURE_MATERIALIZED_WORKSPACE"
@@ -315,6 +319,28 @@ describe("exe.dev shadow scripts", () => {
     }
   });
 
+  test("rejects an unpinned Crabbox client before materialization", () => {
+    const fixture = createLauncherFixture();
+    try {
+      const result = Bun.spawnSync(["bash", launcher, "--dry-run"], {
+        env: {
+          ...launcherEnvironment(fixture),
+          CRABBOX_VERSION_OUTPUT: "0.47.0",
+        },
+        stderr: "pipe",
+        stdout: "pipe",
+      });
+
+      expect(result.exitCode).not.toBe(0);
+      expect(result.stderr.toString()).toContain(
+        "expected Crabbox 0.46.0, found 0.47.0"
+      );
+      expect(() => readFileSync(fixture.argumentsFile)).toThrow();
+    } finally {
+      rmSync(fixture.workspace, { force: true, recursive: true });
+    }
+  });
+
   test("fails closed when Git status cannot determine source state", () => {
     const fixture = createLauncherFixture(sourceSha, 70);
     try {
@@ -475,6 +501,7 @@ printf '%s\\n' "\${DATABASE_URL-unset}" "\${DATABASE_TEST_URL-unset}" "\${DATABA
           cwd: workspace,
           env: {
             ...process.env,
+            CRABBOX_CLIENT_VERSION: "0.46.0",
             CRABBOX_SOURCE_MANIFEST_FILE_COUNT: "1",
             CRABBOX_SOURCE_MANIFEST_SHA256: `sha256:${"c".repeat(64)}`,
             CRABBOX_SOURCE_MATERIALIZATION_DURATION_MS: "12",
@@ -495,6 +522,7 @@ printf '%s\\n' "\${DATABASE_URL-unset}" "\${DATABASE_TEST_URL-unset}" "\${DATABA
       expect(result.stderr.toString()).toBe("");
       expect(result.exitCode).toBe(0);
       expect(fingerprint.machine).toBe("4cpu-8gb-40gb");
+      expect(fingerprint.crabboxClientVersion).toBe("0.46.0");
       expect(fingerprint.cpuModel.length).toBeGreaterThan(0);
       expect(fingerprint.nodeImage).toBe(nodeImage);
       expect(fingerprint.sourceManifestFileCount).toBe(1);

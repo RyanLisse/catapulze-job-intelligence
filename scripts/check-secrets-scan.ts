@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { readdir } from "node:fs/promises";
+import { lstat, readdir, readlink } from "node:fs/promises";
 import path from "node:path";
 
 const AWS_ACCESS_KEY = /AKIA[0-9A-Z]{16}/gu;
@@ -135,7 +135,7 @@ const listWorkspaceFiles = async (
       }
       const includesFile =
         materializedInputsOnly || !isLocalDotenv(relativePath);
-      return entry.isFile() && includesFile ? [relativePath] : [];
+      return includesFile ? [relativePath] : [];
     })
   );
 
@@ -156,16 +156,36 @@ const scanInputPaths = async (
   const manifestLines: string[] = [];
   const violations: string[] = [];
   for (const relativePath of paths) {
-    const file = Bun.file(path.join(rootDir, relativePath));
-    if (file.size > maxFileBytes) {
+    const absolutePath = path.join(rootDir, relativePath);
+    // oxlint-disable-next-line eslint/no-await-in-loop -- sequential metadata reads bound scan resource use
+    const stats = await lstat(absolutePath);
+    if (stats.isSymbolicLink()) {
+      // oxlint-disable-next-line eslint/no-await-in-loop -- links are hashed without following them outside the input root
+      const linkTarget = await readlink(absolutePath);
+      const digest = createHash("sha256")
+        .update("symlink\0")
+        .update(linkTarget)
+        .digest("hex");
+      manifestLines.push(`${digest}  ${relativePath}`);
+      continue;
+    }
+    if (!stats.isFile()) {
+      violations.push(`${relativePath} is not a regular file or symbolic link`);
+      continue;
+    }
+    if (stats.size > maxFileBytes) {
       violations.push(
         `${relativePath} exceeds the ${maxFileBytes}-byte secret-scan limit`
       );
       continue;
     }
+    const file = Bun.file(absolutePath);
     // oxlint-disable-next-line eslint/no-await-in-loop -- one bounded read feeds both hashing and scanning
     const bytes = new Uint8Array(await file.arrayBuffer());
-    const digest = createHash("sha256").update(bytes).digest("hex");
+    const digest = createHash("sha256")
+      .update("file\0")
+      .update(bytes)
+      .digest("hex");
     manifestLines.push(`${digest}  ${relativePath}`);
     violations.push(
       ...collectSecretViolations(relativePath, new TextDecoder().decode(bytes))

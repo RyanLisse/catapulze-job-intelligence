@@ -4,6 +4,7 @@ import {
   mkdtempSync,
   readFileSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -327,6 +328,27 @@ describe("check-secrets-scan", () => {
       writeFileSync(path.join(workspace, "extra.ts"), "extra\n");
       expect(await verifyScannedInputManifest(workspace, manifest)).toEqual([
         "materialized input file set does not match its manifest",
+      ]);
+    } finally {
+      rmSync(workspace, { force: true, recursive: true });
+    }
+  });
+
+  it("binds symbolic-link targets without following them", async () => {
+    const workspace = mkdtempSync(path.join(tmpdir(), "ji-input-symlink-"));
+    const linkPath = path.join(workspace, "runtime-link");
+
+    try {
+      symlinkSync("target-a", linkPath);
+      const { manifest } = await createScannedInputManifest(workspace);
+
+      expect(manifest).toContain("  runtime-link\n");
+      expect(await verifyScannedInputManifest(workspace, manifest)).toEqual([]);
+
+      rmSync(linkPath);
+      symlinkSync("target-b", linkPath);
+      expect(await verifyScannedInputManifest(workspace, manifest)).toEqual([
+        "runtime-link does not match the materialized input manifest",
       ]);
     } finally {
       rmSync(workspace, { force: true, recursive: true });
