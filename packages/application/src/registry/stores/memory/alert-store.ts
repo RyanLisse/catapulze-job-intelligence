@@ -12,6 +12,29 @@ export class MemoryAlertStore implements AlertStore {
     return Promise.resolve(record ? structuredClone(record) : null);
   }
 
+  create(
+    record: Omit<AlertRecord, "ackedAt" | "ackedBy" | "createdAt" | "id"> & {
+      readonly id?: string;
+    }
+  ): Promise<AlertRecord> {
+    const created: AlertRecord = {
+      ...structuredClone(record),
+      ackedAt: null,
+      ackedBy: null,
+      createdAt: new Date(),
+      id: record.id ?? crypto.randomUUID(),
+    };
+    this.records.set(created.id, created);
+    return Promise.resolve(structuredClone(created));
+  }
+
+  findOpenByDedupeKey(dedupeKey: string): Promise<AlertRecord | null> {
+    const match = [...this.records.values()].find(
+      (record) => record.dedupeKey === dedupeKey && record.ackedAt === null
+    );
+    return Promise.resolve(match ? structuredClone(match) : null);
+  }
+
   listOpen(): Promise<readonly AlertRecord[]> {
     return Promise.resolve(
       [...this.records.values()]
