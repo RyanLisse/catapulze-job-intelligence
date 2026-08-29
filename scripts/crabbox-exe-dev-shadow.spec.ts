@@ -60,6 +60,7 @@ describe("exe.dev shadow scripts", () => {
           ...process.env,
           CAPTURE_ARGUMENTS: fixture.argumentsFile,
           CAPTURE_ENVIRONMENT: fixture.environmentFile,
+          CRABBOX_EXE_DEV_CONTROL_HOST: "exe.dev",
           PATH: `${fixture.binDirectory}:${process.env.PATH ?? "/usr/bin:/bin"}`,
         },
         stderr: "pipe",
@@ -94,6 +95,7 @@ describe("exe.dev shadow scripts", () => {
             ...process.env,
             CAPTURE_ARGUMENTS: fixture.argumentsFile,
             CAPTURE_ENVIRONMENT: fixture.environmentFile,
+            CRABBOX_EXE_DEV_CONTROL_HOST: "exe.dev",
             PATH: `${fixture.binDirectory}:${process.env.PATH ?? "/usr/bin:/bin"}`,
           },
           stderr: "pipe",
@@ -111,6 +113,38 @@ describe("exe.dev shadow scripts", () => {
     }
   });
 
+  test("requires explicit approval for the configured control host", () => {
+    for (const controlHost of [undefined, "example.invalid"]) {
+      const fixture = createLauncherFixture();
+      try {
+        const environment = {
+          ...process.env,
+          CAPTURE_ARGUMENTS: fixture.argumentsFile,
+          CAPTURE_ENVIRONMENT: fixture.environmentFile,
+          CRABBOX_EXE_DEV_CONTROL_HOST: controlHost,
+          PATH: `${fixture.binDirectory}:${process.env.PATH ?? "/usr/bin:/bin"}`,
+        };
+        if (controlHost === undefined) {
+          delete environment.CRABBOX_EXE_DEV_CONTROL_HOST;
+        }
+
+        const result = Bun.spawnSync(["bash", launcher, "--dry-run"], {
+          env: environment,
+          stderr: "pipe",
+          stdout: "pipe",
+        });
+
+        expect(result.exitCode).not.toBe(0);
+        expect(result.stderr.toString()).toContain(
+          "set CRABBOX_EXE_DEV_CONTROL_HOST=exe.dev"
+        );
+        expect(() => readFileSync(fixture.argumentsFile)).toThrow();
+      } finally {
+        rmSync(fixture.workspace, { force: true, recursive: true });
+      }
+    }
+  });
+
   test("accepts SHA-256 object ids and exports their complete value", () => {
     const sha256ObjectId = "b".repeat(64);
     const fixture = createLauncherFixture(sha256ObjectId);
@@ -120,6 +154,7 @@ describe("exe.dev shadow scripts", () => {
           ...process.env,
           CAPTURE_ARGUMENTS: fixture.argumentsFile,
           CAPTURE_ENVIRONMENT: fixture.environmentFile,
+          CRABBOX_EXE_DEV_CONTROL_HOST: "exe.dev",
           PATH: `${fixture.binDirectory}:${process.env.PATH ?? "/usr/bin:/bin"}`,
         },
         stderr: "pipe",
@@ -143,6 +178,7 @@ describe("exe.dev shadow scripts", () => {
           ...process.env,
           CAPTURE_ARGUMENTS: fixture.argumentsFile,
           CAPTURE_ENVIRONMENT: fixture.environmentFile,
+          CRABBOX_EXE_DEV_CONTROL_HOST: "exe.dev",
           PATH: `${fixture.binDirectory}:${process.env.PATH ?? "/usr/bin:/bin"}`,
         },
         stderr: "pipe",

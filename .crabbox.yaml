@@ -69,7 +69,6 @@ env:
     - CRABBOX_SOURCE_GIT_SHA
     - CRABBOX_SOURCE_GIT_STATE
     - EXE_DEV_REGION
-    - NODE_OPTIONS
 
 actions:
   workflow: .github/workflows/crabbox.yml
@@ -80,6 +79,16 @@ actions:
   ephemeral: true
 
 profiles:
+  exe-dev-shadow:
+    env:
+      CI: "1"
+    doctor:
+      enabled: true
+      tools: [docker]
+      minDiskGB: 20
+      requireDocker: true
+      requireCompose: true
+
   performance-evidence:
     env:
       CI: "1"
@@ -164,6 +173,7 @@ jobs:
     provider: exe-dev
     target: linux
     architecture: amd64
+    profile: exe-dev-shadow
     ttl: 60m
     idleTimeout: 15m
     shell: true

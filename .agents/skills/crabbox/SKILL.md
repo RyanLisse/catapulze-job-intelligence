@@ -13,14 +13,17 @@ Before any paid operation:
 1. Inspect `.crabbox.yaml` and confirm `crabbox --version` is `0.46.0`.
 2. Fix the exe.dev account default to the cohort region with `ssh -o BatchMode=yes exe.dev set-region FRA --json`. This changes operator account state, so run it intentionally; repository config cannot set an exe.dev region.
 3. Read back `ssh -o BatchMode=yes exe.dev whoami --json` and confirm its region is `FRA`. Do not start a lease when the readback differs.
-4. Export `EXE_DEV_REGION=FRA` for the Crabbox process. The shadow script requires this explicit cohort assertion and records it in the execution fingerprint.
-5. Obtain explicit cost approval for the proposed 4 CPU, 8 GB RAM, 40 GB disk VM. Authentication and region selection are not permission to create a lease.
-6. Inspect the plan with `scripts/crabbox-exe-dev-shadow-run.sh --dry-run`.
+4. Export `CRABBOX_EXE_DEV_CONTROL_HOST=exe.dev` for every launcher process. This non-secret value explicitly approves the configured SSH credential destination; it does not approve a lease or cost.
+5. Export `EXE_DEV_REGION=FRA` for the Crabbox process. The shadow script requires this explicit cohort assertion and records it in the execution fingerprint.
+6. Obtain explicit cost approval for the proposed 4 CPU, 8 GB RAM, 40 GB disk VM. Authentication and region selection are not permission to create a lease.
+7. Inspect the plan with `CRABBOX_EXE_DEV_CONTROL_HOST=exe.dev EXE_DEV_REGION=FRA scripts/crabbox-exe-dev-shadow-run.sh --dry-run`.
 
 Run the bounded shadow lane with:
 
 ```sh
-scripts/crabbox-exe-dev-shadow-run.sh
+CRABBOX_EXE_DEV_CONTROL_HOST=exe.dev \
+  EXE_DEV_REGION=FRA \
+  scripts/crabbox-exe-dev-shadow-run.sh
 ```
 
 The job uses `stop: always`. After it returns, read back provider inventory and confirm the lease was removed. If execution is interrupted, use the exact slug or `cbx_` lease ID from Crabbox state and run `crabbox stop` before continuing.

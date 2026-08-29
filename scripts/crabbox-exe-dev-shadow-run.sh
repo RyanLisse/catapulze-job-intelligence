@@ -10,6 +10,11 @@ for argument in "$@"; do
   esac
 done
 
+if [[ "${CRABBOX_EXE_DEV_CONTROL_HOST:-}" != "exe.dev" ]]; then
+  printf 'exe.dev shadow: set CRABBOX_EXE_DEV_CONTROL_HOST=exe.dev to approve the configured control host\n' >&2
+  exit 1
+fi
+
 source_git_sha="$(git rev-parse --verify HEAD)"
 if [[ ! "$source_git_sha" =~ ^([0-9a-f]{40}|[0-9a-f]{64})$ ]]; then
   printf 'exe.dev shadow: could not bind the run to a full Git commit SHA\n' >&2
