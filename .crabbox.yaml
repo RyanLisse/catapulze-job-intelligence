@@ -36,40 +36,11 @@ sync:
   failFiles: 150000
   failBytes: 21474836480
   exclude:
-    - .alchemy
     - .artifacts
-    - .cache
     - .crabbox
-    - .evlog
-    - .next
-    - .nx
-    - .nyc_output
-    - .openwiki
-    - .omc
-    - .qlty/configs
-    - .qlty/logs
-    - .qlty/out
-    - .qlty/plugin_cachedir
-    - .qlty/results
-    - .qlty/sources
-    - .turbo
-    - .vercel
-    - build
-    - coverage
-    - dist
-    - logs
-    - node_modules
-    - temp
-    - tmp
-    # Crabbox v0.46 applies these rules in order (last match wins). Exclude
-    # every real dotenv variant, then re-include only the two path-addressable
-    # tracked templates. The root Compose template is generated from fixed
-    # non-secret defaults by the clean-room script when gitSeed is absent.
-    - ".env*"
-    - .fireflies-request.json
-    - .fireflies-transcript.json
-    - "!apps/server/.env.example"
-    - "!apps/web/.env.example"
+    # The launcher runs Crabbox from a clean Git archive that was scanned and
+    # hashed before upload. Only runtime metadata can appear outside that
+    # canonical input set, so no second source-exclusion list is maintained.
 
 run:
   preflightTools:
@@ -84,6 +55,10 @@ env:
     - CI
     - CRABBOX_SOURCE_GIT_SHA
     - CRABBOX_SOURCE_GIT_STATE
+    - CRABBOX_SOURCE_MANIFEST_SHA256
+    - CRABBOX_SOURCE_MANIFEST_FILE_COUNT
+    - CRABBOX_SOURCE_MATERIALIZATION_DURATION_MS
+    - CRABBOX_SOURCE_PREFLIGHT_DURATION_MS
     - EXE_DEV_REGION
 
 actions:

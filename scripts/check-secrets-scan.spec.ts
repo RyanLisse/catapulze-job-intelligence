@@ -11,7 +11,9 @@ import path from "node:path";
 
 import {
   collectSecretViolations,
+  createScannedInputManifest,
   scanTrackedFiles,
+  verifyScannedInputManifest,
 } from "./check-secrets-scan";
 
 const repoRoot = path.join(import.meta.dir, "..");
@@ -56,6 +58,22 @@ describe("check-secrets-scan", () => {
     ).not.toContain(fake);
   });
 
+  it("catches a private key marker without self-matching the scanner", () => {
+    const marker = ["-----BE", "GIN PRIVATE ", "KEY-----"].join("");
+    expect(collectSecretViolations("fixture.pem", marker)).toEqual([
+      "fixture.pem contains a PEM private key block",
+    ]);
+    expect(
+      collectSecretViolations(
+        "scripts/check-secrets-scan.ts",
+        readFileSync(
+          path.join(import.meta.dir, "check-secrets-scan.ts"),
+          "utf-8"
+        )
+      )
+    ).toEqual([]);
+  });
+
   it("does not treat .env.example placeholders as secrets", () => {
     const serverExample = readFileSync(
       path.join(repoRoot, "apps/server/.env.example"),
@@ -89,6 +107,37 @@ describe("check-secrets-scan", () => {
 
       expect(await scanTrackedFiles(workspace)).toEqual([
         "src/config.ts looks like an AWS access key",
+      ]);
+    } finally {
+      rmSync(workspace, { force: true, recursive: true });
+    }
+  });
+
+  it("sorts Git-absent workspace findings deterministically", async () => {
+    const workspace = mkdtempSync(path.join(tmpdir(), "ji-secret-sort-"));
+    const fake = ["AKIA", "IOSFODNN7EXAMPLE"].join("");
+
+    try {
+      writeFileSync(path.join(workspace, "z.ts"), fake);
+      writeFileSync(path.join(workspace, "a.ts"), fake);
+
+      expect(await scanTrackedFiles(workspace)).toEqual([
+        "a.ts looks like an AWS access key",
+        "z.ts looks like an AWS access key",
+      ]);
+    } finally {
+      rmSync(workspace, { force: true, recursive: true });
+    }
+  });
+
+  it("scans tests instead of exempting them from upload preflight", async () => {
+    const workspace = mkdtempSync(path.join(tmpdir(), "ji-secret-tests-"));
+    const fake = ["AKIA", "IOSFODNN7EXAMPLE"].join("");
+
+    try {
+      writeFileSync(path.join(workspace, "upload.spec.ts"), fake);
+      expect(await scanTrackedFiles(workspace)).toEqual([
+        "upload.spec.ts looks like an AWS access key",
       ]);
     } finally {
       rmSync(workspace, { force: true, recursive: true });
@@ -215,6 +264,70 @@ describe("check-secrets-scan", () => {
           GIT_WORK_TREE: "/invalid/work-tree",
         })
       ).toEqual(["config.ts looks like an AWS access key"]);
+    } finally {
+      rmSync(workspace, { force: true, recursive: true });
+    }
+  });
+
+  it("builds one canonical manifest across config, schema, and tests", async () => {
+    const workspace = mkdtempSync(path.join(tmpdir(), "ji-input-manifest-"));
+
+    try {
+      mkdirSync(path.join(workspace, "scripts/performance"), {
+        recursive: true,
+      });
+      writeFileSync(path.join(workspace, ".crabbox.yaml"), "jobs: {}\n");
+      writeFileSync(
+        path.join(
+          workspace,
+          "scripts/performance/performance-record.schema.json"
+        ),
+        "{}\n"
+      );
+      writeFileSync(path.join(workspace, "scripts/shadow.spec.ts"), "test\n");
+
+      const scanned = await createScannedInputManifest(workspace);
+
+      expect(scanned.violations).toEqual([]);
+      expect(scanned.paths).toEqual([
+        ".crabbox.yaml",
+        "scripts/performance/performance-record.schema.json",
+        "scripts/shadow.spec.ts",
+      ]);
+      expect(scanned.manifest).toContain("  .crabbox.yaml\n");
+      expect(scanned.manifest).toContain(
+        "  scripts/performance/performance-record.schema.json\n"
+      );
+      expect(scanned.manifest).toContain("  scripts/shadow.spec.ts\n");
+    } finally {
+      rmSync(workspace, { force: true, recursive: true });
+    }
+  });
+
+  it("rejects mutated, missing, and extra materialized inputs", async () => {
+    const workspace = mkdtempSync(path.join(tmpdir(), "ji-input-verify-"));
+
+    try {
+      writeFileSync(path.join(workspace, "input.ts"), "original\n");
+      const { manifest } = await createScannedInputManifest(workspace);
+
+      expect(await verifyScannedInputManifest(workspace, manifest)).toEqual([]);
+
+      writeFileSync(path.join(workspace, "input.ts"), "mutated\n");
+      expect(await verifyScannedInputManifest(workspace, manifest)).toEqual([
+        "input.ts does not match the materialized input manifest",
+      ]);
+
+      rmSync(path.join(workspace, "input.ts"));
+      expect(await verifyScannedInputManifest(workspace, manifest)).toEqual([
+        "materialized input file set does not match its manifest",
+      ]);
+
+      writeFileSync(path.join(workspace, "input.ts"), "original\n");
+      writeFileSync(path.join(workspace, "extra.ts"), "extra\n");
+      expect(await verifyScannedInputManifest(workspace, manifest)).toEqual([
+        "materialized input file set does not match its manifest",
+      ]);
     } finally {
       rmSync(workspace, { force: true, recursive: true });
     }

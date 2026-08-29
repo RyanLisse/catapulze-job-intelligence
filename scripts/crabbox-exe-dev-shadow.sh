@@ -3,6 +3,7 @@ set -euo pipefail
 
 readonly EXPECTED_BUN_VERSION="1.3.14"
 readonly BUN_IMAGE="oven/bun:1.3.14@sha256:e10577f0db68676a7024391c6e5cb4b879ebd17188ab750cf10024a6d700e5c4"
+readonly NODE_IMAGE="node:24-slim@sha256:ba849c60be29959425b8734d57b8b4b7d56f98edd9504c9af091d5281095a71e"
 readonly EXECUTOR_IMAGE="ghcr.io/boldsoftware/exeuntu@sha256:a85bf5d50de2d3dbe079b0a4c5ee5ef03f5c806e88d36eaeb432dddbaca2017f"
 readonly EXPECTED_REGION="FRA"
 readonly EVIDENCE_DIR=".artifacts/crabbox/exe-dev-shadow"
@@ -12,6 +13,7 @@ readonly REPORT_FILE="${EVIDENCE_DIR}/report.md"
 readonly JUNIT_FILE="${EVIDENCE_DIR}/junit.xml"
 readonly DATABASE_JUNIT_FILE="${EVIDENCE_DIR}/database-junit.xml"
 readonly MANIFEST_FILE="${EVIDENCE_DIR}/manifest.sha256"
+readonly INPUT_MANIFEST_FILE=".crabbox-input-manifest.sha256"
 readonly COMPOSE_ENV_FILE="/tmp/catapulze-crabbox-compose-${$}.env"
 readonly WORKLOAD="exe-dev-shadow-correctness"
 readonly PROFILE="exe-dev-shadow"
@@ -134,33 +136,31 @@ ensure_bun() {
 }
 
 write_dataset_manifest() {
-  local dataset_path
+  cat "$INPUT_MANIFEST_FILE"
+}
 
-  find . \( \
-    -path './.artifacts' -o \
-    -path './.cache' -o \
-    -path './.git' -o \
-    -path './.omc' -o \
-    -path './.openwiki' -o \
-    -path './.turbo' -o \
-    -path './coverage' -o \
-    -path './logs' -o \
-    -path './node_modules' -o \
-    -path '*/.next' -o \
-    -path '*/coverage' -o \
-    -path '*/dist' -o \
-    -path '*/logs' -o \
-    -path '*/node_modules' \
-  \) -prune -o -type f \( \
-    -name '*.spec.ts' -o \
-    -path '*/fixtures/*' -o \
-    -path './.env.example' -o \
-    -path '*/.env.example' -o \
-    -path './docker-compose.yml' -o \
-    -path './packages/db/src/migrations/*' \
-  \) -print0 | LC_ALL=C sort -z | while IFS= read -r -d '' dataset_path; do
-    sha256sum "${dataset_path#./}"
-  done
+verify_materialized_input() {
+  local actual_digest
+  local actual_file_count
+
+  if [[ ! -f "$INPUT_MANIFEST_FILE" ]]; then
+    printf 'exe.dev shadow: materialized input manifest is missing\n' >&2
+    return 1
+  fi
+  actual_digest="sha256:$(sha256sum "$INPUT_MANIFEST_FILE" | awk '{print $1}')"
+  actual_file_count="$(wc -l <"$INPUT_MANIFEST_FILE" | tr -d ' ')"
+  if [[ "$actual_digest" != "${CRABBOX_SOURCE_MANIFEST_SHA256:-missing}" ]]; then
+    printf 'exe.dev shadow: materialized input manifest digest does not match local preflight\n' >&2
+    return 1
+  fi
+  if [[ "$actual_file_count" != "${CRABBOX_SOURCE_MANIFEST_FILE_COUNT:-missing}" ]]; then
+    printf 'exe.dev shadow: materialized input file count does not match local preflight\n' >&2
+    return 1
+  fi
+
+  bun scripts/check-secrets-scan.ts \
+    --root . \
+    --verify-manifest "$INPUT_MANIFEST_FILE"
 }
 
 write_fingerprint() {
@@ -177,6 +177,8 @@ write_fingerprint() {
   local memory_kib
   local os_name
   local os_release
+  local source_manifest_digest
+  local source_manifest_file_count
 
   architecture="$(uname -m)"
   bun_lock_digest="$(sha256sum bun.lock | awk '{print $1}')"
@@ -187,6 +189,8 @@ write_fingerprint() {
   dataset_manifest="$(write_dataset_manifest)"
   dataset_digest="$(printf '%s\n' "$dataset_manifest" | sha256sum | awk '{print $1}')"
   dataset_file_count="$(printf '%s\n' "$dataset_manifest" | awk 'NF {count += 1} END {print count + 0}')"
+  source_manifest_digest="${CRABBOX_SOURCE_MANIFEST_SHA256:-unavailable}"
+  source_manifest_file_count="${CRABBOX_SOURCE_MANIFEST_FILE_COUNT:-0}"
   # Crabbox's ordinary sync does not transfer .git. Accept source identity only
   # when the caller explicitly transfers it; otherwise preserve that absence.
   git_sha="${CRABBOX_SOURCE_GIT_SHA:-unavailable}"
@@ -202,11 +206,12 @@ write_fingerprint() {
   os_name="$(uname -s)"
   os_release="$(uname -r)"
 
-  printf '{\n  "executor": "crabbox",\n  "provider": "exe-dev",\n  "profile": "%s",\n  "region": "%s",\n  "image": "%s",\n  "bunImage": "%s",\n  "postgresImage": "%s",\n  "postgresVersion": "%s",\n  "machine": "%s",\n  "os": "%s",\n  "osRelease": "%s",\n  "architecture": "%s",\n  "cpuModel": "%s",\n  "cpuCount": "%s",\n  "memoryKiB": "%s",\n  "bunVersion": "%s",\n  "bunLockDigest": "sha256:%s",\n  "gitSha": "%s",\n  "gitState": "%s",\n  "attempt": "%s",\n  "workload": "%s",\n  "runKind": "%s",\n  "cacheState": "%s",\n  "datasetProfile": "%s",\n  "datasetDigest": "sha256:%s",\n  "datasetFileCount": %d,\n  "concurrency": 2\n}\n' \
+  printf '{\n  "executor": "crabbox",\n  "provider": "exe-dev",\n  "profile": "%s",\n  "region": "%s",\n  "image": "%s",\n  "bunImage": "%s",\n  "nodeImage": "%s",\n  "postgresImage": "%s",\n  "postgresVersion": "%s",\n  "machine": "%s",\n  "os": "%s",\n  "osRelease": "%s",\n  "architecture": "%s",\n  "cpuModel": "%s",\n  "cpuCount": "%s",\n  "memoryKiB": "%s",\n  "bunVersion": "%s",\n  "bunLockDigest": "sha256:%s",\n  "gitSha": "%s",\n  "gitState": "%s",\n  "sourceManifestDigest": "%s",\n  "sourceManifestFileCount": %d,\n  "sourceMaterializationDurationMs": %d,\n  "sourcePreflightDurationMs": %d,\n  "attempt": "%s",\n  "workload": "%s",\n  "runKind": "%s",\n  "cacheState": "%s",\n  "datasetProfile": "%s",\n  "datasetDigest": "sha256:%s",\n  "datasetFileCount": %d,\n  "concurrency": 2\n}\n' \
     "$PROFILE" \
     "$(json_escape "${EXE_DEV_REGION:-missing}")" \
     "$EXECUTOR_IMAGE" \
     "$BUN_IMAGE" \
+    "$NODE_IMAGE" \
     "$(json_escape "$POSTGRES_IMAGE")" \
     "$(json_escape "$POSTGRES_VERSION")" \
     "$MACHINE_CLASS" \
@@ -220,6 +225,10 @@ write_fingerprint() {
     "$bun_lock_digest" \
     "$(json_escape "$git_sha")" \
     "$git_state" \
+    "$(json_escape "$source_manifest_digest")" \
+    "$source_manifest_file_count" \
+    "${CRABBOX_SOURCE_MATERIALIZATION_DURATION_MS:-0}" \
+    "${CRABBOX_SOURCE_PREFLIGHT_DURATION_MS:-0}" \
     "${CRABBOX_ATTEMPT:-1}" \
     "$WORKLOAD" \
     "$RUN_KIND" \
@@ -375,10 +384,10 @@ main() {
   export PATH="${HOME}/.local/bin:${PATH}"
 
   run_phase "runtime-setup" "install Bun ${EXPECTED_BUN_VERSION} from pinned image" ensure_bun
+  run_phase "input-verification" "verify canonical materialized input manifest and secrets" verify_materialized_input
   run_phase "install" "bun install --frozen-lockfile --ignore-scripts" bun install --frozen-lockfile --ignore-scripts
   run_phase "typecheck" "bun run check-types -- --concurrency=2" bun run check-types -- --concurrency=2
   run_phase "layering" "bun run check-layering" bun run check-layering
-  run_phase "secret-scan" "bun run check-secrets" bun run check-secrets
   run_phase "unit" "bun test --max-concurrency 2 --reporter=junit" run_unit_suite
 
   write_compose_env

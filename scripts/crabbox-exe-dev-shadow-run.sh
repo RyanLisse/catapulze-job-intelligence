@@ -58,10 +58,81 @@ if ! source_git_status="$(repository_git -C "$workspace_root" status --porcelain
   exit 1
 fi
 if [[ -n "$source_git_status" ]]; then
-  source_git_state="dirty"
+  printf 'exe.dev shadow: source workspace must be clean before materialization\n' >&2
+  exit 1
 fi
+
+for required_tool in bun crabbox python3 rsync tar; do
+  if ! command -v "$required_tool" >/dev/null 2>&1; then
+    printf 'exe.dev shadow: required local tool is missing: %s\n' "$required_tool" >&2
+    exit 1
+  fi
+done
+
+monotonic_ms() {
+  python3 -c 'import time; print(time.monotonic_ns() // 1_000_000)'
+}
+
+sha256_file() {
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$1" | awk '{print $1}'
+    return
+  fi
+  shasum -a 256 "$1" | awk '{print $1}'
+}
+
+materialization_root="$(mktemp -d "${TMPDIR:-/tmp}/ji-exe-dev-shadow.XXXXXX")"
+materialized_workspace="${materialization_root}/workspace"
+source_archive="${materialization_root}/source.tar"
+mkdir -p "$materialized_workspace"
+
+# shellcheck disable=SC2329 # invoked indirectly by the EXIT/interrupt trap
+cleanup_materialization() {
+  rm -rf -- "$materialization_root"
+}
+trap cleanup_materialization EXIT INT TERM
+
+materialization_started_ms="$(monotonic_ms)"
+repository_git -C "$workspace_root" archive \
+  --format=tar \
+  --output="$source_archive" \
+  "$source_git_sha"
+tar -xf "$source_archive" -C "$materialized_workspace"
+materialization_ended_ms="$(monotonic_ms)"
+
+input_preflight_started_ms="$(monotonic_ms)"
+(
+  cd "$materialized_workspace"
+  bun scripts/check-secrets-scan.ts \
+    --root . \
+    --write-manifest .crabbox-input-manifest.sha256
+)
+input_preflight_ended_ms="$(monotonic_ms)"
+
+source_manifest="${materialized_workspace}/.crabbox-input-manifest.sha256"
+source_manifest_digest="$(sha256_file "$source_manifest")"
+source_manifest_file_count="$(wc -l <"$source_manifest" | tr -d ' ')"
 
 export CRABBOX_SOURCE_GIT_SHA="$source_git_sha"
 export CRABBOX_SOURCE_GIT_STATE="$source_git_state"
+export CRABBOX_SOURCE_MANIFEST_SHA256="sha256:${source_manifest_digest}"
+export CRABBOX_SOURCE_MANIFEST_FILE_COUNT="$source_manifest_file_count"
+export CRABBOX_SOURCE_MATERIALIZATION_DURATION_MS="$((materialization_ended_ms - materialization_started_ms))"
+export CRABBOX_SOURCE_PREFLIGHT_DURATION_MS="$((input_preflight_ended_ms - input_preflight_started_ms))"
 
-exec crabbox job run "$@" exe-dev-shadow
+set +e
+(
+  cd "$materialized_workspace"
+  crabbox job run "$@" exe-dev-shadow
+)
+run_exit_status=$?
+set -e
+
+materialized_evidence="${materialized_workspace}/.artifacts/crabbox/exe-dev-shadow"
+if [[ -d "$materialized_evidence" ]]; then
+  workspace_evidence="${workspace_root}/.artifacts/crabbox/exe-dev-shadow"
+  mkdir -p "$workspace_evidence"
+  rsync -a "${materialized_evidence}/" "${workspace_evidence}/"
+fi
+
+exit "$run_exit_status"

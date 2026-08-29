@@ -13,6 +13,8 @@ import path from "node:path";
 const launcher = path.join(import.meta.dir, "crabbox-exe-dev-shadow-run.sh");
 const shadowScript = path.join(import.meta.dir, "crabbox-exe-dev-shadow.sh");
 const sourceSha = "a".repeat(40);
+const nodeImage =
+  "node:24-slim@sha256:ba849c60be29959425b8734d57b8b4b7d56f98edd9504c9af091d5281095a71e";
 
 const createExecutable = (filePath: string, contents: string): void => {
   writeFileSync(filePath, contents);
@@ -21,13 +23,27 @@ const createExecutable = (filePath: string, contents: string): void => {
 
 const createLauncherFixture = (
   sourceShaValue = sourceSha,
-  statusExitCode = 0
+  statusExitCode = 0,
+  statusOutput = ""
 ) => {
   const workspace = mkdtempSync(path.join(tmpdir(), "ji-shadow-launcher-"));
   const binDirectory = path.join(workspace, "bin");
   const argumentsFile = path.join(workspace, "arguments");
   const environmentFile = path.join(workspace, "environment");
+  const materializedWorkspaceFile = path.join(
+    workspace,
+    "materialized-workspace"
+  );
   mkdirSync(binDirectory);
+  mkdirSync(path.join(workspace, "scripts"));
+  writeFileSync(
+    path.join(workspace, "scripts/check-secrets-scan.ts"),
+    `const arguments_ = process.argv.slice(2);
+const manifestIndex = arguments_.indexOf("--write-manifest");
+const manifestPath = arguments_[manifestIndex + 1];
+await Bun.write(manifestPath, "${"b".repeat(64)}  scripts/check-secrets-scan.ts\\n");
+`
+  );
   createExecutable(
     path.join(binDirectory, "git"),
     `#!/usr/bin/env bash
@@ -41,7 +57,11 @@ if [[ "$#" -eq 2 && "$1" == "rev-parse" && "$2" == "--show-toplevel" ]]; then
 elif [[ "$#" -eq 5 && "$1" == "-C" && "$2" == "$expected_workspace_root" && "$3" == "rev-parse" && "$4" == "--verify" && "$5" == "HEAD" ]]; then
   printf '%s\\n' "${sourceShaValue}"
 elif [[ "$#" -eq 5 && "$1" == "-C" && "$2" == "$expected_workspace_root" && "$3" == "status" && "$4" == "--porcelain=v1" && "$5" == "--untracked-files=all" ]]; then
+  printf '%s' '${statusOutput}'
   exit ${statusExitCode}
+elif [[ "$#" -eq 6 && "$1" == "-C" && "$2" == "$expected_workspace_root" && "$3" == "archive" && "$4" == "--format=tar" && "$5" == --output=* && "$6" == "${sourceShaValue}" ]]; then
+  output="\${5#--output=}"
+  /usr/bin/tar -cf "$output" -C "$expected_workspace_root" scripts
 else
   exit 64
 fi
@@ -53,10 +73,18 @@ fi
 set -euo pipefail
 printf '%s\\n' "$@" >"$CAPTURE_ARGUMENTS"
 printf '%s\\n' "$CRABBOX_SOURCE_GIT_SHA" "$CRABBOX_SOURCE_GIT_STATE" >"$CAPTURE_ENVIRONMENT"
+printf '%s\\n' "$PWD" >"$CAPTURE_MATERIALIZED_WORKSPACE"
+printf '%s\\n' "$CRABBOX_SOURCE_MANIFEST_SHA256" "$CRABBOX_SOURCE_MANIFEST_FILE_COUNT" "$CRABBOX_SOURCE_MATERIALIZATION_DURATION_MS" "$CRABBOX_SOURCE_PREFLIGHT_DURATION_MS" >>"$CAPTURE_ENVIRONMENT"
 `
   );
 
-  return { argumentsFile, binDirectory, environmentFile, workspace };
+  return {
+    argumentsFile,
+    binDirectory,
+    environmentFile,
+    materializedWorkspaceFile,
+    workspace,
+  };
 };
 
 const launcherEnvironment = (
@@ -65,11 +93,21 @@ const launcherEnvironment = (
   ...process.env,
   CAPTURE_ARGUMENTS: fixture.argumentsFile,
   CAPTURE_ENVIRONMENT: fixture.environmentFile,
+  CAPTURE_MATERIALIZED_WORKSPACE: fixture.materializedWorkspaceFile,
   CRABBOX_EXE_DEV_CONTROL_HOST: "exe.dev",
   EXE_DEV_REGION: "FRA",
   EXPECTED_WORKSPACE_ROOT: fixture.workspace,
   PATH: `${fixture.binDirectory}:${process.env.PATH ?? "/usr/bin:/bin"}`,
 });
+
+const writeInputManifest = (workspace: string, entries: string[]): string => {
+  const manifest = entries
+    .map((relativePath) => `${"b".repeat(64)}  ${relativePath}`)
+    .join("\n");
+  const manifestPath = path.join(workspace, ".crabbox-input-manifest.sha256");
+  writeFileSync(manifestPath, `${manifest}\n`);
+  return manifestPath;
+};
 
 describe("exe.dev shadow scripts", () => {
   test("forwards ordinary flags with source identity", () => {
@@ -85,9 +123,16 @@ describe("exe.dev shadow scripts", () => {
       expect(readFileSync(fixture.argumentsFile, "utf-8")).toBe(
         "job\nrun\n--dry-run\nexe-dev-shadow\n"
       );
-      expect(readFileSync(fixture.environmentFile, "utf-8")).toBe(
-        `${sourceSha}\nclean\n`
+      const environment = readFileSync(fixture.environmentFile, "utf-8");
+      expect(environment).toMatch(
+        new RegExp(`^${sourceSha}\\nclean\\nsha256:[0-9a-f]{64}\\n1\\n`, "u")
       );
+      expect(readFileSync(fixture.materializedWorkspaceFile, "utf-8")).not.toBe(
+        `${fixture.workspace}\n`
+      );
+      const metadata = environment.trim().split("\n");
+      expect(Number.isInteger(Number(metadata[4]))).toBe(true);
+      expect(Number.isInteger(Number(metadata[5]))).toBe(true);
     } finally {
       rmSync(fixture.workspace, { force: true, recursive: true });
     }
@@ -109,7 +154,7 @@ describe("exe.dev shadow scripts", () => {
 
       expect(result.stderr.toString()).toBe("");
       expect(result.exitCode).toBe(0);
-      expect(readFileSync(fixture.environmentFile, "utf-8")).toBe(
+      expect(readFileSync(fixture.environmentFile, "utf-8")).toContain(
         `${sourceSha}\nclean\n`
       );
     } finally {
@@ -237,22 +282,34 @@ describe("exe.dev shadow scripts", () => {
     const fixture = createLauncherFixture(sha256ObjectId);
     try {
       const result = Bun.spawnSync(["bash", launcher, "--dry-run"], {
-        env: {
-          ...process.env,
-          CAPTURE_ARGUMENTS: fixture.argumentsFile,
-          CAPTURE_ENVIRONMENT: fixture.environmentFile,
-          CRABBOX_EXE_DEV_CONTROL_HOST: "exe.dev",
-          EXE_DEV_REGION: "FRA",
-          PATH: `${fixture.binDirectory}:${process.env.PATH ?? "/usr/bin:/bin"}`,
-        },
+        env: launcherEnvironment(fixture),
         stderr: "pipe",
         stdout: "pipe",
       });
 
       expect(result.exitCode).toBe(0);
-      expect(readFileSync(fixture.environmentFile, "utf-8")).toBe(
+      expect(readFileSync(fixture.environmentFile, "utf-8")).toContain(
         `${sha256ObjectId}\nclean\n`
       );
+    } finally {
+      rmSync(fixture.workspace, { force: true, recursive: true });
+    }
+  });
+
+  test("rejects a dirty workspace before invoking Crabbox", () => {
+    const fixture = createLauncherFixture(sourceSha, 0, " M source.ts\n");
+    try {
+      const result = Bun.spawnSync(["bash", launcher, "--dry-run"], {
+        env: launcherEnvironment(fixture),
+        stderr: "pipe",
+        stdout: "pipe",
+      });
+
+      expect(result.exitCode).not.toBe(0);
+      expect(result.stderr.toString()).toContain(
+        "source workspace must be clean before materialization"
+      );
+      expect(() => readFileSync(fixture.argumentsFile)).toThrow();
     } finally {
       rmSync(fixture.workspace, { force: true, recursive: true });
     }
@@ -409,13 +466,21 @@ printf '%s\\n' "\${DATABASE_URL-unset}" "\${DATABASE_TEST_URL-unset}" "\${DATABA
     );
     mkdirSync(evidenceDirectory, { recursive: true });
     writeFileSync(path.join(workspace, "bun.lock"), "lockfile");
+    writeInputManifest(workspace, ["bun.lock"]);
 
     try {
       const result = Bun.spawnSync(
         ["bash", "-c", 'source "$SHADOW_SCRIPT"; write_fingerprint'],
         {
           cwd: workspace,
-          env: { ...process.env, SHADOW_SCRIPT: shadowScript },
+          env: {
+            ...process.env,
+            CRABBOX_SOURCE_MANIFEST_FILE_COUNT: "1",
+            CRABBOX_SOURCE_MANIFEST_SHA256: `sha256:${"c".repeat(64)}`,
+            CRABBOX_SOURCE_MATERIALIZATION_DURATION_MS: "12",
+            CRABBOX_SOURCE_PREFLIGHT_DURATION_MS: "34",
+            SHADOW_SCRIPT: shadowScript,
+          },
           stderr: "pipe",
           stdout: "pipe",
         }
@@ -431,6 +496,10 @@ printf '%s\\n' "\${DATABASE_URL-unset}" "\${DATABASE_TEST_URL-unset}" "\${DATABA
       expect(result.exitCode).toBe(0);
       expect(fingerprint.machine).toBe("4cpu-8gb-40gb");
       expect(fingerprint.cpuModel.length).toBeGreaterThan(0);
+      expect(fingerprint.nodeImage).toBe(nodeImage);
+      expect(fingerprint.sourceManifestFileCount).toBe(1);
+      expect(fingerprint.sourceMaterializationDurationMs).toBe(12);
+      expect(fingerprint.sourcePreflightDurationMs).toBe(34);
     } finally {
       rmSync(workspace, { force: true, recursive: true });
     }
@@ -448,6 +517,12 @@ printf '%s\\n' "\${DATABASE_URL-unset}" "\${DATABASE_TEST_URL-unset}" "\${DATABA
       "test"
     );
     writeFileSync(path.join(fixturesDirectory, "jobs.json"), "fixture");
+    writeFileSync(path.join(workspace, ".crabbox.yaml"), "jobs: {}\n");
+    writeInputManifest(workspace, [
+      ".crabbox.yaml",
+      "scripts/ci-metrics/core.spec.ts",
+      "scripts/ci-metrics/fixtures/jobs.json",
+    ]);
 
     try {
       const result = Bun.spawnSync(
@@ -465,8 +540,21 @@ printf '%s\\n' "\${DATABASE_URL-unset}" "\${DATABASE_TEST_URL-unset}" "\${DATABA
       expect(result.stdout.toString()).toContain(
         "scripts/ci-metrics/fixtures/jobs.json"
       );
+      expect(result.stdout.toString()).toContain(".crabbox.yaml");
     } finally {
       rmSync(workspace, { force: true, recursive: true });
     }
+  });
+
+  test("pins the Node runtime image in Docker and evidence", () => {
+    const repositoryRoot = path.join(import.meta.dir, "..");
+    const dockerfile = readFileSync(
+      path.join(repositoryRoot, "apps/web/Dockerfile"),
+      "utf-8"
+    );
+    const script = readFileSync(shadowScript, "utf-8");
+
+    expect(dockerfile.match(new RegExp(nodeImage, "gu"))?.length).toBe(2);
+    expect(script).toContain(`readonly NODE_IMAGE="${nodeImage}"`);
   });
 });
