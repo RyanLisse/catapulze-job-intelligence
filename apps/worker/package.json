@@ -1,0 +1,24 @@
+{
+  "name": "worker",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "check-types": "PATH=\"./node_modules/.bin:$PATH\" tsc --noEmit",
+    "dev": "PATH=\"./node_modules/.bin:$PATH\" bunx trigger.dev@4.5.13 dev",
+    "deploy": "PATH=\"./node_modules/.bin:$PATH\" bunx trigger.dev@4.5.13 deploy"
+  },
+  "dependencies": {
+    "@ji/application": "workspace:*",
+    "@ji/connectors": "workspace:*",
+    "@ji/domain": "workspace:*",
+    "@trigger.dev/sdk": "4.5.13",
+    "zod": "catalog:"
+  },
+  "devDependencies": {
+    "@ji/config": "workspace:*",
+    "@trigger.dev/build": "4.5.13",
+    "@types/bun": "catalog:",
+    "typescript": "catalog:"
+  }
+}
