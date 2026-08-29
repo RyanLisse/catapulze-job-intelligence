@@ -1,36 +1,9 @@
-import type { PublicBronView } from "../bronnen";
 import { SearchAdapter, InMemorySearchEngine } from "@ji/search";
 
+import type { PublicBronView } from "../bronnen";
 import { createSliceARegistry } from "./catalog";
 import type { SliceAHandlerDeps } from "./handlers/deps";
 import { createMemorySliceAStores } from "./stores/memory";
-
-export const createTestSliceADeps = (): SliceAHandlerDeps & {
-  readonly engine: InMemorySearchEngine;
-  readonly stores: ReturnType<typeof createMemorySliceAStores>;
-} => {
-  const stores = createMemorySliceAStores();
-  const engine = new InMemorySearchEngine();
-  const searchAdapter = new SearchAdapter({ engine });
-  const bronnen = {
-    getById: async (bronId: string): Promise<PublicBronView | null> => {
-      const bron = testBronnen.find((item) => item.bronId === bronId);
-      return bron ?? null;
-    },
-    list: async (): Promise<readonly PublicBronView[]> => testBronnen,
-  };
-  return {
-    bronnen,
-    engine,
-    searchAdapter,
-    stores,
-  };
-};
-
-export const createTestSliceARegistry = () => {
-  const deps = createTestSliceADeps();
-  return { deps, ...createSliceARegistry(deps) };
-};
 
 const testBronnen: PublicBronView[] = [
   {
@@ -50,5 +23,32 @@ const testBronnen: PublicBronView[] = [
     voorwaardenStatus: "toegestaan",
   },
 ];
+
+export const createTestSliceADeps = (): SliceAHandlerDeps & {
+  readonly engine: InMemorySearchEngine;
+  readonly stores: ReturnType<typeof createMemorySliceAStores>;
+} => {
+  const stores = createMemorySliceAStores();
+  const engine = new InMemorySearchEngine();
+  const searchAdapter = new SearchAdapter({ engine });
+  const bronnen = {
+    getById: (bronId: string) =>
+      Promise.resolve(
+        testBronnen.find((item) => item.bronId === bronId) ?? null
+      ),
+    list: () => Promise.resolve(testBronnen),
+  };
+  return {
+    bronnen,
+    engine,
+    searchAdapter,
+    stores,
+  };
+};
+
+export const createTestSliceARegistry = () => {
+  const deps = createTestSliceADeps();
+  return { deps, ...createSliceARegistry(deps) };
+};
 
 export type SliceARegistryBundle = ReturnType<typeof createTestSliceARegistry>;

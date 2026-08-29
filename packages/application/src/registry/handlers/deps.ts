@@ -1,6 +1,6 @@
-import type { PublicBronView } from "../../bronnen";
 import type { SearchAdapter } from "@ji/search";
 
+import type { PublicBronView } from "../../bronnen";
 import type { SliceAStores } from "../stores/types";
 
 export interface SliceAHandlerDeps {

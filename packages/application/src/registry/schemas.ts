@@ -1,6 +1,5 @@
-import { z } from "zod";
-
 import type { SearchFilters } from "@ji/search";
+import { z } from "zod";
 
 export const SLICE_A_SCHEMA_VERSION = "slice-a-v1" as const;
 
@@ -33,6 +32,37 @@ export const sliceADomainFailureSchema = z
   .strict();
 
 export type SliceADomainFailure = z.infer<typeof sliceADomainFailureSchema>;
+
+export const notFoundByIdDetailsSchema = z
+  .object({ id: z.string().uuid() })
+  .strict();
+
+export const notFoundByRefDetailsSchema = z
+  .object({ ref: z.string() })
+  .strict();
+
+export const notFoundByBronIdDetailsSchema = z
+  .object({ bronId: z.string().uuid() })
+  .strict();
+
+export const notFoundByAlertIdDetailsSchema = z
+  .object({ alertId: z.string().uuid() })
+  .strict();
+
+export const syntaxErrorDetailsSchema = z
+  .object({
+    code: z.literal("syntax_error"),
+    message: z.string(),
+    offset: z.number(),
+  })
+  .strict();
+
+export type SliceADomainFailureDetails =
+  | z.infer<typeof notFoundByAlertIdDetailsSchema>
+  | z.infer<typeof notFoundByBronIdDetailsSchema>
+  | z.infer<typeof notFoundByIdDetailsSchema>
+  | z.infer<typeof notFoundByRefDetailsSchema>
+  | z.infer<typeof syntaxErrorDetailsSchema>;
 
 export const previewText = (value: string, maxLength = 500): string =>
   value.length <= maxLength ? value : `${value.slice(0, maxLength)}…`;

@@ -37,7 +37,9 @@ for (const expectedId of sliceACapabilityIds) {
       }
     }
     if (kind === "mcp") {
-      const exists = mcpBindings.some((binding) => binding.operation === target);
+      const exists = mcpBindings.some(
+        (binding) => binding.operation === target
+      );
       if (!exists) {
         failures.push(`${expectedId} declares missing MCP transport ${wired}`);
       }

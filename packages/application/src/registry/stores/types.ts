@@ -60,6 +60,15 @@ export interface AanvraagMarkering {
   readonly userId: string;
 }
 
+export interface MarkeerAuditMetadata {
+  readonly reden: string | null;
+  readonly status: "gevolgd" | "niet_relevant" | "relevant";
+}
+
+export type AlertEvidenceValue = boolean | null | number | string;
+
+export type AlertEvidence = Readonly<Record<string, AlertEvidenceValue>>;
+
 export interface AuditEventRecord {
   readonly action: string;
   readonly actorId: string;
@@ -68,7 +77,7 @@ export interface AuditEventRecord {
   readonly entityId: string;
   readonly entityType: string;
   readonly id: string;
-  readonly metadata: Record<string, unknown>;
+  readonly metadata: MarkeerAuditMetadata;
 }
 
 export interface AlertRecord {
@@ -77,7 +86,7 @@ export interface AlertRecord {
   readonly bronId: string;
   readonly createdAt: Date;
   readonly dedupeKey: string;
-  readonly evidence: Record<string, unknown>;
+  readonly evidence: AlertEvidence;
   readonly id: string;
   readonly kind: string;
   readonly message: string;
@@ -119,7 +128,9 @@ export interface MarkeringStore {
     aanvraagId: string,
     userId: string
   ) => Promise<AanvraagMarkering | null>;
-  set: (markering: Omit<AanvraagMarkering, "createdAt">) => Promise<AanvraagMarkering>;
+  set: (
+    markering: Omit<AanvraagMarkering, "createdAt">
+  ) => Promise<AanvraagMarkering>;
 }
 
 export interface AuditStore {

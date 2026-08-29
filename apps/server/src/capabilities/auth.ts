@@ -1,14 +1,15 @@
 import {
-  PERM_SLICE_READ,
   permissionsForRole,
   ROLE_ADMIN,
   ROLE_OPERATOR,
   ROLE_RECRUITER,
-  type InvocationPrincipal,
-  type SliceARole,
 } from "@ji/application/registry";
+import type { InvocationPrincipal, SliceARole } from "@ji/application/registry";
 
-const bearerPattern = /^Bearer\s+(\w+):([^\s]+)$/u;
+const bearerPattern = /^Bearer\s+(?<role>\w+):(?<subjectId>[^\s]+)$/u;
+
+const isSliceARole = (value: string): value is SliceARole =>
+  value === ROLE_RECRUITER || value === ROLE_OPERATOR || value === ROLE_ADMIN;
 
 export const parseAuthHeader = (
   authorization: string | undefined
@@ -17,18 +18,11 @@ export const parseAuthHeader = (
     return null;
   }
   const match = bearerPattern.exec(authorization);
-  if (!match) {
+  const role = match?.groups?.role;
+  const subjectId = match?.groups?.subjectId;
+  if (!role || !subjectId || !isSliceARole(role)) {
     return null;
   }
-  const [, rawRole, subjectId] = match;
-  if (
-    rawRole !== ROLE_RECRUITER &&
-    rawRole !== ROLE_OPERATOR &&
-    rawRole !== ROLE_ADMIN
-  ) {
-    return null;
-  }
-  const role = rawRole as SliceARole;
   return Object.freeze({
     kind: "agent" as const,
     permissions: permissionsForRole(role),

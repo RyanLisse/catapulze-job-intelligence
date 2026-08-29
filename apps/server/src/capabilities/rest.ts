@@ -4,16 +4,25 @@ import type {
   InvocationResult,
 } from "@ji/application/registry";
 import type { Context } from "hono";
+import { z } from "zod";
 
 import { createRequestId, parseAuthHeader } from "./auth";
+import {
+  pathParamsSchema,
+  restJsonBodySchema,
+  restQuerySchema,
+} from "./transport-boundary";
+import type {
+  JsonValue,
+  PathParams,
+  RestJsonBody,
+  RestQuery,
+} from "./transport-boundary";
 
 type AnyRegistry = CapabilityRegistry<readonly { readonly id: string }[]>;
 
-const jsonResponse = (status: number, body: unknown): Response =>
-  new Response(JSON.stringify(body), {
-    headers: { "Content-Type": "application/json" },
-    status,
-  });
+const jsonResponse = (status: number, body: JsonValue): Response =>
+  Response.json(body, { status });
 
 const invocationErrorStatus = (code: string): number => {
   switch (code) {
@@ -73,10 +82,7 @@ const pathParamNames = (pattern: string): readonly string[] => {
   return names;
 };
 
-const matchPath = (
-  pattern: string,
-  pathname: string
-): Record<string, string> | null => {
+const matchPath = (pattern: string, pathname: string): PathParams | null => {
   const patternParts = pattern.split("/").filter(Boolean);
   const pathParts = pathname.split("/").filter(Boolean);
   if (patternParts.length !== pathParts.length) {
@@ -97,10 +103,13 @@ const matchPath = (
       return null;
     }
   }
-  return params;
+  const parsed = pathParamsSchema.safeParse(params);
+  return parsed.success ? parsed.data : null;
 };
 
-export const restRoutesFromRegistry = (registry: AnyRegistry): RestRouteSpec[] =>
+export const restRoutesFromRegistry = (
+  registry: AnyRegistry
+): RestRouteSpec[] =>
   registry.catalog.flatMap((descriptor) =>
     descriptor.bindings
       .filter((binding) => binding.transport === "rest")
@@ -115,18 +124,33 @@ export const restRoutesFromRegistry = (registry: AnyRegistry): RestRouteSpec[] =
       })
   );
 
+const stringFieldSchema = z.string();
+const booleanFieldSchema = z.boolean();
+
+const readString = (body: RestJsonBody, key: string): string | undefined => {
+  const parsed = stringFieldSchema.safeParse(body[key]);
+  return parsed.success ? parsed.data : undefined;
+};
+
+const readBoolean = (body: RestJsonBody, key: string): boolean | undefined => {
+  const parsed = booleanFieldSchema.safeParse(body[key]);
+  return parsed.success ? parsed.data : undefined;
+};
+
 const normalizeRestInput = (
   capabilityId: string,
-  raw: Record<string, unknown>
-): Record<string, unknown> => {
+  raw: RestJsonBody
+): RestJsonBody => {
   switch (capabilityId) {
     case "list_versies": {
-      return { aanvraagId: raw.id ?? raw.aanvraagId };
+      return {
+        aanvraagId: readString(raw, "id") ?? readString(raw, "aanvraagId"),
+      };
     }
     case "markeer_aanvraag": {
       return {
-        aanvraagId: raw.id ?? raw.aanvraagId,
-        reden: raw.reden,
+        aanvraagId: readString(raw, "id") ?? readString(raw, "aanvraagId"),
+        reden: raw.reden ?? null,
         status: raw.status,
       };
     }
@@ -134,13 +158,16 @@ const normalizeRestInput = (
     case "get_bron_health":
     case "start_run":
     case "start_test_import": {
-      return { bronId: raw.id ?? raw.bronId };
+      return { bronId: readString(raw, "id") ?? readString(raw, "bronId") };
     }
     case "ack_alert": {
-      return { alertId: raw.id ?? raw.alertId };
+      return { alertId: readString(raw, "id") ?? readString(raw, "alertId") };
     }
     case "read_raw": {
-      return { full: raw.full, ref: raw.ref ?? raw.id };
+      return {
+        full: readBoolean(raw, "full"),
+        ref: readString(raw, "ref") ?? readString(raw, "id"),
+      };
     }
     default: {
       return raw;
@@ -148,10 +175,19 @@ const normalizeRestInput = (
   }
 };
 
-const invokeRest = async (
+const parseRestQuery = (url: string): RestQuery => {
+  const params = Object.fromEntries(new URL(url).searchParams.entries());
+  if (params.full !== "true") {
+    return {};
+  }
+  const parsed = restQuerySchema.safeParse({ full: true });
+  return parsed.success ? parsed.data : {};
+};
+
+const invokeRest = (
   registry: AnyRegistry,
   route: RestRouteSpec,
-  input: unknown,
+  input: RestJsonBody,
   principal: InvocationPrincipal | null,
   requestId: string
 ): Promise<InvocationResult<unknown, { readonly code: string }>> =>
@@ -176,24 +212,17 @@ export const createRestCapabilityHandler =
       return jsonResponse(404, { error: "Route not found" });
     }
     const params = matchPath(matched.pathPattern, pathname) ?? {};
-    let body: Record<string, unknown> = {};
+    let body: RestJsonBody = {};
     if (context.req.method === "POST" || context.req.method === "PUT") {
       try {
-        body = (await context.req.json()) as Record<string, unknown>;
+        const rawBody = await context.req.json();
+        const parsedBody = restJsonBodySchema.safeParse(rawBody);
+        body = parsedBody.success ? parsedBody.data : {};
       } catch {
         body = {};
       }
     }
-    const query: Record<string, unknown> = {};
-    for (const [key, value] of Object.entries(
-      Object.fromEntries(new URL(context.req.url).searchParams.entries())
-    )) {
-      if (key === "full" && value === "true") {
-        query.full = true;
-      } else {
-        query[key] = value;
-      }
-    }
+    const query = parseRestQuery(context.req.url);
     const input = normalizeRestInput(matched.capabilityId, {
       ...body,
       ...params,
@@ -207,20 +236,23 @@ export const createRestCapabilityHandler =
       requestId
     );
     if (!result.ok) {
-      const code = "requestId" in result.error ? result.error.code : result.error.code;
+      const code =
+        "requestId" in result.error ? result.error.code : result.error.code;
       const status =
         "requestId" in result.error
           ? invocationErrorStatus(code)
           : domainErrorStatus(code);
-      return jsonResponse(status, result);
+      // SAFETY: Invocation and domain failures are JSON-serializable registry envelopes.
+      return jsonResponse(status, result as JsonValue);
     }
-    return jsonResponse(200, result.value);
+    // SAFETY: Successful capability outputs are JSON-serializable registry values.
+    return jsonResponse(200, result.value as JsonValue);
   };
 
-export const invokeMcpTool = async (
+export const invokeMcpTool = (
   registry: AnyRegistry,
   toolName: string,
-  args: unknown,
+  args: RestJsonBody,
   principal: InvocationPrincipal | null,
   requestId: string
 ): Promise<InvocationResult<unknown, { readonly code: string }>> =>

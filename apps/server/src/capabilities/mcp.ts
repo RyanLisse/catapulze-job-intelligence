@@ -3,44 +3,39 @@ import type { Context } from "hono";
 
 import { createRequestId, parseAuthHeader } from "./auth";
 import { invokeMcpTool, mcpToolsFromRegistry } from "./rest";
+import {
+  jsonRpcRequestSchema,
+  mcpToolsCallParamsSchema,
+} from "./transport-boundary";
+import type { JsonRpcRequest, JsonRpcResult } from "./transport-boundary";
 
 type AnyRegistry = CapabilityRegistry<readonly { readonly id: string }[]>;
 
-interface JsonRpcRequest {
-  readonly id?: number | string;
-  readonly jsonrpc?: string;
-  readonly method: string;
-  readonly params?: unknown;
-}
-
 const jsonRpcResponse = (
-  id: number | string | undefined,
-  result: unknown
-): Response =>
-  new Response(JSON.stringify({ id, jsonrpc: "2.0", result }), {
-    headers: { "Content-Type": "application/json" },
-    status: 200,
-  });
+  id: JsonRpcRequest["id"],
+  result: JsonRpcResult
+): Response => Response.json({ id, jsonrpc: "2.0", result });
 
 const jsonRpcError = (
-  id: number | string | undefined,
+  id: JsonRpcRequest["id"],
   code: number,
   message: string
-): Response =>
-  new Response(JSON.stringify({ error: { code, message }, id, jsonrpc: "2.0" }), {
-    headers: { "Content-Type": "application/json" },
-    status: 200,
-  });
+): Response => Response.json({ error: { code, message }, id, jsonrpc: "2.0" });
 
 export const createMcpHandler = (registry: AnyRegistry) => {
   const tools = mcpToolsFromRegistry(registry);
   return async (context: Context): Promise<Response> => {
-    let request: JsonRpcRequest;
+    let rawBody: unknown;
     try {
-      request = (await context.req.json()) as JsonRpcRequest;
+      rawBody = await context.req.json();
     } catch {
       return jsonRpcError(undefined, -32_600, "Invalid JSON-RPC request");
     }
+    const parsedRequest = jsonRpcRequestSchema.safeParse(rawBody);
+    if (!parsedRequest.success) {
+      return jsonRpcError(undefined, -32_600, "Invalid JSON-RPC request");
+    }
+    const request = parsedRequest.data;
     const requestId = createRequestId();
     const principal = parseAuthHeader(context.req.header("Authorization"));
 
@@ -57,7 +52,10 @@ export const createMcpHandler = (registry: AnyRegistry) => {
           content: [
             {
               text: JSON.stringify({
-                error: { code: "UNAUTHENTICATED", message: "Authentication required" },
+                error: {
+                  code: "UNAUTHENTICATED",
+                  message: "Authentication required",
+                },
               }),
               type: "text",
             },
@@ -65,12 +63,11 @@ export const createMcpHandler = (registry: AnyRegistry) => {
           isError: true,
         });
       }
-      const params =
-        typeof request.params === "object" && request.params !== null
-          ? (request.params as Record<string, unknown>)
-          : {};
-      const toolName = String(params.name ?? "");
-      const args = params.arguments ?? {};
+      const parsedParams = mcpToolsCallParamsSchema.safeParse(request.params);
+      const toolName = parsedParams.success ? parsedParams.data.name : "";
+      const args = parsedParams.success
+        ? (parsedParams.data.arguments ?? {})
+        : {};
       const result = await invokeMcpTool(
         registry,
         toolName,
@@ -86,10 +83,15 @@ export const createMcpHandler = (registry: AnyRegistry) => {
       }
       return jsonRpcResponse(request.id, {
         content: [{ text: JSON.stringify(result.value), type: "text" }],
-        structuredContent: result.value,
+        // SAFETY: Capability outputs are JSON-serializable values validated by the registry.
+        structuredContent: result.value as JsonRpcResult,
       });
     }
 
-    return jsonRpcError(request.id, -32_601, `Method not found: ${request.method}`);
+    return jsonRpcError(
+      request.id,
+      -32_601,
+      `Method not found: ${request.method}`
+    );
   };
 };

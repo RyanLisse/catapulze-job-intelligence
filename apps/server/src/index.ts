@@ -1,6 +1,7 @@
 import { trpcServer } from "@hono/trpc-server";
 import { createContext } from "@ji/api/context";
 import { appRouter } from "@ji/api/routers/index";
+import { createTestSliceARegistry } from "@ji/application/registry";
 import { auth } from "@ji/auth";
 import { closeDb, getDbReadiness } from "@ji/db";
 import type { DbReadinessResult } from "@ji/db/readiness";
@@ -9,12 +10,11 @@ import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { logger } from "hono/logger";
 
+import { createMcpHandler } from "./capabilities/mcp";
 import {
   createRestCapabilityHandler,
   restRoutesFromRegistry,
 } from "./capabilities/rest";
-import { createMcpHandler } from "./capabilities/mcp";
-import { createTestSliceARegistry } from "@ji/application/registry";
 
 const DEFAULT_PORT = 3000;
 const SHUTDOWN_DRAIN_TIMEOUT_MS = 10_000;

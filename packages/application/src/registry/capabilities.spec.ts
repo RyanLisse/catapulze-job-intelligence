@@ -1,8 +1,11 @@
 import { describe, expect, it } from "bun:test";
 
-import { SearchAdapter, InMemorySearchEngine } from "@ji/search";
-
-import { createTestSliceARegistry, permissionsForRole } from "@ji/application/registry";
+import {
+  createTestSliceARegistry,
+  permissionsForRole,
+} from "@ji/application/registry";
+import { SearchAdapter } from "@ji/search";
+import type { InMemorySearchEngine } from "@ji/search";
 
 const recruiterPrincipal = {
   kind: "user" as const,
@@ -14,20 +17,22 @@ const seedSearchDocuments = async (
   engine: InMemorySearchEngine,
   count: number
 ) => {
-  for (let index = 0; index < count; index += 1) {
-    await engine.upsertDocument({
-      beschrijving: `Azure platform engineer beschrijving ${index}`,
-      bronId: "00000000-0000-4000-8000-000000000001",
-      contracttype: "detachering",
-      id: `00000000-0000-4000-8000-${String(index).padStart(12, "0")}`,
-      laatstGezienOp: new Date("2026-08-01T00:00:00.000Z"),
-      locatieLand: "NL",
-      status: "active",
-      tariefMax: 120,
-      tariefMin: 80,
-      titel: `Azure engineer ${index}`,
-    });
-  }
+  await Promise.all(
+    Array.from({ length: count }, (_, index) =>
+      engine.upsertDocument({
+        beschrijving: `Azure platform engineer beschrijving ${index}`,
+        bronId: "00000000-0000-4000-8000-000000000001",
+        contracttype: "detachering",
+        id: `00000000-0000-4000-8000-${String(index).padStart(12, "0")}`,
+        laatstGezienOp: new Date("2026-08-01T00:00:00.000Z"),
+        locatieLand: "NL",
+        status: "active",
+        tariefMax: 120,
+        tariefMin: 80,
+        titel: `Azure engineer ${index}`,
+      })
+    )
+  );
 };
 
 describe("AE4 snapshot immutability", () => {
@@ -71,7 +76,9 @@ describe("AE4 snapshot immutability", () => {
       expect(searchAfterIngest.total).toBe(18);
     }
 
-    const snapshot = await bundle.deps.stores.snapshots.getById(created.value.id);
+    const snapshot = await bundle.deps.stores.snapshots.getById(
+      created.value.id
+    );
     expect(snapshot?.resultIds).toHaveLength(17);
     expect(snapshot?.resultIds).toEqual(created.value.resultIds);
   });

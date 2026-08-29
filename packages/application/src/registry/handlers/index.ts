@@ -2,40 +2,31 @@ import { BOOLEAN_PARSER_VERSION } from "@ji/domain";
 import { z } from "zod";
 
 import type { PublicBronView } from "../../bronnen";
-import {
-  hasRecruiterPermission,
-  PERM_SLICE_READ,
-  ROLE_OPERATOR,
-  ROLE_RECRUITER,
-} from "../roles";
+import { hasRecruiterPermission } from "../roles";
 import {
   previewText,
   searchFiltersSchema,
   SLICE_A_SCHEMA_VERSION,
-  sliceADomainFailureSchema,
-  type SliceADomainFailure,
 } from "../schemas";
-import type { SliceAHandlerDeps } from "./deps";
+import type {
+  SliceADomainFailure,
+  SliceADomainFailureDetails,
+} from "../schemas";
 import type {
   AanvraagRecord,
   AlertRecord,
   QuerySnapshotRecord,
   SavedSearchRecord,
 } from "../stores/types";
+import type { SliceAHandlerDeps } from "./deps";
 
-const restBinding = (method: string, path: string) =>
-  ({ operation: `${method} ${path}`, transport: "rest" }) as const;
-
-const mcpBinding = (toolName: string) =>
-  ({ operation: toolName, transport: "mcp" }) as const;
-
-const dualBindings = (method: string, path: string, toolName: string) =>
-  [restBinding(method, path), mcpBinding(toolName)] as const;
+export { dualBindings, mcpBinding, restBinding } from "./bindings";
+export { sliceADomainFailureSchema } from "../schemas";
 
 const domainFailure = (
   code: SliceADomainFailure["code"],
   message: string,
-  details?: unknown
+  details?: SliceADomainFailureDetails
 ) => ({ error: { code, details, message }, ok: false as const });
 
 const previewAanvraag = (record: AanvraagRecord) => ({
@@ -66,6 +57,7 @@ export const searchAanvragenInputSchema = z
 
 export const searchAanvragenOutputSchema = z
   .object({
+    emptyReason: z.string().optional(),
     facets: z.object({
       bron_id: z.array(z.object({ count: z.number(), value: z.string() })),
       contracttype: z.array(z.object({ count: z.number(), value: z.string() })),
@@ -77,7 +69,6 @@ export const searchAanvragenOutputSchema = z
     indexVersion: z.number(),
     parserVersion: z.number(),
     total: z.number(),
-    emptyReason: z.string().optional(),
   })
   .strict();
 
@@ -125,13 +116,18 @@ export const createGetAanvraagHandler =
   (deps: SliceAHandlerDeps) =>
   async (
     input: z.output<typeof getAanvraagInputSchema>,
-    context: { principal: { permissions: ReadonlySet<string>; subjectId: string } }
+    context: {
+      principal: { permissions: ReadonlySet<string>; subjectId: string };
+    }
   ) => {
     const record = await deps.stores.aanvragen.getById(input.id);
     if (!record) {
       return domainFailure("NOT_FOUND", "Aanvraag not found", { id: input.id });
     }
-    if (input.full === true && !hasRecruiterPermission(context.principal.permissions)) {
+    if (
+      input.full === true &&
+      !hasRecruiterPermission(context.principal.permissions)
+    ) {
       return domainFailure(
         "FORBIDDEN_FULL",
         "Full detail requires the recruiter role"
@@ -203,10 +199,10 @@ export const readRawInputSchema = z
 export const readRawOutputSchema = z
   .object({
     contentType: z.string(),
+    full: z.string().optional(),
     mode: z.enum(["full", "preview"]),
     preview: z.string(),
     ref: z.string(),
-    full: z.string().optional(),
   })
   .strict();
 
@@ -222,22 +218,32 @@ export const createReadRawHandler =
         ref: input.ref,
       });
     }
-    if (input.full === true && !hasRecruiterPermission(context.principal.permissions)) {
+    if (
+      input.full === true &&
+      !hasRecruiterPermission(context.principal.permissions)
+    ) {
       return domainFailure(
         "FORBIDDEN_FULL",
         "Full raw payload requires the recruiter role"
       );
     }
-    return {
-      ok: true as const,
-      value: {
-        contentType: payload.contentType,
-        mode: input.full === true ? ("full" as const) : ("preview" as const),
-        preview: payload.preview,
-        ref: payload.ref,
-        ...(input.full === true ? { full: payload.full } : {}),
-      },
+    const previewValue = {
+      contentType: payload.contentType,
+      mode: "preview" as const,
+      preview: payload.preview,
+      ref: payload.ref,
     };
+    if (input.full === true) {
+      return {
+        ok: true as const,
+        value: {
+          ...previewValue,
+          full: payload.full,
+          mode: "full" as const,
+        },
+      };
+    }
+    return { ok: true as const, value: previewValue };
   };
 
 export const listBronnenOutputSchema = z.array(
@@ -245,12 +251,17 @@ export const listBronnenOutputSchema = z.array(
 );
 
 export const createListBronnenHandler =
-  (deps: SliceAHandlerDeps) => async () => ({
-    ok: true as const,
-    value: (await deps.bronnen.list()).map((bron: PublicBronView) => ({ ...bron })),
-  });
+  (deps: SliceAHandlerDeps) => async () => {
+    const bronnen = await deps.bronnen.list();
+    return {
+      ok: true as const,
+      value: bronnen.map((bron: PublicBronView) => ({ ...bron })),
+    };
+  };
 
-export const getBronInputSchema = z.object({ bronId: z.string().uuid() }).strict();
+export const getBronInputSchema = z
+  .object({ bronId: z.string().uuid() })
+  .strict();
 
 export const getBronOutputSchema = z.record(z.string(), z.unknown());
 
@@ -287,6 +298,18 @@ export const savedSearchViewSchema = z
     userId: z.string(),
   })
   .strict();
+
+const toSavedSearchView = (record: SavedSearchRecord) => ({
+  createdAt: record.createdAt.toISOString(),
+  filters: record.filters,
+  id: record.id,
+  naam: record.naam,
+  parserVersion: record.parserVersion,
+  queryText: record.queryText,
+  schemaVersion: record.schemaVersion,
+  updatedAt: record.updatedAt.toISOString(),
+  userId: record.userId,
+});
 
 export const createSavedSearchHandler =
   (deps: SliceAHandlerDeps) =>
@@ -327,18 +350,6 @@ export const snapshotViewSchema = z
     userId: z.string(),
   })
   .strict();
-
-const toSavedSearchView = (record: SavedSearchRecord) => ({
-  createdAt: record.createdAt.toISOString(),
-  filters: record.filters,
-  id: record.id,
-  naam: record.naam,
-  parserVersion: record.parserVersion,
-  queryText: record.queryText,
-  schemaVersion: record.schemaVersion,
-  updatedAt: record.updatedAt.toISOString(),
-  userId: record.userId,
-});
 
 const toSnapshotView = (record: QuerySnapshotRecord) => ({
   createdAt: record.createdAt.toISOString(),
@@ -500,13 +511,15 @@ export const createGetBronHealthHandler =
     };
   };
 
-export const ackAlertInputSchema = z.object({ alertId: z.string().uuid() }).strict();
+export const ackAlertInputSchema = z
+  .object({ alertId: z.string().uuid() })
+  .strict();
 
 export const ackAlertOutputSchema = z
   .object({
-    alertId: z.string(),
     ackedAt: z.string(),
     ackedBy: z.string(),
+    alertId: z.string(),
   })
   .strict();
 
@@ -546,7 +559,9 @@ export const createAckAlertHandler =
     };
   };
 
-export const startRunInputSchema = z.object({ bronId: z.string().uuid() }).strict();
+export const startRunInputSchema = z
+  .object({ bronId: z.string().uuid() })
+  .strict();
 export const startTestImportInputSchema = z
   .object({ bronId: z.string().uuid() })
   .strict();
@@ -606,7 +621,7 @@ export const completeTaskOutputSchema = z
 
 export const createCompleteTaskHandler =
   (_deps: SliceAHandlerDeps) =>
-  async (input: z.output<typeof completeTaskInputSchema>) => ({
+  (input: z.output<typeof completeTaskInputSchema>) => ({
     ok: true as const,
     value: {
       accepted: true as const,
@@ -616,10 +631,4 @@ export const createCompleteTaskHandler =
     },
   });
 
-export {
-  dualBindings,
-  mcpBinding,
-  restBinding,
-  sliceADomainFailureSchema,
-  toSnapshotView,
-};
+export { toSnapshotView };

@@ -1,8 +1,11 @@
 import { describe, expect, it } from "bun:test";
 
-import { permissionsForRole } from "@ji/application/registry";
+import {
+  createTestSliceARegistry,
+  permissionsForRole,
+} from "@ji/application/registry";
+
 import { invokeMcpTool } from "./rest";
-import { createTestSliceARegistry } from "@ji/application/registry";
 
 const recruiterAuth = {
   principal: {

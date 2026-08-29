@@ -56,11 +56,7 @@ export const createSliceACapabilityCatalog = (deps: SliceAHandlerDeps) => {
 
   const searchAanvragen = defineCapability({
     authorization: { permission: ROLE_RECRUITER },
-    bindings: dualBindings(
-      "POST",
-      "/v1/aanvragen/search",
-      "search_aanvragen"
-    ),
+    bindings: dualBindings("POST", "/v1/aanvragen/search", "search_aanvragen"),
     effect: "read",
     failureSchema: domainFailureSchema,
     grounding: true,
@@ -138,11 +134,7 @@ export const createSliceACapabilityCatalog = (deps: SliceAHandlerDeps) => {
 
   const createSavedSearch = defineCapability({
     authorization: { permission: ROLE_RECRUITER },
-    bindings: dualBindings(
-      "POST",
-      "/v1/saved-searches",
-      "create_saved_search"
-    ),
+    bindings: dualBindings("POST", "/v1/saved-searches", "create_saved_search"),
     effect: "internal-write",
     failureSchema: domainFailureSchema,
     grounding: true,
@@ -426,7 +418,10 @@ export const createSliceACapabilityCatalog = (deps: SliceAHandlerDeps) => {
       reversible: true,
       sideEffectClass: "read",
       target: "internal",
-      wiredTransports: ["mcp:complete_task", "rest:POST /v1/agent/complete-task"],
+      wiredTransports: [
+        "mcp:complete_task",
+        "rest:POST /v1/agent/complete-task",
+      ],
     }),
   ] as const;
 };

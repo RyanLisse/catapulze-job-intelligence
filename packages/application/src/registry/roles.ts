@@ -2,11 +2,7 @@ export const ROLE_RECRUITER = "recruiter" as const;
 export const ROLE_OPERATOR = "operator" as const;
 export const ROLE_ADMIN = "admin" as const;
 
-export const sliceARoles = [
-  ROLE_RECRUITER,
-  ROLE_OPERATOR,
-  ROLE_ADMIN,
-] as const;
+export const sliceARoles = [ROLE_RECRUITER, ROLE_OPERATOR, ROLE_ADMIN] as const;
 
 export type SliceARole = (typeof sliceARoles)[number];
 
