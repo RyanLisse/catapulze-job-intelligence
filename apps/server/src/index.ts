@@ -9,7 +9,12 @@ import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { logger } from "hono/logger";
 
-import { createReadinessHandler } from "./readiness";
+import {
+  createRestCapabilityHandler,
+  restRoutesFromRegistry,
+} from "./capabilities/rest";
+import { createMcpHandler } from "./capabilities/mcp";
+import { createTestSliceARegistry } from "@ji/application/registry";
 
 const DEFAULT_PORT = 3000;
 const SHUTDOWN_DRAIN_TIMEOUT_MS = 10_000;
@@ -51,6 +56,14 @@ app.get(
   "/readyz",
   createReadinessHandler(getDbReadiness, reportReadinessFailure)
 );
+
+const sliceA = createTestSliceARegistry();
+const restRoutes = restRoutesFromRegistry(sliceA.registry);
+const restHandler = createRestCapabilityHandler(sliceA.registry, restRoutes);
+const mcpHandler = createMcpHandler(sliceA.registry);
+
+app.all("/v1/*", (context) => restHandler(context));
+app.post("/mcp", (context) => mcpHandler(context));
 
 const server = Bun.serve({
   fetch: app.fetch,
