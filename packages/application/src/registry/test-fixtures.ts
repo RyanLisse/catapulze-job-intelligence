@@ -51,4 +51,6 @@ export const createTestSliceARegistry = () => {
   return { deps, ...createSliceARegistry(deps) };
 };
 
-export type SliceARegistryBundle = ReturnType<typeof createTestSliceARegistry>;
+export type TestSliceARegistryBundle = ReturnType<
+  typeof createTestSliceARegistry
+>;

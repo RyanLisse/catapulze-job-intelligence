@@ -1,5 +1,5 @@
 export {
   createTestSliceADeps,
   createTestSliceARegistry,
-  type SliceARegistryBundle,
+  type TestSliceARegistryBundle,
 } from "@ji/application/registry";
