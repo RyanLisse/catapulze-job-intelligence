@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   chmodSync,
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -13,6 +14,7 @@ import path from "node:path";
 const launcher = path.join(import.meta.dir, "crabbox-exe-dev-shadow-run.sh");
 const shadowScript = path.join(import.meta.dir, "crabbox-exe-dev-shadow.sh");
 const sourceSha = "a".repeat(40);
+const launcherFixtureTimeoutMs = 30_000;
 const nodeImage =
   "node:24-slim@sha256:ba849c60be29959425b8734d57b8b4b7d56f98edd9504c9af091d5281095a71e";
 
@@ -359,36 +361,67 @@ describe("exe.dev shadow scripts", () => {
     }
   });
 
-  test("replaces prior attempt evidence with the materialized result", () => {
-    const fixture = createLauncherFixture();
-    const evidenceDirectory = path.join(
-      fixture.workspace,
-      ".artifacts/crabbox/exe-dev-shadow"
-    );
-    try {
-      mkdirSync(evidenceDirectory, { recursive: true });
-      writeFileSync(path.join(evidenceDirectory, "stale-junit.xml"), "stale");
+  test(
+    "replaces prior attempt evidence with the materialized result",
+    () => {
+      const fixture = createLauncherFixture();
+      const evidenceDirectory = path.join(
+        fixture.workspace,
+        ".artifacts/crabbox/exe-dev-shadow"
+      );
+      try {
+        mkdirSync(evidenceDirectory, { recursive: true });
+        writeFileSync(path.join(evidenceDirectory, "stale-junit.xml"), "stale");
 
-      const result = Bun.spawnSync(["bash", launcher, "--dry-run"], {
-        env: {
-          ...launcherEnvironment(fixture),
-          MATERIALIZED_EVIDENCE_FIXTURE: "1",
-        },
-        stderr: "pipe",
-        stdout: "pipe",
-      });
+        const result = Bun.spawnSync(["bash", launcher, "--dry-run"], {
+          env: {
+            ...launcherEnvironment(fixture),
+            MATERIALIZED_EVIDENCE_FIXTURE: "1",
+          },
+          stderr: "pipe",
+          stdout: "pipe",
+        });
 
-      expect(result.exitCode).toBe(0);
-      expect(() =>
-        readFileSync(path.join(evidenceDirectory, "stale-junit.xml"))
-      ).toThrow();
-      expect(
-        readFileSync(path.join(evidenceDirectory, "report.md"), "utf-8")
-      ).toBe("fresh\n");
-    } finally {
-      rmSync(fixture.workspace, { force: true, recursive: true });
-    }
-  });
+        expect(result.exitCode).toBe(0);
+        expect(() =>
+          readFileSync(path.join(evidenceDirectory, "stale-junit.xml"))
+        ).toThrow();
+        expect(
+          readFileSync(path.join(evidenceDirectory, "report.md"), "utf-8")
+        ).toBe("fresh\n");
+      } finally {
+        rmSync(fixture.workspace, { force: true, recursive: true });
+      }
+    },
+    launcherFixtureTimeoutMs
+  );
+
+  test(
+    "clears prior evidence when the new attempt has no artifacts",
+    () => {
+      const fixture = createLauncherFixture();
+      const evidenceDirectory = path.join(
+        fixture.workspace,
+        ".artifacts/crabbox/exe-dev-shadow"
+      );
+      try {
+        mkdirSync(evidenceDirectory, { recursive: true });
+        writeFileSync(path.join(evidenceDirectory, "stale-junit.xml"), "stale");
+
+        const result = Bun.spawnSync(["bash", launcher, "--dry-run"], {
+          env: launcherEnvironment(fixture),
+          stderr: "pipe",
+          stdout: "pipe",
+        });
+
+        expect(result.exitCode).toBe(0);
+        expect(existsSync(evidenceDirectory)).toBe(false);
+      } finally {
+        rmSync(fixture.workspace, { force: true, recursive: true });
+      }
+    },
+    launcherFixtureTimeoutMs
+  );
 
   test("fails closed when Git status cannot determine source state", () => {
     const fixture = createLauncherFixture(sourceSha, 70);

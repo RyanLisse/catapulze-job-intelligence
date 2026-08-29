@@ -139,10 +139,12 @@ run_exit_status=$?
 set -e
 
 materialized_evidence="${materialized_workspace}/.artifacts/crabbox/exe-dev-shadow"
+workspace_evidence="${workspace_root}/.artifacts/crabbox/exe-dev-shadow"
 if [[ -d "$materialized_evidence" ]]; then
-  workspace_evidence="${workspace_root}/.artifacts/crabbox/exe-dev-shadow"
   mkdir -p "$workspace_evidence"
   rsync -a --delete "${materialized_evidence}/" "${workspace_evidence}/"
+else
+  rm -rf -- "$workspace_evidence"
 fi
 
 exit "$run_exit_status"

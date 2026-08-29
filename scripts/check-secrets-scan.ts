@@ -323,7 +323,7 @@ export const scanTrackedFiles = async (
   for (const variable of REPOSITORY_LOCAL_GIT_VARIABLES) {
     gitEnvironment[variable] = undefined;
   }
-  const proc = Bun.spawn(["git", "ls-files"], {
+  const proc = Bun.spawn(["git", "ls-files", "-z"], {
     cwd: rootDir,
     env: gitEnvironment,
     stderr: "pipe",
@@ -331,7 +331,7 @@ export const scanTrackedFiles = async (
   });
   const listed = await new Response(proc.stdout).text();
   const gitExitCode = await proc.exited;
-  const listedPaths = listed.split("\n").filter((relativePath) => {
+  const listedPaths = listed.split("\0").filter((relativePath) => {
     if (!relativePath) {
       return false;
     }

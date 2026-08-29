@@ -168,6 +168,26 @@ describe("check-secrets-scan", () => {
     }
   });
 
+  it("scans tracked dotenv-like names containing newlines", async () => {
+    const workspace = mkdtempSync(
+      path.join(tmpdir(), "ji-secret-scan-newline-")
+    );
+    const fake = ["AKIA", "IOSFODNN7EXAMPLE"].join("");
+    const trackedPath = ".env.local\nfixture";
+
+    try {
+      expect(runRepositoryGit(workspace, ["init", "--quiet"])).toBe(0);
+      writeFileSync(path.join(workspace, trackedPath), fake);
+      expect(runRepositoryGit(workspace, ["add", "--", trackedPath])).toBe(0);
+
+      expect(await scanTrackedFiles(workspace)).toEqual([
+        `${trackedPath} looks like an AWS access key`,
+      ]);
+    } finally {
+      rmSync(workspace, { force: true, recursive: true });
+    }
+  });
+
   it("excludes local dotenv files while retaining example templates", async () => {
     const workspace = mkdtempSync(path.join(tmpdir(), "ji-secret-scan-env-"));
     const fake = ["AKIA", "IOSFODNN7EXAMPLE"].join("");
