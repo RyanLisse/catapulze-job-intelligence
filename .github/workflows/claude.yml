@@ -38,6 +38,7 @@ jobs:
         id: claude
         uses: anthropics/claude-code-action@v1
         with:
+          allowed_bots: "cursor[bot]"
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
 
           # Optional: allows Claude to read CI results on PRs
