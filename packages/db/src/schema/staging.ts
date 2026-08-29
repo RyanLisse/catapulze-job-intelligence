@@ -1,5 +1,6 @@
-import { relations } from "drizzle-orm";
+import { relations, sql } from "drizzle-orm";
 import {
+  check,
   index,
   jsonb,
   text,
@@ -33,10 +34,6 @@ export const sourceRecord = stagingSchema.table(
       table.bronId,
       table.bronReferentie
     ),
-    uniqueIndex("source_record_bron_content_hash_uidx").on(
-      table.bronId,
-      table.contentHash
-    ),
     index("source_record_scrape_run_id_idx").on(table.scrapeRunId),
   ]
 );
@@ -47,10 +44,12 @@ export const aanvraagObservation = stagingSchema.table(
     bronId: uuid("bron_id")
       .notNull()
       .references(() => bron.id, { onDelete: "cascade" }),
+    contentHash: text("content_hash").notNull(),
     createdAt: timestamp("created_at", { withTimezone: true })
       .defaultNow()
       .notNull(),
     id: uuid("id").defaultRandom().primaryKey(),
+    outcome: text("outcome").notNull(),
     parserVersion: text("parser_version"),
     payload: jsonb("payload").notNull(),
     scrapeRunId: uuid("scrape_run_id")
@@ -62,8 +61,17 @@ export const aanvraagObservation = stagingSchema.table(
     status: text("status").default("pending").notNull(),
   },
   (table) => [
+    uniqueIndex("aanvraag_observation_replay_uidx").on(
+      table.scrapeRunId,
+      table.sourceRecordId,
+      table.contentHash
+    ),
     index("aanvraag_observation_source_record_id_idx").on(table.sourceRecordId),
     index("aanvraag_observation_status_idx").on(table.status),
+    check(
+      "aanvraag_observation_outcome_check",
+      sql`${table.outcome} IN ('new', 'changed', 'unchanged')`
+    ),
   ]
 );
 

@@ -21,6 +21,9 @@
     "db:migrate": "PATH=\"./node_modules/.bin:$PATH\" drizzle-kit migrate"
   },
   "dependencies": {
+    "@ji/application": "workspace:*",
+    "@ji/connectors": "workspace:*",
+    "@ji/domain": "workspace:*",
     "@ji/env": "workspace:*",
     "dotenv": "catalog:",
     "drizzle-orm": "^0.45.2",

@@ -1,6 +1,7 @@
+import type { RunFailureEnvelope } from "@ji/connectors";
 import type { BronConfig, BronId } from "@ji/domain";
 import {
-  activateBron,
+  activateBron as validateActivation,
   shouldScheduleBronPoll,
   validateBronConfig,
 } from "@ji/domain";
@@ -9,15 +10,50 @@ export type BronLastRunSummary = {
   scrapeRunId: string;
   status: string;
   gestart: Date;
-  aantalGevonden: number;
-  nieuw: number;
-  gewijzigd: number;
-  fouten: number;
+  found: number;
+  new: number;
+  changed: number;
+  rejected: number;
+  error: number;
+  closed: number;
+  geindigd: Date | null;
+  failure: RunFailureEnvelope | null;
 } | null;
+
+export interface BronPersistence {
+  create: (record: BronRegisterRecord) => Promise<BronRegisterRecord>;
+  findById: (bronId: BronId) => Promise<BronRegisterRecord | null>;
+  list: () => Promise<BronRegisterRecord[]>;
+  /** Atomically validates and persists the ready/active transition. */
+  activate: (
+    input: ActivateBronPersistenceInput
+  ) => Promise<BronRegisterRecord>;
+}
+
+export interface ActivateBronPersistenceInput {
+  bronId: BronId;
+  testImportRunId: string;
+}
+
+const OPAQUE_SECRET_REF = /^(?:op|vault|trigger):\/\/[^\s/]+(?:\/[^\s]*)?$/u;
+
+export const validateSecretRef = (secretRef: string | null): string[] => {
+  if (secretRef === null || secretRef.trim() === "") {
+    return [];
+  }
+  if (!OPAQUE_SECRET_REF.test(secretRef)) {
+    return [
+      "secretRef must be an opaque op://, vault://, or trigger:// reference",
+    ];
+  }
+  return [];
+};
 
 export type BronRegisterRecord = BronConfig & {
   actief: boolean;
+  categorie: string;
   lastRun: BronLastRunSummary;
+  retentionDays: number;
 };
 
 export interface PublicBronView {
@@ -31,6 +67,7 @@ export interface PublicBronView {
   voorwaardenStatus: BronConfig["voorwaardenStatus"];
   mappingRef: string | null;
   loginVereist: boolean;
+  retentionDays: number;
   hasSecretRef: boolean;
   actief: boolean;
   lastRun: BronLastRunSummary;
@@ -50,13 +87,15 @@ export const toPublicBronView = (
   method: record.method,
   naam: record.naam,
   rateLimitPerMinute: record.rateLimitPerMinute,
+  retentionDays: record.retentionDays,
   status: record.status,
   voorwaardenStatus: record.voorwaardenStatus,
 });
 
 export type CreateBronInput = Omit<BronConfig, "bronId"> & {
   bronId?: BronId;
-  actief?: boolean;
+  categorie?: string;
+  retentionDays?: number;
 };
 
 export type CreateBronResult =
@@ -66,8 +105,9 @@ export type CreateBronResult =
 export const createBron = (input: CreateBronInput): CreateBronResult => {
   const bronId = input.bronId ?? crypto.randomUUID();
   const record: BronRegisterRecord = {
-    actief: input.actief ?? false,
+    actief: false,
     bronId,
+    categorie: input.categorie ?? "overig",
     crawlDelayMs: input.crawlDelayMs,
     interval: input.interval,
     lastRun: null,
@@ -76,12 +116,16 @@ export const createBron = (input: CreateBronInput): CreateBronResult => {
     method: input.method,
     naam: input.naam,
     rateLimitPerMinute: input.rateLimitPerMinute,
+    retentionDays: input.retentionDays ?? 90,
     secretRef: input.secretRef,
     status: input.status,
     voorwaardenStatus: input.voorwaardenStatus,
   };
 
   const issues = validateBronConfig(record);
+  for (const message of validateSecretRef(record.secretRef)) {
+    issues.push({ field: "secretRef", message });
+  }
   if (issues.length > 0) {
     return { issues, ok: false };
   }
@@ -89,40 +133,31 @@ export const createBron = (input: CreateBronInput): CreateBronResult => {
   return { ok: true, record };
 };
 
-export interface ActivateBronRegisterInput {
-  bronId: BronId;
-  records: BronRegisterRecord[];
-  testImportPassed: boolean;
-}
-
 export type ActivateBronRegisterResult =
   | { ok: true; record: BronRegisterRecord }
   | { ok: false; reason: string };
 
-export const activateBronInRegister = (
-  input: ActivateBronRegisterInput
-): ActivateBronRegisterResult => {
-  const record = input.records.find((entry) => entry.bronId === input.bronId);
+export const activateBron = async (
+  persistence: BronPersistence,
+  input: { bronId: BronId; testImportRunId: string }
+): Promise<ActivateBronRegisterResult> => {
+  const record = await persistence.findById(input.bronId);
   if (!record) {
     return { ok: false, reason: "bron not found" };
   }
-
-  const activation = activateBron({
+  const activation = validateActivation({
     config: record,
-    testImportPassed: input.testImportPassed,
+    testImportPassed: true,
   });
-
   if (!activation.ok) {
     return activation;
   }
-
   return {
     ok: true,
-    record: {
-      ...record,
-      actief: true,
-      status: activation.status,
-    },
+    record: await persistence.activate({
+      bronId: input.bronId,
+      testImportRunId: input.testImportRunId,
+    }),
   };
 };
 

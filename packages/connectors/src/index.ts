@@ -1,23 +1,42 @@
 export {
+  CONNECTOR_FIXTURE_CONTRACT_VERSION,
+  CONNECTOR_OBSERVATION_CONTRACT_VERSION,
   emptyRunMetrics,
   mergeRunMetrics,
   type Connector,
   type ConnectorCheckpoint,
   type ConnectorDiscoverResult,
   type ConnectorFetchResult,
+  type ConnectorFetchedResult,
+  type ConnectorRejectedResult,
   type ConnectorRunMetrics,
+  type ConnectorFixture,
+  type ConnectorObservation,
   type DiscoverItem,
 } from "./contract";
-export { InMemorySourceRecordWriter } from "./in-memory-source-record-writer";
+export {
+  type CheckpointKey,
+  type ConnectorRunProgress,
+  type RunProgressStore,
+} from "./checkpoint";
+export { CrawlDelayLimiter, type RequestLimiter } from "./limiter";
+export {
+  InMemoryObservationRecorder,
+  type ObservationRecorder,
+  type ObservationRecordInput,
+} from "./observation-recorder";
 export {
   buildRawObjectPath,
   hashContent,
+  DurableObjectStore,
   InMemoryObjectStore,
   type ObjectStore,
+  type DurableObjectClient,
   type RawContentType,
   type RawObjectPathInput,
   type SourceRecordPointer,
-  type SourceRecordWriter,
+  type SourceRecordWriteOutcome,
+  type SourceRecordWriteResult,
   type StoredObject,
 } from "./object-store";
 export {
@@ -25,3 +44,23 @@ export {
   type ConnectorRunInput,
   type ConnectorRunResult,
 } from "./run";
+export {
+  fullJitter,
+  sleep,
+  withRetry,
+  type RetryJitter,
+  type RetryPolicy,
+  type Sleep,
+} from "./retry";
+export {
+  ConnectorRunFailure,
+  InMemoryRunLifecycleStore,
+  RunOwnershipLostError,
+  type ConnectorRunKind,
+  type RunCompletionInput,
+  type RunFailureInput,
+  type RunFailureEnvelope,
+  type RunLifecycleStore,
+  type RunStartInput,
+  type RunStartResult,
+} from "./run-lifecycle";
