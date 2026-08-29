@@ -72,9 +72,12 @@ describe("AE5 REST vs MCP parity", () => {
     if (!rest.ok || !mcp.ok) {
       return;
     }
-    expect(mcp.value.ids).toEqual(rest.value.ids);
-    expect(mcp.value.total).toBe(rest.value.total);
-    expect(mcp.value.facets).toEqual(rest.value.facets);
+    const restValue = rest.value;
+    // SAFETY: MCP invokeMcpTool calls the same search_aanvragen capability as the REST invoker above.
+    const mcpValue = mcp.value as typeof restValue;
+    expect(mcpValue.ids).toEqual(restValue.ids);
+    expect(mcpValue.total).toBe(restValue.total);
+    expect(mcpValue.facets).toEqual(restValue.facets);
   });
 });
 

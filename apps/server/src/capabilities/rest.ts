@@ -1,13 +1,14 @@
-import type {
-  CapabilityRegistry,
-  InvocationPrincipal,
-  InvocationResult,
-} from "@ji/application/registry";
+import type { InvocationPrincipal } from "@ji/application/registry";
 import type { Context } from "hono";
 import { z } from "zod";
 
 import { createRequestId, parseAuthHeader } from "./auth";
+import type {
+  RegistryInvocationResult,
+  SliceARegistry,
+} from "./registry-types";
 import {
+  jsonValueSchema,
   pathParamsSchema,
   restJsonBodySchema,
   restQuerySchema,
@@ -19,7 +20,11 @@ import type {
   RestQuery,
 } from "./transport-boundary";
 
-type AnyRegistry = CapabilityRegistry<readonly { readonly id: string }[]>;
+/* oxlint-disable unicorn/prefer-structured-clone -- JSON round-trip strips undefined keys before JsonValue validation. */
+const serializeRegistryJson = (
+  value: RegistryInvocationResult | JsonValue
+): JsonValue => jsonValueSchema.parse(JSON.parse(JSON.stringify(value)));
+/* oxlint-enable unicorn/prefer-structured-clone */
 
 const jsonResponse = (status: number, body: JsonValue): Response =>
   Response.json(body, { status });
@@ -108,7 +113,7 @@ const matchPath = (pattern: string, pathname: string): PathParams | null => {
 };
 
 export const restRoutesFromRegistry = (
-  registry: AnyRegistry
+  registry: SliceARegistry
 ): RestRouteSpec[] =>
   registry.catalog.flatMap((descriptor) =>
     descriptor.bindings
@@ -137,37 +142,53 @@ const readBoolean = (body: RestJsonBody, key: string): boolean | undefined => {
   return parsed.success ? parsed.data : undefined;
 };
 
+const toRestJsonBody = (
+  entries: readonly (readonly [string, JsonValue | undefined])[]
+): RestJsonBody => {
+  const body: RestJsonBody = {};
+  for (const [key, value] of entries) {
+    if (value !== undefined) {
+      body[key] = value;
+    }
+  }
+  return body;
+};
+
 const normalizeRestInput = (
   capabilityId: string,
   raw: RestJsonBody
 ): RestJsonBody => {
   switch (capabilityId) {
     case "list_versies": {
-      return {
-        aanvraagId: readString(raw, "id") ?? readString(raw, "aanvraagId"),
-      };
+      return toRestJsonBody([
+        ["aanvraagId", readString(raw, "id") ?? readString(raw, "aanvraagId")],
+      ]);
     }
     case "markeer_aanvraag": {
-      return {
-        aanvraagId: readString(raw, "id") ?? readString(raw, "aanvraagId"),
-        reden: raw.reden ?? null,
-        status: raw.status,
-      };
+      return toRestJsonBody([
+        ["aanvraagId", readString(raw, "id") ?? readString(raw, "aanvraagId")],
+        ["reden", raw.reden ?? null],
+        ["status", raw.status],
+      ]);
     }
     case "get_bron":
     case "get_bron_health":
     case "start_run":
     case "start_test_import": {
-      return { bronId: readString(raw, "id") ?? readString(raw, "bronId") };
+      return toRestJsonBody([
+        ["bronId", readString(raw, "id") ?? readString(raw, "bronId")],
+      ]);
     }
     case "ack_alert": {
-      return { alertId: readString(raw, "id") ?? readString(raw, "alertId") };
+      return toRestJsonBody([
+        ["alertId", readString(raw, "id") ?? readString(raw, "alertId")],
+      ]);
     }
     case "read_raw": {
-      return {
-        full: readBoolean(raw, "full"),
-        ref: readString(raw, "ref") ?? readString(raw, "id"),
-      };
+      return toRestJsonBody([
+        ["full", readBoolean(raw, "full")],
+        ["ref", readString(raw, "ref") ?? readString(raw, "id")],
+      ]);
     }
     default: {
       return raw;
@@ -185,12 +206,12 @@ const parseRestQuery = (url: string): RestQuery => {
 };
 
 const invokeRest = (
-  registry: AnyRegistry,
+  registry: SliceARegistry,
   route: RestRouteSpec,
   input: RestJsonBody,
   principal: InvocationPrincipal | null,
   requestId: string
-): Promise<InvocationResult<unknown, { readonly code: string }>> =>
+): Promise<RegistryInvocationResult> =>
   registry.createInvoker({
     capabilityId: route.capabilityId,
     operation: route.operation,
@@ -198,7 +219,7 @@ const invokeRest = (
   })(input, { principal, requestId });
 
 export const createRestCapabilityHandler =
-  (registry: AnyRegistry, routes: readonly RestRouteSpec[]) =>
+  (registry: SliceARegistry, routes: readonly RestRouteSpec[]) =>
   async (context: Context): Promise<Response> => {
     const requestId = createRequestId();
     const principal = parseAuthHeader(context.req.header("Authorization"));
@@ -242,27 +263,26 @@ export const createRestCapabilityHandler =
         "requestId" in result.error
           ? invocationErrorStatus(code)
           : domainErrorStatus(code);
-      // SAFETY: Invocation and domain failures are JSON-serializable registry envelopes.
-      return jsonResponse(status, result as JsonValue);
+      return jsonResponse(status, serializeRegistryJson(result));
     }
-    // SAFETY: Successful capability outputs are JSON-serializable registry values.
-    return jsonResponse(200, result.value as JsonValue);
+    // SAFETY: The registry validated this value against the capability output schema.
+    return jsonResponse(200, serializeRegistryJson(result.value as JsonValue));
   };
 
 export const invokeMcpTool = (
-  registry: AnyRegistry,
+  registry: SliceARegistry,
   toolName: string,
   args: RestJsonBody,
   principal: InvocationPrincipal | null,
   requestId: string
-): Promise<InvocationResult<unknown, { readonly code: string }>> =>
+): Promise<RegistryInvocationResult> =>
   registry.createInvoker({
     capabilityId: toolName,
     operation: toolName,
     transport: "mcp",
   })(args, { principal, requestId });
 
-export const mcpToolsFromRegistry = (registry: AnyRegistry) =>
+export const mcpToolsFromRegistry = (registry: SliceARegistry) =>
   registry.catalog.flatMap((descriptor) =>
     descriptor.bindings
       .filter((binding) => binding.transport === "mcp")

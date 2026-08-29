@@ -1,15 +1,13 @@
-import type { CapabilityRegistry } from "@ji/application/registry";
 import type { Context } from "hono";
 
 import { createRequestId, parseAuthHeader } from "./auth";
+import type { SliceARegistry } from "./registry-types";
 import { invokeMcpTool, mcpToolsFromRegistry } from "./rest";
 import {
   jsonRpcRequestSchema,
   mcpToolsCallParamsSchema,
 } from "./transport-boundary";
 import type { JsonRpcRequest, JsonRpcResult } from "./transport-boundary";
-
-type AnyRegistry = CapabilityRegistry<readonly { readonly id: string }[]>;
 
 const jsonRpcResponse = (
   id: JsonRpcRequest["id"],
@@ -22,7 +20,7 @@ const jsonRpcError = (
   message: string
 ): Response => Response.json({ error: { code, message }, id, jsonrpc: "2.0" });
 
-export const createMcpHandler = (registry: AnyRegistry) => {
+export const createMcpHandler = (registry: SliceARegistry) => {
   const tools = mcpToolsFromRegistry(registry);
   return async (context: Context): Promise<Response> => {
     let rawBody: unknown;

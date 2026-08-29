@@ -15,6 +15,7 @@ import {
   createRestCapabilityHandler,
   restRoutesFromRegistry,
 } from "./capabilities/rest";
+import { createReadinessHandler } from "./readiness";
 
 const DEFAULT_PORT = 3000;
 const SHUTDOWN_DRAIN_TIMEOUT_MS = 10_000;
