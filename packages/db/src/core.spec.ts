@@ -143,6 +143,21 @@ describe("core schema migrations", () => {
     await Promise.all(forbiddenChecks);
   });
 
+  it("keeps legacy observation migration fail-closed and history-aware", async () => {
+    const migrationSql = await Bun.file(
+      path.join(migrationsFolder, "0001_u3_durable_ingestion.sql")
+    ).text();
+
+    expect(migrationSql).not.toContain('source."content_hash"');
+    expect(migrationSql).toContain(
+      "Cannot migrate aanvraag observations without an immutable payload contentHash"
+    );
+    expect(migrationSql).toContain(
+      "Cannot migrate duplicate aanvraag observation replay keys"
+    );
+    expect(migrationSql).toContain('LAG("content_hash") OVER');
+  });
+
   it("keeps migration and runtime roles non-superuser and runtime read-only for DDL", async () => {
     if (!postgresAvailable || !sqlClient) {
       expect(postgresAvailable).toBe(false);
@@ -206,7 +221,7 @@ describe("core schema migrations", () => {
     }
   });
 
-  it("rejects duplicate source_record hash per bron", async () => {
+  it("allows the same content hash for distinct source references", async () => {
     if (!postgresAvailable || !db) {
       expect(postgresAvailable).toBe(false);
       return;
@@ -237,17 +252,68 @@ describe("core schema migrations", () => {
       scrapeRunId: runRow.id,
     });
 
+    const duplicateHashRows = await db
+      .insert(sourceRecord)
+      .values({
+        bronId: bronRow.id,
+        bronReferentie: "TN-2",
+        contentHash: "hash-a",
+        rawPayloadRef: "raw/tenderned/2026/08/28/run/tn-2.json",
+        scrapeRunId: runRow.id,
+      })
+      .returning({ id: sourceRecord.id });
+    expect(duplicateHashRows).toHaveLength(1);
+  });
+
+  it("rejects activation unless the bron is ready and allowed", async () => {
+    if (!postgresAvailable || !db) {
+      expect(postgresAvailable).toBe(false);
+      return;
+    }
+
     await expect(
       Promise.resolve(
-        db.insert(sourceRecord).values({
-          bronId: bronRow.id,
-          bronReferentie: "TN-2",
-          contentHash: "hash-a",
-          rawPayloadRef: "raw/tenderned/2026/08/28/run/tn-2.json",
-          scrapeRunId: runRow.id,
+        db.insert(bron).values({
+          actief: true,
+          categorie: "overheidsportaal",
+          naam: "Unsafe active source",
+          status: "deferred",
+          voorwaardenStatus: "toegestaan",
         })
       )
     ).rejects.toThrow();
+  });
+
+  it("rejects plaintext secret references through direct DML", async () => {
+    if (!postgresAvailable || !db) {
+      expect(postgresAvailable).toBe(false);
+      return;
+    }
+
+    const bronId = crypto.randomUUID();
+    await expect(
+      Promise.resolve(
+        db.execute(sql`
+          INSERT INTO curated.bron (
+            id,
+            categorie,
+            naam,
+            secret_ref
+          ) VALUES (
+            ${bronId},
+            'overheidsportaal',
+            'Unsafe plaintext secret source',
+            'plaintext-secret'
+          )
+        `)
+      )
+    ).rejects.toThrow();
+
+    const persisted = await db
+      .select({ id: bron.id })
+      .from(bron)
+      .where(sql`${bron.id} = ${bronId}`);
+    expect(persisted).toHaveLength(0);
   });
 
   it("rejects aanvraag insert without bron_id", async () => {

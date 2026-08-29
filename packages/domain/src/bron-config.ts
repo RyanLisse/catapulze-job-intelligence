@@ -88,19 +88,19 @@ export const validateBronConfig = (
   }
 
   if (
-    !Number.isFinite(input.rateLimitPerMinute) ||
+    !Number.isInteger(input.rateLimitPerMinute) ||
     input.rateLimitPerMinute < 1
   ) {
     issues.push({
       field: "rateLimitPerMinute",
-      message: "rateLimitPerMinute must be at least 1",
+      message: "rateLimitPerMinute must be a positive integer",
     });
   }
 
-  if (!Number.isFinite(input.crawlDelayMs) || input.crawlDelayMs < 0) {
+  if (!Number.isInteger(input.crawlDelayMs) || input.crawlDelayMs < 0) {
     issues.push({
       field: "crawlDelayMs",
-      message: "crawlDelayMs must be zero or positive",
+      message: "crawlDelayMs must be a nonnegative integer",
     });
   }
 

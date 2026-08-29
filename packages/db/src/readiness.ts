@@ -7,6 +7,21 @@ export type DbReadinessResult =
 
 type ReadLatestMigration = () => Promise<string | null>;
 
+interface MigrationJournal {
+  entries: readonly { when: number }[];
+}
+
+export const resolveExpectedMigrationTimestamp = (
+  journal: MigrationJournal
+): string => {
+  const latestMigration = journal.entries.at(-1);
+  if (!latestMigration) {
+    throw new Error("Migration journal must contain at least one entry");
+  }
+
+  return String(latestMigration.when);
+};
+
 export const evaluateDbReadiness = async (
   expectedMigrationTimestamp: string,
   readLatestMigration: ReadLatestMigration

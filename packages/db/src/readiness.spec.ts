@@ -1,10 +1,39 @@
 import { describe, expect, it } from "bun:test";
 
-import { evaluateDbReadiness } from "./readiness";
+import migrationJournal from "./migrations/meta/_journal.json";
+import {
+  evaluateDbReadiness,
+  resolveExpectedMigrationTimestamp,
+} from "./readiness";
 
-const expectedMigrationTimestamp = "1787901031567";
+const expectedMigrationTimestamp = "1787990667949";
 
 describe("database readiness", () => {
+  it("derives the current expected migration from the latest journal entry", () => {
+    expect(migrationJournal.entries.at(-1)).toMatchObject({
+      idx: 1,
+      tag: "0001_u3_durable_ingestion",
+      when: Number(expectedMigrationTimestamp),
+    });
+    expect(resolveExpectedMigrationTimestamp(migrationJournal)).toBe(
+      expectedMigrationTimestamp
+    );
+  });
+
+  it("selects the newest migration timestamp", () => {
+    expect(
+      resolveExpectedMigrationTimestamp({
+        entries: [{ when: 1 }, { when: 2 }],
+      })
+    ).toBe("2");
+  });
+
+  it("rejects an empty migration journal", () => {
+    expect(() => resolveExpectedMigrationTimestamp({ entries: [] })).toThrow(
+      "Migration journal must contain at least one entry"
+    );
+  });
+
   it("is ready when the latest migration matches", async () => {
     const result = await evaluateDbReadiness(expectedMigrationTimestamp, () =>
       Promise.resolve(expectedMigrationTimestamp)

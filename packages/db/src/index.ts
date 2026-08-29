@@ -2,11 +2,24 @@ import { env } from "@ji/env/server";
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 
+import migrationJournal from "./migrations/meta/_journal.json";
 import type { DbReadinessResult } from "./readiness";
-import { evaluateDbReadiness } from "./readiness";
+import {
+  evaluateDbReadiness,
+  resolveExpectedMigrationTimestamp,
+} from "./readiness";
 import * as schema from "./schema";
 
-const EXPECTED_MIGRATION_TIMESTAMP = "1787901031567";
+export {
+  PostgresBronPersistence,
+  PostgresObservationRecorder,
+  PostgresRunStore,
+  type ActivateBronInput,
+  type BronRuntimeDatabase,
+} from "./bron-runtime";
+
+const EXPECTED_MIGRATION_TIMESTAMP =
+  resolveExpectedMigrationTimestamp(migrationJournal);
 
 const sqlClient = postgres(env.DATABASE_URL, {
   connect_timeout: 5,
