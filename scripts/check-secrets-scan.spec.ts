@@ -21,7 +21,10 @@ describe("check-secrets-scan", () => {
     const fake = ["AKIA", "IOSFODNN7EXAMPLE"].join("");
     expect(
       collectSecretViolations("fixture.ts", `const k = "${fake}";`)
-    ).toEqual([`fixture.ts looks like an AWS access key (${fake})`]);
+    ).toEqual(["fixture.ts looks like an AWS access key"]);
+    expect(
+      collectSecretViolations("fixture.ts", fake).join("\n")
+    ).not.toContain(fake);
   });
 
   it("does not treat .env.example placeholders as secrets", () => {
@@ -56,8 +59,41 @@ describe("check-secrets-scan", () => {
       );
 
       expect(await scanTrackedFiles(workspace)).toEqual([
-        `src/config.ts looks like an AWS access key (${fake})`,
+        "src/config.ts looks like an AWS access key",
       ]);
+    } finally {
+      rmSync(workspace, { force: true, recursive: true });
+    }
+  });
+
+  it("scans files sequentially and fails closed on oversized input", async () => {
+    const workspace = mkdtempSync(path.join(tmpdir(), "ji-secret-scan-size-"));
+
+    try {
+      writeFileSync(path.join(workspace, "large.txt"), "12345");
+      expect(await scanTrackedFiles(workspace, 4)).toEqual([
+        "large.txt exceeds the 4-byte secret-scan limit",
+      ]);
+    } finally {
+      rmSync(workspace, { force: true, recursive: true });
+    }
+  });
+
+  it("ignores inherited repository-local Git bindings", async () => {
+    const workspace = mkdtempSync(path.join(tmpdir(), "ji-secret-scan-git-"));
+    const fake = ["AKIA", "IOSFODNN7EXAMPLE"].join("");
+
+    try {
+      writeFileSync(path.join(workspace, "config.ts"), fake);
+      expect(
+        await scanTrackedFiles(workspace, undefined, {
+          ...process.env,
+          GIT_COMMON_DIR: "/invalid/common",
+          GIT_DIR: "/invalid/git-dir",
+          GIT_INDEX_FILE: "/invalid/index",
+          GIT_WORK_TREE: "/invalid/work-tree",
+        })
+      ).toEqual(["config.ts looks like an AWS access key"]);
     } finally {
       rmSync(workspace, { force: true, recursive: true });
     }

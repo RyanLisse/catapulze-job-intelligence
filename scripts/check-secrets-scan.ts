@@ -4,6 +4,19 @@ import path from "node:path";
 const AWS_ACCESS_KEY = /AKIA[0-9A-Z]{16}/gu;
 const GITHUB_PAT = /ghp_[A-Za-z0-9]{36}/gu;
 const OPENAI_LIVE = /sk-live-[A-Za-z0-9]{20,}/gu;
+const MAX_SCAN_FILE_BYTES = 10 * 1024 * 1024;
+const REPOSITORY_LOCAL_GIT_VARIABLES = [
+  "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+  "GIT_COMMON_DIR",
+  "GIT_DIR",
+  "GIT_GRAFT_FILE",
+  "GIT_INDEX_FILE",
+  "GIT_OBJECT_DIRECTORY",
+  "GIT_PREFIX",
+  "GIT_REPLACE_REF_BASE",
+  "GIT_SHALLOW_FILE",
+  "GIT_WORK_TREE",
+] as const;
 
 const skipPath = (filePath: string): boolean =>
   filePath.endsWith(".spec.ts") ||
@@ -18,21 +31,21 @@ export const collectSecretViolations = (
     return [];
   }
   const violations: string[] = [];
-  const awsKeys = source.match(AWS_ACCESS_KEY) ?? [];
-  for (const key of awsKeys) {
-    violations.push(`${filePath} looks like an AWS access key (${key})`);
+  if (AWS_ACCESS_KEY.test(source)) {
+    violations.push(`${filePath} looks like an AWS access key`);
   }
+  AWS_ACCESS_KEY.lastIndex = 0;
   if (source.includes("-----BEGIN") && source.includes("PRIVATE KEY-----")) {
     violations.push(`${filePath} contains a PEM private key block`);
   }
-  const pats = source.match(GITHUB_PAT) ?? [];
-  for (const token of pats) {
-    violations.push(`${filePath} looks like a GitHub PAT (${token})`);
+  if (GITHUB_PAT.test(source)) {
+    violations.push(`${filePath} looks like a GitHub PAT`);
   }
-  const openaiKeys = source.match(OPENAI_LIVE) ?? [];
-  for (const token of openaiKeys) {
-    violations.push(`${filePath} looks like a live OpenAI key (${token})`);
+  GITHUB_PAT.lastIndex = 0;
+  if (OPENAI_LIVE.test(source)) {
+    violations.push(`${filePath} looks like a live OpenAI key`);
   }
+  OPENAI_LIVE.lastIndex = 0;
   return violations;
 };
 
@@ -67,18 +80,31 @@ const listWorkspaceFiles = async (
 
 const readIfPresent = async (
   rootDir: string,
-  relativePath: string
-): Promise<string | null> => {
+  relativePath: string,
+  maxFileBytes: number
+): Promise<{ source: string | null; tooLarge: boolean }> => {
   const file = Bun.file(`${rootDir}/${relativePath}`);
-  if (await file.exists()) {
-    return file.text();
+  if (!(await file.exists())) {
+    return { source: null, tooLarge: false };
   }
-  return null;
+  if (file.size > maxFileBytes) {
+    return { source: null, tooLarge: true };
+  }
+  return { source: await file.text(), tooLarge: false };
 };
 
-export const scanTrackedFiles = async (rootDir: string): Promise<string[]> => {
+export const scanTrackedFiles = async (
+  rootDir: string,
+  maxFileBytes = MAX_SCAN_FILE_BYTES,
+  environment: NodeJS.ProcessEnv = process.env
+): Promise<string[]> => {
+  const gitEnvironment = { ...environment };
+  for (const variable of REPOSITORY_LOCAL_GIT_VARIABLES) {
+    gitEnvironment[variable] = undefined;
+  }
   const proc = Bun.spawn(["git", "ls-files"], {
     cwd: rootDir,
+    env: gitEnvironment,
     stderr: "pipe",
     stdout: "pipe",
   });
@@ -92,14 +118,20 @@ export const scanTrackedFiles = async (rootDir: string): Promise<string[]> => {
   });
   const paths =
     gitExitCode === 0 ? listedPaths : await listWorkspaceFiles(rootDir);
-  const sources = await Promise.all(
-    paths.map(async (relativePath) => {
-      const source = await readIfPresent(rootDir, relativePath);
-      return { relativePath, source };
-    })
-  );
   const violations: string[] = [];
-  for (const { relativePath, source } of sources) {
+  for (const relativePath of paths) {
+    // oxlint-disable-next-line eslint/no-await-in-loop -- sequential reads bound scan memory
+    const { source, tooLarge } = await readIfPresent(
+      rootDir,
+      relativePath,
+      maxFileBytes
+    );
+    if (tooLarge) {
+      violations.push(
+        `${relativePath} exceeds the ${maxFileBytes}-byte secret-scan limit`
+      );
+      continue;
+    }
     if (source === null) {
       continue;
     }

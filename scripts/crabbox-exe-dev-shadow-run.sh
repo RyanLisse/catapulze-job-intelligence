@@ -11,13 +11,17 @@ for argument in "$@"; do
 done
 
 source_git_sha="$(git rev-parse --verify HEAD)"
-if [[ ! "$source_git_sha" =~ ^[0-9a-f]{40}$ ]]; then
+if [[ ! "$source_git_sha" =~ ^([0-9a-f]{40}|[0-9a-f]{64})$ ]]; then
   printf 'exe.dev shadow: could not bind the run to a full Git commit SHA\n' >&2
   exit 1
 fi
 
 source_git_state="clean"
-if [[ -n "$(git status --porcelain=v1 --untracked-files=all)" ]]; then
+if ! source_git_status="$(git status --porcelain=v1 --untracked-files=all)"; then
+  printf 'exe.dev shadow: could not determine the source Git state\n' >&2
+  exit 1
+fi
+if [[ -n "$source_git_status" ]]; then
   source_git_state="dirty"
 fi
 

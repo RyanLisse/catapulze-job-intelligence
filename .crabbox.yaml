@@ -50,6 +50,8 @@ sync:
     # tracked templates. The root Compose template is generated from fixed
     # non-secret defaults by the clean-room script when gitSeed is absent.
     - ".env*"
+    - .fireflies-request.json
+    - .fireflies-transcript.json
     - "!apps/server/.env.example"
     - "!apps/web/.env.example"
 

@@ -19,7 +19,10 @@ const createExecutable = (filePath: string, contents: string): void => {
   chmodSync(filePath, 0o755);
 };
 
-const createLauncherFixture = () => {
+const createLauncherFixture = (
+  sourceShaValue = sourceSha,
+  statusExitCode = 0
+) => {
   const workspace = mkdtempSync(path.join(tmpdir(), "ji-shadow-launcher-"));
   const binDirectory = path.join(workspace, "bin");
   const argumentsFile = path.join(workspace, "arguments");
@@ -30,8 +33,8 @@ const createLauncherFixture = () => {
     `#!/usr/bin/env bash
 set -euo pipefail
 case "$*" in
-  "rev-parse --verify HEAD") printf '%s\\n' "${sourceSha}" ;;
-  "status --porcelain=v1 --untracked-files=all") ;;
+  "rev-parse --verify HEAD") printf '%s\\n' "${sourceShaValue}" ;;
+  "status --porcelain=v1 --untracked-files=all") exit ${statusExitCode} ;;
   *) exit 64 ;;
 esac
 `
@@ -108,6 +111,54 @@ describe("exe.dev shadow scripts", () => {
     }
   });
 
+  test("accepts SHA-256 object ids and exports their complete value", () => {
+    const sha256ObjectId = "b".repeat(64);
+    const fixture = createLauncherFixture(sha256ObjectId);
+    try {
+      const result = Bun.spawnSync(["bash", launcher, "--dry-run"], {
+        env: {
+          ...process.env,
+          CAPTURE_ARGUMENTS: fixture.argumentsFile,
+          CAPTURE_ENVIRONMENT: fixture.environmentFile,
+          PATH: `${fixture.binDirectory}:${process.env.PATH ?? "/usr/bin:/bin"}`,
+        },
+        stderr: "pipe",
+        stdout: "pipe",
+      });
+
+      expect(result.exitCode).toBe(0);
+      expect(readFileSync(fixture.environmentFile, "utf-8")).toBe(
+        `${sha256ObjectId}\nclean\n`
+      );
+    } finally {
+      rmSync(fixture.workspace, { force: true, recursive: true });
+    }
+  });
+
+  test("fails closed when Git status cannot determine source state", () => {
+    const fixture = createLauncherFixture(sourceSha, 70);
+    try {
+      const result = Bun.spawnSync(["bash", launcher, "--dry-run"], {
+        env: {
+          ...process.env,
+          CAPTURE_ARGUMENTS: fixture.argumentsFile,
+          CAPTURE_ENVIRONMENT: fixture.environmentFile,
+          PATH: `${fixture.binDirectory}:${process.env.PATH ?? "/usr/bin:/bin"}`,
+        },
+        stderr: "pipe",
+        stdout: "pipe",
+      });
+
+      expect(result.exitCode).not.toBe(0);
+      expect(result.stderr.toString()).toContain(
+        "could not determine the source Git state"
+      );
+      expect(() => readFileSync(fixture.argumentsFile)).toThrow();
+    } finally {
+      rmSync(fixture.workspace, { force: true, recursive: true });
+    }
+  });
+
   test("preserves intermediate shell-function failures in a phase", () => {
     const workspace = mkdtempSync(path.join(tmpdir(), "ji-shadow-phase-"));
     try {
@@ -146,5 +197,67 @@ grep -q '"exitStatus":23' .artifacts/crabbox/exe-dev-shadow/phases.jsonl
     } finally {
       rmSync(workspace, { force: true, recursive: true });
     }
+  });
+
+  test("clears inherited database requirements from the unit phase", () => {
+    const workspace = mkdtempSync(path.join(tmpdir(), "ji-shadow-unit-"));
+    const binDirectory = path.join(workspace, "bin");
+    const captureFile = path.join(workspace, "unit-environment");
+    mkdirSync(binDirectory);
+    createExecutable(
+      path.join(binDirectory, "bun"),
+      `#!/usr/bin/env bash
+set -euo pipefail
+printf '%s\\n' "\${DATABASE_URL-unset}" "\${DATABASE_TEST_URL-unset}" "\${DATABASE_APP_TEST_URL-unset}" "\${MIGRATION_DATABASE_URL-unset}" "\${REQUIRE_DATABASE_TESTS-unset}" >"$CAPTURE_FILE"
+`
+    );
+
+    try {
+      const result = Bun.spawnSync(
+        ["bash", "-c", 'source "$SHADOW_SCRIPT"; run_unit_suite'],
+        {
+          cwd: workspace,
+          env: {
+            ...process.env,
+            CAPTURE_FILE: captureFile,
+            DATABASE_APP_TEST_URL: "inherited",
+            DATABASE_TEST_URL: "inherited",
+            DATABASE_URL: "inherited",
+            MIGRATION_DATABASE_URL: "inherited",
+            PATH: `${binDirectory}:${process.env.PATH ?? "/usr/bin:/bin"}`,
+            REQUIRE_DATABASE_TESTS: "1",
+            SHADOW_SCRIPT: shadowScript,
+          },
+          stderr: "pipe",
+          stdout: "pipe",
+        }
+      );
+
+      expect(result.stderr.toString()).toBe("");
+      expect(result.exitCode).toBe(0);
+      expect(readFileSync(captureFile, "utf-8")).toBe(
+        "unset\nunset\nunset\nunset\nunset\n"
+      );
+    } finally {
+      rmSync(workspace, { force: true, recursive: true });
+    }
+  });
+
+  test("accepts both Git object formats in remote fingerprints", () => {
+    const result = Bun.spawnSync(
+      [
+        "bash",
+        "-c",
+        'source "$SHADOW_SCRIPT"; is_valid_git_oid "$(printf a%.0s {1..40})"; is_valid_git_oid "$(printf b%.0s {1..64})"; ! is_valid_git_oid "$(printf c%.0s {1..63})"',
+      ],
+      {
+        env: { ...process.env, SHADOW_SCRIPT: shadowScript },
+        stderr: "pipe",
+        stdout: "pipe",
+      }
+    );
+
+    expect(result.stderr.toString()).toBe("");
+    expect(result.exitCode).toBe(0);
   });
 });

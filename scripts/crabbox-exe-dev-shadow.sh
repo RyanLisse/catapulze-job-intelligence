@@ -44,6 +44,10 @@ json_escape() {
   printf '%s' "$value"
 }
 
+is_valid_git_oid() {
+  [[ "$1" =~ ^([0-9a-fA-F]{40}|[0-9a-fA-F]{64})$ ]]
+}
+
 record_phase() {
   local label="$1"
   local started_at="$2"
@@ -179,7 +183,7 @@ write_fingerprint() {
   # when the caller explicitly transfers it; otherwise preserve that absence.
   git_sha="${CRABBOX_SOURCE_GIT_SHA:-unavailable}"
   git_state="${CRABBOX_SOURCE_GIT_STATE:-unavailable}"
-  if [[ ! "$git_sha" =~ ^[0-9a-fA-F]{40}$ ]]; then
+  if ! is_valid_git_oid "$git_sha"; then
     git_sha="unavailable"
   fi
   if [[ "$git_state" != "clean" && "$git_state" != "dirty" && "$git_state" != "unavailable" ]]; then
@@ -317,6 +321,20 @@ run_database_integration() {
       --reporter-outfile="$DATABASE_JUNIT_FILE"
 }
 
+run_unit_suite() {
+  env \
+    -u DATABASE_APP_TEST_URL \
+    -u DATABASE_TEST_URL \
+    -u DATABASE_URL \
+    -u MIGRATION_DATABASE_URL \
+    -u REQUIRE_DATABASE_TESTS \
+    bun test \
+      --max-concurrency 2 \
+      --path-ignore-patterns '**/dist/**' \
+      --reporter=junit \
+      --reporter-outfile="$JUNIT_FILE"
+}
+
 finalize_evidence() {
   write_fingerprint
   write_report
@@ -351,8 +369,7 @@ main() {
   run_phase "typecheck" "bun run check-types -- --concurrency=2" bun run check-types -- --concurrency=2
   run_phase "layering" "bun run check-layering" bun run check-layering
   run_phase "secret-scan" "bun run check-secrets" bun run check-secrets
-  run_phase "unit" "bun test --max-concurrency 2 --reporter=junit" \
-    bun test --max-concurrency 2 --path-ignore-patterns '**/dist/**' --reporter=junit --reporter-outfile="$JUNIT_FILE"
+  run_phase "unit" "bun test --max-concurrency 2 --reporter=junit" run_unit_suite
 
   write_compose_env
   set -a
