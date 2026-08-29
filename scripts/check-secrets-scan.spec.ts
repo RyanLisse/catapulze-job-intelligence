@@ -118,6 +118,24 @@ describe("check-secrets-scan", () => {
     }
   });
 
+  it("excludes local dotenv files while retaining example templates", async () => {
+    const workspace = mkdtempSync(path.join(tmpdir(), "ji-secret-scan-env-"));
+    const fake = ["AKIA", "IOSFODNN7EXAMPLE"].join("");
+
+    try {
+      mkdirSync(path.join(workspace, "apps/server"), { recursive: true });
+      writeFileSync(path.join(workspace, "apps/server/.env"), fake);
+      writeFileSync(path.join(workspace, "apps/server/.env.local"), fake);
+      writeFileSync(path.join(workspace, "apps/server/.env.example"), fake);
+
+      expect(await scanTrackedFiles(workspace)).toEqual([
+        "apps/server/.env.example looks like an AWS access key",
+      ]);
+    } finally {
+      rmSync(workspace, { force: true, recursive: true });
+    }
+  });
+
   it("scans files sequentially and fails closed on oversized input", async () => {
     const workspace = mkdtempSync(path.join(tmpdir(), "ji-secret-scan-size-"));
 

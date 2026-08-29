@@ -73,6 +73,14 @@ const isScannable = (relativePath: string): boolean => {
   );
 };
 
+const isLocalDotenv = (relativePath: string): boolean => {
+  const fileName = path.posix.basename(relativePath);
+  return (
+    fileName === ".env" ||
+    (fileName.startsWith(".env.") && fileName !== ".env.example")
+  );
+};
+
 const listWorkspaceFiles = async (
   rootDir: string,
   relativeDirectory = ""
@@ -88,7 +96,9 @@ const listWorkspaceFiles = async (
       if (entry.isDirectory()) {
         return listWorkspaceFiles(rootDir, relativePath);
       }
-      return entry.isFile() ? [relativePath] : [];
+      return entry.isFile() && !isLocalDotenv(relativePath)
+        ? [relativePath]
+        : [];
     })
   );
 

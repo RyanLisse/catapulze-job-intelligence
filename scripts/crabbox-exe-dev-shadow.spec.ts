@@ -61,6 +61,7 @@ describe("exe.dev shadow scripts", () => {
           CAPTURE_ARGUMENTS: fixture.argumentsFile,
           CAPTURE_ENVIRONMENT: fixture.environmentFile,
           CRABBOX_EXE_DEV_CONTROL_HOST: "exe.dev",
+          EXE_DEV_REGION: "FRA",
           PATH: `${fixture.binDirectory}:${process.env.PATH ?? "/usr/bin:/bin"}`,
         },
         stderr: "pipe",
@@ -96,6 +97,7 @@ describe("exe.dev shadow scripts", () => {
             CAPTURE_ARGUMENTS: fixture.argumentsFile,
             CAPTURE_ENVIRONMENT: fixture.environmentFile,
             CRABBOX_EXE_DEV_CONTROL_HOST: "exe.dev",
+            EXE_DEV_REGION: "FRA",
             PATH: `${fixture.binDirectory}:${process.env.PATH ?? "/usr/bin:/bin"}`,
           },
           stderr: "pipe",
@@ -122,6 +124,7 @@ describe("exe.dev shadow scripts", () => {
           CAPTURE_ARGUMENTS: fixture.argumentsFile,
           CAPTURE_ENVIRONMENT: fixture.environmentFile,
           CRABBOX_EXE_DEV_CONTROL_HOST: controlHost,
+          EXE_DEV_REGION: "FRA",
           PATH: `${fixture.binDirectory}:${process.env.PATH ?? "/usr/bin:/bin"}`,
         };
         if (controlHost === undefined) {
@@ -145,6 +148,37 @@ describe("exe.dev shadow scripts", () => {
     }
   });
 
+  test("requires the configured region before invoking Crabbox", () => {
+    for (const region of [undefined, "AMS"]) {
+      const fixture = createLauncherFixture();
+      try {
+        const environment = {
+          ...process.env,
+          CAPTURE_ARGUMENTS: fixture.argumentsFile,
+          CAPTURE_ENVIRONMENT: fixture.environmentFile,
+          CRABBOX_EXE_DEV_CONTROL_HOST: "exe.dev",
+          EXE_DEV_REGION: region,
+          PATH: `${fixture.binDirectory}:${process.env.PATH ?? "/usr/bin:/bin"}`,
+        };
+        if (region === undefined) {
+          delete environment.EXE_DEV_REGION;
+        }
+
+        const result = Bun.spawnSync(["bash", launcher, "--dry-run"], {
+          env: environment,
+          stderr: "pipe",
+          stdout: "pipe",
+        });
+
+        expect(result.exitCode).not.toBe(0);
+        expect(result.stderr.toString()).toContain("set EXE_DEV_REGION=FRA");
+        expect(() => readFileSync(fixture.argumentsFile)).toThrow();
+      } finally {
+        rmSync(fixture.workspace, { force: true, recursive: true });
+      }
+    }
+  });
+
   test("accepts SHA-256 object ids and exports their complete value", () => {
     const sha256ObjectId = "b".repeat(64);
     const fixture = createLauncherFixture(sha256ObjectId);
@@ -155,6 +189,7 @@ describe("exe.dev shadow scripts", () => {
           CAPTURE_ARGUMENTS: fixture.argumentsFile,
           CAPTURE_ENVIRONMENT: fixture.environmentFile,
           CRABBOX_EXE_DEV_CONTROL_HOST: "exe.dev",
+          EXE_DEV_REGION: "FRA",
           PATH: `${fixture.binDirectory}:${process.env.PATH ?? "/usr/bin:/bin"}`,
         },
         stderr: "pipe",
@@ -179,6 +214,7 @@ describe("exe.dev shadow scripts", () => {
           CAPTURE_ARGUMENTS: fixture.argumentsFile,
           CAPTURE_ENVIRONMENT: fixture.environmentFile,
           CRABBOX_EXE_DEV_CONTROL_HOST: "exe.dev",
+          EXE_DEV_REGION: "FRA",
           PATH: `${fixture.binDirectory}:${process.env.PATH ?? "/usr/bin:/bin"}`,
         },
         stderr: "pipe",
@@ -295,6 +331,21 @@ printf '%s\\n' "\${DATABASE_URL-unset}" "\${DATABASE_TEST_URL-unset}" "\${DATABA
 
     expect(result.stderr.toString()).toBe("");
     expect(result.exitCode).toBe(0);
+  });
+
+  test("records the effective Crabbox profile", () => {
+    const result = Bun.spawnSync(
+      ["bash", "-c", 'source "$SHADOW_SCRIPT"; printf "%s\\n" "$PROFILE"'],
+      {
+        env: { ...process.env, SHADOW_SCRIPT: shadowScript },
+        stderr: "pipe",
+        stdout: "pipe",
+      }
+    );
+
+    expect(result.stderr.toString()).toBe("");
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout.toString()).toBe("exe-dev-shadow\n");
   });
 
   test("includes imported fixtures in the correctness dataset manifest", () => {
