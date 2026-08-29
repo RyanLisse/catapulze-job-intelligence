@@ -13,6 +13,7 @@ import {
   createBron,
   isPollableBron,
   listPublicBronnen,
+  mapPublicBronnen,
   validateSecretRef,
 } from "./register";
 import type { BronPersistence, BronRegisterRecord } from "./register";
@@ -66,19 +67,115 @@ describe("bron register", () => {
     expect(created.record.actief).toBe(false);
   });
 
-  it("lists bronnen without exposing secret values", () => {
+  it("lists persisted bronnen without exposing secret values", async () => {
+    const lastRun = {
+      changed: 2,
+      closed: 1,
+      error: 0,
+      failure: null,
+      found: 24,
+      geindigd: new Date("2026-08-29T10:01:00Z"),
+      gestart: new Date("2026-08-29T10:00:00Z"),
+      new: 3,
+      rejected: 0,
+      scrapeRunId: "run-latest",
+      status: "succeeded",
+    };
+    const record: BronRegisterRecord = {
+      ...tendernedBron(),
+      actief: false,
+      bronId: "bron-1",
+      lastRun,
+      secretRef: "trigger://tenderned/api-key",
+      status: "deferred",
+    };
+    let listCalls = 0;
+    const persistence: BronPersistence = {
+      ...persistenceFor(record),
+      list: () => {
+        listCalls += 1;
+        return Promise.resolve([record]);
+      },
+    };
+
+    const [view] = await listPublicBronnen(persistence);
+    expect(listCalls).toBe(1);
+    expect(view?.hasSecretRef).toBe(true);
+    expect(view?.status).toBe("deferred");
+    expect(view?.lastRun).toEqual(lastRun);
+    expect(JSON.stringify(view)).not.toContain("trigger://");
+    expect(JSON.stringify(view)).not.toContain("secretRef");
+  });
+
+  it("keeps public mapping available as a pure helper", () => {
     const record: BronRegisterRecord = {
       ...tendernedBron(),
       actief: false,
       bronId: "bron-1",
       lastRun: null,
-      secretRef: "trigger://tenderned/api-key",
-      status: "deferred",
     };
 
-    const [view] = listPublicBronnen([record]);
-    expect(view?.hasSecretRef).toBe(true);
-    expect(JSON.stringify(view)).not.toContain("trigger://");
+    expect(mapPublicBronnen([record])).toEqual([
+      expect.objectContaining({ bronId: "bron-1", hasSecretRef: false }),
+    ]);
+  });
+
+  it("normalizes blank optional secret references before persistence", () => {
+    const created = createBron({ ...tendernedBron(), secretRef: "   " });
+    expect(created.ok).toBe(true);
+    if (!created.ok) {
+      return;
+    }
+
+    expect(created.record.secretRef).toBeNull();
+  });
+
+  it("rejects non-positive and fractional retention periods", () => {
+    for (const retentionDays of [0, -1, 1.5, Number.NaN]) {
+      const created = createBron({ ...tendernedBron(), retentionDays });
+      expect(created).toEqual({
+        issues: [
+          {
+            field: "retentionDays",
+            message: "retentionDays must be a positive integer",
+          },
+        ],
+        ok: false,
+      });
+    }
+  });
+
+  it("rejects fractional rate limits and crawl delays", () => {
+    expect(createBron({ ...tendernedBron(), rateLimitPerMinute: 1.5 })).toEqual(
+      {
+        issues: [
+          {
+            field: "rateLimitPerMinute",
+            message: "rateLimitPerMinute must be a positive integer",
+          },
+        ],
+        ok: false,
+      }
+    );
+    expect(createBron({ ...tendernedBron(), crawlDelayMs: 0.5 })).toEqual({
+      issues: [
+        {
+          field: "crawlDelayMs",
+          message: "crawlDelayMs must be a nonnegative integer",
+        },
+      ],
+      ok: false,
+    });
+  });
+
+  it("accepts a zero crawl delay", () => {
+    const created = createBron({ ...tendernedBron(), crawlDelayMs: 0 });
+    expect(created.ok).toBe(true);
+    if (!created.ok) {
+      return;
+    }
+
+    expect(created.record.crawlDelayMs).toBe(0);
   });
 
   it("does not expose boolean-only activation", () => {
@@ -206,7 +303,7 @@ describe("bron register", () => {
     const record = {
       ...tendernedBron(),
       actief: true,
-      bronId: "bron-1",
+      bronId: "bron-concurrent",
       lastRun: null,
       status: "ready" as const,
     };
@@ -214,9 +311,9 @@ describe("bron register", () => {
     const waits: number[] = [];
     const executeOnce = (scrapeRunId: string) =>
       execute(persistenceFor(record), {
-        bronId: "bron-1",
+        bronId: record.bronId,
         connector: {
-          bronId: "bron-1",
+          bronId: record.bronId,
           discover: () =>
             Promise.resolve({ checkpoint: {}, hasMore: false, items: [] }),
           fetch: () => Promise.resolve(null),
@@ -236,6 +333,85 @@ describe("bron register", () => {
     await Promise.all([executeOnce("run-1"), executeOnce("run-2")]);
 
     expect(waits).toEqual([2000]);
+  });
+
+  it("preserves limiter windows across sequential runs for the same bron", async () => {
+    const record = {
+      ...tendernedBron(),
+      actief: true,
+      bronId: "bron-sequential",
+      lastRun: null,
+      status: "ready" as const,
+    };
+    let now = 0;
+    const waits: number[] = [];
+    const wait = (milliseconds: number) => {
+      waits.push(milliseconds);
+      now += milliseconds;
+      return Promise.resolve();
+    };
+    const executeOnce = (scrapeRunId: string) =>
+      execute(persistenceFor(record), {
+        bronId: record.bronId,
+        connector: {
+          bronId: record.bronId,
+          discover: () =>
+            Promise.resolve({ checkpoint: {}, hasMore: false, items: [] }),
+          fetch: () => Promise.resolve(null),
+        },
+        now: () => now,
+        objectStore: new InMemoryObjectStore(),
+        observationRecorder: new InMemoryObservationRecorder(),
+        runLifecycleStore: new InMemoryRunLifecycleStore(),
+        scrapeRunId,
+        wait,
+      });
+
+    await executeOnce("run-sequential-1");
+    await executeOnce("run-sequential-2");
+
+    expect(waits).toEqual([2000]);
+  });
+
+  it("refreshes idle limiter state when persisted policy changes", async () => {
+    let now = 0;
+    const waits: number[] = [];
+    const executeOnce = (scrapeRunId: string, rateLimitPerMinute: number) =>
+      execute(
+        persistenceFor({
+          ...tendernedBron(),
+          actief: true,
+          bronId: "bron-policy-refresh",
+          lastRun: null,
+          rateLimitPerMinute,
+          status: "ready" as const,
+        }),
+        {
+          bronId: "bron-policy-refresh",
+          connector: {
+            bronId: "bron-policy-refresh",
+            discover: () =>
+              Promise.resolve({ checkpoint: {}, hasMore: false, items: [] }),
+            fetch: () => Promise.resolve(null),
+          },
+          now: () => now,
+          objectStore: new InMemoryObjectStore(),
+          observationRecorder: new InMemoryObservationRecorder(),
+          runLifecycleStore: new InMemoryRunLifecycleStore(),
+          scrapeRunId,
+          wait: (milliseconds) => {
+            waits.push(milliseconds);
+            now += milliseconds;
+            return Promise.resolve();
+          },
+        }
+      );
+
+    await executeOnce("run-policy-1", 30);
+    await executeOnce("run-policy-2", 60);
+    await executeOnce("run-policy-3", 60);
+
+    expect(waits).toEqual([2000, 1000]);
   });
 
   it("isolates limiter windows across concurrent runs for distinct bronnen", async () => {

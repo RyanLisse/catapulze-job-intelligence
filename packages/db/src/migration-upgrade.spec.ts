@@ -86,8 +86,22 @@ describe.serial("0000 to 0001 observation migration", () => {
       return;
     }
     await client.unsafe(`
-      INSERT INTO curated.bron (id, categorie, naam)
-      VALUES ('10000000-0000-0000-0000-000000000001', 'test', 'Legacy source');
+      INSERT INTO curated.bron (id, categorie, config_ref, naam, schedule)
+      VALUES
+        (
+          '10000000-0000-0000-0000-000000000001',
+          'test',
+          'mappings/legacy-source-v1.json',
+          'Legacy source',
+          '*/17 * * * *'
+        ),
+        (
+          '10000000-0000-0000-0000-000000000002',
+          'test',
+          '   ',
+          'Blank schedule',
+          '   '
+        );
 
       INSERT INTO curated.scrape_run (id, bron_id)
       VALUES
@@ -96,12 +110,23 @@ describe.serial("0000 to 0001 observation migration", () => {
         ('20000000-0000-0000-0000-000000000003', '10000000-0000-0000-0000-000000000001');
 
       INSERT INTO curated.scrape_run (id, bron_id, status, geindigd)
-      VALUES (
-        '20000000-0000-0000-0000-000000000004',
-        '10000000-0000-0000-0000-000000000001',
-        'failed',
-        '2026-08-29T09:00:00.000Z'
-      );
+      VALUES
+        (
+          '20000000-0000-0000-0000-000000000004',
+          '10000000-0000-0000-0000-000000000001',
+          'failed',
+          '2026-08-29T09:00:00.000Z'
+        ),
+        (
+          '20000000-0000-0000-0000-000000000005',
+          '10000000-0000-0000-0000-000000000001',
+          'succeeded',
+          NULL
+        );
+
+      UPDATE curated.scrape_run
+      SET gestart = '2026-08-29T08:30:00.000Z'
+      WHERE id = '20000000-0000-0000-0000-000000000005';
 
       INSERT INTO staging.source_record (
         id,
@@ -198,6 +223,44 @@ describe.serial("0000 to 0001 observation migration", () => {
       failurePhase: "unknown",
       fenceToken: "0",
     });
+    const intervals = await client<{ id: string; interval: string }[]>`
+      SELECT id::text, interval
+      FROM curated.bron
+      ORDER BY id
+    `;
+    expect([...intervals]).toEqual([
+      {
+        id: "10000000-0000-0000-0000-000000000001",
+        interval: "*/17 * * * *",
+      },
+      {
+        id: "10000000-0000-0000-0000-000000000002",
+        interval: "0 * * * *",
+      },
+    ]);
+    const mappings = await client<{ id: string; mappingRef: string | null }[]>`
+      SELECT id::text, mapping_ref AS "mappingRef"
+      FROM curated.bron
+      ORDER BY id
+    `;
+    expect([...mappings]).toEqual([
+      {
+        id: "10000000-0000-0000-0000-000000000001",
+        mappingRef: "mappings/legacy-source-v1.json",
+      },
+      {
+        id: "10000000-0000-0000-0000-000000000002",
+        mappingRef: null,
+      },
+    ]);
+    const [legacyTerminalRun] = await client<{ geindigd: Date }[]>`
+      SELECT geindigd
+      FROM curated.scrape_run
+      WHERE id = '20000000-0000-0000-0000-000000000005'
+    `;
+    expect(legacyTerminalRun?.geindigd).toEqual(
+      new Date("2026-08-29T08:30:00.000Z")
+    );
   });
 
   it("rolls the migration back atomically when a payload hash is missing", async () => {

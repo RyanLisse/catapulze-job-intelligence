@@ -701,6 +701,39 @@ describe("runConnector", () => {
     expect(result.metrics).toMatchObject({ changed: 1, new: 1 });
   });
 
+  it("counts a replayed observation only once per executor invocation", async () => {
+    const dependencies = runDependencies("run-same-invocation-replay");
+    const result = await runConnector({
+      ...dependencies,
+      bronId: "bron-same-invocation-replay",
+      bronSlug: "same-invocation-replay",
+      connector: {
+        bronId: "bron-same-invocation-replay",
+        discover: () =>
+          Promise.resolve({
+            checkpoint: { page: 1 },
+            hasMore: false,
+            items: [
+              { bronReferentie: "REF-1", contentHash: "hash-1" },
+              { bronReferentie: "REF-1", contentHash: "hash-1" },
+            ],
+          }),
+        fetch: (item) =>
+          Promise.resolve({
+            body: new TextEncoder().encode(item.contentHash),
+            bronReferentie: item.bronReferentie,
+            contentHash: item.contentHash,
+            contentType: "json",
+            status: "fetched",
+          }),
+      },
+    });
+
+    expect(result.metrics).toMatchObject({ changed: 0, new: 1 });
+    expect(result.writtenRecords).toBe(1);
+    expect(dependencies.observationRecorder.observations).toHaveLength(1);
+  });
+
   it("scopes checkpoints by run and treats explicit null as a reset", async () => {
     const dependencies = runDependencies("run-pages");
     const key = { bronId: "bron-pages", scrapeRunId: "run-pages" };

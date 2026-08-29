@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import path from "node:path";
 
-import { createBron, toPublicBronView } from "@ji/application/bronnen";
+import { createBron, listPublicBronnen } from "@ji/application/bronnen";
 import {
   CONNECTOR_OBSERVATION_CONTRACT_VERSION,
   InMemoryObjectStore,
@@ -19,6 +19,7 @@ import {
   PostgresObservationRecorder,
   PostgresRunStore,
 } from "./bron-runtime";
+import type { BronRuntimeDatabase } from "./bron-runtime";
 import * as schema from "./schema";
 import { aanvraagObservation, bron, scrapeRun, sourceRecord } from "./schema";
 
@@ -43,6 +44,69 @@ const isPostgresAvailable = async (): Promise<boolean> => {
     await probe.end({ timeout: 1 }).catch(() => {});
     return false;
   }
+};
+
+const persistActivationObservations = async (
+  database: BronRuntimeDatabase,
+  bronId: string,
+  scrapeRunId: string,
+  count = 20
+): Promise<void> => {
+  const records = Array.from({ length: count }, (_, index) => ({
+    bronId,
+    bronReferentie: `activation-${scrapeRunId}-${index}`,
+    contentHash: `activation-hash-${index}`,
+    id: crypto.randomUUID(),
+    rawPayloadRef: `raw/activation/${scrapeRunId}/${index}.json`,
+    scrapeRunId,
+  }));
+  if (records.length === 0) {
+    return;
+  }
+  await database.insert(sourceRecord).values(records);
+  await database.insert(aanvraagObservation).values(
+    records.map((record, index) => ({
+      bronId,
+      contentHash: record.contentHash,
+      outcome: "new",
+      payload: {
+        contentHash: record.contentHash,
+        observedAt: new Date(Date.UTC(2026, 7, 29, 9, 0, index)).toISOString(),
+      },
+      scrapeRunId,
+      sourceRecordId: record.id,
+    }))
+  );
+};
+
+const persistSingleRecordObservations = async (
+  database: BronRuntimeDatabase,
+  bronId: string,
+  scrapeRunId: string,
+  count: number
+): Promise<void> => {
+  const record = {
+    bronId,
+    bronReferentie: `single-record-${scrapeRunId}`,
+    contentHash: "single-record-current-hash",
+    id: crypto.randomUUID(),
+    rawPayloadRef: `raw/activation/${scrapeRunId}/single.json`,
+    scrapeRunId,
+  };
+  await database.insert(sourceRecord).values(record);
+  await database.insert(aanvraagObservation).values(
+    Array.from({ length: count }, (_, index) => ({
+      bronId,
+      contentHash: `single-record-hash-${index}`,
+      outcome: index === 0 ? "new" : "changed",
+      payload: {
+        contentHash: `single-record-hash-${index}`,
+        observedAt: new Date(Date.UTC(2026, 7, 29, 10, 0, index)).toISOString(),
+      },
+      scrapeRunId,
+      sourceRecordId: record.id,
+    }))
+  );
 };
 
 describe("durable bron runtime adapters", () => {
@@ -73,6 +137,7 @@ describe("durable bron runtime adapters", () => {
 
     const bronId = crypto.randomUUID();
     const scrapeRunId = crypto.randomUUID();
+    const testImportRunId = crypto.randomUUID();
     const firstClient = postgres(applicationUrl, { max: 1 });
     const firstDb = drizzle(firstClient, { schema });
     const bronRepository = new PostgresBronPersistence(firstDb);
@@ -100,7 +165,6 @@ describe("durable bron runtime adapters", () => {
 
     try {
       await bronRepository.create(created.record);
-      const testImportRunId = crypto.randomUUID();
       const testKey = { bronId, scrapeRunId: testImportRunId };
       const testRun = await runStore.start({
         key: testKey,
@@ -115,6 +179,7 @@ describe("durable bron runtime adapters", () => {
         key: testKey,
         progress: { checkpoint: null, metrics: emptyRunMetrics() },
       });
+      await persistActivationObservations(firstDb, bronId, testImportRunId);
       await bronRepository.activate({ bronId, testImportRunId });
       const key = { bronId, scrapeRunId };
       const pollRun = await runStore.start({
@@ -318,12 +383,18 @@ describe("durable bron runtime adapters", () => {
       const allObservations = await secondDb
         .select()
         .from(aanvraagObservation)
-        .where(eq(aanvraagObservation.bronId, bronId));
+        .where(eq(aanvraagObservation.scrapeRunId, scrapeRunId));
       expect(allObservations).toHaveLength(4);
       expect(allObservations[0]?.payload).toMatchObject({
         contractVersion: CONNECTOR_OBSERVATION_CONTRACT_VERSION,
         sourceRecordId: expect.any(String),
       });
+      expect(
+        await secondDb
+          .select()
+          .from(aanvraagObservation)
+          .where(eq(aanvraagObservation.scrapeRunId, testImportRunId))
+      ).toHaveLength(20);
       const [failedRun] = await secondDb
         .select()
         .from(scrapeRun)
@@ -720,6 +791,214 @@ describe("durable bron runtime adapters", () => {
     }
   });
 
+  it("keeps the source pointer on the canonically newest run and observation", async () => {
+    if (!available) {
+      expect(available).toBe(false);
+      return;
+    }
+    const client = postgres(applicationUrl, { max: 2 });
+    const database = drizzle(client, { schema });
+    const bronId = crypto.randomUUID();
+    const olderRunId = crypto.randomUUID();
+    const newerRunId = crypto.randomUUID();
+    const store = new PostgresRunStore(database);
+    const recorder = new PostgresObservationRecorder(database);
+    const progress = { checkpoint: null, metrics: emptyRunMetrics() };
+    try {
+      await database.insert(bron).values({
+        categorie: "runtime-test",
+        id: bronId,
+        naam: `Pointer ordering ${bronId}`,
+      });
+      const olderRun = await store.start({
+        key: { bronId, scrapeRunId: olderRunId },
+        mode: "reset",
+        progress,
+        runKind: "poll",
+        startedAt: new Date("2026-08-29T09:00:00Z"),
+      });
+      const newerRun = await store.start({
+        key: { bronId, scrapeRunId: newerRunId },
+        mode: "reset",
+        progress,
+        runKind: "poll",
+        startedAt: new Date("2026-08-29T10:00:00Z"),
+      });
+      const record = (
+        scrapeRunId: string,
+        fenceToken: number,
+        contentHash: string,
+        observedAt: string
+      ) =>
+        recorder.record({
+          fenceToken,
+          key: { bronId, scrapeRunId },
+          observation: {
+            bronId,
+            bronReferentie: "overlapping-reference",
+            contentHash,
+            contentType: "json",
+            contractVersion: CONNECTOR_OBSERVATION_CONTRACT_VERSION,
+            observedAt,
+            rawPayloadRef: `raw/pointer/${contentHash}.json`,
+            scrapeRunId,
+          },
+          sourceRecord: {
+            bronId,
+            bronReferentie: "overlapping-reference",
+            contentHash,
+            rawPayloadRef: `raw/pointer/${contentHash}.json`,
+            scrapeRunId,
+          },
+        });
+
+      await record(
+        newerRunId,
+        newerRun.fenceToken,
+        "newer-run-hash",
+        "2026-08-29T10:01:00.000Z"
+      );
+      await record(
+        olderRunId,
+        olderRun.fenceToken,
+        "older-run-late-arrival",
+        "2026-08-29T11:00:00.000Z"
+      );
+      await record(
+        newerRunId,
+        newerRun.fenceToken,
+        "newest-observation-hash",
+        "2026-08-29T10:02:00.000Z"
+      );
+      await record(
+        newerRunId,
+        newerRun.fenceToken,
+        "out-of-order-observation-hash",
+        "2026-08-29T10:00:30.000Z"
+      );
+
+      const [pointer] = await database
+        .select()
+        .from(sourceRecord)
+        .where(eq(sourceRecord.bronId, bronId));
+      expect(pointer).toMatchObject({
+        contentHash: "newest-observation-hash",
+        rawPayloadRef: "raw/pointer/newest-observation-hash.json",
+        scrapeRunId: newerRunId,
+      });
+      expect(
+        await database
+          .select()
+          .from(aanvraagObservation)
+          .where(eq(aanvraagObservation.bronId, bronId))
+      ).toHaveLength(4);
+    } finally {
+      await database.delete(bron).where(eq(bron.id, bronId));
+      await client.end({ timeout: 5 });
+    }
+  });
+
+  it("classifies against arrival state while canonically repairing a history-divergent pointer", async () => {
+    if (!available) {
+      expect(available).toBe(false);
+      return;
+    }
+    const client = postgres(applicationUrl, { max: 1 });
+    const database = drizzle(client, { schema });
+    const bronId = crypto.randomUUID();
+    const scrapeRunId = crypto.randomUUID();
+    const sourceRecordId = crypto.randomUUID();
+    const key = { bronId, scrapeRunId };
+    const store = new PostgresRunStore(database);
+    const recorder = new PostgresObservationRecorder(database);
+    try {
+      await database.insert(bron).values({
+        categorie: "runtime-test",
+        id: bronId,
+        naam: `Divergent pointer ${bronId}`,
+      });
+      const run = await store.start({
+        key,
+        mode: "reset",
+        progress: { checkpoint: null, metrics: emptyRunMetrics() },
+        runKind: "poll",
+        startedAt: new Date("2026-08-29T09:00:00Z"),
+      });
+      await database.insert(sourceRecord).values({
+        bronId,
+        bronReferentie: "divergent-reference",
+        contentHash: "legacy-current-hash",
+        id: sourceRecordId,
+        rawPayloadRef: "raw/divergent/legacy-current.json",
+        scrapeRunId,
+      });
+      await database.insert(aanvraagObservation).values([
+        {
+          bronId,
+          contentHash: "history-later-hash",
+          outcome: "changed",
+          payload: {
+            contentHash: "history-later-hash",
+            observedAt: "2026-08-29T12:00:00.000Z",
+          },
+          scrapeRunId,
+          sourceRecordId,
+        },
+        {
+          bronId,
+          contentHash: "legacy-current-hash",
+          outcome: "changed",
+          payload: {
+            contentHash: "legacy-current-hash",
+            observedAt: "2026-08-29T10:00:00.000Z",
+          },
+          scrapeRunId,
+          sourceRecordId,
+        },
+      ]);
+
+      const result = await recorder.record({
+        fenceToken: run.fenceToken,
+        key,
+        observation: {
+          bronId,
+          bronReferentie: "divergent-reference",
+          contentHash: "arrival-hash",
+          contentType: "json",
+          contractVersion: CONNECTOR_OBSERVATION_CONTRACT_VERSION,
+          observedAt: "2026-08-29T11:00:00.000Z",
+          rawPayloadRef: "raw/divergent/arrival.json",
+          scrapeRunId,
+        },
+        sourceRecord: {
+          bronId,
+          bronReferentie: "divergent-reference",
+          contentHash: "arrival-hash",
+          rawPayloadRef: "raw/divergent/arrival.json",
+          scrapeRunId,
+        },
+      });
+
+      expect(result).toEqual({ outcome: "changed", sourceRecordId });
+      const [pointer] = await database
+        .select()
+        .from(sourceRecord)
+        .where(eq(sourceRecord.id, sourceRecordId));
+      expect(pointer).toMatchObject({
+        contentHash: "arrival-hash",
+        rawPayloadRef: "raw/divergent/arrival.json",
+      });
+      const [arrivalObservation] = await database
+        .select()
+        .from(aanvraagObservation)
+        .where(eq(aanvraagObservation.contentHash, "arrival-hash"));
+      expect(arrivalObservation?.outcome).toBe("changed");
+    } finally {
+      await database.delete(bron).where(eq(bron.id, bronId));
+      await client.end({ timeout: 5 });
+    }
+  });
+
   it("rejects partial and invalid persisted failure envelopes", async () => {
     if (!available) {
       expect(available).toBe(false);
@@ -783,6 +1062,9 @@ describe("durable bron runtime adapters", () => {
     const failedRunId = crypto.randomUUID();
     const runningRunId = crypto.randomUUID();
     const otherRunId = crypto.randomUUID();
+    const emptySucceededRunId = crypto.randomUUID();
+    const repeatedRecordRunId = crypto.randomUUID();
+    const allowedRunId = crypto.randomUUID();
     const forbiddenRunId = crypto.randomUUID();
     const unknownRunId = crypto.randomUUID();
     try {
@@ -849,6 +1131,27 @@ describe("durable bron runtime adapters", () => {
           status: "succeeded",
         },
         {
+          bronId: allowedId,
+          geindigd: new Date(),
+          id: emptySucceededRunId,
+          runKind: "test",
+          status: "succeeded",
+        },
+        {
+          bronId: allowedId,
+          geindigd: new Date(),
+          id: allowedRunId,
+          runKind: "test",
+          status: "succeeded",
+        },
+        {
+          bronId: allowedId,
+          geindigd: new Date(),
+          id: repeatedRecordRunId,
+          runKind: "test",
+          status: "succeeded",
+        },
+        {
           bronId: forbiddenId,
           geindigd: new Date(),
           id: forbiddenRunId,
@@ -863,20 +1166,50 @@ describe("durable bron runtime adapters", () => {
           status: "succeeded",
         },
       ]);
+      await persistSingleRecordObservations(
+        database,
+        allowedId,
+        repeatedRecordRunId,
+        20
+      );
+      await persistActivationObservations(database, allowedId, allowedRunId);
+      await persistActivationObservations(
+        database,
+        forbiddenId,
+        forbiddenRunId
+      );
+      await persistActivationObservations(database, unknownId, unknownRunId);
       await Promise.all(
-        [pollRunId, failedRunId, runningRunId, otherRunId].map(
-          (testImportRunId) =>
-            expect(
-              repository.activate({ bronId: allowedId, testImportRunId })
-            ).rejects.toThrow("succeeded test-import")
+        [
+          pollRunId,
+          failedRunId,
+          runningRunId,
+          otherRunId,
+          emptySucceededRunId,
+        ].map((testImportRunId) =>
+          expect(
+            repository.activate({ bronId: allowedId, testImportRunId })
+          ).rejects.toThrow("succeeded test-import")
         )
       );
+      await expect(
+        repository.activate({
+          bronId: allowedId,
+          testImportRunId: repeatedRecordRunId,
+        })
+      ).rejects.toThrow("distinct persisted source records");
       await expect(
         repository.activate({
           bronId: forbiddenId,
           testImportRunId: forbiddenRunId,
         })
       ).rejects.toThrow();
+      await expect(
+        repository.activate({
+          bronId: allowedId,
+          testImportRunId: allowedRunId,
+        })
+      ).resolves.toMatchObject({ actief: true, status: "ready" });
       await expect(
         repository.activate({
           bronId: unknownId,
@@ -892,7 +1225,7 @@ describe("durable bron runtime adapters", () => {
     }
   });
 
-  it("round-trips opaque secret references without exposing them publicly", async () => {
+  it("lists persisted operator state without exposing opaque secret references", async () => {
     if (!available) {
       expect(available).toBe(false);
       return;
@@ -920,11 +1253,47 @@ describe("durable bron runtime adapters", () => {
     }
     try {
       await repository.create(created.record);
+      const olderRunId = crypto.randomUUID();
+      const latestRunId = crypto.randomUUID();
+      await database.insert(scrapeRun).values([
+        {
+          aantalGevonden: 5,
+          bronId,
+          geindigd: new Date("2026-08-29T09:01:00Z"),
+          gestart: new Date("2026-08-29T09:00:00Z"),
+          id: olderRunId,
+          nieuw: 5,
+          status: "succeeded",
+        },
+        {
+          bronId,
+          failureClass: "internal",
+          failureCode: "UNEXPECTED_FAILURE",
+          failureMessage: "Connector run failed",
+          failurePhase: "unknown",
+          fouten: 1,
+          geindigd: new Date("2026-08-29T10:01:00Z"),
+          gestart: new Date("2026-08-29T10:00:00Z"),
+          id: latestRunId,
+          status: "failed",
+        },
+      ]);
       const restored = await repository.findById(bronId);
       expect(restored?.secretRef).toBe("op://vault/source/api-token");
-      expect(
-        JSON.stringify(restored && toPublicBronView(restored))
-      ).not.toContain("op://vault");
+      const publicBronnen = await listPublicBronnen(repository);
+      const publicBron = publicBronnen.find((view) => view.bronId === bronId);
+      expect(publicBron).toMatchObject({
+        hasSecretRef: true,
+        lastRun: {
+          error: 1,
+          scrapeRunId: latestRunId,
+          status: "failed",
+        },
+        status: "deferred",
+      });
+      const serialized = JSON.stringify(publicBron);
+      expect(serialized).not.toContain("secretRef");
+      expect(serialized).not.toContain("op://vault/source/api-token");
       const missingSecret = createBron({
         ...created.record,
         bronId: missingSecretId,

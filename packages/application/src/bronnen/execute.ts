@@ -3,6 +3,7 @@ import type {
   Connector,
   ObjectStore,
   ObservationRecorder,
+  RequestLimiter,
   RetryPolicy,
   RunLifecycleStore,
 } from "@ji/connectors";
@@ -27,10 +28,38 @@ export interface ExecuteBronRunInput {
 
 interface ActiveLimiter {
   activeRuns: number;
-  limiter: CrawlDelayLimiter;
+  limiter: RequestLimiter;
+  policy: LimiterPolicy;
+  replacementLimiter?: CrawlDelayLimiter;
 }
 
 const activeLimiters = new Map<BronId, ActiveLimiter>();
+
+type LimiterPolicy = Pick<
+  ConstructorParameters<typeof CrawlDelayLimiter>[0],
+  "crawlDelayMs" | "rateLimitPerMinute"
+>;
+
+const hasSamePolicy = (
+  current: LimiterPolicy,
+  requested: LimiterPolicy
+): boolean =>
+  current.crawlDelayMs === requested.crawlDelayMs &&
+  current.rateLimitPerMinute === requested.rateLimitPerMinute;
+
+const transitionLimiterPolicy = (
+  previous: RequestLimiter,
+  next: CrawlDelayLimiter
+): RequestLimiter => {
+  let previousWindow: Promise<void> | undefined;
+  return {
+    acquire: async (bronId) => {
+      previousWindow ??= previous.acquire(bronId);
+      await previousWindow;
+      await next.acquire(bronId);
+    },
+  };
+};
 
 const acquireLimiter = (
   bronId: BronId,
@@ -38,21 +67,47 @@ const acquireLimiter = (
 ): ActiveLimiter => {
   const activeLimiter = activeLimiters.get(bronId);
   if (activeLimiter) {
+    const requestedPolicy = {
+      crawlDelayMs: options.crawlDelayMs,
+      rateLimitPerMinute: options.rateLimitPerMinute,
+    };
+    if (!hasSamePolicy(activeLimiter.policy, requestedPolicy)) {
+      if (activeLimiter.activeRuns > 0) {
+        throw new Error("bron limiter policy changed during an active run");
+      }
+      const replacementLimiter = new CrawlDelayLimiter(options);
+      const refreshed = {
+        activeRuns: 1,
+        limiter: transitionLimiterPolicy(
+          activeLimiter.limiter,
+          replacementLimiter
+        ),
+        policy: requestedPolicy,
+        replacementLimiter,
+      };
+      activeLimiters.set(bronId, refreshed);
+      return refreshed;
+    }
     activeLimiter.activeRuns += 1;
     return activeLimiter;
   }
   const created = {
     activeRuns: 1,
     limiter: new CrawlDelayLimiter(options),
+    policy: {
+      crawlDelayMs: options.crawlDelayMs,
+      rateLimitPerMinute: options.rateLimitPerMinute,
+    },
   };
   activeLimiters.set(bronId, created);
   return created;
 };
 
-const releaseLimiter = (bronId: BronId, activeLimiter: ActiveLimiter): void => {
+const releaseLimiter = (activeLimiter: ActiveLimiter): void => {
   activeLimiter.activeRuns -= 1;
-  if (activeLimiter.activeRuns === 0) {
-    activeLimiters.delete(bronId);
+  if (activeLimiter.activeRuns === 0 && activeLimiter.replacementLimiter) {
+    activeLimiter.limiter = activeLimiter.replacementLimiter;
+    activeLimiter.replacementLimiter = undefined;
   }
 };
 
@@ -102,6 +157,6 @@ export const executeBronRun = async (
       writeNow: input.writeNow,
     });
   } finally {
-    releaseLimiter(input.bronId, activeLimiter);
+    releaseLimiter(activeLimiter);
   }
 };

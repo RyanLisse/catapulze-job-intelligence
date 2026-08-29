@@ -39,6 +39,33 @@ describe("bron config validation", () => {
     expect(issues.some((issue) => issue.field === "secretRef")).toBe(true);
   });
 
+  it("requires integer rate limits and crawl delays", () => {
+    expect(
+      validateBronConfig({
+        ...baseConfig(),
+        rateLimitPerMinute: 1.5,
+      })
+    ).toContainEqual({
+      field: "rateLimitPerMinute",
+      message: "rateLimitPerMinute must be a positive integer",
+    });
+    expect(
+      validateBronConfig({
+        ...baseConfig(),
+        crawlDelayMs: 0.5,
+      })
+    ).toContainEqual({
+      field: "crawlDelayMs",
+      message: "crawlDelayMs must be a nonnegative integer",
+    });
+  });
+
+  it("accepts a zero crawl delay", () => {
+    expect(validateBronConfig({ ...baseConfig(), crawlDelayMs: 0 })).toEqual(
+      []
+    );
+  });
+
   it("blocks verboden bron from becoming ready", () => {
     expect(canTransitionBronStatus("deferred", "ready", "verboden")).toBe(
       false

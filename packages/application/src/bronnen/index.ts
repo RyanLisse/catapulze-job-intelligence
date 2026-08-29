@@ -3,6 +3,7 @@ export {
   createBron,
   isPollableBron,
   listPublicBronnen,
+  mapPublicBronnen,
   toPublicBronView,
   type ActivateBronPersistenceInput,
   type ActivateBronRegisterResult,
@@ -11,6 +12,7 @@ export {
   type BronRegisterRecord,
   type CreateBronInput,
   type CreateBronResult,
+  type CreateBronValidationIssue,
   type PublicBronView,
   validateSecretRef,
 } from "./register";

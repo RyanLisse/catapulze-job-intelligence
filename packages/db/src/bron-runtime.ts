@@ -39,6 +39,8 @@ export interface ActivateBronInput {
   testImportRunId: string;
 }
 
+const MINIMUM_TEST_IMPORT_OBSERVATIONS = 20;
+
 const requireMutation = <Row>(rows: Row[], description: string): Row => {
   const [row] = rows;
   if (!row) {
@@ -271,6 +273,21 @@ export class PostgresBronPersistence implements BronPersistence {
       if (!testRun) {
         throw new Error(
           "A succeeded test-import run is required for activation"
+        );
+      }
+      const testObservations = await tx
+        .selectDistinct({ sourceRecordId: aanvraagObservation.sourceRecordId })
+        .from(aanvraagObservation)
+        .where(
+          and(
+            eq(aanvraagObservation.bronId, input.bronId),
+            eq(aanvraagObservation.scrapeRunId, input.testImportRunId)
+          )
+        )
+        .limit(MINIMUM_TEST_IMPORT_OBSERVATIONS);
+      if (testObservations.length < MINIMUM_TEST_IMPORT_OBSERVATIONS) {
+        throw new Error(
+          `A succeeded test-import with at least ${MINIMUM_TEST_IMPORT_OBSERVATIONS} distinct persisted source records is required for activation`
         );
       }
 
@@ -537,6 +554,112 @@ const requireWriteOutcome = (value: string): SourceRecordWriteOutcome => {
   return value;
 };
 
+interface SourcePointerOrder {
+  contentHash: string;
+  observedAt: string | null;
+  rawPayloadRef: string;
+  scrapeRunId: string;
+  startedAt: Date;
+}
+
+const compareText = (left: string, right: string): number => {
+  if (left < right) {
+    return -1;
+  }
+  if (left > right) {
+    return 1;
+  }
+  return 0;
+};
+
+const toTimestamp = (value: string | null, description: string): number => {
+  if (value === null) {
+    return Number.NEGATIVE_INFINITY;
+  }
+  const timestamp = new Date(value).getTime();
+  if (!Number.isFinite(timestamp)) {
+    throw new TypeError(`Invalid ${description}: ${value}`);
+  }
+  return timestamp;
+};
+
+const compareSourcePointerOrder = (
+  left: SourcePointerOrder,
+  right: SourcePointerOrder
+): number => {
+  const startedAtDifference =
+    left.startedAt.getTime() - right.startedAt.getTime();
+  if (startedAtDifference !== 0) {
+    return startedAtDifference;
+  }
+  const observedAtDifference =
+    toTimestamp(left.observedAt, "observation timestamp") -
+    toTimestamp(right.observedAt, "persisted observation timestamp");
+  if (observedAtDifference !== 0) {
+    return observedAtDifference;
+  }
+  const runDifference = compareText(left.scrapeRunId, right.scrapeRunId);
+  if (runDifference !== 0) {
+    return runDifference;
+  }
+  const hashDifference = compareText(left.contentHash, right.contentHash);
+  if (hashDifference === 0) {
+    return compareText(left.rawPayloadRef, right.rawPayloadRef);
+  }
+  return hashDifference;
+};
+
+type BronRuntimeTransaction = Parameters<
+  Parameters<BronRuntimeDatabase["transaction"]>[0]
+>[0];
+
+const shouldReplaceCurrentPointer = async (
+  tx: BronRuntimeTransaction,
+  sourceRecordId: string,
+  existing: typeof sourceRecord.$inferSelect,
+  candidate: SourcePointerOrder
+): Promise<boolean> => {
+  const [currentRun] = await tx
+    .select({ startedAt: scrapeRun.gestart })
+    .from(scrapeRun)
+    .where(eq(scrapeRun.id, existing.scrapeRunId))
+    .limit(1);
+  if (!currentRun) {
+    throw new Error("Current source-record run could not be read");
+  }
+  const [currentObservation] = await tx
+    .select({
+      observedAt: sql<
+        string | null
+      >`${aanvraagObservation.payload}->>'observedAt'`,
+    })
+    .from(aanvraagObservation)
+    .where(
+      and(
+        eq(aanvraagObservation.sourceRecordId, sourceRecordId),
+        eq(aanvraagObservation.scrapeRunId, existing.scrapeRunId),
+        eq(aanvraagObservation.contentHash, existing.contentHash)
+      )
+    )
+    .orderBy(
+      desc(sql`(${aanvraagObservation.payload}->>'observedAt')::timestamptz`),
+      desc(aanvraagObservation.contentHash),
+      desc(aanvraagObservation.id)
+    )
+    .limit(1);
+  return (
+    compareSourcePointerOrder(candidate, {
+      contentHash: existing.contentHash,
+      // Migrated pointers may lack a matching immutable observation. Null sorts
+      // before any valid timestamp so a canonical candidate can repair them.
+      observedAt: currentObservation?.observedAt ?? null,
+      rawPayloadRef: existing.rawPayloadRef,
+      scrapeRunId: existing.scrapeRunId,
+      startedAt: currentRun.startedAt,
+    }) > 0
+  );
+};
+
 export class PostgresObservationRecorder implements ObservationRecorder {
   private readonly database: BronRuntimeDatabase;
 
@@ -556,7 +679,7 @@ export class PostgresObservationRecorder implements ObservationRecorder {
         throw new RunOwnershipLostError();
       }
       const ownedRuns = await tx
-        .select({ id: scrapeRun.id })
+        .select({ id: scrapeRun.id, startedAt: scrapeRun.gestart })
         .from(scrapeRun)
         .where(
           and(
@@ -617,12 +740,27 @@ export class PostgresObservationRecorder implements ObservationRecorder {
 
       let outcome: SourceRecordWriteOutcome = "new";
       if (!insertedRow) {
+        // Outcome and its metrics describe the arrival-state delta. Canonical
+        // pointer ordering below intentionally does not reclassify history.
         outcome =
           existing?.contentHash === record.contentHash
             ? "unchanged"
             : "changed";
       }
-      if (existing) {
+      const [ownedRun] = ownedRuns;
+      if (!ownedRun) {
+        throw new RunOwnershipLostError();
+      }
+      if (
+        existing &&
+        (await shouldReplaceCurrentPointer(tx, sourceRecordId, existing, {
+          contentHash: record.contentHash,
+          observedAt: input.observation.observedAt,
+          rawPayloadRef: record.rawPayloadRef,
+          scrapeRunId: record.scrapeRunId,
+          startedAt: ownedRun.startedAt,
+        }))
+      ) {
         await tx
           .update(sourceRecord)
           .set({

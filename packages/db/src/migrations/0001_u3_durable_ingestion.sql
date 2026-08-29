@@ -3,8 +3,15 @@ ALTER TABLE "curated"."bron" ALTER COLUMN "ingestie_type" SET DEFAULT 'json-api'
 UPDATE "curated"."bron" SET "ingestie_type" = 'json-api' WHERE "ingestie_type" IS NULL;--> statement-breakpoint
 ALTER TABLE "curated"."bron" ALTER COLUMN "ingestie_type" SET NOT NULL;--> statement-breakpoint
 ALTER TABLE "curated"."bron" ADD COLUMN "crawl_delay_ms" integer DEFAULT 0 NOT NULL;--> statement-breakpoint
-ALTER TABLE "curated"."bron" ADD COLUMN "interval" text DEFAULT '0 * * * *' NOT NULL;--> statement-breakpoint
+ALTER TABLE "curated"."bron" ADD COLUMN "interval" text;--> statement-breakpoint
+UPDATE "curated"."bron"
+SET "interval" = COALESCE(NULLIF(BTRIM("schedule"), ''), '0 * * * *');--> statement-breakpoint
+ALTER TABLE "curated"."bron" ALTER COLUMN "interval" SET DEFAULT '0 * * * *';--> statement-breakpoint
+ALTER TABLE "curated"."bron" ALTER COLUMN "interval" SET NOT NULL;--> statement-breakpoint
 ALTER TABLE "curated"."bron" ADD COLUMN "mapping_ref" text;--> statement-breakpoint
+UPDATE "curated"."bron"
+SET "mapping_ref" = "config_ref"
+WHERE NULLIF(BTRIM("config_ref"), '') IS NOT NULL;--> statement-breakpoint
 ALTER TABLE "curated"."bron" ADD COLUMN "rate_limit_per_minute" integer DEFAULT 1 NOT NULL;--> statement-breakpoint
 ALTER TABLE "curated"."bron" ADD COLUMN "retention_days" integer DEFAULT 90 NOT NULL;--> statement-breakpoint
 ALTER TABLE "curated"."scrape_run" ADD COLUMN "checkpoint" jsonb;--> statement-breakpoint
@@ -94,6 +101,9 @@ ALTER TABLE "curated"."bron" ADD CONSTRAINT "bron_active_policy_check" CHECK ("c
 ALTER TABLE "curated"."scrape_run" ADD CONSTRAINT "scrape_run_status_check" CHECK ("curated"."scrape_run"."status" IN ('running', 'succeeded', 'failed', 'cancelled'));--> statement-breakpoint
 ALTER TABLE "curated"."scrape_run" ADD CONSTRAINT "scrape_run_kind_check" CHECK ("curated"."scrape_run"."run_kind" IN ('test', 'poll'));--> statement-breakpoint
 ALTER TABLE "curated"."scrape_run" ADD CONSTRAINT "scrape_run_metrics_nonnegative_check" CHECK ("curated"."scrape_run"."aantal_gevonden" >= 0 AND "curated"."scrape_run"."nieuw" >= 0 AND "curated"."scrape_run"."gewijzigd" >= 0 AND "curated"."scrape_run"."rejected" >= 0 AND "curated"."scrape_run"."gesloten" >= 0 AND "curated"."scrape_run"."fouten" >= 0);--> statement-breakpoint
+UPDATE "curated"."scrape_run"
+SET "geindigd" = COALESCE("gestart", "created_at", NOW())
+WHERE "status" <> 'running' AND "geindigd" IS NULL;--> statement-breakpoint
 ALTER TABLE "curated"."scrape_run" ADD CONSTRAINT "scrape_run_completion_check" CHECK (("curated"."scrape_run"."status" = 'running' AND "curated"."scrape_run"."geindigd" IS NULL) OR ("curated"."scrape_run"."status" <> 'running' AND "curated"."scrape_run"."geindigd" IS NOT NULL));--> statement-breakpoint
 UPDATE "curated"."scrape_run"
 SET

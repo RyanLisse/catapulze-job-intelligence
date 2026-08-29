@@ -1,5 +1,5 @@
 import type { RunFailureEnvelope } from "@ji/connectors";
-import type { BronConfig, BronId } from "@ji/domain";
+import type { BronConfig, BronConfigValidationIssue, BronId } from "@ji/domain";
 import {
   activateBron as validateActivation,
   shouldScheduleBronPoll,
@@ -79,7 +79,7 @@ export const toPublicBronView = (
   actief: record.actief,
   bronId: record.bronId,
   crawlDelayMs: record.crawlDelayMs,
-  hasSecretRef: Boolean(record.secretRef),
+  hasSecretRef: Boolean(record.secretRef?.trim()),
   interval: record.interval,
   lastRun: record.lastRun,
   loginVereist: record.loginVereist,
@@ -100,10 +100,15 @@ export type CreateBronInput = Omit<BronConfig, "bronId"> & {
 
 export type CreateBronResult =
   | { ok: true; record: BronRegisterRecord }
-  | { ok: false; issues: ReturnType<typeof validateBronConfig> };
+  | { ok: false; issues: CreateBronValidationIssue[] };
+
+export type CreateBronValidationIssue =
+  | BronConfigValidationIssue
+  | { field: "retentionDays"; message: string };
 
 export const createBron = (input: CreateBronInput): CreateBronResult => {
   const bronId = input.bronId ?? crypto.randomUUID();
+  const secretRef = input.secretRef?.trim() || null;
   const record: BronRegisterRecord = {
     actief: false,
     bronId,
@@ -117,14 +122,20 @@ export const createBron = (input: CreateBronInput): CreateBronResult => {
     naam: input.naam,
     rateLimitPerMinute: input.rateLimitPerMinute,
     retentionDays: input.retentionDays ?? 90,
-    secretRef: input.secretRef,
+    secretRef,
     status: input.status,
     voorwaardenStatus: input.voorwaardenStatus,
   };
 
-  const issues = validateBronConfig(record);
+  const issues: CreateBronValidationIssue[] = validateBronConfig(record);
   for (const message of validateSecretRef(record.secretRef)) {
     issues.push({ field: "secretRef", message });
+  }
+  if (!Number.isInteger(record.retentionDays) || record.retentionDays <= 0) {
+    issues.push({
+      field: "retentionDays",
+      message: "retentionDays must be a positive integer",
+    });
   }
   if (issues.length > 0) {
     return { issues, ok: false };
@@ -161,9 +172,13 @@ export const activateBron = async (
   };
 };
 
-export const listPublicBronnen = (
+export const mapPublicBronnen = (
   records: BronRegisterRecord[]
 ): PublicBronView[] => records.map(toPublicBronView);
+
+export const listPublicBronnen = async (
+  persistence: BronPersistence
+): Promise<PublicBronView[]> => mapPublicBronnen(await persistence.list());
 
 export const isPollableBron = (record: BronRegisterRecord): boolean =>
   record.actief && shouldScheduleBronPoll(record);

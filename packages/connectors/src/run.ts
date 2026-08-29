@@ -172,6 +172,7 @@ export const runConnector = async (
   const observedAt = canonicalRun.startedAt;
   let writtenRecords = metrics.new + metrics.changed;
   let hasMore = true;
+  const countedObservations = new Set<string>();
 
   const persistItem = async (
     item: DiscoverItem,
@@ -241,6 +242,11 @@ export const runConnector = async (
         }),
       FAILURE_ENVELOPES.observation
     );
+    const observationKey = `${fetched.bronReferentie}\0${contentHash}`;
+    if (countedObservations.has(observationKey)) {
+      return;
+    }
+    countedObservations.add(observationKey);
     if (sourceRecord.outcome === "new") {
       metrics.new += 1;
       writtenRecords += 1;
