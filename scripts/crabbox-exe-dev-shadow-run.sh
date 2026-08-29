@@ -39,7 +39,10 @@ repository_git() {
     unset GIT_REPLACE_REF_BASE
     unset GIT_SHALLOW_FILE
     unset GIT_WORK_TREE
-    git "$@"
+    # A refs/replace entry for HEAD would let rev-parse record the original
+    # object id while archive materializes the replacement tree. Disable
+    # replacement processing for every source-identity and archive call.
+    git --no-replace-objects "$@"
   )
 }
 
@@ -95,11 +98,27 @@ materialized_workspace="${materialization_root}/workspace"
 source_archive="${materialization_root}/source.tar"
 mkdir -p "$materialized_workspace"
 
-# shellcheck disable=SC2329 # invoked indirectly by the EXIT/interrupt trap
+# shellcheck disable=SC2329 # invoked indirectly by the EXIT trap
 cleanup_materialization() {
   rm -rf -- "$materialization_root"
 }
-trap cleanup_materialization EXIT INT TERM
+trap cleanup_materialization EXIT
+
+# Bash defers a trapped signal until a foreground child returns, so a bare
+# INT/TERM handler would let a paid Crabbox run continue to completion. Run
+# Crabbox as a managed child, forward the signal to it, and exit with the
+# signal status once it has been reaped.
+crabbox_pid=""
+received_signal=""
+# shellcheck disable=SC2329 # invoked indirectly by the INT/TERM traps
+forward_signal() {
+  received_signal="$1"
+  if [[ -n "$crabbox_pid" ]] && kill -0 "$crabbox_pid" 2>/dev/null; then
+    kill -s "$received_signal" "$crabbox_pid" 2>/dev/null || true
+  fi
+}
+trap 'forward_signal INT' INT
+trap 'forward_signal TERM' TERM
 
 materialization_started_ms="$(monotonic_ms)"
 repository_git -C "$workspace_root" archive \
@@ -139,10 +158,19 @@ rm -rf -- "$workspace_evidence"
 
 set +e
 (
-  cd "$materialized_workspace"
-  crabbox job run "$@" exe-dev-shadow
-)
+  cd "$materialized_workspace" || exit 1
+  exec crabbox job run "$@" exe-dev-shadow
+) &
+crabbox_pid=$!
+wait "$crabbox_pid"
 run_exit_status=$?
+# A trapped signal interrupts wait before the child exits; keep reaping until
+# the child is gone so its real exit status is observed.
+while kill -0 "$crabbox_pid" 2>/dev/null; do
+  wait "$crabbox_pid"
+  run_exit_status=$?
+done
+crabbox_pid=""
 set -e
 
 if [[ -d "$materialized_evidence" ]]; then
@@ -150,4 +178,8 @@ if [[ -d "$materialized_evidence" ]]; then
   rsync -a --delete "${materialized_evidence}/" "${workspace_evidence}/"
 fi
 
+case "$received_signal" in
+  INT) exit 130 ;;
+  TERM) exit 143 ;;
+esac
 exit "$run_exit_status"

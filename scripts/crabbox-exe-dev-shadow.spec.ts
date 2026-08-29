@@ -53,6 +53,8 @@ set -euo pipefail
 for variable in GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_COMMON_DIR GIT_CONFIG GIT_CONFIG_COUNT GIT_CONFIG_PARAMETERS GIT_DIR GIT_GRAFT_FILE GIT_IMPLICIT_WORK_TREE GIT_INDEX_FILE GIT_NO_REPLACE_OBJECTS GIT_OBJECT_DIRECTORY GIT_PREFIX GIT_REPLACE_REF_BASE GIT_SHALLOW_FILE GIT_WORK_TREE; do
   [[ -z "\${!variable+x}" ]] || exit 65
 done
+[[ "\${1:-}" == "--no-replace-objects" ]] || exit 66
+shift
 expected_workspace_root="\${EXPECTED_WORKSPACE_ROOT:-$PWD}"
 if [[ "$#" -eq 2 && "$1" == "rev-parse" && "$2" == "--show-toplevel" ]]; then
   printf '%s\\n' "$expected_workspace_root"
@@ -75,6 +77,14 @@ fi
 set -euo pipefail
 if [[ "$#" -eq 1 && "$1" == "--version" ]]; then
   printf '%s\\n' "\${CRABBOX_VERSION_OUTPUT:-0.46.0}"
+  exit 0
+fi
+if [[ -n "\${CRABBOX_FIXTURE_HOLD_PID:-}" ]]; then
+  printf '%s\\n' "$$" >"$CRABBOX_FIXTURE_HOLD_PID"
+  sleep 30 &
+  sleep_pid="$!"
+  trap 'kill "$sleep_pid" 2>/dev/null; exit 143' TERM
+  wait "$sleep_pid"
   exit 0
 fi
 printf '%s\\n' "$@" >"$CAPTURE_ARGUMENTS"
@@ -117,6 +127,21 @@ const writeInputManifest = (workspace: string, entries: string[]): string => {
   const manifestPath = path.join(workspace, ".crabbox-input-manifest.sha256");
   writeFileSync(manifestPath, `${manifest}\n`);
   return manifestPath;
+};
+
+const waitForFile = (filePath: string, timeoutMs: number): Promise<void> => {
+  const deadline = Date.now() + timeoutMs;
+  const poll = async (): Promise<void> => {
+    if (existsSync(filePath)) {
+      return;
+    }
+    if (Date.now() >= deadline) {
+      throw new Error(`timed out waiting for ${filePath}`);
+    }
+    await Bun.sleep(50);
+    return poll();
+  };
+  return poll();
 };
 
 describe("exe.dev shadow scripts", () => {
@@ -532,6 +557,42 @@ printf '%s\\n' "\${DATABASE_URL-unset}" "\${DATABASE_TEST_URL-unset}" "\${DATABA
       rmSync(workspace, { force: true, recursive: true });
     }
   });
+
+  test(
+    "forwards SIGTERM to the running Crabbox child and exits with the signal status",
+    async () => {
+      const fixture = createLauncherFixture();
+      const pidFile = path.join(fixture.workspace, "crabbox.pid");
+      try {
+        const launcherProcess = Bun.spawn(["bash", launcher, "--dry-run"], {
+          env: {
+            ...launcherEnvironment(fixture),
+            CRABBOX_FIXTURE_HOLD_PID: pidFile,
+          },
+          stderr: "pipe",
+          stdout: "pipe",
+        });
+
+        await waitForFile(pidFile, 10_000);
+        const crabboxPid = Number(readFileSync(pidFile, "utf-8").trim());
+        expect(Number.isInteger(crabboxPid)).toBe(true);
+
+        launcherProcess.kill("SIGTERM");
+        const exitCode = await launcherProcess.exited;
+
+        expect(exitCode).toBe(143);
+        expect(() => process.kill(crabboxPid, 0)).toThrow();
+        expect(
+          existsSync(
+            path.join(fixture.workspace, ".artifacts/crabbox/exe-dev-shadow")
+          )
+        ).toBe(false);
+      } finally {
+        rmSync(fixture.workspace, { force: true, recursive: true });
+      }
+    },
+    launcherFixtureTimeoutMs
+  );
 
   test("accepts both Git object formats in remote fingerprints", () => {
     const result = Bun.spawnSync(
