@@ -130,6 +130,13 @@ export CRABBOX_SOURCE_MANIFEST_FILE_COUNT="$source_manifest_file_count"
 export CRABBOX_SOURCE_MATERIALIZATION_DURATION_MS="$((materialization_ended_ms - materialization_started_ms))"
 export CRABBOX_SOURCE_PREFLIGHT_DURATION_MS="$((input_preflight_ended_ms - input_preflight_started_ms))"
 
+# Each attempt is authoritative for the evidence destination. Clear it before
+# Crabbox starts so a failure at any point (provisioning, sync, interrupt) can
+# never leave a prior attempt's report behind to be mistaken for this run's.
+materialized_evidence="${materialized_workspace}/.artifacts/crabbox/exe-dev-shadow"
+workspace_evidence="${workspace_root}/.artifacts/crabbox/exe-dev-shadow"
+rm -rf -- "$workspace_evidence"
+
 set +e
 (
   cd "$materialized_workspace"
@@ -138,13 +145,9 @@ set +e
 run_exit_status=$?
 set -e
 
-materialized_evidence="${materialized_workspace}/.artifacts/crabbox/exe-dev-shadow"
-workspace_evidence="${workspace_root}/.artifacts/crabbox/exe-dev-shadow"
 if [[ -d "$materialized_evidence" ]]; then
   mkdir -p "$workspace_evidence"
   rsync -a --delete "${materialized_evidence}/" "${workspace_evidence}/"
-else
-  rm -rf -- "$workspace_evidence"
 fi
 
 exit "$run_exit_status"
