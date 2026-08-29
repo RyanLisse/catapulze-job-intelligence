@@ -112,7 +112,10 @@ export const scrapeRun = curatedSchema.table(
       "scrape_run_status_check",
       sql`${table.status} IN ('running', 'succeeded', 'failed', 'cancelled')`
     ),
-    check("scrape_run_kind_check", sql`${table.runKind} IN ('test', 'poll')`),
+    check(
+      "scrape_run_kind_check",
+      sql`${table.runKind} IN ('test', 'poll', 'backfill')`
+    ),
     check(
       "scrape_run_metrics_nonnegative_check",
       sql`${table.aantalGevonden} >= 0 AND ${table.nieuw} >= 0 AND ${table.gewijzigd} >= 0 AND ${table.rejected} >= 0 AND ${table.gesloten} >= 0 AND ${table.fouten} >= 0`
@@ -225,6 +228,7 @@ export const aanvraag = curatedSchema.table(
       .defaultNow()
       .$onUpdate(() => new Date())
       .notNull(),
+    v1Id: text("v1_id"),
     versie: integer("versie").default(1).notNull(),
   },
   (table) => [
@@ -232,6 +236,9 @@ export const aanvraag = curatedSchema.table(
       table.bronId,
       table.bronReferentie
     ),
+    uniqueIndex("aanvraag_v1_id_uidx")
+      .on(table.v1Id)
+      .where(sql`${table.v1Id} IS NOT NULL`),
     index("aanvraag_dedup_groep_id_idx").on(table.dedupGroepId),
     index("aanvraag_status_idx").on(table.status),
   ]
