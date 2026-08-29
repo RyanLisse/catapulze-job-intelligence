@@ -4,14 +4,14 @@ import {
   normaliseInhuurdeskObservation,
   normaliseTenderNedObservation,
   validateNormalisedDraft,
-  type NormalisedAanvraagDraft,
 } from "../normalise";
-import {
-  curateObservation,
-  type CurateObservationInput,
-  type CurateObservationResult,
-  type CurateStore,
-  type ObservationProcessingStatus,
+import type { NormalisedAanvraagDraft } from "../normalise";
+import { curateObservation } from "./curate";
+import type {
+  CurateObservationInput,
+  CurateObservationResult,
+  CurateStore,
+  ObservationProcessingStatus,
 } from "./curate";
 
 export type SupportedBronSlug = "inhuurdesk" | "tenderned";
@@ -28,7 +28,7 @@ export interface ProcessObservationInput {
 
 export interface ProcessObservationResult extends CurateObservationResult {
   parserVersion?: string;
-  validationIssues?: Array<{ field: string; message: string }>;
+  validationIssues?: { field: string; message: string }[];
 }
 
 const normaliseForBron = (
@@ -49,10 +49,11 @@ export const processObservation = async (
   const draft = normaliseForBron(input.bronSlug, input.body, input.contentHash);
   const validationIssues = validateNormalisedDraft(draft);
   if (validationIssues.length > 0) {
+    const status: ObservationProcessingStatus = "quarantined";
     return {
       parserVersion: draft.parserVersion,
       reason: validationIssues.map((issue) => issue.message).join("; "),
-      status: "quarantined" satisfies ObservationProcessingStatus,
+      status,
       validationIssues,
     };
   }

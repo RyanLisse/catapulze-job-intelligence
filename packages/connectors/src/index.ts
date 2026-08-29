@@ -14,12 +14,13 @@ export {
   type ConnectorObservation,
   type DiscoverItem,
 } from "./contract";
-export { loadConnectorFixture, fixturePath, createFixtureEnvelope } from "./fixtures/load";
 export {
-  InMemoryKnownHashStore,
-  ObservationKnownHashStore,
-  type KnownHashStore,
-} from "./known-hash";
+  loadConnectorFixture,
+  fixturePath,
+  createFixtureEnvelope,
+} from "./fixtures/load";
+export { InMemoryKnownHashStore, type KnownHashStore } from "./known-hash";
+export { ObservationKnownHashStore } from "./observation-known-hash";
 export {
   type CheckpointKey,
   type ConnectorRunProgress,

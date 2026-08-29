@@ -20,7 +20,10 @@
       }
     ],
     "nutsCodes": ["NL329"],
-    "opdrachtAardCode": { "code": "IDA", "omschrijving": "Dynamisch aankoopsysteem" },
+    "opdrachtAardCode": {
+      "code": "IDA",
+      "omschrijving": "Dynamisch aankoopsysteem"
+    },
     "procedureCode": { "code": "OPE", "omschrijving": "Openbaar" }
   }
 }

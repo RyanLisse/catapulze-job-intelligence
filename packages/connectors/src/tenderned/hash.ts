@@ -1,7 +1,7 @@
 import { hashContent } from "../object-store";
 import type { TenderNedListingItem } from "./types";
 
-export const hashTenderNedListingItem = async (
+export const hashTenderNedListingItem = (
   item: TenderNedListingItem
 ): Promise<string> => {
   const canonical = JSON.stringify({
@@ -16,5 +16,5 @@ export const hashTenderNedListingItem = async (
   return hashContent(new TextEncoder().encode(canonical));
 };
 
-export const hashTenderNedDetailPayload = async (body: Uint8Array): Promise<string> =>
+export const hashTenderNedDetailPayload = (body: Uint8Array): Promise<string> =>
   hashContent(body);

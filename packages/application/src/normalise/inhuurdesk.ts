@@ -4,7 +4,8 @@ import { UNKNOWN } from "@ji/domain";
 import { resolveLifecycleStatus } from "@ji/domain/lifecycle";
 
 import { parseTariefFromText } from "./tarief";
-import { field, stripHtml, type NormalisedAanvraagDraft } from "./types";
+import { field, stripHtml } from "./types";
+import type { NormalisedAanvraagDraft } from "./types";
 
 export const parseInhuurdeskPayload = (
   payload: InhuurdeskFetchedPayload,
@@ -72,6 +73,7 @@ export const parseInhuurdeskPayload = (
 export const decodeInhuurdeskPayload = (
   body: Uint8Array
 ): InhuurdeskFetchedPayload =>
+  // SAFETY: Observations store connector-serialised JSON from Inhuurdesk fetch.
   JSON.parse(new TextDecoder().decode(body)) as InhuurdeskFetchedPayload;
 
 export const normaliseInhuurdeskObservation = (

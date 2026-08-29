@@ -75,8 +75,8 @@ describe("Inhuurdesk connector", () => {
     await runConnector({ ...sharedInput, scrapeRunId: "run-ih-replay-2" });
 
     expect(recorder.records).toHaveLength(2);
-    expect(new Set(recorder.records.map((record) => record.bronReferentie)).size).toBe(
-      2
-    );
+    expect(
+      new Set(recorder.records.map((record) => record.bronReferentie)).size
+    ).toBe(2);
   });
 });

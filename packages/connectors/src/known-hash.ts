@@ -10,7 +10,7 @@ export interface KnownHashStore {
 export class InMemoryKnownHashStore implements KnownHashStore {
   private readonly hashes = new Map<string, string>();
 
-  private key(bronId: BronId, bronReferentie: string): string {
+  private static key(bronId: BronId, bronReferentie: string): string {
     return `${bronId}\0${bronReferentie}`;
   }
 
@@ -18,39 +18,15 @@ export class InMemoryKnownHashStore implements KnownHashStore {
     bronId: BronId,
     bronReferentie: string
   ): Promise<string | null | undefined> {
-    return Promise.resolve(this.hashes.get(this.key(bronId, bronReferentie)));
+    return Promise.resolve(
+      this.hashes.get(InMemoryKnownHashStore.key(bronId, bronReferentie))
+    );
   }
 
   set(bronId: BronId, bronReferentie: string, contentHash: string): void {
-    this.hashes.set(this.key(bronId, bronReferentie), contentHash);
-  }
-}
-
-export class ObservationKnownHashStore implements KnownHashStore {
-  private readonly records: Array<{
-    bronId: BronId;
-    bronReferentie: string;
-    contentHash: string;
-  }>;
-
-  constructor(
-    records: Array<{
-      bronId: BronId;
-      bronReferentie: string;
-      contentHash: string;
-    }>
-  ) {
-    this.records = records;
-  }
-
-  get(
-    bronId: BronId,
-    bronReferentie: string
-  ): Promise<string | null | undefined> {
-    const match = this.records.find(
-      (record) =>
-        record.bronId === bronId && record.bronReferentie === bronReferentie
+    this.hashes.set(
+      InMemoryKnownHashStore.key(bronId, bronReferentie),
+      contentHash
     );
-    return Promise.resolve(match?.contentHash ?? null);
   }
 }

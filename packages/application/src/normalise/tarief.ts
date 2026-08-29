@@ -1,15 +1,18 @@
-import { UNKNOWN, type TariefEenheid } from "@ji/domain";
+import { UNKNOWN } from "@ji/domain";
+import type { TariefEenheid } from "@ji/domain";
 
 import type { NormalisedTarief } from "./types";
 
-const AMOUNT_PATTERN = /(\d+(?:[.,]\d+)?)/u;
+const AMOUNT_PATTERN = /(?<amount>\d+(?:[.,]\d+)?)/u;
 
 const normalizeAmount = (raw: string): string => raw.replace(",", ".");
 
-const detectEenheid = (
-  lower: string
-): TariefEenheid | typeof UNKNOWN => {
-  if (lower.includes(" per uur") || lower.includes(" p/u") || lower.includes("/uur")) {
+const detectEenheid = (lower: string): TariefEenheid | typeof UNKNOWN => {
+  if (
+    lower.includes(" per uur") ||
+    lower.includes(" p/u") ||
+    lower.includes("/uur")
+  ) {
     return "uur";
   }
   if (lower.includes(" per dag") || lower.includes("/dag")) {
@@ -23,24 +26,26 @@ const detectEenheid = (
 
 export const parseTariefFromText = (text: string): NormalisedTarief => {
   const lower = text.toLowerCase();
-  const maxMatch = lower.match(/max(?:\s+tarief)?[^€]*€\s*(\d+(?:[.,]\d+)?)/u);
-  if (maxMatch?.[1]) {
+  const maxMatch = lower.match(
+    /max(?:\s+tarief)?[^€]*€\s*(?<max>\d+(?:[.,]\d+)?)/u
+  );
+  if (maxMatch?.groups?.max) {
     return {
       eenheid: detectEenheid(lower),
-      max: normalizeAmount(maxMatch[1]),
+      max: normalizeAmount(maxMatch.groups.max),
       min: UNKNOWN,
       valuta: "EUR",
     };
   }
 
   const rangeMatch = text.match(
-    /€\s*(\d+(?:[.,]\d+)?)\s*[-–]\s*€\s*(\d+(?:[.,]\d+)?)/u
+    /€\s*(?<min>\d+(?:[.,]\d+)?)\s*[-–]\s*€\s*(?<max>\d+(?:[.,]\d+)?)/u
   );
-  if (rangeMatch?.[1] && rangeMatch[2]) {
+  if (rangeMatch?.groups?.min && rangeMatch.groups.max) {
     return {
       eenheid: detectEenheid(lower),
-      max: normalizeAmount(rangeMatch[2]),
-      min: normalizeAmount(rangeMatch[1]),
+      max: normalizeAmount(rangeMatch.groups.max),
+      min: normalizeAmount(rangeMatch.groups.min),
       valuta: "EUR",
     };
   }
@@ -62,14 +67,21 @@ export const parseTariefFromText = (text: string): NormalisedTarief => {
   };
 };
 
-export const tariefToSnapshot = (tarief: NormalisedTarief): Record<string, string> => ({
+export interface TariefSnapshot {
+  tarief_eenheid: string;
+  tarief_max: string;
+  tarief_min: string;
+  tarief_valuta: string;
+}
+
+export const tariefToSnapshot = (tarief: NormalisedTarief): TariefSnapshot => ({
   tarief_eenheid: tarief.eenheid,
   tarief_max: tarief.max,
   tarief_min: tarief.min,
   tarief_valuta: tarief.valuta,
 });
 
-export const unknownTariefSnapshot = (): Record<string, string> => ({
+export const unknownTariefSnapshot = (): TariefSnapshot => ({
   tarief_eenheid: UNKNOWN,
   tarief_max: UNKNOWN,
   tarief_min: UNKNOWN,

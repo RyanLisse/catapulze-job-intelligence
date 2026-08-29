@@ -19,6 +19,7 @@ const readJson = async <Payload>(response: Response): Promise<Payload> => {
   if (!response.ok) {
     throw new Error(`Inhuurdesk request failed with status ${response.status}`);
   }
+  // SAFETY: Inhuurdesk WP JSON listing responses match InhuurdeskListingPage.
   return (await response.json()) as Payload;
 };
 

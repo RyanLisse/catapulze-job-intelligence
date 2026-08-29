@@ -7,7 +7,8 @@ import type {
   DiscoverItem,
 } from "../contract";
 import type { KnownHashStore } from "../known-hash";
-import { createTenderNedClient, type TenderNedClient } from "./client";
+import { createTenderNedClient } from "./client";
+import type { TenderNedClient } from "./client";
 import { hashTenderNedDetailPayload, hashTenderNedListingItem } from "./hash";
 import type { TenderNedFetchedPayload, TenderNedFilters } from "./types";
 
@@ -27,7 +28,7 @@ export const createTenderNedConnector = (
     publicatieDatumVanaf: "2026-08-27",
     typeOpdracht: "D",
   };
-  const knownHashes = options.knownHashes;
+  const { knownHashes } = options;
 
   return {
     bronId: options.bronId,
@@ -50,6 +51,7 @@ export const createTenderNedConnector = (
       };
     },
     fetch: async (item) => {
+      // SAFETY: discover() attaches TenderNed listing rows as listingPayload.
       const listingPayload = item.listingPayload as
         | { publicatieId?: string }
         | undefined;
@@ -65,7 +67,11 @@ export const createTenderNedConnector = (
       const knownHash = knownHashes
         ? await knownHashes.get(options.bronId, item.bronReferentie)
         : null;
-      if (knownHash !== null && knownHash !== undefined && knownHash === item.contentHash) {
+      if (
+        knownHash !== null &&
+        knownHash !== undefined &&
+        knownHash === item.contentHash
+      ) {
         return null;
       }
 

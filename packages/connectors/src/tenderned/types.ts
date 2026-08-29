@@ -25,11 +25,11 @@ export interface TenderNedListingPage {
 }
 
 export interface TenderNedDetail extends TenderNedListingItem {
-  cpvCodes?: Array<{
+  cpvCodes?: {
     code: string;
     isHoofdOpdracht?: boolean;
     omschrijving?: string;
-  }>;
+  }[];
   nutsCodes?: string[];
   opdrachtAardCode?: TenderNedCode;
   procedureCode?: TenderNedCode;
@@ -53,7 +53,10 @@ export const TENDER_NED_PARSER_VERSION = "tenderned/v1" as const;
 export const TENDER_NED_MAX_PAGE_SIZE = 100;
 
 export const isTenderNedListingOpen = (
-  item: Pick<TenderNedListingItem, "aankondigingCode" | "numberOfDaysBeforeAanmeldenInschrijven">
+  item: Pick<
+    TenderNedListingItem,
+    "aankondigingCode" | "numberOfDaysBeforeAanmeldenInschrijven"
+  >
 ): boolean => {
   const code = item.aankondigingCode?.code;
   if (code === "AGO" || code === "VBE") {

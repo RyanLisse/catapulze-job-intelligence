@@ -5,7 +5,10 @@ export {
   type InhuurdeskClient,
   type InhuurdeskClientOptions,
 } from "./client";
-export { createInhuurdeskConnector, type InhuurdeskConnectorOptions } from "./connector";
+export {
+  createInhuurdeskConnector,
+  type InhuurdeskConnectorOptions,
+} from "./connector";
 export { hashInhuurdeskListingItem, hashInhuurdeskPayload } from "./hash";
 export {
   INHUURDESK_PARSER_VERSION,

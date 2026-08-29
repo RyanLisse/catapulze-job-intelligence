@@ -7,11 +7,8 @@ import type {
   DiscoverItem,
 } from "../contract";
 import type { KnownHashStore } from "../known-hash";
-import {
-  createInhuurdeskClient,
-  inhuurdeskBronReferentie,
-  type InhuurdeskClient,
-} from "./client";
+import { createInhuurdeskClient, inhuurdeskBronReferentie } from "./client";
+import type { InhuurdeskClient } from "./client";
 import { hashInhuurdeskListingItem, hashInhuurdeskPayload } from "./hash";
 import type { InhuurdeskFetchedPayload } from "./types";
 
@@ -25,7 +22,7 @@ export const createInhuurdeskConnector = (
   options: InhuurdeskConnectorOptions
 ): Connector => {
   const client = options.client ?? createInhuurdeskClient();
-  const knownHashes = options.knownHashes;
+  const { knownHashes } = options;
 
   return {
     bronId: options.bronId,
@@ -48,6 +45,7 @@ export const createInhuurdeskConnector = (
       };
     },
     fetch: async (item) => {
+      // SAFETY: discover() attaches Inhuurdesk assignment rows as listingPayload.
       const assignment = item.listingPayload as
         | InhuurdeskFetchedPayload["assignment"]
         | undefined;
@@ -62,7 +60,11 @@ export const createInhuurdeskConnector = (
       const knownHash = knownHashes
         ? await knownHashes.get(options.bronId, item.bronReferentie)
         : null;
-      if (knownHash !== null && knownHash !== undefined && knownHash === item.contentHash) {
+      if (
+        knownHash !== null &&
+        knownHash !== undefined &&
+        knownHash === item.contentHash
+      ) {
         return null;
       }
 

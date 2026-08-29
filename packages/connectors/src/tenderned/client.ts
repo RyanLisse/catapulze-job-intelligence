@@ -53,6 +53,7 @@ const readJson = async <Payload>(response: Response): Promise<Payload> => {
   if (!response.ok) {
     throw new Error(`TenderNed request failed with status ${response.status}`);
   }
+  // SAFETY: TenderNed public API responses match the typed listing/detail schemas.
   return (await response.json()) as Payload;
 };
 
@@ -73,9 +74,12 @@ export const createTenderNedClient = (
       if (!liveEnabled) {
         const relativePath = detailFixtures[publicatieId];
         if (!relativePath) {
-          throw new Error(`Missing TenderNed detail fixture for ${publicatieId}`);
+          throw new Error(
+            `Missing TenderNed detail fixture for ${publicatieId}`
+          );
         }
-        const fixture = await loadConnectorFixture<TenderNedDetail>(relativePath);
+        const fixture =
+          await loadConnectorFixture<TenderNedDetail>(relativePath);
         return fixture.payload;
       }
       const baseUrl = options.baseUrl ?? LISTING_BASE;
@@ -107,5 +111,4 @@ export const createTenderNedClient = (
   };
 };
 
-export const requestedListingSize = (size: number): number =>
-  capPageSize(size);
+export const requestedListingSize = (size: number): number => capPageSize(size);

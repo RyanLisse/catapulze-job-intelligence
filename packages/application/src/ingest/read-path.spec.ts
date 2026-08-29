@@ -15,10 +15,8 @@ import {
   runConnector,
   TENDER_NED_MAX_PAGE_SIZE,
 } from "@ji/connectors";
-import {
-  hashTenderNedListingItem,
-  type TenderNedListingPage,
-} from "@ji/connectors/tenderned";
+import { hashTenderNedListingItem } from "@ji/connectors/tenderned";
+import type { TenderNedListingPage } from "@ji/connectors/tenderned";
 
 import { processObservation } from "../identity";
 import { InMemoryCurateStore } from "../identity/store";
@@ -29,6 +27,32 @@ const retryPolicy = {
   maxAttempts: 1,
   maxDelayMs: 0,
   multiplier: 1,
+};
+
+const processRecordedObservations = async (input: {
+  bronId: string;
+  bronSlug: "inhuurdesk" | "tenderned";
+  curateStore: InMemoryCurateStore;
+  objectStore: InMemoryObjectStore;
+  observationRecorder: InMemoryObservationRecorder;
+}): Promise<void> => {
+  /* oxlint-disable no-await-in-loop -- curate pipeline must stay deterministic in tests */
+  for (const observation of input.observationRecorder.observations) {
+    const stored = await input.objectStore.get(observation.rawPayloadRef);
+    if (!stored) {
+      continue;
+    }
+    await processObservation(input.curateStore, {
+      body: stored.body,
+      bronId: input.bronId,
+      bronSlug: input.bronSlug,
+      contentHash: observation.contentHash,
+      observedAt: new Date(observation.observedAt),
+      rawPayloadRef: observation.rawPayloadRef,
+      scrapeRunId: observation.scrapeRunId,
+    });
+  }
+  /* oxlint-enable no-await-in-loop */
 };
 
 describe("U4/U5 fixture read path", () => {
@@ -65,21 +89,13 @@ describe("U4/U5 fixture read path", () => {
       scrapeRunId: "run-tn-2",
     });
 
-    for (const observation of observationRecorder.observations) {
-      const stored = await objectStore.get(observation.rawPayloadRef);
-      if (!stored) {
-        continue;
-      }
-      await processObservation(curateStore, {
-        body: stored.body,
-        bronId,
-        bronSlug: "tenderned",
-        contentHash: observation.contentHash,
-        observedAt: new Date(observation.observedAt),
-        rawPayloadRef: observation.rawPayloadRef,
-        scrapeRunId: observation.scrapeRunId,
-      });
-    }
+    await processRecordedObservations({
+      bronId,
+      bronSlug: "tenderned",
+      curateStore,
+      objectStore,
+      observationRecorder,
+    });
 
     expect(first.metrics).toMatchObject({
       changed: 0,
@@ -126,21 +142,13 @@ describe("U4/U5 fixture read path", () => {
       startedAt: new Date("2026-08-28T10:15:00.000Z"),
     });
 
-    for (const observation of observationRecorder.observations) {
-      const stored = await objectStore.get(observation.rawPayloadRef);
-      if (!stored) {
-        continue;
-      }
-      await processObservation(curateStore, {
-        body: stored.body,
-        bronId,
-        bronSlug: "inhuurdesk",
-        contentHash: observation.contentHash,
-        observedAt: new Date(observation.observedAt),
-        rawPayloadRef: observation.rawPayloadRef,
-        scrapeRunId: observation.scrapeRunId,
-      });
-    }
+    await processRecordedObservations({
+      bronId,
+      bronSlug: "inhuurdesk",
+      curateStore,
+      objectStore,
+      observationRecorder,
+    });
 
     expect(result.metrics).toMatchObject({
       changed: 0,
@@ -165,7 +173,7 @@ describe("TenderNed connector guardrails", () => {
     let detailFetches = 0;
     const client = createTenderNedClient({ liveEnabled: false });
     const wrappedClient = {
-      fetchDetail: async (publicatieId: string) => {
+      fetchDetail: (publicatieId: string) => {
         detailFetches += 1;
         return client.fetchDetail(publicatieId);
       },
@@ -192,11 +200,10 @@ describe("TenderNed connector guardrails", () => {
 
     await runConnector({ ...sharedRunInput, scrapeRunId: "run-tn-skip-1" });
 
-    const listingItem = (
-      await loadConnectorFixture<TenderNedListingPage>(
-        "tenderned/listing-page-0.json"
-      )
-    ).payload.content[0];
+    const listingFixture = await loadConnectorFixture<TenderNedListingPage>(
+      "tenderned/listing-page-0.json"
+    );
+    const [listingItem] = listingFixture.payload.content;
     if (!listingItem) {
       throw new Error("Expected TenderNed listing fixture item");
     }

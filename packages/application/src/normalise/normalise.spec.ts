@@ -1,19 +1,19 @@
 import { describe, expect, it } from "bun:test";
 
-import { UNKNOWN } from "@ji/domain";
-import {
-  buildDedupKey,
-  normaliseInhuurdeskObservation,
-  parseTariefFromText,
-} from "@ji/application/normalise";
 import {
   curateObservation,
   InMemoryCurateStore,
   processObservation,
   splitDedupGroep,
 } from "@ji/application/identity";
-import type { InhuurdeskFetchedPayload } from "@ji/connectors/inhuurdesk";
+import {
+  buildDedupKey,
+  normaliseInhuurdeskObservation,
+  parseTariefFromText,
+} from "@ji/application/normalise";
 import { hashContent } from "@ji/connectors";
+import type { InhuurdeskFetchedPayload } from "@ji/connectors/inhuurdesk";
+import { UNKNOWN } from "@ji/domain";
 
 const buildInhuurdeskBody = (description: string): Uint8Array => {
   const payload: InhuurdeskFetchedPayload = {
@@ -39,7 +39,9 @@ describe("normalise", () => {
 
     expect(draft.tarief.max).toBe(UNKNOWN);
     expect(draft.tarief.min).toBe(UNKNOWN);
-    expect(draft.beschrijving.value).toContain("Tarief wordt in overleg bepaald");
+    expect(draft.beschrijving.value).toContain(
+      "Tarief wordt in overleg bepaald"
+    );
   });
 
   it("parses a single clear max tarief from HTML text", () => {
@@ -128,9 +130,12 @@ describe("identity", () => {
       rawPayloadRef: "raw/split.json",
       scrapeRunId: "run-split",
     });
-    const dedupGroepId = result.dedupGroepId;
+    const { dedupGroepId } = result;
     expect(dedupGroepId).toBeDefined();
-    await splitDedupGroep(store, dedupGroepId as string);
+    if (!dedupGroepId) {
+      throw new Error("Expected dedupGroepId from curateObservation");
+    }
+    await splitDedupGroep(store, dedupGroepId);
     expect(store.aanvragen[0]?.dedupGroepId).toBeNull();
     expect(store.dedupGroepen).toHaveLength(0);
   });

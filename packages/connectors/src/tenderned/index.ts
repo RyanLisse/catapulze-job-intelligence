@@ -5,7 +5,10 @@ export {
   type TenderNedClient,
   type TenderNedClientOptions,
 } from "./client";
-export { createTenderNedConnector, type TenderNedConnectorOptions } from "./connector";
+export {
+  createTenderNedConnector,
+  type TenderNedConnectorOptions,
+} from "./connector";
 export { hashTenderNedDetailPayload, hashTenderNedListingItem } from "./hash";
 export {
   isTenderNedListingOpen,

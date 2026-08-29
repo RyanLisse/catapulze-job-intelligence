@@ -94,7 +94,7 @@ export class InMemoryCurateStore implements CurateStore {
     const index = this.dedupGroepen.findIndex(
       (row) => row.dedupGroepId === dedupGroepId
     );
-    if (index >= 0) {
+    if (index !== -1) {
       this.dedupGroepen.splice(index, 1);
     }
     return Promise.resolve();
@@ -107,15 +107,17 @@ export class InMemoryCurateStore implements CurateStore {
     const index = this.aanvragen.findIndex(
       (row) => row.aanvraagId === aanvraagId
     );
-    if (index === -1) {
+    const current = this.aanvragen[index];
+    if (!current) {
       throw new Error("aanvraag not found");
     }
-    this.aanvragen[index] = {
-      ...this.aanvragen[index],
+    const merged: StoredAanvraag = {
+      ...current,
       ...structuredClone(patch),
       aanvraagId,
-    } as StoredAanvraag;
-    return Promise.resolve(structuredClone(this.aanvragen[index] as StoredAanvraag));
+    };
+    this.aanvragen[index] = merged;
+    return Promise.resolve(structuredClone(merged));
   }
 
   closeOpenVersie(aanvraagId: AanvraagId, closedAt: Date): Promise<void> {

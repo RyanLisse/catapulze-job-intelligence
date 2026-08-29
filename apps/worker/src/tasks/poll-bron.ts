@@ -24,22 +24,26 @@ export const pollBronTask = schemaTask({
   retry: {
     maxAttempts: 2,
   },
-  schema: pollBronPayload,
-  run: async (payload) => {
+  run: (payload) => {
+    // SAFETY: schemaTask validates UUID strings before this handler runs.
+    const bronId = payload.bronId as BronId;
+    // SAFETY: schemaTask validates UUID strings before this handler runs.
+    const scrapeRunId = payload.scrapeRunId as ScrapeRunId;
     const connector =
       payload.bronSlug === "tenderned"
-        ? createTenderNedConnector({ bronId: payload.bronId as BronId })
-        : createInhuurdeskConnector({ bronId: payload.bronId as BronId });
+        ? createTenderNedConnector({ bronId })
+        : createInhuurdeskConnector({ bronId });
 
     // Runtime wiring (Postgres stores, object storage, env secrets) lands with U8 ops.
     void connector;
     void executeBronRun;
 
-    return {
+    return Promise.resolve({
       bronId: payload.bronId,
       queued: true,
-      scrapeRunId: payload.scrapeRunId as ScrapeRunId,
+      scrapeRunId,
       status: "stub",
-    };
+    });
   },
+  schema: pollBronPayload,
 });

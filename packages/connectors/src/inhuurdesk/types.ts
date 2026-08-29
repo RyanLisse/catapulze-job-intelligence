@@ -21,5 +21,4 @@ export interface InhuurdeskFetchedPayload {
 
 export const INHUURDESK_PARSER_VERSION = "inhuurdesk/v1" as const;
 
-export const INHUURDESK_SEARCH_PATH =
-  "/wp-json/headfirst-assignments/search";
+export const INHUURDESK_SEARCH_PATH = "/wp-json/headfirst-assignments/search";

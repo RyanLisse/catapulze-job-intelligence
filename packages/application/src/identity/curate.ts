@@ -1,8 +1,19 @@
-import type { AanvraagLifecycle, AanvraagId, BronId, ScrapeRunId } from "@ji/domain";
+import type {
+  AanvraagLifecycle,
+  AanvraagId,
+  BronId,
+  ScrapeRunId,
+} from "@ji/domain";
 import { UNKNOWN } from "@ji/domain";
 
 import type { NormalisedAanvraagDraft } from "../normalise";
 import { buildDedupKey, buildProvenanceMap } from "../normalise";
+import type {
+  AanvraagSnapshot,
+  BronSpecifiekJson,
+  OutboxPayload,
+  ProvenanceMap,
+} from "./json-types";
 
 export type ObservationProcessingStatus =
   | "curated"
@@ -14,7 +25,7 @@ export interface StoredAanvraag {
   beschrijving: string;
   bronId: BronId;
   bronReferentie: string;
-  bronSpecifiek: Record<string, unknown>;
+  bronSpecifiek: BronSpecifiekJson;
   bronUrl: string | null;
   contentHash: string;
   dedupGroepId: string | null;
@@ -23,7 +34,7 @@ export interface StoredAanvraag {
   laatstGezienOp: Date;
   locatieLand: string;
   parserVersion: string;
-  provenance: Record<string, unknown>;
+  provenance: ProvenanceMap;
   rawPayloadRef: string;
   scrapeRunId: ScrapeRunId;
   status: AanvraagLifecycle;
@@ -42,7 +53,7 @@ export interface StoredAanvraagVersie {
   geldigVan: Date;
   rawPayloadRef: string;
   scrapeRunId: ScrapeRunId;
-  snapshot: Record<string, unknown>;
+  snapshot: AanvraagSnapshot;
   versie: number;
   versieId: string;
 }
@@ -59,7 +70,7 @@ export interface StoredOutboxEvent {
   aggregateType: "aanvraag";
   eventType: string;
   id: string;
-  payload: Record<string, unknown>;
+  payload: OutboxPayload;
 }
 
 export interface CurateStore {
@@ -68,10 +79,10 @@ export interface CurateStore {
     bronReferentie: string
   ) => Promise<StoredAanvraag | null>;
   findDedupGroepByKey: (dedupKey: string) => Promise<StoredDedupGroep | null>;
-  insertAanvraag: (input: Omit<StoredAanvraag, "aanvraagId">) => Promise<StoredAanvraag>;
-  insertDedupGroep: (input: {
-    dedupKey: string;
-  }) => Promise<StoredDedupGroep>;
+  insertAanvraag: (
+    input: Omit<StoredAanvraag, "aanvraagId">
+  ) => Promise<StoredAanvraag>;
+  insertDedupGroep: (input: { dedupKey: string }) => Promise<StoredDedupGroep>;
   insertOutboxEvent: (
     input: Omit<StoredOutboxEvent, "id">
   ) => Promise<StoredOutboxEvent>;
@@ -87,10 +98,7 @@ export interface CurateStore {
     aanvraagId: AanvraagId,
     patch: Partial<StoredAanvraag>
   ) => Promise<StoredAanvraag>;
-  closeOpenVersie: (
-    aanvraagId: AanvraagId,
-    closedAt: Date
-  ) => Promise<void>;
+  closeOpenVersie: (aanvraagId: AanvraagId, closedAt: Date) => Promise<void>;
 }
 
 export interface CurateObservationInput {
@@ -125,8 +133,8 @@ const toStoredFields = (
     bronUrl: draft.bronUrl.value === UNKNOWN ? null : draft.bronUrl.value,
     contentHash: draft.contentHash,
     dedupGroepId: null,
-    extractieMethode: draft.extractieMethode,
     eersteGezienOp: input.observedAt,
+    extractieMethode: draft.extractieMethode,
     laatstGezienOp: input.observedAt,
     locatieLand: draft.locatieLand.value,
     parserVersion: draft.parserVersion,
@@ -143,7 +151,7 @@ const toStoredFields = (
   };
 };
 
-const buildSnapshot = (stored: StoredAanvraag): Record<string, unknown> => ({
+const buildSnapshot = (stored: StoredAanvraag): AanvraagSnapshot => ({
   beschrijving: stored.beschrijving,
   bron_referentie: stored.bronReferentie,
   bron_specifiek: stored.bronSpecifiek,
@@ -261,7 +269,7 @@ export const curateObservation = async (
   };
 };
 
-export const splitDedupGroep = async (
+export const splitDedupGroep = (
   store: CurateStore,
   dedupGroepId: string
 ): Promise<void> => store.splitDedupGroep(dedupGroepId);

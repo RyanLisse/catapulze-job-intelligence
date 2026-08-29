@@ -1,7 +1,7 @@
 import { hashContent } from "../object-store";
 import type { InhuurdeskAssignment } from "./types";
 
-export const hashInhuurdeskListingItem = async (
+export const hashInhuurdeskListingItem = (
   item: InhuurdeskAssignment
 ): Promise<string> => {
   const canonical = JSON.stringify({
@@ -17,5 +17,5 @@ export const hashInhuurdeskListingItem = async (
   return hashContent(new TextEncoder().encode(canonical));
 };
 
-export const hashInhuurdeskPayload = async (body: Uint8Array): Promise<string> =>
+export const hashInhuurdeskPayload = (body: Uint8Array): Promise<string> =>
   hashContent(body);

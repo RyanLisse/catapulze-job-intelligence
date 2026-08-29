@@ -6,7 +6,8 @@ import {
 import { UNKNOWN } from "@ji/domain";
 import { resolveLifecycleStatus } from "@ji/domain/lifecycle";
 
-import { field, type NormalisedAanvraagDraft } from "./types";
+import { field } from "./types";
+import type { NormalisedAanvraagDraft } from "./types";
 
 export const parseTenderNedPayload = (
   payload: TenderNedFetchedPayload,
@@ -75,11 +76,18 @@ export const parseTenderNedPayload = (
       min: UNKNOWN,
       valuta: "EUR",
     },
-    titel: field(detail.aanbestedingNaam, parserVersion, "detail.aanbestedingNaam"),
+    titel: field(
+      detail.aanbestedingNaam,
+      parserVersion,
+      "detail.aanbestedingNaam"
+    ),
   };
 };
 
-export const decodeTenderNedPayload = (body: Uint8Array): TenderNedFetchedPayload =>
+export const decodeTenderNedPayload = (
+  body: Uint8Array
+): TenderNedFetchedPayload =>
+  // SAFETY: Observations store connector-serialised JSON from TenderNed fetch.
   JSON.parse(new TextDecoder().decode(body)) as TenderNedFetchedPayload;
 
 export const normaliseTenderNedObservation = (

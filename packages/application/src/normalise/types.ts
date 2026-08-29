@@ -1,27 +1,53 @@
-import type { AanvraagLifecycle, ExtractieMethode, TariefEenheid } from "@ji/domain";
+import type {
+  AanvraagLifecycle,
+  ExtractieMethode,
+  TariefEenheid,
+} from "@ji/domain";
 import { UNKNOWN } from "@ji/domain";
 
-export type FieldProvenanceSource = {
+export interface FieldProvenanceSource {
   parserVersion: string;
   sourcePath: string;
-};
+}
 
-export type NormalisedField<Value> = {
+export type JsonPrimitive = boolean | null | number | string;
+
+export type JsonValue =
+  | JsonPrimitive
+  | JsonValue[]
+  | { [key: string]: JsonValue };
+
+export interface AanvraagProvenanceMap {
+  beschrijving: FieldProvenanceSource;
+  bron_referentie: FieldProvenanceSource;
+  bron_specifiek: FieldProvenanceSource;
+  bron_url: FieldProvenanceSource;
+  locatie_land: FieldProvenanceSource;
+  locatie_tekst: FieldProvenanceSource;
+  opdrachtgever_naam: FieldProvenanceSource;
+  start_datum: FieldProvenanceSource;
+  tarief_eenheid: FieldProvenanceSource;
+  tarief_max: FieldProvenanceSource;
+  tarief_min: FieldProvenanceSource;
+  titel: FieldProvenanceSource;
+}
+
+export interface NormalisedField<Value> {
   provenance: FieldProvenanceSource;
   value: Value;
-};
+}
 
-export type NormalisedTarief = {
+export interface NormalisedTarief {
   eenheid: TariefEenheid | typeof UNKNOWN;
   max: string | typeof UNKNOWN;
   min: string | typeof UNKNOWN;
   valuta: string;
-};
+}
 
 export interface NormalisedAanvraagDraft {
   beschrijving: NormalisedField<string>;
   bronReferentie: NormalisedField<string>;
-  bronSpecifiek: NormalisedField<Record<string, unknown>>;
+  bronSpecifiek: NormalisedField<JsonValue>;
   bronUrl: NormalisedField<string | typeof UNKNOWN>;
   contentHash: string;
   extractieMethode: ExtractieMethode;
@@ -101,7 +127,7 @@ export const field = <Value>(
 
 export const buildProvenanceMap = (
   draft: NormalisedAanvraagDraft
-): Record<string, FieldProvenanceSource> => ({
+): AanvraagProvenanceMap => ({
   beschrijving: draft.beschrijving.provenance,
   bron_referentie: draft.bronReferentie.provenance,
   bron_specifiek: draft.bronSpecifiek.provenance,
