@@ -4,7 +4,7 @@
  * Invoke from the repository root. Never kill by process name — only PIDs this script recorded.
  */
 import { spawn } from "node:child_process";
-import { createWriteStream } from "node:fs";
+import { openSync } from "node:fs";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -14,8 +14,8 @@ const REPO_ROOT = join(SKILL_DIR, "../../..");
 const RUN_DIR = join(SKILL_DIR, ".run");
 const ARTIFACTS_DIR = join(SKILL_DIR, "artifacts");
 const PID_FILE = join(RUN_DIR, "pids.json");
-const SERVER_URL = "http://127.0.0.1:3000";
-const WEB_URL = "http://127.0.0.1:3001";
+const SERVER_URL = "http://localhost:3000";
+const WEB_URL = "http://localhost:3001";
 const READY_MS = 90_000;
 
 const usage = `Usage: bun .cursor/skills/verify-job-intelligence/scripts/control.mjs <command>
@@ -86,12 +86,12 @@ const waitFor = async (url, predicate, label) => {
 
 const spawnDev = (script, logName) => {
   const logPath = join(RUN_DIR, logName);
-  const log = createWriteStream(logPath, { flags: "a" });
+  const logFd = openSync(logPath, "a");
   const child = spawn("bun", ["run", script], {
     cwd: REPO_ROOT,
     detached: true,
     env: { ...process.env, PATH: binPath() },
-    stdio: ["ignore", log, log],
+    stdio: ["ignore", logFd, logFd],
   });
   child.unref();
   return child;

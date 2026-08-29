@@ -11,7 +11,7 @@ Home shows the product name and whether the Hono API is reachable. The status la
 
 ## How to get to it (user POV)
 
-- Open `http://127.0.0.1:3001/` in the browser.
+- Open `http://localhost:3001/` in the browser.
 - Choose the `Job Intelligence` link in the header while on another route.
 
 ## Driving it with control.mjs
@@ -21,13 +21,14 @@ Preconditions:
 - Doctor reports `ok: true`.
 - No session is required.
 
-- **Open home.** Load `/`. Run `bun .cursor/skills/verify-job-intelligence/scripts/control.mjs http http://127.0.0.1:3001/`. Status `200` and the body contain `Job Intelligence` and `API status`.
-- **API health.** Hit tRPC. Run `bun .cursor/skills/verify-job-intelligence/scripts/control.mjs http http://127.0.0.1:3000/trpc/healthCheck`. Status `200` and the body contain `OK`.
+- **Open home.** Load `/`. Run `bun .cursor/skills/verify-job-intelligence/scripts/control.mjs http http://localhost:3001/`. Status `200` and the body contain `Job Intelligence` and `API status`.
+- **API health.** Hit tRPC. Run `bun .cursor/skills/verify-job-intelligence/scripts/control.mjs http http://localhost:3000/trpc/healthCheck`. Status `200` and the body contain `OK`.
 - **Connected label.** In a browser, wait until the status text is `Connected` (not `Checking...` or `Disconnected`). Curl cannot prove this sub-feature.
 - **Proof.** Save both bodies. Run `bun .cursor/skills/verify-job-intelligence/scripts/control.mjs snapshot home-api-status`. `artifacts/home-api-status/home.html` contains `Job Intelligence`; `trpc-healthCheck.txt` contains `OK`.
 
 ## Gotchas
 
 - `Disconnected` means the web app loaded but `NEXT_PUBLIC_SERVER_URL` cannot reach port 3000 (server down, CORS, or wrong env).
+- Opening the app at `127.0.0.1:3001` while the dev server advertises `localhost` leaves React stuck on `Checking...` because Next.js blocks `_next` chunks. Drive at `localhost:3001` and keep env on `localhost`.
 - The green/red dot is decorative. Assert the text `Connected` or the tRPC body.
 - Do not treat `docs/BUILD_BRIEF.md` copy on the home page as evidence that ingest or search exists.

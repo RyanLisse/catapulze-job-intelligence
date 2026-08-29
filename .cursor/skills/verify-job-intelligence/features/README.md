@@ -6,11 +6,12 @@ The checked-in app is authentication plus a public health check. Vacancy ingest,
 
 ## Baseline preconditions
 
-- Web at `http://127.0.0.1:3001`, API at `http://127.0.0.1:3000`.
+- Web at `http://localhost:3001`, API at `http://localhost:3000`.
 - `apps/server/.env` and `apps/web/.env` are present.
 - Run `bun .cursor/skills/verify-job-intelligence/scripts/control.mjs doctor` and require `ok: true`.
 - Never `stop` an instance this skill did not `launch`.
 - Ports 3000/3001 cannot be shared by two copies. If a human already has `bun run dev` up, set `JI_VERIFY_ALLOW_SHARED=1` and drive read-only.
+- Use `localhost` hostnames in the browser and in `CORS_ORIGIN` / `NEXT_PUBLIC_SERVER_URL`. Opening `127.0.0.1:3001` in Next.js 16 dev blocks client chunks and leaves API status on `Checking...`.
 
 ## Driving conventions
 

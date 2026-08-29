@@ -24,7 +24,7 @@ Preconditions:
 Browser path:
 
 - **Switch form.** On `/login`, choose `Already have an account? Sign In`. Heading becomes `Welcome Back`.
-- **Submit.** Fill labeled `Email` and `Password`, choose `Sign In`. Land on `/dashboard` with `Welcome <name>`.
+- **Submit.** Fill labeled `Email` and `Password`, choose `Sign In`. Land on `/dashboard` with paragraph `Welcome <name>`.
 - **Sign out.** Open the header button whose name is the user name, choose `Sign Out`. URL becomes `/`. Header shows button `Sign In` again.
 - **Proof.** After sign-in, `GET /dashboard` with cookies is 200. After sign-out, `GET /dashboard` without those cookies (or after cookie clear) redirects to `/login`. Save both under `artifacts/sign-in-and-sign-out/`.
 
@@ -33,3 +33,4 @@ Browser path:
 - `/login` opens on Sign Up. If you submit email/password on `Create Account` you are signing **up**, not in.
 - Sign-out `onSuccess` pushes `/`. Proving sign-out requires a follow-up `/dashboard` request that redirects.
 - Shared local sessions: signing out here signs out that browser profile on 3001.
+- Dashboard welcome is a `<p>Welcome {name}</p>`, not a heading.
