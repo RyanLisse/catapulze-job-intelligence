@@ -228,16 +228,17 @@ const parseInputManifest = (manifest: string): Map<string, string> => {
     if (!(encodedPath.startsWith('"') && encodedPath.endsWith('"'))) {
       throw new Error("materialized input manifest contains an invalid path");
     }
-    let relativePath: string;
+    let parsedPath: unknown;
     try {
-      // SAFETY: a valid JSON value bounded by quotes is necessarily a string.
-      relativePath = JSON.parse(encodedPath) as string;
+      parsedPath = JSON.parse(encodedPath);
     } catch {
       throw new Error("materialized input manifest contains an invalid path");
     }
-    if (relativePath.length === 0) {
+    // oxlint-disable-next-line anti-slop/no-runtime-typeof -- JSON.parse is the I/O boundary; this establishes the manifest's string contract
+    if (typeof parsedPath !== "string" || parsedPath.length === 0) {
       throw new Error("materialized input manifest contains an invalid path");
     }
+    const relativePath = parsedPath;
     if (entries.has(relativePath)) {
       throw new Error(`materialized input manifest repeats ${relativePath}`);
     }
@@ -331,12 +332,12 @@ export const scanTrackedFiles = async (
   });
   const listed = await new Response(proc.stdout).text();
   const gitExitCode = await proc.exited;
-  const listedPaths = listed.split("\0").filter((relativePath) => {
-    if (!relativePath) {
-      return false;
-    }
-    return isScannable(relativePath);
-  });
+  // Git is authoritative for committed inputs: a tracked file is scanned even
+  // when it lives under a directory name that the workspace walk prunes as
+  // generated (for example a force-added build/ or logs/ entry).
+  const listedPaths = listed
+    .split("\0")
+    .filter((relativePath) => relativePath.length > 0);
   const workspacePaths = await listWorkspaceFiles(rootDir);
   const paths =
     gitExitCode === 0

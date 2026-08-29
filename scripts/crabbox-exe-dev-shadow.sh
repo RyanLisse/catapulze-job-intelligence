@@ -136,7 +136,12 @@ ensure_bun() {
 }
 
 write_dataset_manifest() {
-  cat "$INPUT_MANIFEST_FILE"
+  # A missing manifest is a designed-for failure (see verify_materialized_input).
+  # Emit an empty dataset so the fingerprint still records that absence instead
+  # of aborting the EXIT trap under errexit and losing the report and manifest.
+  if [[ -f "$INPUT_MANIFEST_FILE" ]]; then
+    cat "$INPUT_MANIFEST_FILE"
+  fi
 }
 
 verify_materialized_input() {
@@ -356,7 +361,12 @@ run_unit_suite() {
 }
 
 finalize_evidence() {
-  write_fingerprint
+  # Runs from the EXIT trap under errexit. A fingerprint failure must not
+  # suppress the report and manifest: they are the diagnostic evidence for
+  # exactly the attempts where fingerprinting cannot complete.
+  if ! write_fingerprint; then
+    printf 'exe.dev shadow: execution fingerprint is incomplete\n' >&2
+  fi
   write_report
   write_manifest
 }

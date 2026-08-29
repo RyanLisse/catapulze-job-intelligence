@@ -656,6 +656,53 @@ printf '%s\\n' "\${DATABASE_URL-unset}" "\${DATABASE_TEST_URL-unset}" "\${DATABA
     }
   });
 
+  test("finalizes report and manifest when the input manifest is missing", () => {
+    const workspace = mkdtempSync(path.join(tmpdir(), "ji-shadow-finalize-"));
+    const evidenceDirectory = path.join(
+      workspace,
+      ".artifacts/crabbox/exe-dev-shadow"
+    );
+    mkdirSync(evidenceDirectory, { recursive: true });
+    writeFileSync(path.join(workspace, "bun.lock"), "lockfile");
+
+    try {
+      const result = Bun.spawnSync(
+        [
+          "bash",
+          "-c",
+          'source "$SHADOW_SCRIPT"; : >"$PHASES_FILE"; finalize_evidence',
+        ],
+        {
+          cwd: workspace,
+          env: { ...process.env, SHADOW_SCRIPT: shadowScript },
+          stderr: "pipe",
+          stdout: "pipe",
+        }
+      );
+      const fingerprint = JSON.parse(
+        readFileSync(
+          path.join(evidenceDirectory, "execution-fingerprint.json"),
+          "utf-8"
+        )
+      );
+      const manifest = readFileSync(
+        path.join(evidenceDirectory, "manifest.sha256"),
+        "utf-8"
+      );
+
+      expect(result.stderr.toString()).toBe("");
+      expect(result.exitCode).toBe(0);
+      expect(fingerprint.datasetFileCount).toBe(0);
+      expect(
+        readFileSync(path.join(evidenceDirectory, "report.md"), "utf-8")
+      ).toContain("# exe.dev shadow evidence");
+      expect(manifest).toContain("execution-fingerprint.json");
+      expect(manifest).toContain("report.md");
+    } finally {
+      rmSync(workspace, { force: true, recursive: true });
+    }
+  });
+
   test("pins the Node runtime image in Docker and evidence", () => {
     const repositoryRoot = path.join(import.meta.dir, "..");
     const dockerfile = readFileSync(

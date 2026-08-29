@@ -188,6 +188,31 @@ describe("check-secrets-scan", () => {
     }
   });
 
+  it("scans tracked files beneath generated directory names", async () => {
+    const workspace = mkdtempSync(
+      path.join(tmpdir(), "ji-secret-scan-tracked-generated-")
+    );
+    const fake = ["AKIA", "IOSFODNN7EXAMPLE"].join("");
+    const trackedPath = "packages/example/build/config.ts";
+
+    try {
+      expect(runRepositoryGit(workspace, ["init", "--quiet"])).toBe(0);
+      mkdirSync(path.join(workspace, "packages/example/build"), {
+        recursive: true,
+      });
+      writeFileSync(path.join(workspace, trackedPath), fake);
+      expect(
+        runRepositoryGit(workspace, ["add", "--force", "--", trackedPath])
+      ).toBe(0);
+
+      expect(await scanTrackedFiles(workspace)).toEqual([
+        `${trackedPath} looks like an AWS access key`,
+      ]);
+    } finally {
+      rmSync(workspace, { force: true, recursive: true });
+    }
+  });
+
   it("excludes local dotenv files while retaining example templates", async () => {
     const workspace = mkdtempSync(path.join(tmpdir(), "ji-secret-scan-env-"));
     const fake = ["AKIA", "IOSFODNN7EXAMPLE"].join("");
