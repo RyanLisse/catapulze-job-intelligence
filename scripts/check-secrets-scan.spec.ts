@@ -228,6 +228,12 @@ describe("check-secrets-scan", () => {
       "openwiki",
       "temp",
       "tmp",
+      "docs/research/bench/rs/target",
+    ];
+    const generatedFiles = [
+      "docs/research/bench/gf_go",
+      "docs/research/bench/gofetch/gofetch",
+      "docs/research/bench/mh_go",
     ];
     const fake = ["AKIA", "IOSFODNN7EXAMPLE"].join("");
 
@@ -235,6 +241,12 @@ describe("check-secrets-scan", () => {
       for (const directory of generatedDirectories) {
         mkdirSync(path.join(workspace, directory), { recursive: true });
         writeFileSync(path.join(workspace, directory, "generated.txt"), fake);
+      }
+      for (const file of generatedFiles) {
+        mkdirSync(path.dirname(path.join(workspace, file)), {
+          recursive: true,
+        });
+        writeFileSync(path.join(workspace, file), fake);
       }
       mkdirSync(path.join(workspace, ".qlty"), { recursive: true });
       mkdirSync(path.join(workspace, "src"), { recursive: true });

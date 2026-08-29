@@ -79,6 +79,10 @@ printf '%s\\n' "$@" >"$CAPTURE_ARGUMENTS"
 printf '%s\\n' "$CRABBOX_SOURCE_GIT_SHA" "$CRABBOX_SOURCE_GIT_STATE" >"$CAPTURE_ENVIRONMENT"
 printf '%s\\n' "$PWD" >"$CAPTURE_MATERIALIZED_WORKSPACE"
 printf '%s\\n' "$CRABBOX_SOURCE_MANIFEST_SHA256" "$CRABBOX_SOURCE_MANIFEST_FILE_COUNT" "$CRABBOX_SOURCE_MATERIALIZATION_DURATION_MS" "$CRABBOX_SOURCE_PREFLIGHT_DURATION_MS" >>"$CAPTURE_ENVIRONMENT"
+if [[ -n "\${MATERIALIZED_EVIDENCE_FIXTURE:-}" ]]; then
+  mkdir -p .artifacts/crabbox/exe-dev-shadow
+  printf 'fresh\\n' >.artifacts/crabbox/exe-dev-shadow/report.md
+fi
 `
   );
 
@@ -178,6 +182,14 @@ describe("exe.dev shadow scripts", () => {
     );
 
     expect(crabboxConfig.split("\n")).toContain("    - .artifacts");
+    expect(crabboxConfig.split("\n")).toContain('    - ".env*"');
+    expect(crabboxConfig.split("\n")).toContain('    - "!.env.example"');
+    expect(crabboxConfig.split("\n")).toContain(
+      '    - "!apps/server/.env.example"'
+    );
+    expect(crabboxConfig.split("\n")).toContain(
+      '    - "!apps/web/.env.example"'
+    );
     expect(dockerignore.split("\n")).toContain(".artifacts");
     expect(dockerignore.split("\n")).toContain("**/.artifacts");
   });
@@ -336,6 +348,37 @@ describe("exe.dev shadow scripts", () => {
         "expected Crabbox 0.46.0, found 0.47.0"
       );
       expect(() => readFileSync(fixture.argumentsFile)).toThrow();
+    } finally {
+      rmSync(fixture.workspace, { force: true, recursive: true });
+    }
+  });
+
+  test("replaces prior attempt evidence with the materialized result", () => {
+    const fixture = createLauncherFixture();
+    const evidenceDirectory = path.join(
+      fixture.workspace,
+      ".artifacts/crabbox/exe-dev-shadow"
+    );
+    try {
+      mkdirSync(evidenceDirectory, { recursive: true });
+      writeFileSync(path.join(evidenceDirectory, "stale-junit.xml"), "stale");
+
+      const result = Bun.spawnSync(["bash", launcher, "--dry-run"], {
+        env: {
+          ...launcherEnvironment(fixture),
+          MATERIALIZED_EVIDENCE_FIXTURE: "1",
+        },
+        stderr: "pipe",
+        stdout: "pipe",
+      });
+
+      expect(result.exitCode).toBe(0);
+      expect(() =>
+        readFileSync(path.join(evidenceDirectory, "stale-junit.xml"))
+      ).toThrow();
+      expect(
+        readFileSync(path.join(evidenceDirectory, "report.md"), "utf-8")
+      ).toBe("fresh\n");
     } finally {
       rmSync(fixture.workspace, { force: true, recursive: true });
     }

@@ -142,7 +142,7 @@ materialized_evidence="${materialized_workspace}/.artifacts/crabbox/exe-dev-shad
 if [[ -d "$materialized_evidence" ]]; then
   workspace_evidence="${workspace_root}/.artifacts/crabbox/exe-dev-shadow"
   mkdir -p "$workspace_evidence"
-  rsync -a "${materialized_evidence}/" "${workspace_evidence}/"
+  rsync -a --delete "${materialized_evidence}/" "${workspace_evidence}/"
 fi
 
 exit "$run_exit_status"

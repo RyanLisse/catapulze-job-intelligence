@@ -55,6 +55,12 @@ const GENERATED_QLTY_DIRECTORY_NAMES = new Set([
   "results",
   "sources",
 ]);
+const GENERATED_REPOSITORY_PATHS = [
+  "docs/research/bench/gf_go",
+  "docs/research/bench/gofetch/gofetch",
+  "docs/research/bench/mh_go",
+  "docs/research/bench/rs/target",
+] as const;
 
 export const collectSecretViolations = (
   filePath: string,
@@ -89,7 +95,16 @@ const isScannable = (relativePath: string): boolean => {
   const isGeneratedQltyDirectory =
     pathSegments[0] === ".qlty" &&
     GENERATED_QLTY_DIRECTORY_NAMES.has(pathSegments[1] ?? "");
-  return !(isGeneratedDirectory || isGeneratedQltyDirectory);
+  const isGeneratedRepositoryPath = GENERATED_REPOSITORY_PATHS.some(
+    (generatedPath) =>
+      relativePath === generatedPath ||
+      relativePath.startsWith(`${generatedPath}/`)
+  );
+  return !(
+    isGeneratedDirectory ||
+    isGeneratedQltyDirectory ||
+    isGeneratedRepositoryPath
+  );
 };
 
 const isMaterializedInput = (relativePath: string): boolean => {
