@@ -22,6 +22,37 @@ const REPOSITORY_LOCAL_GIT_VARIABLES = [
   "GIT_SHALLOW_FILE",
   "GIT_WORK_TREE",
 ] as const;
+const GENERATED_DIRECTORY_NAMES = new Set([
+  ".alchemy",
+  ".artifacts",
+  ".cache",
+  ".crabbox",
+  ".evlog",
+  ".git",
+  ".next",
+  ".nx",
+  ".nyc_output",
+  ".omc",
+  ".openwiki",
+  ".turbo",
+  ".vercel",
+  "build",
+  "coverage",
+  "dist",
+  "logs",
+  "node_modules",
+  "openwiki",
+  "temp",
+  "tmp",
+]);
+const GENERATED_QLTY_DIRECTORY_NAMES = new Set([
+  "configs",
+  "logs",
+  "out",
+  "plugin_cachedir",
+  "results",
+  "sources",
+]);
 
 const skipPath = (filePath: string): boolean =>
   filePath.endsWith(".spec.ts") ||
@@ -56,21 +87,13 @@ export const collectSecretViolations = (
 
 const isScannable = (relativePath: string): boolean => {
   const pathSegments = relativePath.split("/");
-  return !pathSegments.some((segment) =>
-    [
-      ".artifacts",
-      ".cache",
-      ".git",
-      ".next",
-      ".omc",
-      ".turbo",
-      "coverage",
-      "dist",
-      "logs",
-      "node_modules",
-      "openwiki",
-    ].includes(segment)
+  const isGeneratedDirectory = pathSegments.some((segment) =>
+    GENERATED_DIRECTORY_NAMES.has(segment)
   );
+  const isGeneratedQltyDirectory =
+    pathSegments[0] === ".qlty" &&
+    GENERATED_QLTY_DIRECTORY_NAMES.has(pathSegments[1] ?? "");
+  return !(isGeneratedDirectory || isGeneratedQltyDirectory);
 };
 
 const isLocalDotenv = (relativePath: string): boolean => {

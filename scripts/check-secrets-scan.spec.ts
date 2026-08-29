@@ -149,6 +149,57 @@ describe("check-secrets-scan", () => {
     }
   });
 
+  it("skips generated caches while retaining synchronized config and source", async () => {
+    const workspace = mkdtempSync(path.join(tmpdir(), "ji-secret-scan-cache-"));
+    const generatedDirectories = [
+      ".alchemy",
+      ".artifacts",
+      ".cache",
+      ".crabbox",
+      ".evlog",
+      ".next",
+      ".nx",
+      ".nyc_output",
+      ".omc",
+      ".openwiki",
+      ".qlty/configs",
+      ".qlty/logs",
+      ".qlty/out",
+      ".qlty/plugin_cachedir",
+      ".qlty/results",
+      ".qlty/sources",
+      ".turbo",
+      ".vercel",
+      "build",
+      "coverage",
+      "dist",
+      "logs",
+      "node_modules",
+      "openwiki",
+      "temp",
+      "tmp",
+    ];
+    const fake = ["AKIA", "IOSFODNN7EXAMPLE"].join("");
+
+    try {
+      for (const directory of generatedDirectories) {
+        mkdirSync(path.join(workspace, directory), { recursive: true });
+        writeFileSync(path.join(workspace, directory, "generated.txt"), fake);
+      }
+      mkdirSync(path.join(workspace, ".qlty"), { recursive: true });
+      mkdirSync(path.join(workspace, "src"), { recursive: true });
+      writeFileSync(path.join(workspace, ".qlty/qlty.toml"), fake);
+      writeFileSync(path.join(workspace, "src/config.ts"), fake);
+
+      expect(await scanTrackedFiles(workspace)).toEqual([
+        ".qlty/qlty.toml looks like an AWS access key",
+        "src/config.ts looks like an AWS access key",
+      ]);
+    } finally {
+      rmSync(workspace, { force: true, recursive: true });
+    }
+  });
+
   it("ignores inherited repository-local Git bindings", async () => {
     const workspace = mkdtempSync(path.join(tmpdir(), "ji-secret-scan-git-"));
     const fake = ["AKIA", "IOSFODNN7EXAMPLE"].join("");
