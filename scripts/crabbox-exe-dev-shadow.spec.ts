@@ -260,4 +260,38 @@ printf '%s\\n' "\${DATABASE_URL-unset}" "\${DATABASE_TEST_URL-unset}" "\${DATABA
     expect(result.stderr.toString()).toBe("");
     expect(result.exitCode).toBe(0);
   });
+
+  test("includes imported fixtures in the correctness dataset manifest", () => {
+    const workspace = mkdtempSync(path.join(tmpdir(), "ji-shadow-dataset-"));
+    const fixturesDirectory = path.join(
+      workspace,
+      "scripts/ci-metrics/fixtures"
+    );
+    mkdirSync(fixturesDirectory, { recursive: true });
+    writeFileSync(
+      path.join(workspace, "scripts/ci-metrics/core.spec.ts"),
+      "test"
+    );
+    writeFileSync(path.join(fixturesDirectory, "jobs.json"), "fixture");
+
+    try {
+      const result = Bun.spawnSync(
+        ["bash", "-c", 'source "$SHADOW_SCRIPT"; write_dataset_manifest'],
+        {
+          cwd: workspace,
+          env: { ...process.env, SHADOW_SCRIPT: shadowScript },
+          stderr: "pipe",
+          stdout: "pipe",
+        }
+      );
+
+      expect(result.stderr.toString()).toBe("");
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout.toString()).toContain(
+        "scripts/ci-metrics/fixtures/jobs.json"
+      );
+    } finally {
+      rmSync(workspace, { force: true, recursive: true });
+    }
+  });
 });

@@ -132,6 +132,36 @@ ensure_bun() {
   [[ "$(bun --version)" == "$EXPECTED_BUN_VERSION" ]]
 }
 
+write_dataset_manifest() {
+  local dataset_path
+
+  find . \( \
+    -path './.artifacts' -o \
+    -path './.cache' -o \
+    -path './.git' -o \
+    -path './.omc' -o \
+    -path './.openwiki' -o \
+    -path './.turbo' -o \
+    -path './coverage' -o \
+    -path './logs' -o \
+    -path './node_modules' -o \
+    -path '*/.next' -o \
+    -path '*/coverage' -o \
+    -path '*/dist' -o \
+    -path '*/logs' -o \
+    -path '*/node_modules' \
+  \) -prune -o -type f \( \
+    -name '*.spec.ts' -o \
+    -path '*/fixtures/*' -o \
+    -path './.env.example' -o \
+    -path '*/.env.example' -o \
+    -path './docker-compose.yml' -o \
+    -path './packages/db/src/migrations/*' \
+  \) -print0 | LC_ALL=C sort -z | while IFS= read -r -d '' dataset_path; do
+    sha256sum "${dataset_path#./}"
+  done
+}
+
 write_fingerprint() {
   local architecture
   local bun_lock_digest
@@ -140,7 +170,6 @@ write_fingerprint() {
   local dataset_digest
   local dataset_file_count
   local dataset_manifest
-  local dataset_path
   local git_sha
   local git_state
   local memory_kib
@@ -151,32 +180,7 @@ write_fingerprint() {
   bun_lock_digest="$(sha256sum bun.lock | awk '{print $1}')"
   bun_version="$(bun --version 2>/dev/null || printf 'unavailable')"
   cpu_count="$(getconf _NPROCESSORS_ONLN 2>/dev/null || printf 'unknown')"
-  dataset_manifest="$({
-    find . \( \
-      -path './.artifacts' -o \
-      -path './.cache' -o \
-      -path './.git' -o \
-      -path './.omc' -o \
-      -path './.openwiki' -o \
-      -path './.turbo' -o \
-      -path './coverage' -o \
-      -path './logs' -o \
-      -path './node_modules' -o \
-      -path '*/.next' -o \
-      -path '*/coverage' -o \
-      -path '*/dist' -o \
-      -path '*/logs' -o \
-      -path '*/node_modules' \
-    \) -prune -o -type f \( \
-      -name '*.spec.ts' -o \
-      -path './.env.example' -o \
-      -path '*/.env.example' -o \
-      -path './docker-compose.yml' -o \
-      -path './packages/db/src/migrations/*' \
-    \) -print0 | LC_ALL=C sort -z | while IFS= read -r -d '' dataset_path; do
-      sha256sum "${dataset_path#./}"
-    done
-  })"
+  dataset_manifest="$(write_dataset_manifest)"
   dataset_digest="$(printf '%s\n' "$dataset_manifest" | sha256sum | awk '{print $1}')"
   dataset_file_count="$(printf '%s\n' "$dataset_manifest" | awk 'NF {count += 1} END {print count + 0}')"
   # Crabbox's ordinary sync does not transfer .git. Accept source identity only

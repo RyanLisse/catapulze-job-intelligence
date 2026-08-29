@@ -8,9 +8,14 @@ const MAX_SCAN_FILE_BYTES = 10 * 1024 * 1024;
 const REPOSITORY_LOCAL_GIT_VARIABLES = [
   "GIT_ALTERNATE_OBJECT_DIRECTORIES",
   "GIT_COMMON_DIR",
+  "GIT_CONFIG",
+  "GIT_CONFIG_COUNT",
+  "GIT_CONFIG_PARAMETERS",
   "GIT_DIR",
   "GIT_GRAFT_FILE",
+  "GIT_IMPLICIT_WORK_TREE",
   "GIT_INDEX_FILE",
+  "GIT_NO_REPLACE_OBJECTS",
   "GIT_OBJECT_DIRECTORY",
   "GIT_PREFIX",
   "GIT_REPLACE_REF_BASE",
@@ -52,7 +57,19 @@ export const collectSecretViolations = (
 const isScannable = (relativePath: string): boolean => {
   const pathSegments = relativePath.split("/");
   return !pathSegments.some((segment) =>
-    [".artifacts", ".git", "node_modules", "openwiki"].includes(segment)
+    [
+      ".artifacts",
+      ".cache",
+      ".git",
+      ".next",
+      ".omc",
+      ".turbo",
+      "coverage",
+      "dist",
+      "logs",
+      "node_modules",
+      "openwiki",
+    ].includes(segment)
   );
 };
 
@@ -116,8 +133,11 @@ export const scanTrackedFiles = async (
     }
     return isScannable(relativePath);
   });
+  const workspacePaths = await listWorkspaceFiles(rootDir);
   const paths =
-    gitExitCode === 0 ? listedPaths : await listWorkspaceFiles(rootDir);
+    gitExitCode === 0
+      ? [...new Set([...listedPaths, ...workspacePaths])].toSorted()
+      : workspacePaths;
   const violations: string[] = [];
   for (const relativePath of paths) {
     // oxlint-disable-next-line eslint/no-await-in-loop -- sequential reads bound scan memory

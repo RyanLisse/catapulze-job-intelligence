@@ -15,6 +15,35 @@ import {
 } from "./check-secrets-scan";
 
 const repoRoot = path.join(import.meta.dir, "..");
+const repositoryLocalGitVariables = [
+  "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+  "GIT_COMMON_DIR",
+  "GIT_CONFIG",
+  "GIT_CONFIG_COUNT",
+  "GIT_CONFIG_PARAMETERS",
+  "GIT_DIR",
+  "GIT_GRAFT_FILE",
+  "GIT_IMPLICIT_WORK_TREE",
+  "GIT_INDEX_FILE",
+  "GIT_NO_REPLACE_OBJECTS",
+  "GIT_OBJECT_DIRECTORY",
+  "GIT_PREFIX",
+  "GIT_REPLACE_REF_BASE",
+  "GIT_SHALLOW_FILE",
+  "GIT_WORK_TREE",
+] as const;
+
+const runRepositoryGit = (workspace: string, arguments_: string[]): number => {
+  const environment = { ...process.env };
+  for (const variable of repositoryLocalGitVariables) {
+    environment[variable] = undefined;
+  }
+
+  return Bun.spawnSync(["git", ...arguments_], {
+    cwd: workspace,
+    env: environment,
+  }).exitCode;
+};
 
 describe("check-secrets-scan", () => {
   it("catches a clearly fake AWS access key", () => {
@@ -60,6 +89,29 @@ describe("check-secrets-scan", () => {
 
       expect(await scanTrackedFiles(workspace)).toEqual([
         "src/config.ts looks like an AWS access key",
+      ]);
+    } finally {
+      rmSync(workspace, { force: true, recursive: true });
+    }
+  });
+
+  it("scans synchronized untracked files when Git metadata is present", async () => {
+    const workspace = mkdtempSync(
+      path.join(tmpdir(), "ji-secret-scan-seeded-")
+    );
+    const fake = ["AKIA", "IOSFODNN7EXAMPLE"].join("");
+
+    try {
+      expect(runRepositoryGit(workspace, ["init", "--quiet"])).toBe(0);
+      writeFileSync(
+        path.join(workspace, "tracked.ts"),
+        "export const safe = true;"
+      );
+      expect(runRepositoryGit(workspace, ["add", "tracked.ts"])).toBe(0);
+      writeFileSync(path.join(workspace, "untracked.ts"), fake);
+
+      expect(await scanTrackedFiles(workspace)).toEqual([
+        "untracked.ts looks like an AWS access key",
       ]);
     } finally {
       rmSync(workspace, { force: true, recursive: true });
