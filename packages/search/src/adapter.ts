@@ -8,6 +8,7 @@ import {
   recordCriticalPathPhaseSync,
   resolveRunKind,
   buildWorkloadMetadata,
+  monotonicNowMs,
   timeCriticalPathPhase,
   withCriticalPathSession,
 } from "@ji/performance";
@@ -156,11 +157,9 @@ export class SearchAdapter {
           }),
         });
       }
-      const flushStarted = Bun.nanoseconds();
+      const flushStarted = monotonicNowMs();
       await session.flush();
-      const overheadMs = Math.round(
-        (Bun.nanoseconds() - flushStarted) / 1_000_000
-      );
+      const overheadMs = Math.round(monotonicNowMs() - flushStarted);
       const overheadSession = createCriticalPathSession({
         metadata: {
           "instrumentation-overhead-ms": String(overheadMs),

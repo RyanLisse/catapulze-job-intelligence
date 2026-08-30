@@ -1,8 +1,11 @@
+import { execFile } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import { arch, cpus, platform, release, totalmem } from "node:os";
+import { promisify } from "node:util";
 
 import type { CriticalPathLabel } from "../labels";
 import { isCriticalPathLabel } from "../labels";
+import { monotonicNowMs, readBunVersion } from "../monotonic";
 import type { CriticalPathRecordSink } from "./sink";
 import { resolveCriticalPathSink } from "./sink";
 
@@ -145,7 +148,7 @@ const runtimeMetadata = (): InProcessPerformanceRecord["runtime"] => {
   const cpuList = cpus();
   return {
     arch: arch(),
-    bun: Bun.version,
+    bun: readBunVersion(),
     cpuCount: cpuList.length,
     cpuModel: cpuList[0]?.model ?? "unavailable",
     memoryBytes: totalmem(),
@@ -162,15 +165,12 @@ const syntheticCommand = (label: CriticalPathLabel): string[] => [
   label,
 ];
 
+const execFileAsync = promisify(execFile);
+
 const runGit = async (args: string[]): Promise<string | null> => {
   try {
-    const process = Bun.spawn(["git", ...args], {
-      stderr: "ignore",
-      stdout: "pipe",
-    });
-    const output = await new Response(process.stdout).text();
-    const exitCode = await process.exited;
-    return exitCode === 0 ? output.trim() : null;
+    const { stdout } = await execFileAsync("git", args);
+    return stdout.trim();
   } catch {
     return null;
   }
@@ -336,12 +336,12 @@ export class CriticalPathSession {
     label: CriticalPathLabel,
     operation: () => Promise<Result>
   ): Promise<Result> {
-    const startedNs = Bun.nanoseconds();
+    const startedMs = monotonicNowMs();
     const startedAt = new Date().toISOString();
     try {
       const result = await operation();
       this.recordSample({
-        durationMs: Math.round((Bun.nanoseconds() - startedNs) / 1_000_000),
+        durationMs: Math.round(monotonicNowMs() - startedMs),
         endedAt: new Date().toISOString(),
         label,
         startedAt,
@@ -350,7 +350,7 @@ export class CriticalPathSession {
       return result;
     } catch (error) {
       this.recordSample({
-        durationMs: Math.round((Bun.nanoseconds() - startedNs) / 1_000_000),
+        durationMs: Math.round(monotonicNowMs() - startedMs),
         endedAt: new Date().toISOString(),
         error: error instanceof Error ? error.message : String(error),
         label,
@@ -365,12 +365,12 @@ export class CriticalPathSession {
     label: CriticalPathLabel,
     operation: () => Result
   ): Result {
-    const startedNs = Bun.nanoseconds();
+    const startedMs = monotonicNowMs();
     const startedAt = new Date().toISOString();
     try {
       const result = operation();
       this.recordSample({
-        durationMs: Math.round((Bun.nanoseconds() - startedNs) / 1_000_000),
+        durationMs: Math.round(monotonicNowMs() - startedMs),
         endedAt: new Date().toISOString(),
         label,
         startedAt,
@@ -379,7 +379,7 @@ export class CriticalPathSession {
       return result;
     } catch (error) {
       this.recordSample({
-        durationMs: Math.round((Bun.nanoseconds() - startedNs) / 1_000_000),
+        durationMs: Math.round(monotonicNowMs() - startedMs),
         endedAt: new Date().toISOString(),
         error: error instanceof Error ? error.message : String(error),
         label,

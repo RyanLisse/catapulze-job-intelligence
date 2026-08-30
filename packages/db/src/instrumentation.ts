@@ -3,6 +3,7 @@ import {
   currentCriticalPathSession,
   digestQueryIdentity,
   isCriticalPathEnabled,
+  monotonicNowMs,
   timeCriticalPathPhase,
 } from "@ji/performance";
 import type { Sql } from "postgres";
@@ -19,10 +20,10 @@ export const timeSqlQuery = <Result>(
     return operation();
   }
 
-  const poolWaitStarted = Bun.nanoseconds();
+  const poolWaitStarted = monotonicNowMs();
   return timeCriticalPathPhase("db-query", () => {
     currentCriticalPathSession()?.recordSample({
-      durationMs: Math.round((Bun.nanoseconds() - poolWaitStarted) / 1_000_000),
+      durationMs: Math.round(monotonicNowMs() - poolWaitStarted),
       endedAt: new Date().toISOString(),
       label: "db-poolwait",
       startedAt: new Date().toISOString(),

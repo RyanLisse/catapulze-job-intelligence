@@ -28,5 +28,5 @@ export {
   digestSearchResult,
 } from "./digest";
 export type { QuerysetFilterValue, SearchResultDigestInput } from "./digest";
-export { CRITICAL_PATH_LABELS, isCriticalPathLabel } from "./labels";
+export { monotonicNowMs, readBunVersion } from "./monotonic";
 export type { CriticalPathLabel } from "./labels";

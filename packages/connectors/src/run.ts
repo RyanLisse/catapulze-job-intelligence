@@ -5,6 +5,7 @@ import {
   isCriticalPathEnabled,
   resolveRunKind,
   buildWorkloadMetadata,
+  monotonicNowMs,
   timeCriticalPathPhase,
   withCriticalPathSession,
 } from "@ji/performance";
@@ -168,7 +169,7 @@ const runConnectorInner = async (
     checkpoint: input.checkpoint ?? null,
     metrics: emptyRunMetrics(),
   };
-  const queueStartedNs = Bun.nanoseconds();
+  const queueStartedMs = monotonicNowMs();
   const canonicalRun = await runLifecycleStore.start({
     key: checkpointKey,
     mode: input.checkpoint === undefined ? "resume" : "reset",
@@ -177,7 +178,7 @@ const runConnectorInner = async (
     startedAt,
   });
   currentCriticalPathSession()?.recordSample({
-    durationMs: Math.round((Bun.nanoseconds() - queueStartedNs) / 1_000_000),
+    durationMs: Math.round(monotonicNowMs() - queueStartedMs),
     endedAt: new Date().toISOString(),
     label: "ingest-queuewait",
     startedAt: new Date().toISOString(),
@@ -370,7 +371,7 @@ export const runConnector = async (
     return execute();
   }
 
-  const runStartedNs = Bun.nanoseconds();
+  const runStartedMs = monotonicNowMs();
   const session = createCriticalPathSession({
     metadata: buildWorkloadMetadata(),
     runKind: resolveRunKind(),
@@ -378,10 +379,7 @@ export const runConnector = async (
 
   try {
     const result = await withCriticalPathSession(session, execute);
-    const elapsedMs = Math.max(
-      1,
-      Math.round((Bun.nanoseconds() - runStartedNs) / 1_000_000)
-    );
+    const elapsedMs = Math.max(1, Math.round(monotonicNowMs() - runStartedMs));
     const recordsPerSecond = (
       (result.writtenRecords * 1000) /
       elapsedMs

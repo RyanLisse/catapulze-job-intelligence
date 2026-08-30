@@ -1,4 +1,4 @@
-import { mkdir } from "node:fs/promises";
+import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import type { InProcessPerformanceRecord } from "./session";
@@ -24,7 +24,7 @@ export class FileCriticalPathSink implements CriticalPathRecordSink {
       records.map(async (record) => {
         const stem = `${record.startedAt.replaceAll(/[:.]/gu, "-")}-${record.label}-${record.id}`;
         const destination = path.join(this.outputDirectory, `${stem}.json`);
-        await Bun.write(destination, `${JSON.stringify(record, null, 2)}\n`);
+        await writeFile(destination, `${JSON.stringify(record, null, 2)}\n`);
       })
     );
   }
