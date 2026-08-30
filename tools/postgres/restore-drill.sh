@@ -40,10 +40,22 @@ docker volume create "$restore_volume" >/dev/null
 echo "restore-drill: starting source postgres with WAL archive to MinIO"
 POSTGRES_DATA_VOLUME="$source_volume" "${compose[@]}" up -d --build --wait postgres minio minio-init
 
-inspect_template='{{range $k, $v := .NetworkSettings.Networks}}{{$k}}{{end}}'
+inspect_template="{{range \$k, \$v := .NetworkSettings.Networks}}{{\$k}}{{end}}"
 network_name="$(
   "${compose[@]}" ps -q postgres | xargs docker inspect -f "$inspect_template"
 )"
+
+pg_admin_user="${POSTGRES_ADMIN_USER:-ji_admin}"
+pg_admin_password="${POSTGRES_ADMIN_PASSWORD:-ji_admin_local}"
+pg_database="${POSTGRES_DB:-ji_test}"
+
+wal_g_source() {
+  "${compose[@]}" exec -T -u postgres \
+    -e "PGUSER=${pg_admin_user}" \
+    -e "PGPASSWORD=${pg_admin_password}" \
+    -e "PGDATABASE=${pg_database}" \
+    postgres wal-g "$@"
+}
 
 export MIGRATION_DATABASE_URL="postgresql://ji_migrator:ji_migrator_local@127.0.0.1:${source_port}/ji_test"
 bun run db:migrate
@@ -58,18 +70,18 @@ marker_value="restore-drill-$(date +%s)"
   -c "CHECKPOINT;"
 
 echo "restore-drill: pushing base backup and archived WAL to off-site fixture bucket"
-"${compose[@]}" exec -T postgres wal-g backup-push /var/lib/postgresql/data
-"${compose[@]}" exec -T postgres wal-g backup-list
+wal_g_source backup-push /var/lib/postgresql/data
+wal_g_source backup-list
 
 "${compose[@]}" exec -T postgres \
   psql -U ji_admin -d ji_test \
   -c "INSERT INTO ${marker_table} (marker) VALUES ('${marker_value}-after-backup');" \
   -c "SELECT pg_switch_wal(); CHECKPOINT;"
 
-"${compose[@]}" exec -T postgres wal-g backup-push /var/lib/postgresql/data
+wal_g_source backup-push /var/lib/postgresql/data
 
 latest_backup="$(
-  "${compose[@]}" exec -T postgres wal-g backup-list | awk '/^backup/ { backup=$1 } END { print backup }'
+  wal_g_source backup-list | awk '/^backup/ { backup=$1 } END { print backup }'
 )"
 
 if [[ -z "$latest_backup" ]]; then
@@ -94,7 +106,11 @@ docker run -d --name "$restore_container" \
   catapulze-postgres-walg:16 \
   sleep infinity >/dev/null
 
-docker exec "$restore_container" wal-g backup-fetch "$latest_backup" /var/lib/postgresql/data
+docker exec -u postgres \
+  -e "PGUSER=${pg_admin_user}" \
+  -e "PGPASSWORD=${pg_admin_password}" \
+  -e "PGDATABASE=${pg_database}" \
+  "$restore_container" wal-g backup-fetch "$latest_backup" /var/lib/postgresql/data
 docker exec "$restore_container" sh -ec "
   cat > /var/lib/postgresql/data/recovery.signal <<'EOF'
 EOF
