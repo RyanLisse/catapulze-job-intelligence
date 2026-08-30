@@ -21,21 +21,32 @@ export interface PerformanceMetadata {
   /** A declared dataset requires dataset-digest so cohorts cannot alias. */
   dataset?: string;
   "dataset-digest"?: string;
+  "error-count"?: string;
+  "freshness-ms"?: string;
+  "instrumentation-overhead-ms"?: string;
   "item-count"?: string;
   "index-state"?: string;
   job?: string;
   machine?: string;
+  "percentile-p50"?: string;
+  "percentile-p95"?: string;
+  "percentile-p99"?: string;
   pipeline?: string;
   profile?: string;
   "postgres-image-digest"?: string;
   "postgres-version"?: string;
   provider?: string;
+  "query-identity"?: string;
   "queryset-digest"?: string;
   region?: string;
+  "records-per-second"?: string;
+  "result-digest"?: string;
   runner?: string;
   "sequence-position"?: string;
   suite?: string;
+  "timeout-count"?: string;
   toolchain?: string;
+  "throughput-rps"?: string;
   "vacuum-state"?: string;
   "workload-version"?: string;
   workflow?: string;
@@ -76,6 +87,22 @@ export interface CohortDimensions {
   vacuumState: string | null;
 }
 
+export interface CommandWallClockMeasurement {
+  kind: "command-wall-clock";
+  boundary: "subprocess-spawn-to-exit";
+  unit: "milliseconds";
+}
+
+export interface InProcessMonotonicMeasurement {
+  kind: "in-process-monotonic";
+  boundary: string;
+  unit: "milliseconds";
+}
+
+export type PerformanceMeasurement =
+  | CommandWallClockMeasurement
+  | InProcessMonotonicMeasurement;
+
 export interface PerformanceRecord {
   schemaVersion: 1;
   id: string;
@@ -88,11 +115,7 @@ export interface PerformanceRecord {
   commandFingerprint: string;
   cohortDimensions: CohortDimensions;
   cohortFingerprint: string;
-  measurement: {
-    kind: "command-wall-clock";
-    boundary: "subprocess-spawn-to-exit";
-    unit: "milliseconds";
-  };
+  measurement: PerformanceMeasurement;
   startedAt: string;
   endedAt: string;
   durationMs: number;
@@ -373,6 +396,30 @@ const readStringArray = (
   return value.map(String);
 };
 
+const IN_PROCESS_BOUNDARIES = new Set([
+  "search-parser",
+  "search-adapter",
+  "search-engine",
+  "search-facets",
+  "search-serialization",
+  "search-summary",
+  "ingest-queuewait",
+  "ingest-discover",
+  "ingest-fetch",
+  "ingest-raw-write",
+  "ingest-normalisation",
+  "ingest-dedupe",
+  "ingest-commit",
+  "ingest-outbox",
+  "ingest-index-projection",
+  "api-handler",
+  "db-poolwait",
+  "db-query",
+  "db-transaction",
+  "db-locks",
+  "instrumentation-overhead",
+]);
+
 const METADATA_KEYS = [
   "branch",
   "cache-state",
@@ -380,20 +427,31 @@ const METADATA_KEYS = [
   "concurrency",
   "dataset",
   "dataset-digest",
+  "error-count",
+  "freshness-ms",
+  "instrumentation-overhead-ms",
   "item-count",
   "index-state",
   "job",
   "machine",
+  "percentile-p50",
+  "percentile-p95",
+  "percentile-p99",
   "pipeline",
   "profile",
   "postgres-image-digest",
   "postgres-version",
   "provider",
+  "query-identity",
   "queryset-digest",
+  "records-per-second",
   "region",
+  "result-digest",
   "runner",
   "sequence-position",
   "suite",
+  "timeout-count",
+  "throughput-rps",
   "toolchain",
   "vacuum-state",
   "workload-version",
@@ -589,6 +647,53 @@ const readAttempt = (object: JsonObject, filename: string): number => {
   return attempt;
 };
 
+const readMeasurement = (
+  value: JsonValue | undefined,
+  filename: string
+): PerformanceMeasurement => {
+  const measurement = readObject(value ?? null, filename, "measurement", [
+    "kind",
+    "boundary",
+    "unit",
+  ]);
+  const { kind } = measurement;
+  const boundary = readString(measurement, "boundary", filename);
+  const unit = readString(measurement, "unit", filename);
+  if (unit !== "milliseconds") {
+    throw new PerformanceSchemaError(
+      filename,
+      "measurement.unit must be milliseconds"
+    );
+  }
+  if (kind === "command-wall-clock") {
+    if (boundary !== "subprocess-spawn-to-exit") {
+      throw new PerformanceSchemaError(
+        filename,
+        "command-wall-clock boundary must be subprocess-spawn-to-exit"
+      );
+    }
+    return {
+      boundary: "subprocess-spawn-to-exit",
+      kind: "command-wall-clock",
+      unit: "milliseconds",
+    };
+  }
+  if (kind === "in-process-monotonic") {
+    if (!IN_PROCESS_BOUNDARIES.has(boundary)) {
+      throw new PerformanceSchemaError(
+        filename,
+        "in-process-monotonic boundary is not allowlisted"
+      );
+    }
+    return {
+      boundary,
+      kind: "in-process-monotonic",
+      unit: "milliseconds",
+    };
+  }
+  throw new PerformanceSchemaError(filename, "measurement.kind is invalid");
+};
+
 export const parsePerformanceRecord = (
   value: JsonValue,
   filename: string
@@ -622,22 +727,7 @@ export const parsePerformanceRecord = (
   if (readNumber(object, "schemaVersion", filename) !== 1) {
     throw new PerformanceSchemaError(filename, "schemaVersion must be 1");
   }
-  const measurement = readObject(
-    object.measurement ?? null,
-    filename,
-    "measurement",
-    ["kind", "boundary", "unit"]
-  );
-  if (
-    measurement.kind !== "command-wall-clock" ||
-    measurement.boundary !== "subprocess-spawn-to-exit" ||
-    measurement.unit !== "milliseconds"
-  ) {
-    throw new PerformanceSchemaError(
-      filename,
-      "measurement invariant is invalid"
-    );
-  }
+  const measurement = readMeasurement(object.measurement, filename);
   const git = readObject(object.git ?? null, filename, "git", ["sha", "dirty"]);
   const runtime = readObject(object.runtime ?? null, filename, "runtime", [
     "bun",
@@ -678,11 +768,7 @@ export const parsePerformanceRecord = (
     },
     id: readString(object, "id", filename),
     label: readLabel(object, "label", filename),
-    measurement: {
-      boundary: "subprocess-spawn-to-exit",
-      kind: "command-wall-clock",
-      unit: "milliseconds",
-    },
+    measurement,
     measurementError: readMeasurementError(object.measurementError, filename),
     metadata: readMetadata(object.metadata ?? null, filename),
     resources: {
