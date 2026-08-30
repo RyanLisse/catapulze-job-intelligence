@@ -18,11 +18,11 @@ const databaseTestsRequired =
 
 const postgresOptions = {
   connect_timeout: 2,
-  max: 1,
   connection: {
     lock_timeout: 2000,
     statement_timeout: 2000,
   },
+  max: 1,
 } as const;
 
 const isPostgresAvailable = async (): Promise<boolean> => {
