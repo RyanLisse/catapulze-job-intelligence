@@ -9,13 +9,36 @@ name: CI
 
 permissions:
   contents: read
+  pull-requests: read
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
+  changes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      code: ${{ steps.filter.outputs.code }}
+    steps:
+      - name: Detect code changes
+        uses: dorny/paths-filter@7b450fff21473bca461d4b92ce414b9d0420d706  # v4.0.2
+        id: filter
+        with:
+          filters: |
+            code:
+              - ".github/workflows/**"
+              - "package.json"
+              - "bun.lock"
+              - "apps/**"
+              - "packages/**"
+              - "tests/**"
+              - "scripts/**"
+              - "docker-compose.yml"
+
   verify:
+    needs: changes
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
@@ -43,13 +66,27 @@ jobs:
         with:
           bun-version: "1.3.14"
 
+      - name: Restore Bun dependency cache
+        if: needs.changes.outputs.code == 'true'
+        uses: actions/cache@d4323d4df104b026a6aa633fdb11d772146be0bf  # v4.2.2
+        with:
+          path: |
+            node_modules
+            ~/.bun/install/cache
+          key: bun-deps-${{ runner.os }}-${{ hashFiles('bun.lock') }}
+          restore-keys: |
+            bun-deps-${{ runner.os }}-
+
       - name: Install Qlty
+        if: needs.changes.outputs.code == 'true'
         uses: qltysh/qlty-action/install@08a0a862c159eae9b9003081da6663d96efef637  # v2.3.0
 
       - name: Install locked dependencies
+        if: needs.changes.outputs.code == 'true'
         run: bun scripts/performance/measure.ts --label install -- bun install --frozen-lockfile
 
       - name: Start isolated PostgreSQL
+        if: needs.changes.outputs.code == 'true'
         env:
           POSTGRES_DATA_VOLUME: catapulze-postgres-ci
         run: |
@@ -57,25 +94,32 @@ jobs:
           docker compose --env-file .env.example up -d --wait postgres
 
       - name: Verify
+        if: needs.changes.outputs.code == 'true'
         run: bun scripts/performance/measure.ts --label gate -- bun run gate
 
       - name: Build
+        if: needs.changes.outputs.code == 'true'
         run: bun run build:timed
 
       - name: Stop isolated PostgreSQL
-        if: always()
+        if: always() && needs.changes.outputs.code == 'true'
         env:
           POSTGRES_DATA_VOLUME: catapulze-postgres-ci
         run: |
           docker compose --env-file .env.example down -v
           docker volume rm "$POSTGRES_DATA_VOLUME"
 
+      - name: Skip heavy verify for doc-only changes
+        if: needs.changes.outputs.code != 'true'
+        run: |
+          echo "Skipped Postgres, gate, and build — no changes under apps/, packages/, tests/, scripts/, lockfiles, workflows, or docker-compose.yml."
+
       - name: Report CI command timing
-        if: always()
+        if: always() && needs.changes.outputs.code == 'true'
         run: bun scripts/performance/report.ts
 
       - name: Upload CI command timing
-        if: always()
+        if: always() && needs.changes.outputs.code == 'true'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
         with:
           name: ci-performance-${{ github.run_id }}-${{ github.run_attempt }}
