@@ -11,6 +11,7 @@ import {
   timeCriticalPathPhase,
   withCriticalPathSession,
 } from "@ji/performance";
+import type { QuerysetFilterValue } from "@ji/performance/digest";
 
 import { buildCacheKey, hashAst } from "./ast-hash";
 import type {
@@ -51,10 +52,10 @@ export class SearchAdapter {
         parseBooleanQuery(input.query)
       );
       if (!parsed.ok) {
-        return {
+        return Promise.resolve({
           error: parsed.error,
           ok: false,
-        };
+        });
       }
 
       const filters = normalizeFilters(input.filters);
@@ -131,7 +132,10 @@ export class SearchAdapter {
       metadata: {
         ...buildWorkloadMetadata(),
         "queryset-digest": digestQueryset({
-          filters: input.filters,
+          // SAFETY: digestQueryset JSON-serializes filters; SearchFilters values match QuerysetFilterValue.
+          filters: input.filters as
+            | Readonly<Record<string, QuerysetFilterValue>>
+            | undefined,
           limit: input.limit,
           offset: input.offset,
           query: input.query,
