@@ -31,6 +31,10 @@ export const createInhuurdeskConnector = (
     ): Promise<ConnectorDiscoverResult> => {
       const page = checkpoint?.page ?? 0;
       const listing = await client.fetchListing(page);
+      let pageSize = checkpoint?.pageSize ?? 0;
+      if (pageSize <= 0) {
+        pageSize = listing.data.length > 0 ? listing.data.length : 1;
+      }
       const items: DiscoverItem[] = await Promise.all(
         listing.data.map(async (assignment) => ({
           bronReferentie: inhuurdeskBronReferentie(assignment),
@@ -39,8 +43,9 @@ export const createInhuurdeskConnector = (
         }))
       );
       return {
-        checkpoint: { page: page + 1 },
-        hasMore: listing.data.length > 0 && page === 0,
+        checkpoint: { page: page + 1, pageSize },
+        hasMore:
+          listing.data.length > 0 && (page + 1) * pageSize < listing.total,
         items,
       };
     },

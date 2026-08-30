@@ -32,6 +32,7 @@ export {
   type ObservationRecorder,
   type ObservationRecordInput,
 } from "./observation-recorder";
+export { FilesystemObjectStore } from "./filesystem-object-store";
 export {
   buildRawObjectPath,
   hashContent,
@@ -75,6 +76,7 @@ export {
   buildTenderNedListingUrl,
   createTenderNedClient,
   createTenderNedConnector,
+  buildTenderNedPollFilters,
   requestedListingSize,
   TENDER_NED_MAX_PAGE_SIZE,
   TENDER_NED_PARSER_VERSION,

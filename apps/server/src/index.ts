@@ -1,7 +1,6 @@
 import { trpcServer } from "@hono/trpc-server";
 import { createContext } from "@ji/api/context";
 import { appRouter } from "@ji/api/routers/index";
-import { createTestSliceARegistry } from "@ji/application/registry";
 import { auth } from "@ji/auth";
 import { closeDb, getDbReadiness } from "@ji/db";
 import type { DbReadinessResult } from "@ji/db/readiness";
@@ -17,6 +16,7 @@ import {
 } from "./capabilities/rest";
 import { createHealthRoutes } from "./http/health";
 import { createReadinessHandler } from "./readiness";
+import { createProductionSliceARegistry } from "./slice-a-registry";
 
 const DEFAULT_PORT = 3000;
 const SHUTDOWN_DRAIN_TIMEOUT_MS = 10_000;
@@ -64,7 +64,11 @@ app.get("/health", healthRoutes.health);
 app.get("/livez", healthRoutes.live);
 app.get("/readyz", healthRoutes.ready);
 
-const sliceA = createTestSliceARegistry();
+const sliceA = createProductionSliceARegistry({
+  databaseUrl: env.DATABASE_URL,
+  manticoreUrl: env.MANTICORE_URL,
+  rawObjectStorePath: env.RAW_OBJECT_STORE_PATH,
+});
 const restRoutes = restRoutesFromRegistry(sliceA.registry);
 const restHandler = createRestCapabilityHandler(sliceA.registry, restRoutes);
 const mcpHandler = createMcpHandler(sliceA.registry);
@@ -93,7 +97,7 @@ const shutdown = async (): Promise<void> => {
     await server.stop(true);
   }
 
-  await closeDb();
+  await Promise.all([sliceA.deps.close(), closeDb()]);
   process.exit(drainTimedOut ? 1 : 0);
 };
 

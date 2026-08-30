@@ -234,6 +234,7 @@ describe("bron register", () => {
     await expect(
       execute(persistence, {
         bronId: "bron-1",
+        bronSlug: "tenderned",
         connector,
         objectStore: new InMemoryObjectStore(),
         observationRecorder: new InMemoryObservationRecorder(),
@@ -276,6 +277,7 @@ describe("bron register", () => {
     const waits: number[] = [];
     await execute(persistence, {
       bronId: "bron-1",
+      bronSlug: "tenderned",
       connector,
       now: () => now,
       objectStore,
@@ -291,7 +293,7 @@ describe("bron register", () => {
       writeNow: () => new Date("2026-08-29T00:00:00Z"),
     });
     const object = await objectStore.get(
-      "raw/bron-1/2026/08/29/run-1/r1-h.html"
+      "raw/tenderned/2026/08/29/run-1/r1-h.html"
     );
     expect(object?.expiresAt.getTime()).toBe(
       new Date("2026-11-27T00:00:00Z").getTime()
@@ -312,6 +314,7 @@ describe("bron register", () => {
     const executeOnce = (scrapeRunId: string) =>
       execute(persistenceFor(record), {
         bronId: record.bronId,
+        bronSlug: "tenderned",
         connector: {
           bronId: record.bronId,
           discover: () =>
@@ -353,6 +356,7 @@ describe("bron register", () => {
     const executeOnce = (scrapeRunId: string) =>
       execute(persistenceFor(record), {
         bronId: record.bronId,
+        bronSlug: "tenderned",
         connector: {
           bronId: record.bronId,
           discover: () =>
@@ -388,6 +392,7 @@ describe("bron register", () => {
         }),
         {
           bronId: "bron-policy-refresh",
+          bronSlug: "tenderned",
           connector: {
             bronId: "bron-policy-refresh",
             discover: () =>
@@ -427,6 +432,7 @@ describe("bron register", () => {
         }),
         {
           bronId,
+          bronSlug: bronId,
           connector: {
             bronId,
             discover: () =>

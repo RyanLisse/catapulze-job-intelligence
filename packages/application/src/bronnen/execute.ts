@@ -6,6 +6,7 @@ import type {
   RequestLimiter,
   RetryPolicy,
   RunLifecycleStore,
+  ConnectorRunKind,
 } from "@ji/connectors";
 import type { BronId, ScrapeRunId } from "@ji/domain";
 
@@ -14,11 +15,13 @@ import type { BronPersistence } from "./register";
 
 export interface ExecuteBronRunInput {
   bronId: BronId;
+  bronSlug: string;
   scrapeRunId: ScrapeRunId;
   connector: Connector;
   objectStore: ObjectStore;
   observationRecorder: ObservationRecorder;
   runLifecycleStore: RunLifecycleStore;
+  runKind?: ConnectorRunKind;
   retryPolicy?: RetryPolicy;
   now?: () => number;
   wait?: (milliseconds: number) => Promise<void>;
@@ -120,8 +123,12 @@ export const executeBronRun = async (
   if (!record) {
     throw new Error("bron not found");
   }
-  if (!isPollableBron(record)) {
+  const runKind = input.runKind ?? "poll";
+  if (runKind === "poll" && !isPollableBron(record)) {
     throw new Error("bron is not pollable");
+  }
+  if (runKind === "test" && record.voorwaardenStatus !== "toegestaan") {
+    throw new Error("bron voorwaarden must be toegestaan for test-import");
   }
 
   const retryPolicy = input.retryPolicy ?? {
@@ -142,14 +149,14 @@ export const executeBronRun = async (
   try {
     return await runConnector({
       bronId: input.bronId,
-      bronSlug: input.bronId,
+      bronSlug: input.bronSlug,
       connector: input.connector,
       limiter: activeLimiter.limiter,
       objectStore: input.objectStore,
       observationRecorder: input.observationRecorder,
       rawRetentionDays: record.retentionDays,
       retryPolicy,
-      runKind: "poll",
+      runKind,
       runLifecycleStore: input.runLifecycleStore,
       scrapeRunId: input.scrapeRunId,
       startedAt: input.startedAt,

@@ -1,21 +1,13 @@
-import { executeBronRun } from "@ji/application/bronnen";
-import {
-  createInhuurdeskConnector,
-  createTenderNedConnector,
-} from "@ji/connectors";
-import type { BronId, ScrapeRunId } from "@ji/domain";
 import { schemaTask } from "@trigger.dev/sdk";
-import { z } from "zod";
 
-const pollBronPayload = z.object({
-  bronId: z.string().uuid(),
-  bronSlug: z.enum(["inhuurdesk", "tenderned"]),
-  scrapeRunId: z.string().uuid(),
-});
+import {
+  createPollBronRuntime,
+  requireDatabaseUrl,
+  runBronIngestPipeline,
+} from "../poll-bron-run";
+import { pollBronPayload } from "./poll-bron-schema";
 
-export type PollBronPayload = z.infer<typeof pollBronPayload>;
-
-/** Minimal scheduled poller entry point for Slice A bron runs (KTD6). */
+/** Scheduled poller entry point for Slice A bron runs (KTD6). */
 export const pollBronTask = schemaTask({
   id: "poll-bron",
   queue: {
@@ -24,26 +16,15 @@ export const pollBronTask = schemaTask({
   retry: {
     maxAttempts: 2,
   },
-  run: (payload) => {
-    // SAFETY: schemaTask validates UUID strings before this handler runs.
-    const bronId = payload.bronId as BronId;
-    // SAFETY: schemaTask validates UUID strings before this handler runs.
-    const scrapeRunId = payload.scrapeRunId as ScrapeRunId;
-    const connector =
-      payload.bronSlug === "tenderned"
-        ? createTenderNedConnector({ bronId })
-        : createInhuurdeskConnector({ bronId });
-
-    // Runtime wiring (Postgres stores, object storage, env secrets) lands with U8 ops.
-    void connector;
-    void executeBronRun;
-
-    return Promise.resolve({
-      bronId: payload.bronId,
-      queued: true,
-      scrapeRunId,
-      status: "stub",
-    });
+  run: async (payload) => {
+    const runtime = createPollBronRuntime(requireDatabaseUrl());
+    try {
+      return await runBronIngestPipeline(payload, runtime, "poll");
+    } finally {
+      await runtime.close();
+    }
   },
   schema: pollBronPayload,
 });
+
+export type { PollBronPayload } from "./poll-bron-schema";

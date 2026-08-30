@@ -10,6 +10,7 @@ export const CONNECTOR_FIXTURE_CONTRACT_VERSION =
 export interface ConnectorCheckpoint {
   cursor?: string;
   page?: number;
+  pageSize?: number;
 }
 
 export interface DiscoverItem {
