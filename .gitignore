@@ -56,6 +56,9 @@ docs/research/bench/mh_go
 docs/research/bench/gofetch/gofetch
 docs/research/bench/rs/target/
 
+# Generated search benchmark corpus (RJC-344) — regenerate via `bun run bench:generate`
+fixtures/search/benchmark-corpus.jsonl
+
 # Logs
 logs
 .qlty/configs/

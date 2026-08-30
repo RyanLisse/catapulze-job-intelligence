@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 
 import {
@@ -89,29 +89,69 @@ const seedDocuments = (count: number): SearchDocument[] =>
     titel: `Platform engineer ${index}`,
   }));
 
+// Unbounded Promise.all over the whole corpus opens one HTTP connection per
+// document simultaneously, which resets Manticore's connection under load
+// at realistic corpus sizes (confirmed: 20k docs ECONNRESET'd against local
+// compose Manticore). Indexing in small concurrent batches keeps the same
+// upsertDocument interface while staying within Manticore's connection
+// capacity.
+const UPSERT_BATCH_SIZE = 100;
+
 const upsertAll = async (
   engine: SearchEngine,
   documents: SearchDocument[]
 ): Promise<void> => {
-  await Promise.all(
-    documents.map((document) => engine.upsertDocument(document))
-  );
+  for (let start = 0; start < documents.length; start += UPSERT_BATCH_SIZE) {
+    const batch = documents.slice(start, start + UPSERT_BATCH_SIZE);
+    /* oxlint-disable no-await-in-loop -- batches must index sequentially to bound concurrent connections */
+    await Promise.all(batch.map((document) => engine.upsertDocument(document)));
+    /* oxlint-enable no-await-in-loop */
+  }
 };
 
-const createEngine = async (): Promise<SearchEngine> => {
-  const manticoreUrl = process.env.MANTICORE_URL;
-  const docs = seedDocuments(Number(process.env.BENCH_CORPUS_SIZE ?? 1000));
-  if (manticoreUrl) {
-    const engine = ManticoreSearchEngine.fromUrl(manticoreUrl);
-    await upsertAll(engine, docs);
-    await engine.setIndexVersion(1);
-    return engine;
+// Reads corpus JSONL produced by benchmarks/search/generate-corpus.ts. Each
+// line matches SearchDocument except laatstGezienOp is an ISO string (JSON
+// has no Date type), so it is parsed back into a Date here.
+const readCorpusFile = (filePath: string): SearchDocument[] => {
+  const raw = readFileSync(filePath, "utf-8");
+  return raw
+    .split("\n")
+    .filter((line) => line.trim().length > 0)
+    .map((line) => {
+      // SAFETY: line is a JSONL record written by generate-corpus.ts, which
+      // emits exactly the SearchDocument fields (laatstGezienOp as an ISO
+      // string, reparsed into a Date on the next line).
+      const parsed = JSON.parse(line) as SearchDocument;
+      return { ...parsed, laatstGezienOp: new Date(parsed.laatstGezienOp) };
+    });
+};
+
+// BENCH_CORPUS overrides the profile's corpus pointer; falls back to
+// synthetic seedDocuments when neither path exists on disk (e.g. local
+// dev runs that never generated a corpus).
+const resolveCorpusDocuments = (
+  profile: BenchmarkProfile
+): SearchDocument[] => {
+  const pointer = process.env.BENCH_CORPUS ?? profile.corpus.pointer;
+  const resolved = path.resolve(process.cwd(), pointer);
+  if (existsSync(resolved)) {
+    return readCorpusFile(resolved);
   }
 
-  const engine = new InMemorySearchEngine();
+  return seedDocuments(Number(process.env.BENCH_CORPUS_SIZE ?? 1000));
+};
+
+const createEngine = async (
+  profile: BenchmarkProfile
+): Promise<{ documentCount: number; engine: SearchEngine }> => {
+  const manticoreUrl = process.env.MANTICORE_URL;
+  const docs = resolveCorpusDocuments(profile);
+  const engine = manticoreUrl
+    ? ManticoreSearchEngine.fromUrl(manticoreUrl)
+    : new InMemorySearchEngine();
   await upsertAll(engine, docs);
   await engine.setIndexVersion(1);
-  return engine;
+  return { documentCount: docs.length, engine };
 };
 
 const parseArgs = (): BenchmarkArgs => {
@@ -164,7 +204,7 @@ const runMeasured = async (
 const main = async (): Promise<void> => {
   const { profilePath } = parseArgs();
   const profile = loadProfile(profilePath);
-  const engine = await createEngine();
+  const { documentCount, engine } = await createEngine(profile);
   const adapter = new SearchAdapter({ engine });
 
   await runWarmup(adapter, profile);
@@ -193,6 +233,10 @@ const main = async (): Promise<void> => {
 
   if (process.env.PERF_METRICS_DIR) {
     process.env.PERF_CRITICAL_PATH = "1";
+    // Corpus size is a cohort dimension (item-count / itemCount) the
+    // performance schema already carries — set it here so a 50k and a
+    // future 200k run are never treated as the same cohort.
+    process.env.PERF_ITEM_COUNT = String(documentCount);
     await buildSearchSummaryRecord({
       durationsMs,
       errorCount: 0,
