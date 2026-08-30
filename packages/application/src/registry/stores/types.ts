@@ -142,6 +142,12 @@ export interface AuditStore {
 
 export interface AlertStore {
   ack: (alertId: string, actorId: string) => Promise<AlertRecord | null>;
+  create: (
+    record: Omit<AlertRecord, "ackedAt" | "ackedBy" | "createdAt" | "id"> & {
+      readonly id?: string;
+    }
+  ) => Promise<AlertRecord>;
+  findOpenByDedupeKey: (dedupeKey: string) => Promise<AlertRecord | null>;
   getById: (alertId: string) => Promise<AlertRecord | null>;
   listOpen: () => Promise<readonly AlertRecord[]>;
 }
@@ -149,6 +155,7 @@ export interface AlertStore {
 export interface BronHealthStore {
   getByBronId: (bronId: string) => Promise<BronHealthRecord | null>;
   list: () => Promise<readonly BronHealthRecord[]>;
+  upsert: (record: BronHealthRecord) => Promise<BronHealthRecord>;
 }
 
 export interface OperatorRunStore {

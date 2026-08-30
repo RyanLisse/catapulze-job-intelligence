@@ -15,6 +15,7 @@ import {
   createRestCapabilityHandler,
   restRoutesFromRegistry,
 } from "./capabilities/rest";
+import { createHealthRoutes } from "./http/health";
 import { createReadinessHandler } from "./readiness";
 
 const DEFAULT_PORT = 3000;
@@ -53,10 +54,15 @@ const reportReadinessFailure = (failure: DbReadinessFailure): void => {
   );
 };
 
-app.get(
-  "/readyz",
-  createReadinessHandler(getDbReadiness, reportReadinessFailure)
+const readinessHandler = createReadinessHandler(
+  getDbReadiness,
+  reportReadinessFailure
 );
+const healthRoutes = createHealthRoutes(readinessHandler);
+
+app.get("/health", healthRoutes.health);
+app.get("/livez", healthRoutes.live);
+app.get("/readyz", healthRoutes.ready);
 
 const sliceA = createTestSliceARegistry();
 const restRoutes = restRoutesFromRegistry(sliceA.registry);

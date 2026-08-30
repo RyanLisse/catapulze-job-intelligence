@@ -16,4 +16,9 @@ export class MemoryBronHealthStore implements BronHealthStore {
       [...this.records.values()].map((record) => structuredClone(record))
     );
   }
+
+  upsert(record: BronHealthRecord): Promise<BronHealthRecord> {
+    this.records.set(record.bronId, structuredClone(record));
+    return Promise.resolve(structuredClone(record));
+  }
 }
