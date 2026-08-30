@@ -6,6 +6,7 @@ import { MemoryAuditStore } from "./audit-store";
 import { MemoryBronHealthStore } from "./bron-health-store";
 import { MemoryExportAttemptStore } from "./export-attempt-store";
 import { MemoryExternalIdCrosswalkStore } from "./external-crosswalk-store";
+import { MemoryExternalReceiptStore } from "./external-receipt-store";
 import { MemoryMarkeringStore } from "./markering-store";
 import { MemoryOperatorRunStore } from "./operator-run-store";
 import { MemoryQuerySnapshotStore } from "./query-snapshot-store";
@@ -17,6 +18,7 @@ export const createMemorySliceAStores = (): SliceAStores & {
   readonly alerts: MemoryAlertStore;
   readonly bronHealth: MemoryBronHealthStore;
   readonly exportAttempts: MemoryExportAttemptStore;
+  readonly externalReceipts: MemoryExternalReceiptStore;
   readonly rawPayloads: MemoryRawPayloadStore;
 } => ({
   aanvragen: new MemoryAanvraagStore(),
@@ -26,6 +28,7 @@ export const createMemorySliceAStores = (): SliceAStores & {
   bronHealth: new MemoryBronHealthStore(),
   exportAttempts: new MemoryExportAttemptStore(),
   externalCrosswalk: new MemoryExternalIdCrosswalkStore(),
+  externalReceipts: new MemoryExternalReceiptStore(),
   markeringen: new MemoryMarkeringStore(),
   operatorRuns: new MemoryOperatorRunStore(),
   rawPayloads: new MemoryRawPayloadStore(),
@@ -44,4 +47,5 @@ export { MemoryQuerySnapshotStore } from "./query-snapshot-store";
 export { MemoryRawPayloadStore } from "./raw-payload-store";
 export { MemoryExportAttemptStore } from "./export-attempt-store";
 export { MemoryExternalIdCrosswalkStore } from "./external-crosswalk-store";
+export { MemoryExternalReceiptStore } from "./external-receipt-store";
 export { MemorySavedSearchStore } from "./saved-search-store";

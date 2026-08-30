@@ -7,12 +7,14 @@ import type {
   ExportTarget,
   ExternalIdCrosswalkRecord,
   ExternalIdCrosswalkStore,
+  ExternalReceiptRecord,
+  ExternalReceiptStore,
 } from "@ji/application/registry";
 import { and, eq } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 
 import type * as schema from "./schema";
-import { exportAttempt, externalIdCrosswalk } from "./schema";
+import { exportAttempt, externalIdCrosswalk, externalReceipt } from "./schema";
 
 export type ExportDatabase = PostgresJsDatabase<typeof schema>;
 
@@ -61,6 +63,18 @@ const toExportAttemptRecord = (
   snapshotId: row.snapshotId,
   status: parseExportAttemptStatus(row.status),
   target: parseExportTarget(row.target),
+});
+
+const toExternalReceiptRecord = (
+  row: typeof externalReceipt.$inferSelect
+): ExternalReceiptRecord => ({
+  canonicalVacancyId: row.canonicalVacancyId,
+  confirmedEffect: row.confirmedEffect,
+  createdAt: row.createdAt,
+  exportAttemptId: row.exportAttemptId,
+  id: row.id,
+  responseHash: row.responseHash,
+  spottVacancyId: row.spottVacancyId,
 });
 
 export class PostgresExternalIdCrosswalkStore implements ExternalIdCrosswalkStore {
@@ -138,5 +152,53 @@ export class PostgresExportAttemptStore implements ExportAttemptStore {
     }
 
     return toExportAttemptRecord(row);
+  }
+}
+
+export class PostgresExternalReceiptStore implements ExternalReceiptStore {
+  private readonly database: ExportDatabase;
+
+  constructor(database: ExportDatabase) {
+    this.database = database;
+  }
+
+  async create(
+    record: Omit<ExternalReceiptRecord, "createdAt" | "id">
+  ): Promise<ExternalReceiptRecord> {
+    const rows = await this.database
+      .insert(externalReceipt)
+      .values({
+        canonicalVacancyId: record.canonicalVacancyId,
+        confirmedEffect: record.confirmedEffect,
+        exportAttemptId: record.exportAttemptId,
+        responseHash: record.responseHash,
+        spottVacancyId: record.spottVacancyId,
+      })
+      .returning();
+
+    const [row] = rows;
+    if (!row) {
+      throw new Error("Unable to create external receipt");
+    }
+
+    return toExternalReceiptRecord(row);
+  }
+
+  async getByExportAttemptId(
+    exportAttemptId: string
+  ): Promise<ExternalReceiptRecord | null> {
+    const row = await this.database.query.externalReceipt.findFirst({
+      where: eq(externalReceipt.exportAttemptId, exportAttemptId),
+    });
+    return row ? toExternalReceiptRecord(row) : null;
+  }
+
+  async listByCanonicalVacancyId(
+    canonicalVacancyId: string
+  ): Promise<readonly ExternalReceiptRecord[]> {
+    const rows = await this.database.query.externalReceipt.findMany({
+      where: eq(externalReceipt.canonicalVacancyId, canonicalVacancyId),
+    });
+    return rows.map(toExternalReceiptRecord);
   }
 }

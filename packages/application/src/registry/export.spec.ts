@@ -131,9 +131,10 @@ describe("commit_export", () => {
     if (!first.ok || !second.ok) {
       return;
     }
-    expect(first.value.summary).toEqual({ created: 2, skipped: 0 });
-    expect(second.value.summary).toEqual({ created: 0, skipped: 2 });
+    expect(first.value.summary).toEqual({ created: 2, failed: 0, skipped: 0 });
+    expect(second.value.summary).toEqual({ created: 0, failed: 0, skipped: 2 });
     expect(bundle.deps.stores.exportAttempts.list()).toHaveLength(4);
+    expect(bundle.deps.stores.externalReceipts.list()).toHaveLength(4);
   });
 
   it("refuses export without approval", async () => {

@@ -2,22 +2,29 @@ import { validateSnapshotApproval } from "../approval/validate-snapshot-approval
 import type {
   ExportAttemptRecord,
   ExportAttemptStore,
+  ExternalReceiptStore,
   SliceAStores,
 } from "../registry/stores/types";
+import {
+  buildSkipReceiptPayload,
+  confirmSpottCreateEffect,
+} from "./confirm-export-effect";
 import {
   buildExportIdempotencyKey,
   EXPORT_ACTION_CREATE,
   EXPORT_TARGET_SPOTT,
 } from "./idempotency";
 import { mapAanvraagToSpottCreateRequest } from "./map-aanvraag-to-spott";
+import { hashExportReceiptSource } from "./response-hash";
 import type { SpottWriteClient } from "./spott/client";
 
-export type CommitExportItemStatus = "created" | "skipped";
+export type CommitExportItemStatus = "created" | "failed" | "skipped";
 
 export interface CommitExportItemResult {
   readonly canonicalVacancyId: string;
   readonly externalId: string | null;
   readonly idempotencyKey: string;
+  readonly receiptId: string;
   readonly status: CommitExportItemStatus;
 }
 
@@ -27,6 +34,7 @@ export interface CommitExportSuccess {
   readonly snapshotId: string;
   readonly summary: {
     readonly created: number;
+    readonly failed: number;
     readonly skipped: number;
   };
 }
@@ -51,6 +59,7 @@ export interface CommitExportDeps {
     | "approvals"
     | "exportAttempts"
     | "externalCrosswalk"
+    | "externalReceipts"
     | "snapshots"
   >;
 }
@@ -59,6 +68,24 @@ const recordAttempt = (
   store: ExportAttemptStore,
   record: Omit<ExportAttemptRecord, "createdAt" | "id">
 ): Promise<ExportAttemptRecord> => store.create(record);
+
+const recordReceipt = (
+  store: ExternalReceiptStore,
+  input: {
+    readonly attempt: ExportAttemptRecord;
+    readonly canonicalVacancyId: string;
+    readonly confirmedEffect: boolean;
+    readonly responseHash: string;
+    readonly spottVacancyId: string | null;
+  }
+) =>
+  store.create({
+    canonicalVacancyId: input.canonicalVacancyId,
+    confirmedEffect: input.confirmedEffect,
+    exportAttemptId: input.attempt.id,
+    responseHash: input.responseHash,
+    spottVacancyId: input.spottVacancyId,
+  });
 
 const processCanonicalVacancyExport = async (
   canonicalVacancyId: string,
@@ -82,7 +109,13 @@ const processCanonicalVacancyExport = async (
   });
 
   if (existingCrosswalk) {
-    await recordAttempt(deps.stores.exportAttempts, {
+    const responseHash = await hashExportReceiptSource(
+      buildSkipReceiptPayload({
+        externalId: existingCrosswalk.externalId,
+        idempotencyKey,
+      })
+    );
+    const attempt = await recordAttempt(deps.stores.exportAttempts, {
       actionType: EXPORT_ACTION_CREATE,
       approvalId: approvedApproval.id,
       canonicalVacancyId,
@@ -93,11 +126,19 @@ const processCanonicalVacancyExport = async (
       status: "skipped",
       target: EXPORT_TARGET_SPOTT,
     });
+    const receipt = await recordReceipt(deps.stores.externalReceipts, {
+      attempt,
+      canonicalVacancyId,
+      confirmedEffect: true,
+      responseHash,
+      spottVacancyId: existingCrosswalk.externalId,
+    });
     return {
       item: {
         canonicalVacancyId,
         externalId: existingCrosswalk.externalId,
         idempotencyKey,
+        receiptId: receipt.id,
         status: "skipped",
       },
       ok: true,
@@ -115,34 +156,115 @@ const processCanonicalVacancyExport = async (
     };
   }
 
-  const createResponse = await deps.spottWriteClient.createVacancy(
-    mapAanvraagToSpottCreateRequest(aanvraag)
+  let createResponse;
+  try {
+    createResponse = await deps.spottWriteClient.createVacancy(
+      mapAanvraagToSpottCreateRequest(aanvraag)
+    );
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "Spott create vacancy failed";
+    const responseHash = await hashExportReceiptSource({ error: message });
+    const attempt = await recordAttempt(deps.stores.exportAttempts, {
+      actionType: EXPORT_ACTION_CREATE,
+      approvalId: approvedApproval.id,
+      canonicalVacancyId,
+      errorMessage: message,
+      externalId: null,
+      idempotencyKey,
+      snapshotId: boundSnapshot.id,
+      status: "failed",
+      target: EXPORT_TARGET_SPOTT,
+    });
+    const receipt = await recordReceipt(deps.stores.externalReceipts, {
+      attempt,
+      canonicalVacancyId,
+      confirmedEffect: false,
+      responseHash,
+      spottVacancyId: null,
+    });
+    return {
+      item: {
+        canonicalVacancyId,
+        externalId: null,
+        idempotencyKey,
+        receiptId: receipt.id,
+        status: "failed",
+      },
+      ok: true,
+    };
+  }
+
+  const confirmation = await confirmSpottCreateEffect(
+    deps.spottWriteClient,
+    createResponse
   );
+
+  if (!confirmation.confirmedEffect) {
+    const attempt = await recordAttempt(deps.stores.exportAttempts, {
+      actionType: EXPORT_ACTION_CREATE,
+      approvalId: approvedApproval.id,
+      canonicalVacancyId,
+      errorMessage:
+        confirmation.errorMessage ??
+        "Spott vacancy could not be confirmed after create",
+      externalId: confirmation.spottVacancyId,
+      idempotencyKey,
+      snapshotId: boundSnapshot.id,
+      status: "failed",
+      target: EXPORT_TARGET_SPOTT,
+    });
+    const receipt = await recordReceipt(deps.stores.externalReceipts, {
+      attempt,
+      canonicalVacancyId,
+      confirmedEffect: false,
+      responseHash: confirmation.responseHash,
+      spottVacancyId: confirmation.spottVacancyId,
+    });
+    return {
+      item: {
+        canonicalVacancyId,
+        externalId: confirmation.spottVacancyId,
+        idempotencyKey,
+        receiptId: receipt.id,
+        status: "failed",
+      },
+      ok: true,
+    };
+  }
 
   await deps.stores.externalCrosswalk.create({
     actionType: EXPORT_ACTION_CREATE,
     canonicalVacancyId,
-    externalId: createResponse.id,
+    externalId: confirmation.spottVacancyId ?? createResponse.id,
     target: EXPORT_TARGET_SPOTT,
   });
 
-  await recordAttempt(deps.stores.exportAttempts, {
+  const attempt = await recordAttempt(deps.stores.exportAttempts, {
     actionType: EXPORT_ACTION_CREATE,
     approvalId: approvedApproval.id,
     canonicalVacancyId,
     errorMessage: null,
-    externalId: createResponse.id,
+    externalId: confirmation.spottVacancyId,
     idempotencyKey,
     snapshotId: boundSnapshot.id,
     status: "created",
     target: EXPORT_TARGET_SPOTT,
   });
+  const receipt = await recordReceipt(deps.stores.externalReceipts, {
+    attempt,
+    canonicalVacancyId,
+    confirmedEffect: true,
+    responseHash: confirmation.responseHash,
+    spottVacancyId: confirmation.spottVacancyId,
+  });
 
   return {
     item: {
       canonicalVacancyId,
-      externalId: createResponse.id,
+      externalId: confirmation.spottVacancyId,
       idempotencyKey,
+      receiptId: receipt.id,
       status: "created",
     },
     ok: true,
@@ -192,6 +314,7 @@ export const commitExport = async (
   const results: CommitExportItemResult[] = [];
   let created = 0;
   let skipped = 0;
+  let failed = 0;
 
   /* oxlint-disable eslint/no-await-in-loop -- sequential export keeps crosswalk/idempotency checks deterministic */
   for (const canonicalVacancyId of boundSnapshot.resultIds) {
@@ -207,8 +330,10 @@ export const commitExport = async (
     results.push(itemResult.item);
     if (itemResult.item.status === "created") {
       created += 1;
-    } else {
+    } else if (itemResult.item.status === "skipped") {
       skipped += 1;
+    } else {
+      failed += 1;
     }
   }
   /* oxlint-enable eslint/no-await-in-loop */
@@ -219,7 +344,7 @@ export const commitExport = async (
       approvalId: approvedApproval.id,
       results,
       snapshotId: boundSnapshot.id,
-      summary: { created, skipped },
+      summary: { created, failed, skipped },
     },
   };
 };

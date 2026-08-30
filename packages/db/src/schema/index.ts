@@ -25,6 +25,7 @@ export {
   outboxEvent,
   exportAttempt,
   externalIdCrosswalk,
+  externalReceipt,
   querySnapshot,
   querySnapshotRelations,
   savedSearch,

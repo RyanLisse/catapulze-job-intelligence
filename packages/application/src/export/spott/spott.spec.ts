@@ -153,6 +153,9 @@ describe("Spott write client guardrails", () => {
     });
 
     expect(response.id).toMatch(/^spott-fixture-/u);
+    const confirmed = await client.getVacancy(response.id);
+    expect(confirmed.id).toBe(response.id);
+    expect(confirmed.name).toBe("Fixture vacancy");
   });
 });
 
