@@ -61,7 +61,11 @@ const domainErrorStatus = (code: string): number => {
     }
     case "SYNTAX_ERROR":
     case "VALIDATION_ERROR":
-    case "ALREADY_ACKED": {
+    case "ALREADY_ACKED":
+    case "ALREADY_APPROVED":
+    case "APPROVAL_EXPIRED":
+    case "APPROVAL_MISMATCH":
+    case "APPROVAL_NOT_FOUND": {
       return 400;
     }
     default: {
@@ -182,6 +186,15 @@ const normalizeRestInput = (
     case "ack_alert": {
       return toRestJsonBody([
         ["alertId", readString(raw, "id") ?? readString(raw, "alertId")],
+      ]);
+    }
+    case "approve_snapshot":
+    case "get_snapshot_approval":
+    case "validate_snapshot_approval": {
+      return toRestJsonBody([
+        ["id", readString(raw, "id") ?? readString(raw, "snapshotId")],
+        ["expiresAt", readString(raw, "expiresAt")],
+        ["motivatie", readString(raw, "motivatie")],
       ]);
     }
     case "read_raw": {

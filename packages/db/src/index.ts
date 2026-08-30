@@ -11,6 +11,11 @@ import {
 import * as schema from "./schema";
 
 export {
+  PostgresApprovalStore,
+  PostgresQuerySnapshotStore,
+  type ReadPathDatabase,
+} from "./read-path-stores";
+export {
   PostgresBronPersistence,
   PostgresObservationRecorder,
   PostgresRunStore,

@@ -65,6 +65,14 @@ export interface MarkeerAuditMetadata {
   readonly status: "gevolgd" | "niet_relevant" | "relevant";
 }
 
+export interface ApprovalAuditMetadata {
+  readonly expiresAt: string;
+  readonly motivatie: string;
+  readonly snapshotId: string;
+}
+
+export type AuditEventMetadata = ApprovalAuditMetadata | MarkeerAuditMetadata;
+
 export type AlertEvidenceValue = boolean | null | number | string;
 
 export type AlertEvidence = Readonly<Record<string, AlertEvidenceValue>>;
@@ -77,7 +85,7 @@ export interface AuditEventRecord {
   readonly entityId: string;
   readonly entityType: string;
   readonly id: string;
-  readonly metadata: MarkeerAuditMetadata;
+  readonly metadata: AuditEventMetadata;
 }
 
 export interface AlertRecord {
@@ -112,6 +120,23 @@ export interface QuerySnapshotStore {
     record: Omit<QuerySnapshotRecord, "createdAt" | "id">
   ) => Promise<QuerySnapshotRecord>;
   getById: (id: string) => Promise<QuerySnapshotRecord | null>;
+}
+
+export interface ApprovalRecord {
+  readonly actorId: string;
+  readonly createdAt: Date;
+  readonly expiresAt: Date;
+  readonly id: string;
+  readonly motivatie: string;
+  readonly resultIds: readonly string[];
+  readonly snapshotId: string;
+}
+
+export interface ApprovalStore {
+  create: (
+    record: Omit<ApprovalRecord, "createdAt" | "id">
+  ) => Promise<ApprovalRecord>;
+  getBySnapshotId: (snapshotId: string) => Promise<ApprovalRecord | null>;
 }
 
 export interface AanvraagStore {
@@ -166,6 +191,7 @@ export interface OperatorRunStore {
 export interface SliceAStores {
   readonly alerts: AlertStore;
   readonly aanvragen: AanvraagStore;
+  readonly approvals: ApprovalStore;
   readonly audit: AuditStore;
   readonly bronHealth: BronHealthStore;
   readonly markeringen: MarkeringStore;

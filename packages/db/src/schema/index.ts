@@ -9,6 +9,8 @@ export {
 } from "./auth";
 export {
   agentContext,
+  approvalRecord,
+  approvalRecordRelations,
   aanvraag,
   aanvraagBronLink,
   aanvraagBronLinkRelations,

@@ -472,9 +472,49 @@ export const savedSearchRelations = relations(savedSearch, ({ many }) => ({
   snapshots: many(querySnapshot),
 }));
 
-export const querySnapshotRelations = relations(querySnapshot, ({ one }) => ({
-  savedSearch: one(savedSearch, {
-    fields: [querySnapshot.savedSearchId],
-    references: [savedSearch.id],
+export const approvalRecord = curatedSchema.table(
+  "approval_record",
+  {
+    actorId: text("actor_id").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    id: uuid("id").defaultRandom().primaryKey(),
+    motivatie: text("motivatie").notNull(),
+    resultIds: jsonb("result_ids").default([]).notNull(),
+    snapshotId: uuid("snapshot_id")
+      .notNull()
+      .references(() => querySnapshot.id, { onDelete: "restrict" }),
+  },
+  (table) => [
+    index("approval_record_snapshot_id_idx").on(table.snapshotId),
+    uniqueIndex("approval_record_snapshot_uidx").on(table.snapshotId),
+    check(
+      "approval_record_motivatie_check",
+      sql`length(trim(${table.motivatie})) > 0`
+    ),
+    check(
+      "approval_record_expires_after_created_check",
+      sql`${table.expiresAt} > ${table.createdAt}`
+    ),
+  ]
+);
+
+export const querySnapshotRelations = relations(
+  querySnapshot,
+  ({ one, many }) => ({
+    approvals: many(approvalRecord),
+    savedSearch: one(savedSearch, {
+      fields: [querySnapshot.savedSearchId],
+      references: [savedSearch.id],
+    }),
+  })
+);
+
+export const approvalRecordRelations = relations(approvalRecord, ({ one }) => ({
+  snapshot: one(querySnapshot, {
+    fields: [approvalRecord.snapshotId],
+    references: [querySnapshot.id],
   }),
 }));

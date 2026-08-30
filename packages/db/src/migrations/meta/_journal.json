@@ -22,6 +22,13 @@
       "when": 1788076800000,
       "tag": "0002_u8_backfill_observability",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1788163200000,
+      "tag": "0003_u9_snapshot_approval",
+      "breakpoints": true
     }
   ]
 }

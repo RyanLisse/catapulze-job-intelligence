@@ -7,10 +7,12 @@ import {
   completeTaskInputSchema,
   completeTaskOutputSchema,
   createAckAlertHandler,
+  createApproveSnapshotHandler,
   createCompleteTaskHandler,
   createGetAanvraagHandler,
   createGetBronHandler,
   createGetBronHealthHandler,
+  createGetSnapshotApprovalHandler,
   createListAlertsHandler,
   createListBronnenHandler,
   createListVersiesHandler,
@@ -23,7 +25,14 @@ import {
   createSnapshotInputSchema,
   createStartRunHandler,
   createStartTestImportHandler,
+  createValidateSnapshotApprovalHandler,
   dualBindings,
+  approveSnapshotInputSchema,
+  approvalViewSchema,
+  getSnapshotApprovalInputSchema,
+  getSnapshotApprovalOutputSchema,
+  validateSnapshotApprovalInputSchema,
+  validateSnapshotApprovalOutputSchema,
   getAanvraagInputSchema,
   getAanvraagOutputSchema,
   getBronHealthInputSchema,
@@ -49,7 +58,12 @@ import {
 } from "./handlers";
 import type { SliceAHandlerDeps } from "./handlers/deps";
 import { defineSliceACapabilityEntry } from "./metadata";
-import { PERM_SLICE_READ, ROLE_OPERATOR, ROLE_RECRUITER } from "./roles";
+import {
+  PERM_APPROVAL,
+  PERM_SLICE_READ,
+  ROLE_OPERATOR,
+  ROLE_RECRUITER,
+} from "./roles";
 
 export const createSliceACapabilityCatalog = (deps: SliceAHandlerDeps) => {
   const domainFailureSchema = sliceADomainFailureSchema;
@@ -156,6 +170,57 @@ export const createSliceACapabilityCatalog = (deps: SliceAHandlerDeps) => {
     inputSchema: createSnapshotInputSchema,
     outcome: "Maak immutable QuerySnapshot van huidige zoekresultaten",
     outputSchema: snapshotViewSchema,
+  });
+
+  const approveSnapshot = defineCapability({
+    authorization: { permission: PERM_APPROVAL },
+    bindings: dualBindings(
+      "POST",
+      "/v1/snapshots/{id}/approval",
+      "approve_snapshot"
+    ),
+    effect: "internal-write",
+    failureSchema: domainFailureSchema,
+    grounding: true,
+    handler: createApproveSnapshotHandler(deps),
+    id: "approve_snapshot",
+    inputSchema: approveSnapshotInputSchema,
+    outcome: "Keur een QuerySnapshot goed met actor, motivatie en expiry",
+    outputSchema: approvalViewSchema,
+  });
+
+  const getSnapshotApproval = defineCapability({
+    authorization: { permission: PERM_APPROVAL },
+    bindings: dualBindings(
+      "GET",
+      "/v1/snapshots/{id}/approval",
+      "get_snapshot_approval"
+    ),
+    effect: "read",
+    failureSchema: domainFailureSchema,
+    grounding: true,
+    handler: createGetSnapshotApprovalHandler(deps),
+    id: "get_snapshot_approval",
+    inputSchema: getSnapshotApprovalInputSchema,
+    outcome: "Haal snapshotgebonden approval op inclusief geldigheid",
+    outputSchema: getSnapshotApprovalOutputSchema,
+  });
+
+  const validateSnapshotApprovalCapability = defineCapability({
+    authorization: { permission: PERM_APPROVAL },
+    bindings: dualBindings(
+      "POST",
+      "/v1/snapshots/{id}/approval/validate",
+      "validate_snapshot_approval"
+    ),
+    effect: "read",
+    failureSchema: domainFailureSchema,
+    grounding: true,
+    handler: createValidateSnapshotApprovalHandler(deps),
+    id: "validate_snapshot_approval",
+    inputSchema: validateSnapshotApprovalInputSchema,
+    outcome: "Controleer of een onverlopen approval voor deze snapshot geldt",
+    outputSchema: validateSnapshotApprovalOutputSchema,
   });
 
   const markeerAanvraag = defineCapability({
@@ -347,6 +412,36 @@ export const createSliceACapabilityCatalog = (deps: SliceAHandlerDeps) => {
         "ui:SearchPanel.CreateSnapshot",
       ],
     }),
+    defineSliceACapabilityEntry(approveSnapshot, {
+      auditClass: "effect",
+      reversible: false,
+      sideEffectClass: "proposal",
+      target: "internal",
+      wiredTransports: [
+        "mcp:approve_snapshot",
+        "rest:POST /v1/snapshots/{id}/approval",
+      ],
+    }),
+    defineSliceACapabilityEntry(getSnapshotApproval, {
+      auditClass: "access",
+      reversible: true,
+      sideEffectClass: "read",
+      target: "internal",
+      wiredTransports: [
+        "mcp:get_snapshot_approval",
+        "rest:GET /v1/snapshots/{id}/approval",
+      ],
+    }),
+    defineSliceACapabilityEntry(validateSnapshotApprovalCapability, {
+      auditClass: "access",
+      reversible: true,
+      sideEffectClass: "read",
+      target: "internal",
+      wiredTransports: [
+        "mcp:validate_snapshot_approval",
+        "rest:POST /v1/snapshots/{id}/approval/validate",
+      ],
+    }),
     defineSliceACapabilityEntry(markeerAanvraag, {
       auditClass: "effect",
       reversible: true,
@@ -439,6 +534,9 @@ export const sliceACapabilityIds = [
   "get_bron",
   "create_saved_search",
   "create_snapshot",
+  "approve_snapshot",
+  "get_snapshot_approval",
+  "validate_snapshot_approval",
   "markeer_aanvraag",
   "list_alerts",
   "get_bron_health",

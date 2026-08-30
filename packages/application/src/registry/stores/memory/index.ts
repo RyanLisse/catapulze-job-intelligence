@@ -1,6 +1,7 @@
 import type { SliceAStores } from "../types";
 import { MemoryAanvraagStore } from "./aanvraag-store";
 import { MemoryAlertStore } from "./alert-store";
+import { MemoryApprovalStore } from "./approval-store";
 import { MemoryAuditStore } from "./audit-store";
 import { MemoryBronHealthStore } from "./bron-health-store";
 import { MemoryMarkeringStore } from "./markering-store";
@@ -17,6 +18,7 @@ export const createMemorySliceAStores = (): SliceAStores & {
 } => ({
   aanvragen: new MemoryAanvraagStore(),
   alerts: new MemoryAlertStore(),
+  approvals: new MemoryApprovalStore(),
   audit: new MemoryAuditStore(),
   bronHealth: new MemoryBronHealthStore(),
   markeringen: new MemoryMarkeringStore(),
@@ -28,6 +30,7 @@ export const createMemorySliceAStores = (): SliceAStores & {
 
 export { MemoryAanvraagStore } from "./aanvraag-store";
 export { MemoryAlertStore } from "./alert-store";
+export { MemoryApprovalStore } from "./approval-store";
 export { MemoryAuditStore } from "./audit-store";
 export { MemoryBronHealthStore } from "./bron-health-store";
 export { MemoryMarkeringStore } from "./markering-store";
