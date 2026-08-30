@@ -86,6 +86,15 @@ jobs:
         if: needs.changes.outputs.code == 'true'
         uses: qltysh/qlty-action/install@08a0a862c159eae9b9003081da6663d96efef637  # v2.3.0
 
+      - name: Restore Qlty cache
+        if: needs.changes.outputs.code == 'true'
+        uses: actions/cache@d4323d4df104b026a6aa633fdb11d772146be0bf  # v4.2.2
+        with:
+          path: ~/.qlty
+          key: qlty-${{ runner.os }}-${{ hashFiles('.qlty/qlty.toml') }}
+          restore-keys: |
+            qlty-${{ runner.os }}-
+
       - name: Install locked dependencies
         if: needs.changes.outputs.code == 'true'
         run: bun scripts/performance/measure.ts --label install -- bun install --frozen-lockfile
