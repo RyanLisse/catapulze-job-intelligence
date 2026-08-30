@@ -68,6 +68,13 @@ describe("CTM feed parser", () => {
     const feedWithGap = `<?xml version="1.0"?><feed xmlns="http://www.w3.org/2005/Atom"><updated>2026-08-30T22:04:57Z</updated><entry><title type="text">No id here</title></entry></feed>`;
     expect(parseCtmFeed(feedWithGap).entries).toHaveLength(0);
   });
+
+  it("keeps a purely numeric title and etq as strings instead of coercing to numbers", () => {
+    const feedWithNumericFields = `<?xml version="1.0"?><feed xmlns="http://www.w3.org/2005/Atom"><updated>2026-08-30T22:04:57Z</updated><entry><id>https://eu.eu-supply.com/x?PID=1</id><title type="text">2026</title><content type="text/xml"><publication xmlns="http://www.eu-supply.com/Rss/Publications"><etq>20261013</etq></publication></content></entry></feed>`;
+    const [entry] = parseCtmFeed(feedWithNumericFields).entries;
+    expect(entry?.titel).toBe("2026");
+    expect(entry?.sluitingstijd).toBe("20261013");
+  });
 });
 
 describe("CTM connector", () => {

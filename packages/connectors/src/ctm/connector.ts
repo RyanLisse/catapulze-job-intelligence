@@ -21,8 +21,10 @@ export interface CtmConnectorOptions {
 /**
  * CTM/EU-Supply publishes its Atom feed as a single, ungapped window (days=30) —
  * there is no page parameter to advance through, so discover() always returns
- * hasMore: false and known-hash comparison in fetch() is what prevents re-ingesting
- * unchanged entries across polls.
+ * hasMore: false. The knownHashes lookup in fetch() is an early-exit optimisation
+ * against the last-seen listing hash (same pattern as the sibling connectors); the
+ * outcome that actually prevents re-ingesting unchanged entries across polls is the
+ * observation recorder's new/changed/unchanged comparison further down the pipeline.
  */
 export const createCtmConnector = (options: CtmConnectorOptions): Connector => {
   const client = options.client ?? createCtmClient();
