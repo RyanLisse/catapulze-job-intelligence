@@ -13,7 +13,8 @@
     "./approval": "./src/approval/index.ts",
     "./registry": "./src/registry/index.ts",
     "./export": "./src/export/index.ts",
-    "./export/spott": "./src/export/spott/index.ts"
+    "./export/spott": "./src/export/spott/index.ts",
+    "./replay": "./src/replay/index.ts"
   },
   "scripts": {
     "check-types": "PATH=\"./node_modules/.bin:$PATH\" tsc --noEmit"
