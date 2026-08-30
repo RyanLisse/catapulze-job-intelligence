@@ -1,5 +1,6 @@
 import type { SearchFilters } from "../types";
 import { emptySearchFacets } from "../types";
+import { hashDocumentId } from "./id-hash";
 import { parseManticoreSearchPayload } from "./json";
 import type {
   ManticoreDeleteBody,
@@ -113,7 +114,11 @@ export const parseManticoreSearchResponse = (
   const rawHits = hitsBlock?.hits ?? [];
   const hits = rawHits
     .map((entry) => {
-      const id = entry._id ?? entry._source?.id ?? null;
+      // _id is Manticore's numeric document id (a hash, see id-hash.ts) —
+      // the original SearchDocument.id lives in _source.document_id.
+      const id =
+        entry._source?.document_id ??
+        (entry._id === undefined ? null : String(entry._id));
       const weight = entry._score ?? 0;
       if (id === null) {
         return null;
@@ -230,7 +235,7 @@ export const replaceManticoreDocument = async (
 ): Promise<void> => {
   await client.request("/replace", {
     doc: document,
-    id: document.id,
+    id: hashDocumentId(document.document_id),
     index,
   });
 };
@@ -241,7 +246,7 @@ export const deleteManticoreDocument = async (
   id: string
 ): Promise<void> => {
   await client.request("/delete", {
-    id,
+    id: hashDocumentId(id),
     index,
   });
 };

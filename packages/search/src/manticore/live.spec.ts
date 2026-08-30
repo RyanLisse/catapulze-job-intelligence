@@ -1,0 +1,66 @@
+import { describe, expect, it } from "bun:test";
+
+import { parseBooleanQuery } from "@ji/domain";
+
+import { ManticoreSearchEngine } from "./engine";
+
+// Live integration test against a real Manticore instance (see
+// docker-compose.yml's `manticore` service, or scripts/docker-compose-smoke.sh).
+// Skipped entirely unless MANTICORE_URL is set — matches golden.spec.ts's
+// convention so `bun run gate` (which never sets MANTICORE_URL) stays fast
+// and mock-only.
+const manticoreUrl = process.env.MANTICORE_URL;
+const AE1_QUERY = '(Azure OR "platform engineer") NOT intern';
+
+describe("Manticore document-id live integration (RJC-356)", () => {
+  it("replaces a doc, finds it by its original string id, then deletes it", async () => {
+    if (!manticoreUrl) {
+      return;
+    }
+
+    const engine = ManticoreSearchEngine.fromUrl(manticoreUrl);
+    const parsed = parseBooleanQuery(AE1_QUERY);
+    if (!parsed.ok) {
+      throw new Error("Expected AE1 parse success");
+    }
+
+    const documentId = `live-doc-${crypto.randomUUID()}`;
+    await engine.upsertDocument({
+      beschrijving: "Azure platform engineer senior",
+      bronId: "bron-live",
+      contracttype: "detachering",
+      id: documentId,
+      laatstGezienOp: new Date("2026-08-01T00:00:00.000Z"),
+      locatieLand: "NL",
+      status: "active",
+      tariefMax: 120,
+      tariefMin: 80,
+      titel: "Platform engineer Azure",
+    });
+    await engine.setIndexVersion(1);
+
+    const found = await engine.search({
+      ast: parsed.ast,
+      filters: {},
+      limit: 10,
+      offset: 0,
+    });
+
+    expect(found.total).toBeGreaterThanOrEqual(1);
+    // The hit id must be the ORIGINAL string id (read back via
+    // _source.document_id in client.ts), not Manticore's internal numeric
+    // hash — this is the RJC-356 fix under test.
+    expect(found.hits.some((hit) => hit.id === documentId)).toBe(true);
+
+    await engine.deleteDocument(documentId);
+
+    const afterDelete = await engine.search({
+      ast: parsed.ast,
+      filters: {},
+      limit: 10,
+      offset: 0,
+    });
+
+    expect(afterDelete.hits.some((hit) => hit.id === documentId)).toBe(false);
+  });
+});

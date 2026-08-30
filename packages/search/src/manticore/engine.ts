@@ -27,7 +27,7 @@ const documentToManticore = (
   beschrijving: document.beschrijving,
   bron_id: document.bronId,
   contracttype: document.contracttype ?? "",
-  id: document.id,
+  document_id: document.id,
   index_version: indexVersion,
   laatst_gezien_op: Math.floor(document.laatstGezienOp.getTime() / 1000),
   locatie_land: document.locatieLand,

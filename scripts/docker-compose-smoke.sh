@@ -39,3 +39,9 @@ bun run db:migrate
 curl --fail --silent --show-error --retry 10 --retry-delay 2 http://localhost:3000/readyz >/dev/null
 curl --fail --silent --show-error --retry 10 --retry-delay 2 http://localhost:3001/ >/dev/null
 echo "docker-compose smoke: postgres, server and web are healthy"
+
+# RJC-356: exercise the live Manticore document-id integration test now that
+# a real Manticore instance is up as part of this stack.
+MANTICORE_URL="http://localhost:${MANTICORE_HTTP_PORT:-9308}" \
+  bun test packages/search/src/manticore/live.spec.ts
+echo "docker-compose smoke: Manticore document-id live test passed"
