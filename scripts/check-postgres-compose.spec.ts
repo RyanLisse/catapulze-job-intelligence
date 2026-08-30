@@ -6,12 +6,12 @@ describe("validatePostgresCompose", () => {
   it("accepts localhost-bound postgres with protected external volume and DB-first limits", () => {
     const violations = validatePostgresCompose({
       services: {
-        postgres: {
-          ports: [{ target: 5432, published: 5432, host_ip: "127.0.0.1" }],
-          mem_limit: "4g",
-        },
         manticore: {
           mem_limit: "1g",
+        },
+        postgres: {
+          mem_limit: "4g",
+          ports: [{ host_ip: "127.0.0.1", published: 5432, target: 5432 }],
         },
       },
       volumes: {
@@ -28,12 +28,12 @@ describe("validatePostgresCompose", () => {
   it("rejects public postgres port bindings", () => {
     const violations = validatePostgresCompose({
       services: {
-        postgres: {
-          ports: [{ target: 5432, published: 5432, host_ip: "0.0.0.0" }],
-          mem_limit: "4g",
-        },
         manticore: {
           mem_limit: "1g",
+        },
+        postgres: {
+          mem_limit: "4g",
+          ports: [{ host_ip: "0.0.0.0", published: 5432, target: 5432 }],
         },
       },
       volumes: {
@@ -49,12 +49,12 @@ describe("validatePostgresCompose", () => {
   it("rejects inline postgres volumes and Manticore parity or higher memory", () => {
     const violations = validatePostgresCompose({
       services: {
-        postgres: {
-          ports: [{ target: 5432, published: 5432, host_ip: "127.0.0.1" }],
-          mem_limit: "1g",
-        },
         manticore: {
           mem_limit: "1g",
+        },
+        postgres: {
+          mem_limit: "1g",
+          ports: [{ host_ip: "127.0.0.1", published: 5432, target: 5432 }],
         },
       },
       volumes: {

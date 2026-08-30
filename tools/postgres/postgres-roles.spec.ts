@@ -58,12 +58,12 @@ describe("postgres role hardening", () => {
     }
 
     const roles = await adminClient<
-      Array<{
+      {
         rolname: string;
         rolsuper: boolean;
         rolcreatedb: boolean;
         rolcreaterole: boolean;
-      }>
+      }[]
     >`
       SELECT rolname, rolsuper, rolcreatedb, rolcreaterole
       FROM pg_roles
@@ -85,7 +85,7 @@ describe("postgres role hardening", () => {
   });
 
   it("allows migrator DDL but blocks app role from creating schemas, roles, or databases", async () => {
-    if (!postgresAvailable || !migratorClient || !appClient || !adminClient) {
+    if (!postgresAvailable || !migratorClient || !appClient) {
       expect(postgresAvailable).toBe(false);
       return;
     }

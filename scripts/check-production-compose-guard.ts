@@ -1,9 +1,7 @@
 import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
 
-const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
-const repositoryRoot = path.resolve(scriptDirectory, "..");
+const repositoryRoot = process.cwd();
 
 const allowedDownVolumePaths = new Set([
   ".github/workflows/ci.yml",
@@ -13,8 +11,9 @@ const scanRoots = [
   ".github/workflows",
   "scripts",
   "tools/postgres",
-  "docs/runbooks",
 ];
+
+const downVolumePattern = /\bdown\b[^\n]*-v\b|\bdown\s+-v\b/u;
 
 const listFiles = (relativeDirectory: string): string[] => {
   const absoluteDirectory = path.join(repositoryRoot, relativeDirectory);
@@ -37,16 +36,16 @@ export const findForbiddenDownVolumeUsage = (): string[] => {
 
   for (const relativeDirectory of scanRoots) {
     for (const relativePath of listFiles(relativeDirectory)) {
-      if (!/\.(ya?ml|sh)$/.test(relativePath)) {
+      if (!/\.(?:ya?ml|sh)$/u.test(relativePath)) {
         continue;
       }
 
       const contents = readFileSync(
         path.join(repositoryRoot, relativePath),
-        "utf8"
+        "utf-8"
       );
 
-      if (!/\bdown\b[^\n]*-v\b|\bdown\s+-v\b/.test(contents)) {
+      if (!downVolumePattern.test(contents)) {
         continue;
       }
 

@@ -1,33 +1,34 @@
 import { spawnSync } from "node:child_process";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
 
-const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
-const repositoryRoot = path.resolve(scriptDirectory, "..");
-
-type ComposePort = {
+interface ComposePort {
   target?: number;
   published?: number | string;
   host_ip?: string;
   protocol?: string;
-};
+}
 
-type ComposeService = {
+interface ComposeService {
   ports?: Array<number | string | ComposePort>;
   cpus?: string;
   mem_limit?: string;
   mem_reservation?: string;
   volumes?: string[];
-};
+}
 
-type ComposeVolume = {
+interface ComposeVolume {
   external?: boolean;
   name?: string;
-};
+}
 
-type ComposeDocument = {
+interface ComposeDocument {
   services?: Record<string, ComposeService>;
   volumes?: Record<string, ComposeVolume>;
+}
+
+const isComposePort = (
+  entry: number | string | ComposePort
+): entry is ComposePort => {
+  return entry !== null && typeof entry === "object";
 };
 
 const normalizePorts = (
@@ -38,44 +39,51 @@ const normalizePorts = (
   }
 
   return ports.map((entry) => {
-    if (typeof entry === "number") {
+    if (isComposePort(entry)) {
+      return entry;
+    }
+
+    if (Number.isInteger(entry)) {
       return { published: entry, target: entry };
     }
 
-    if (typeof entry === "string") {
-      const [published, target] = entry.split(":");
-      return {
-        published: Number(published),
-        target: Number(target ?? published),
-      };
-    }
-
-    return entry;
+    const [published, target] = entry.split(":");
+    return {
+      published: Number(published),
+      target: Number(target ?? published),
+    };
   });
 };
+
+const memoryLimitPattern =
+  /^(?<amount>\d+(?:\.\d+)?)(?<unit>[kmg])?b?$/iu;
 
 const parseMemoryLimitMegabytes = (value: string | undefined): number | null => {
   if (!value) {
     return null;
   }
 
-  const match = /^(\d+(?:\.\d+)?)([kmg])?b?$/i.exec(value.trim());
-  if (!match) {
+  const match = memoryLimitPattern.exec(value.trim());
+  if (!match?.groups?.amount) {
     return null;
   }
 
-  const amount = Number(match[1]);
-  const unit = (match[2] ?? "m").toLowerCase();
+  const amount = Number(match.groups.amount);
+  const unit = (match.groups.unit ?? "m").toLowerCase();
 
   switch (unit) {
-    case "g":
+    case "g": {
       return amount * 1024;
-    case "m":
+    }
+    case "m": {
       return amount;
-    case "k":
+    }
+    case "k": {
       return amount / 1024;
-    default:
+    }
+    default: {
       return null;
+    }
   }
 };
 
@@ -100,7 +108,7 @@ export const validatePostgresCompose = (
 
   if (!postgresVolume?.name) {
     violations.push(
-      "volumes.postgres_data must declare a named external volume via ${POSTGRES_DATA_VOLUME}"
+      "volumes.postgres_data must declare a named external volume via POSTGRES_DATA_VOLUME"
     );
   }
 
@@ -146,8 +154,8 @@ const readComposeDocument = (): ComposeDocument => {
     "docker",
     ["compose", "--env-file", ".env.example", "config", "--format", "json"],
     {
-      cwd: repositoryRoot,
-      encoding: "utf8",
+      cwd: process.cwd(),
+      encoding: "utf-8",
     }
   );
 
@@ -157,6 +165,11 @@ const readComposeDocument = (): ComposeDocument => {
     );
   }
 
+  if (!result.stdout) {
+    throw new Error("docker compose config returned empty output");
+  }
+
+  // SAFETY: docker compose config --format json returns a Compose schema document.
   return JSON.parse(result.stdout) as ComposeDocument;
 };
 
