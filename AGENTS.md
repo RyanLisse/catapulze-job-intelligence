@@ -165,6 +165,7 @@ Most formatting and common issues are automatically fixed by Oxlint + Oxfmt. Run
 - Quality verbs: `bun run fix` / `check` (changed vs `origin/main`), `gate` (full pre-push), `wiki` (OpenWiki local). `fix:all` / `check:all` are deliberate whole-tree escape hatches.
 - Lefthook owns pre-commit (scoped `ultracite fix {staged_files}`) and pre-push (`gate`). Never run `qlty githooks install`.
 - Qlty (`.qlty/qlty.toml`) covers shell/workflows/secrets; Ultracite + anti-slop owns TS/JS. All `qlty check` uses `--no-formatters`; never `qlty fmt`.
+- Agents must run `bun run check` (qlty on changed files vs `origin/main`, `--no-formatters`) before finishing when they touched YAML/shell/workflows; still `bun run fix` for TS/JS; never `qlty fmt`; never skip Lefthook with `--no-verify` to dodge yamllint.
 - Live app verification skill: `.cursor/skills/verify-job-intelligence/` (web 3001, API 3000).
 
 <!-- OPENWIKI:START -->
