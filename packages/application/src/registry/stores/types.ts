@@ -74,6 +74,7 @@ export interface ApprovalAuditMetadata {
 export interface CommitExportAuditMetadata {
   readonly approvalId: string;
   readonly created: number;
+  readonly failed: number;
   readonly skipped: number;
   readonly snapshotId: string;
 }
@@ -243,6 +244,28 @@ export interface ExportAttemptStore {
   ) => Promise<ExportAttemptRecord>;
 }
 
+export interface ExternalReceiptRecord {
+  readonly canonicalVacancyId: string;
+  readonly confirmedEffect: boolean;
+  readonly createdAt: Date;
+  readonly exportAttemptId: string;
+  readonly id: string;
+  readonly responseHash: string;
+  readonly spottVacancyId: string | null;
+}
+
+export interface ExternalReceiptStore {
+  create: (
+    record: Omit<ExternalReceiptRecord, "createdAt" | "id">
+  ) => Promise<ExternalReceiptRecord>;
+  getByExportAttemptId: (
+    exportAttemptId: string
+  ) => Promise<ExternalReceiptRecord | null>;
+  listByCanonicalVacancyId: (
+    canonicalVacancyId: string
+  ) => Promise<readonly ExternalReceiptRecord[]>;
+}
+
 export interface SliceAStores {
   readonly alerts: AlertStore;
   readonly aanvragen: AanvraagStore;
@@ -251,6 +274,7 @@ export interface SliceAStores {
   readonly bronHealth: BronHealthStore;
   readonly exportAttempts: ExportAttemptStore;
   readonly externalCrosswalk: ExternalIdCrosswalkStore;
+  readonly externalReceipts: ExternalReceiptStore;
   readonly markeringen: MarkeringStore;
   readonly operatorRuns: OperatorRunStore;
   readonly rawPayloads: RawPayloadStore;

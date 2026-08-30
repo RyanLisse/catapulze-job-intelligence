@@ -31,6 +31,7 @@ export interface SpottClientOptions {
   apiKey?: string;
   baseUrl?: string;
   fetchImpl?: SpottFetchImpl;
+  fixtureVacancyRegistry?: Map<string, SpottVacancyDetail>;
   listFixturePath?: string;
   liveEnabled?: boolean;
   vacancyFixturePath?: string;
@@ -105,10 +106,17 @@ export const createSpottClient = (
   const listFixturePath = options.listFixturePath ?? "vacancies-page-0.json";
   const vacancyFixturePath =
     options.vacancyFixturePath ?? "vacancy-fixture-001.json";
+  const fixtureVacancyRegistry =
+    options.fixtureVacancyRegistry ?? new Map<string, SpottVacancyDetail>();
 
   return {
     getVacancy: async (id) => {
       if (!liveEnabled) {
+        const fromRegistry = fixtureVacancyRegistry.get(id);
+        if (fromRegistry) {
+          return fromRegistry;
+        }
+
         const fixture =
           await loadSpottFixture<SpottVacancyDetail>(vacancyFixturePath);
         if (fixture.payload.id !== id) {
@@ -155,20 +163,34 @@ export type SpottWriteClient = SpottClient & {
 export const createSpottWriteClient = (
   options: SpottClientOptions = {}
 ): SpottWriteClient => {
-  const baseClient = createSpottClient(options);
+  const fixtureVacancyRegistry =
+    options.fixtureVacancyRegistry ?? new Map<string, SpottVacancyDetail>();
+  const baseClient = createSpottClient({
+    ...options,
+    fixtureVacancyRegistry,
+  });
   const fetchImpl = options.fetchImpl ?? fetch;
   const liveEnabled = options.liveEnabled ?? process.env.SPOTT_LIVE === "1";
   const baseUrl = options.baseUrl ?? SPOTT_API_BASE_URL;
 
   return {
     ...baseClient,
-    createVacancy: async (_input) => {
+    createVacancy: async (input) => {
       if (!liveEnabled) {
-        return { id: nextFixtureVacancyId() };
+        const id = nextFixtureVacancyId();
+        fixtureVacancyRegistry.set(id, {
+          companyId: input.companyId,
+          description: input.description,
+          id,
+          name: input.name,
+          restricted: false,
+          stageId: input.stageId,
+        });
+        return { id };
       }
 
       const response = await fetchImpl(`${baseUrl}/vacancies`, {
-        body: JSON.stringify(_input),
+        body: JSON.stringify(input),
         headers: {
           ...authHeaders(resolveApiKey(options.apiKey)),
           "Content-Type": "application/json",

@@ -587,3 +587,36 @@ export const exportAttempt = curatedSchema.table(
     check("export_attempt_target_check", sql`${table.target} IN ('spott')`),
   ]
 );
+
+export const externalReceipt = curatedSchema.table(
+  "external_receipt",
+  {
+    canonicalVacancyId: uuid("canonical_vacancy_id").notNull(),
+    confirmedEffect: boolean("confirmed_effect").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    exportAttemptId: uuid("export_attempt_id")
+      .notNull()
+      .references(() => exportAttempt.id, { onDelete: "restrict" }),
+    id: uuid("id").defaultRandom().primaryKey(),
+    responseHash: text("response_hash").notNull(),
+    spottVacancyId: text("spott_vacancy_id"),
+  },
+  (table) => [
+    uniqueIndex("external_receipt_export_attempt_uidx").on(
+      table.exportAttemptId
+    ),
+    index("external_receipt_canonical_vacancy_id_idx").on(
+      table.canonicalVacancyId
+    ),
+    check(
+      "external_receipt_response_hash_check",
+      sql`length(trim(${table.responseHash})) > 0`
+    ),
+    check(
+      "external_receipt_confirmed_spott_id_check",
+      sql`(${table.confirmedEffect} = false) OR (${table.spottVacancyId} IS NOT NULL AND length(trim(${table.spottVacancyId})) > 0)`
+    ),
+  ]
+);

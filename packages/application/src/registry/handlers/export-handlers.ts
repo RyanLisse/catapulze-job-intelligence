@@ -15,7 +15,8 @@ export const commitExportItemSchema = z
     canonicalVacancyId: z.string(),
     externalId: z.string().nullable(),
     idempotencyKey: z.string(),
-    status: z.enum(["created", "skipped"]),
+    receiptId: z.string(),
+    status: z.enum(["created", "failed", "skipped"]),
   })
   .strict();
 
@@ -28,6 +29,7 @@ export const commitExportOutputSchema = z
     summary: z
       .object({
         created: z.number().int().nonnegative(),
+        failed: z.number().int().nonnegative(),
         skipped: z.number().int().nonnegative(),
       })
       .strict(),
@@ -71,6 +73,7 @@ export const createCommitExportHandler =
       metadata: {
         approvalId: result.value.approvalId,
         created: result.value.summary.created,
+        failed: result.value.summary.failed,
         skipped: result.value.summary.skipped,
         snapshotId: result.value.snapshotId,
       },

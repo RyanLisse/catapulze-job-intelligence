@@ -13,6 +13,7 @@ import * as schema from "./schema";
 export {
   PostgresExportAttemptStore,
   PostgresExternalIdCrosswalkStore,
+  PostgresExternalReceiptStore,
   type ExportDatabase,
 } from "./export-stores";
 export {
