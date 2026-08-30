@@ -18,12 +18,30 @@ const databaseTestsRequired =
 
 const postgresOptions = {
   connect_timeout: 2,
-  connection: {
-    lock_timeout: 2000,
-    statement_timeout: 2000,
-  },
   max: 1,
 } as const;
+
+const configureProbeTimeouts = async (
+  client: ReturnType<typeof postgres>
+): Promise<void> => {
+  await client.unsafe("SET lock_timeout TO '2s'");
+  await client.unsafe("SET statement_timeout TO '2s'");
+};
+
+const expectQueryDenied = async (
+  client: ReturnType<typeof postgres>,
+  query: string
+): Promise<void> => {
+  let denied = false;
+
+  try {
+    await client.unsafe(query);
+  } catch {
+    denied = true;
+  }
+
+  expect(denied).toBe(true);
+};
 
 const isPostgresAvailable = async (): Promise<boolean> => {
   const probe = postgres(migratorDatabaseUrl, postgresOptions);
@@ -53,6 +71,9 @@ describe("postgres role hardening", () => {
     adminClient = postgres(adminDatabaseUrl, postgresOptions);
     migratorClient = postgres(migratorDatabaseUrl, postgresOptions);
     appClient = postgres(appDatabaseUrl, postgresOptions);
+
+    await configureProbeTimeouts(migratorClient);
+    await configureProbeTimeouts(appClient);
   });
 
   afterAll(async () => {
@@ -95,7 +116,7 @@ describe("postgres role hardening", () => {
   });
 
   it("allows migrator DDL but blocks app role from creating schemas, roles, or databases", async () => {
-    if (!postgresAvailable || !migratorClient || !appClient) {
+    if (!postgresAvailable || !adminClient || !migratorClient || !appClient) {
       expect(postgresAvailable).toBe(false);
       return;
     }
@@ -105,15 +126,25 @@ describe("postgres role hardening", () => {
     await migratorClient.unsafe(`CREATE SCHEMA ${schemaName}`);
     await migratorClient.unsafe(`DROP SCHEMA ${schemaName}`);
 
-    await expect(
-      appClient.unsafe("CREATE SCHEMA u10_app_forbidden")
-    ).rejects.toThrow();
-    await expect(
-      appClient.unsafe("CREATE ROLE u10_app_forbidden")
-    ).rejects.toThrow();
-    await expect(
-      appClient.unsafe("CREATE DATABASE u10_app_forbidden")
-    ).rejects.toThrow();
+    const [appPrivileges] = await adminClient<
+      {
+        can_create_db: boolean;
+        can_create_role: boolean;
+        can_create_schema: boolean;
+      }[]
+    >`
+      SELECT
+        has_database_privilege('ji_app', current_database(), 'CREATE') AS can_create_schema,
+        (SELECT rolcreatedb FROM pg_roles WHERE rolname = 'ji_app') AS can_create_db,
+        (SELECT rolcreaterole FROM pg_roles WHERE rolname = 'ji_app') AS can_create_role
+    `;
+
+    expect(appPrivileges?.can_create_schema).toBe(false);
+    expect(appPrivileges?.can_create_db).toBe(false);
+    expect(appPrivileges?.can_create_role).toBe(false);
+
+    await expectQueryDenied(appClient, "CREATE SCHEMA u10_app_forbidden");
+    await expectQueryDenied(appClient, "CREATE ROLE u10_app_forbidden");
   });
 
   it("requires database tests when REQUIRE_DATABASE_TESTS=1", () => {
