@@ -88,3 +88,9 @@ export {
   INHUURDESK_PARSER_VERSION,
   type InhuurdeskConnectorOptions,
 } from "./inhuurdesk";
+export {
+  createCtmClient,
+  createCtmConnector,
+  CTM_PARSER_VERSION,
+  type CtmConnectorOptions,
+} from "./ctm";
