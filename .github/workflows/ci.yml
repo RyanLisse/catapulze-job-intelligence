@@ -117,7 +117,8 @@ jobs:
       - name: Skip heavy verify for doc-only changes
         if: needs.changes.outputs.code != 'true'
         run: |
-          echo "Skipped Postgres, gate, and build — docs-only diff (no app, package, test, script, tool, workflow, lockfile, compose, or quality-config changes)."
+          echo "Skipped Postgres, gate, and build — docs-only diff."
+          echo "No app, package, test, script, tool, workflow, lockfile, compose, or quality-config changes."
 
       - name: Report CI command timing
         if: always() && needs.changes.outputs.code == 'true'
