@@ -1,4 +1,5 @@
 import type { BooleanNode } from "@ji/domain";
+import { recordCriticalPathPhaseSync } from "@ji/performance";
 
 import type {
   EngineSearchParams,
@@ -70,16 +71,23 @@ export class ManticoreSearchEngine implements SearchEngine {
   }
 
   async search(params: EngineSearchParams): Promise<SearchEngineResult> {
-    const queryString = buildQueryString(params.ast);
-    const query: ManticoreQueryBody | null =
-      queryString === null ? null : { query_string: queryString };
+    const { request } = recordCriticalPathPhaseSync(
+      "search-serialization",
+      () => {
+        const queryString = buildQueryString(params.ast);
+        const queryBody: ManticoreQueryBody | null =
+          queryString === null ? null : { query_string: queryString };
 
-    const request = buildManticoreSearchRequest(
-      this.indexName,
-      query,
-      params.filters,
-      params.limit,
-      params.offset
+        return {
+          request: buildManticoreSearchRequest(
+            this.indexName,
+            queryBody,
+            params.filters,
+            params.limit,
+            params.offset
+          ),
+        };
+      }
     );
 
     const response = await searchManticore(this.client, request);
@@ -88,9 +96,14 @@ export class ManticoreSearchEngine implements SearchEngine {
         ? "empty_index"
         : response.emptyReason;
 
+    const facets = recordCriticalPathPhaseSync(
+      "search-facets",
+      () => response.facets
+    );
+
     return {
       emptyReason,
-      facets: response.facets,
+      facets,
       hits: response.hits,
       indexVersion: this.indexVersion,
       total: response.total,

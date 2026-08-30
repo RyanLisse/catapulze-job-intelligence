@@ -11,6 +11,15 @@ import {
 import * as schema from "./schema";
 
 export {
+  emitPgStatStatementRecords,
+  readPgStatStatementSummaries,
+  timeSqlQuery,
+} from "./instrumentation";
+export type {
+  PgStatStatementSummary,
+  TimedSqlOptions,
+} from "./instrumentation";
+export {
   PostgresExportAttemptStore,
   PostgresExternalIdCrosswalkStore,
   PostgresExternalReceiptStore,

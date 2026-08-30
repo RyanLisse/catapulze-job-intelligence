@@ -25,6 +25,7 @@
     "@ji/connectors": "workspace:*",
     "@ji/domain": "workspace:*",
     "@ji/env": "workspace:*",
+    "@ji/performance": "workspace:*",
     "dotenv": "catalog:",
     "drizzle-orm": "^0.45.2",
     "postgres": "^3.4.7",

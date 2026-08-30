@@ -1,4 +1,14 @@
 import type { BronId, ScrapeRunId } from "@ji/domain";
+import {
+  createCriticalPathSession,
+  currentCriticalPathSession,
+  isCriticalPathEnabled,
+  resolveRunKind,
+  buildWorkloadMetadata,
+  monotonicNowMs,
+  timeCriticalPathPhase,
+  withCriticalPathSession,
+} from "@ji/performance";
 
 import type { ConnectorRunProgress } from "./checkpoint";
 import {
@@ -127,7 +137,7 @@ const request = <Result>(
   return withRetry(limitedOperation, retryPolicy, wait);
 };
 
-export const runConnector = async (
+const runConnectorInner = async (
   input: ConnectorRunInput
 ): Promise<ConnectorRunResult> => {
   const {
@@ -159,12 +169,20 @@ export const runConnector = async (
     checkpoint: input.checkpoint ?? null,
     metrics: emptyRunMetrics(),
   };
+  const queueStartedMs = monotonicNowMs();
   const canonicalRun = await runLifecycleStore.start({
     key: checkpointKey,
     mode: input.checkpoint === undefined ? "resume" : "reset",
     progress: structuredClone(requestedProgress),
     runKind,
     startedAt,
+  });
+  currentCriticalPathSession()?.recordSample({
+    durationMs: Math.round(monotonicNowMs() - queueStartedMs),
+    endedAt: new Date().toISOString(),
+    label: "ingest-queuewait",
+    startedAt: new Date().toISOString(),
+    success: true,
   });
   const progress = structuredClone(canonicalRun.progress);
   let { checkpoint } = progress;
@@ -180,12 +198,14 @@ export const runConnector = async (
   ): Promise<void> => {
     const fetched = await withFailureEnvelope(
       () =>
-        request(
-          () => connector.fetch(item),
-          bronId,
-          limiter,
-          retryPolicy,
-          wait
+        timeCriticalPathPhase("ingest-fetch", () =>
+          request(
+            () => connector.fetch(item),
+            bronId,
+            limiter,
+            retryPolicy,
+            wait
+          )
         ),
       FAILURE_ENVELOPES.fetch
     );
@@ -207,14 +227,16 @@ export const runConnector = async (
     });
     await withFailureEnvelope(
       () =>
-        objectStore.put({
-          body: fetched.body,
-          contentType: fetched.contentType,
-          expiresAt: new Date(
-            writeNow().getTime() + rawRetentionDays * DAY_IN_MILLISECONDS
-          ),
-          path: rawPayloadRef,
-        }),
+        timeCriticalPathPhase("ingest-raw-write", () =>
+          objectStore.put({
+            body: fetched.body,
+            contentType: fetched.contentType,
+            expiresAt: new Date(
+              writeNow().getTime() + rawRetentionDays * DAY_IN_MILLISECONDS
+            ),
+            path: rawPayloadRef,
+          })
+        ),
       FAILURE_ENVELOPES.rawStore
     );
     const sourceRecord = await withFailureEnvelope(
@@ -262,12 +284,14 @@ export const runConnector = async (
       // oxlint-disable-next-line no-await-in-loop -- page checkpoints require sequential discovery
       const discovery = await withFailureEnvelope(
         () =>
-          request(
-            () => connector.discover(currentCheckpoint),
-            bronId,
-            limiter,
-            retryPolicy,
-            wait
+          timeCriticalPathPhase("ingest-discover", () =>
+            request(
+              () => connector.discover(currentCheckpoint),
+              bronId,
+              limiter,
+              retryPolicy,
+              wait
+            )
           ),
         FAILURE_ENVELOPES.discover
       );
@@ -337,4 +361,39 @@ export const runConnector = async (
   }
 
   return { checkpoint: checkpoint ?? {}, metrics, writtenRecords };
+};
+
+export const runConnector = async (
+  input: ConnectorRunInput
+): Promise<ConnectorRunResult> => {
+  const execute = (): Promise<ConnectorRunResult> => runConnectorInner(input);
+  if (!isCriticalPathEnabled()) {
+    return execute();
+  }
+
+  const runStartedMs = monotonicNowMs();
+  const session = createCriticalPathSession({
+    metadata: buildWorkloadMetadata(),
+    runKind: resolveRunKind(),
+  });
+
+  try {
+    const result = await withCriticalPathSession(session, execute);
+    const elapsedMs = Math.max(1, Math.round(monotonicNowMs() - runStartedMs));
+    const recordsPerSecond = (
+      (result.writtenRecords * 1000) /
+      elapsedMs
+    ).toFixed(3);
+    session.mergeMetadata({
+      "freshness-ms": String(
+        Date.now() - (input.startedAt ?? new Date()).getTime()
+      ),
+      "records-per-second": recordsPerSecond,
+    });
+    await session.flush();
+    return result;
+  } catch (error) {
+    await session.flush();
+    throw error;
+  }
 };

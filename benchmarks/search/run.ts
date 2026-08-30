@@ -1,6 +1,11 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 
+import {
+  buildSearchSummaryRecord,
+  buildWorkloadMetadata,
+  digestQueryset,
+} from "@ji/performance";
 import type { SearchDocument, SearchEngine } from "@ji/search";
 import {
   InMemorySearchEngine,
@@ -185,6 +190,22 @@ const main = async (): Promise<void> => {
   };
 
   console.log(JSON.stringify(report, null, 2));
+
+  if (process.env.PERF_METRICS_DIR) {
+    process.env.PERF_CRITICAL_PATH = "1";
+    await buildSearchSummaryRecord({
+      durationsMs,
+      errorCount: 0,
+      metadata: {
+        ...buildWorkloadMetadata(),
+        profile: profilePath,
+        "queryset-digest": digestQueryset({
+          query: profile.queries.map((entry) => entry.id).join("|"),
+        }),
+      },
+      timeoutCount: 0,
+    });
+  }
 
   if (!passed && process.env.BENCH_ALLOW_FAIL !== "1") {
     process.exitCode = 1;

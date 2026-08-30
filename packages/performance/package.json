@@ -1,20 +1,16 @@
 {
-  "name": "@ji/connectors",
+  "name": "@ji/performance",
   "version": "0.0.0",
   "private": true,
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
-    "./lifecycle": "./src/lifecycle.ts",
-    "./tenderned": "./src/tenderned/index.ts",
-    "./inhuurdesk": "./src/inhuurdesk/index.ts"
+    "./critical-path": "./src/critical-path/index.ts",
+    "./digest": "./src/digest.ts",
+    "./labels": "./src/labels.ts"
   },
   "scripts": {
     "check-types": "PATH=\"./node_modules/.bin:$PATH\" tsc --noEmit"
-  },
-  "dependencies": {
-    "@ji/domain": "workspace:*",
-    "@ji/performance": "workspace:*"
   },
   "devDependencies": {
     "@ji/config": "workspace:*",

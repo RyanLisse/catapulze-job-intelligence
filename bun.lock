@@ -125,6 +125,7 @@
       "dependencies": {
         "@ji/connectors": "workspace:*",
         "@ji/domain": "workspace:*",
+        "@ji/performance": "workspace:*",
         "@ji/search": "workspace:*",
         "zod": "catalog:",
       },
@@ -157,6 +158,7 @@
       "version": "0.0.0",
       "dependencies": {
         "@ji/domain": "workspace:*",
+        "@ji/performance": "workspace:*",
       },
       "devDependencies": {
         "@ji/config": "workspace:*",
@@ -171,6 +173,7 @@
         "@ji/connectors": "workspace:*",
         "@ji/domain": "workspace:*",
         "@ji/env": "workspace:*",
+        "@ji/performance": "workspace:*",
         "dotenv": "catalog:",
         "drizzle-orm": "^0.45.2",
         "postgres": "^3.4.7",
@@ -207,11 +210,21 @@
         "typescript": "catalog:",
       },
     },
+    "packages/performance": {
+      "name": "@ji/performance",
+      "version": "0.0.0",
+      "devDependencies": {
+        "@ji/config": "workspace:*",
+        "@types/bun": "catalog:",
+        "typescript": "catalog:",
+      },
+    },
     "packages/search": {
       "name": "@ji/search",
       "version": "0.0.0",
       "dependencies": {
         "@ji/domain": "workspace:*",
+        "@ji/performance": "workspace:*",
         "zod": "catalog:",
       },
       "devDependencies": {
@@ -531,6 +544,8 @@
     "@ji/domain": ["@ji/domain@workspace:packages/domain"],
 
     "@ji/env": ["@ji/env@workspace:packages/env"],
+
+    "@ji/performance": ["@ji/performance@workspace:packages/performance"],
 
     "@ji/search": ["@ji/search@workspace:packages/search"],
 
