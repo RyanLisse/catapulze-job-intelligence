@@ -16,8 +16,17 @@ const databaseTestsRequired =
   process.env.REQUIRE_DATABASE_TESTS === "1" ||
   process.env.DATABASE_TEST_URL !== undefined;
 
+const postgresOptions = {
+  connect_timeout: 2,
+  max: 1,
+  connection: {
+    lock_timeout: 2000,
+    statement_timeout: 2000,
+  },
+} as const;
+
 const isPostgresAvailable = async (): Promise<boolean> => {
-  const probe = postgres(migratorDatabaseUrl, { connect_timeout: 2, max: 1 });
+  const probe = postgres(migratorDatabaseUrl, postgresOptions);
 
   try {
     await probe`SELECT 1`;
@@ -41,9 +50,9 @@ describe("postgres role hardening", () => {
       return;
     }
 
-    adminClient = postgres(adminDatabaseUrl, { max: 1 });
-    migratorClient = postgres(migratorDatabaseUrl, { max: 1 });
-    appClient = postgres(appDatabaseUrl, { max: 1 });
+    adminClient = postgres(adminDatabaseUrl, postgresOptions);
+    migratorClient = postgres(migratorDatabaseUrl, postgresOptions);
+    appClient = postgres(appDatabaseUrl, postgresOptions);
   });
 
   afterAll(async () => {
