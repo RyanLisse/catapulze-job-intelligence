@@ -25,6 +25,10 @@ default = true
 
 # --- Enabled plugins (no formatters) ---
 
+[[exclude]]
+plugins = ["actionlint", "yamllint"]
+file_patterns = [".github/workflows/*.lock.yml"]
+
 [[plugin]]
 name = "actionlint"
 affects_cache = [".github/actionlint.yaml"]
