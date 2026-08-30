@@ -40,8 +40,9 @@ docker volume create "$restore_volume" >/dev/null
 echo "restore-drill: starting source postgres with WAL archive to MinIO"
 POSTGRES_DATA_VOLUME="$source_volume" "${compose[@]}" up -d --build --wait postgres minio minio-init
 
+inspect_template='{{range $k, $v := .NetworkSettings.Networks}}{{$k}}{{end}}'
 network_name="$(
-  "${compose[@]}" ps -q postgres | xargs docker inspect -f '{{range $k, $v := .NetworkSettings.Networks}}{{$k}}{{end}}'
+  "${compose[@]}" ps -q postgres | xargs docker inspect -f "$inspect_template"
 )"
 
 export MIGRATION_DATABASE_URL="postgresql://ji_migrator:ji_migrator_local@127.0.0.1:${source_port}/ji_test"

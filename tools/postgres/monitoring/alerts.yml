@@ -1,3 +1,4 @@
+---
 # Postgres monitoring and alert stubs (U10 / JI-037)
 #
 # Wire these rules into the production metrics stack (Prometheus/Alertmanager,
@@ -18,7 +19,9 @@ groups:
           runbook: docs/runbooks/postgres-restore-v1.md
 
       - alert: PostgresDiskWarning
-        expr: (node_filesystem_avail_bytes{mountpoint="/var/lib/postgresql/data"} / node_filesystem_size_bytes{mountpoint="/var/lib/postgresql/data"}) < 0.30
+        expr: >-
+          (node_filesystem_avail_bytes{mountpoint="/var/lib/postgresql/data"}
+          / node_filesystem_size_bytes{mountpoint="/var/lib/postgresql/data"}) < 0.30
         for: 10m
         labels:
           severity: warning
@@ -27,7 +30,9 @@ groups:
           summary: Postgres data volume below 30% free space
 
       - alert: PostgresDiskCritical
-        expr: (node_filesystem_avail_bytes{mountpoint="/var/lib/postgresql/data"} / node_filesystem_size_bytes{mountpoint="/var/lib/postgresql/data"}) < 0.20
+        expr: >-
+          (node_filesystem_avail_bytes{mountpoint="/var/lib/postgresql/data"}
+          / node_filesystem_size_bytes{mountpoint="/var/lib/postgresql/data"}) < 0.20
         for: 5m
         labels:
           severity: critical
@@ -72,7 +77,11 @@ groups:
           summary: Postgres lock wait exceeds 30 seconds
 
       - alert: ManticoreContentionRisk
-        expr: container_memory_usage_bytes{name="manticore"} / container_spec_memory_limit_bytes{name="manticore"} > 0.9 and container_memory_usage_bytes{name="postgres"} / container_spec_memory_limit_bytes{name="postgres"} < 0.75
+        expr: >-
+          container_memory_usage_bytes{name="manticore"}
+          / container_spec_memory_limit_bytes{name="manticore"} > 0.9
+          and container_memory_usage_bytes{name="postgres"}
+          / container_spec_memory_limit_bytes{name="postgres"} < 0.75
         for: 15m
         labels:
           severity: warning

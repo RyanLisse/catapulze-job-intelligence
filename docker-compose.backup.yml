@@ -1,3 +1,4 @@
+---
 # WAL archive overlay for isolated backup/restore drills.
 # Usage:
 #   docker compose --env-file .env.example \
@@ -7,7 +8,7 @@
 
 services:
   minio:
-    image: minio/minio:latest
+    image: minio/minio:RELEASE.2024-12-18T13-15-44Z
     command: server /data --console-address ":9001"
     environment:
       MINIO_ROOT_USER: ${WALG_S3_ACCESS_KEY:-walg_local}
@@ -30,7 +31,7 @@ services:
     restart: unless-stopped
 
   minio-init:
-    image: minio/mc:latest
+    image: minio/mc:RELEASE.2024-11-21T17-21-54Z
     depends_on:
       minio:
         condition: service_healthy
@@ -38,14 +39,9 @@ services:
       MINIO_ROOT_USER: ${WALG_S3_ACCESS_KEY:-walg_local}
       MINIO_ROOT_PASSWORD: ${WALG_S3_SECRET_KEY:-walg_local_secret}
       WALG_S3_BUCKET: ${WALG_S3_BUCKET:-catapulze-pg-backup}
-    entrypoint:
-      - /bin/sh
-      - -ec
-      - |
-        mc alias set local http://minio:9000 "$$MINIO_ROOT_USER" "$$MINIO_ROOT_PASSWORD"
-        mc mb --ignore-existing "local/$$WALG_S3_BUCKET"
-        mc encrypt set sse-s3 "local/$$WALG_S3_BUCKET"
-        echo "minio-init: bucket $$WALG_S3_BUCKET ready with default SSE-S3"
+    volumes:
+      - ./tools/postgres/minio-init.sh:/minio-init.sh:ro
+    entrypoint: ["/bin/sh", "/minio-init.sh"]
 
   postgres:
     build:
