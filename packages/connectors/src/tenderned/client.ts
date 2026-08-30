@@ -1,4 +1,5 @@
 import { loadConnectorFixture } from "../fixtures/load";
+import { coerceTenderNedIds } from "./ids";
 import type {
   TenderNedDetail,
   TenderNedFilters,
@@ -49,6 +50,13 @@ export const buildTenderNedListingUrl = (
   return `${LISTING_BASE}?${params.toString()}`;
 };
 
+const coerceListingPage = (
+  page: TenderNedListingPage
+): TenderNedListingPage => ({
+  ...page,
+  content: page.content.map(coerceTenderNedIds),
+});
+
 const readJson = async <Payload>(response: Response): Promise<Payload> => {
   if (!response.ok) {
     throw new Error(`TenderNed request failed with status ${response.status}`);
@@ -80,11 +88,11 @@ export const createTenderNedClient = (
         }
         const fixture =
           await loadConnectorFixture<TenderNedDetail>(relativePath);
-        return fixture.payload;
+        return coerceTenderNedIds(fixture.payload);
       }
       const baseUrl = options.baseUrl ?? LISTING_BASE;
       const response = await fetchImpl(`${baseUrl}/${publicatieId}`);
-      return readJson<TenderNedDetail>(response);
+      return coerceTenderNedIds(await readJson<TenderNedDetail>(response));
     },
     fetchListing: async (page, filters) => {
       if (!liveEnabled) {
@@ -101,12 +109,12 @@ export const createTenderNedClient = (
         }
         const fixture =
           await loadConnectorFixture<TenderNedListingPage>(listingFixturePath);
-        return fixture.payload;
+        return coerceListingPage(fixture.payload);
       }
       const response = await fetchImpl(
         buildTenderNedListingUrl(page, filters, TENDER_NED_MAX_PAGE_SIZE)
       );
-      return readJson<TenderNedListingPage>(response);
+      return coerceListingPage(await readJson<TenderNedListingPage>(response));
     },
   };
 };

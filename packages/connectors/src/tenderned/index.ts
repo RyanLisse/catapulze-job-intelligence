@@ -11,6 +11,7 @@ export {
   type TenderNedConnectorOptions,
 } from "./connector";
 export { hashTenderNedDetailPayload, hashTenderNedListingItem } from "./hash";
+export { asIdString, coerceTenderNedIds } from "./ids";
 export {
   isTenderNedListingOpen,
   TENDER_NED_MAX_PAGE_SIZE,
