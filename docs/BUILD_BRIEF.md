@@ -206,7 +206,7 @@ Bronnenregister, twee representatieve connectors plus Indeed, raw ingest, normal
 
 ### Slice B — Gecontroleerde Spot/Spott-export
 
-API/MCP-spike, querysnapshot, approval, exportdedupe, idempotency, retries en receipts. Een schedule mag in deze slice alleen een nieuwe zoekrun en een pending voorstel maken; iedere nieuwe resultatensnapshot vereist opnieuw menselijke approval. Een latere standing approval policy is alleen toegestaan als queryversie, doel, limieten, geldigheidsduur en stopcondities expliciet zijn vastgelegd. Dit is pas onderdeel van de donderdagdemo als de juiste leverancier en Spot/Spott-toegang tijdig zijn bevestigd en de scope expliciet geaccepteerd is.
+API/MCP-spike, querysnapshot, approval, exportdedupe, idempotency, retries en receipts. REST-spike (RJC-336 / JI-020): zie [`docs/spott-slice-b-spike.md`](spott-slice-b-spike.md) — unieke externe ID = Spott vacancy `id`; minimale write = `POST /vacancies`; geen standing MCP voor export. Een schedule mag in deze slice alleen een nieuwe zoekrun en een pending voorstel maken; iedere nieuwe resultatensnapshot vereist opnieuw menselijke approval. Een latere standing approval policy is alleen toegestaan als queryversie, doel, limieten, geldigheidsduur en stopcondities expliciet zijn vastgelegd. Dit is pas onderdeel van de donderdagdemo als de juiste leverancier en Spot/Spott-toegang tijdig zijn bevestigd en de scope expliciet geaccepteerd is.
 
 ### Slice C — Bronuitbreiding en hardening
 
