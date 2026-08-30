@@ -6,7 +6,7 @@ import Providers from "@/components/providers";
 
 export const metadata: Metadata = {
   description:
-    "Collect vacancies, search them with Boolean logic, and export after human approval.",
+    "Doorzoek opdrachten uit meerdere bronnen met snelle Boolean search en volledige herkomstinformatie.",
   title: "Catapulze Job Intelligence",
 };
 
@@ -16,10 +16,16 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" suppressHydrationWarning>
-      <body className="antialiased">
+    <html lang="nl" suppressHydrationWarning>
+      <body className="min-h-dvh antialiased">
         <Providers>
-          <div className="grid h-svh grid-rows-[auto_1fr]">
+          <div className="grid min-h-dvh w-full min-w-0 grid-cols-[minmax(0,1fr)] grid-rows-[auto_1fr]">
+            <a
+              href="#main-content"
+              className="fixed top-2 left-2 z-[100] -translate-y-20 bg-[var(--ji-signal)] px-4 py-3 text-sm font-semibold text-[var(--ji-ink)] transition-transform focus:translate-y-0 focus:outline-none focus:ring-2 focus:ring-white"
+            >
+              Naar hoofdinhoud
+            </a>
             <Header />
             {children}
           </div>

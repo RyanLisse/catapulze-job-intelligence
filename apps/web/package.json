@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@ji/api": "workspace:*",
+    "@ji/domain": "workspace:*",
     "@ji/env": "workspace:*",
     "@ji/ui": "workspace:*",
     "@swc/helpers": "^0.5.23",
