@@ -1,15 +1,6 @@
 "use client";
 
-import {
-  Bookmark,
-  ChevronLeft,
-  ChevronRight,
-  Database,
-  FlaskConical,
-  Search,
-  SlidersHorizontal,
-  X,
-} from "lucide-react";
+import { ChevronLeft, ChevronRight, X } from "lucide-react";
 import { useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 
@@ -17,13 +8,17 @@ import { fixtureJobDataAdapter } from "./fixtures";
 import { JobDetail } from "./job-detail";
 import { JobFilters } from "./job-filters";
 import { JobResults } from "./job-results";
+import { createJobSearchMutations } from "./job-search-mutations";
+import { JobSearchQueryBar } from "./job-search-query-bar";
 import {
   JobEmptyState,
   JobEngineErrorState,
   JobLoadingState,
   JobSyntaxErrorState,
 } from "./job-search-states";
-import { sortLabels, validateBooleanPreview } from "./presentation";
+import { JobSearchToolbar } from "./job-search-toolbar";
+import { validateBooleanPreview } from "./presentation";
+import { runAsync } from "./run-async";
 import {
   parseJobSearchState,
   resetJobSearchState,
@@ -34,6 +29,7 @@ import {
 import type {
   JobContractType,
   JobDataAdapter,
+  JobIntelligenceActions,
   JobListing,
   JobSearchFilters,
   JobSearchResponse,
@@ -41,15 +37,6 @@ import type {
   JobSource,
   PreviewStatus,
 } from "./types";
-import { JOB_SORT_OPTIONS, PREVIEW_STATUSES } from "./types";
-
-const previewStatusLabels = {
-  empty: "Leeg resultaat",
-  "engine-error": "Enginefout",
-  loading: "Loading",
-  ready: "Gereed",
-  "syntax-error": "Syntaxfout",
-} satisfies Record<PreviewStatus, string>;
 
 const emptyFilters: JobSearchFilters = {
   contractTypes: [],
@@ -58,12 +45,6 @@ const emptyFilters: JobSearchFilters = {
   minRate: null,
   sources: [],
 };
-
-const isPreviewStatus = (value: string): value is PreviewStatus =>
-  PREVIEW_STATUSES.some((candidate) => candidate === value);
-
-const isJobSort = (value: string): value is JobSearchState["sort"] =>
-  JOB_SORT_OPTIONS.some((candidate) => candidate === value);
 
 const resolveDisplayStatus = (
   syntaxError: string | null,
@@ -195,13 +176,19 @@ const emptyResponse = (
 });
 
 interface JobSearchPageProps {
+  readonly actions?: JobIntelligenceActions;
   readonly adapter?: JobDataAdapter;
+  readonly liveData?: boolean;
 }
 
 const JobSearchPageContent = ({
+  actions,
   adapter,
+  liveData = false,
 }: {
+  readonly actions?: JobIntelligenceActions;
   readonly adapter: JobDataAdapter;
+  readonly liveData: boolean;
 }) => {
   const searchParams = useSearchParams();
   const state = useMemo(
@@ -221,6 +208,12 @@ const JobSearchPageContent = ({
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [retryNonce, setRetryNonce] = useState(0);
+  const [savedSearchMessage, setSavedSearchMessage] = useState<string | null>(
+    null
+  );
+  const [snapshotMessage, setSnapshotMessage] = useState<string | null>(null);
+  const [isSavingSearch, setIsSavingSearch] = useState(false);
+  const [isCreatingSnapshot, setIsCreatingSnapshot] = useState(false);
   const isDetailOverlay = useMediaQuery("(max-width: 1199px)");
   const detailTriggerRef = useRef<HTMLButtonElement | null>(null);
   const previousSelectedJobId = useRef<string | null>(state.selectedJobId);
@@ -344,13 +337,26 @@ const JobSearchPageContent = ({
     writeState({ ...state, selectedJobId: null });
   };
 
-  const syntaxError = validateBooleanPreview(state.query);
+  const syntaxError = liveData ? null : validateBooleanPreview(state.query);
   const displayStatus = resolveDisplayStatus(syntaxError, response.status);
   const activeFilterCount = countActiveFilters(state.filters);
   const countLabel = resultCountLabel(response.total);
   const gridColumns = selectedJob
     ? "min-[800px]:grid-cols-[240px_minmax(0,1fr)] min-[1200px]:grid-cols-[240px_minmax(0,1fr)_400px]"
     : "min-[800px]:grid-cols-[240px_minmax(0,1fr)]";
+
+  const { createSnapshot, markSelectedJob, saveCurrentSearch } =
+    createJobSearchMutations({
+      actions,
+      filters: state.filters,
+      query: state.query,
+      selectedJob,
+      setIsCreatingSnapshot,
+      setIsSavingSearch,
+      setSavedSearchMessage,
+      setSelectedJob,
+      setSnapshotMessage,
+    });
 
   const filterProps = {
     facets: response.facets,
@@ -379,183 +385,42 @@ const JobSearchPageContent = ({
 
   return (
     <main id="main-content" className="min-h-full bg-[var(--ji-canvas)]">
-      <section className="border-b border-foreground/10 bg-card">
-        <div className="mx-auto flex w-full max-w-[1600px] flex-wrap items-end justify-between gap-4 px-4 py-5 sm:px-6 lg:px-8">
-          <div>
-            <div className="mb-2 flex flex-wrap items-center gap-2">
-              <span className="text-[10px] font-semibold tracking-[0.17em] text-[var(--ji-signal-strong)] uppercase dark:text-[var(--ji-signal)]">
-                Search workspace
-              </span>
-              <span className="inline-flex items-center gap-1.5 border border-foreground/10 bg-muted px-2 py-1 text-[10px] text-muted-foreground">
-                <Database aria-hidden="true" className="size-3" />
-                Previewdata · U7 REST volgt
-              </span>
-            </div>
-            <h1 className="text-2xl font-semibold tracking-[-0.035em] sm:text-3xl">
-              Opdrachten
-            </h1>
-            <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
-              Boolean search met deelbare URL-state en zichtbare herkomst.
-            </p>
-          </div>
+      <JobSearchToolbar
+        actions={actions}
+        isCreatingSnapshot={isCreatingSnapshot}
+        isSavingSearch={isSavingSearch}
+        liveData={liveData}
+        onCreateSnapshot={createSnapshot}
+        onPreviewStatusChange={(previewStatus) =>
+          writeState({
+            ...state,
+            previewStatus,
+            selectedJobId: null,
+          })
+        }
+        onSaveSearch={saveCurrentSearch}
+        previewStatus={state.previewStatus}
+        savedSearchMessage={savedSearchMessage}
+        snapshotMessage={snapshotMessage}
+      />
 
-          <div className="flex flex-wrap items-center gap-2">
-            <label className="flex min-h-11 items-center gap-2 border border-foreground/12 bg-background px-3 text-xs text-muted-foreground">
-              <FlaskConical aria-hidden="true" className="size-3.5" />
-              <span className="hidden sm:inline">UI-state</span>
-              <select
-                aria-label="Preview UI-state"
-                value={state.previewStatus}
-                onChange={(event) => {
-                  const { value } = event.target;
-                  if (isPreviewStatus(value)) {
-                    writeState({
-                      ...state,
-                      previewStatus: value,
-                      selectedJobId: null,
-                    });
-                  }
-                }}
-                className="min-h-11 bg-transparent text-xs font-semibold text-foreground outline-none"
-              >
-                {Object.entries(previewStatusLabels).map(([value, label]) => (
-                  <option key={value} value={value}>
-                    {label}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <button
-              type="button"
-              disabled
-              title="Saved search vereist de U7 REST-capability"
-              className="hidden min-h-11 cursor-not-allowed items-center gap-2 border border-foreground/12 bg-muted px-3 text-xs font-semibold text-muted-foreground sm:inline-flex"
-            >
-              <Bookmark aria-hidden="true" className="size-3.5" />
-              Zoekopdracht opslaan · API volgt
-            </button>
-          </div>
-        </div>
-      </section>
-
-      <div className="sticky top-16 z-30 border-b border-foreground/10 bg-[var(--ji-canvas)]/96 backdrop-blur-md min-[800px]:static min-[800px]:bg-transparent min-[800px]:backdrop-blur-none">
-        <div className="mx-auto w-full max-w-[1600px] px-3 py-3 sm:px-6 lg:px-8">
-          <form
-            role="search"
-            onSubmit={submitSearch}
-            className="grid gap-2 min-[680px]:grid-cols-[minmax(0,1fr)_auto]"
-          >
-            <div>
-              <label htmlFor="job-query" className="sr-only">
-                Zoek opdrachten met Boolean-logica
-              </label>
-              <div className="flex min-h-12 items-center border border-input bg-card focus-within:border-ring focus-within:ring-2 focus-within:ring-ring/25">
-                <Search
-                  aria-hidden="true"
-                  className="ml-3 size-4 shrink-0 text-muted-foreground"
-                />
-                <input
-                  id="job-query"
-                  value={queryDraft}
-                  onChange={(event) => setQueryDraft(event.target.value)}
-                  onKeyDown={(event) => {
-                    if (event.key === "Escape") {
-                      setQueryDraft(state.query);
-                    }
-                  }}
-                  aria-invalid={syntaxError ? true : undefined}
-                  aria-describedby={
-                    syntaxError ? "job-query-error" : "job-query-hint"
-                  }
-                  placeholder='Bijv. (Azure OR "Power BI") NOT junior'
-                  className="min-h-12 min-w-0 flex-1 bg-transparent px-3 text-base outline-none placeholder:text-muted-foreground sm:text-sm"
-                />
-                {queryDraft ? (
-                  <button
-                    type="button"
-                    onClick={() => setQueryDraft("")}
-                    aria-label="Zoekveld leegmaken"
-                    className="grid size-11 shrink-0 place-items-center text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
-                  >
-                    <X aria-hidden="true" className="size-4" />
-                  </button>
-                ) : null}
-              </div>
-              <p id="job-query-hint" className="sr-only">
-                Gebruik AND, OR, NOT, haakjes en aanhalingstekens.
-              </p>
-              {syntaxError ? (
-                <p
-                  id="job-query-error"
-                  className="mt-2 text-xs font-medium text-destructive"
-                >
-                  {syntaxError}
-                </p>
-              ) : null}
-            </div>
-            <button
-              type="submit"
-              className="inline-flex min-h-12 items-center justify-center gap-2 bg-[var(--ji-ink)] px-5 text-sm font-semibold text-[var(--ji-paper)] outline-none transition-colors hover:bg-[var(--ji-ink-raised)] focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 dark:bg-[var(--ji-signal)] dark:text-[var(--ji-ink)] dark:hover:bg-white"
-            >
-              <Search aria-hidden="true" className="size-4" />
-              Zoeken
-            </button>
-          </form>
-
-          <div className="mt-2 flex min-h-11 flex-wrap items-center gap-2">
-            <button
-              type="button"
-              onClick={() => setFiltersOpen(true)}
-              className="inline-flex min-h-11 items-center gap-2 border border-foreground/12 bg-card px-3 text-xs font-semibold outline-none hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring min-[800px]:hidden"
-            >
-              <SlidersHorizontal aria-hidden="true" className="size-4" />
-              Filters
-              {activeFilterCount > 0 ? (
-                <span className="grid size-5 place-items-center rounded-full bg-[var(--ji-signal-strong)] text-[10px] text-white">
-                  {activeFilterCount}
-                </span>
-              ) : null}
-            </button>
-
-            <p
-              aria-live="polite"
-              className="mr-auto text-xs text-muted-foreground"
-            >
-              <strong className="font-semibold text-foreground tabular-nums">
-                {response.total}
-              </strong>{" "}
-              {countLabel}
-              {isRefreshing ? " · bijwerken…" : ""}
-            </p>
-
-            <label className="flex min-h-11 items-center gap-2 text-xs text-muted-foreground">
-              <span className="hidden sm:inline">Sorteren</span>
-              <select
-                aria-label="Resultaten sorteren"
-                value={state.sort}
-                onChange={(event) => {
-                  const { value } = event.target;
-                  if (isJobSort(value)) {
-                    writeState(
-                      withResetPage(state, {
-                        selectedJobId: null,
-                        sort: value,
-                      })
-                    );
-                  }
-                }}
-                className="min-h-11 border border-foreground/12 bg-card px-3 text-xs font-semibold text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              >
-                {Object.entries(sortLabels).map(([value, label]) => (
-                  <option key={value} value={value}>
-                    {label}
-                  </option>
-                ))}
-              </select>
-            </label>
-          </div>
-        </div>
-      </div>
+      <JobSearchQueryBar
+        activeFilterCount={activeFilterCount}
+        countLabel={countLabel}
+        isRefreshing={isRefreshing}
+        onClearQueryDraft={() => setQueryDraft("")}
+        onOpenFilters={() => setFiltersOpen(true)}
+        onQueryDraftChange={setQueryDraft}
+        onResetQueryDraft={() => setQueryDraft(state.query)}
+        onSortChange={(sort) =>
+          writeState(withResetPage(state, { selectedJobId: null, sort }))
+        }
+        onSubmit={submitSearch}
+        queryDraft={queryDraft}
+        sort={state.sort}
+        syntaxError={syntaxError}
+        total={response.total}
+      />
 
       <div
         className={`mx-auto grid w-full max-w-[1600px] items-start px-0 pb-8 sm:px-6 lg:px-8 ${gridColumns}`}
@@ -650,7 +515,10 @@ const JobSearchPageContent = ({
           <aside className="sticky top-2 hidden h-[calc(100dvh-5rem)] min-h-[640px] border-y border-r border-foreground/12 min-[1200px]:block">
             <JobDetail
               job={selectedJob}
+              liveData={liveData}
+              markering={selectedJob.markering ?? null}
               onClose={closeJob}
+              onMarkeer={actions ? () => runAsync(markSelectedJob) : undefined}
               titleId="desktop-job-detail-title"
               descriptionId="desktop-job-detail-description"
             />
@@ -710,7 +578,10 @@ const JobSearchPageContent = ({
         {selectedJob ? (
           <JobDetail
             job={selectedJob}
+            liveData={liveData}
+            markering={selectedJob.markering ?? null}
             onClose={closeJob}
+            onMarkeer={actions ? () => runAsync(markSelectedJob) : undefined}
             titleId="overlay-job-detail-title"
             descriptionId="overlay-job-detail-description"
           />
@@ -721,5 +592,13 @@ const JobSearchPageContent = ({
 };
 
 export const JobSearchPage = ({
+  actions,
   adapter = fixtureJobDataAdapter,
-}: JobSearchPageProps) => <JobSearchPageContent adapter={adapter} />;
+  liveData = false,
+}: JobSearchPageProps) => (
+  <JobSearchPageContent
+    actions={actions}
+    adapter={adapter}
+    liveData={liveData}
+  />
+);

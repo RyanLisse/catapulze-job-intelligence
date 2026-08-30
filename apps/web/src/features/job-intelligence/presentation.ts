@@ -87,3 +87,13 @@ export const validateBooleanPreview = (query: string): string | null => {
     ? null
     : describeBooleanError(result.error.message, result.error.offset);
 };
+
+export const describeApiSyntaxError = (
+  message: string,
+  offset?: number
+): string => {
+  if (offset === undefined) {
+    return message;
+  }
+  return describeBooleanError(message, offset);
+};

@@ -14,7 +14,7 @@ import {
   formatRate,
   sourceLabels,
 } from "./presentation";
-import type { JobListing } from "./types";
+import type { JobListing, JobMarkering } from "./types";
 
 interface DetailFactProps {
   readonly icon: typeof Building2;
@@ -40,28 +40,36 @@ const DetailFact = ({ icon: Icon, label, value }: DetailFactProps) => (
 interface JobDetailProps {
   readonly descriptionId: string;
   readonly job: JobListing;
+  readonly liveData?: boolean;
+  readonly markering?: JobMarkering | null;
   readonly onClose: () => void;
+  readonly onMarkeer?: () => void;
   readonly titleId: string;
 }
 
 export const JobDetail = ({
   descriptionId,
   job,
+  liveData = false,
+  markering = null,
   onClose,
+  onMarkeer,
   titleId,
 }: JobDetailProps) => {
-  const rawPreview = JSON.stringify(
-    {
-      contract_type: job.contractType,
-      description: job.description,
-      location: job.location,
-      organization: job.organization,
-      skills: job.skills,
-      title: job.title,
-    },
-    null,
-    2
-  );
+  const rawPreview =
+    job.rawPreview ??
+    JSON.stringify(
+      {
+        contract_type: job.contractType,
+        description: job.description,
+        location: job.location,
+        organization: job.organization,
+        skills: job.skills,
+        title: job.title,
+      },
+      null,
+      2
+    );
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-card">
@@ -180,13 +188,25 @@ export const JobDetail = ({
                 </div>
                 <dl className="ji-mono mt-3 grid gap-2 text-[10px] text-muted-foreground">
                   <div className="flex justify-between gap-3">
+                    <dt>bron</dt>
+                    <dd className="text-foreground/72">
+                      {sourceLabels[record.name]}
+                    </dd>
+                  </div>
+                  <div className="flex justify-between gap-3">
+                    <dt>bron_referentie</dt>
+                    <dd className="truncate text-foreground/72">
+                      {record.reference}
+                    </dd>
+                  </div>
+                  <div className="flex justify-between gap-3">
                     <dt>scrape_run_id</dt>
                     <dd className="truncate text-foreground/72">
                       {record.scrapeRunId}
                     </dd>
                   </div>
                   <div className="flex justify-between gap-3">
-                    <dt>normalisatie</dt>
+                    <dt>normalisatieversie</dt>
                     <dd className="text-foreground/72">
                       {record.normalizationVersion}
                     </dd>
@@ -214,8 +234,9 @@ export const JobDetail = ({
             </h3>
           </div>
           <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
-            Veilige voorbeeldpayload. De volledige immutable bronpayload volgt
-            via de U7 read-raw capability.
+            {liveData
+              ? "Immutable bronpayload via read_raw (preview)."
+              : "Veilige voorbeeldpayload. De volledige immutable bronpayload volgt via de U7 read-raw capability."}
           </p>
           <pre className="ji-mono mt-3 max-h-72 overflow-auto border border-foreground/12 bg-[var(--ji-ink)] p-3 text-[10px] leading-relaxed text-[var(--ji-paper-muted)]">
             {rawPreview}
@@ -224,13 +245,28 @@ export const JobDetail = ({
       </div>
 
       <div className="border-t border-foreground/10 bg-card p-4">
+        {markering ? (
+          <p className="mb-3 text-xs text-muted-foreground">
+            Markering:{" "}
+            <span className="font-semibold text-foreground">
+              {markering.status.replaceAll("_", " ")}
+            </span>
+          </p>
+        ) : null}
         <button
           type="button"
-          disabled
-          title="U7 REST-capability is nog niet beschikbaar"
-          className="min-h-11 w-full cursor-not-allowed border border-foreground/12 bg-muted px-4 text-sm font-semibold text-muted-foreground"
+          disabled={!onMarkeer}
+          onClick={onMarkeer}
+          title={
+            onMarkeer
+              ? "Markeer als relevant"
+              : "Markeren vereist de U7 REST-capability"
+          }
+          className="min-h-11 w-full border border-foreground/12 bg-[var(--ji-signal-strong)] px-4 text-sm font-semibold text-white outline-none hover:bg-[var(--ji-ink)] focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:bg-muted disabled:text-muted-foreground"
         >
-          Markeren · API volgt
+          {markering
+            ? "Opnieuw markeren als relevant"
+            : "Markeren als relevant"}
         </button>
       </div>
     </div>

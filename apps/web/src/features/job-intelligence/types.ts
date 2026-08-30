@@ -60,6 +60,19 @@ export interface JobRate {
   readonly period: "hour" | "year";
 }
 
+export const JOB_MARKERING_STATUSES = [
+  "relevant",
+  "niet_relevant",
+  "gevolgd",
+] as const;
+
+export type JobMarkeringStatus = (typeof JOB_MARKERING_STATUSES)[number];
+
+export interface JobMarkering {
+  readonly reden: string | null;
+  readonly status: JobMarkeringStatus;
+}
+
 export interface JobListing {
   readonly id: string;
   readonly title: string;
@@ -76,6 +89,8 @@ export interface JobListing {
   readonly summary: string;
   readonly description: string;
   readonly remote: boolean;
+  readonly markering?: JobMarkering | null;
+  readonly rawPreview?: string;
 }
 
 export interface JobSearchFilters {
@@ -124,6 +139,23 @@ export interface JobSearchResponse {
 export interface JobDataAdapter {
   readonly getById: (id: string) => Promise<JobListing | null>;
   readonly search: (request: JobSearchRequest) => Promise<JobSearchResponse>;
+}
+
+export interface JobIntelligenceActions {
+  readonly createSavedSearch: (input: {
+    readonly filters: JobSearchFilters;
+    readonly naam: string;
+    readonly query: string;
+  }) => Promise<{ readonly id: string; readonly naam: string }>;
+  readonly createSnapshot: (input: {
+    readonly filters: JobSearchFilters;
+    readonly query: string;
+  }) => Promise<{ readonly id: string; readonly resultCount: number }>;
+  readonly markeerAanvraag: (input: {
+    readonly aanvraagId: string;
+    readonly reden?: string | null;
+    readonly status: JobMarkeringStatus;
+  }) => Promise<JobMarkering>;
 }
 
 export const DEFAULT_JOB_SEARCH_STATE: JobSearchState = {
