@@ -59,6 +59,9 @@ export interface BackfillRunResult {
 export interface NeonV1Source {
   readonly label: string;
   loadJobs: () => Promise<readonly NeonV1JobRow[]>;
+  streamBatches?: (
+    batchSize: number
+  ) => AsyncGenerator<readonly NeonV1JobRow[], void>;
 }
 
 export interface BackfillBronBinding {
@@ -81,6 +84,7 @@ export interface BackfillProvenanceStore {
 }
 
 export interface RunNeonV1BackfillInput {
+  readonly batchSize?: number;
   readonly bindings: readonly BackfillBronBinding[];
   readonly curateStore: CurateStore;
   readonly objectStore: ObjectStore;

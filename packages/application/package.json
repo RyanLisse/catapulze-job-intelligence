@@ -22,6 +22,7 @@
     "@ji/connectors": "workspace:*",
     "@ji/domain": "workspace:*",
     "@ji/search": "workspace:*",
+    "postgres": "^3.4.7",
     "zod": "catalog:"
   },
   "devDependencies": {
