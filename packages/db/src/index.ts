@@ -16,6 +16,23 @@ export {
   type ReadPathDatabase,
 } from "./read-path-stores";
 export {
+  PostgresBackfillProvenanceStore,
+  PostgresBackfillRunStore,
+  seedMotianV1Bronnen,
+  type BackfillDatabase,
+  type MotianV1BronSeed,
+} from "./backfill-stores";
+export {
+  PostgresCurateStore,
+  type PostgresCurateDatabase,
+} from "./postgres-curate-store";
+export {
+  resolveNeonV1BackfillSource,
+  runMotianV1Backfill,
+  runMotianV1BackfillInMemory,
+  type RunMotianV1BackfillOptions,
+} from "./backfill-runner";
+export {
   PostgresBronPersistence,
   PostgresObservationRecorder,
   PostgresRunStore,
