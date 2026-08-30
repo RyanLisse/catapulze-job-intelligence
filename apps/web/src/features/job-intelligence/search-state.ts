@@ -322,6 +322,23 @@ const compareJobs = (
   return Date.parse(right.publishedAt) - Date.parse(left.publishedAt);
 };
 
+export const sortJobListings = (
+  jobs: readonly JobListing[],
+  sort: JobSort,
+  query: string
+): JobListing[] =>
+  [...jobs].toSorted((left, right) => compareJobs(left, right, sort, query));
+
+export const filterJobsByLocation = (
+  jobs: readonly JobListing[],
+  locations: readonly string[]
+): JobListing[] => {
+  if (locations.length === 0) {
+    return [...jobs];
+  }
+  return jobs.filter((job) => locations.includes(job.location));
+};
+
 const countFacets = <T extends string>(values: readonly T[]): FacetCount<T>[] =>
   [...new Set(values)]
     .map((value) => ({

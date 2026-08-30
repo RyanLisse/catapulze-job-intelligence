@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { Suspense } from "react";
 
-import { JobSearchPage } from "@/features/job-intelligence/job-search-page";
+import { JobSearchShell } from "@/features/job-intelligence/job-search-shell";
 import { JobLoadingState } from "@/features/job-intelligence/job-search-states";
 
 export const metadata: Metadata = {
@@ -21,7 +21,7 @@ const JobsPage = () => (
       </main>
     }
   >
-    <JobSearchPage />
+    <JobSearchShell />
   </Suspense>
 );
 

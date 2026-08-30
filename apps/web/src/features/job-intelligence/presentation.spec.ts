@@ -1,7 +1,11 @@
 import { describe, expect, it } from "bun:test";
 
 import { JOB_FIXTURES } from "./fixtures";
-import { formatRate, validateBooleanPreview } from "./presentation";
+import {
+  formatRate,
+  validateBooleanPreview,
+  describeApiSyntaxError,
+} from "./presentation";
 
 describe("Boolean query preview validation", () => {
   it("accepts balanced Boolean expressions", () => {
@@ -19,6 +23,12 @@ describe("Boolean query preview validation", () => {
     );
     expect(validateBooleanPreview("Azure) AND data")).toContain("positie 6");
     expect(validateBooleanPreview("(Azure OR)")).toContain("positie 10");
+  });
+
+  it("describes parser offsets for API syntax failures", () => {
+    expect(
+      describeApiSyntaxError("Unexpected closing parenthesis", 4)
+    ).toContain("positie 5");
   });
 });
 
