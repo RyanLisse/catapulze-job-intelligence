@@ -198,7 +198,11 @@ export const observeConnectorRunSilence = async (input: {
   lastSuccessAt: Date | null;
   metrics: ConnectorRunMetrics;
   writer: SilenceAlertWriter;
-}): Promise<{ alertId?: string; created: boolean; event: SilenceEventPayload | null }> => {
+}): Promise<{
+  alertId?: string;
+  created: boolean;
+  event: SilenceEventPayload | null;
+}> => {
   const event = evaluateSilence(input);
   if (!event) {
     return { created: false, event: null };

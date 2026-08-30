@@ -7,7 +7,9 @@ export const createLivenessHandler =
   (context: Context): Response =>
     context.text(HEALTH_BODY);
 
-export const createHealthRoutes = (readinessHandler: (context: Context) => Promise<Response>) => ({
+export const createHealthRoutes = (
+  readinessHandler: (context: Context) => Promise<Response>
+) => ({
   health: createLivenessHandler(),
   live: createLivenessHandler(),
   ready: readinessHandler,

@@ -1,15 +1,15 @@
 import { describe, expect, it } from "bun:test";
 
-import type { ConnectorRunMetrics } from "@ji/connectors";
+import { emptyRunMetrics } from "@ji/connectors";
 
 import { createMemorySliceAStores } from "../registry/stores/memory";
+import type { RunBaselineSample } from "./silence";
 import {
   DEFAULT_VOLUME_DROP_THRESHOLD,
   SOURCE_SILENCE_RUNBOOK_PATH,
   buildSilenceDedupeKey,
   evaluateSilence,
   observeConnectorRunSilence,
-  type RunBaselineSample,
 } from "./silence";
 import { createSilenceAlertWriter } from "./writer";
 
@@ -26,12 +26,9 @@ const baselineSamples = (): RunBaselineSample[] => {
   }));
 };
 
-const zeroActivityMetrics = (): ConnectorRunMetrics => ({
-  changed: 0,
-  error: 0,
+const zeroActivityMetrics = () => ({
+  ...emptyRunMetrics(),
   found: 10,
-  new: 0,
-  rejected: 0,
 });
 
 describe("AE7 source silence detection", () => {
@@ -53,7 +50,7 @@ describe("AE7 source silence detection", () => {
     expect(event?.detectietijd).toBe("2026-08-29T12:00:00.000Z");
     expect(event?.laatsteSucces).toBe("2026-08-28T12:00:00.000Z");
     expect(event?.drempel).toBe(DEFAULT_VOLUME_DROP_THRESHOLD);
-    expect(event?.eigenaar).toMatch(/@/);
+    expect(event?.eigenaar).toMatch(/@/u);
     expect(event?.runbook).toBe(SOURCE_SILENCE_RUNBOOK_PATH);
     expect(event?.evidence.current_new).toBe(0);
     expect(event?.evidence.current_changed).toBe(0);
@@ -87,7 +84,7 @@ describe("AE7 source silence detection", () => {
     expect(alert?.evidence.detectietijd).toBe("2026-08-29T12:00:00.000Z");
     expect(alert?.evidence.laatste_succes).toBe("2026-08-28T12:00:00.000Z");
     expect(alert?.evidence.runbook).toBe(SOURCE_SILENCE_RUNBOOK_PATH);
-    expect(alert?.evidence.eigenaar).toMatch(/@/);
+    expect(alert?.evidence.eigenaar).toMatch(/@/u);
     expect(alert?.evidence.drempel).toBe(DEFAULT_VOLUME_DROP_THRESHOLD);
     expect(await stores.bronHealth.getByBronId(bronId)).toMatchObject({
       silenceAlertOpen: true,

@@ -13,10 +13,9 @@ import {
   loadNeonV1Fixture,
   mapV1JobToDraft,
   runNeonV1Backfill,
-  type NeonV1JobRow,
 } from "./neon-v1";
 
-const sampleJob = (): NeonV1JobRow => ({
+const sampleJob = () => ({
   company: "Broker BV",
   contract_type: "detachering",
   description: "Azure platform engineer for a Dutch ministry.",

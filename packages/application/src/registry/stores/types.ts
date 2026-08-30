@@ -143,10 +143,9 @@ export interface AuditStore {
 export interface AlertStore {
   ack: (alertId: string, actorId: string) => Promise<AlertRecord | null>;
   create: (
-    record: Omit<
-      AlertRecord,
-      "ackedAt" | "ackedBy" | "createdAt" | "id"
-    > & { readonly id?: string }
+    record: Omit<AlertRecord, "ackedAt" | "ackedBy" | "createdAt" | "id"> & {
+      readonly id?: string;
+    }
   ) => Promise<AlertRecord>;
   findOpenByDedupeKey: (dedupeKey: string) => Promise<AlertRecord | null>;
   getById: (alertId: string) => Promise<AlertRecord | null>;

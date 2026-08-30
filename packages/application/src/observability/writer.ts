@@ -5,10 +5,10 @@ export const createSilenceAlertWriter = (stores: {
   alerts: AlertStore;
   bronHealth: BronHealthStore;
 }): SilenceAlertWriter => ({
-  findOpenByDedupeKey: (dedupeKey) =>
-    stores.alerts.findOpenByDedupeKey(dedupeKey).then((alert) =>
-      alert ? { id: alert.id } : null
-    ),
+  findOpenByDedupeKey: async (dedupeKey) => {
+    const alert = await stores.alerts.findOpenByDedupeKey(dedupeKey);
+    return alert ? { id: alert.id } : null;
+  },
   upsertBronHealth: async (input) => {
     const existing = await stores.bronHealth.getByBronId(input.bronId);
     await stores.bronHealth.upsert({

@@ -1,6 +1,16 @@
 import { describe, expect, it } from "bun:test";
 
 import {
+  InMemoryCurateStore,
+  processObservation,
+} from "@ji/application/identity";
+import {
+  createSliceARegistry,
+  createMemorySliceAStores,
+  permissionsForRole,
+} from "@ji/application/registry";
+import type { SliceAHandlerDeps } from "@ji/application/registry";
+import {
   CrawlDelayLimiter,
   InMemoryObjectStore,
   InMemoryObservationRecorder,
@@ -9,16 +19,12 @@ import {
   createTenderNedConnector,
   runConnector,
 } from "@ji/connectors";
-import { SearchAdapter, InMemorySearchEngine, drainOutboxEvents } from "@ji/search";
-import type { SearchDocument, SearchDocumentLoader } from "@ji/search";
-
-import { InMemoryCurateStore, processObservation } from "@ji/application/identity";
 import {
-  createSliceARegistry,
-  createMemorySliceAStores,
-  permissionsForRole,
-  type SliceAHandlerDeps,
-} from "@ji/application/registry";
+  SearchAdapter,
+  InMemorySearchEngine,
+  drainOutboxEvents,
+} from "@ji/search";
+import type { SearchDocument, SearchDocumentLoader } from "@ji/search";
 
 const retryPolicy = {
   initialDelayMs: 0,
@@ -29,7 +35,11 @@ const retryPolicy = {
 };
 
 class CurateSearchDocumentLoader implements SearchDocumentLoader {
-  constructor(private readonly store: InMemoryCurateStore) {}
+  private readonly store: InMemoryCurateStore;
+
+  constructor(store: InMemoryCurateStore) {
+    this.store = store;
+  }
 
   loadByAggregateId(aggregateId: string): Promise<SearchDocument | null> {
     const row = this.store.aanvragen.find(
@@ -41,10 +51,7 @@ class CurateSearchDocumentLoader implements SearchDocumentLoader {
     return Promise.resolve({
       beschrijving: row.beschrijving,
       bronId: row.bronId,
-      contracttype:
-        typeof row.bronSpecifiek.contract_type === "string"
-          ? row.bronSpecifiek.contract_type
-          : null,
+      contracttype: null,
       id: row.aanvraagId,
       laatstGezienOp: row.laatstGezienOp,
       locatieLand: row.locatieLand,
@@ -55,6 +62,31 @@ class CurateSearchDocumentLoader implements SearchDocumentLoader {
     });
   }
 }
+
+const processRecordedObservations = async (input: {
+  bronId: string;
+  curateStore: InMemoryCurateStore;
+  objectStore: InMemoryObjectStore;
+  observationRecorder: InMemoryObservationRecorder;
+}): Promise<void> => {
+  /* oxlint-disable no-await-in-loop -- e2e curate pipeline must stay deterministic */
+  for (const observation of input.observationRecorder.observations) {
+    const stored = await input.objectStore.get(observation.rawPayloadRef);
+    if (!stored) {
+      continue;
+    }
+    await processObservation(input.curateStore, {
+      body: stored.body,
+      bronId: input.bronId,
+      bronSlug: "tenderned",
+      contentHash: observation.contentHash,
+      observedAt: new Date(observation.observedAt),
+      rawPayloadRef: observation.rawPayloadRef,
+      scrapeRunId: observation.scrapeRunId,
+    });
+  }
+  /* oxlint-enable no-await-in-loop */
+};
 
 describe("JI-052 e2e read path", () => {
   it("runs fixture bron → raw → normalise → search → snapshot", async () => {
@@ -83,21 +115,12 @@ describe("JI-052 e2e read path", () => {
       startedAt: new Date("2026-08-28T10:15:00.000Z"),
     });
 
-    for (const observation of observationRecorder.observations) {
-      const stored = await objectStore.get(observation.rawPayloadRef);
-      if (!stored) {
-        continue;
-      }
-      await processObservation(curateStore, {
-        body: stored.body,
-        bronId,
-        bronSlug: "tenderned",
-        contentHash: observation.contentHash,
-        observedAt: new Date(observation.observedAt),
-        rawPayloadRef: observation.rawPayloadRef,
-        scrapeRunId: observation.scrapeRunId,
-      });
-    }
+    await processRecordedObservations({
+      bronId,
+      curateStore,
+      objectStore,
+      observationRecorder,
+    });
 
     expect(curateStore.aanvragen).toHaveLength(1);
     expect(curateStore.outboxEvents.length).toBeGreaterThan(0);
@@ -120,8 +143,8 @@ describe("JI-052 e2e read path", () => {
     const searchAdapter = new SearchAdapter({ engine });
     const deps: SliceAHandlerDeps = {
       bronnen: {
-        getById: async () => null,
-        list: async () => [],
+        getById: () => Promise.resolve(null),
+        list: () => Promise.resolve([]),
       },
       searchAdapter,
       stores,
