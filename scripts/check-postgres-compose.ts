@@ -7,12 +7,21 @@ interface ComposePort {
   protocol?: string;
 }
 
+interface ComposeVolumeMount {
+  type?: string;
+  source?: string;
+  target?: string;
+  bind?: {
+    read_only?: boolean;
+  };
+}
+
 interface ComposeService {
   ports?: (number | string | ComposePort)[];
   cpus?: string;
   mem_limit?: string;
   mem_reservation?: string;
-  volumes?: string[];
+  volumes?: (string | ComposeVolumeMount)[];
   healthcheck?: {
     test?: string | string[];
   };
@@ -90,6 +99,25 @@ const parseMemoryLimitMegabytes = (
   }
 };
 
+// SAFETY: compose YAML uses string bind mounts; `docker compose config --format json` uses objects with a `type` field.
+const isStringVolumeMount = (
+  volume: string | ComposeVolumeMount
+): volume is string => !Object.hasOwn(volume, "type");
+
+const isReadOnlyManticoreConfMount = (
+  volume: string | ComposeVolumeMount
+): boolean => {
+  if (isStringVolumeMount(volume)) {
+    return volume.includes("manticore.conf") && /:ro(?:$|:)/u.test(volume);
+  }
+
+  return (
+    volume.type === "bind" &&
+    volume.target?.includes("manticore.conf") === true &&
+    volume.bind?.read_only === true
+  );
+};
+
 const validateManticoreCompose = (
   manticore: ComposeService | undefined,
   postgresMemory: number | null
@@ -112,7 +140,7 @@ const validateManticoreCompose = (
   }
 
   for (const volume of manticore?.volumes ?? []) {
-    if (volume.includes("manticore.conf") && /:ro(?:$|:)/u.test(volume)) {
+    if (isReadOnlyManticoreConfMount(volume)) {
       violations.push(
         "manticore manticore.conf bind mount must not use :ro; the image entrypoint chowns /etc/manticoresearch before searchd starts"
       );
