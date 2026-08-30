@@ -107,13 +107,13 @@ describe("Inhuurdesk connector", () => {
       fetchListing: (page) => {
         if (page === 0) {
           return Promise.resolve({
-            data: [assignments[0], assignments[1]],
+            data: assignments.slice(0, 2),
             total: 4,
           });
         }
         if (page === 1) {
           return Promise.resolve({
-            data: [assignments[2], assignments[3]],
+            data: assignments.slice(2, 4),
             total: 4,
           });
         }
