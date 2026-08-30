@@ -8,7 +8,7 @@ interface ComposePort {
 }
 
 interface ComposeService {
-  ports?: Array<number | string | ComposePort>;
+  ports?: (number | string | ComposePort)[];
   cpus?: string;
   mem_limit?: string;
   mem_reservation?: string;
@@ -27,9 +27,8 @@ interface ComposeDocument {
 
 const isComposePort = (
   entry: number | string | ComposePort
-): entry is ComposePort => {
-  return entry !== null && typeof entry === "object";
-};
+): entry is ComposePort =>
+  Object.hasOwn(entry, "target") || Object.hasOwn(entry, "host_ip");
 
 const normalizePorts = (
   ports: ComposeService["ports"] | undefined
@@ -129,7 +128,9 @@ export const validatePostgresCompose = (
   const manticoreMemory = parseMemoryLimitMegabytes(manticore?.mem_limit);
 
   if (postgresMemory === null) {
-    violations.push("postgres service must declare mem_limit for DB-first budgeting");
+    violations.push(
+      "postgres service must declare mem_limit for DB-first budgeting"
+    );
   }
 
   if (manticoreMemory === null) {

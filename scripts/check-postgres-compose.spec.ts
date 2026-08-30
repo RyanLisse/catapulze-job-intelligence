@@ -17,7 +17,7 @@ describe("validatePostgresCompose", () => {
       volumes: {
         postgres_data: {
           external: true,
-          name: "${POSTGRES_DATA_VOLUME:-catapulze-postgres-p0}",
+          name: "catapulze-postgres-p0",
         },
       },
     });

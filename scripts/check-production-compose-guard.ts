@@ -3,15 +3,9 @@ import path from "node:path";
 
 const repositoryRoot = process.cwd();
 
-const allowedDownVolumePaths = new Set([
-  ".github/workflows/ci.yml",
-]);
+const allowedDownVolumePaths = new Set([".github/workflows/ci.yml"]);
 
-const scanRoots = [
-  ".github/workflows",
-  "scripts",
-  "tools/postgres",
-];
+const scanRoots = [".github/workflows", "scripts", "tools/postgres"];
 
 const downVolumePattern = /\bdown\b[^\n]*-v\b|\bdown\s+-v\b/u;
 

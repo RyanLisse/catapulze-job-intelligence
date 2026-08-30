@@ -98,8 +98,12 @@ describe("postgres role hardening", () => {
     await expect(
       appClient.unsafe("CREATE SCHEMA u10_app_forbidden")
     ).rejects.toThrow();
-    await expect(appClient.unsafe("CREATE ROLE u10_app_forbidden")).rejects.toThrow();
-    await expect(appClient.unsafe("CREATE DATABASE u10_app_forbidden")).rejects.toThrow();
+    await expect(
+      appClient.unsafe("CREATE ROLE u10_app_forbidden")
+    ).rejects.toThrow();
+    await expect(
+      appClient.unsafe("CREATE DATABASE u10_app_forbidden")
+    ).rejects.toThrow();
   });
 
   it("requires database tests when REQUIRE_DATABASE_TESTS=1", () => {
