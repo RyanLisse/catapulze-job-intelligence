@@ -23,6 +23,8 @@ export {
   dedupGroep,
   dedupGroepRelations,
   outboxEvent,
+  exportAttempt,
+  externalIdCrosswalk,
   querySnapshot,
   querySnapshotRelations,
   savedSearch,
