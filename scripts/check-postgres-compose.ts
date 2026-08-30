@@ -7,12 +7,24 @@ interface ComposePort {
   protocol?: string;
 }
 
+interface ComposeVolumeMount {
+  type?: string;
+  source?: string;
+  target?: string;
+  bind?: {
+    read_only?: boolean;
+  };
+}
+
 interface ComposeService {
   ports?: (number | string | ComposePort)[];
   cpus?: string;
   mem_limit?: string;
   mem_reservation?: string;
-  volumes?: string[];
+  volumes?: (string | ComposeVolumeMount)[];
+  healthcheck?: {
+    test?: string | string[];
+  };
 }
 
 interface ComposeVolume {
@@ -87,6 +99,71 @@ const parseMemoryLimitMegabytes = (
   }
 };
 
+// SAFETY: compose YAML uses string bind mounts; `docker compose config --format json` uses objects with a `type` field.
+const isStringVolumeMount = (
+  volume: string | ComposeVolumeMount
+): volume is string => !Object.hasOwn(volume, "type");
+
+const isReadOnlyManticoreConfMount = (
+  volume: string | ComposeVolumeMount
+): boolean => {
+  if (isStringVolumeMount(volume)) {
+    return volume.includes("manticore.conf") && /:ro(?:$|:)/u.test(volume);
+  }
+
+  return (
+    volume.type === "bind" &&
+    volume.target?.includes("manticore.conf") === true &&
+    volume.bind?.read_only === true
+  );
+};
+
+const validateManticoreCompose = (
+  manticore: ComposeService | undefined,
+  postgresMemory: number | null
+): string[] => {
+  const violations: string[] = [];
+  const manticoreMemory = parseMemoryLimitMegabytes(manticore?.mem_limit);
+
+  if (manticoreMemory === null) {
+    violations.push("manticore service must declare mem_limit");
+  }
+
+  if (
+    postgresMemory !== null &&
+    manticoreMemory !== null &&
+    postgresMemory <= manticoreMemory
+  ) {
+    violations.push(
+      `postgres mem_limit (${postgresMemory}m) must exceed manticore mem_limit (${manticoreMemory}m)`
+    );
+  }
+
+  for (const volume of manticore?.volumes ?? []) {
+    if (isReadOnlyManticoreConfMount(volume)) {
+      violations.push(
+        "manticore manticore.conf bind mount must not use :ro; the image entrypoint chowns /etc/manticoresearch before searchd starts"
+      );
+    }
+  }
+
+  const healthcheckCommand = manticore?.healthcheck?.test;
+  const healthcheckParts = Array.isArray(healthcheckCommand)
+    ? healthcheckCommand.join(" ")
+    : (healthcheckCommand ?? "");
+
+  if (
+    healthcheckParts.includes("SHOW TABLES") &&
+    !healthcheckParts.includes("aanvragen")
+  ) {
+    violations.push(
+      "manticore healthcheck must assert the aanvragen RT table from tools/manticore/manticore.conf is loaded"
+    );
+  }
+
+  return violations;
+};
+
 export const validatePostgresCompose = (
   document: ComposeDocument
 ): string[] => {
@@ -126,7 +203,6 @@ export const validatePostgresCompose = (
   }
 
   const postgresMemory = parseMemoryLimitMegabytes(postgres.mem_limit);
-  const manticoreMemory = parseMemoryLimitMegabytes(manticore?.mem_limit);
 
   if (postgresMemory === null) {
     violations.push(
@@ -134,19 +210,7 @@ export const validatePostgresCompose = (
     );
   }
 
-  if (manticoreMemory === null) {
-    violations.push("manticore service must declare mem_limit");
-  }
-
-  if (
-    postgresMemory !== null &&
-    manticoreMemory !== null &&
-    postgresMemory <= manticoreMemory
-  ) {
-    violations.push(
-      `postgres mem_limit (${postgresMemory}m) must exceed manticore mem_limit (${manticoreMemory}m)`
-    );
-  }
+  violations.push(...validateManticoreCompose(manticore, postgresMemory));
 
   return violations;
 };

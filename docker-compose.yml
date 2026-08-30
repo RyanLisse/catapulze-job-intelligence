@@ -94,7 +94,9 @@ services:
         protocol: tcp
     volumes:
       - manticore_data:/var/lib/manticore
-      - ./tools/manticore/manticore.conf:/etc/manticoresearch/manticore.conf:ro
+      # Writable bind mount: the official entrypoint chowns /etc/manticoresearch before
+      # dropping to the manticore user; :ro makes that chown fail and crash-loops searchd.
+      - ./tools/manticore/manticore.conf:/etc/manticoresearch/manticore.conf
     healthcheck:
       test:
         [
