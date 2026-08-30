@@ -66,10 +66,30 @@ Command: `bun test tests/e2e/read-path.spec.ts`
 
 | ID | Item | Blocks donderdag-ready? |
 | --- | --- | --- |
-| RJC-347 | On-box Postgres production evidence (U10 / JI-037) | Yes — restore drill, WAL, private 5432 |
+| RJC-347 | On-box Postgres production evidence (U10 / JI-037) | Partial — CI restore drill + in-repo checks; Hetzner firewall/off-site bucket probes remain |
 | JI-007 | Indeed allowed route | No for Slice A (explicitly out) |
 | DEC-006 | Spott export contract | Slice B only |
-| SC6 | Production DB recovery evidence | Yes until U10 passes |
+| SC6 | Production DB recovery evidence | Partial until U10 Hetzner ops evidence; CI AE9 drill + compose guards pass in PR |
+
+## Postgres hardening (U10 / RJC-347)
+
+| Check | Status | Evidence |
+| --- | --- | --- |
+| Distinct admin/migrator/app roles | Pass | `tools/postgres/init/10-bootstrap-roles.sh`, `tools/postgres/postgres-roles.spec.ts` |
+| App role cannot create schema/role/database | Pass | `tools/postgres/postgres-roles.spec.ts` |
+| External protected Postgres volume | Pass | `docker-compose.yml`, `bun run check:postgres-compose` |
+| Localhost-only 5432 publish | Pass | `bun run check:postgres-compose` |
+| Production never `down -v` | Pass | `bun run check:production-compose-guard` |
+| WAL archive to S3-compatible fixture | Pass | `docker-compose.backup.yml`, CI job `postgres-restore-drill` |
+| AE9 isolated restore drill | Pass | `tools/postgres/restore-drill.sh`, `.artifacts/postgres-restore-evidence.json` |
+| Monitoring/alert stubs + DB-first limits | Pass | `tools/postgres/monitoring/alerts.yml`, compose mem limits |
+| Versioned restore runbook | Pass | `docs/runbooks/postgres-restore-v1.md` |
+
+Remaining **production-only** ops evidence (do not block in-repo PR):
+
+- External firewall probe: public `5432` unreachable on Hetzner
+- Live off-site bucket with production credentials and retention
+- Alert route test for disk/WAL/base-backup staleness
 
 ## Verification commands (PR gate)
 
@@ -81,7 +101,10 @@ bun run check:capability-coverage
 bun run check:capability-registry
 bun test tests/e2e/read-path.spec.ts
 bun test packages/application/src/observability/silence.spec.ts
-bun test packages/application/src/backfill/neon-v1.spec.ts
+bun run check:postgres-compose
+bun run check:production-compose-guard
+bun test tools/postgres/postgres-roles.spec.ts
+bash tools/postgres/restore-drill.sh
 ```
 
 ## Notes

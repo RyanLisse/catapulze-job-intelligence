@@ -61,6 +61,9 @@
     "check-secrets": "PATH=\"./node_modules/.bin:$PATH\" bun scripts/check-secrets-scan.ts",
     "check:capability-coverage": "PATH=\"./node_modules/.bin:$PATH\" bun scripts/check-capability-coverage.ts",
     "check:capability-registry": "PATH=\"./node_modules/.bin:$PATH\" bun scripts/check-capability-registry.ts",
+    "check:postgres-compose": "PATH=\"./node_modules/.bin:$PATH\" bun scripts/check-postgres-compose.ts",
+    "check:production-compose-guard": "PATH=\"./node_modules/.bin:$PATH\" bun scripts/check-production-compose-guard.ts",
+    "postgres:restore-drill": "bash tools/postgres/restore-drill.sh",
     "bench:search": "PATH=\"./node_modules/.bin:$PATH\" bun benchmarks/search/run.ts",
     "prepare": "PATH=\"./node_modules/.bin:$PATH\" lefthook install --reset-hooks-path"
   },

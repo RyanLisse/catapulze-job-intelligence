@@ -12,7 +12,15 @@ Doel: Catapulze gebruikt vanaf P0 een nieuwe PostgreSQL 16-database in Docker. D
 
 ## Beschermd volume en private poort
 
-`docker-compose.yml` gebruikt een extern volume. Compose maakt of verwijdert dat volume niet; ook `docker compose down -v` laat het staan. Dit beschermt niet tegen `docker volume rm`, hostverlies of diskcorruptie, en is daarom geen backup.
+`docker-compose.yml` gebruikt een extern volume. Compose maakt of verwijdert dat volume niet; ook `docker compose down -v` laat het staan. **Productie-automatisering mag nooit `docker compose down -v` gebruiken** tegen `POSTGRES_DATA_VOLUME`. CI mag wél een **ephemere** named volume vernietigen; zie `.github/workflows/ci.yml` (job `verify`, stap “Stop isolated PostgreSQL”).
+
+Statische checks in de repo:
+
+```bash
+bun run check:postgres-compose          # localhost 5432 bind + external volume + DB-first limits
+bun run check:production-compose-guard  # fail when prod scripts/workflows use down -v
+bun test tools/postgres/postgres-roles.spec.ts
+```
 
 Maak het lokale P0-volume één keer aan:
 
@@ -73,8 +81,19 @@ Voer schemawijzigingen uit met `MIGRATION_DATABASE_URL`; start de server daarna 
 
 Een Docker-volume of hostsnapshot alleen telt niet als backup. Vóór de eerste productie-ingest moet één van deze paden operationeel zijn:
 
-- voorkeursroute: een gepinde Postgres-image met WAL-G naar een afzonderlijke, S3-compatibele off-site bucket;
+- voorkeursroute: wal-g met continue WAL-archivering naar een afzonderlijke, S3-compatibele off-site bucket;
 - alternatief: pgBackRest met dezelfde off-site en restore-eisen.
+
+In-repo fixture (CI/local, **geen productiebewijs**):
+
+```bash
+docker compose --env-file .env.example -f docker-compose.yml -f docker-compose.backup.yml up -d --build postgres minio minio-init
+bash tools/postgres/restore-drill.sh
+```
+
+Runbook: `docs/runbooks/postgres-restore-v1.md`  
+Evidence template: `docs/review/postgres-restore-evidence-template.md`  
+Monitoring stubs: `tools/postgres/monitoring/alerts.yml`
 
 Minimale policy:
 

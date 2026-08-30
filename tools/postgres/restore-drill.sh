@@ -1,0 +1,150 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+cd "$ROOT"
+
+compose_env_file="${COMPOSE_ENV_FILE:-.env.example}"
+source_volume="${POSTGRES_DATA_VOLUME:-catapulze-postgres-restore-src}"
+restore_volume="${POSTGRES_RESTORE_VOLUME:-catapulze-postgres-restore-target}"
+restore_port="${POSTGRES_RESTORE_PORT:-55432}"
+source_port="${POSTGRES_HOST_PORT:-5432}"
+restore_container="${POSTGRES_RESTORE_CONTAINER:-catapulze-postgres-restore-target}"
+evidence_path="${RESTORE_EVIDENCE_PATH:-.artifacts/postgres-restore-evidence.json}"
+
+compose=(docker compose --env-file "$compose_env_file" -f docker-compose.yml -f docker-compose.backup.yml)
+
+require_command() {
+  if ! command -v "$1" >/dev/null 2>&1; then
+    echo "restore-drill: required command '$1' is missing" >&2
+    exit 1
+  fi
+}
+
+require_command docker
+require_command bun
+
+cleanup() {
+  "${compose[@]}" down --remove-orphans >/dev/null 2>&1 || true
+  docker rm -f "$restore_container" >/dev/null 2>&1 || true
+  docker volume rm "$restore_volume" >/dev/null 2>&1 || true
+}
+
+trap cleanup EXIT
+
+started_at_ms="$(date +%s%3N)"
+POSTGRES_DATA_VOLUME="$source_volume" bash tools/postgres/ensure-volume.sh
+docker volume rm "$restore_volume" >/dev/null 2>&1 || true
+docker volume create "$restore_volume" >/dev/null
+
+echo "restore-drill: starting source postgres with WAL archive to MinIO"
+POSTGRES_DATA_VOLUME="$source_volume" "${compose[@]}" up -d --build --wait postgres minio minio-init
+
+network_name="$(
+  "${compose[@]}" ps -q postgres | xargs docker inspect -f '{{range $k, $v := .NetworkSettings.Networks}}{{$k}}{{end}}'
+)"
+
+export MIGRATION_DATABASE_URL="postgresql://ji_migrator:ji_migrator_local@127.0.0.1:${source_port}/ji_test"
+bun run db:migrate
+
+marker_table="u10_restore_marker"
+marker_value="restore-drill-$(date +%s)"
+
+"${compose[@]}" exec -T postgres \
+  psql -U ji_admin -d ji_test -v ON_ERROR_STOP=1 \
+  -c "CREATE TABLE IF NOT EXISTS ${marker_table} (marker text PRIMARY KEY, created_at timestamptz NOT NULL DEFAULT now());" \
+  -c "INSERT INTO ${marker_table} (marker) VALUES ('${marker_value}');" \
+  -c "CHECKPOINT;"
+
+echo "restore-drill: pushing base backup and archived WAL to off-site fixture bucket"
+"${compose[@]}" exec -T postgres wal-g backup-push /var/lib/postgresql/data
+"${compose[@]}" exec -T postgres wal-g backup-list
+
+"${compose[@]}" exec -T postgres \
+  psql -U ji_admin -d ji_test \
+  -c "INSERT INTO ${marker_table} (marker) VALUES ('${marker_value}-after-backup');" \
+  -c "SELECT pg_switch_wal(); CHECKPOINT;"
+
+"${compose[@]}" exec -T postgres wal-g backup-push /var/lib/postgresql/data
+
+latest_backup="$(
+  "${compose[@]}" exec -T postgres wal-g backup-list | awk '/^backup/ { backup=$1 } END { print backup }'
+)"
+
+if [[ -z "$latest_backup" ]]; then
+  echo "restore-drill: no wal-g backup found" >&2
+  exit 1
+fi
+
+echo "restore-drill: restoring ${latest_backup} into isolated target on port ${restore_port}"
+docker rm -f "$restore_container" >/dev/null 2>&1 || true
+
+docker run -d --name "$restore_container" \
+  --network "$network_name" \
+  -e AWS_ACCESS_KEY_ID="${WALG_S3_ACCESS_KEY:-walg_local}" \
+  -e AWS_SECRET_ACCESS_KEY="${WALG_S3_SECRET_KEY:-walg_local_secret}" \
+  -e AWS_ENDPOINT=http://minio:9000 \
+  -e AWS_REGION="${WALG_S3_REGION:-us-east-1}" \
+  -e AWS_S3_FORCE_PATH_STYLE=true \
+  -e WALG_S3_PREFIX="s3://${WALG_S3_BUCKET:-catapulze-pg-backup}/pg" \
+  -e WALG_COMPRESSION_METHOD=brotli \
+  -p "127.0.0.1:${restore_port}:5432" \
+  -v "${restore_volume}:/var/lib/postgresql/data" \
+  catapulze-postgres-walg:16 \
+  sleep infinity >/dev/null
+
+docker exec "$restore_container" wal-g backup-fetch "$latest_backup" /var/lib/postgresql/data
+docker exec "$restore_container" sh -ec "
+  cat > /var/lib/postgresql/data/recovery.signal <<'EOF'
+EOF
+  cat >> /var/lib/postgresql/data/postgresql.auto.conf <<'EOF'
+restore_command = 'wal-g wal-fetch %f %p'
+recovery_target_action = promote
+EOF
+  chown -R postgres:postgres /var/lib/postgresql/data
+"
+
+docker exec -d "$restore_container" su-exec postgres postgres -D /var/lib/postgresql/data
+
+for attempt in $(seq 1 90); do
+  if docker exec "$restore_container" su-exec postgres pg_isready -U ji_admin -d ji_test >/dev/null 2>&1; then
+    break
+  fi
+  if [[ "$attempt" -eq 90 ]]; then
+    echo "restore-drill: target postgres failed to become ready" >&2
+    docker logs "$restore_container" >&2 || true
+    exit 1
+  fi
+  sleep 1
+done
+
+bash tools/postgres/integrity-checks.sh "$restore_container" "$marker_value"
+
+finished_at_ms="$(date +%s%3N)"
+duration_ms="$((finished_at_ms - started_at_ms))"
+git_sha="$(git rev-parse HEAD)"
+recovery_point="$(
+  docker exec -e PGPASSWORD="${POSTGRES_ADMIN_PASSWORD:-ji_admin_local}" "$restore_container" \
+    psql -U ji_admin -d ji_test -Atqc "SELECT pg_last_wal_replay_lsn();"
+)"
+
+mkdir -p "$(dirname "$evidence_path")"
+cat >"$evidence_path" <<EOF
+{
+  "schemaVersion": 1,
+  "requirement": "AE9 / R21 / JI-037",
+  "environment": "ci-isolated-minio-fixture",
+  "gitSha": "${git_sha}",
+  "sourceVolume": "${source_volume}",
+  "restoreVolume": "${restore_volume}",
+  "restorePort": ${restore_port},
+  "backupName": "${latest_backup}",
+  "recoveryPointLsn": "${recovery_point}",
+  "durationMs": ${duration_ms},
+  "markerTable": "${marker_table}",
+  "markerValue": "${marker_value}",
+  "result": "pass"
+}
+EOF
+
+echo "restore-drill: passed in ${duration_ms}ms; evidence written to ${evidence_path}"
