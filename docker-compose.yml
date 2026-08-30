@@ -101,7 +101,7 @@ services:
       test:
         [
           "CMD-SHELL",
-          "curl -sf http://127.0.0.1:9308/cli -d 'SHOW TABLES' | grep -q aanvragen",
+          "mysql -h127.0.0.1 -P9306 -e 'SHOW TABLES' | grep -q aanvragen",
         ]
       interval: 10s
       timeout: 5s
