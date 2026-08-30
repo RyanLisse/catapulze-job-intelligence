@@ -10,6 +10,7 @@ import type { KnownHashStore } from "../known-hash";
 import { createTenderNedClient } from "./client";
 import type { TenderNedClient } from "./client";
 import { hashTenderNedDetailPayload, hashTenderNedListingItem } from "./hash";
+import { asIdString } from "./ids";
 import type { TenderNedFetchedPayload, TenderNedFilters } from "./types";
 
 export interface TenderNedConnectorOptions {
@@ -39,7 +40,7 @@ export const createTenderNedConnector = (
       const listing = await client.fetchListing(page, filters);
       const items: DiscoverItem[] = await Promise.all(
         listing.content.map(async (item) => ({
-          bronReferentie: item.kenmerk,
+          bronReferentie: asIdString(item.kenmerk),
           contentHash: await hashTenderNedListingItem(item),
           listingPayload: item,
         }))
@@ -53,9 +54,9 @@ export const createTenderNedConnector = (
     fetch: async (item) => {
       // SAFETY: discover() attaches TenderNed listing rows as listingPayload.
       const listingPayload = item.listingPayload as
-        | { publicatieId?: string }
+        | { publicatieId?: unknown }
         | undefined;
-      const publicatieId = listingPayload?.publicatieId;
+      const publicatieId = asIdString(listingPayload?.publicatieId);
       if (!publicatieId) {
         return {
           bronReferentie: item.bronReferentie,

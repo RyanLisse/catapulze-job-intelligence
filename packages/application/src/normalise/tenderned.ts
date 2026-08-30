@@ -1,5 +1,6 @@
 import type { TenderNedFetchedPayload } from "@ji/connectors/tenderned";
 import {
+  asIdString,
   isTenderNedListingOpen,
   TENDER_NED_PARSER_VERSION,
 } from "@ji/connectors/tenderned";
@@ -14,6 +15,10 @@ export const parseTenderNedPayload = (
   contentHash: string
 ): NormalisedAanvraagDraft => {
   const { detail } = payload;
+  // Live TenderNed JSON may carry numeric IDs; coerce again in case a number
+  // slipped past the connector boundary (e.g. older stored observations).
+  const kenmerk = asIdString(detail.kenmerk);
+  const publicatieId = asIdString(detail.publicatieId);
   const parserVersion = TENDER_NED_PARSER_VERSION;
   const seenOpen = isTenderNedListingOpen(detail);
   const lifecycle = resolveLifecycleStatus({
@@ -35,7 +40,7 @@ export const parseTenderNedPayload = (
       parserVersion,
       "detail.opdrachtBeschrijving"
     ),
-    bronReferentie: field(detail.kenmerk, parserVersion, "detail.kenmerk"),
+    bronReferentie: field(kenmerk, parserVersion, "detail.kenmerk"),
     bronSpecifiek: field(
       {
         aankondiging: detail.aankondigingCode?.code ?? null,
@@ -43,13 +48,13 @@ export const parseTenderNedPayload = (
         nuts_codes: detail.nutsCodes ?? [],
         opdracht_aard: detail.opdrachtAardCode?.code ?? null,
         procedure: detail.procedureCode?.code ?? null,
-        publicatie_id: detail.publicatieId,
+        publicatie_id: publicatieId,
       },
       parserVersion,
       "detail"
     ),
     bronUrl: field(
-      `https://www.tenderned.nl/aankondigingen/overzicht/${detail.publicatieId}`,
+      `https://www.tenderned.nl/aankondigingen/overzicht/${publicatieId}`,
       parserVersion,
       "detail.publicatieId"
     ),

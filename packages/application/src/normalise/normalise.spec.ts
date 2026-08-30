@@ -10,10 +10,39 @@ import {
   buildDedupKey,
   normaliseInhuurdeskObservation,
   parseTariefFromText,
+  parseTenderNedPayload,
+  validateNormalisedDraft,
 } from "@ji/application/normalise";
 import { hashContent } from "@ji/connectors";
 import type { InhuurdeskFetchedPayload } from "@ji/connectors/inhuurdesk";
+import type { TenderNedFetchedPayload } from "@ji/connectors/tenderned";
 import { UNKNOWN } from "@ji/domain";
+
+const TENDER_NED_HASH = "sha256-test";
+
+const buildTenderNedPayload = (ids: {
+  kenmerk: number | string | null;
+  publicatieId: number | string;
+}): TenderNedFetchedPayload => {
+  const rawDetail = [
+    '{"aanbestedingNaam":"Platform engineer Azure DAS"',
+    '"aankondigingCode":{"code":"AAO"}',
+    `"kenmerk":${JSON.stringify(ids.kenmerk)}`,
+    '"numberOfDaysBeforeAanmeldenInschrijven":14',
+    '"opdrachtBeschrijving":"Volledige detailbeschrijving."',
+    '"opdrachtgeverNaam":"Gemeente Amsterdam"',
+    '"publicatieDatum":"2026-08-28T12:15:00+02:00"',
+    `"publicatieId":${JSON.stringify(ids.publicatieId)}}`,
+  ].join(",");
+  // SAFETY: parsing raw JSON reproduces live TenderNed responses, where ids
+  // arrive as numbers despite the declared string types.
+  const detail = JSON.parse(rawDetail) as TenderNedFetchedPayload["detail"];
+  return {
+    detail,
+    listing: detail,
+    publicatieId: String(ids.publicatieId),
+  };
+};
 
 const buildInhuurdeskBody = (description: string): Uint8Array => {
   const payload: InhuurdeskFetchedPayload = {
@@ -75,6 +104,66 @@ describe("normalise", () => {
 
     expect(result.status).toBe("quarantined");
     expect(store.aanvragen).toHaveLength(0);
+  });
+});
+
+describe("normalise tenderned", () => {
+  it("coerces a numeric kenmerk to a string bronReferentie that validates", () => {
+    const draft = parseTenderNedPayload(
+      buildTenderNedPayload({ kenmerk: 563_214, publicatieId: 608_998 }),
+      TENDER_NED_HASH
+    );
+
+    expect(draft.bronReferentie.value).toBe("563214");
+    expect(draft.bronReferentie.value).toBeTypeOf("string");
+    expect(() => validateNormalisedDraft(draft)).not.toThrow();
+    expect(
+      validateNormalisedDraft(draft).filter(
+        (issue) => issue.field === "bron_referentie"
+      )
+    ).toEqual([]);
+  });
+
+  it("coerces a numeric publicatieId into the bronUrl and bronSpecifiek", () => {
+    const draft = parseTenderNedPayload(
+      buildTenderNedPayload({ kenmerk: 563_214, publicatieId: 608_998 }),
+      TENDER_NED_HASH
+    );
+
+    expect(draft.bronUrl.value).toBe(
+      "https://www.tenderned.nl/aankondigingen/overzicht/608998"
+    );
+    // SAFETY: parseTenderNedPayload always emits an object with publicatie_id.
+    const specifiek = draft.bronSpecifiek.value as { publicatie_id: unknown };
+    expect(specifiek.publicatie_id).toBe("608998");
+    expect(specifiek.publicatie_id).toBeTypeOf("string");
+  });
+
+  it("keeps string ids from fixtures unchanged", () => {
+    const draft = parseTenderNedPayload(
+      buildTenderNedPayload({
+        kenmerk: "TN563214",
+        publicatieId: "fixture-pub-001",
+      }),
+      TENDER_NED_HASH
+    );
+
+    expect(draft.bronReferentie.value).toBe("TN563214");
+    expect(draft.bronUrl.value).toBe(
+      "https://www.tenderned.nl/aankondigingen/overzicht/fixture-pub-001"
+    );
+    expect(validateNormalisedDraft(draft)).toEqual([]);
+  });
+
+  it("still reports an empty bron_referentie as an issue", () => {
+    const draft = parseTenderNedPayload(
+      buildTenderNedPayload({ kenmerk: null, publicatieId: 608_998 }),
+      TENDER_NED_HASH
+    );
+
+    expect(validateNormalisedDraft(draft)).toEqual([
+      { field: "bron_referentie", message: "bron_referentie is required" },
+    ]);
   });
 });
 

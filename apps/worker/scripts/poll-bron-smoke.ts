@@ -12,8 +12,9 @@ import {
 import { SLICE_A_BRONNEN } from "../src/slice-a-bronnen";
 import type { SliceABronSlug } from "../src/slice-a-bronnen";
 
-const workerRoot = import.meta.dirname;
-const repoRoot = path.resolve(workerRoot, "../..");
+// scriptDir is apps/worker/scripts; the repo root is three levels up.
+const scriptDir = import.meta.dirname;
+const repoRoot = path.resolve(scriptDir, "../../..");
 
 loadEnv({ path: path.join(repoRoot, "apps/server/.env") });
 loadEnv({ override: true, path: path.join(repoRoot, "apps/worker/.env") });
