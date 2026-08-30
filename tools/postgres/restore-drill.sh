@@ -110,7 +110,7 @@ docker exec -u postgres \
   -e "PGUSER=${pg_admin_user}" \
   -e "PGPASSWORD=${pg_admin_password}" \
   -e "PGDATABASE=${pg_database}" \
-  "$restore_container" wal-g backup-fetch "$latest_backup" /var/lib/postgresql/data
+  "$restore_container" wal-g backup-fetch /var/lib/postgresql/data "$latest_backup"
 docker exec "$restore_container" sh -ec "
   cat > /var/lib/postgresql/data/recovery.signal <<'EOF'
 EOF
