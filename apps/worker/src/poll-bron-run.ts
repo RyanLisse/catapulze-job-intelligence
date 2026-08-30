@@ -22,11 +22,11 @@ import {
   drainPostgresOutbox,
   PostgresSearchDocumentLoader,
 } from "@ji/db";
-import { PostgresCurateStore } from "@ji/db/postgres-curate-store";
-import { curateScrapeRun } from "@ji/db/curate-scrape-run";
 import type { BronRuntimeDatabase } from "@ji/db";
-import type { BronId, ScrapeRunId } from "@ji/domain";
+import { curateScrapeRun } from "@ji/db/curate-scrape-run";
+import { PostgresCurateStore } from "@ji/db/postgres-curate-store";
 import { ManticoreSearchEngine } from "@ji/search";
+import type { BronId, ScrapeRunId } from "@ji/domain";
 
 import { requireManticoreUrl } from "./poll-bron-env";
 import type { SliceABronSlug } from "./slice-a-bronnen";
