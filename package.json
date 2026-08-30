@@ -65,6 +65,7 @@
     "check:production-compose-guard": "PATH=\"./node_modules/.bin:$PATH\" bun scripts/check-production-compose-guard.ts",
     "postgres:restore-drill": "bash tools/postgres/restore-drill.sh",
     "bench:search": "PATH=\"./node_modules/.bin:$PATH\" bun benchmarks/search/run.ts",
+    "backfill:neon-v1": "PATH=\"./node_modules/.bin:$PATH\" bun scripts/backfill-neon-v1.ts",
     "prepare": "PATH=\"./node_modules/.bin:$PATH\" lefthook install --reset-hooks-path"
   },
   "dependencies": {
