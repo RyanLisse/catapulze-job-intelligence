@@ -168,6 +168,7 @@ Most formatting and common issues are automatically fixed by Oxlint + Oxfmt. Run
 - Agents must run `bun run check` (qlty on changed files vs `origin/main`, `--no-formatters`) before finishing when they touched YAML/shell/workflows; still `bun run fix` for TS/JS; never `qlty fmt`; never skip Lefthook with `--no-verify` to dodge yamllint.
 - Visual proof: for PRs that change `apps/web` or other user-visible UI, live-verify via `.cursor/skills/verify-job-intelligence/` is the default (web :3001, API :3000). Use an isolated browser session; never the operator's already-running session unless `JI_VERIFY_ALLOW_SHARED=1`. Set up like a user, then screenshot-verify. No tRPC-only shortcut as dashboard proof.
 - Captures are proof only after the agent has opened them and confirmed the asserted state is actually in frame; re-shoot if not. An uninspected capture must not be attached.
+- Captures run against seeded/fixture data only. Never screenshot Motian production, real vacancy/aanvraag payloads, credentials, or PII. Sanitize before attaching.
 - Attach proof to the PR (gh attach or cloud-agent images). Never commit screenshots/videos/artifacts into git (including `.cursor/skills/verify-job-intelligence/artifacts/`). If visual proof is infeasible, state the exact blocker in the PR body.
 - Playwright/e2e waits on asserted UI states, not sleeps.
 - Visual proof is not required for Postgres/CI/workflow-only PRs.
