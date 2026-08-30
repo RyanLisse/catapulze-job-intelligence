@@ -66,6 +66,7 @@
     "postgres:restore-drill": "bash tools/postgres/restore-drill.sh",
     "bench:search": "PATH=\"./node_modules/.bin:$PATH\" bun benchmarks/search/run.ts",
     "backfill:neon-v1": "PATH=\"./node_modules/.bin:$PATH\" bun scripts/backfill-neon-v1.ts",
+    "replay:run": "PATH=\"./node_modules/.bin:$PATH\" bun run scripts/replay-run.ts",
     "prepare": "PATH=\"./node_modules/.bin:$PATH\" lefthook install --reset-hooks-path"
   },
   "dependencies": {
@@ -78,6 +79,7 @@
     "@ji/application": "workspace:*",
     "@ji/config": "workspace:*",
     "@ji/connectors": "workspace:*",
+    "@ji/db": "workspace:*",
     "@ji/search": "workspace:*",
     "@oxlint/plugins": "1.80.0",
     "@types/bun": "catalog:",
