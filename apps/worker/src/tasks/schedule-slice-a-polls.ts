@@ -41,10 +41,8 @@ export const scheduleSliceAPollsTask = schedules.task({
     await pollBronTask.batchTrigger(
       bronnen.map((bron) => ({
         options: {
-          queue: {
-            concurrencyKey: bron.bronId,
-            name: "poll-bron",
-          },
+          concurrencyKey: bron.bronId,
+          queue: "poll-bron",
         },
         payload: {
           bronId: bron.bronId,
