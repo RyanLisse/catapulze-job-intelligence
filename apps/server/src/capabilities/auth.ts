@@ -1,6 +1,7 @@
 import {
   permissionsForRole,
   ROLE_ADMIN,
+  ROLE_APPROVER,
   ROLE_OPERATOR,
   ROLE_RECRUITER,
 } from "@ji/application/registry";
@@ -9,7 +10,10 @@ import type { InvocationPrincipal, SliceARole } from "@ji/application/registry";
 const bearerPattern = /^Bearer\s+(?<role>\w+):(?<subjectId>[^\s]+)$/u;
 
 const isSliceARole = (value: string): value is SliceARole =>
-  value === ROLE_RECRUITER || value === ROLE_OPERATOR || value === ROLE_ADMIN;
+  value === ROLE_RECRUITER ||
+  value === ROLE_OPERATOR ||
+  value === ROLE_ADMIN ||
+  value === ROLE_APPROVER;
 
 export const parseAuthHeader = (
   authorization: string | undefined

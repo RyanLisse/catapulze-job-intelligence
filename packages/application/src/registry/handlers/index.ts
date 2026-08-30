@@ -1,6 +1,7 @@
 import { BOOLEAN_PARSER_VERSION } from "@ji/domain";
 import { z } from "zod";
 
+import { validateSnapshotApproval } from "../../approval/validate-snapshot-approval";
 import type { PublicBronView } from "../../bronnen";
 import { hasRecruiterPermission } from "../roles";
 import {
@@ -15,6 +16,7 @@ import type {
 import type {
   AanvraagRecord,
   AlertRecord,
+  ApprovalRecord,
   QuerySnapshotRecord,
   SavedSearchRecord,
 } from "../stores/types";
@@ -388,6 +390,199 @@ export const createSnapshotHandler =
       userId: context.principal.subjectId,
     });
     return { ok: true as const, value: toSnapshotView(snapshot) };
+  };
+
+export const approveSnapshotInputSchema = z
+  .object({
+    expiresAt: z.string().datetime(),
+    id: z.string().uuid(),
+    motivatie: z.string().trim().min(1),
+  })
+  .strict();
+
+export const approvalViewSchema = z
+  .object({
+    actorId: z.string(),
+    auditEventId: z.string(),
+    createdAt: z.string(),
+    expiresAt: z.string(),
+    id: z.string(),
+    motivatie: z.string(),
+    resultIds: z.array(z.string()),
+    snapshotId: z.string(),
+  })
+  .strict();
+
+const toApprovalView = (record: ApprovalRecord, auditEventId: string) => ({
+  actorId: record.actorId,
+  auditEventId,
+  createdAt: record.createdAt.toISOString(),
+  expiresAt: record.expiresAt.toISOString(),
+  id: record.id,
+  motivatie: record.motivatie,
+  resultIds: [...record.resultIds],
+  snapshotId: record.snapshotId,
+});
+
+export const createApproveSnapshotHandler =
+  (deps: SliceAHandlerDeps) =>
+  async (
+    input: z.output<typeof approveSnapshotInputSchema>,
+    context: { principal: { subjectId: string } }
+  ) => {
+    const snapshot = await deps.stores.snapshots.getById(input.id);
+    if (!snapshot) {
+      return domainFailure("NOT_FOUND", "QuerySnapshot not found", {
+        id: input.id,
+      });
+    }
+
+    const expiresAt = new Date(input.expiresAt);
+    if (Number.isNaN(expiresAt.getTime())) {
+      return domainFailure(
+        "VALIDATION_ERROR",
+        "expiresAt must be a valid ISO datetime"
+      );
+    }
+    if (expiresAt.getTime() <= Date.now()) {
+      return domainFailure(
+        "VALIDATION_ERROR",
+        "expiresAt must be in the future"
+      );
+    }
+
+    const existing = await deps.stores.approvals.getBySnapshotId(input.id);
+    if (existing) {
+      return domainFailure(
+        "ALREADY_APPROVED",
+        "This snapshot already has an approval record",
+        { id: input.id }
+      );
+    }
+
+    const approval = await deps.stores.approvals.create({
+      actorId: context.principal.subjectId,
+      expiresAt,
+      motivatie: input.motivatie,
+      resultIds: [...snapshot.resultIds],
+      snapshotId: snapshot.id,
+    });
+
+    const audit = await deps.stores.audit.append({
+      action: "approve_snapshot",
+      actorId: context.principal.subjectId,
+      auditClass: "effect",
+      entityId: approval.id,
+      entityType: "approval_record",
+      metadata: {
+        expiresAt: approval.expiresAt.toISOString(),
+        motivatie: approval.motivatie,
+        snapshotId: approval.snapshotId,
+      },
+    });
+
+    return {
+      ok: true as const,
+      value: toApprovalView(approval, audit.id),
+    };
+  };
+
+export const getSnapshotApprovalInputSchema = z
+  .object({
+    id: z.string().uuid(),
+  })
+  .strict();
+
+export const getSnapshotApprovalOutputSchema = approvalViewSchema
+  .omit({ auditEventId: true })
+  .extend({
+    valid: z.boolean(),
+  });
+
+export const createGetSnapshotApprovalHandler =
+  (deps: SliceAHandlerDeps) =>
+  async (input: z.output<typeof getSnapshotApprovalInputSchema>) => {
+    const snapshot = await deps.stores.snapshots.getById(input.id);
+    if (!snapshot) {
+      return domainFailure("NOT_FOUND", "QuerySnapshot not found", {
+        id: input.id,
+      });
+    }
+
+    const approval = await deps.stores.approvals.getBySnapshotId(input.id);
+    if (!approval) {
+      return domainFailure(
+        "APPROVAL_NOT_FOUND",
+        "No approval exists for this snapshot",
+        {
+          id: input.id,
+        }
+      );
+    }
+
+    const validation = validateSnapshotApproval({
+      approval,
+      snapshot,
+      snapshotId: input.id,
+    });
+
+    return {
+      ok: true as const,
+      value: {
+        actorId: approval.actorId,
+        createdAt: approval.createdAt.toISOString(),
+        expiresAt: approval.expiresAt.toISOString(),
+        id: approval.id,
+        motivatie: approval.motivatie,
+        resultIds: [...approval.resultIds],
+        snapshotId: approval.snapshotId,
+        valid: validation.ok,
+      },
+    };
+  };
+
+export const validateSnapshotApprovalInputSchema = z
+  .object({
+    id: z.string().uuid(),
+  })
+  .strict();
+
+export const validateSnapshotApprovalOutputSchema = z
+  .object({
+    approvalId: z.string(),
+    snapshotId: z.string(),
+    valid: z.literal(true),
+  })
+  .strict();
+
+export const createValidateSnapshotApprovalHandler =
+  (deps: SliceAHandlerDeps) =>
+  async (input: z.output<typeof validateSnapshotApprovalInputSchema>) => {
+    const snapshot = await deps.stores.snapshots.getById(input.id);
+    const approval = snapshot
+      ? await deps.stores.approvals.getBySnapshotId(input.id)
+      : null;
+
+    const validation = validateSnapshotApproval({
+      approval,
+      snapshot,
+      snapshotId: input.id,
+    });
+
+    if (!validation.ok) {
+      return domainFailure(validation.error.code, validation.error.message, {
+        id: input.id,
+      });
+    }
+
+    return {
+      ok: true as const,
+      value: {
+        approvalId: validation.value.id,
+        snapshotId: validation.value.snapshotId,
+        valid: true as const,
+      },
+    };
   };
 
 export const markeerAanvraagInputSchema = z

@@ -40,6 +40,7 @@ const requiredTables = [
   { name: "aanvraag_bron_link", schema: "curated" },
   { name: "dedup_groep", schema: "curated" },
   { name: "saved_search", schema: "curated" },
+  { name: "approval_record", schema: "curated" },
   { name: "query_snapshot", schema: "curated" },
   { name: "audit_event", schema: "curated" },
   { name: "outbox_event", schema: "curated" },

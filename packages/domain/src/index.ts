@@ -43,6 +43,7 @@ export {
   VOORWAARDEN_STATUSES,
   type AgentContextId,
   type AanvraagId,
+  type ApprovalRecordId,
   type AuditEventId,
   type BronId,
   type BronStatus,

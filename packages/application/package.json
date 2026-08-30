@@ -10,6 +10,7 @@
     "./identity": "./src/identity/index.ts",
     "./normalise": "./src/normalise/index.ts",
     "./observability": "./src/observability/index.ts",
+    "./approval": "./src/approval/index.ts",
     "./registry": "./src/registry/index.ts",
     "./export": "./src/export/index.ts",
     "./export/spott": "./src/export/spott/index.ts"

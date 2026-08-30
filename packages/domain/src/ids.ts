@@ -4,6 +4,7 @@ export type AuditEventId = string;
 export type BronId = string;
 export type DedupGroepId = string;
 export type OutboxEventId = string;
+export type ApprovalRecordId = string;
 export type QuerySnapshotId = string;
 export type SavedSearchId = string;
 export type ScrapeRunId = string;
