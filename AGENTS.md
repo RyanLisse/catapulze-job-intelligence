@@ -166,13 +166,58 @@ Most formatting and common issues are automatically fixed by Oxlint + Oxfmt. Run
 - Lefthook owns pre-commit (scoped `ultracite fix {staged_files}`) and pre-push (`gate`). Never run `qlty githooks install`.
 - Qlty (`.qlty/qlty.toml`) covers shell/workflows/secrets; Ultracite + anti-slop owns TS/JS. All `qlty check` uses `--no-formatters`; never `qlty fmt`.
 - Agents must run `bun run check` (qlty on changed files vs `origin/main`, `--no-formatters`) before finishing when they touched YAML/shell/workflows; still `bun run fix` for TS/JS; never `qlty fmt`; never skip Lefthook with `--no-verify` to dodge yamllint.
-- Visual proof: for PRs that change `apps/web` or other user-visible UI, live-verify via `.cursor/skills/verify-job-intelligence/` is the default (web :3001, API :3000). Use an isolated browser session; never the operator's already-running session unless `JI_VERIFY_ALLOW_SHARED=1`. Set up like a user, then screenshot-verify. No tRPC-only shortcut as dashboard proof.
-- Captures are proof only after the agent has opened them and confirmed the asserted state is actually in frame; re-shoot if not. An uninspected capture must not be attached.
+- Visual proof: for PRs that change `apps/web` or other user-visible UI, live-verify via `.cursor/skills/verify-job-intelligence/` is the default (web :3001, API :3000). Use an isolated browser session; never the operator's already-running session unless `JI_VERIFY_ALLOW_SHARED=1`. Set up like a user, then capture proof (short screen recording by default; see **Visual evidence** below). No tRPC-only shortcut as dashboard proof.
+- Captures are proof only after the agent has opened them and confirmed the asserted state is actually in frame; re-shoot if not. An uninspected capture must not be attached. File-exists, non-zero duration, and test exit 0 all pass on a blank window.
 - Captures run against seeded/fixture data only. Never screenshot Motian production, real vacancy/aanvraag payloads, credentials, or PII. Sanitize before attaching.
-- Attach proof to the PR (gh attach or cloud-agent images). Never commit screenshots/videos/artifacts into git (including `.cursor/skills/verify-job-intelligence/artifacts/`). If visual proof is infeasible, state the exact blocker in the PR body.
+- Attach proof to the PR (and linked Linear issue when one exists). Never commit screenshots/videos/artifacts into git (including `.cursor/skills/verify-job-intelligence/artifacts/`). If visual proof is infeasible, state the exact blocker in the PR body — never skip silently.
 - Playwright/e2e waits on asserted UI states, not sleeps.
 - Visual proof is not required for Postgres/CI/workflow-only PRs.
 - Clawpatch protocol: one CI finding → one patch → `bun run gate` → then push. Do not pile unrelated formatter, backup, compose, and YAML fixes in the same commit. `fix` never self-commits.
+
+### Visual evidence
+
+A **short screen recording is the default**; a screenshot suffices only when the change is static (renamed label, new field present). Record the actual interaction on a running app using the verify skill and seeded/fixture data so reviewers see what CI would verify.
+
+**Recorder:** Playwright `recordVideo` / `video: 'on'` against the live-verify instance — one test or clip per claim. Scripts wait on asserted UI states, never sleeps.
+
+**Format:** Encode as H.264 in an MP4 container, not Playwright's default VP8-in-WebM. GitHub, Linear, and phones preview MP4; WebM often does not.
+
+```bash
+ffmpeg -i clip.webm \
+  -c:v libx264 -preset medium -crf 23 -pix_fmt yuv420p -movflags +faststart \
+  clip.mp4
+```
+
+**Embed in the PR:** Upload to GitHub's attachment CDN and paste the returned URL on a **bare line** in the PR body (and Linear when an issue exists). Wrapping the URL in `![]()` prevents inline playback. Cloud-agent artifact paths and `gh attach` also work.
+
+```bash
+REPO_ID="$(gh repo view --json id -q .id)"
+curl -L -X POST \
+  -H "Accept: application/vnd.github+json" \
+  -H "Authorization: Bearer $(gh auth token)" \
+  -H "Content-Type: video/mp4" \
+  "https://uploads.github.com/user-attachments/assets?repository_id=${REPO_ID}&name=proof.mp4" \
+  --data-binary @proof.mp4
+# Paste browser_download_url from the JSON response on its own line in the PR body.
+```
+
+Label each clip with what it proves and which code path. Use **Before / After** pairs for fixes.
+
+**Refactors are not exempt.** A refactor claimed inert arguably needs footage more than a feature: tests can stay green while visible behavior moves. Never label passing test output as "Screenshots" or "Evidence" of user-visible behavior.
+
+### PR bodies and definition of done
+
+PR bodies should carry: **problem**, **why** (including what was ruled out), **user impact** ("nothing" is valid when justified), **evidence** (commands with real exit codes plus visual proof when UI changes), and **known gaps**.
+
+Never judge a gate through a pipe: `cmd | tail` reports `tail`'s exit status, not `cmd`'s.
+
+If a PR closes only part of a Linear ticket, add a `## Partial` section listing acceptance criteria closed vs remaining. Do not let GitHub–Linear automation mark the whole issue Done.
+
+**Done** means every acceptance criterion is met, not that the PR merged. After merge, Linear status must match remaining ACs.
+
+### Playwright assertions (e2e)
+
+Where Playwright drives UI proof, scope assertions to visible elements (`:visible`, roles, labels). Do not treat hidden SSR duplicates as data. Run `bun run fix` on e2e specs you touch (Lefthook/Ultracite).
 
 <!-- OPENWIKI:START -->
 
