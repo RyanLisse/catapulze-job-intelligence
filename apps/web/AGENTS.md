@@ -7,3 +7,15 @@ This version has breaking changes — APIs, conventions, and file structure may 
 This block is written and re-added by `next dev` — verify at `node_modules/next/dist/server/lib/generate-agent-files.js`. Removing it from a diff only re-creates the uncommitted change; committing it with your work keeps the tree clean.
 
 <!-- END:nextjs-agent-rules -->
+
+## React Doctor (advisory)
+
+Complements Ultracite/oxlint with React-specific diagnostics (state/effects, performance, architecture, security, a11y). Config: `doctor.config.json` in this directory. CI runs `.github/workflows/react-doctor.yml` on pull requests that touch `apps/web` and reports only **new** issues vs the PR base (`scope: changed`).
+
+From this directory:
+
+```bash
+bunx react-doctor@latest --no-telemetry
+```
+
+Use `--verbose --scope changed` before/after React edits to see only introduced findings. Telemetry and score API are off (`--no-telemetry` / `noScore` in config).
