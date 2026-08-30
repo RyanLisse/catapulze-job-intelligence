@@ -68,6 +68,10 @@ Auth sign-up writes a real row to the configured database. Use a unique `verify+
 
 Proof artifacts live in `.cursor/skills/verify-job-intelligence/artifacts/<feature-id>/`. Cleanup must not delete them.
 
+Before attaching any screenshot or HTML capture as verification, open it and confirm the asserted state is visible in frame. Re-shoot if it is not. Uninspected artifacts are not verification.
+
+Captures run against seeded/fixture data only. Never screenshot Motian production, real vacancy/aanvraag payloads, credentials, or PII. Sanitize before attaching.
+
 Standards:
 
 - Exercise the real user path (browser or the same HTTP the browser uses)
