@@ -54,10 +54,11 @@ const normalizePorts = (
   });
 };
 
-const memoryLimitPattern =
-  /^(?<amount>\d+(?:\.\d+)?)(?<unit>[kmg])?b?$/iu;
+const memoryLimitPattern = /^(?<amount>\d+(?:\.\d+)?)(?<unit>[kmg])?b?$/iu;
 
-const parseMemoryLimitMegabytes = (value: string | undefined): number | null => {
+const parseMemoryLimitMegabytes = (
+  value: string | undefined
+): number | null => {
   if (!value) {
     return null;
   }

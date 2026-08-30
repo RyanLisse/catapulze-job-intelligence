@@ -1,10 +1,15 @@
-FROM postgres:16-alpine@sha256:57c72fd2a128e416c7fcc499958864df5301e940bca0a56f58fddf30ffc07777
+FROM postgres:16-bookworm
 
-ARG WALG_VERSION=3.0.0
+ARG WALG_VERSION=3.0.9
+ARG WALG_ASSET=wal-g-pg-22.04-amd64
 
-RUN apk add --no-cache ca-certificates curl \
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends ca-certificates curl \
   && curl -fsSL \
-    "https://github.com/wal-g/wal-g/releases/download/v${WALG_VERSION}/wal-g-linux-amd64" \
+    "https://github.com/wal-g/wal-g/releases/download/v${WALG_VERSION}/${WALG_ASSET}" \
     -o /usr/local/bin/wal-g \
   && chmod +x /usr/local/bin/wal-g \
-  && wal-g --version
+  && wal-g --version \
+  && apt-get purge -y curl \
+  && apt-get autoremove -y \
+  && rm -rf /var/lib/apt/lists/*

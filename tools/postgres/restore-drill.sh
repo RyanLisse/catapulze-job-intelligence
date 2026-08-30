@@ -104,10 +104,10 @@ EOF
   chown -R postgres:postgres /var/lib/postgresql/data
 "
 
-docker exec -d "$restore_container" su-exec postgres postgres -D /var/lib/postgresql/data
+docker exec -d "$restore_container" gosu postgres postgres -D /var/lib/postgresql/data
 
 for attempt in $(seq 1 90); do
-  if docker exec "$restore_container" su-exec postgres pg_isready -U ji_admin -d ji_test >/dev/null 2>&1; then
+  if docker exec "$restore_container" gosu postgres pg_isready -U ji_admin -d ji_test >/dev/null 2>&1; then
     break
   fi
   if [[ "$attempt" -eq 90 ]]; then
