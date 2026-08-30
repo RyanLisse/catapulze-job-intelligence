@@ -47,11 +47,7 @@ Maak in een lokale Linux-VM of lokale Coolify-installatie één project en impor
 
 Maak daarnaast een Postgres 16 service met een persistent volume. De database is uitsluitend intern bereikbaar op servicenaam `postgres`; publiceer poort 5432 niet. Initialiseer op een leeg volume eerst de afzonderlijke admin-, migrator- en app-rollen uit `tools/postgres/init/10-bootstrap-roles.sh`. Als de Coolify-databaseservice geen init-script kan mounten, voer dezelfde bootstrap eenmalig als admin uit en leg alleen het resultaat vast, nooit de secretwaarden. Geef de server uitsluitend `DATABASE_URL` met de interne app-rol-URL en voeg de Better Auth- en CORS-secrets toe via Coolify's secret/configuration UI. De server-runtime krijgt geen admin- of migrator-credential.
 
-Configureer een aparte one-shot migrator-job op basis van `apps/server/Dockerfile`. Alleen deze job krijgt `MIGRATION_DATABASE_URL` en voert vóór iedere server-release uit:
-
-```bash
-cd /app && bun run db:migrate
-```
+Configureer een aparte one-shot migrator-job op basis van `apps/server/Dockerfile.migrate` (niet `apps/server/Dockerfile`). Coolify's Dockerfile-buildpack gebruikt de image-`CMD` en negeert doorgaans een aparte `start_command`; de migrator-Dockerfile zet daarom expliciet `CMD ["bun","run","db:migrate"]` zonder `HEALTHCHECK`, zodat de container na Drizzle met exitcode 0 stopt in plaats van de API te starten. Alleen deze job krijgt `MIGRATION_DATABASE_URL` en voert vóór iedere server-release uit.
 
 De repository staat in die image op `/app`. Laat de job na een succesvolle migratie stoppen en rol alleen dan de server uit. Hergebruik de migrator-URL nooit als runtimevariabele van de server en voer de job niet met de app-credential uit. Configureer de web-domain via de Coolify-proxy en zet `NEXT_PUBLIC_SERVER_URL` zowel als build argument als runtimevariabele op de publiek bereikbare API-domain; `server:3000` mag nooit in browsercode terechtkomen.
 
