@@ -72,4 +72,10 @@ if [[ -n "${PERF_JUNIT_PATH:-}" ]]; then
 fi
 run_phase test env REQUIRE_DATABASE_TESTS=1 "${test_command[@]}"
 
+echo "gate: check-production-compose-guard"
+run_phase production-compose-guard bun run check:production-compose-guard
+
+echo "gate: check-postgres-compose"
+run_phase postgres-compose bun run check:postgres-compose
+
 echo "gate: passed"
