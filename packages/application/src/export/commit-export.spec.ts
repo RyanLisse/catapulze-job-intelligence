@@ -118,7 +118,11 @@ describe("commitExport", () => {
           spottVacancyId: item.externalId,
         });
         expect(receipt?.responseHash).toMatch(/^[a-f0-9]{64}$/u);
-        expect(item.receiptId).toBe(receipt?.id);
+        expect(receipt).toBeDefined();
+        if (!receipt) {
+          return;
+        }
+        expect(item.receiptId).toBe(receipt.id);
       })
     );
   });
