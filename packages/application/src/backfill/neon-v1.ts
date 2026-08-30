@@ -1,3 +1,4 @@
+import { readFile } from "node:fs/promises";
 import path from "node:path";
 
 import { buildRawObjectPath } from "@ji/connectors";
@@ -49,7 +50,7 @@ export const fixturePath = (...segments: string[]): string =>
 export const loadNeonV1Fixture = async (
   relativePath: string
 ): Promise<NeonV1Fixture> => {
-  const raw = await Bun.file(fixturePath(relativePath)).text();
+  const raw = await readFile(fixturePath(relativePath), "utf-8");
   // SAFETY: Fixture files are repo-owned envelopes validated against contractVersion.
   const parsed = JSON.parse(raw) as NeonV1Fixture;
   if (parsed.contractVersion !== NEON_V1_BACKFILL_CONTRACT_VERSION) {
