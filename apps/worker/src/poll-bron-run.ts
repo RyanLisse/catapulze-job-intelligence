@@ -25,8 +25,8 @@ import {
 import type { BronRuntimeDatabase } from "@ji/db";
 import { curateScrapeRun } from "@ji/db/curate-scrape-run";
 import { PostgresCurateStore } from "@ji/db/postgres-curate-store";
-import { ManticoreSearchEngine } from "@ji/search";
 import type { BronId, ScrapeRunId } from "@ji/domain";
+import { ManticoreSearchEngine } from "@ji/search";
 
 import { requireManticoreUrl } from "./poll-bron-env";
 import type { SliceABronSlug } from "./slice-a-bronnen";
