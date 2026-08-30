@@ -1,6 +1,7 @@
 import type { SearchAdapter } from "@ji/search";
 
 import type { PublicBronView } from "../../bronnen";
+import type { SpottWriteClient } from "../../export/spott/client";
 import type { SliceAStores } from "../stores/types";
 
 export interface SliceAHandlerDeps {
@@ -9,6 +10,7 @@ export interface SliceAHandlerDeps {
     list: () => Promise<readonly PublicBronView[]>;
   };
   readonly searchAdapter: SearchAdapter;
+  readonly spottWriteClient?: SpottWriteClient;
   readonly stores: SliceAStores;
 }
 

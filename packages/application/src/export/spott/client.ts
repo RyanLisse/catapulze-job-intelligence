@@ -25,6 +25,8 @@ export type SpottFetchImpl = (
   init?: RequestInit
 ) => Promise<Response>;
 
+const fixtureCreateCounter = { next: 1 };
+
 export interface SpottClientOptions {
   apiKey?: string;
   baseUrl?: string;
@@ -33,6 +35,12 @@ export interface SpottClientOptions {
   liveEnabled?: boolean;
   vacancyFixturePath?: string;
 }
+
+const nextFixtureVacancyId = (): string => {
+  const id = `spott-fixture-${String(fixtureCreateCounter.next).padStart(6, "0")}`;
+  fixtureCreateCounter.next += 1;
+  return id;
+};
 
 const authHeaders = (apiKey: string) =>
   ({
@@ -154,15 +162,13 @@ export const createSpottWriteClient = (
 
   return {
     ...baseClient,
-    createVacancy: async (input) => {
+    createVacancy: async (_input) => {
       if (!liveEnabled) {
-        throw new Error(
-          "Spott createVacancy is not implemented in fixture mode for this spike."
-        );
+        return { id: nextFixtureVacancyId() };
       }
 
       const response = await fetchImpl(`${baseUrl}/vacancies`, {
-        body: JSON.stringify(input),
+        body: JSON.stringify(_input),
         headers: {
           ...authHeaders(resolveApiKey(options.apiKey)),
           "Content-Type": "application/json",

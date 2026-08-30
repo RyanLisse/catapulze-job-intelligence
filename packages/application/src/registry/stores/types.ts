@@ -71,7 +71,17 @@ export interface ApprovalAuditMetadata {
   readonly snapshotId: string;
 }
 
-export type AuditEventMetadata = ApprovalAuditMetadata | MarkeerAuditMetadata;
+export interface CommitExportAuditMetadata {
+  readonly approvalId: string;
+  readonly created: number;
+  readonly skipped: number;
+  readonly snapshotId: string;
+}
+
+export type AuditEventMetadata =
+  | ApprovalAuditMetadata
+  | CommitExportAuditMetadata
+  | MarkeerAuditMetadata;
 
 export type AlertEvidenceValue = boolean | null | number | string;
 
@@ -188,12 +198,59 @@ export interface OperatorRunStore {
   startTestImport: (bronId: string) => Promise<{ readonly runId: string }>;
 }
 
+export type ExportTarget = "spott";
+
+export type ExportActionType = "create";
+
+export type ExportAttemptStatus = "created" | "failed" | "skipped";
+
+export interface ExternalIdCrosswalkRecord {
+  readonly actionType: ExportActionType;
+  readonly canonicalVacancyId: string;
+  readonly createdAt: Date;
+  readonly externalId: string;
+  readonly target: ExportTarget;
+}
+
+export interface ExternalIdCrosswalkStore {
+  create: (
+    record: Omit<ExternalIdCrosswalkRecord, "createdAt">
+  ) => Promise<ExternalIdCrosswalkRecord>;
+  get: (input: {
+    actionType: ExportActionType;
+    canonicalVacancyId: string;
+    target: ExportTarget;
+  }) => Promise<ExternalIdCrosswalkRecord | null>;
+}
+
+export interface ExportAttemptRecord {
+  readonly actionType: ExportActionType;
+  readonly approvalId: string;
+  readonly canonicalVacancyId: string;
+  readonly createdAt: Date;
+  readonly errorMessage: string | null;
+  readonly externalId: string | null;
+  readonly id: string;
+  readonly idempotencyKey: string;
+  readonly snapshotId: string;
+  readonly status: ExportAttemptStatus;
+  readonly target: ExportTarget;
+}
+
+export interface ExportAttemptStore {
+  create: (
+    record: Omit<ExportAttemptRecord, "createdAt" | "id">
+  ) => Promise<ExportAttemptRecord>;
+}
+
 export interface SliceAStores {
   readonly alerts: AlertStore;
   readonly aanvragen: AanvraagStore;
   readonly approvals: ApprovalStore;
   readonly audit: AuditStore;
   readonly bronHealth: BronHealthStore;
+  readonly exportAttempts: ExportAttemptStore;
+  readonly externalCrosswalk: ExternalIdCrosswalkStore;
   readonly markeringen: MarkeringStore;
   readonly operatorRuns: OperatorRunStore;
   readonly rawPayloads: RawPayloadStore;

@@ -133,26 +133,26 @@ describe("Spott REST client (live mode via fetchImpl)", () => {
 });
 
 describe("Spott write client guardrails", () => {
-  it("does not implement createVacancy in fixture mode", async () => {
+  it("creates vacancies in fixture mode without live network", async () => {
     const client = createSpottWriteClient({ liveEnabled: false });
 
-    await expect(
-      client.createVacancy({
-        clientContactIds: [],
-        companyId: "company-fixture-001",
-        description: "Should not POST in CI",
-        employmentType: "contract",
-        endAt: null,
-        location: null,
-        locationType: "remote",
-        name: "Blocked write",
-        salaryRange: null,
-        stageId: "stage-fixture-001",
-        startAt: null,
-        targetCompanyId: null,
-        teamUserIds: [],
-      })
-    ).rejects.toThrow(/not implemented in fixture mode/u);
+    const response = await client.createVacancy({
+      clientContactIds: [],
+      companyId: "company-fixture-001",
+      description: "Fixture write path",
+      employmentType: "contract",
+      endAt: null,
+      location: null,
+      locationType: "remote",
+      name: "Fixture vacancy",
+      salaryRange: null,
+      stageId: "stage-fixture-001",
+      startAt: null,
+      targetCompanyId: null,
+      teamUserIds: [],
+    });
+
+    expect(response.id).toMatch(/^spott-fixture-/u);
   });
 });
 

@@ -518,3 +518,72 @@ export const approvalRecordRelations = relations(approvalRecord, ({ one }) => ({
     references: [querySnapshot.id],
   }),
 }));
+
+export const externalIdCrosswalk = curatedSchema.table(
+  "external_id_crosswalk",
+  {
+    actionType: text("action_type").notNull(),
+    canonicalVacancyId: uuid("canonical_vacancy_id").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    externalId: text("external_id").notNull(),
+    id: uuid("id").defaultRandom().primaryKey(),
+    target: text("target").notNull(),
+  },
+  (table) => [
+    uniqueIndex("external_id_crosswalk_idempotency_uidx").on(
+      table.target,
+      table.canonicalVacancyId,
+      table.actionType
+    ),
+    check(
+      "external_id_crosswalk_action_type_check",
+      sql`${table.actionType} IN ('create')`
+    ),
+    check(
+      "external_id_crosswalk_target_check",
+      sql`${table.target} IN ('spott')`
+    ),
+    check(
+      "external_id_crosswalk_external_id_check",
+      sql`length(trim(${table.externalId})) > 0`
+    ),
+  ]
+);
+
+export const exportAttempt = curatedSchema.table(
+  "export_attempt",
+  {
+    actionType: text("action_type").notNull(),
+    approvalId: uuid("approval_id")
+      .notNull()
+      .references(() => approvalRecord.id, { onDelete: "restrict" }),
+    canonicalVacancyId: uuid("canonical_vacancy_id").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    errorMessage: text("error_message"),
+    externalId: text("external_id"),
+    id: uuid("id").defaultRandom().primaryKey(),
+    idempotencyKey: text("idempotency_key").notNull(),
+    snapshotId: uuid("snapshot_id")
+      .notNull()
+      .references(() => querySnapshot.id, { onDelete: "restrict" }),
+    status: text("status").notNull(),
+    target: text("target").notNull(),
+  },
+  (table) => [
+    index("export_attempt_snapshot_id_idx").on(table.snapshotId),
+    index("export_attempt_idempotency_key_idx").on(table.idempotencyKey),
+    check(
+      "export_attempt_status_check",
+      sql`${table.status} IN ('created', 'skipped', 'failed')`
+    ),
+    check(
+      "export_attempt_action_type_check",
+      sql`${table.actionType} IN ('create')`
+    ),
+    check("export_attempt_target_check", sql`${table.target} IN ('spott')`),
+  ]
+);

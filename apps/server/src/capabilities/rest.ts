@@ -158,6 +158,9 @@ const toRestJsonBody = (
   return body;
 };
 
+const readSnapshotId = (raw: RestJsonBody): string | undefined =>
+  readString(raw, "id") ?? readString(raw, "snapshotId");
+
 const normalizeRestInput = (
   capabilityId: string,
   raw: RestJsonBody
@@ -192,10 +195,13 @@ const normalizeRestInput = (
     case "get_snapshot_approval":
     case "validate_snapshot_approval": {
       return toRestJsonBody([
-        ["id", readString(raw, "id") ?? readString(raw, "snapshotId")],
+        ["id", readSnapshotId(raw)],
         ["expiresAt", readString(raw, "expiresAt")],
         ["motivatie", readString(raw, "motivatie")],
       ]);
+    }
+    case "commit_export": {
+      return toRestJsonBody([["snapshotId", readSnapshotId(raw)]]);
     }
     case "read_raw": {
       return toRestJsonBody([

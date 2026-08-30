@@ -6,9 +6,12 @@ import {
   ackAlertOutputSchema,
   completeTaskInputSchema,
   completeTaskOutputSchema,
+  commitExportInputSchema,
+  commitExportOutputSchema,
   createAckAlertHandler,
   createApproveSnapshotHandler,
   createCompleteTaskHandler,
+  createCommitExportHandler,
   createGetAanvraagHandler,
   createGetBronHandler,
   createGetBronHealthHandler,
@@ -60,6 +63,7 @@ import type { SliceAHandlerDeps } from "./handlers/deps";
 import { defineSliceACapabilityEntry } from "./metadata";
 import {
   PERM_APPROVAL,
+  PERM_EXPORT,
   PERM_SLICE_READ,
   ROLE_OPERATOR,
   ROLE_RECRUITER,
@@ -221,6 +225,20 @@ export const createSliceACapabilityCatalog = (deps: SliceAHandlerDeps) => {
     inputSchema: validateSnapshotApprovalInputSchema,
     outcome: "Controleer of een onverlopen approval voor deze snapshot geldt",
     outputSchema: validateSnapshotApprovalOutputSchema,
+  });
+
+  const commitExportCapability = defineCapability({
+    authorization: { permission: PERM_EXPORT },
+    bindings: dualBindings("POST", "/v1/exports", "commit_export"),
+    effect: "internal-write",
+    failureSchema: domainFailureSchema,
+    grounding: true,
+    handler: createCommitExportHandler(deps),
+    id: "commit_export",
+    inputSchema: commitExportInputSchema,
+    outcome:
+      "Exporteer goedgekeurde aanvragen naar Spott (idempotent create per aanvraag)",
+    outputSchema: commitExportOutputSchema,
   });
 
   const markeerAanvraag = defineCapability({
@@ -442,6 +460,18 @@ export const createSliceACapabilityCatalog = (deps: SliceAHandlerDeps) => {
         "rest:POST /v1/snapshots/{id}/approval/validate",
       ],
     }),
+    defineSliceACapabilityEntry(commitExportCapability, {
+      auditClass: "effect",
+      idempotency: ["target", "canonical_vacancy_id", "action_type"],
+      reversible: false,
+      sideEffectClass: "commit",
+      target: "external",
+      wiredTransports: [
+        "mcp:commit_export",
+        "rest:POST /v1/exports",
+        "ui:DetailPanel.Doorzetten",
+      ],
+    }),
     defineSliceACapabilityEntry(markeerAanvraag, {
       auditClass: "effect",
       reversible: true,
@@ -537,6 +567,7 @@ export const sliceACapabilityIds = [
   "approve_snapshot",
   "get_snapshot_approval",
   "validate_snapshot_approval",
+  "commit_export",
   "markeer_aanvraag",
   "list_alerts",
   "get_bron_health",

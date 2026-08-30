@@ -5,6 +5,7 @@ export const ROLE_APPROVER = "approver" as const;
 
 export const PERM_SLICE_READ = "slice-a:read" as const;
 export const PERM_APPROVAL = "approval" as const;
+export const PERM_EXPORT = "export" as const;
 
 export const sliceARoles = [
   ROLE_RECRUITER,
@@ -21,13 +22,14 @@ export const permissionsForRole = (role: SliceARole): ReadonlySet<string> => {
       return new Set([
         PERM_SLICE_READ,
         PERM_APPROVAL,
+        PERM_EXPORT,
         ROLE_RECRUITER,
         ROLE_OPERATOR,
         ROLE_ADMIN,
       ]);
     }
     case ROLE_APPROVER: {
-      return new Set([PERM_SLICE_READ, PERM_APPROVAL]);
+      return new Set([PERM_SLICE_READ, PERM_APPROVAL, PERM_EXPORT]);
     }
     case ROLE_OPERATOR: {
       return new Set([PERM_SLICE_READ, ROLE_OPERATOR]);
