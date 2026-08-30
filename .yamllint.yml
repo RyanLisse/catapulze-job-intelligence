@@ -1,9 +1,6 @@
 ---
 extends: default
 
-ignore: |
-  .github/workflows/*.lock.yml
-
 rules:
   line-length:
     max: 140

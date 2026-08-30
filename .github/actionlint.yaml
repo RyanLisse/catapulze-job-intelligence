@@ -2,8 +2,3 @@
 self-hosted-runner:
   labels:
     - crabbox
-
-paths:
-  .github/workflows/*.lock.yml:
-    ignore:
-      - ".+"
