@@ -66,20 +66,44 @@ Auth sign-up writes a real row to the configured database. Use a unique `verify+
 
 ## Evidence
 
-Proof artifacts live in `.cursor/skills/verify-job-intelligence/artifacts/<feature-id>/`. Cleanup must not delete them.
+Proof artifacts live in `.cursor/skills/verify-job-intelligence/artifacts/<feature-id>/`. Cleanup must not delete them. **Never commit proof assets** to a product branch.
 
-Before attaching any screenshot or HTML capture as verification, open it and confirm the asserted state is visible in frame. Re-shoot if it is not. Uninspected artifacts are not verification.
+### Default format
+
+A **short screen recording is the default**; a screenshot suffices only when the change is static (renamed label, new field present). Record the actual user interaction on this running instance — not a tRPC-only or curl shortcut.
+
+**Recorder:** Playwright `recordVideo` / `video: 'on'` against the live-verify instance (`launch` + `doctor` first). One test or clip per claim. Wait on asserted UI states, never sleeps.
+
+**Format:** Transcode Playwright's VP8/WebM to H.264 MP4 before attaching to a PR (GitHub and Linear preview MP4 reliably):
+
+```bash
+ffmpeg -i artifacts/<feature-id>/clip.webm \
+  -c:v libx264 -preset medium -crf 23 -pix_fmt yuv420p -movflags +faststart \
+  artifacts/<feature-id>/clip.mp4
+```
+
+### Inspect before attach
+
+Open every capture and confirm the asserted state is visible in frame. Re-shoot if it is not. File-exists, non-zero duration, and test exit 0 all pass on a blank window — uninspected artifacts are not verification.
 
 Captures run against seeded/fixture data only. Never screenshot Motian production, real vacancy/aanvraag payloads, credentials, or PII. Sanitize before attaching.
 
-Standards:
+### PR attachment
+
+Label each clip with what it proves and which code path. Use Before/After pairs for fixes. Upload MP4 to GitHub's attachment CDN and paste the URL on a **bare line** in the PR body (not wrapped in `![]()`). See AGENTS.md **Visual evidence** for the `repo_id` + `uploads.github.com/user-attachments` pattern. Cloud-agent artifacts and `gh attach` also work.
+
+If visual proof is infeasible, state the exact blocker in the PR — never skip silently.
+
+### Capture standards
 
 - Exercise the real user path (browser or the same HTTP the browser uses)
-- Capture the action and the resulting state (`home.html` plus `trpc-healthCheck.txt`, or a screenshot plus ARIA snapshot)
+- Capture the action and the resulting state (`home.html` plus `trpc-healthCheck.txt`, or a screenshot/video plus ARIA snapshot)
 - For mutations, read back from a second user-facing view (dashboard paragraph `Welcome <name>`, or session cookie + `GET /dashboard` not redirecting to `/login`)
 - Record the feature ID in `meta.json`
 
 Home-page **Connected** is client-side React Query. An HTML snapshot without that word is incomplete for `home-connected`; still capture `trpc-healthCheck.txt` containing `OK`.
+
+**Refactors are not exempt.** Tests can stay green while visible behavior moves; do not substitute passing test output for user-visible evidence.
 
 ## Cleanup
 

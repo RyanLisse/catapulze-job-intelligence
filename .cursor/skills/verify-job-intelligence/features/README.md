@@ -24,7 +24,9 @@ The checked-in app is authentication plus a public health check. Vacancy ingest,
 ## Proof and skip reporting
 
 - Capture the user action and the resulting state, not only the final screen.
-- UI proof includes saved HTML or a screenshot with `Job Intelligence` visible.
+- **Default:** short screen recording (Playwright `video: 'on'`, one clip per claim); screenshot only for static UI. Transcode WebM → H.264 MP4 before PR attach (see SKILL.md **Evidence**).
+- Open every capture before attaching; re-shoot if the asserted state is not in frame.
+- UI proof includes saved HTML, a screenshot, or a video with `Job Intelligence` visible.
 - API proof includes status code and body.
 - Record the feature ID in `artifacts/<id>/meta.json`.
 - Report an unreachable path with the unmet precondition. Do not mark it verified via a different path.
