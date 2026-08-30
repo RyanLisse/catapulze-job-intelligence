@@ -1,3 +1,4 @@
+---
 # React Doctor — advisory React health checks for apps/web.
 # Complements Ultracite/oxlint; does not replace the required CI verify job.
 #
