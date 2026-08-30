@@ -1,3 +1,8 @@
+import {
+  recordCriticalPathPhaseSync,
+  timeCriticalPathPhase,
+} from "@ji/performance";
+
 import { evaluateBooleanAst } from "./adapter";
 import type {
   EngineSearchParams,
@@ -132,40 +137,43 @@ export class InMemorySearchEngine implements SearchEngine {
   }
 
   search(params: EngineSearchParams): Promise<SearchEngineResult> {
-    const matched = [...this.documents.values()].filter((document) => {
-      if (!matchesFilters(document, params.filters)) {
-        return false;
-      }
+    return timeCriticalPathPhase("search-serialization", () => {
+      const matched = [...this.documents.values()].filter((document) => {
+        if (!matchesFilters(document, params.filters)) {
+          return false;
+        }
 
-      if (params.ast === null) {
-        return true;
-      }
+        if (params.ast === null) {
+          return true;
+        }
 
-      return evaluateBooleanAst(
-        params.ast,
-        document.titel,
-        document.beschrijving
+        return evaluateBooleanAst(
+          params.ast,
+          document.titel,
+          document.beschrijving
+        );
+      });
+
+      const sorted = matched.toSorted((left, right) =>
+        left.id.localeCompare(right.id)
       );
-    });
+      const page = sorted.slice(params.offset, params.offset + params.limit);
+      const facets = recordCriticalPathPhaseSync("search-facets", () =>
+        this.documents.size === 0 ? emptySearchFacets() : buildFacets(matched)
+      );
 
-    const sorted = matched.toSorted((left, right) =>
-      left.id.localeCompare(right.id)
-    );
-    const page = sorted.slice(params.offset, params.offset + params.limit);
-    const facets =
-      this.documents.size === 0 ? emptySearchFacets() : buildFacets(matched);
+      let emptyReason: string | undefined;
+      if (this.documents.size === 0) {
+        emptyReason = "empty_index";
+      }
 
-    let emptyReason: string | undefined;
-    if (this.documents.size === 0) {
-      emptyReason = "empty_index";
-    }
-
-    return Promise.resolve({
-      emptyReason,
-      facets,
-      hits: page.map((document) => ({ id: document.id, weight: 1 })),
-      indexVersion: this.indexVersion,
-      total: matched.length,
+      return Promise.resolve({
+        emptyReason,
+        facets,
+        hits: page.map((document) => ({ id: document.id, weight: 1 })),
+        indexVersion: this.indexVersion,
+        total: matched.length,
+      });
     });
   }
 

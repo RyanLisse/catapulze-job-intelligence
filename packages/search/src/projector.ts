@@ -1,3 +1,5 @@
+import { timeCriticalPathPhase } from "@ji/performance";
+
 import { readOutboxStatus } from "./outbox-payload";
 import type {
   OutboxEventRecord,
@@ -25,40 +27,41 @@ export interface ProjectOutboxEventInput {
   loader: SearchDocumentLoader;
 }
 
-export const projectOutboxEvent = async (
+export const projectOutboxEvent = (
   input: ProjectOutboxEventInput
-): Promise<ProjectorResult> => {
-  const { engine, event, indexVersion, loader } = input;
+): Promise<ProjectorResult> =>
+  timeCriticalPathPhase("ingest-index-projection", async () => {
+    const { engine, event, indexVersion, loader } = input;
 
-  if (event.aggregateType !== "aanvraag") {
-    return { indexVersion, processed: false };
-  }
+    if (event.aggregateType !== "aanvraag") {
+      return { indexVersion, processed: false };
+    }
 
-  if (event.eventType === "aanvraag.verwijderd") {
-    await engine.deleteDocument(event.aggregateId);
+    if (event.eventType === "aanvraag.verwijderd") {
+      await engine.deleteDocument(event.aggregateId);
+      await engine.setIndexVersion(indexVersion);
+      return { indexVersion, processed: true };
+    }
+
+    const loaded = await loader.loadByAggregateId(event.aggregateId);
+    if (!loaded) {
+      return { indexVersion, processed: false };
+    }
+
+    let document = loaded;
+    const payloadStatus = readOutboxStatus(event.payload);
+    if (payloadStatus !== null) {
+      document = { ...document, status: payloadStatus };
+    } else if (CLOSE_EVENT_TYPES.has(event.eventType)) {
+      document = { ...document, status: "closed" };
+    } else if (STATUS_ONLY_EVENT_TYPES.has(event.eventType)) {
+      document = { ...document, status: document.status };
+    }
+
+    await engine.upsertDocument(document);
     await engine.setIndexVersion(indexVersion);
     return { indexVersion, processed: true };
-  }
-
-  const loaded = await loader.loadByAggregateId(event.aggregateId);
-  if (!loaded) {
-    return { indexVersion, processed: false };
-  }
-
-  let document = loaded;
-  const payloadStatus = readOutboxStatus(event.payload);
-  if (payloadStatus !== null) {
-    document = { ...document, status: payloadStatus };
-  } else if (CLOSE_EVENT_TYPES.has(event.eventType)) {
-    document = { ...document, status: "closed" };
-  } else if (STATUS_ONLY_EVENT_TYPES.has(event.eventType)) {
-    document = { ...document, status: document.status };
-  }
-
-  await engine.upsertDocument(document);
-  await engine.setIndexVersion(indexVersion);
-  return { indexVersion, processed: true };
-};
+  });
 
 export interface DrainOutboxInput {
   engine: SearchEngine;

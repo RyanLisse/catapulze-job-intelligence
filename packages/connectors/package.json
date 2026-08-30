@@ -13,7 +13,8 @@
     "check-types": "PATH=\"./node_modules/.bin:$PATH\" tsc --noEmit"
   },
   "dependencies": {
-    "@ji/domain": "workspace:*"
+    "@ji/domain": "workspace:*",
+    "@ji/performance": "workspace:*"
   },
   "devDependencies": {
     "@ji/config": "workspace:*",

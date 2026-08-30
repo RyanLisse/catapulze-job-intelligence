@@ -21,6 +21,7 @@
   "dependencies": {
     "@ji/connectors": "workspace:*",
     "@ji/domain": "workspace:*",
+    "@ji/performance": "workspace:*",
     "@ji/search": "workspace:*",
     "zod": "catalog:"
   },

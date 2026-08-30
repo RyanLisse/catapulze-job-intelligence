@@ -1,5 +1,16 @@
 import { parseBooleanQuery } from "@ji/domain";
 import type { BooleanNode } from "@ji/domain";
+import {
+  createCriticalPathSession,
+  digestQueryset,
+  digestSearchResult,
+  isCriticalPathEnabled,
+  recordCriticalPathPhaseSync,
+  resolveRunKind,
+  buildWorkloadMetadata,
+  timeCriticalPathPhase,
+  withCriticalPathSession,
+} from "@ji/performance";
 
 import { buildCacheKey, hashAst } from "./ast-hash";
 import type {
@@ -35,72 +46,135 @@ export class SearchAdapter {
   }
 
   async search(input: SearchAdapterInput): Promise<SearchAdapterResult> {
-    const parsed = parseBooleanQuery(input.query);
-    if (!parsed.ok) {
-      return {
-        error: parsed.error,
-        ok: false,
-      };
-    }
-
-    const filters = normalizeFilters(input.filters);
-    const limit = input.limit ?? DEFAULT_LIMIT;
-    const offset = input.offset ?? DEFAULT_OFFSET;
-    const astHash = await hashAst(parsed.ast);
-    const indexVersion = await this.engine.getIndexVersion();
-    const cacheKey = await buildCacheKey(astHash, indexVersion, filters);
-
-    if (this.cache) {
-      const cached = await this.cache.get(cacheKey);
-      if (cached) {
+    const execute = (): Promise<SearchAdapterResult> => {
+      const parsed = recordCriticalPathPhaseSync("search-parser", () =>
+        parseBooleanQuery(input.query)
+      );
+      if (!parsed.ok) {
         return {
-          astHash,
-          emptyReason: cached.emptyReason,
-          facets: cached.facets,
-          hits: cached.hits,
-          indexVersion: cached.indexVersion,
-          ok: true,
-          parserVersion: parsed.version,
-          total: cached.total,
+          error: parsed.error,
+          ok: false,
         };
       }
-    }
 
-    const engineResult = await this.engine.search({
-      ast: parsed.ast,
-      filters,
-      limit,
-      offset,
-    });
+      const filters = normalizeFilters(input.filters);
+      const limit = input.limit ?? DEFAULT_LIMIT;
+      const offset = input.offset ?? DEFAULT_OFFSET;
 
-    const success: SearchAdapterResult = {
-      astHash,
-      emptyReason: engineResult.emptyReason,
-      facets: engineResult.facets,
-      hits: engineResult.hits,
-      indexVersion: engineResult.indexVersion,
-      ok: true,
-      parserVersion: parsed.version,
-      total: engineResult.total,
-    };
+      return timeCriticalPathPhase("search-adapter", async () => {
+        const astHash = await hashAst(parsed.ast);
+        const indexVersion = await this.engine.getIndexVersion();
+        const cacheKey = await buildCacheKey(astHash, indexVersion, filters);
 
-    if (this.cache) {
-      await this.cache.set(
-        cacheKey,
-        {
+        if (this.cache) {
+          const cached = await this.cache.get(cacheKey);
+          if (cached) {
+            const success: SearchAdapterResult = {
+              astHash,
+              emptyReason: cached.emptyReason,
+              facets: cached.facets,
+              hits: cached.hits,
+              indexVersion: cached.indexVersion,
+              ok: true,
+              parserVersion: parsed.version,
+              total: cached.total,
+            };
+            return success;
+          }
+        }
+
+        const engineResult = await timeCriticalPathPhase("search-engine", () =>
+          this.engine.search({
+            ast: parsed.ast,
+            filters,
+            limit,
+            offset,
+          })
+        );
+
+        const success: SearchAdapterResult = {
           astHash,
           emptyReason: engineResult.emptyReason,
           facets: engineResult.facets,
-          filters,
           hits: engineResult.hits,
           indexVersion: engineResult.indexVersion,
+          ok: true,
+          parserVersion: parsed.version,
           total: engineResult.total,
-        },
-        this.cacheTtlSeconds
-      );
+        };
+
+        if (this.cache) {
+          await this.cache.set(
+            cacheKey,
+            {
+              astHash,
+              emptyReason: engineResult.emptyReason,
+              facets: engineResult.facets,
+              filters,
+              hits: engineResult.hits,
+              indexVersion: engineResult.indexVersion,
+              total: engineResult.total,
+            },
+            this.cacheTtlSeconds
+          );
+        }
+
+        return success;
+      });
+    };
+
+    if (!isCriticalPathEnabled()) {
+      return execute();
     }
 
-    return success;
+    const session = createCriticalPathSession({
+      metadata: {
+        ...buildWorkloadMetadata(),
+        "queryset-digest": digestQueryset({
+          filters: input.filters,
+          limit: input.limit,
+          offset: input.offset,
+          query: input.query,
+        }),
+      },
+      runKind: resolveRunKind(),
+    });
+
+    try {
+      const result = await withCriticalPathSession(session, execute);
+      if (result.ok) {
+        session.mergeMetadata({
+          "result-digest": digestSearchResult({
+            emptyReason: result.emptyReason,
+            facets: result.facets,
+            indexVersion: result.indexVersion,
+            total: result.total,
+          }),
+        });
+      }
+      const flushStarted = Bun.nanoseconds();
+      await session.flush();
+      const overheadMs = Math.round(
+        (Bun.nanoseconds() - flushStarted) / 1_000_000
+      );
+      const overheadSession = createCriticalPathSession({
+        metadata: {
+          "instrumentation-overhead-ms": String(overheadMs),
+        },
+      });
+      overheadSession.recordSample({
+        durationMs: overheadMs,
+        endedAt: new Date().toISOString(),
+        label: "instrumentation-overhead",
+        startedAt: new Date().toISOString(),
+        success: true,
+      });
+      await overheadSession.flush();
+      return result;
+    } catch (error) {
+      await session.flush();
+      throw error;
+    }
   }
 }
 

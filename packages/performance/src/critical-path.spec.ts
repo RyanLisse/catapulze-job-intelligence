@@ -58,9 +58,10 @@ describe("critical path records", () => {
 
       const parsedRecords = await Promise.all(
         files.map(async (file) => {
-          const raw = await Bun.file(path.join(directory, file)).json();
+          const filePath = path.join(directory, file);
+          const fileContents = await Bun.file(filePath).json();
           // SAFETY: Files were written by this package's record builder; parse validates shape.
-          return parsePerformanceRecord(raw as JsonValue, file);
+          return parsePerformanceRecord(fileContents as JsonValue, file);
         })
       );
       for (const record of parsedRecords) {
@@ -95,6 +96,9 @@ describe("critical path records", () => {
     const flushed = await session.flush();
     const [record] = flushed;
     expect(record).toBeDefined();
-    expect(record?.command.join(" ")).not.toContain("Bearer");
+    if (record === undefined) {
+      throw new Error("expected a flushed record");
+    }
+    expect(record.command.join(" ")).not.toContain("Bearer");
   });
 });

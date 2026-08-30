@@ -1,4 +1,8 @@
 import type { BronId } from "@ji/domain";
+import {
+  recordCriticalPathPhaseSync,
+  timeCriticalPathPhase,
+} from "@ji/performance";
 
 import {
   normaliseInhuurdeskObservation,
@@ -46,27 +50,36 @@ export const processObservation = async (
   store: CurateStore,
   input: ProcessObservationInput
 ): Promise<ProcessObservationResult> => {
-  const draft = normaliseForBron(input.bronSlug, input.body, input.contentHash);
-  const validationIssues = validateNormalisedDraft(draft);
-  if (validationIssues.length > 0) {
+  const draft = recordCriticalPathPhaseSync("ingest-normalisation", () => {
+    const normalised = normaliseForBron(
+      input.bronSlug,
+      input.body,
+      input.contentHash
+    );
+    const issues = validateNormalisedDraft(normalised);
+    return { draft: normalised, validationIssues: issues };
+  });
+  if (draft.validationIssues.length > 0) {
     const status: ObservationProcessingStatus = "quarantined";
     return {
-      parserVersion: draft.parserVersion,
-      reason: validationIssues.map((issue) => issue.message).join("; "),
+      parserVersion: draft.draft.parserVersion,
+      reason: draft.validationIssues.map((issue) => issue.message).join("; "),
       status,
-      validationIssues,
+      validationIssues: draft.validationIssues,
     };
   }
 
-  const result = await curateObservation(store, {
-    bronId: input.bronId,
-    draft,
-    observedAt: input.observedAt,
-    rawPayloadRef: input.rawPayloadRef,
-    scrapeRunId: input.scrapeRunId,
-  });
+  const result = await timeCriticalPathPhase("ingest-commit", () =>
+    curateObservation(store, {
+      bronId: input.bronId,
+      draft: draft.draft,
+      observedAt: input.observedAt,
+      rawPayloadRef: input.rawPayloadRef,
+      scrapeRunId: input.scrapeRunId,
+    })
+  );
   return {
     ...result,
-    parserVersion: draft.parserVersion,
+    parserVersion: draft.draft.parserVersion,
   };
 };

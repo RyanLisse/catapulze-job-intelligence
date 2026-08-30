@@ -1,4 +1,12 @@
 import { BOOLEAN_PARSER_VERSION } from "@ji/domain";
+import {
+  createCriticalPathSession,
+  isCriticalPathEnabled,
+  resolveRunKind,
+  buildWorkloadMetadata,
+  timeCriticalPathPhase,
+  withCriticalPathSession,
+} from "@ji/performance";
 import { z } from "zod";
 
 import { validateSnapshotApproval } from "../../approval/validate-snapshot-approval";
@@ -76,23 +84,50 @@ export const searchAanvragenOutputSchema = z
 
 export const createSearchAanvragenHandler =
   (deps: SliceAHandlerDeps) =>
-  async (input: z.output<typeof searchAanvragenInputSchema>) => {
-    const result = await deps.searchAdapter.search(input);
-    if (!result.ok) {
-      return domainFailure("SYNTAX_ERROR", result.error.message, result.error);
-    }
-    return {
-      ok: true as const,
-      value: {
-        emptyReason: result.emptyReason,
-        facets: result.facets,
-        hits: result.hits,
-        ids: result.hits.map((hit) => hit.id),
-        indexVersion: result.indexVersion,
-        parserVersion: result.parserVersion,
-        total: result.total,
-      },
+  (input: z.output<typeof searchAanvragenInputSchema>) => {
+    const execute = async () => {
+      const result = await timeCriticalPathPhase("api-handler", () =>
+        deps.searchAdapter.search(input)
+      );
+      if (!result.ok) {
+        return domainFailure(
+          "SYNTAX_ERROR",
+          result.error.message,
+          result.error
+        );
+      }
+      return {
+        ok: true as const,
+        value: {
+          emptyReason: result.emptyReason,
+          facets: result.facets,
+          hits: result.hits,
+          ids: result.hits.map((hit) => hit.id),
+          indexVersion: result.indexVersion,
+          parserVersion: result.parserVersion,
+          total: result.total,
+        },
+      };
     };
+
+    if (!isCriticalPathEnabled()) {
+      return execute();
+    }
+
+    const session = createCriticalPathSession({
+      metadata: buildWorkloadMetadata(),
+      runKind: resolveRunKind(),
+    });
+    return withCriticalPathSession(session, async () => {
+      try {
+        const response = await execute();
+        await session.flush();
+        return response;
+      } catch (error) {
+        await session.flush();
+        throw error;
+      }
+    });
   };
 
 export const getAanvraagInputSchema = z
