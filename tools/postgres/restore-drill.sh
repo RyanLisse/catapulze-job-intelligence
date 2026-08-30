@@ -81,7 +81,7 @@ wal_g_source backup-list
 wal_g_source backup-push /var/lib/postgresql/data
 
 latest_backup="$(
-  wal_g_source backup-list | awk '/^backup/ { backup=$1 } END { print backup }'
+  wal_g_source backup-list | awk '/^base_/ { backup=$1 } END { print backup }'
 )"
 
 if [[ -z "$latest_backup" ]]; then
