@@ -1,6 +1,6 @@
 # CTM (EU-Supply / Mercell) — ingest-recept (geverifieerd 2026-08-30)
 
-Status: **klaar om te bouwen** — derde bron (na TenderNed, Inhuurdesk); adapter-categorie `feed`.
+Status: **connector gebouwd, activatie staat uit** — derde bron (na TenderNed, Inhuurdesk); adapter-categorie `feed`. Nog te doen vóór activatie: voorwaardenstatus door een mens laten bevestigen (zie § Licentie), de bron registreren in het bronregister, een `ctm`-normalisatiemodule toevoegen aan de curatie-pipeline (`packages/application/src/normalise/`, `SupportedBronSlug`), en de worker-routing (`apps/worker/src/poll-bron-run.ts`) uitbreiden zodra dat allemaal klaarstaat.
 
 ## Endpoint
 
@@ -30,7 +30,7 @@ Elke `<entry>` bevat standaard Atom-velden (`id`, `title`, `published`, `author>
 
 ## Ingest-patroon
 
-- **Geen paginering.** De feed retourneert steeds het volledige `days`-venster in één response; er is geen `page`-parameter. `discover()` geeft daarom altijd `hasMore: false`; wijzigingsdetectie loopt volledig via de content-hash/known-hash-vergelijking in `fetch()`, net als bij de andere bronnen.
+- **Geen paginering.** De feed retourneert steeds het volledige `days`-venster in één response; er is geen `page`-parameter. `discover()` geeft daarom altijd `hasMore: false`. De known-hash-check in `fetch()` is een optimalisatie (early exit tegen de laatst geziene listing-hash, zelfde patroon als de sibling-connectors); de daadwerkelijke wijzigingsdetectie — wat voorkomt dat ongewijzigde entries opnieuw als nieuw record binnenkomen — loopt via de new/changed/unchanged-vergelijking van de observation recorder verderop in de pipeline.
 - Poll **maximaal elke 30 minuten** (venster van `days=30` compenseert gemiste polls ruimschoots; vaker pollen levert geen nieuwe data op).
 - Raw-pad volgt het gedeelde `raw/{bronSlug}/...`-schema uit `object-store.ts`; opgeslagen payload is een geminimaliseerd JSON-record per entry (`{ entry }`), niet de ruwe Atom-bytes — zelfde patroon als Inhuurdesk.
 - Hash van het geminimaliseerde listing-record voor wijzigingsdetectie (`hashCtmListingItem`).

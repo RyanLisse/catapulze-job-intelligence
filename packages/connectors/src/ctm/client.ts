@@ -26,6 +26,7 @@ const parser = new XMLParser({
   attributeNamePrefix: "@_",
   ignoreAttributes: false,
   isArray: (name) => name === "entry" || name === "cpvCode",
+  parseTagValue: false,
   textNodeName: "#text",
 });
 

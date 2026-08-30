@@ -97,10 +97,12 @@ export const createPollBronRuntime = (databaseUrl: string): PollBronRuntime => {
           knownHashes,
         });
       }
-      return createInhuurdeskConnector({
-        bronId,
-        knownHashes,
-      });
+      if (bronSlug === "inhuurdesk") {
+        return createInhuurdeskConnector({ bronId, knownHashes });
+      }
+      throw new Error(
+        `Unknown bronSlug for connector routing: ${String(bronSlug)}`
+      );
     },
     curateStore: new PostgresCurateStore(client.database),
     database: client.database,
