@@ -23,3 +23,17 @@ export {
   type NeonV1Source,
   type RunNeonV1BackfillInput,
 } from "./neon-v1";
+export {
+  MOTIAN_V1_BRON_BINDINGS,
+  MOTIAN_V1_BRON_CONFIGS,
+  MOTIAN_V1_BRON_SEEDS,
+  MOTIAN_V1_PLATFORMS,
+  isMotianV1Platform,
+  normalizeMotianPlatform,
+  resolveMotianV1Binding,
+  type MotianV1Platform,
+} from "./motian-v1-bindings";
+export {
+  createMotianNeonV1Source,
+  type MotianNeonV1SourceOptions,
+} from "./motian-neon-v1-source";

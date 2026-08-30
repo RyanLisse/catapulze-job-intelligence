@@ -3,6 +3,7 @@ import { describe, expect, it } from "bun:test";
 import { InMemoryObjectStore } from "@ji/connectors";
 
 import { InMemoryCurateStore } from "../identity/store";
+import { MOTIAN_V1_BRON_BINDINGS } from "./motian-v1-bindings";
 import {
   NEON_V1_BACKFILL_CONTRACT_VERSION,
   NEON_V1_FORBIDDEN_TABLES,
@@ -29,16 +30,9 @@ const sampleJob = () => ({
   title: "Platform engineer Azure",
 });
 
-const bindings = [
-  {
-    bronId: "00000000-0000-4000-8000-000000000020",
-    platform: "nationalevacaturebank",
-  },
-  {
-    bronId: "00000000-0000-4000-8000-000000000021",
-    platform: "werkzoeken",
-  },
-];
+const bindings = MOTIAN_V1_BRON_BINDINGS.filter((binding) =>
+  ["nationalevacaturebank", "werkzoeken"].includes(binding.platform)
+);
 
 describe("Neon v1 backfill mapping", () => {
   it("maps platform and external_id to canonical identity fields", () => {

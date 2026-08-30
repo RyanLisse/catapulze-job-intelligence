@@ -51,6 +51,10 @@ Configureer een aparte one-shot migrator-job op basis van `apps/server/Dockerfil
 
 De repository staat in die image op `/app`. Laat de job na een succesvolle migratie stoppen en rol alleen dan de server uit. Hergebruik de migrator-URL nooit als runtimevariabele van de server en voer de job niet met de app-credential uit. Configureer de web-domain via de Coolify-proxy en zet `NEXT_PUBLIC_SERVER_URL` zowel als build argument als runtimevariabele op de publiek bereikbare API-domain; `server:3000` mag nooit in browsercode terechtkomen.
 
+### Motian Neon v1 backfill (optioneel)
+
+Voor een read-only historische import uit Motian-Neon (DEC-005), injecteer **`MOTIAN_DATABASE_URL`** uitsluitend in een one-shot backfill-job of operator-shell — nooit in de langlevende `server`-service en nooit als `DATABASE_URL`. Zie [motian-neon-backfill.md](./motian-neon-backfill.md).
+
 ## Nog geen productie-bewijs
 
 Deze lokale lane bewijst image builds, env-wiring, migraties, readiness en basis-restarts. Productie blijft geblokkeerd totdat private firewall-poorten, off-site WAL/base backups, een geteste lege restore, monitoring/alerts, resourceprioriteit en DNS/TLS op de Hetzner-host met bewijs zijn gevalideerd. Lokale credentials en testdata mogen niet naar productie worden hergebruikt.

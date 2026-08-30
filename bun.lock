@@ -91,6 +91,7 @@
       "dependencies": {
         "@ji/application": "workspace:*",
         "@ji/connectors": "workspace:*",
+        "@ji/db": "workspace:*",
         "@ji/domain": "workspace:*",
         "@trigger.dev/sdk": "4.5.13",
         "zod": "catalog:",
@@ -127,6 +128,7 @@
         "@ji/domain": "workspace:*",
         "@ji/performance": "workspace:*",
         "@ji/search": "workspace:*",
+        "postgres": "^3.4.7",
         "zod": "catalog:",
       },
       "devDependencies": {

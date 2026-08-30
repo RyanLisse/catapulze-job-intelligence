@@ -1,3 +1,4 @@
+import { readFile } from "node:fs/promises";
 import path from "node:path";
 
 import { buildRawObjectPath } from "@ji/connectors";
@@ -8,6 +9,7 @@ import { curateObservation } from "../identity/curate";
 import type { CurateStore } from "../identity/curate";
 import { field } from "../normalise";
 import type { NormalisedAanvraagDraft } from "../normalise";
+import { resolveMotianV1Binding } from "./motian-v1-bindings";
 import type {
   BackfillBronBinding,
   BackfillRunResult,
@@ -48,7 +50,7 @@ export const fixturePath = (...segments: string[]): string =>
 export const loadNeonV1Fixture = async (
   relativePath: string
 ): Promise<NeonV1Fixture> => {
-  const raw = await Bun.file(fixturePath(relativePath)).text();
+  const raw = await readFile(fixturePath(relativePath), "utf-8");
   // SAFETY: Fixture files are repo-owned envelopes validated against contractVersion.
   const parsed = JSON.parse(raw) as NeonV1Fixture;
   if (parsed.contractVersion !== NEON_V1_BACKFILL_CONTRACT_VERSION) {
@@ -138,8 +140,7 @@ export const mapV1JobToDraft = (job: NeonV1JobRow): NormalisedAanvraagDraft => {
 const resolveBinding = (
   bindings: readonly BackfillBronBinding[],
   platform: string
-): BackfillBronBinding | null =>
-  bindings.find((binding) => binding.platform === platform) ?? null;
+): BackfillBronBinding | null => resolveMotianV1Binding(bindings, platform);
 
 interface MutableBackfillRunMetrics {
   errors: number;
@@ -251,6 +252,33 @@ const importNeonV1Job = async (input: {
   }
 };
 
+const importNeonV1Jobs = async (input: {
+  bindings: readonly BackfillBronBinding[];
+  curateStore: RunNeonV1BackfillInput["curateStore"];
+  jobs: readonly NeonV1JobRow[];
+  metrics: MutableBackfillRunMetrics;
+  objectStore: RunNeonV1BackfillInput["objectStore"];
+  provenanceStore: RunNeonV1BackfillInput["provenanceStore"];
+  scrapeRunId: string;
+  startedAt: Date;
+}): Promise<void> => {
+  input.metrics.found += input.jobs.length;
+  /* oxlint-disable no-await-in-loop -- backfill imports must stay ordered for deterministic metrics */
+  for (const job of input.jobs) {
+    await importNeonV1Job({
+      bindings: input.bindings,
+      curateStore: input.curateStore,
+      job,
+      metrics: input.metrics,
+      objectStore: input.objectStore,
+      provenanceStore: input.provenanceStore,
+      scrapeRunId: input.scrapeRunId,
+      startedAt: input.startedAt,
+    });
+  }
+  /* oxlint-enable no-await-in-loop */
+};
+
 export const runNeonV1Backfill = async (
   input: RunNeonV1BackfillInput
 ): Promise<BackfillRunResult> => {
@@ -260,24 +288,42 @@ export const runNeonV1Backfill = async (
   const primaryBronId =
     primaryBinding?.bronId ?? "00000000-0000-4000-8000-000000000099";
   const { scrapeRunId } = await input.runStore.startRun(primaryBronId);
+  const batchSize = input.batchSize ?? 1000;
 
   try {
-    const jobs = await input.source.loadJobs();
-    if (jobs.length > 0) {
-      const binding = bindingsForJobs(jobs, input.bindings);
-      if (!binding.ok) {
-        throw new Error(binding.reason);
+    if (input.source.streamBatches) {
+      let validatedBindings = false;
+      for await (const batch of input.source.streamBatches(batchSize)) {
+        if (batch.length > 0 && !validatedBindings) {
+          const binding = bindingsForJobs(batch, input.bindings);
+          if (!binding.ok) {
+            throw new Error(binding.reason);
+          }
+          validatedBindings = true;
+        }
+        await importNeonV1Jobs({
+          bindings: input.bindings,
+          curateStore: input.curateStore,
+          jobs: batch,
+          metrics,
+          objectStore: input.objectStore,
+          provenanceStore: input.provenanceStore,
+          scrapeRunId,
+          startedAt,
+        });
       }
-    }
-
-    metrics.found = jobs.length;
-
-    /* oxlint-disable no-await-in-loop -- backfill imports must stay ordered for deterministic metrics */
-    for (const job of jobs) {
-      await importNeonV1Job({
+    } else {
+      const jobs = await input.source.loadJobs();
+      if (jobs.length > 0) {
+        const binding = bindingsForJobs(jobs, input.bindings);
+        if (!binding.ok) {
+          throw new Error(binding.reason);
+        }
+      }
+      await importNeonV1Jobs({
         bindings: input.bindings,
         curateStore: input.curateStore,
-        job,
+        jobs,
         metrics,
         objectStore: input.objectStore,
         provenanceStore: input.provenanceStore,
@@ -285,7 +331,6 @@ export const runNeonV1Backfill = async (
         startedAt,
       });
     }
-    /* oxlint-enable no-await-in-loop */
 
     await input.runStore.completeRun(scrapeRunId, metrics);
     return { metrics, status: "succeeded" };
