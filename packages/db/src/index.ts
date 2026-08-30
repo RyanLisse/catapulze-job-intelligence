@@ -54,6 +54,17 @@ export {
   type ActivateBronInput,
   type BronRuntimeDatabase,
 } from "./bron-runtime";
+export {
+  PostgresAanvraagStore,
+  PostgresRawPayloadStore,
+  PostgresSearchDocumentLoader,
+} from "./aanvraag-stores";
+export { PostgresKnownHashStore } from "./known-hash-store";
+export { drainPostgresOutbox } from "./outbox-drain";
+export {
+  createBronRuntimeClient,
+  type BronRuntimeClient,
+} from "./runtime-client";
 
 const EXPECTED_MIGRATION_TIMESTAMP =
   resolveExpectedMigrationTimestamp(migrationJournal);

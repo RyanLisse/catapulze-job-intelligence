@@ -5,6 +5,7 @@ export {
   type TenderNedClient,
   type TenderNedClientOptions,
 } from "./client";
+export { buildTenderNedPollFilters } from "./filters";
 export {
   createTenderNedConnector,
   type TenderNedConnectorOptions,

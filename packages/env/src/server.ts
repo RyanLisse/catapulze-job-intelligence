@@ -10,9 +10,11 @@ export const env = createEnv({
     BETTER_AUTH_URL: z.url(),
     CORS_ORIGIN: z.url(),
     DATABASE_URL: z.string().min(1),
+    MANTICORE_URL: z.url().default("http://127.0.0.1:9308"),
     NODE_ENV: z
       .enum(["development", "production", "test"])
       .default("development"),
+    RAW_OBJECT_STORE_PATH: z.string().min(1).optional(),
   },
   skipValidation: !!process.env.SKIP_ENV_VALIDATION,
 });

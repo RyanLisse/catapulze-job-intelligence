@@ -8,7 +8,10 @@ import {
   InMemoryRunLifecycleStore,
   runConnector,
 } from "@ji/connectors";
-import { createInhuurdeskClient } from "@ji/connectors/inhuurdesk";
+
+import { createInhuurdeskClient } from "./client";
+import type { InhuurdeskClient } from "./client";
+import type { InhuurdeskAssignment } from "./types";
 
 const retryPolicy = {
   initialDelayMs: 0,
@@ -78,5 +81,52 @@ describe("Inhuurdesk connector", () => {
     expect(
       new Set(recorder.records.map((record) => record.bronReferentie)).size
     ).toBe(2);
+  });
+
+  it("advances through listing pages until total is exhausted", async () => {
+    const bronId = "bron-inhuurdesk-pages";
+    const assignments = [
+      {
+        aanvraagnummer: "IH-1",
+        title: "One",
+      },
+      {
+        aanvraagnummer: "IH-2",
+        title: "Two",
+      },
+      {
+        aanvraagnummer: "IH-3",
+        title: "Three",
+      },
+      {
+        aanvraagnummer: "IH-4",
+        title: "Four",
+      },
+    ] satisfies InhuurdeskAssignment[];
+    const client: InhuurdeskClient = {
+      fetchListing: (page) => {
+        if (page === 0) {
+          return Promise.resolve({
+            data: [assignments[0], assignments[1]],
+            total: 4,
+          });
+        }
+        if (page === 1) {
+          return Promise.resolve({
+            data: [assignments[2], assignments[3]],
+            total: 4,
+          });
+        }
+        return Promise.resolve({ data: [], total: 4 });
+      },
+    };
+    const connector = createInhuurdeskConnector({ bronId, client });
+    const first = await connector.discover(null);
+    expect(first.hasMore).toBe(true);
+    expect(first.items).toHaveLength(2);
+
+    const second = await connector.discover(first.checkpoint);
+    expect(second.hasMore).toBe(false);
+    expect(second.items).toHaveLength(2);
   });
 });

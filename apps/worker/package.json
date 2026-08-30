@@ -13,7 +13,9 @@
     "@ji/connectors": "workspace:*",
     "@ji/db": "workspace:*",
     "@ji/domain": "workspace:*",
+    "@ji/search": "workspace:*",
     "@trigger.dev/sdk": "4.5.13",
+    "dotenv": "catalog:",
     "zod": "catalog:"
   },
   "devDependencies": {
