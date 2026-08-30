@@ -137,14 +137,30 @@ jobs:
           docker compose --env-file .env.example down -v
           docker volume rm "$POSTGRES_DATA_VOLUME"
 
-<<<<<<< HEAD
       - name: Skip heavy verify for doc-only changes
         if: needs.changes.outputs.code != 'true'
         run: |
           echo "Skipped Postgres, gate, and build — docs-only diff."
           echo "No app, package, test, script, tool, workflow, lockfile, compose, or quality-config changes."
-=======
+
+      - name: Report CI command timing
+        if: always() && needs.changes.outputs.code == 'true'
+        run: bun scripts/performance/report.ts
+
+      - name: Upload CI command timing
+        if: always() && needs.changes.outputs.code == 'true'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        with:
+          name: ci-performance-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            .artifacts/performance/ci
+            .artifacts/test-results
+          if-no-files-found: warn
+          retention-days: 7
+
   postgres-restore-drill:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -174,19 +190,3 @@ jobs:
           path: .artifacts/postgres-restore-evidence.json
           if-no-files-found: warn
           retention-days: 14
->>>>>>> 117b037 (feat(postgres): Slice A U10 on-box hardening, restore drill, and CI gates)
-
-      - name: Report CI command timing
-        if: always() && needs.changes.outputs.code == 'true'
-        run: bun scripts/performance/report.ts
-
-      - name: Upload CI command timing
-        if: always() && needs.changes.outputs.code == 'true'
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
-        with:
-          name: ci-performance-${{ github.run_id }}-${{ github.run_attempt }}
-          path: |
-            .artifacts/performance/ci
-            .artifacts/test-results
-          if-no-files-found: warn
-          retention-days: 7
