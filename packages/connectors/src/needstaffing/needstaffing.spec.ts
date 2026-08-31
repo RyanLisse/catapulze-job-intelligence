@@ -12,6 +12,7 @@ import {
 import {
   buildNeedstaffingRawHtml,
   createNeedstaffingClient,
+  decodeNeedstaffingEntities,
   extractNeedstaffingId,
   extractNeedstaffingReferentie,
   parseNeedstaffingDetail,
@@ -229,6 +230,24 @@ describe("Needstaffing real fixtures", () => {
     expect(rawHtml).not.toContain("<script");
     expect(rawHtml).not.toContain("/RESPOND");
     expect(rawHtml).not.toContain("vacancy-contact-info");
+  });
+});
+
+describe("decodeNeedstaffingEntities (RJC-374 guard, wired through this source)", () => {
+  it("leaves an out-of-range numeric entity untouched instead of throwing", () => {
+    expect(() => decodeNeedstaffingEntities("&#1114112;")).not.toThrow();
+    expect(decodeNeedstaffingEntities("&#1114112;")).toBe("&#1114112;");
+  });
+
+  it("leaves a lone-surrogate numeric entity untouched instead of throwing", () => {
+    expect(() => decodeNeedstaffingEntities("&#xD800;")).not.toThrow();
+    expect(decodeNeedstaffingEntities("&#xD800;")).toBe("&#xD800;");
+  });
+
+  it("still decodes a real entity confirmed live in Needstaffing text nodes", () => {
+    expect(decodeNeedstaffingEntities("&#x20AC;500 per dag")).toBe(
+      "€500 per dag"
+    );
   });
 });
 

@@ -1,4 +1,5 @@
 import { loadConnectorFixture } from "../fixtures/load";
+import { decodeHtmlEntities } from "../html-entities";
 import type {
   NeedstaffingDetail,
   NeedstaffingInfoFields,
@@ -80,37 +81,10 @@ const DEFAULT_BASE_URL = "https://www.needstaffing.nl";
 
 /** HTMLRewriter text() chunks are NOT entity-decoded (confirmed against Bun
  * 1.3.14 and the live site, which serves numeric entities like `&#x20AC;` in
- * text nodes) — decode the handful this site actually uses. Map, not a Record
- * literal, so lookups by an arbitrary string stay type-safe without widening. */
-const NAMED_ENTITIES = new Map<string, string>([
-  ["amp", "&"],
-  ["apos", "'"],
-  ["gt", ">"],
-  ["lt", "<"],
-  ["nbsp", " "],
-  ["quot", '"'],
-]);
-
-const ENTITY_PATTERN = /&(?<code>#x[0-9a-fA-F]+|#\d+|[a-zA-Z]+);/gu;
-
-const decodeNumericEntity = (code: string): string | undefined => {
-  const isHex = code[1] === "x" || code[1] === "X";
-  const codePoint = isHex
-    ? Number.parseInt(code.slice(2), 16)
-    : Math.trunc(Number(code.slice(1)));
-  return Number.isFinite(codePoint)
-    ? String.fromCodePoint(codePoint)
-    : undefined;
-};
-
-export const decodeNeedstaffingEntities = (text: string): string =>
-  text.replaceAll(
-    ENTITY_PATTERN,
-    (match, code: string) =>
-      (code[0] === "#"
-        ? decodeNumericEntity(code)
-        : NAMED_ENTITIES.get(code)) ?? match
-  );
+ * text nodes) — decode the handful this site actually uses. Decoding itself
+ * is shared with flinter via `../html-entities` (RJC-374: both were
+ * byte-identical copies with the same unguarded code-point ceiling). */
+export const decodeNeedstaffingEntities = decodeHtmlEntities;
 
 const ID_PATTERN = /\/Opdrachten\/(?<id>\d+)/u;
 
