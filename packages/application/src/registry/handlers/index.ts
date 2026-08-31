@@ -208,6 +208,14 @@ export const listVersiesOutputSchema = z.array(
     .strict()
 );
 
+const toVersieView = (versie: AanvraagRecord["versies"][number]) => ({
+  geldigTot: versie.geldigTot?.toISOString() ?? null,
+  geldigVan: versie.geldigVan.toISOString(),
+  id: versie.id,
+  normalisatieversie: versie.normalisatieversie,
+  scrapeRunId: versie.scrapeRunId,
+});
+
 export const createListVersiesHandler =
   (deps: SliceAHandlerDeps) =>
   async (input: z.output<typeof listVersiesInputSchema>) => {
@@ -222,14 +230,85 @@ export const createListVersiesHandler =
     }
     return {
       ok: true as const,
-      value: versies.map((versie) => ({
-        geldigTot: versie.geldigTot?.toISOString() ?? null,
-        geldigVan: versie.geldigVan.toISOString(),
-        id: versie.id,
-        normalisatieversie: versie.normalisatieversie,
-        scrapeRunId: versie.scrapeRunId,
-      })),
+      value: versies.map(toVersieView),
     };
+  };
+
+// Batched search hydration (RJC-379): one call replaces the per-id
+// get_aanvraag + list_versies fan-out. The cap matches the search window
+// (searchAanvragenInputSchema limit max 100) so a single search hydrates in
+// a single request; larger id lists are a validation error, never accepted.
+export const BATCH_GET_AANVRAGEN_MAX_IDS = 100;
+
+export const batchGetAanvragenInputSchema = z
+  .object({
+    full: z.boolean().optional(),
+    ids: z.array(z.string().uuid()).min(1).max(BATCH_GET_AANVRAGEN_MAX_IDS),
+  })
+  .strict();
+
+export const batchGetAanvragenOutputSchema = z
+  .object({
+    items: z.array(
+      z
+        .object({
+          aanvraag: z.record(z.string(), z.unknown()),
+          id: z.string(),
+          markering: z
+            .object({
+              reden: z.string().nullable(),
+              status: z.enum(["relevant", "niet_relevant", "gevolgd"]),
+            })
+            .nullable(),
+          versies: listVersiesOutputSchema,
+        })
+        .strict()
+    ),
+  })
+  .strict();
+
+export const createBatchGetAanvragenHandler =
+  (deps: SliceAHandlerDeps) =>
+  async (
+    input: z.output<typeof batchGetAanvragenInputSchema>,
+    context: {
+      principal: { permissions: ReadonlySet<string>; subjectId: string };
+    }
+  ) => {
+    // Same rule as get_aanvraag: full detail is recruiter-only; preview
+    // (DEC-008 minimised via previewAanvraag) is the default.
+    if (
+      input.full === true &&
+      !hasRecruiterPermission(context.principal.permissions)
+    ) {
+      return domainFailure(
+        "FORBIDDEN_FULL",
+        "Full detail requires the recruiter role"
+      );
+    }
+    const records = await deps.stores.aanvragen.getByIds(input.ids);
+    const items = await Promise.all(
+      records.map(async (record) => {
+        const markering = await deps.stores.markeringen.get(
+          record.id,
+          context.principal.subjectId
+        );
+        return {
+          aanvraag:
+            input.full === true
+              ? fullAanvraag(record)
+              : previewAanvraag(record),
+          id: record.id,
+          markering: markering
+            ? { reden: markering.reden, status: markering.status }
+            : null,
+          versies: record.versies.map(toVersieView),
+        };
+      })
+    );
+    // Unknown ids are skipped rather than failing the batch, mirroring the
+    // per-id path where one failed preview never sank the whole search.
+    return { ok: true as const, value: { items } };
   };
 
 export const readRawInputSchema = z

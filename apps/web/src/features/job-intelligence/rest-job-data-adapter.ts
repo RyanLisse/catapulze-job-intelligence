@@ -49,6 +49,17 @@ interface GetAanvraagResponseBody {
   readonly markering: JobMarkering | null;
 }
 
+interface BatchAanvraagItem {
+  readonly aanvraag: AanvraagPreview;
+  readonly id: string;
+  readonly markering: JobMarkering | null;
+  readonly versies: readonly AanvraagVersieView[];
+}
+
+interface BatchAanvragenResponseBody {
+  readonly items: readonly BatchAanvraagItem[];
+}
+
 interface ReadRawResponseBody {
   readonly preview: string;
 }
@@ -160,23 +171,38 @@ export const createRestJobIntelligence = ({
     return bronCatalogPromise;
   };
 
-  const loadAanvraagPreview = async (
-    id: string,
+  // RJC-379: one batched call hydrates every search hit; previously this was
+  // a GET /v1/aanvragen/{id} + GET .../versies pair per id (up to 200 calls).
+  const loadSearchListings = async (
+    ids: readonly string[],
     bronCatalog: ReadonlyMap<string, BronCatalogEntry>
-  ): Promise<JobListing | null> => {
-    const detail = await client.get<GetAanvraagResponseBody>(
-      `/v1/aanvragen/${id}`
+  ): Promise<readonly JobListing[]> => {
+    if (ids.length === 0) {
+      return [];
+    }
+    // A failed batch call propagates to search's outer catch and renders as
+    // engine-error with a retry message — never as a legitimate empty result
+    // (same failure class RJC-380 closed at the Manticore layer).
+    const batch = await client.post<BatchAanvragenResponseBody>(
+      "/v1/aanvragen/batch",
+      { ids: [...ids] }
     );
-    const versies = await client.get<readonly AanvraagVersieView[]>(
-      `/v1/aanvragen/${id}/versies`
-    );
-
-    return mapAanvraagToJobListing({
-      aanvraag: detail.aanvraag,
-      bronCatalog,
-      markering: detail.markering,
-      versies,
-    });
+    const listings: JobListing[] = [];
+    for (const item of batch.items) {
+      try {
+        listings.push(
+          mapAanvraagToJobListing({
+            aanvraag: item.aanvraag,
+            bronCatalog,
+            markering: item.markering,
+            versies: item.versies,
+          })
+        );
+      } catch {
+        // Per-record isolation: one malformed record must not fail the batch.
+      }
+    }
+    return listings;
   };
 
   const loadRawPreview = async (ref: string): Promise<string | undefined> => {
@@ -238,17 +264,9 @@ export const createRestJobIntelligence = ({
           searchBody
         );
 
-        const listings = await Promise.all(
-          searchResult.ids.map(async (id) => {
-            try {
-              return await loadAanvraagPreview(id, bronCatalog);
-            } catch {
-              return null;
-            }
-          })
-        );
-        const resolved = listings.filter(
-          (listing): listing is JobListing => listing !== null
+        const resolved = await loadSearchListings(
+          searchResult.ids,
+          bronCatalog
         );
         const locationFiltered = filterJobsByLocation(
           resolved,

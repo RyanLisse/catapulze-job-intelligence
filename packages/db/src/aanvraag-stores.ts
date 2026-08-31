@@ -10,7 +10,7 @@ import type {
 import type { ObjectStore } from "@ji/connectors";
 import type { AanvraagLifecycle } from "@ji/domain";
 import type { SearchDocument, SearchDocumentLoader } from "@ji/search";
-import { asc, eq } from "drizzle-orm";
+import { asc, eq, inArray } from "drizzle-orm";
 
 import type { BronRuntimeDatabase } from "./bron-runtime";
 import { aanvraag, aanvraagVersie } from "./schema/curated";
@@ -51,6 +51,65 @@ export class PostgresAanvraagStore implements AanvraagStore {
       titel: row.titel,
       versies,
     };
+  }
+
+  async getByIds(ids: readonly string[]): Promise<readonly AanvraagRecord[]> {
+    if (ids.length === 0) {
+      return [];
+    }
+    const uniqueIds = [...new Set(ids)];
+    const [rows, versieRows] = await Promise.all([
+      this.database
+        .select()
+        .from(aanvraag)
+        .where(inArray(aanvraag.id, uniqueIds)),
+      this.database
+        .select({
+          aanvraagId: aanvraagVersie.aanvraagId,
+          geldigTot: aanvraagVersie.geldigTot,
+          geldigVan: aanvraagVersie.geldigVan,
+          id: aanvraagVersie.id,
+          scrapeRunId: aanvraagVersie.scrapeRunId,
+          versie: aanvraagVersie.versie,
+        })
+        .from(aanvraagVersie)
+        .where(inArray(aanvraagVersie.aanvraagId, uniqueIds))
+        .orderBy(asc(aanvraagVersie.versie)),
+    ]);
+    const versiesByAanvraagId = new Map<string, AanvraagVersieRecord[]>();
+    for (const row of versieRows) {
+      const versies = versiesByAanvraagId.get(row.aanvraagId) ?? [];
+      versies.push({
+        geldigTot: row.geldigTot,
+        geldigVan: row.geldigVan,
+        id: row.id,
+        normalisatieversie: String(row.versie),
+        scrapeRunId: row.scrapeRunId,
+      });
+      versiesByAanvraagId.set(row.aanvraagId, versies);
+    }
+    const recordsById = new Map<string, AanvraagRecord>();
+    for (const row of rows) {
+      recordsById.set(row.id, {
+        beschrijving: row.beschrijving,
+        bronId: row.bronId,
+        bronReferentie: row.bronReferentie,
+        id: row.id,
+        rawPayloadRef: row.rawPayloadRef,
+        scrapeRunId: row.scrapeRunId,
+        status: row.status,
+        titel: row.titel,
+        versies: versiesByAanvraagId.get(row.id) ?? [],
+      });
+    }
+    const records: AanvraagRecord[] = [];
+    for (const id of uniqueIds) {
+      const record = recordsById.get(id);
+      if (record) {
+        records.push(record);
+      }
+    }
+    return records;
   }
 
   async listVersies(
