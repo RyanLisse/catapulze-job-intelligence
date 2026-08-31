@@ -117,4 +117,61 @@ describe("parseStriivePayload", () => {
     expect(draft.titel.value).toBe("Functioneel Beheerder Youforce");
     expect(draft.contentHash).toBe("hash-7");
   });
+
+  it("closes lifecycle once closingDateClient has passed", () => {
+    const draft = parseStriivePayload(
+      buildPayload({ closingDateClient: "2000-01-01T00:00:00" }),
+      "hash-8"
+    );
+    expect(draft.lifecycle).toBe("closed");
+    expect(draft.status).toBe("closed");
+  });
+
+  it("stays active while closingDateClient is still in the future", () => {
+    const draft = parseStriivePayload(
+      buildPayload({ closingDateClient: "2099-01-01T00:00:00" }),
+      "hash-9"
+    );
+    expect(draft.lifecycle).toBe("active");
+    expect(draft.status).toBe("active");
+  });
+
+  it("stays active when closingDateClient closes later today (RJC-376 regression)", () => {
+    // Reproduces the bug: truncating "later today" to a bare date and
+    // comparing at midnight used to flip this to "closed" hours before the
+    // real deadline. closingDateClient carries a real time component at the
+    // source, so a naive Europe/Amsterdam wall-clock string a few minutes
+    // in the future must not close it.
+    const parts = new Intl.DateTimeFormat("en-US", {
+      day: "2-digit",
+      hour: "2-digit",
+      hourCycle: "h23",
+      minute: "2-digit",
+      month: "2-digit",
+      second: "2-digit",
+      timeZone: "Europe/Amsterdam",
+      year: "numeric",
+    }).formatToParts(new Date(Date.now() + 5 * 60 * 1000));
+    const get = (type: string) =>
+      parts.find((part) => part.type === type)?.value;
+    const laterToday = `${get("year")}-${get("month")}-${get("day")}T${get("hour")}:${get("minute")}:${get("second")}`;
+
+    const draft = parseStriivePayload(
+      buildPayload({ closingDateClient: laterToday }),
+      "hash-10"
+    );
+
+    expect(draft.lifecycle).toBe("active");
+    expect(draft.status).toBe("active");
+  });
+
+  it("stays unknown/open rather than auto-closing when closingDateClient is absent", () => {
+    const draft = parseStriivePayload(
+      buildPayload({ closingDateClient: null }),
+      "hash-11"
+    );
+
+    // No closing information at all -- must not read as "already closed".
+    expect(draft.lifecycle).not.toBe("closed");
+  });
 });
