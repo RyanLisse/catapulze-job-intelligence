@@ -111,6 +111,48 @@ services:
     mem_limit: 1g
     restart: unless-stopped
 
+  # RJC-382: shadow instance for evaluating Manticore 29.x (native hybrid
+  # search — BM25+KNN with RRF fusion) against the pinned 6.3.8 production
+  # instance above, side by side. Gated behind the "shadow" profile, so a
+  # plain `docker compose up` (no profile) never starts it — only
+  # `docker compose up -d manticore29` (explicitly targeting it activates
+  # its profile) or `docker compose --profile shadow up -d` do. See
+  # tools/manticore/README-29-shadow.md for the comparison plan. The
+  # production `manticore` service above must stay byte-identical.
+  manticore29:
+    profiles: ["shadow"]
+    image: manticoresearch/manticore:29.0.2@sha256:647ff5da4de6361eb043417a8f19b9e05041d3cfa1c3566665c07bc872cd15c3
+    ports:
+      - target: 9308
+        published: "${MANTICORE29_HTTP_PORT:-9312}"
+        host_ip: 127.0.0.1
+        protocol: tcp
+      - target: 9306
+        published: "${MANTICORE29_MYSQL_PORT:-9313}"
+        host_ip: 127.0.0.1
+        protocol: tcp
+    volumes:
+      - manticore29_data:/var/lib/manticore
+      # Writable bind mount: same reason as the 6.3.8 service — the official
+      # entrypoint chowns /etc/manticoresearch before dropping to the
+      # manticore user; :ro makes that chown fail and crash-loops searchd.
+      - ./tools/manticore/manticore29.conf:/etc/manticoresearch/manticore.conf
+    healthcheck:
+      # Table-independent on purpose (unlike the 6.3.8 healthcheck above,
+      # which greps for the aanvragen table): this service starts with an
+      # empty RT table set on a fresh volume — the probe script creates
+      # aanvragen itself after startup — so a table-existence check would
+      # never pass and `docker compose up -d --wait manticore29` would hang
+      # until timeout. `SELECT 1` only proves searchd itself is answering.
+      test: ["CMD-SHELL", "mysql -h127.0.0.1 -P9306 -e 'SELECT 1'"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 15s
+    cpus: "1.0"
+    mem_limit: 1g
+    restart: unless-stopped
+
   server:
     build:
       context: .
@@ -154,3 +196,4 @@ volumes:
     external: true
     name: ${POSTGRES_DATA_VOLUME:-catapulze-postgres-p0}
   manticore_data:
+  manticore29_data:
