@@ -1,4 +1,5 @@
 import { loadConnectorFixture } from "../fixtures/load";
+import { decodeHtmlEntities } from "../html-entities";
 import type { FlinterDetail, FlinterListingItem } from "./types";
 import { FLINTER_OPDRACHTEN_PATH } from "./types";
 
@@ -19,38 +20,10 @@ const DEFAULT_BASE_URL = "https://www.flinter.nl";
 
 /** Same numeric/named-entity gap as needstaffing's HTMLRewriter text nodes,
  * but here we parse raw response text with regex, not a rewriter -- entities
- * confirmed live in listing text: `&amp;`, `&gt;`, `&#039;`. Map, not a
- * Record literal, so lookups by an arbitrary string stay type-safe without
- * widening. */
-const NAMED_ENTITIES = new Map<string, string>([
-  ["amp", "&"],
-  ["apos", "'"],
-  ["gt", ">"],
-  ["lt", "<"],
-  ["nbsp", " "],
-  ["quot", '"'],
-]);
-
-const ENTITY_PATTERN = /&(?<code>#x[0-9a-fA-F]+|#\d+|[a-zA-Z]+);/gu;
-
-const decodeNumericEntity = (code: string): string | undefined => {
-  const isHex = code[1] === "x" || code[1] === "X";
-  const codePoint = isHex
-    ? Number.parseInt(code.slice(2), 16)
-    : Math.trunc(Number(code.slice(1)));
-  return Number.isFinite(codePoint)
-    ? String.fromCodePoint(codePoint)
-    : undefined;
-};
-
-export const decodeFlinterEntities = (text: string): string =>
-  text.replaceAll(
-    ENTITY_PATTERN,
-    (match, code: string) =>
-      (code[0] === "#"
-        ? decodeNumericEntity(code)
-        : NAMED_ENTITIES.get(code)) ?? match
-  );
+ * confirmed live in listing text: `&amp;`, `&gt;`, `&#039;`. Decoding itself
+ * is shared with needstaffing via `../html-entities` (RJC-374: both were
+ * byte-identical copies with the same unguarded code-point ceiling). */
+export const decodeFlinterEntities = decodeHtmlEntities;
 
 const cleanText = (raw: string): string =>
   decodeFlinterEntities(raw.replaceAll(/<[^>]+>/gu, " "))

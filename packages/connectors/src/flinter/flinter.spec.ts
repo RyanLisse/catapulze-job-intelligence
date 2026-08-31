@@ -10,6 +10,7 @@ import {
 
 import {
   createFlinterClient,
+  decodeFlinterEntities,
   extractFlinterSlug,
   extractFlinterUrenPerWeek,
   isFlinterLooptijdDuration,
@@ -271,6 +272,25 @@ describe("parseFlinterDetail", () => {
     );
     expect(detail.isPermanentVacancy).toBe(true);
     expect(detail.urenPerWeek).toBeUndefined();
+  });
+});
+
+describe("decodeFlinterEntities (RJC-374 guard, wired through this source)", () => {
+  it("leaves an out-of-range numeric entity untouched instead of throwing", () => {
+    expect(() => decodeFlinterEntities("&#1114112;")).not.toThrow();
+    expect(decodeFlinterEntities("&#1114112;")).toBe("&#1114112;");
+  });
+
+  it("leaves a lone-surrogate numeric entity untouched instead of throwing", () => {
+    expect(() => decodeFlinterEntities("&#xD800;")).not.toThrow();
+    expect(decodeFlinterEntities("&#xD800;")).toBe("&#xD800;");
+  });
+
+  it("still decodes real entities confirmed live in Flinter listing text", () => {
+    expect(decodeFlinterEntities("Recht &amp; Bestuur")).toBe(
+      "Recht & Bestuur"
+    );
+    expect(decodeFlinterEntities("&#039;t Gooi")).toBe("'t Gooi");
   });
 });
 

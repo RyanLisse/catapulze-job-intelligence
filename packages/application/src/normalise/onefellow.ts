@@ -42,13 +42,34 @@ const NAMED_ENTITIES = {
 const ENTITY_PATTERN =
   /&(?:#(?<dec>\d+)|#x(?<hex>[\da-fA-F]+)|(?<named>[a-zA-Z]+));/gu;
 
+const MAX_UNICODE_CODE_POINT = 0x10_ff_ff;
+const SURROGATE_RANGE_START = 0xd8_00;
+const SURROGATE_RANGE_END = 0xdf_ff;
+
+/** A numeric character reference is only usable when it names a real
+ * Unicode scalar value: within the codespace (`<= 0x10FFFF`, RJC-374 caught
+ * `&#1114112;`, one past the ceiling) and not a lone surrogate half
+ * (`0xD800`-`0xDFFF`, which `String.fromCodePoint` also throws on). Both
+ * `Number(dec)` and `Number.parseInt(hex, 16)` can additionally yield `NaN`
+ * or `Infinity` on malformed input, so a finite check comes first. */
+const isDecodableCodePoint = (codePoint: number): boolean =>
+  Number.isFinite(codePoint) &&
+  codePoint >= 0 &&
+  codePoint <= MAX_UNICODE_CODE_POINT &&
+  !(codePoint >= SURROGATE_RANGE_START && codePoint <= SURROGATE_RANGE_END);
+
+/** Leaves the original entity text untouched when the code point can't be
+ * decoded -- we could not resolve it, so we do not pretend to have. */
+const decodeNumericEntity = (match: string, codePoint: number): string =>
+  isDecodableCodePoint(codePoint) ? String.fromCodePoint(codePoint) : match;
+
 const decodeOnefellowEntitiesOnce = (raw: string): string =>
   raw.replaceAll(ENTITY_PATTERN, (match, dec, hex, named) => {
     if (dec) {
-      return String.fromCodePoint(Number(dec));
+      return decodeNumericEntity(match, Number(dec));
     }
     if (hex) {
-      return String.fromCodePoint(Number.parseInt(hex, 16));
+      return decodeNumericEntity(match, Number.parseInt(hex, 16));
     }
     if (!(named && Object.hasOwn(NAMED_ENTITIES, named))) {
       return match;

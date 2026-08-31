@@ -95,6 +95,52 @@ describe("parseOnefellowPayload", () => {
     );
   });
 
+  it("still decodes Onefellow's real double-encoded ampersand case", () => {
+    const draft = parseOnefellowPayload(
+      buildPayload({
+        description: "&lt;p&gt;Bouwteam &amp;amp; Ontwerpfase&lt;/p&gt;",
+      }),
+      "hash-amp"
+    );
+    expect(draft.beschrijving.value).toBe("Bouwteam & Ontwerpfase");
+  });
+
+  it("leaves an out-of-range numeric entity untouched instead of throwing (RJC-374)", () => {
+    expect(() =>
+      parseOnefellowPayload(
+        buildPayload({ description: "One past the ceiling: &#1114112;" }),
+        "hash-oob"
+      )
+    ).not.toThrow();
+    const draft = parseOnefellowPayload(
+      buildPayload({ description: "One past the ceiling: &#1114112;" }),
+      "hash-oob-2"
+    );
+    expect(draft.beschrijving.value).toBe("One past the ceiling: &#1114112;");
+  });
+
+  it("leaves a lone-surrogate numeric entity untouched instead of throwing", () => {
+    expect(() =>
+      parseOnefellowPayload(
+        buildPayload({ description: "Lone surrogate: &#xD800;" }),
+        "hash-surrogate"
+      )
+    ).not.toThrow();
+    const draft = parseOnefellowPayload(
+      buildPayload({ description: "Lone surrogate: &#xD800;" }),
+      "hash-surrogate-2"
+    );
+    expect(draft.beschrijving.value).toBe("Lone surrogate: &#xD800;");
+  });
+
+  it("still decodes a valid numeric entity (decimal and hex)", () => {
+    const draft = parseOnefellowPayload(
+      buildPayload({ description: "Euro sign: &#8364; and &#x20AC;" }),
+      "hash-valid-numeric"
+    );
+    expect(draft.beschrijving.value).toBe("Euro sign: € and €");
+  });
+
   it("falls back to teaser then title when description is absent", () => {
     const teaserOnly = parseOnefellowPayload(
       buildPayload({ description: undefined }),
