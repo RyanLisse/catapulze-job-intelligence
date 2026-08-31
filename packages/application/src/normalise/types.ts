@@ -93,7 +93,7 @@ export const stripHtml = (html: string): string =>
     .trim();
 
 export const normalizeDedupText = (value: string): string =>
-  value.replaceAll("\u001F", "").trim().toLowerCase().replaceAll(/\s+/gu, " ");
+  value.replaceAll("\u001F", " ").trim().toLowerCase().replaceAll(/\s+/gu, " ");
 
 export const buildDedupKey = (input: {
   opdrachtgeverNaam: string | typeof UNKNOWN;
