@@ -67,6 +67,7 @@ app.get("/readyz", healthRoutes.ready);
 const sliceA = createProductionSliceARegistry({
   databaseUrl: env.DATABASE_URL,
   manticoreUrl: env.MANTICORE_URL,
+  nodeEnv: env.NODE_ENV,
   rawObjectStorePath: env.RAW_OBJECT_STORE_PATH,
 });
 const restRoutes = restRoutesFromRegistry(sliceA.registry);
