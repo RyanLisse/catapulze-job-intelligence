@@ -2,6 +2,8 @@
 
 Deze lane maakt de lokale productieachtige route reproduceerbaar terwijl de Hetzner-host nog niet beschikbaar is. De huidige Compose-stack bevat Postgres 16, de API en de webapp. Manticore, Redis en object storage worden pas toegevoegd wanneer de applicatiecode daarvan afhankelijk is.
 
+> **Notitie 2026-08-31:** [ADR-0006](../adr/ADR-0006-neon-as-system-of-record.md) kiest Neon als production system of record. De Coolify-instructies hieronder die een productie-Postgres-16-service op de host aanmaken zijn daarmee voor productie achterhaald; de server krijgt daar een Neon-`DATABASE_URL`. De lokale Compose-Postgres blijft voor deze lane gewoon bestaan.
+
 ## Lokale Docker-proef met 1Password
 
 Vereisten: Bun 1.3.14, Docker Desktop/OrbStack, 1Password CLI met een actieve sessie en een lege of bestaande Docker-volume-naam.

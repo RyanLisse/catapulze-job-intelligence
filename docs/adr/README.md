@@ -16,8 +16,9 @@ Deze map bevat de canonieke architectuurbesluiten die meerdere packages, uitvoer
 | [ADR-0001](ADR-0001-performance-evidence-contract.md) | Accepted | Eén veilig, vendor-neutraal performance-evidencecontract |
 | [ADR-0002](ADR-0002-execution-lanes-github-crabbox-exedev.md) | Accepted | GitHub CI als gate; Crabbox en exe.dev als gescheiden remote lanes |
 | [ADR-0003](ADR-0003-performance-budgets-and-regression-policy.md) | Accepted | Eerst cohorten en baselines, daarna pas tijdregressies blokkeren |
-| [ADR-0004](ADR-0004-postgres-environment-strategy.md) | Accepted | Docker Postgres 16 voor lokale/CI-evidence en een dedicated on-box productie-instance |
-| [ADR-0005](ADR-0005-trigger-dev-database-reachability.md) | Proposed | Trigger.dev-workers versus private Postgres en Manticore: opties, nog te beslissen |
+| [ADR-0004](ADR-0004-postgres-environment-strategy.md) | Gedeeltelijk superseded (ADR-0006) | Docker Postgres 16 voor lokale/CI-evidence blijft; het on-box productie-instance-deel is vervangen door ADR-0006 |
+| [ADR-0005](ADR-0005-trigger-dev-database-reachability.md) | Beslist via ADR-0006 (Postgres); Manticore-helft open | Trigger.dev-workers versus private Postgres en Manticore |
+| [ADR-0006](ADR-0006-neon-as-system-of-record.md) | Accepted | Neon (managed Postgres) als production system of record; supersedeert het on-box deel van ADR-0004 |
 
 ## Runbooks
 
