@@ -62,6 +62,7 @@ export interface PollBronRuntime {
     bronId: BronId;
     bronSlug: SliceABronSlug;
     knownHashes: KnownHashStore;
+    runKind: ConnectorRunKind;
   }) => Connector;
   curateStore: PostgresCurateStore;
   database: BronRuntimeDatabase;
@@ -87,13 +88,27 @@ export const createPollBronRuntime = (databaseUrl: string): PollBronRuntime => {
   return {
     bronPersistence: client.bronPersistence,
     close: client.close,
-    createConnector: ({ bronId, bronSlug, knownHashes }) => {
+    createConnector: ({ bronId, bronSlug, knownHashes, runKind }) => {
       if (bronSlug === "tenderned") {
+        let filters: ReturnType<typeof buildTenderNedPollFilters> | undefined;
+        if (!isLiveEnabled("tenderned")) {
+          filters = undefined;
+        } else if (runKind === "poll") {
+          filters = buildTenderNedPollFilters();
+        } else {
+          const configuredDays =
+            process.env.TENDER_NED_TEST_IMPORT_DAYS ?? "14";
+          const days = Number(configuredDays);
+          if (!Number.isInteger(days) || days < 1 || days > 90) {
+            throw new Error(
+              `TENDER_NED_TEST_IMPORT_DAYS must be an integer from 1 through 90; received "${configuredDays}"`
+            );
+          }
+          filters = buildTenderNedPollFilters(undefined, undefined, days);
+        }
         return createTenderNedConnector({
           bronId,
-          filters: isLiveEnabled("tenderned")
-            ? buildTenderNedPollFilters()
-            : undefined,
+          filters,
           knownHashes,
         });
       }
@@ -126,6 +141,7 @@ export const runPollBron = async (
     bronId,
     bronSlug: payload.bronSlug,
     knownHashes: runtime.knownHashStore,
+    runKind,
   });
 
   const result = await executeBronRun(runtime.bronPersistence, {

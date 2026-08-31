@@ -1,6 +1,7 @@
 import type { TenderNedFilters } from "./types";
 
 const POLL_TIME_ZONE = "Europe/Amsterdam";
+const MILLISECONDS_PER_DAY = 86_400_000;
 
 const formatDateInTimeZone = (date: Date, timeZone: string): string => {
   const parts = new Intl.DateTimeFormat("en-CA", {
@@ -21,12 +22,13 @@ const formatDateInTimeZone = (date: Date, timeZone: string): string => {
 /** Poll window from docs/sources/tenderned.md: yesterday through today, CPV + diensten filters. */
 export const buildTenderNedPollFilters = (
   now = new Date(),
-  timeZone = POLL_TIME_ZONE
+  timeZone = POLL_TIME_ZONE,
+  daysBack = 1
 ): TenderNedFilters => {
-  const yesterday = new Date(now.getTime() - 86_400_000);
+  const since = new Date(now.getTime() - daysBack * MILLISECONDS_PER_DAY);
   return {
     cpvCodes: ["72000000-5", "79620000-6"],
-    publicatieDatumVanaf: formatDateInTimeZone(yesterday, timeZone),
+    publicatieDatumVanaf: formatDateInTimeZone(since, timeZone),
     typeOpdracht: "D",
   };
 };

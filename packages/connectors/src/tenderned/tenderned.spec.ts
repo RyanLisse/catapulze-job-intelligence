@@ -2,6 +2,7 @@ import { describe, expect, it } from "bun:test";
 
 import {
   asIdString,
+  buildTenderNedPollFilters,
   createTenderNedClient,
   createTenderNedConnector,
   requestedListingSize,
@@ -37,6 +38,21 @@ const buildNumericIdClient = (): TenderNedClient => {
 };
 
 describe("TenderNed connector", () => {
+  it("supports a 14-day test-import window while retaining poll defaults", () => {
+    const now = new Date("2026-08-31T12:00:00.000Z");
+
+    expect(buildTenderNedPollFilters(now, "UTC")).toEqual({
+      cpvCodes: ["72000000-5", "79620000-6"],
+      publicatieDatumVanaf: "2026-08-30",
+      typeOpdracht: "D",
+    });
+    expect(buildTenderNedPollFilters(now, "UTC", 14)).toEqual({
+      cpvCodes: ["72000000-5", "79620000-6"],
+      publicatieDatumVanaf: "2026-08-17",
+      typeOpdracht: "D",
+    });
+  });
+
   it("never requests a listing page size above 100", () => {
     expect(requestedListingSize(101)).toBe(TENDER_NED_MAX_PAGE_SIZE);
     expect(requestedListingSize(50)).toBe(50);
