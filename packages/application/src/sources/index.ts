@@ -1,5 +1,6 @@
 import { bluetrail } from "./bluetrail";
 import type { SourceDefinition } from "./definition";
+import { harveynash } from "./harveynash";
 import { hero } from "./hero";
 import { inhuurdesk } from "./inhuurdesk";
 import { needstaffing } from "./needstaffing";
@@ -16,6 +17,7 @@ export { resolveTenderNedTestImportDays } from "./tenderned";
 /** Registry of every ingestable bron. Adding a source = one file in this folder + one line here. */
 export const SOURCES = {
   bluetrail,
+  harveynash,
   hero,
   inhuurdesk,
   needstaffing,

@@ -3,7 +3,8 @@
  * Minimal, regex-free extractor for `<script type="application/ld+json">`
  * blocks embedded in an HTML document. Used as the documented fallback path
  * for sources whose SSR detail pages carry JSON-LD (e.g. Opdrachtoverheid's
- * JobPosting markup) when a private listing API is unavailable or changes.
+ * and Harvey Nash's JobPosting markup) when a private listing API is
+ * unavailable or changes.
  *
  * Deliberately does not use a DOM parser: connectors run in worker/server
  * contexts without one, and the extraction only needs to locate script tag
@@ -85,4 +86,22 @@ export const findJobPosting = (
       }
     }
   }
+  return undefined;
+};
+
+/** Convenience lookup for the common case: extract every JSON-LD block from
+ * `html` and return the first whose `@type` matches (e.g. "JobPosting").
+ * Unlike `findJobPosting`, this does not look inside `@graph` -- callers
+ * that need that should use `extractJsonLdBlocks` + `findJobPosting`
+ * directly. Returns undefined when none match or parsing yielded no blocks. */
+export const findJsonLdByType = (
+  html: string,
+  type: string
+): JsonLdNode | undefined => {
+  for (const block of extractJsonLdBlocks(html)) {
+    if (isRecord(block) && block["@type"] === type) {
+      return block;
+    }
+  }
+  return undefined;
 };
