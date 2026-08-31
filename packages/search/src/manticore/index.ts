@@ -13,6 +13,7 @@ export type {
 export {
   buildManticoreSearchRequest,
   FetchManticoreClient,
+  ManticoreTimeoutError,
   parseManticoreSearchResponse,
   replaceManticoreDocument,
   searchManticore,

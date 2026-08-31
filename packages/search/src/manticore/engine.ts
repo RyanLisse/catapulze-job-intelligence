@@ -91,10 +91,15 @@ export class ManticoreSearchEngine implements SearchEngine {
     );
 
     const response = await searchManticore(this.client, request);
+    // A reason Manticore itself reported (e.g. "query_timeout", RJC-380)
+    // takes priority over the empty_index fallback below — an index that
+    // timed out at zero hits is not the same thing as a genuinely empty
+    // index, and must not be reported as one.
     const emptyReason =
-      response.total === 0 && this.indexVersion === 0
+      response.emptyReason ??
+      (response.total === 0 && this.indexVersion === 0
         ? "empty_index"
-        : response.emptyReason;
+        : undefined);
 
     const facets = recordCriticalPathPhaseSync(
       "search-facets",

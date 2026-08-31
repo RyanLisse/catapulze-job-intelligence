@@ -45,6 +45,10 @@ export const manticoreSearchPayloadSchema = z.object({
       total: z.union([z.number(), z.object({ value: z.number() })]).optional(),
     })
     .optional(),
+  // Set by Manticore when max_query_time (RJC-380) cuts a query short: the
+  // response is still 200 OK with whatever matches were found so far, not
+  // an error — so this is the only signal that hits/total are partial.
+  timed_out: z.boolean().optional(),
 });
 
 export type ManticoreSearchPayload = z.infer<
@@ -113,6 +117,14 @@ export interface ManticoreSearchRequestBody {
   filter?: ManticoreFilterClause;
   index: string;
   limit: number;
+  // Upper bound on how many candidate matches Manticore ranks and holds in
+  // memory for this query, independent of limit/offset (RJC-380). See the
+  // docblock on DEFAULT_MAX_MATCHES in client.ts for the reasoning.
+  max_matches: number;
+  // Wall-clock query execution budget in milliseconds. Manticore returns a
+  // partial result (not an error) if a query runs past this (RJC-380). See
+  // the docblock on DEFAULT_MAX_QUERY_TIME_MS in client.ts.
+  max_query_time: number;
   offset: number;
   query?: ManticoreQueryBody;
   sort: (ManticoreIdSortEntry | ManticoreSortEntry)[];
