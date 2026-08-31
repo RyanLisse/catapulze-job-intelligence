@@ -4,6 +4,7 @@ import { harveynash } from "./harveynash";
 import { hero } from "./hero";
 import { inhuurdesk } from "./inhuurdesk";
 import { needstaffing } from "./needstaffing";
+import { onefellow } from "./onefellow";
 import { opdrachtoverheid } from "./opdrachtoverheid";
 import { proAct } from "./pro-act";
 import { striive } from "./striive";
@@ -22,6 +23,7 @@ export const SOURCES = {
   hero,
   inhuurdesk,
   needstaffing,
+  onefellow,
   opdrachtoverheid,
   "pro-act": proAct,
   striive,
