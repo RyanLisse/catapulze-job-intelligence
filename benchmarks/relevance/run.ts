@@ -3,7 +3,11 @@ import path from "node:path";
 
 import { AANVRAAG_LIFECYCLE, parseBooleanQuery } from "@ji/domain";
 import type { SearchEngine, SearchFilters } from "@ji/search";
-import { InMemorySearchEngine, ManticoreSearchEngine } from "@ji/search";
+import {
+  InMemorySearchEngine,
+  InMemorySearchVersionStore,
+  ManticoreSearchEngine,
+} from "@ji/search";
 import { z } from "zod";
 
 import { loadRelevanceCorpus } from "./corpus";
@@ -191,7 +195,7 @@ const scoreEngine = async (
     // oxlint-disable-next-line no-await-in-loop -- upserts are ordered so both engines index identically
     await engine.upsertDocument(item.document);
   }
-  await engine.setIndexVersion(1);
+  await engine.applyBatch({ appliedSequence: 1n, mutations: [] });
 
   const perQuery: QueryScore[] = [];
   for (const query of queries) {
@@ -251,7 +255,10 @@ const buildEngineRuns = (corpus: RelevanceCorpusSummary): EngineRun[] => {
   ];
   const manticoreUrl = process.env.MANTICORE_URL?.trim();
   if (manticoreUrl) {
-    const manticore = ManticoreSearchEngine.fromUrl(manticoreUrl);
+    const manticore = ManticoreSearchEngine.fromUrl(
+      manticoreUrl,
+      new InMemorySearchVersionStore()
+    );
     runs.push({
       // The local Manticore table is shared with the app; benchmark ids are
       // `slug:referentie` strings that cannot collide with the app's UUID

@@ -380,12 +380,33 @@ export const outboxEvent = curatedSchema.table(
     indexVersion: integer("index_version"),
     payload: jsonb("payload").notNull(),
     processedAt: timestamp("processed_at", { withTimezone: true }),
+    sequenceNumber: bigint("sequence_number", { mode: "bigint" })
+      .notNull()
+      .generatedAlwaysAsIdentity(),
   },
   (table) => [
     index("outbox_event_unprocessed_idx")
       .on(table.createdAt)
       .where(sql`${table.processedAt} IS NULL`),
+    uniqueIndex("outbox_event_sequence_number_uidx").on(table.sequenceNumber),
   ]
+);
+
+/**
+ * Durable search projection checkpoint (RJC-384): one row per search index,
+ * carrying the generation and the highest applied outbox sequence.
+ */
+export const searchProjectionCheckpoint = curatedSchema.table(
+  "search_projection_checkpoint",
+  {
+    appliedSequence: bigint("applied_sequence", { mode: "bigint" }).notNull(),
+    generation: integer("generation").notNull(),
+    indexName: text("index_name").primaryKey(),
+    schemaHash: text("schema_hash").notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  }
 );
 
 export const agentContext = curatedSchema.table(

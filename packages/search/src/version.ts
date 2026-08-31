@@ -1,0 +1,120 @@
+/* oxlint-disable max-classes-per-file -- the mismatch error and the in-memory store are one cohesive version module */
+/**
+ * Durable search version (RJC-384). The authoritative copy lives in
+ * `curated.search_projection_checkpoint`; process memory only echoes it.
+ */
+/**
+ * apps/web type-checks this package at target ES2018, where bigint literals
+ * are a syntax error, while the linter rejects inline `BigInt(...)` calls.
+ * One pinned constant keeps both gates green.
+ */
+// oxlint-disable-next-line unicorn/prefer-bigint-literals -- see above
+export const ZERO_SEQUENCE = BigInt(0);
+
+export interface SearchVersion {
+  /** Highest DB-generated outbox sequence applied to the index. */
+  readonly appliedSequence: bigint;
+  /** Bumps on a new index, schema change, or full rebuild. */
+  readonly generation: number;
+}
+
+export interface SearchVersionCheckpoint extends SearchVersion {
+  readonly schemaHash: string;
+}
+
+/** Orders versions: generation first, then appliedSequence. */
+export const compareSearchVersions = (
+  left: SearchVersion,
+  right: SearchVersion
+): -1 | 0 | 1 => {
+  if (left.generation !== right.generation) {
+    return left.generation < right.generation ? -1 : 1;
+  }
+  if (left.appliedSequence !== right.appliedSequence) {
+    return left.appliedSequence < right.appliedSequence ? -1 : 1;
+  }
+  return 0;
+};
+
+/**
+ * True when `candidate` is older than `current` — the check the cache and
+ * cursor work (later RJC-384 steps) uses to detect stale snapshots.
+ */
+export const isStaleSearchVersion = (
+  candidate: SearchVersion,
+  current: SearchVersion
+): boolean => compareSearchVersions(candidate, current) < 0;
+
+/**
+ * Identifies the indexed document mapping. Update this string whenever the
+ * Manticore column mapping (`documentToManticore`) changes; a checkpoint
+ * carrying a different hash means the index was built for another schema and
+ * requires a full rebuild (new generation), never a silent reindex.
+ */
+// ponytail: hand-maintained constant; runtime hashing of the mapping buys
+// nothing until the mapping itself is data-driven.
+export const SEARCH_SCHEMA_HASH =
+  "aanvragen-v1:beschrijving,bron_id,contracttype,document_id,index_version,laatst_gezien_op,locatie_land,status,tarief_max,tarief_min,titel";
+
+export interface SearchVersionStore {
+  /** Monotonic: never moves the checkpoint backwards. */
+  advance: (appliedSequence: bigint) => Promise<SearchVersion>;
+  /** Reads the durable checkpoint, initializing it if absent. */
+  read: () => Promise<SearchVersionCheckpoint>;
+  /** Full rebuild: bumps generation and resets appliedSequence to 0. */
+  startNewGeneration: (schemaHash: string) => Promise<SearchVersion>;
+}
+
+export class SearchIndexSchemaMismatchError extends Error {
+  readonly expectedSchemaHash: string;
+  readonly storedSchemaHash: string;
+
+  constructor(storedSchemaHash: string, expectedSchemaHash: string) {
+    super(
+      `Search index schema hash mismatch: checkpoint has "${storedSchemaHash}", code expects "${expectedSchemaHash}". ` +
+        "Full rebuild required — start a new generation via SearchVersionStore.startNewGeneration and reindex; do not reindex silently."
+    );
+    this.name = "SearchIndexSchemaMismatchError";
+    this.expectedSchemaHash = expectedSchemaHash;
+    this.storedSchemaHash = storedSchemaHash;
+  }
+}
+
+/** Process-local store for tests, benchmarks, and the in-memory engine. */
+export class InMemorySearchVersionStore implements SearchVersionStore {
+  private checkpoint: SearchVersionCheckpoint;
+
+  constructor(schemaHash: string = SEARCH_SCHEMA_HASH) {
+    this.checkpoint = {
+      appliedSequence: ZERO_SEQUENCE,
+      generation: 1,
+      schemaHash,
+    };
+  }
+
+  advance(appliedSequence: bigint): Promise<SearchVersion> {
+    if (appliedSequence > this.checkpoint.appliedSequence) {
+      this.checkpoint = { ...this.checkpoint, appliedSequence };
+    }
+    return Promise.resolve({
+      appliedSequence: this.checkpoint.appliedSequence,
+      generation: this.checkpoint.generation,
+    });
+  }
+
+  read(): Promise<SearchVersionCheckpoint> {
+    return Promise.resolve(this.checkpoint);
+  }
+
+  startNewGeneration(schemaHash: string): Promise<SearchVersion> {
+    this.checkpoint = {
+      appliedSequence: ZERO_SEQUENCE,
+      generation: this.checkpoint.generation + 1,
+      schemaHash,
+    };
+    return Promise.resolve({
+      appliedSequence: ZERO_SEQUENCE,
+      generation: this.checkpoint.generation,
+    });
+  }
+}

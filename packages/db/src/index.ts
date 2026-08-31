@@ -60,7 +60,16 @@ export {
   PostgresSearchDocumentLoader,
 } from "./aanvraag-stores";
 export { PostgresKnownHashStore } from "./known-hash-store";
-export { drainPostgresOutbox } from "./outbox-drain";
+export {
+  drainPostgresOutbox,
+  type DrainPostgresOutboxInput,
+  type DrainPostgresOutboxResult,
+} from "./outbox-drain";
+export {
+  PostgresSearchVersionStore,
+  type PostgresSearchVersionStoreOptions,
+  type SearchVersionDatabase,
+} from "./search-version-store";
 export {
   createBronRuntimeClient,
   type BronRuntimeClient,

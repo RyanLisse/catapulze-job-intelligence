@@ -1,6 +1,7 @@
 import type { AanvraagLifecycle, BooleanNode } from "@ji/domain";
 
 import type { OutboxEventPayload } from "./outbox-payload";
+import type { SearchVersion } from "./version";
 
 export const SEARCH_INDEX_NAME = "aanvragen" as const;
 
@@ -66,11 +67,27 @@ export interface EngineSearchParams {
   offset: number;
 }
 
+export type SearchIndexMutation =
+  | { readonly document: SearchDocument; readonly kind: "upsert" }
+  | { readonly id: string; readonly kind: "delete" };
+
+export interface SearchIndexBatch {
+  /** Sequence of the last outbox event this batch covers. */
+  readonly appliedSequence: bigint;
+  readonly mutations: readonly SearchIndexMutation[];
+}
+
 export interface SearchEngine {
+  /**
+   * Applies mutations in order, then advances the durable version store.
+   * A crash between the index writes and the advance re-applies the batch,
+   * so mutations must be idempotent (upserts/deletes by document id are).
+   */
+  applyBatch: (batch: SearchIndexBatch) => Promise<SearchVersion>;
   deleteDocument: (id: string) => Promise<void>;
-  getIndexVersion: () => Promise<number>;
+  /** Reads the durable version — checkpoint-backed, never process-local. */
+  getAppliedVersion: () => Promise<SearchVersion>;
   search: (params: EngineSearchParams) => Promise<SearchEngineResult>;
-  setIndexVersion: (version: number) => Promise<void>;
   upsertDocument: (document: SearchDocument) => Promise<void>;
 }
 
@@ -127,15 +144,11 @@ export interface OutboxEventRecord {
   aggregateType: string;
   eventType: string;
   id: string;
-  indexVersion: number | null;
+  /** DB-generated outbox sequence (curated.outbox_event.sequence_number). */
+  sequenceNumber: bigint;
   payload: OutboxEventPayload;
 }
 
 export interface SearchDocumentLoader {
   loadByAggregateId: (aggregateId: string) => Promise<SearchDocument | null>;
-}
-
-export interface ProjectorResult {
-  indexVersion: number;
-  processed: boolean;
 }

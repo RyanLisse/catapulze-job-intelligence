@@ -6,8 +6,11 @@ import type {
   SearchDocument,
   SearchEngine,
   SearchEngineResult,
+  SearchIndexBatch,
 } from "../types";
 import { SEARCH_INDEX_NAME } from "../types";
+import { ZERO_SEQUENCE } from "../version";
+import type { SearchVersion, SearchVersionStore } from "../version";
 import {
   buildManticoreSearchRequest,
   deleteManticoreDocument,
@@ -38,39 +41,65 @@ const documentToManticore = (
 });
 
 export class ManticoreSearchEngine implements SearchEngine {
-  private indexVersion = 0;
   private readonly client: ManticoreHttpClient;
   private readonly indexName: string;
+  private readonly versionStore: SearchVersionStore;
 
-  constructor(client: ManticoreHttpClient, indexName = SEARCH_INDEX_NAME) {
+  constructor(
+    client: ManticoreHttpClient,
+    versionStore: SearchVersionStore,
+    indexName = SEARCH_INDEX_NAME
+  ) {
     this.client = client;
+    this.versionStore = versionStore;
     this.indexName = indexName;
   }
 
   static fromUrl(
     baseUrl: string,
+    versionStore: SearchVersionStore,
     indexName = SEARCH_INDEX_NAME
   ): ManticoreSearchEngine {
     return new ManticoreSearchEngine(
       new FetchManticoreClient(baseUrl),
+      versionStore,
       indexName
     );
+  }
+
+  async applyBatch(batch: SearchIndexBatch): Promise<SearchVersion> {
+    const indexVersion = Number(batch.appliedSequence);
+    /* oxlint-disable no-await-in-loop -- mutations apply in outbox sequence order */
+    for (const mutation of batch.mutations) {
+      await (mutation.kind === "delete"
+        ? deleteManticoreDocument(this.client, this.indexName, mutation.id)
+        : replaceManticoreDocument(
+            this.client,
+            this.indexName,
+            documentToManticore(mutation.document, indexVersion)
+          ));
+    }
+    /* oxlint-enable no-await-in-loop */
+    // Manticore writes land first, the checkpoint advances second: a crash
+    // in between re-applies the batch, which the replace/delete-by-id
+    // semantics make idempotent.
+    return this.versionStore.advance(batch.appliedSequence);
   }
 
   async deleteDocument(id: string): Promise<void> {
     await deleteManticoreDocument(this.client, this.indexName, id);
   }
 
-  getIndexVersion(): Promise<number> {
-    return Promise.resolve(this.indexVersion);
-  }
-
-  setIndexVersion(version: number): Promise<void> {
-    this.indexVersion = version;
-    return Promise.resolve();
+  async getAppliedVersion(): Promise<SearchVersion> {
+    const checkpoint = await this.versionStore.read();
+    return {
+      appliedSequence: checkpoint.appliedSequence,
+      generation: checkpoint.generation,
+    };
   }
 
   async search(params: EngineSearchParams): Promise<SearchEngineResult> {
+    const version = await this.getAppliedVersion();
     const { request } = recordCriticalPathPhaseSync(
       "search-serialization",
       () => {
@@ -97,7 +126,7 @@ export class ManticoreSearchEngine implements SearchEngine {
     // index, and must not be reported as one.
     const emptyReason =
       response.emptyReason ??
-      (response.total === 0 && this.indexVersion === 0
+      (response.total === 0 && version.appliedSequence === ZERO_SEQUENCE
         ? "empty_index"
         : undefined);
 
@@ -110,16 +139,17 @@ export class ManticoreSearchEngine implements SearchEngine {
       emptyReason,
       facets,
       hits: response.hits,
-      indexVersion: this.indexVersion,
+      indexVersion: Number(version.appliedSequence),
       total: response.total,
     };
   }
 
   async upsertDocument(document: SearchDocument): Promise<void> {
+    const version = await this.getAppliedVersion();
     await replaceManticoreDocument(
       this.client,
       this.indexName,
-      documentToManticore(document, this.indexVersion)
+      documentToManticore(document, Number(version.appliedSequence))
     );
   }
 }

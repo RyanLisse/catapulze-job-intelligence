@@ -6,8 +6,11 @@ import type {
   SearchDocument,
   SearchEngine,
   SearchEngineResult,
+  SearchIndexBatch,
 } from "./types";
 import { emptySearchFacets } from "./types";
+import { InMemorySearchVersionStore } from "./version";
+import type { SearchVersion, SearchVersionStore } from "./version";
 
 export interface PostgresFtsRow {
   beschrijving: string;
@@ -39,16 +42,32 @@ export interface PostgresFtsExecutor {
 export class PostgresFtsFallbackEngine implements SearchEngine {
   private readonly documents = new Map<string, SearchDocument>();
   private readonly executor: PostgresFtsExecutor | undefined;
-  private indexVersion = 0;
+  private readonly versionStore: SearchVersionStore;
 
   constructor(
     executor?: PostgresFtsExecutor,
-    seedDocuments: SearchDocument[] = []
+    seedDocuments: SearchDocument[] = [],
+    versionStore: SearchVersionStore = new InMemorySearchVersionStore()
   ) {
     this.executor = executor;
+    this.versionStore = versionStore;
     for (const document of seedDocuments) {
       this.documents.set(document.id, structuredClone(document));
     }
+  }
+
+  applyBatch(batch: SearchIndexBatch): Promise<SearchVersion> {
+    for (const mutation of batch.mutations) {
+      if (mutation.kind === "delete") {
+        this.documents.delete(mutation.id);
+      } else {
+        this.documents.set(
+          mutation.document.id,
+          structuredClone(mutation.document)
+        );
+      }
+    }
+    return this.versionStore.advance(batch.appliedSequence);
   }
 
   deleteDocument(id: string): Promise<void> {
@@ -56,16 +75,16 @@ export class PostgresFtsFallbackEngine implements SearchEngine {
     return Promise.resolve();
   }
 
-  getIndexVersion(): Promise<number> {
-    return Promise.resolve(this.indexVersion);
-  }
-
-  setIndexVersion(version: number): Promise<void> {
-    this.indexVersion = version;
-    return Promise.resolve();
+  async getAppliedVersion(): Promise<SearchVersion> {
+    const checkpoint = await this.versionStore.read();
+    return {
+      appliedSequence: checkpoint.appliedSequence,
+      generation: checkpoint.generation,
+    };
   }
 
   async search(params: EngineSearchParams): Promise<SearchEngineResult> {
+    const version = await this.getAppliedVersion();
     if (this.executor) {
       const rows = await this.executor.search({
         filters: params.filters,
@@ -77,7 +96,7 @@ export class PostgresFtsFallbackEngine implements SearchEngine {
       return {
         facets: emptySearchFacets(),
         hits: rows.map((row) => ({ id: row.id, weight: row.rank })),
-        indexVersion: this.indexVersion,
+        indexVersion: Number(version.appliedSequence),
         total: rows.length,
       };
     }
@@ -103,7 +122,7 @@ export class PostgresFtsFallbackEngine implements SearchEngine {
       emptyReason: this.documents.size === 0 ? "empty_index" : undefined,
       facets: emptySearchFacets(),
       hits: page.map((document) => ({ id: document.id, weight: 1 })),
-      indexVersion: this.indexVersion,
+      indexVersion: Number(version.appliedSequence),
       total: matched.length,
     };
   }

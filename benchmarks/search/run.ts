@@ -9,6 +9,7 @@ import {
 import type { SearchDocument, SearchEngine } from "@ji/search";
 import {
   InMemorySearchEngine,
+  InMemorySearchVersionStore,
   ManticoreSearchEngine,
   SearchAdapter,
 } from "@ji/search";
@@ -201,10 +202,13 @@ const createEngine = async (
   const manticoreUrl = process.env.MANTICORE_URL;
   const { corpusDigest, documents } = resolveCorpusDocuments(profile);
   const engine = manticoreUrl
-    ? ManticoreSearchEngine.fromUrl(manticoreUrl)
+    ? ManticoreSearchEngine.fromUrl(
+        manticoreUrl,
+        new InMemorySearchVersionStore()
+      )
     : new InMemorySearchEngine();
   await upsertAll(engine, documents);
-  await engine.setIndexVersion(1);
+  await engine.applyBatch({ appliedSequence: 1n, mutations: [] });
   return { corpusDigest, documentCount: documents.length, engine };
 };
 

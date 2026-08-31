@@ -2,6 +2,7 @@ import { describe, expect, it } from "bun:test";
 
 import { parseBooleanQuery } from "@ji/domain";
 
+import { InMemorySearchVersionStore } from "../version";
 import { ManticoreSearchEngine } from "./engine";
 
 // Live integration test against a real Manticore instance (see
@@ -17,7 +18,10 @@ describe("Manticore document-id live integration (RJC-356)", () => {
       return;
     }
 
-    const engine = ManticoreSearchEngine.fromUrl(manticoreUrl);
+    const engine = ManticoreSearchEngine.fromUrl(
+      manticoreUrl,
+      new InMemorySearchVersionStore()
+    );
     // A persisted Manticore volume can already hold docs from prior runs, so
     // a generic query (e.g. "Azure") could be crowded out of the default
     // top-10 hits. Search on a run-unique token instead — no other document,
@@ -43,7 +47,7 @@ describe("Manticore document-id live integration (RJC-356)", () => {
       tariefMin: 80,
       titel: "Platform engineer Azure",
     });
-    await engine.setIndexVersion(1);
+    await engine.applyBatch({ appliedSequence: 1n, mutations: [] });
 
     const found = await engine.search({
       ast: parsed.ast,

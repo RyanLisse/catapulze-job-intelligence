@@ -128,13 +128,13 @@ describe("JI-052 e2e read path", () => {
     const engine = new InMemorySearchEngine();
     await drainOutboxEvents({
       engine,
-      events: curateStore.outboxEvents.map((event) => ({
+      events: curateStore.outboxEvents.map((event, eventIndex) => ({
         aggregateId: event.aggregateId,
         aggregateType: event.aggregateType,
         eventType: event.eventType,
         id: event.id,
-        indexVersion: null,
         payload: event.payload,
+        sequenceNumber: BigInt(eventIndex + 1),
       })),
       loader: new CurateSearchDocumentLoader(curateStore),
     });

@@ -12,8 +12,11 @@ import type {
   SearchFacetBucket,
   SearchFacets,
   SearchFilters,
+  SearchIndexBatch,
 } from "./types";
 import { emptySearchFacets } from "./types";
+import { InMemorySearchVersionStore } from "./version";
+import type { SearchVersion, SearchVersionStore } from "./version";
 
 const matchesFilters = (
   document: SearchDocument,
@@ -120,23 +123,43 @@ const buildFacets = (documents: SearchDocument[]): SearchFacets => ({
 
 export class InMemorySearchEngine implements SearchEngine {
   private readonly documents = new Map<string, SearchDocument>();
-  private indexVersion = 0;
+  private readonly versionStore: SearchVersionStore;
+
+  constructor(
+    versionStore: SearchVersionStore = new InMemorySearchVersionStore()
+  ) {
+    this.versionStore = versionStore;
+  }
+
+  applyBatch(batch: SearchIndexBatch): Promise<SearchVersion> {
+    for (const mutation of batch.mutations) {
+      if (mutation.kind === "delete") {
+        this.documents.delete(mutation.id);
+      } else {
+        this.documents.set(
+          mutation.document.id,
+          structuredClone(mutation.document)
+        );
+      }
+    }
+    return this.versionStore.advance(batch.appliedSequence);
+  }
 
   deleteDocument(id: string): Promise<void> {
     this.documents.delete(id);
     return Promise.resolve();
   }
 
-  getIndexVersion(): Promise<number> {
-    return Promise.resolve(this.indexVersion);
+  async getAppliedVersion(): Promise<SearchVersion> {
+    const checkpoint = await this.versionStore.read();
+    return {
+      appliedSequence: checkpoint.appliedSequence,
+      generation: checkpoint.generation,
+    };
   }
 
-  setIndexVersion(version: number): Promise<void> {
-    this.indexVersion = version;
-    return Promise.resolve();
-  }
-
-  search(params: EngineSearchParams): Promise<SearchEngineResult> {
+  async search(params: EngineSearchParams): Promise<SearchEngineResult> {
+    const version = await this.getAppliedVersion();
     return timeCriticalPathPhase("search-serialization", () => {
       const matched = [...this.documents.values()].filter((document) => {
         if (!matchesFilters(document, params.filters)) {
@@ -171,7 +194,7 @@ export class InMemorySearchEngine implements SearchEngine {
         emptyReason,
         facets,
         hits: page.map((document) => ({ id: document.id, weight: 1 })),
-        indexVersion: this.indexVersion,
+        indexVersion: Number(version.appliedSequence),
         total: matched.length,
       });
     });
