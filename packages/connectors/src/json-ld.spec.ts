@@ -1,6 +1,10 @@
 import { describe, expect, it } from "bun:test";
 
-import { extractJsonLdBlocks, findJobPosting } from "./json-ld";
+import {
+  extractJsonLdBlocks,
+  findJobPosting,
+  findJsonLdByType,
+} from "./json-ld";
 
 const wrapScript = (json: string): string =>
   `<html><head><script type="application/ld+json">${json}</script></head><body></body></html>`;
@@ -61,5 +65,28 @@ describe("json-ld", () => {
 
   it("returns undefined when no JobPosting node exists", () => {
     expect(findJobPosting([{ "@type": "Organization" }])).toBeUndefined();
+  });
+});
+
+const PAGE_WITH_TWO_BLOCKS = `<html><head>
+<script type="application/ld+json">{"@type":"BreadcrumbList","itemListElement":[]}</script>
+<script type="application/ld+json">
+{"@type":"JobPosting","title":"Senior Java Developer","datePosted":"2026-08-20"}
+</script>
+</head><body></body></html>`;
+
+describe("findJsonLdByType", () => {
+  it("finds the first block matching the requested @type", () => {
+    const jobPosting = findJsonLdByType(PAGE_WITH_TWO_BLOCKS, "JobPosting");
+    expect(jobPosting).toMatchObject({
+      datePosted: "2026-08-20",
+      title: "Senior Java Developer",
+    });
+  });
+
+  it("returns undefined when no block matches", () => {
+    expect(
+      findJsonLdByType(PAGE_WITH_TWO_BLOCKS, "Organization")
+    ).toBeUndefined();
   });
 });
