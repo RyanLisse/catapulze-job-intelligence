@@ -59,6 +59,19 @@ const buildInhuurdeskBody = (description: string): Uint8Array => {
 };
 
 describe("normalise", () => {
+  it("builds an unambiguous Postgres-safe dedup key", () => {
+    const dedupKey = buildDedupKey({
+      opdrachtgeverNaam: "Gemeente\u001F Amsterdam",
+      startDatum: "2026-09-01",
+      titel: "Senior\u001F Developer",
+    });
+
+    expect(dedupKey).toBe(
+      "senior developer\u001Fgemeente amsterdam\u001F2026-09-01"
+    );
+    expect(dedupKey).not.toContain("\u0000");
+  });
+
   it("covers AE6: unstructured tarief stays in beschrijving with unknown structured fields", async () => {
     const body = buildInhuurdeskBody(
       "<p>Rolomschrijving zonder tariefstructuur.</p><p>Tarief wordt in overleg bepaald.</p>"
