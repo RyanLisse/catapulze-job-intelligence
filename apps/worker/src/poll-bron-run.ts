@@ -28,7 +28,10 @@ import { PostgresCurateStore } from "@ji/db/postgres-curate-store";
 import type { BronId, ScrapeRunId } from "@ji/domain";
 import { ManticoreSearchEngine } from "@ji/search";
 
-import { requireManticoreUrl } from "./poll-bron-env";
+import {
+  requireManticoreUrl,
+  resolveTenderNedTestImportDays,
+} from "./poll-bron-env";
 import type { SliceABronSlug } from "./slice-a-bronnen";
 import type { PollBronPayload } from "./tasks/poll-bron-schema";
 
@@ -62,6 +65,7 @@ export interface PollBronRuntime {
     bronId: BronId;
     bronSlug: SliceABronSlug;
     knownHashes: KnownHashStore;
+    runKind: ConnectorRunKind;
   }) => Connector;
   curateStore: PostgresCurateStore;
   database: BronRuntimeDatabase;
@@ -87,13 +91,20 @@ export const createPollBronRuntime = (databaseUrl: string): PollBronRuntime => {
   return {
     bronPersistence: client.bronPersistence,
     close: client.close,
-    createConnector: ({ bronId, bronSlug, knownHashes }) => {
+    createConnector: ({ bronId, bronSlug, knownHashes, runKind }) => {
       if (bronSlug === "tenderned") {
+        let filters: ReturnType<typeof buildTenderNedPollFilters> | undefined;
+        if (!isLiveEnabled("tenderned")) {
+          filters = undefined;
+        } else if (runKind === "poll") {
+          filters = buildTenderNedPollFilters();
+        } else {
+          const days = resolveTenderNedTestImportDays();
+          filters = buildTenderNedPollFilters(undefined, undefined, days);
+        }
         return createTenderNedConnector({
           bronId,
-          filters: isLiveEnabled("tenderned")
-            ? buildTenderNedPollFilters()
-            : undefined,
+          filters,
           knownHashes,
         });
       }
@@ -126,6 +137,7 @@ export const runPollBron = async (
     bronId,
     bronSlug: payload.bronSlug,
     knownHashes: runtime.knownHashStore,
+    runKind,
   });
 
   const result = await executeBronRun(runtime.bronPersistence, {

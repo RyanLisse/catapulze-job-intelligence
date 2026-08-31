@@ -27,8 +27,11 @@ Set in `apps/worker/.env`:
 
 ```env
 TENDER_NED_LIVE=1
+TENDER_NED_TEST_IMPORT_DAYS=14
 INHUURDESK_LIVE=1
 ```
+
+`TENDER_NED_TEST_IMPORT_DAYS` applies only to live test imports, defaults to 14 when unset, and accepts 1–90 days. Increase it when needed to reach the ≥20 distinct source records required for activation; scheduled TenderNed polls keep their one-day window.
 
 Run test-import, curate, and index drain:
 
