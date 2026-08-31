@@ -1,0 +1,119 @@
+# Search projector (RJC-387)
+
+## Why this exists
+
+Before this change, a worker run chained poll → raw → normalise → curate →
+outbox → Manticore in one call chain: `apps/worker/src/poll-bron-run.ts`
+constructed a `ManticoreSearchEngine` and called `drainPostgresOutbox` right
+after the outbox commit, in the same process, in the same call. Two
+problems followed from that:
+
+- Source ingest failed whenever Manticore was unreachable, even though
+  ingest and search are logically independent.
+- The cloud worker (Trigger.dev) needed network access to Manticore, which
+  [ADR-0006](../adr/ADR-0006-neon-as-system-of-record.md) keeps on a private
+  port (it moved the database itself off private-port isolation onto
+  Neon's TLS-required public endpoint, but explicitly left Manticore's
+  reachability question open, naming "run the drain on-box" as one of the
+  resolutions — this ticket implements that resolution).
+
+The fix: the worker stops after the outbox commit, and a small
+long-running **on-box projector process**, deployed next to Manticore,
+reads the Neon outbox over TLS and writes to Manticore locally. Manticore
+stays private, ingest is decoupled from search uptime, and a stalled or
+crashed projector can always recover by resuming from the durable
+`curated.search_projection_checkpoint` — the outbox is Neon, not something
+the projector owns.
+
+## Deploy contract
+
+Production is expected to run in **onbox** mode. This is the two-sided
+contract that changes:
+
+| Component | Setting |
+|---|---|
+| Worker (Trigger.dev) | `SEARCH_PROJECTOR=onbox`, no `MANTICORE_URL` |
+| Projector process | Runs on the Manticore host. `DATABASE_URL` (Neon, TLS) + `MANTICORE_URL=http://127.0.0.1:9308` |
+
+Nothing changes until `SEARCH_PROJECTOR=onbox` is set on the worker: the
+default mode is `"worker"`, which preserves today's behaviour exactly (the
+worker drains inline, as it always has). Flip the worker to onbox mode and
+start the projector process together — not one without the other, or ingest
+will succeed while the outbox backs up unread (worker in onbox mode with no
+projector running) or the worker will still demand `MANTICORE_URL` it
+doesn't have (projector running, worker left in worker mode with no
+Manticore route).
+
+### Running the projector
+
+```bash
+bun run projector   # apps/server: bun src/projector/main.ts
+```
+
+Reads `DATABASE_URL` (via `@ji/env/database`) and `MANTICORE_URL` from the
+environment. Requires both; refuses to start without `MANTICORE_URL`.
+
+### Supervision
+
+The projector is a single long-running process with no built-in restart
+loop — put it under a supervisor:
+
+- **systemd**: a service unit with `Restart=on-failure` covers both a crash
+  (transient error escaped the loop's own backoff — shouldn't happen, but
+  the supervisor is the backstop) and a schema-mismatch exit (see below;
+  restarting won't fix that one, but it's the same unit either way).
+- **Docker Compose**: `restart: unless-stopped` (see the `projector` service
+  in `docker-compose.yml`, gated behind `--profile projector`).
+
+### Single instance via the advisory lock
+
+The projector takes a Postgres session-level advisory lock
+(`pg_try_advisory_lock`) on startup and holds it for its lifetime. A second
+instance started against the same database logs "another projector holds
+the lock" and exits 0 — this is expected and safe. It means:
+
+- A supervisor restarting a still-running instance (e.g. a flapping health
+  check) never causes two projectors to double-drain.
+- Deploying a new version alongside an old one draining the same outbox is
+  safe — the new one waits out the old one's exit (or the old one's
+  supervisor eventually stops it), never runs concurrently.
+
+The lock is re-asserted every cycle, not just taken once at startup: a lost
+lock (idle-connection reaping, Neon autosuspend) exits the process instead
+of silently draining without it — it never double-drains.
+
+The lock key is an arbitrary constant (`ADVISORY_LOCK_KEY` in
+`apps/server/src/projector/main.ts`) — see the comment there before adding
+a second advisory lock anywhere in this codebase, so the two never collide.
+
+### What to watch
+
+- **Cycle logs**: one structured JSON line per drain cycle
+  (`{"event":"projector_cycle","drained":N,"indexVersion":N,"durationMs":N}`,
+  or with `"errorName"` set on a failed cycle). Drained rows should track
+  ingest volume; a `drained: 0` cycle every ~1s is normal at idle.
+- **Outbox lag**: not yet wired to a metric — that's RJC-391. Until then,
+  the operator signal is `curated.search_projection_checkpoint.appliedSequence`
+  falling behind `curated.outbox_event`'s max `sequence_number`.
+- **`errorName` in a cycle log**: a transient failure (Manticore or Neon
+  unreachable) backs off exponentially and keeps retrying — see behaviour
+  table below. It does not need paging on its own; page on sustained lag.
+
+## Behaviour reference
+
+| Condition | What happens |
+|---|---|
+| Manticore down | Each drain cycle throws; the loop logs the error, backs off (starts at 1s, doubles, caps at 30s), and keeps retrying. Never exits on its own. |
+| Neon (DATABASE_URL) down | Same as Manticore down — the drain call fails, same backoff-and-retry. |
+| Schema mismatch (`SearchIndexSchemaMismatchError`) | Not retried. This means the index was built for a different document mapping than the running code expects — an operator action (start a new generation via `tools/manticore/start-search-generation.ts` and reindex), not something a retry can fix. The loop rejects and `main.ts` exits 1. Fix the mismatch, then let the supervisor restart it (or restart manually). |
+| Second instance started | Fails to acquire the advisory lock, logs "another projector holds the lock", exits 0. Safe for a supervisor to have done this by mistake. |
+| Lock silently dropped (idle-connection reaping, Neon autosuspend) | Caught by the every-cycle heartbeat, not by luck: if the lock is still free, the same session retakes it and the cycle proceeds; if another session already grabbed it, the heartbeat throws `LockLostError`, which is not retried — the loop rejects and `main.ts` exits 1. Supervisor restarts it. |
+| SIGINT / SIGTERM | Aborts the loop; an in-flight drain cycle always finishes first (never killed mid-cycle); logs a shutdown line; releases the advisory lock; closes the database connection; exits 0. A repeated SIGINT/SIGTERM (impatient supervisor, a `docker stop` retry, a second Ctrl-C) is logged as `projector_shutdown_in_progress` and otherwise ignored — it does not re-abort or kill mid-write. SIGKILL remains the only hard stop; nothing in userspace can catch it, so a SIGKILL mid-cycle can leave the advisory lock held until Postgres notices the dead connection. |
+
+## Related work
+
+- Outbox lag / readiness metrics: RJC-391 (not yet wired here).
+- Bulk drain internals (`drainPostgresOutbox`, the xmin gate, checkpoint
+  semantics): RJC-389 and RJC-384; this runbook only covers the process
+  that calls it, not the drain algorithm itself — see
+  `packages/db/src/outbox-drain.ts` for that.

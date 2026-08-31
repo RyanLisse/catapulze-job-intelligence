@@ -17,6 +17,11 @@
       "cache": false,
       "persistent": true
     },
+    "projector": {
+      "cache": false,
+      "env": ["DATABASE_URL", "MANTICORE_URL", "NODE_ENV"],
+      "persistent": true
+    },
     "db:push": {
       "cache": false,
       "interactive": true

@@ -25,7 +25,7 @@ import { PostgresCurateStore } from "@ji/db/postgres-curate-store";
 import type { BronId, ScrapeRunId } from "@ji/domain";
 import { ManticoreSearchEngine } from "@ji/search";
 
-import { requireManticoreUrl } from "./poll-bron-env";
+import { readSearchProjectorMode, requireManticoreUrl } from "./poll-bron-env";
 import type { SliceABronSlug } from "./slice-a-bronnen";
 import type { PollBronPayload } from "./tasks/poll-bron-schema";
 
@@ -47,7 +47,8 @@ export interface PollBronRunResult {
 export interface BronIngestPipelineResult extends PollBronRunResult {
   curated: number;
   drained: number;
-  indexVersion: number;
+  /** Null in "onbox" mode: this process never drains, so it has no version to report. */
+  indexVersion: number | null;
   quarantined: number;
   unchanged: number;
 }
@@ -174,6 +175,42 @@ export const runPollBron = async (
   };
 };
 
+export interface DrainSummary {
+  drained: number;
+  indexVersion: number | null;
+}
+
+/**
+ * RJC-387: in "onbox" mode a separate projector process (next to Manticore)
+ * drains the outbox instead — this worker never constructs a
+ * ManticoreSearchEngine and never needs MANTICORE_URL, so ingest keeps
+ * working even when this process has no route to a private Manticore.
+ * Exported so the mode branch is unit-testable without a live Postgres.
+ */
+export const drainOrDeferToProjector = async (
+  runtime: Pick<PollBronRuntime, "database">
+): Promise<DrainSummary> => {
+  if (readSearchProjectorMode() === "onbox") {
+    return { drained: 0, indexVersion: null };
+  }
+
+  const versionStore = new PostgresSearchVersionStore(runtime.database);
+  const engine = ManticoreSearchEngine.fromUrl(
+    requireManticoreUrl(),
+    versionStore
+  );
+  const drainResult = await drainPostgresOutbox({
+    database: runtime.database,
+    engine,
+    loader: new PostgresSearchDocumentLoader(runtime.database),
+    versionStore,
+  });
+  return {
+    drained: drainResult.drained,
+    indexVersion: drainResult.indexVersion,
+  };
+};
+
 export const runBronIngestPipeline = async (
   payload: PollBronPayload,
   runtime: PollBronRuntime,
@@ -189,23 +226,13 @@ export const runBronIngestPipeline = async (
     scrapeRunId: pollResult.scrapeRunId,
   });
 
-  const versionStore = new PostgresSearchVersionStore(runtime.database);
-  const engine = ManticoreSearchEngine.fromUrl(
-    requireManticoreUrl(),
-    versionStore
-  );
-  const drainResult = await drainPostgresOutbox({
-    database: runtime.database,
-    engine,
-    loader: new PostgresSearchDocumentLoader(runtime.database),
-    versionStore,
-  });
+  const drainSummary = await drainOrDeferToProjector(runtime);
 
   return {
     ...pollResult,
     curated: curateResult.curated,
-    drained: drainResult.drained,
-    indexVersion: drainResult.indexVersion,
+    drained: drainSummary.drained,
+    indexVersion: drainSummary.indexVersion,
     quarantined: curateResult.quarantined,
     unchanged: curateResult.unchanged,
   };

@@ -7,6 +7,7 @@
     "check-types": "PATH=\"./node_modules/.bin:$PATH\" tsc -b",
     "compile": "bun build --compile --minify --sourcemap --bytecode ./src/index.ts --outfile server",
     "dev": "bun run --hot src/index.ts",
+    "projector": "bun src/projector/main.ts",
     "start": "bun run dist/index.mjs"
   },
   "dependencies": {
@@ -21,6 +22,7 @@
     "better-auth": "catalog:",
     "dotenv": "catalog:",
     "hono": "catalog:",
+    "postgres": "^3.4.7",
     "zod": "catalog:"
   },
   "devDependencies": {
