@@ -40,7 +40,15 @@ export const PREVIEW_STATUSES = [
 
 export type PreviewStatus = (typeof PREVIEW_STATUSES)[number];
 
-export type JobSource = "inhuurdesk" | "tenderned" | "werkenvoor" | "indeed";
+// RJC-368: sources are registered dynamically via the bron register (12+ and
+// growing), so this is an opaque slug derived from the live /v1/bronnen
+// catalog, not a fixed enum.
+export type JobSource = string;
+
+export interface JobSourceOption {
+  readonly label: string;
+  readonly value: JobSource;
+}
 
 export interface JobSourceRecord {
   readonly id: string;
@@ -138,6 +146,7 @@ export interface JobSearchResponse {
 
 export interface JobDataAdapter {
   readonly getById: (id: string) => Promise<JobListing | null>;
+  readonly listSources: () => Promise<readonly JobSourceOption[]>;
   readonly search: (request: JobSearchRequest) => Promise<JobSearchResponse>;
 }
 

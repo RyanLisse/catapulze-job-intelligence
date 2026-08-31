@@ -10,6 +10,27 @@ const { parseJobSearchState } = await import("./search-state");
 const BRON_ID = "00000000-0000-4000-8000-000000000001";
 const SEARCH_RESULT_COUNT = 100;
 
+// RJC-368: the bron register has grown well past the 4 names that used to be
+// hardcoded in the web UI (see packages/application/src/sources/index.ts).
+// This list stands in for "however many bronnen are registered" -- the
+// filter list must track it, not a fixed count baked into the UI.
+const REGISTERED_BRONNEN = [
+  { actief: true, bronId: "bron-bluetrail", naam: "Bluetrail" },
+  { actief: true, bronId: "bron-ctm", naam: "CTM" },
+  { actief: true, bronId: "bron-flinter", naam: "Flinter" },
+  { actief: true, bronId: "bron-harveynash", naam: "Harvey Nash" },
+  { actief: true, bronId: "bron-hero", naam: "Hero" },
+  { actief: true, bronId: "bron-inhuurdesk", naam: "Inhuurdesk" },
+  { actief: true, bronId: "bron-needstaffing", naam: "Needstaffing" },
+  { actief: true, bronId: "bron-onefellow", naam: "One Fellow" },
+  { actief: true, bronId: "bron-opdrachtoverheid", naam: "Opdrachtoverheid" },
+  { actief: true, bronId: "bron-striive", naam: "Striive" },
+  { actief: true, bronId: BRON_ID, naam: "TenderNed" },
+  // A deferred/inactive bron must not appear as a filter option -- it would
+  // be a permanent, misleading 0-count checkbox.
+  { actief: false, bronId: "bron-pro-act", naam: "Pro-Act" },
+] as const;
+
 const searchIds = Array.from(
   { length: SEARCH_RESULT_COUNT },
   (_, index) => `00000000-0000-4000-8000-${String(index).padStart(12, "0")}`
@@ -24,6 +45,9 @@ interface RecordedRequest {
 // return of the per-id hydration loop (RJC-379) fails this suite loudly.
 const recordedRequests: RecordedRequest[] = [];
 let failBatch = false;
+let bronnenResponse: readonly (typeof REGISTERED_BRONNEN)[number][] = [
+  { actief: true, bronId: BRON_ID, naam: "TenderNed" },
+];
 
 const fakeFetch = (
   input: string | URL | Request,
@@ -35,9 +59,7 @@ const fakeFetch = (
   recordedRequests.push({ method, path: url.pathname });
 
   if (url.pathname === "/v1/bronnen") {
-    return Promise.resolve(
-      Response.json([{ bronId: BRON_ID, naam: "TenderNed" }])
-    );
+    return Promise.resolve(Response.json(bronnenResponse));
   }
   if (url.pathname === "/v1/aanvragen/search") {
     return Promise.resolve(
@@ -164,6 +186,40 @@ describe("search hydration call count (RJC-379)", () => {
       expect(response.items).toHaveLength(0);
     } finally {
       failBatch = false;
+    }
+  });
+});
+
+describe("bron filter list derives from the API (RJC-368)", () => {
+  beforeAll(() => {
+    // SAFETY: the adapter only calls fetch(url, init) and reads json(); the
+    // fake covers exactly that surface for the routes under test.
+    globalThis.fetch = fakeFetch as typeof fetch;
+  });
+  afterAll(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  it("yields as many filter entries as active bronnen the API returns, not a hardcoded count", async () => {
+    bronnenResponse = REGISTERED_BRONNEN;
+    try {
+      const adapter = createRestJobDataAdapter({
+        baseUrl: "http://server.test",
+        subjectId: "recruiter-1",
+      });
+
+      const sources = await adapter.listSources();
+
+      const activeBronnen = REGISTERED_BRONNEN.filter((bron) => bron.actief);
+      expect(sources).toHaveLength(activeBronnen.length);
+      expect(sources.length).toBeGreaterThan(4);
+      expect(new Set(sources.map((source) => source.value)).size).toBe(
+        activeBronnen.length
+      );
+      // The inactive bron must not surface as a permanent 0-count checkbox.
+      expect(sources.some((source) => source.label === "Pro-Act")).toBe(false);
+    } finally {
+      bronnenResponse = [{ actief: true, bronId: BRON_ID, naam: "TenderNed" }];
     }
   });
 });

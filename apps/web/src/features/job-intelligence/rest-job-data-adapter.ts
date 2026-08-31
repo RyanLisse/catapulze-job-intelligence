@@ -7,7 +7,7 @@ import type {
   AanvraagPreview,
   AanvraagVersieView,
 } from "./rest/aanvraag-mapping";
-import { buildBronCatalog } from "./rest/bron-catalog";
+import { bronNameToSource, buildBronCatalog } from "./rest/bron-catalog";
 import type { BronCatalogEntry } from "./rest/bron-catalog";
 import {
   createCapabilityClient,
@@ -28,6 +28,7 @@ import type {
   JobListing,
   JobMarkering,
   JobSearchResponse,
+  JobSourceOption,
 } from "./types";
 import { JOB_PAGE_SIZE } from "./types";
 
@@ -235,8 +236,26 @@ export const createRestJobIntelligence = ({
     });
   };
 
+  // RJC-368: the bron filter list is derived from the live /v1/bronnen
+  // catalog (actieve bronnen only — a deferred/inactive bron would only ever
+  // show a permanent 0-count checkbox), independent of the current search's
+  // facet counts, so it doesn't collapse when a query has zero hits.
+  const listSources = async (): Promise<readonly JobSourceOption[]> => {
+    const bronCatalog = await loadBronCatalog();
+    return [...bronCatalog.values()]
+      .filter((bron) => bron.actief)
+      .map((bron) => ({
+        label: bron.naam,
+        value: bronNameToSource(bron.naam),
+      }))
+      .toSorted((left, right) =>
+        left.label.localeCompare(right.label, "nl-NL")
+      );
+  };
+
   const adapter: JobDataAdapter = {
     getById: loadAanvraag,
+    listSources,
     search: async (request): Promise<JobSearchResponse> => {
       if (request.previewStatus === "loading") {
         return emptySearchResponse("loading", "Vacatures worden geladen…");

@@ -17,20 +17,12 @@ import type {
   JobSearchResponse,
   JobSearchState,
   JobSort,
-  JobSource,
   PreviewStatus,
 } from "./types";
 
 export type SearchParamInput =
   | URLSearchParams
   | Readonly<Record<string, string | readonly string[] | undefined>>;
-
-const JOB_SOURCES: readonly JobSource[] = [
-  "inhuurdesk",
-  "tenderned",
-  "werkenvoor",
-  "indeed",
-];
 
 const MAX_PAGE_SIZE = 100;
 const FIXTURE_NOW = Date.parse("2026-08-30T12:00:00.000Z");
@@ -95,7 +87,10 @@ export const parseJobSearchState = (
       freshness: isOneOf(freshness, FRESHNESS_FILTERS) ? freshness : "all",
       locations: [...new Set(readValues(input, "location"))],
       minRate: parseMinRate(readFirst(input, "minRate")),
-      sources: uniqueAllowedValues(readValues(input, "source"), JOB_SOURCES),
+      // RJC-368: sources are opaque bron slugs from the live register, not a
+      // fixed enum, so any provided value passes through (deduped); an
+      // unrecognized slug simply matches zero bronnen/facets downstream.
+      sources: [...new Set(readValues(input, "source"))],
     },
     page: parsePositiveInteger(readFirst(input, "page"), 1),
     previewStatus: isOneOf(previewStatus, PREVIEW_STATUSES)
