@@ -1,6 +1,7 @@
 import type { SourceDefinition } from "./definition";
 import { inhuurdesk } from "./inhuurdesk";
 import { needstaffing } from "./needstaffing";
+import { opdrachtoverheid } from "./opdrachtoverheid";
 import { tenderned } from "./tenderned";
 
 export type {
@@ -13,6 +14,7 @@ export { resolveTenderNedTestImportDays } from "./tenderned";
 export const SOURCES = {
   inhuurdesk,
   needstaffing,
+  opdrachtoverheid,
   tenderned,
 } as const satisfies Record<string, SourceDefinition>;
 
