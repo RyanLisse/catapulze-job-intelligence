@@ -15,6 +15,7 @@
         "@ji/config": "workspace:*",
         "@ji/connectors": "workspace:*",
         "@ji/db": "workspace:*",
+        "@ji/domain": "workspace:*",
         "@ji/performance": "workspace:*",
         "@ji/search": "workspace:*",
         "@oxlint/plugins": "1.80.0",
