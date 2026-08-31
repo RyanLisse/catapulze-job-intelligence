@@ -1,6 +1,12 @@
 import path from "node:path";
 
 import { activateBron } from "@ji/application/bronnen";
+import {
+  isSupportedBronSlug,
+  SOURCES,
+  SUPPORTED_BRON_SLUGS,
+} from "@ji/application/sources";
+import type { SupportedBronSlug } from "@ji/application/sources";
 import { config as loadEnv } from "dotenv";
 
 import {
@@ -9,8 +15,6 @@ import {
   requireManticoreUrl,
   runBronIngestPipeline,
 } from "../src/poll-bron-run";
-import { SLICE_A_BRONNEN } from "../src/slice-a-bronnen";
-import type { SliceABronSlug } from "../src/slice-a-bronnen";
 
 // scriptDir is apps/worker/scripts; the repo root is three levels up.
 const scriptDir = import.meta.dirname;
@@ -21,20 +25,20 @@ loadEnv({ override: true, path: path.join(repoRoot, "apps/worker/.env") });
 
 const usage = (): never => {
   console.error(
-    "Usage: bun apps/worker/scripts/poll-bron-smoke.ts [--bron tenderned|inhuurdesk|all] [--test-import] [--activate]"
+    `Usage: bun apps/worker/scripts/poll-bron-smoke.ts [--bron ${SUPPORTED_BRON_SLUGS.join("|")}|all] [--test-import] [--activate]`
   );
   process.exit(1);
 };
 
 interface SmokeArgs {
   activate: boolean;
-  targets: SliceABronSlug[];
+  targets: SupportedBronSlug[];
   testImport: boolean;
 }
 
 const parseArgs = (): SmokeArgs => {
   const args = process.argv.slice(2);
-  let targets: SliceABronSlug[] = SLICE_A_BRONNEN.map((bron) => bron.bronSlug);
+  let targets: SupportedBronSlug[] = [...SUPPORTED_BRON_SLUGS];
   let testImport = false;
   let activate = false;
 
@@ -46,8 +50,8 @@ const parseArgs = (): SmokeArgs => {
         return usage();
       }
       if (value === "all") {
-        targets = SLICE_A_BRONNEN.map((bron) => bron.bronSlug);
-      } else if (value === "tenderned" || value === "inhuurdesk") {
+        targets = [...SUPPORTED_BRON_SLUGS];
+      } else if (isSupportedBronSlug(value)) {
         targets = [value];
       } else {
         return usage();
@@ -78,33 +82,34 @@ const ensureSliceABronnen = async (
 ): Promise<void> => {
   const { bron } = await import("@ji/db/schema/index");
   /* oxlint-disable no-await-in-loop -- bron seed rows are upserted one at a time */
-  for (const definition of SLICE_A_BRONNEN) {
+  for (const slug of SUPPORTED_BRON_SLUGS) {
+    const definition = SOURCES[slug];
     await runtime.database
       .insert(bron)
       .values({
         actief: false,
         categorie: "overheidsportaal",
-        crawlDelayMs: 500,
+        crawlDelayMs: definition.seed.crawlDelayMs,
         id: definition.bronId,
-        ingestieType: "json-api",
+        ingestieType: definition.seed.methode,
         interval: "*/15 * * * *",
         loginVereist: false,
-        mappingRef: `fixtures/connectors/${definition.bronSlug}/mapping.json`,
+        mappingRef: `fixtures/connectors/${definition.slug}/mapping.json`,
         naam: definition.naam,
         rateLimitPerMinute: 30,
         retentionDays: 90,
         secretRef: null,
         status: "ready",
-        voorwaardenStatus: "toegestaan",
+        voorwaardenStatus: definition.seed.voorwaardenStatus,
       })
       .onConflictDoUpdate({
         set: {
-          crawlDelayMs: 500,
+          crawlDelayMs: definition.seed.crawlDelayMs,
           interval: "*/15 * * * *",
           rateLimitPerMinute: 30,
           status: "ready",
           updatedAt: new Date(),
-          voorwaardenStatus: "toegestaan",
+          voorwaardenStatus: definition.seed.voorwaardenStatus,
         },
         target: bron.id,
       });
@@ -121,18 +126,13 @@ const main = async (): Promise<void> => {
     const results = [];
     /* oxlint-disable no-await-in-loop -- smoke runs bronnen sequentially for readable logs */
     for (const bronSlug of targets) {
-      const definition = SLICE_A_BRONNEN.find(
-        (bron) => bron.bronSlug === bronSlug
-      );
-      if (!definition) {
-        throw new Error(`Unknown bron slug ${bronSlug}`);
-      }
+      const definition = SOURCES[bronSlug];
       const scrapeRunId = crypto.randomUUID();
       const runKind = testImport ? "test" : "poll";
       const result = await runBronIngestPipeline(
         {
           bronId: definition.bronId,
-          bronSlug: definition.bronSlug,
+          bronSlug,
           scrapeRunId,
         },
         runtime,

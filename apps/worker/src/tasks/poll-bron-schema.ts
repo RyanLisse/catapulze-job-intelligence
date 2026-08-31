@@ -1,8 +1,9 @@
+import { SUPPORTED_BRON_SLUGS } from "@ji/application/sources";
 import { z } from "zod";
 
 export const pollBronPayload = z.object({
   bronId: z.string().uuid(),
-  bronSlug: z.enum(["inhuurdesk", "tenderned"]),
+  bronSlug: z.enum(SUPPORTED_BRON_SLUGS),
   scrapeRunId: z.string().uuid(),
 });
 

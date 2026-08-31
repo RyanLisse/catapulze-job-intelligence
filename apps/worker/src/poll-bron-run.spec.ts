@@ -1,10 +1,8 @@
 import { describe, expect, it } from "bun:test";
 
-import {
-  requireDatabaseUrl,
-  requireManticoreUrl,
-  resolveTenderNedTestImportDays,
-} from "./poll-bron-env";
+import { resolveTenderNedTestImportDays } from "@ji/application/sources";
+
+import { requireDatabaseUrl, requireManticoreUrl } from "./poll-bron-env";
 
 describe("poll-bron runtime guards", () => {
   it("requires DATABASE_URL", () => {

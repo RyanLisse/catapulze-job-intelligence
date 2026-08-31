@@ -6,6 +6,12 @@ import type {
 } from "@ji/application/bronnen";
 import { replayBron } from "@ji/application/replay";
 import {
+  isSupportedBronSlug,
+  SOURCES,
+  SUPPORTED_BRON_SLUGS,
+} from "@ji/application/sources";
+import type { SourceDefinition } from "@ji/application/sources";
+import {
   FilesystemObjectStore,
   InMemoryObjectStore,
   InMemoryObservationRecorder,
@@ -17,31 +23,14 @@ import type {
   RunLifecycleStore,
 } from "@ji/connectors";
 
-interface KnownBron {
-  bronId: string;
-  naam: string;
-}
-
-// Mirrors the two seeded Slice A bron ids in apps/worker/src/slice-a-bronnen.ts.
-// That file lives in the private "worker" app package (no exports field, not
-// importable from a root script), so the ids are kept here instead.
-const KNOWN_BRONNEN = new Map<string, KnownBron>([
-  [
-    "inhuurdesk",
-    { bronId: "00000000-0000-4000-8000-000000000002", naam: "Inhuurdesk" },
-  ],
-  [
-    "tenderned",
-    { bronId: "00000000-0000-4000-8000-000000000001", naam: "TenderNed" },
-  ],
-]);
+type KnownBron = Pick<SourceDefinition, "bronId" | "naam">;
 
 const resolveKnownBron = (bronSlug: string): KnownBron | undefined =>
-  KNOWN_BRONNEN.get(bronSlug);
+  isSupportedBronSlug(bronSlug) ? SOURCES[bronSlug] : undefined;
 
 const usage = (): never => {
   console.error(
-    "Usage: bun run replay:run -- --bron <tenderned|inhuurdesk> (--fixture <path> | --run <runId>) [--dry-run] [--json] [--repeat <n>]"
+    `Usage: bun run replay:run -- --bron <${SUPPORTED_BRON_SLUGS.join("|")}> (--fixture <path> | --run <runId>) [--dry-run] [--json] [--repeat <n>]`
   );
   process.exit(1);
 };

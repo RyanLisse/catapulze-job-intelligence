@@ -28,6 +28,19 @@ import { Button } from "@ji/ui/components/button";
     );
   });
 
+  it("fails a web file that imports the source registry or identity layer", () => {
+    for (const specifier of [
+      "@ji/application/sources",
+      "@ji/application/identity",
+    ]) {
+      const source = `import { SOURCES } from "${specifier}";
+`;
+      expect(
+        collectLayeringViolations("apps/web/src/leak.ts", source)
+      ).toContain(`apps/web/src/leak.ts imports forbidden module ${specifier}`);
+    }
+  });
+
   it("fails a web file that reaches packages/infra", () => {
     const source = `import { pool } from "../../../packages/infra/src/db";
 `;
