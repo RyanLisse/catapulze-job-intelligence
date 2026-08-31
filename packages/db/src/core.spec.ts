@@ -33,6 +33,7 @@ const migrationsFolder = path.join(import.meta.dir, "migrations");
 const requiredTables = [
   { name: "bron", schema: "curated" },
   { name: "scrape_run", schema: "curated" },
+  { name: "search_projection_checkpoint", schema: "curated" },
   { name: "source_record", schema: "staging" },
   { name: "aanvraag_observation", schema: "staging" },
   { name: "aanvraag", schema: "curated" },

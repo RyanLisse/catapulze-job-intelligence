@@ -1,6 +1,7 @@
 import type { BooleanNode } from "@ji/domain";
 
 import type { SearchFilters } from "./types";
+import type { SearchVersion } from "./version";
 
 const stableStringifyAst = (node: BooleanNode): string => {
   switch (node.kind) {
@@ -48,9 +49,9 @@ export const hashAst = (ast: BooleanNode): Promise<string> =>
 
 export const buildCacheKey = (
   astHash: string,
-  indexVersion: number,
+  version: SearchVersion,
   filters: SearchFilters
 ): Promise<string> =>
   hashString(
-    `search:v1:${astHash}:${indexVersion}:${stableStringifyFilters(filters)}`
+    `search:v2:${astHash}:${version.generation}:${version.appliedSequence}:${stableStringifyFilters(filters)}`
   );

@@ -25,13 +25,13 @@ const instrumentEngine = (
   engine: InMemorySearchEngine,
   onSearch: () => void
 ): SearchEngine => ({
+  applyBatch: (batch) => engine.applyBatch(batch),
   deleteDocument: (id) => engine.deleteDocument(id),
-  getIndexVersion: () => engine.getIndexVersion(),
+  getAppliedVersion: () => engine.getAppliedVersion(),
   search: (params) => {
     onSearch();
     return engine.search(params);
   },
-  setIndexVersion: (version) => engine.setIndexVersion(version),
   upsertDocument: (document) => engine.upsertDocument(document),
 });
 
@@ -46,7 +46,7 @@ describe("SearchAdapter", () => {
         titel: "Internship Azure",
       })
     );
-    await engine.setIndexVersion(1);
+    await engine.applyBatch({ appliedSequence: 1n, mutations: [] });
 
     const adapter = new SearchAdapter({ engine });
     const query = '(Azure OR "platform engineer") NOT intern';
@@ -106,7 +106,7 @@ describe("SearchAdapter", () => {
   it("uses result cache keyed by ast hash, index version, and filters", async () => {
     const engine = new InMemorySearchEngine();
     await engine.upsertDocument(sampleDocument());
-    await engine.setIndexVersion(3);
+    await engine.applyBatch({ appliedSequence: 3n, mutations: [] });
 
     let searchCalls = 0;
     const cache = new MemoryResultCache();

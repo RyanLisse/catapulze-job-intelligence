@@ -54,7 +54,7 @@ describe("generateCorpus", () => {
     await Promise.all(
       documents.map((document) => engine.upsertDocument(document))
     );
-    await engine.setIndexVersion(1);
+    await engine.applyBatch({ appliedSequence: 1n, mutations: [] });
     const adapter = new SearchAdapter({ engine });
 
     const results = await Promise.all(

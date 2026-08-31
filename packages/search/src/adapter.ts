@@ -65,8 +65,8 @@ export class SearchAdapter {
 
       return timeCriticalPathPhase("search-adapter", async () => {
         const astHash = await hashAst(parsed.ast);
-        const indexVersion = await this.engine.getIndexVersion();
-        const cacheKey = await buildCacheKey(astHash, indexVersion, filters);
+        const version = await this.engine.getAppliedVersion();
+        const cacheKey = await buildCacheKey(astHash, version, filters);
 
         if (this.cache) {
           const cached = await this.cache.get(cacheKey);

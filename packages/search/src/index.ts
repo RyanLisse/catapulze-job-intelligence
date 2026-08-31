@@ -19,7 +19,7 @@ export {
   PostgresFtsFallbackEngine,
   type PostgresFtsExecutor,
 } from "./postgres-fts-fallback";
-export { drainOutboxEvents, projectOutboxEvent } from "./projector";
+export { drainOutboxEvents, resolveOutboxMutation } from "./projector";
 export {
   SEARCH_INDEX_NAME,
   emptySearchFacets,
@@ -32,4 +32,17 @@ export {
   type SearchEngine,
   type SearchFilters,
   type SearchHit,
+  type SearchIndexBatch,
+  type SearchIndexMutation,
 } from "./types";
+export {
+  compareSearchVersions,
+  InMemorySearchVersionStore,
+  isStaleSearchVersion,
+  SEARCH_SCHEMA_HASH,
+  SearchIndexSchemaMismatchError,
+  ZERO_SEQUENCE,
+  type SearchVersion,
+  type SearchVersionCheckpoint,
+  type SearchVersionStore,
+} from "./version";

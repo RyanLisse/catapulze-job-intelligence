@@ -3,6 +3,7 @@ import { describe, expect, it } from "bun:test";
 import { parseBooleanQuery } from "@ji/domain";
 
 import { SEARCH_INDEX_NAME } from "../types";
+import { InMemorySearchVersionStore } from "../version";
 import type { ManticoreHttpClient } from "./client";
 import {
   buildManticoreSearchRequest,
@@ -74,8 +75,11 @@ describe("Manticore golden queries", () => {
       },
     });
 
-    const engine = new ManticoreSearchEngine(client);
-    await engine.setIndexVersion(1);
+    const engine = new ManticoreSearchEngine(
+      client,
+      new InMemorySearchVersionStore()
+    );
+    await engine.applyBatch({ appliedSequence: 1n, mutations: [] });
 
     const first = await engine.search({
       ast: parsed.ast,

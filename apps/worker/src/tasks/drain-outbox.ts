@@ -1,4 +1,8 @@
-import { drainPostgresOutbox, PostgresSearchDocumentLoader } from "@ji/db";
+import {
+  drainPostgresOutbox,
+  PostgresSearchDocumentLoader,
+  PostgresSearchVersionStore,
+} from "@ji/db";
 import { ManticoreSearchEngine } from "@ji/search";
 import { schemaTask } from "@trigger.dev/sdk";
 import { z } from "zod";
@@ -25,13 +29,25 @@ export const drainOutboxTask = schemaTask({
   run: async (payload) => {
     const runtime = createPollBronRuntime(requireDatabaseUrl());
     try {
-      const engine = ManticoreSearchEngine.fromUrl(requireManticoreUrl());
-      return await drainPostgresOutbox({
+      const versionStore = new PostgresSearchVersionStore(runtime.database);
+      const engine = ManticoreSearchEngine.fromUrl(
+        requireManticoreUrl(),
+        versionStore
+      );
+      const result = await drainPostgresOutbox({
         database: runtime.database,
         engine,
         limit: payload.limit,
         loader: new PostgresSearchDocumentLoader(runtime.database),
+        versionStore,
       });
+      // Task output must be JSON-serializable: drop the bigint-bearing
+      // version object and return the scalar mirror.
+      return {
+        drained: result.drained,
+        indexVersion: result.indexVersion,
+        processedIds: result.processedIds,
+      };
     } finally {
       await runtime.close();
     }

@@ -17,6 +17,7 @@ import {
   createBronRuntimeClient,
   drainPostgresOutbox,
   PostgresSearchDocumentLoader,
+  PostgresSearchVersionStore,
 } from "@ji/db";
 import type { BronRuntimeDatabase } from "@ji/db";
 import { curateScrapeRun } from "@ji/db/curate-scrape-run";
@@ -161,11 +162,16 @@ export const runBronIngestPipeline = async (
     scrapeRunId: pollResult.scrapeRunId,
   });
 
-  const engine = ManticoreSearchEngine.fromUrl(requireManticoreUrl());
+  const versionStore = new PostgresSearchVersionStore(runtime.database);
+  const engine = ManticoreSearchEngine.fromUrl(
+    requireManticoreUrl(),
+    versionStore
+  );
   const drainResult = await drainPostgresOutbox({
     database: runtime.database,
     engine,
     loader: new PostgresSearchDocumentLoader(runtime.database),
+    versionStore,
   });
 
   return {

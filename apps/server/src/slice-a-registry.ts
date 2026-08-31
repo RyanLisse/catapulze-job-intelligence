@@ -15,6 +15,7 @@ import {
   PostgresExternalIdCrosswalkStore,
   PostgresQuerySnapshotStore,
   PostgresRawPayloadStore,
+  PostgresSearchVersionStore,
   createBronRuntimeClient,
 } from "@ji/db";
 import { PostgresCurateStore } from "@ji/db/postgres-curate-store";
@@ -54,7 +55,15 @@ export const createProductionSliceADeps = (
     snapshots: new PostgresQuerySnapshotStore(runtime.database),
   };
 
-  const engine = ManticoreSearchEngine.fromUrl(input.manticoreUrl);
+  // CONTRACT (RJC-384): the engine and any drainPostgresOutbox call against
+  // this database MUST share one PostgresSearchVersionStore-backed checkpoint
+  // (same table; instances may differ) — the checkpoint advance happens
+  // inside engine.applyBatch. If a branch rewires these stores (e.g.
+  // fix/production-persistent-stores), keep engine + drain on the same store.
+  const engine = ManticoreSearchEngine.fromUrl(
+    input.manticoreUrl,
+    new PostgresSearchVersionStore(runtime.database)
+  );
   const searchAdapter = new SearchAdapter({ engine });
   const curateStore = new PostgresCurateStore(runtime.database);
 

@@ -22,8 +22,14 @@ const createInFlightTrackingEngine = (): InFlightTracker => {
   let inFlight = 0;
   const tracker: InFlightTracker = {
     engine: {
+      applyBatch: (batch) =>
+        Promise.resolve({
+          appliedSequence: batch.appliedSequence,
+          generation: 1,
+        }),
       deleteDocument: () => Promise.resolve(),
-      getIndexVersion: () => Promise.resolve(1),
+      getAppliedVersion: () =>
+        Promise.resolve({ appliedSequence: 1n, generation: 1 }),
       async search() {
         inFlight += 1;
         tracker.maxInFlight = Math.max(tracker.maxInFlight, inFlight);
@@ -36,7 +42,6 @@ const createInFlightTrackingEngine = (): InFlightTracker => {
           total: 0,
         };
       },
-      setIndexVersion: () => Promise.resolve(),
       upsertDocument: () => Promise.resolve(),
     },
     maxInFlight: 0,
