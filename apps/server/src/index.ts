@@ -64,7 +64,7 @@ app.get("/health", healthRoutes.health);
 app.get("/livez", healthRoutes.live);
 app.get("/readyz", healthRoutes.ready);
 
-const sliceA = createProductionSliceARegistry({
+const sliceA = await createProductionSliceARegistry({
   databaseUrl: env.DATABASE_URL,
   manticoreUrl: env.MANTICORE_URL,
   nodeEnv: env.NODE_ENV,
@@ -74,6 +74,7 @@ const sliceA = createProductionSliceARegistry({
   rawS3Endpoint: env.RAW_S3_ENDPOINT,
   rawS3Region: env.RAW_S3_REGION,
   rawS3SecretAccessKey: env.RAW_S3_SECRET_ACCESS_KEY,
+  redisUrl: env.REDIS_URL,
 });
 const restRoutes = restRoutesFromRegistry(sliceA.registry);
 const restHandler = createRestCapabilityHandler(sliceA.registry, restRoutes);

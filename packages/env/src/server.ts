@@ -23,6 +23,8 @@ export const env = createEnv({
     RAW_S3_ENDPOINT: z.string().min(1).optional(),
     RAW_S3_REGION: z.string().min(1).optional(),
     RAW_S3_SECRET_ACCESS_KEY: z.string().min(1).optional(),
+    /** Search result cache (RJC-388). Unset runs the in-process memory cache. */
+    REDIS_URL: z.url().optional(),
   },
   skipValidation: !!process.env.SKIP_ENV_VALIDATION,
 });

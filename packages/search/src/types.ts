@@ -192,6 +192,13 @@ export interface SearchAdapterSuccess {
   total: number;
   windowLimit: number;
   emptyReason?: string;
+  /**
+   * How this result was produced (RJC-388): "hit" served straight from the
+   * results cache, "coalesced" rode another in-flight identical search,
+   * "miss" actually called the engine. Additive/optional — absent for any
+   * caller that doesn't care (e.g. a cacheless adapter).
+   */
+  cache?: "coalesced" | "hit" | "miss";
 }
 
 export interface SearchAdapterFailure {

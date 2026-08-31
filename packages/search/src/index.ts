@@ -1,10 +1,20 @@
 export { SearchAdapter, evaluateBooleanAst } from "./adapter";
-export { hashAst, buildCacheKey } from "./ast-hash";
+export {
+  buildCacheKey,
+  buildFacetCacheKey,
+  canonicalizeAst,
+  hashAst,
+} from "./ast-hash";
+export { type FacetCache, MemoryFacetCache } from "./cache/facets-cache";
+export { ParserLruCache, PARSER_CACHE_MAX_ENTRIES } from "./cache/parser-cache";
 export {
   createResultCache,
   MemoryResultCache,
   RedisResultCache,
+  type ResultCacheBackend,
+  type ResultCacheResolution,
 } from "./cache/result-cache";
+export { Singleflight } from "./cache/singleflight";
 export { InMemorySearchEngine } from "./in-memory-engine";
 export {
   buildBoolJson,
