@@ -34,4 +34,22 @@ describe("source registry", () => {
   it("returns undefined for an unknown naam", () => {
     expect(resolveSourceByNaam("Werken voor Nederland")).toBeUndefined();
   });
+
+  it("gives every source a unique bronId (a shared id cross-contaminates known-hashes and observations)", () => {
+    const slugsByBronId = new Map<string, string[]>();
+    for (const [slug, source] of Object.entries(SOURCES)) {
+      const slugs = slugsByBronId.get(source.bronId) ?? [];
+      slugs.push(slug);
+      slugsByBronId.set(source.bronId, slugs);
+    }
+    const collisions = [...slugsByBronId.entries()]
+      .filter(([, slugs]) => slugs.length > 1)
+      .map(([bronId, slugs]) => `${bronId} shared by ${slugs.join(", ")}`);
+    expect(collisions).toEqual([]);
+  });
+
+  it("gives every source a unique slug", () => {
+    const slugs = Object.keys(SOURCES);
+    expect(new Set(slugs).size).toBe(slugs.length);
+  });
 });
