@@ -60,7 +60,13 @@ export const searchAanvragenInputSchema = z
   .object({
     filters: searchFiltersSchema.optional(),
     limit: z.number().int().positive().max(100).optional(),
-    offset: z.number().int().nonnegative().optional(),
+    // Capped at 900 so offset + limit never exceeds Manticore's max_matches
+    // (1000, see DEFAULT_MAX_MATCHES in packages/search/src/manticore/client.ts,
+    // RJC-380) given limit's own max of 100 above. Without this cap a
+    // deep-offset request silently comes back with fewer/no hits instead of
+    // a validation error, while track_total_hits still reports the true
+    // (larger) total — the exact mismatch RJC-378 tracks on the UI side.
+    offset: z.number().int().nonnegative().max(900).optional(),
     query: z.string(),
   })
   .strict();

@@ -11,6 +11,9 @@ import type {
   ManticoreSearchPayload,
   ManticoreSearchRequestBody,
 } from "./json";
+import { ManticoreTimeoutError } from "./timeout-error";
+
+export { ManticoreTimeoutError } from "./timeout-error";
 
 export interface ManticoreSearchHit {
   id: string;
@@ -34,11 +37,53 @@ export interface ManticoreHttpClient {
   ) => Promise<ManticoreSearchPayload>;
 }
 
+/**
+ * Upper bound on candidate matches Manticore ranks and holds in memory per
+ * query, independent of the request's limit/offset (RJC-380). This is
+ * distinct from pagination: a page whose offset + limit exceeds max_matches
+ * gets fewer (or zero) hits back rather than an error — Manticore truncates
+ * silently, it does not fail the request. The API layer already caps `limit`
+ * at 100 (see searchAanvragenInputSchema in
+ * packages/application/src/registry/handlers/index.ts), so 1000 covers ten
+ * full pages of pagination depth while still bounding the ranked working set
+ * for a single query. If a caller ever legitimately needs deeper pagination
+ * than that, this should become a configurable value on the client rather
+ * than being silently raised — nothing today asks for more than the 100
+ * items apps/web ever requests at offset 0.
+ */
+const DEFAULT_MAX_MATCHES = 1000;
+
+/**
+ * Wall-clock query execution budget in milliseconds (RJC-380). Unlike a
+ * transport timeout, exceeding this makes Manticore return whatever matches
+ * it found within budget as a normal (partial) result — not an error — so a
+ * slow full-text scan degrades to a smaller result set instead of hanging
+ * the request. 5000ms comfortably clears a healthy query (typically low
+ * tens of ms even under this app's real fixtures) while still bounding the
+ * worst case for an overloaded or cold index, in line with search speed
+ * being the product's most important property.
+ */
+const DEFAULT_MAX_QUERY_TIME_MS = 5000;
+
+/**
+ * Transport-level timeout for the fetch call itself (RJC-380) — a backstop
+ * for Manticore never responding at all (hung process, network partition),
+ * which max_query_time above cannot protect against since it only bounds
+ * query execution *inside* a request Manticore is actually processing. Set
+ * comfortably above DEFAULT_MAX_QUERY_TIME_MS so a healthy server has room
+ * to hit its own query-time budget and reply with a partial result before
+ * the transport gives up; the ~3s gap covers network latency and parsing a
+ * near-max_matches response body.
+ */
+const DEFAULT_FETCH_TIMEOUT_MS = 8000;
+
 export class FetchManticoreClient implements ManticoreHttpClient {
   private readonly baseUrl: string;
+  private readonly timeoutMs: number;
 
-  constructor(baseUrl: string) {
+  constructor(baseUrl: string, timeoutMs: number = DEFAULT_FETCH_TIMEOUT_MS) {
     this.baseUrl = baseUrl;
+    this.timeoutMs = timeoutMs;
   }
 
   async request(
@@ -48,21 +93,44 @@ export class FetchManticoreClient implements ManticoreHttpClient {
       | ManticoreReplaceBody
       | ManticoreSearchRequestBody
   ): Promise<ManticoreSearchPayload> {
-    const response = await fetch(`${this.baseUrl}${path}`, {
-      body: JSON.stringify(body),
-      headers: { "Content-Type": "application/json" },
-      method: "POST",
-    });
+    const url = `${this.baseUrl}${path}`;
+    let response: Response;
+    try {
+      response = await fetch(url, {
+        body: JSON.stringify(body),
+        headers: { "Content-Type": "application/json" },
+        method: "POST",
+        signal: AbortSignal.timeout(this.timeoutMs),
+      });
+    } catch (error) {
+      // catch bindings are always `unknown` by language rule (not a
+      // decodable I/O boundary) — narrow with an instanceof check rather
+      // than delegating to a function typed to accept `unknown`.
+      const isAbortTimeout =
+        error instanceof DOMException && error.name === "TimeoutError";
+      if (isAbortTimeout) {
+        throw new ManticoreTimeoutError(url, this.timeoutMs);
+      }
+      throw error;
+    }
 
     const raw = await response.text();
-    const payload = parseManticoreSearchPayload(raw);
     if (!response.ok) {
+      // The error body isn't guaranteed to be Manticore's JSON shape (e.g. a
+      // proxy's HTML error page) — fall back to statusText rather than
+      // letting a JSON.parse/Zod failure mask the real HTTP status error.
+      let message = response.statusText;
+      try {
+        message = parseManticoreSearchPayload(raw).error ?? message;
+      } catch {
+        // non-JSON error body — statusText already set above
+      }
       throw new Error(
-        `Manticore request failed (${response.status}): ${payload.error ?? response.statusText}`
+        `Manticore request failed (${response.status}): ${message}`
       );
     }
 
-    return payload;
+    return parseManticoreSearchPayload(raw);
   }
 }
 
@@ -135,6 +203,11 @@ export const parseManticoreSearchResponse = (
   facets.contracttype = parseFacetBuckets(payload, "contracttype");
 
   return {
+    // RJC-380: a timed-out query (max_query_time cut it short) must never
+    // read as an ordinary "no results" — flag it distinctly so it isn't
+    // mistaken for empty_index or a real zero-match query, and so callers
+    // know hits/total are partial rather than exact.
+    emptyReason: payload.timed_out === true ? "query_timeout" : undefined,
     facets,
     hits,
     total,
@@ -203,8 +276,17 @@ export const buildManticoreSearchRequest = (
     },
     index,
     limit,
+    max_matches: DEFAULT_MAX_MATCHES,
+    max_query_time: DEFAULT_MAX_QUERY_TIME_MS,
     offset,
     sort: [{ "WEIGHT()": "desc" }, { id: "asc" }],
+    // Left as-is deliberately (RJC-380 audit): apps/web's total-count UI is
+    // an existing, separately-tracked consumer of this exact total (see
+    // RJC-378), and there's no profiling evidence here that exact counting
+    // is Manticore's actual cost driver for this index size. Turning this
+    // off is a real, visible product decision (approximate vs. exact
+    // counts) that deserves its own ticket and measurement, not a silent
+    // change bundled into a query-bounds fix.
     track_total_hits: true,
   };
 
