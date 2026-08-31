@@ -1,6 +1,6 @@
 # CTM (EU-Supply / Mercell) — ingest-recept (geverifieerd 2026-08-30)
 
-Status: **connector gebouwd, activatie staat uit** — derde bron (na TenderNed, Inhuurdesk); adapter-categorie `feed`. Nog te doen vóór activatie: voorwaardenstatus door een mens laten bevestigen (zie § Licentie), de bron registreren in het bronregister, een `ctm`-normalisatiemodule toevoegen aan de curatie-pipeline (`packages/application/src/normalise/`, `SupportedBronSlug`), en de worker-routing (`apps/worker/src/poll-bron-run.ts`) uitbreiden zodra dat allemaal klaarstaat.
+Status: **connector, normalisatie en registratie compleet, activatie staat uit** — genormaliseerd en geregistreerd in `packages/application/src/sources/index.ts` (`SupportedBronSlug` bevat nu `ctm`); adapter-categorie `feed`. De worker-routing (`apps/worker/src/poll-bron-run.ts`) leest generiek uit het `SOURCES`-register, dus die is al bruikbaar zonder aparte wijziging. Nog te doen vóór activatie: voorwaardenstatus door een mens laten bevestigen (zie § Licentie) — `voorwaarden_status: te_toetsen` blijft staan en `CTM_LIVE` blijft onset totdat dat gebeurt.
 
 ## Endpoint
 

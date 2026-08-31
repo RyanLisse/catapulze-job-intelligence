@@ -1,4 +1,5 @@
 import { bluetrail } from "./bluetrail";
+import { ctm } from "./ctm";
 import type { SourceDefinition } from "./definition";
 import { flinter } from "./flinter";
 import { harveynash } from "./harveynash";
@@ -20,6 +21,7 @@ export { resolveTenderNedTestImportDays } from "./tenderned";
 /** Registry of every ingestable bron. Adding a source = one file in this folder + one line here. */
 export const SOURCES = {
   bluetrail,
+  ctm,
   flinter,
   harveynash,
   hero,
