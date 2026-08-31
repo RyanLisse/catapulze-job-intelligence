@@ -1,9 +1,11 @@
+import { ENRICHED_SEARCH_DATA_AVAILABLE } from "../types";
 import type {
   FacetCount,
   FreshnessFilter,
   JobContractType,
   JobSearchFacets,
   JobSearchFilters,
+  JobSort,
   JobSource,
 } from "../types";
 import { bronNameToSource } from "./bron-catalog";
@@ -14,6 +16,7 @@ export interface ApiSearchFilters {
   readonly bronIds?: readonly string[];
   readonly contracttype?: readonly string[];
   readonly freshnessDays?: number;
+  readonly locatie?: readonly string[];
   readonly locatieLand?: readonly string[];
   readonly tariefMin?: number;
 }
@@ -26,8 +29,30 @@ export interface ApiFacetBucket {
 export interface ApiSearchFacets {
   readonly bron_id: readonly ApiFacetBucket[];
   readonly contracttype: readonly ApiFacetBucket[];
+  readonly locatie: readonly ApiFacetBucket[];
   readonly locatie_land: readonly ApiFacetBucket[];
 }
+
+// RJC-394: until the loader indexes a real `locatie`, the UI keeps filtering
+// and faceting on the country attribute it always used; the `locatie`
+// attribute is wired end to end but only selected once the flag flips.
+const LOCATION_FILTER_KEY = ENRICHED_SEARCH_DATA_AVAILABLE
+  ? "locatie"
+  : "locatieLand";
+const LOCATION_FACET_KEY = ENRICHED_SEARCH_DATA_AVAILABLE
+  ? "locatie"
+  : "locatie_land";
+
+// The index stores the curated location value (today the country code, since
+// curated.aanvraag has no finer location column); the UI shows a label. The
+// filter must send back the indexed value or it never matches (RJC-378).
+const LOCATION_LABELS = [["NL", "Nederland"]] as const;
+
+export const locationLabel = (value: string): string =>
+  LOCATION_LABELS.find(([known]) => known === value)?.[1] ?? value;
+
+const locationValue = (label: string): string =>
+  LOCATION_LABELS.find(([, known]) => known === label)?.[0] ?? label;
 
 const freshnessToDays = (freshness: FreshnessFilter): number | undefined => {
   switch (freshness) {
@@ -77,6 +102,9 @@ export const mapUiFiltersToApi = (
   if (filters.contractTypes.length > 0) {
     mapped.contracttype = [...filters.contractTypes];
   }
+  if (filters.locations.length > 0) {
+    mapped[LOCATION_FILTER_KEY] = filters.locations.map(locationValue);
+  }
   if (filters.minRate === null) {
     // no rate filter
   } else {
@@ -119,9 +147,9 @@ export const mapApiFacetsToUi = (
       ? [{ count: bucket.count, value: bucket.value }]
       : []
   ),
-  locations: facets.locatie_land.map((bucket) => ({
+  locations: facets[LOCATION_FACET_KEY].map((bucket) => ({
     count: bucket.count,
-    value: bucket.value === "NL" ? "Nederland" : bucket.value,
+    value: locationLabel(bucket.value),
   })),
   sources: facets.bron_id.flatMap((bucket) => {
     const mapped = mapSourceFacet(bucket, bronCatalog);
@@ -134,6 +162,7 @@ export const buildSearchRequestBody = (input: {
   readonly limit: number;
   readonly offset: number;
   readonly query: string;
+  readonly sort: JobSort;
   readonly bronCatalog: ReadonlyMap<string, BronCatalogEntry>;
 }): CapabilityJsonObject => {
   const filters = mapUiFiltersToApi(input.filters, input.bronCatalog);
@@ -141,6 +170,7 @@ export const buildSearchRequestBody = (input: {
     limit: input.limit,
     offset: input.offset,
     query: input.query,
+    sort: input.sort,
   };
   if (Object.keys(filters).length > 0) {
     return { ...base, filters: { ...filters } };
@@ -148,44 +178,34 @@ export const buildSearchRequestBody = (input: {
   return base;
 };
 
+const filtersBody = (
+  filters: JobSearchFilters,
+  bronCatalog: ReadonlyMap<string, BronCatalogEntry>
+): CapabilityJsonObject | undefined => {
+  const mapped = mapUiFiltersToApi(filters, bronCatalog);
+  return Object.keys(mapped).length > 0 ? { ...mapped } : undefined;
+};
+
 export const buildSavedSearchBody = (input: {
   readonly filters: JobSearchFilters;
   readonly naam: string;
   readonly query: string;
   readonly bronCatalog: ReadonlyMap<string, BronCatalogEntry>;
-}): CapabilityJsonObject => {
-  const searchBody = buildSearchRequestBody({
-    bronCatalog: input.bronCatalog,
-    filters: input.filters,
-    limit: 100,
-    offset: 0,
-    query: input.query,
-  });
-  return {
-    filters: searchBody.filters,
-    naam: input.naam,
-    query: input.query,
-  };
-};
+}): CapabilityJsonObject => ({
+  filters: filtersBody(input.filters, input.bronCatalog),
+  naam: input.naam,
+  query: input.query,
+});
 
 export const buildSnapshotBody = (input: {
   readonly filters: JobSearchFilters;
   readonly query: string;
   readonly selectedIds: readonly string[];
   readonly bronCatalog: ReadonlyMap<string, BronCatalogEntry>;
-}): CapabilityJsonObject => {
-  const searchBody = buildSearchRequestBody({
-    bronCatalog: input.bronCatalog,
-    filters: input.filters,
-    limit: 100,
-    offset: 0,
-    query: input.query,
-  });
-  return {
-    filters: searchBody.filters,
-    query: input.query,
-    // RJC-385: a snapshot is bound to an explicit selection; the query and
-    // filters above travel along as context only.
-    selectedIds: [...input.selectedIds],
-  };
-};
+}): CapabilityJsonObject => ({
+  filters: filtersBody(input.filters, input.bronCatalog),
+  query: input.query,
+  // RJC-385: a snapshot is bound to an explicit selection; the query and
+  // filters above travel along as context only.
+  selectedIds: [...input.selectedIds],
+});

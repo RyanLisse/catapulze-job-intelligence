@@ -4,6 +4,7 @@ import {
 } from "@ji/performance";
 
 import { evaluateBooleanAst } from "./adapter";
+import { hashDocumentId } from "./manticore/id-hash";
 import type {
   EngineSearchParams,
   SearchDocument,
@@ -13,8 +14,13 @@ import type {
   SearchFacets,
   SearchFilters,
   SearchIndexBatch,
+  SearchSort,
 } from "./types";
-import { emptySearchFacets } from "./types";
+import {
+  documentLocatie,
+  emptySearchFacets,
+  SEARCH_WINDOW_LIMIT,
+} from "./types";
 import { InMemorySearchVersionStore } from "./version";
 import type { SearchVersion, SearchVersionStore } from "./version";
 
@@ -34,6 +40,10 @@ const matchesFilters = (
     filters.locatieLand &&
     !filters.locatieLand.includes(document.locatieLand)
   ) {
+    return false;
+  }
+
+  if (filters.locatie && !filters.locatie.includes(documentLocatie(document))) {
     return false;
   }
 
@@ -69,16 +79,23 @@ const matchesFilters = (
   return true;
 };
 
+type FacetField =
+  | "bronId"
+  | "contracttype"
+  | "locatie"
+  | "locatieLand"
+  | "status";
+
 const facetValueForField = (
   document: SearchDocument,
-  field: keyof Pick<
-    SearchDocument,
-    "bronId" | "contracttype" | "locatieLand" | "status"
-  >
+  field: FacetField
 ): string => {
   switch (field) {
     case "bronId": {
       return document.bronId;
+    }
+    case "locatie": {
+      return documentLocatie(document);
     }
     case "locatieLand": {
       return document.locatieLand;
@@ -98,10 +115,7 @@ const facetValueForField = (
 
 const countFacet = (
   documents: SearchDocument[],
-  field: keyof Pick<
-    SearchDocument,
-    "bronId" | "contracttype" | "locatieLand" | "status"
-  >
+  field: FacetField
 ): SearchFacetBucket[] => {
   const counts = new Map<string, number>();
   for (const document of documents) {
@@ -117,9 +131,60 @@ const countFacet = (
 const buildFacets = (documents: SearchDocument[]): SearchFacets => ({
   bron_id: countFacet(documents, "bronId"),
   contracttype: countFacet(documents, "contracttype"),
+  locatie: countFacet(documents, "locatie"),
   locatie_land: countFacet(documents, "locatieLand"),
   status: countFacet(documents, "status"),
 });
+
+/**
+ * Manticore tiebreaks on its numeric doc id, which is hashDocumentId(id);
+ * using the same key here keeps page boundaries and tied-score order
+ * identical across both engines.
+ */
+const byId = (left: SearchDocument, right: SearchDocument): number =>
+  hashDocumentId(left.id) - hashDocumentId(right.id);
+
+/**
+ * Same ordering contract as the Manticore clauses in manticore/client.ts:
+ * primary key per sort, hashed document id as the final tiebreak so pages
+ * are stable. Missing rates sort as 0 (last under desc) and missing
+ * deadlines sort last, exactly as the indexed sentinels make Manticore behave.
+ */
+const compareDocuments = (
+  left: SearchDocument,
+  right: SearchDocument,
+  sort: SearchSort
+): number => {
+  switch (sort) {
+    case "relevance": {
+      // Every in-memory hit weighs 1, so relevance degrades to the tiebreak.
+      return byId(left, right);
+    }
+    case "newest": {
+      return (
+        right.laatstGezienOp.getTime() - left.laatstGezienOp.getTime() ||
+        byId(left, right)
+      );
+    }
+    case "rate-high": {
+      return (
+        (right.tariefMax ?? 0) - (left.tariefMax ?? 0) || byId(left, right)
+      );
+    }
+    case "closing-soon": {
+      const leftDeadline = left.sluitingsdatum?.getTime() ?? Infinity;
+      const rightDeadline = right.sluitingsdatum?.getTime() ?? Infinity;
+      if (leftDeadline !== rightDeadline) {
+        return leftDeadline < rightDeadline ? -1 : 1;
+      }
+      return byId(left, right);
+    }
+    default: {
+      const _exhaustive: never = sort;
+      throw new Error(`Unsupported sort: ${String(_exhaustive)}`);
+    }
+  }
+};
 
 export class InMemorySearchEngine implements SearchEngine {
   private readonly documents = new Map<string, SearchDocument>();
@@ -178,9 +243,13 @@ export class InMemorySearchEngine implements SearchEngine {
       });
 
       const sorted = matched.toSorted((left, right) =>
-        left.id.localeCompare(right.id)
+        compareDocuments(left, right, params.sort ?? "relevance")
       );
-      const page = sorted.slice(params.offset, params.offset + params.limit);
+      // Mirror Manticore's max_matches: nothing past the window is returned.
+      const page = sorted.slice(
+        params.offset,
+        Math.min(params.offset + params.limit, SEARCH_WINDOW_LIMIT)
+      );
       const facets = recordCriticalPathPhaseSync("search-facets", () =>
         this.documents.size === 0 ? emptySearchFacets() : buildFacets(matched)
       );
@@ -196,6 +265,7 @@ export class InMemorySearchEngine implements SearchEngine {
         hits: page.map((document) => ({ id: document.id, weight: 1 })),
         indexVersion: Number(version.appliedSequence),
         total: matched.length,
+        windowLimit: SEARCH_WINDOW_LIMIT,
       });
     });
   }

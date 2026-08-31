@@ -26,6 +26,7 @@ export const manticoreSearchPayloadSchema = z.object({
     .object({
       bron_id: manticoreFacetSchema.optional(),
       contracttype: manticoreFacetSchema.optional(),
+      locatie: manticoreFacetSchema.optional(),
       locatie_land: manticoreFacetSchema.optional(),
       status: manticoreFacetSchema.optional(),
     })
@@ -34,6 +35,7 @@ export const manticoreSearchPayloadSchema = z.object({
     .object({
       bron_id: manticoreFacetSchema.optional(),
       contracttype: manticoreFacetSchema.optional(),
+      locatie: manticoreFacetSchema.optional(),
       locatie_land: manticoreFacetSchema.optional(),
       status: manticoreFacetSchema.optional(),
     })
@@ -83,7 +85,13 @@ export interface ManticoreIndexedDocument {
   document_id: string;
   index_version: number;
   laatst_gezien_op: number;
+  // Display location the UI filters and facets on (RJC-378); see
+  // documentLocatie in ../types.ts for how it is derived.
+  locatie: string;
   locatie_land: string;
+  // Epoch seconds; SLUITINGSDATUM_MISSING_SENTINEL when the bron publishes no
+  // deadline, so `sluitingsdatum asc` puts missing deadlines last natively.
+  sluitingsdatum: number;
   status: string;
   tarief_max: number;
   tarief_min: number;
@@ -94,12 +102,33 @@ export interface ManticoreQueryBody {
   query_string: string;
 }
 
+/**
+ * Manticore's JSON /search has no top-level `filter` key — it silently
+ * ignores one (verified against 6.3.8: a top-level `filter` returned every
+ * document). Attribute filters must travel inside `query.bool.filter`, with
+ * the full-text clause under `must`.
+ */
+export interface ManticoreFilteredQueryBody {
+  bool: {
+    filter: ManticoreFilterClause[];
+    must?: ManticoreQueryBody[];
+  };
+}
+
+export type ManticoreSortDirection = "asc" | "desc";
+
 export interface ManticoreSortEntry {
-  "WEIGHT()": "asc" | "desc";
+  "WEIGHT()": ManticoreSortDirection;
 }
 
 export interface ManticoreIdSortEntry {
-  id: "asc" | "desc";
+  id: ManticoreSortDirection;
+}
+
+export interface ManticoreAttributeSortEntry {
+  laatst_gezien_op?: ManticoreSortDirection;
+  sluitingsdatum?: ManticoreSortDirection;
+  tarief_max?: ManticoreSortDirection;
 }
 
 export interface ManticoreTermsAgg {
@@ -111,10 +140,10 @@ export interface ManticoreSearchRequestBody {
   aggs: {
     bron_id: { terms: ManticoreTermsAgg };
     contracttype: { terms: ManticoreTermsAgg };
+    locatie: { terms: ManticoreTermsAgg };
     locatie_land: { terms: ManticoreTermsAgg };
     status: { terms: ManticoreTermsAgg };
   };
-  filter?: ManticoreFilterClause;
   index: string;
   limit: number;
   // Upper bound on how many candidate matches Manticore ranks and holds in
@@ -126,8 +155,12 @@ export interface ManticoreSearchRequestBody {
   // the docblock on DEFAULT_MAX_QUERY_TIME_MS in client.ts.
   max_query_time: number;
   offset: number;
-  query?: ManticoreQueryBody;
-  sort: (ManticoreIdSortEntry | ManticoreSortEntry)[];
+  query?: ManticoreFilteredQueryBody | ManticoreQueryBody;
+  sort: (
+    | ManticoreAttributeSortEntry
+    | ManticoreIdSortEntry
+    | ManticoreSortEntry
+  )[];
   track_total_hits: boolean;
 }
 
@@ -135,6 +168,7 @@ export interface ManticoreInFilter {
   in: {
     bron_id?: string[];
     contracttype?: string[];
+    locatie?: string[];
     locatie_land?: string[];
     status?: string[];
   };
@@ -148,16 +182,7 @@ export interface ManticoreRangeFilter {
   };
 }
 
-export interface ManticoreBoolFilter {
-  bool: {
-    must: ManticoreFilterClause[];
-  };
-}
-
-export type ManticoreFilterClause =
-  | ManticoreBoolFilter
-  | ManticoreInFilter
-  | ManticoreRangeFilter;
+export type ManticoreFilterClause = ManticoreInFilter | ManticoreRangeFilter;
 
 export type ManticoreRequestBody =
   | ManticoreDeleteBody

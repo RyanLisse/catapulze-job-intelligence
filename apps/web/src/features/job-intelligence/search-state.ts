@@ -3,11 +3,12 @@ import type { BooleanNode } from "@ji/domain";
 
 import {
   DEFAULT_JOB_SEARCH_STATE,
+  ENRICHED_SEARCH_DATA_AVAILABLE,
   FRESHNESS_FILTERS,
   JOB_CONTRACT_TYPES,
   JOB_PAGE_SIZE,
-  JOB_SORT_OPTIONS,
   PREVIEW_STATUSES,
+  selectableJobSortOptions,
 } from "./types";
 import type {
   FacetCount,
@@ -98,7 +99,12 @@ export const parseJobSearchState = (
       : "ready",
     query: readFirst(input, "q")?.trim() ?? "",
     selectedJobId: readFirst(input, "job"),
-    sort: isOneOf(sort, JOB_SORT_OPTIONS) ? sort : "relevance",
+    sort: isOneOf(
+      sort,
+      selectableJobSortOptions(ENRICHED_SEARCH_DATA_AVAILABLE)
+    )
+      ? sort
+      : "relevance",
   };
 };
 
@@ -315,23 +321,6 @@ const compareJobs = (
     }
   }
   return Date.parse(right.publishedAt) - Date.parse(left.publishedAt);
-};
-
-export const sortJobListings = (
-  jobs: readonly JobListing[],
-  sort: JobSort,
-  query: string
-): JobListing[] =>
-  [...jobs].toSorted((left, right) => compareJobs(left, right, sort, query));
-
-export const filterJobsByLocation = (
-  jobs: readonly JobListing[],
-  locations: readonly string[]
-): JobListing[] => {
-  if (locations.length === 0) {
-    return [...jobs];
-  }
-  return jobs.filter((job) => locations.includes(job.location));
 };
 
 const countFacets = <T extends string>(values: readonly T[]): FacetCount<T>[] =>

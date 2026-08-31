@@ -4,10 +4,15 @@ import { Search, SlidersHorizontal, X } from "lucide-react";
 
 import { sortLabels } from "./presentation";
 import type { JobSearchState } from "./types";
-import { JOB_SORT_OPTIONS } from "./types";
+import {
+  ENRICHED_SEARCH_DATA_AVAILABLE,
+  selectableJobSortOptions,
+} from "./types";
+
+const sortOptions = selectableJobSortOptions(ENRICHED_SEARCH_DATA_AVAILABLE);
 
 const isJobSort = (value: string): value is JobSearchState["sort"] =>
-  JOB_SORT_OPTIONS.some((candidate) => candidate === value);
+  sortOptions.some((candidate) => candidate === value);
 
 interface JobSearchQueryBarProps {
   readonly activeFilterCount: number;
@@ -140,9 +145,9 @@ export const JobSearchQueryBar = ({
             }}
             className="min-h-11 border border-foreground/12 bg-card px-3 text-xs font-semibold text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
-            {Object.entries(sortLabels).map(([value, label]) => (
+            {sortOptions.map((value) => (
               <option key={value} value={value}>
-                {label}
+                {sortLabels[value]}
               </option>
             ))}
           </select>

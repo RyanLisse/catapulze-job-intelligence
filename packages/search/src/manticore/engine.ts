@@ -8,7 +8,11 @@ import type {
   SearchEngineResult,
   SearchIndexBatch,
 } from "../types";
-import { SEARCH_INDEX_NAME } from "../types";
+import {
+  documentLocatie,
+  SEARCH_INDEX_NAME,
+  SEARCH_WINDOW_LIMIT,
+} from "../types";
 import { ZERO_SEQUENCE } from "../version";
 import type { SearchVersion, SearchVersionStore } from "../version";
 import {
@@ -23,6 +27,18 @@ import { buildBoolJson, buildQueryString } from "./emitter";
 import type { ManticoreBoolQuery } from "./emitter";
 import type { ManticoreIndexedDocument, ManticoreQueryBody } from "./json";
 
+/**
+ * 2100-01-01T00:00:00Z. Indexed under `sluitingsdatum` when a document has no
+ * deadline so `ORDER BY sluitingsdatum ASC` (the closing-soon sort) lists
+ * real deadlines first and missing ones last without a per-match expression.
+ * Fits Manticore's 32-bit timestamp attribute (max 2106) and is far past
+ * any deadline a bron will publish. Do not filter on it as a real date.
+ */
+export const SLUITINGSDATUM_MISSING_SENTINEL = 4_102_444_800;
+
+const epochSeconds = (value: Date): number =>
+  Math.floor(value.getTime() / 1000);
+
 const documentToManticore = (
   document: SearchDocument,
   indexVersion: number
@@ -32,9 +48,14 @@ const documentToManticore = (
   contracttype: document.contracttype ?? "",
   document_id: document.id,
   index_version: indexVersion,
-  laatst_gezien_op: Math.floor(document.laatstGezienOp.getTime() / 1000),
+  laatst_gezien_op: epochSeconds(document.laatstGezienOp),
+  locatie: documentLocatie(document),
   locatie_land: document.locatieLand,
+  sluitingsdatum: document.sluitingsdatum
+    ? epochSeconds(document.sluitingsdatum)
+    : SLUITINGSDATUM_MISSING_SENTINEL,
   status: document.status,
+  // 0 doubles as "no rate": rate-high sorts tarief_max desc, so it lands last.
   tarief_max: document.tariefMax ?? 0,
   tarief_min: document.tariefMin ?? 0,
   titel: document.titel,
@@ -113,7 +134,8 @@ export class ManticoreSearchEngine implements SearchEngine {
             queryBody,
             params.filters,
             params.limit,
-            params.offset
+            params.offset,
+            params.sort
           ),
         };
       }
@@ -141,6 +163,7 @@ export class ManticoreSearchEngine implements SearchEngine {
       hits: response.hits,
       indexVersion: Number(version.appliedSequence),
       total: response.total,
+      windowLimit: SEARCH_WINDOW_LIMIT,
     };
   }
 

@@ -8,7 +8,7 @@ import type {
   SearchEngineResult,
   SearchIndexBatch,
 } from "./types";
-import { emptySearchFacets } from "./types";
+import { emptySearchFacets, SEARCH_WINDOW_LIMIT } from "./types";
 import { InMemorySearchVersionStore } from "./version";
 import type { SearchVersion, SearchVersionStore } from "./version";
 
@@ -98,6 +98,7 @@ export class PostgresFtsFallbackEngine implements SearchEngine {
         hits: rows.map((row) => ({ id: row.id, weight: row.rank })),
         indexVersion: Number(version.appliedSequence),
         total: rows.length,
+        windowLimit: SEARCH_WINDOW_LIMIT,
       };
     }
 
@@ -124,6 +125,7 @@ export class PostgresFtsFallbackEngine implements SearchEngine {
       hits: page.map((document) => ({ id: document.id, weight: 1 })),
       indexVersion: Number(version.appliedSequence),
       total: matched.length,
+      windowLimit: SEARCH_WINDOW_LIMIT,
     };
   }
 

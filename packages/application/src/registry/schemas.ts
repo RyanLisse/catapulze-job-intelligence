@@ -8,6 +8,7 @@ export const searchFiltersSchema: z.ZodType<SearchFilters> = z
     bronIds: z.array(z.string().uuid()).optional(),
     contracttype: z.array(z.string()).optional(),
     freshnessDays: z.number().int().positive().optional(),
+    locatie: z.array(z.string()).optional(),
     locatieLand: z.array(z.string()).optional(),
     status: z
       .array(z.enum(["active", "stale", "closed", "unknown"]))

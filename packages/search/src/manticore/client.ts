@@ -1,5 +1,5 @@
-import type { SearchFilters } from "../types";
-import { emptySearchFacets } from "../types";
+import type { SearchFilters, SearchSort } from "../types";
+import { emptySearchFacets, SEARCH_WINDOW_LIMIT } from "../types";
 import { hashDocumentId } from "./id-hash";
 import { parseManticoreSearchPayload } from "./json";
 import type {
@@ -10,6 +10,7 @@ import type {
   ManticoreReplaceBody,
   ManticoreSearchPayload,
   ManticoreSearchRequestBody,
+  ManticoreSortDirection,
 } from "./json";
 import { ManticoreTimeoutError } from "./timeout-error";
 
@@ -39,19 +40,14 @@ export interface ManticoreHttpClient {
 
 /**
  * Upper bound on candidate matches Manticore ranks and holds in memory per
- * query, independent of the request's limit/offset (RJC-380). This is
- * distinct from pagination: a page whose offset + limit exceeds max_matches
- * gets fewer (or zero) hits back rather than an error — Manticore truncates
- * silently, it does not fail the request. The API layer already caps `limit`
- * at 100 (see searchAanvragenInputSchema in
- * packages/application/src/registry/handlers/index.ts), so 1000 covers ten
- * full pages of pagination depth while still bounding the ranked working set
- * for a single query. If a caller ever legitimately needs deeper pagination
- * than that, this should become a configurable value on the client rather
- * than being silently raised — nothing today asks for more than the 100
- * items apps/web ever requests at offset 0.
+ * query, independent of the request's limit/offset (RJC-380). A page whose
+ * offset + limit exceeds it gets fewer (or zero) hits back rather than an
+ * error — Manticore truncates silently. Since RJC-378 the client paginates
+ * server-side, so this is also the deepest navigable position: every engine
+ * reports it as `windowLimit` and the API rejects offset + limit beyond it
+ * (searchAanvragenInputSchema). `track_total_hits` keeps `total` exact.
  */
-const DEFAULT_MAX_MATCHES = 1000;
+const DEFAULT_MAX_MATCHES = SEARCH_WINDOW_LIMIT;
 
 /**
  * Wall-clock query execution budget in milliseconds (RJC-380). Unlike a
@@ -144,7 +140,7 @@ const bucketValue = (key: string | number | undefined): string | null => {
 
 const parseFacetBuckets = (
   payload: ManticoreSearchPayload,
-  field: "bron_id" | "contracttype" | "locatie_land" | "status"
+  field: "bron_id" | "contracttype" | "locatie" | "locatie_land" | "status"
 ) => {
   const facet =
     payload.aggregations?.[field]?.buckets ??
@@ -199,6 +195,7 @@ export const parseManticoreSearchResponse = (
   const facets = emptySearchFacets();
   facets.bron_id = parseFacetBuckets(payload, "bron_id");
   facets.status = parseFacetBuckets(payload, "status");
+  facets.locatie = parseFacetBuckets(payload, "locatie");
   facets.locatie_land = parseFacetBuckets(payload, "locatie_land");
   facets.contracttype = parseFacetBuckets(payload, "contracttype");
 
@@ -214,9 +211,10 @@ export const parseManticoreSearchResponse = (
   };
 };
 
-const buildFilter = (
+/** AND-ed attribute filters; an empty list means "no filter". */
+export const buildFilterClauses = (
   filters: SearchFilters
-): ManticoreFilterClause | undefined => {
+): ManticoreFilterClause[] => {
   const must: ManticoreFilterClause[] = [];
 
   if (filters.bronIds && filters.bronIds.length > 0) {
@@ -229,6 +227,10 @@ const buildFilter = (
 
   if (filters.locatieLand && filters.locatieLand.length > 0) {
     must.push({ in: { locatie_land: [...filters.locatieLand] } });
+  }
+
+  if (filters.locatie && filters.locatie.length > 0) {
+    must.push({ in: { locatie: [...filters.locatie] } });
   }
 
   if (filters.contracttype && filters.contracttype.length > 0) {
@@ -249,15 +251,40 @@ const buildFilter = (
     must.push({ range: { laatst_gezien_op: { gte: cutoff } } });
   }
 
-  if (must.length === 0) {
-    return undefined;
-  }
+  return must;
+};
 
-  if (must.length === 1) {
-    return must[0];
-  }
+const ASC: ManticoreSortDirection = "asc";
+const DESC: ManticoreSortDirection = "desc";
 
-  return { bool: { must } };
+/**
+ * Sort clauses per SearchSort (RJC-378). `id` (Manticore's numeric doc id)
+ * is always the final tiebreak so a page boundary never shifts between
+ * requests. Missing rates are indexed as 0 and missing deadlines as
+ * SLUITINGSDATUM_MISSING_SENTINEL (engine.ts), so plain attribute sorts put
+ * them last without an expression — nothing extra to evaluate per match.
+ */
+export const buildManticoreSort = (
+  sort: SearchSort
+): ManticoreSearchRequestBody["sort"] => {
+  switch (sort) {
+    case "relevance": {
+      return [{ "WEIGHT()": DESC }, { id: ASC }];
+    }
+    case "newest": {
+      return [{ laatst_gezien_op: DESC }, { id: ASC }];
+    }
+    case "rate-high": {
+      return [{ tarief_max: DESC }, { id: ASC }];
+    }
+    case "closing-soon": {
+      return [{ sluitingsdatum: ASC }, { id: ASC }];
+    }
+    default: {
+      const _exhaustive: never = sort;
+      throw new Error(`Unsupported sort: ${String(_exhaustive)}`);
+    }
+  }
 };
 
 export const buildManticoreSearchRequest = (
@@ -265,12 +292,14 @@ export const buildManticoreSearchRequest = (
   query: ManticoreQueryBody | null,
   filters: SearchFilters,
   limit: number,
-  offset: number
+  offset: number,
+  sort: SearchSort = "relevance"
 ): ManticoreSearchRequestBody => {
   const request: ManticoreSearchRequestBody = {
     aggs: {
       bron_id: { terms: { field: "bron_id", size: 100 } },
       contracttype: { terms: { field: "contracttype", size: 50 } },
+      locatie: { terms: { field: "locatie", size: 50 } },
       locatie_land: { terms: { field: "locatie_land", size: 50 } },
       status: { terms: { field: "status", size: 20 } },
     },
@@ -279,24 +308,20 @@ export const buildManticoreSearchRequest = (
     max_matches: DEFAULT_MAX_MATCHES,
     max_query_time: DEFAULT_MAX_QUERY_TIME_MS,
     offset,
-    sort: [{ "WEIGHT()": "desc" }, { id: "asc" }],
-    // Left as-is deliberately (RJC-380 audit): apps/web's total-count UI is
-    // an existing, separately-tracked consumer of this exact total (see
-    // RJC-378), and there's no profiling evidence here that exact counting
-    // is Manticore's actual cost driver for this index size. Turning this
-    // off is a real, visible product decision (approximate vs. exact
-    // counts) that deserves its own ticket and measurement, not a silent
-    // change bundled into a query-bounds fix.
+    sort: buildManticoreSort(sort),
+    // Exact totals are what the UI's page count is built on (RJC-378).
     track_total_hits: true,
   };
 
-  if (query !== null) {
+  const filter = buildFilterClauses(filters);
+  if (filter.length > 0) {
+    // Filters only apply inside query.bool (see ManticoreFilteredQueryBody).
+    request.query =
+      query === null
+        ? { bool: { filter } }
+        : { bool: { filter, must: [query] } };
+  } else if (query !== null) {
     request.query = query;
-  }
-
-  const filter = buildFilter(filters);
-  if (filter !== undefined) {
-    request.filter = filter;
   }
 
   return request;

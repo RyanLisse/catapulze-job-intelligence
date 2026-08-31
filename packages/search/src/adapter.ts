@@ -26,6 +26,7 @@ import type { SearchVersion } from "./version";
 
 const DEFAULT_LIMIT = 20;
 const DEFAULT_OFFSET = 0;
+const DEFAULT_SORT = "relevance";
 const DEFAULT_CACHE_TTL_SECONDS = 120;
 
 const normalizeFilters = (filters: SearchFilters | undefined): SearchFilters =>
@@ -72,11 +73,16 @@ export class SearchAdapter {
       const filters = normalizeFilters(input.filters);
       const limit = input.limit ?? DEFAULT_LIMIT;
       const offset = input.offset ?? DEFAULT_OFFSET;
+      const sort = input.sort ?? DEFAULT_SORT;
 
       return timeCriticalPathPhase("search-adapter", async () => {
         const astHash = await hashAst(parsed.ast);
         const version = await this.engine.getAppliedVersion();
-        const cacheKey = await buildCacheKey(astHash, version, filters);
+        const cacheKey = await buildCacheKey(astHash, version, filters, {
+          limit,
+          offset,
+          sort,
+        });
 
         if (this.cache) {
           const cached = await this.cache.get(cacheKey);
@@ -90,6 +96,7 @@ export class SearchAdapter {
               ok: true,
               parserVersion: parsed.version,
               total: cached.total,
+              windowLimit: cached.windowLimit,
             };
             return success;
           }
@@ -101,6 +108,7 @@ export class SearchAdapter {
             filters,
             limit,
             offset,
+            sort,
           })
         );
 
@@ -113,6 +121,7 @@ export class SearchAdapter {
           ok: true,
           parserVersion: parsed.version,
           total: engineResult.total,
+          windowLimit: engineResult.windowLimit,
         };
 
         if (this.cache) {
@@ -126,6 +135,7 @@ export class SearchAdapter {
               hits: engineResult.hits,
               indexVersion: engineResult.indexVersion,
               total: engineResult.total,
+              windowLimit: engineResult.windowLimit,
             },
             this.cacheTtlSeconds
           );

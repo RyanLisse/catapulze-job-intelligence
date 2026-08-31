@@ -1,6 +1,6 @@
 import type { BooleanNode } from "@ji/domain";
 
-import type { SearchFilters } from "./types";
+import type { SearchFilters, SearchSort } from "./types";
 import type { SearchVersion } from "./version";
 
 const stableStringifyAst = (node: BooleanNode): string => {
@@ -47,11 +47,23 @@ const hashString = async (input: string): Promise<string> => {
 export const hashAst = (ast: BooleanNode): Promise<string> =>
   hashString(stableStringifyAst(ast));
 
+export interface CacheKeyPage {
+  limit: number;
+  offset: number;
+  sort: SearchSort;
+}
+
+/**
+ * Hits are page-specific once the engine paginates (RJC-378), so the key
+ * carries sort/offset/limit; `v3` retires every v2 entry, which cached one
+ * fixed window regardless of page.
+ */
 export const buildCacheKey = (
   astHash: string,
   version: SearchVersion,
-  filters: SearchFilters
+  filters: SearchFilters,
+  page: CacheKeyPage
 ): Promise<string> =>
   hashString(
-    `search:v2:${astHash}:${version.generation}:${version.appliedSequence}:${stableStringifyFilters(filters)}`
+    `search:v3:${astHash}:${version.generation}:${version.appliedSequence}:${stableStringifyFilters(filters)}:${page.sort}:${page.offset}:${page.limit}`
   );

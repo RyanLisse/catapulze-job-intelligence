@@ -7,6 +7,7 @@ import {
   timeCriticalPathPhase,
   withCriticalPathSession,
 } from "@ji/performance";
+import { SEARCH_SORT_OPTIONS, SEARCH_WINDOW_LIMIT } from "@ji/search";
 import { z } from "zod";
 
 import { validateSnapshotApproval } from "../../approval/validate-snapshot-approval";
@@ -56,35 +57,57 @@ const fullAanvraag = (record: AanvraagRecord) => ({
   mode: "full" as const,
 });
 
+const facetBucketsSchema = z.array(
+  z.object({ count: z.number(), value: z.string() })
+);
+
+export const SEARCH_MAX_LIMIT = 100;
+
 export const searchAanvragenInputSchema = z
   .object({
     filters: searchFiltersSchema.optional(),
-    limit: z.number().int().positive().max(100).optional(),
-    // Capped at 900 so offset + limit never exceeds Manticore's max_matches
-    // (1000, see DEFAULT_MAX_MATCHES in packages/search/src/manticore/client.ts,
-    // RJC-380) given limit's own max of 100 above. Without this cap a
-    // deep-offset request silently comes back with fewer/no hits instead of
-    // a validation error, while track_total_hits still reports the true
-    // (larger) total — the exact mismatch RJC-378 tracks on the UI side.
-    offset: z.number().int().nonnegative().max(900).optional(),
+    limit: z.number().int().positive().max(SEARCH_MAX_LIMIT).optional(),
+    offset: z
+      .number()
+      .int()
+      .nonnegative()
+      .max(SEARCH_WINDOW_LIMIT - 1)
+      .optional(),
     query: z.string(),
+    sort: z.enum(SEARCH_SORT_OPTIONS).optional(),
   })
-  .strict();
+  .strict()
+  // offset + limit must stay inside Manticore's max_matches window (RJC-380,
+  // SEARCH_WINDOW_LIMIT): past it a request silently comes back with fewer or
+  // no hits while `total` still reports the true count. Rejecting here keeps
+  // the last navigable page exactly floor(windowLimit / pageSize) for every
+  // page size, which is what the web derives `totalPages` from (RJC-378).
+  .refine(
+    (input) => (input.offset ?? 0) + (input.limit ?? 20) <= SEARCH_WINDOW_LIMIT,
+    {
+      message: `offset + limit must not exceed ${SEARCH_WINDOW_LIMIT}`,
+      path: ["offset"],
+    }
+  );
 
 export const searchAanvragenOutputSchema = z
   .object({
     emptyReason: z.string().optional(),
     facets: z.object({
-      bron_id: z.array(z.object({ count: z.number(), value: z.string() })),
-      contracttype: z.array(z.object({ count: z.number(), value: z.string() })),
-      locatie_land: z.array(z.object({ count: z.number(), value: z.string() })),
-      status: z.array(z.object({ count: z.number(), value: z.string() })),
+      bron_id: facetBucketsSchema,
+      contracttype: facetBucketsSchema,
+      locatie: facetBucketsSchema,
+      locatie_land: facetBucketsSchema,
+      status: facetBucketsSchema,
     }),
     hits: z.array(z.object({ id: z.string(), weight: z.number() })),
     ids: z.array(z.string()),
     indexVersion: z.number(),
     parserVersion: z.number(),
+    /** True hit count — may exceed what is retrievable (see windowLimit). */
     total: z.number(),
+    /** Deepest reachable offset + limit; pages beyond it cannot be requested. */
+    windowLimit: z.number().int().positive(),
   })
   .strict();
 
@@ -112,6 +135,7 @@ export const createSearchAanvragenHandler =
           indexVersion: result.indexVersion,
           parserVersion: result.parserVersion,
           total: result.total,
+          windowLimit: result.windowLimit,
         },
       };
     };
@@ -235,10 +259,10 @@ export const createListVersiesHandler =
   };
 
 // Batched search hydration (RJC-379): one call replaces the per-id
-// get_aanvraag + list_versies fan-out. The cap matches the search window
-// (searchAanvragenInputSchema limit max 100) so a single search hydrates in
-// a single request; larger id lists are a validation error, never accepted.
-export const BATCH_GET_AANVRAGEN_MAX_IDS = 100;
+// get_aanvraag + list_versies fan-out. The cap matches the largest search
+// page (SEARCH_MAX_LIMIT) so any single page hydrates in a single request;
+// larger id lists are a validation error, never accepted.
+export const BATCH_GET_AANVRAGEN_MAX_IDS = SEARCH_MAX_LIMIT;
 
 export const batchGetAanvragenInputSchema = z
   .object({

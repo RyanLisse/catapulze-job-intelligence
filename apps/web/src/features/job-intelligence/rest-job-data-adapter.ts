@@ -21,18 +21,16 @@ import {
   mapApiFacetsToUi,
 } from "./rest/filter-mapping";
 import type { ApiSearchFacets } from "./rest/filter-mapping";
-import { filterJobsByLocation, sortJobListings } from "./search-state";
 import type {
   JobDataAdapter,
   JobIntelligenceActions,
   JobListing,
   JobMarkering,
+  JobSearchRequest,
   JobSearchResponse,
   JobSourceOption,
 } from "./types";
 import { JOB_PAGE_SIZE } from "./types";
-
-const SEARCH_FETCH_LIMIT = 100;
 
 const syntaxErrorDetailsSchema = z.object({
   message: z.string(),
@@ -42,7 +40,10 @@ const syntaxErrorDetailsSchema = z.object({
 interface SearchResponseBody {
   readonly facets: ApiSearchFacets;
   readonly ids: readonly string[];
+  /** True hit count, may exceed what is retrievable. */
   readonly total: number;
+  /** Deepest reachable offset + limit (RJC-378). */
+  readonly windowLimit: number;
 }
 
 interface GetAanvraagResponseBody {
@@ -113,20 +114,20 @@ const emptySearchResponse = (
   totalPages: 1,
 });
 
-const paginateJobs = (
-  jobs: readonly JobListing[],
-  page: number,
+/**
+ * Pages the user can actually open: the true total, capped by the engine's
+ * retrievable window. Past the cap the page shows a "verfijn je zoekopdracht"
+ * hint instead of requesting an offset the API would reject (RJC-378).
+ */
+export const resolveTotalPages = (
+  total: number,
+  windowLimit: number,
   pageSize: number
-): Pick<JobSearchResponse, "items" | "page" | "totalPages"> => {
-  const totalPages = Math.max(1, Math.ceil(jobs.length / pageSize));
-  const safePage = Math.min(Math.max(1, page), totalPages);
-  const start = (safePage - 1) * pageSize;
-  return {
-    items: jobs.slice(start, start + pageSize),
-    page: safePage,
-    totalPages,
-  };
-};
+): number =>
+  Math.max(
+    1,
+    Math.min(Math.ceil(total / pageSize), Math.floor(windowLimit / pageSize))
+  );
 
 const resolveSearchStatus = (
   resultCount: number,
@@ -253,6 +254,58 @@ export const createRestJobIntelligence = ({
       );
   };
 
+  // Sort, filter and pagination all happen in the search engine (RJC-378):
+  // one page of ids comes back with the true total, and only that page is
+  // hydrated. Nothing is re-sorted or sliced client-side.
+  const searchPage = async (
+    request: JobSearchRequest,
+    page: number,
+    pageSize: number,
+    bronCatalog: ReadonlyMap<string, BronCatalogEntry>
+  ): Promise<JobSearchResponse> => {
+    const searchResult = await client.post<SearchResponseBody>(
+      "/v1/aanvragen/search",
+      buildSearchRequestBody({
+        bronCatalog,
+        filters: request.filters,
+        limit: pageSize,
+        offset: (page - 1) * pageSize,
+        query: request.query,
+        sort: request.sort,
+      })
+    );
+    const totalPages = resolveTotalPages(
+      searchResult.total,
+      searchResult.windowLimit,
+      pageSize
+    );
+    // A page past the end (stale URL, results shrank) comes back empty while
+    // total says otherwise: fall back to the last page once, never loop.
+    if (searchResult.ids.length === 0 && page > totalPages) {
+      return searchPage(request, totalPages, pageSize, bronCatalog);
+    }
+
+    const items = await loadSearchListings(searchResult.ids, bronCatalog);
+    const status = resolveSearchStatus(
+      searchResult.total,
+      request.previewStatus
+    );
+
+    return {
+      facets: mapApiFacetsToUi(searchResult.facets, bronCatalog),
+      items: status === "empty" ? [] : items,
+      message:
+        status === "empty"
+          ? "Geen vacatures gevonden. Maak je zoekopdracht of filters ruimer."
+          : null,
+      page,
+      pageSize,
+      status,
+      total: searchResult.total,
+      totalPages,
+    };
+  };
+
   const adapter: JobDataAdapter = {
     getById: loadAanvraag,
     listSources,
@@ -271,56 +324,28 @@ export const createRestJobIntelligence = ({
       const pageSize = request.pageSize ?? JOB_PAGE_SIZE;
 
       try {
-        const searchBody = buildSearchRequestBody({
-          bronCatalog,
-          filters: request.filters,
-          limit: SEARCH_FETCH_LIMIT,
-          offset: 0,
-          query: request.query,
-        });
-        const searchResult = await client.post<SearchResponseBody>(
-          "/v1/aanvragen/search",
-          searchBody
-        );
-
-        const resolved = await loadSearchListings(
-          searchResult.ids,
+        return await searchPage(
+          request,
+          Math.max(1, request.page),
+          pageSize,
           bronCatalog
         );
-        const locationFiltered = filterJobsByLocation(
-          resolved,
-          request.filters.locations
-        );
-        const sorted = sortJobListings(
-          locationFiltered,
-          request.sort,
-          request.query
-        );
-        const paged = paginateJobs(sorted, request.page, pageSize);
-        const status = resolveSearchStatus(
-          sorted.length,
-          request.previewStatus
-        );
-
-        return {
-          facets: mapApiFacetsToUi(searchResult.facets, bronCatalog),
-          items: status === "empty" ? [] : paged.items,
-          message:
-            status === "empty"
-              ? "Geen vacatures gevonden. Maak je zoekopdracht of filters ruimer."
-              : null,
-          page: paged.page,
-          pageSize,
-          status,
-          total: sorted.length,
-          totalPages: paged.totalPages,
-        };
       } catch (error) {
         if (error instanceof CapabilityRequestError) {
           if (error.body.error.code === "SYNTAX_ERROR") {
             return emptySearchResponse(
               "syntax-error",
               syntaxFailureMessage(error)
+            );
+          }
+          if (error.body.error.code === "INVALID_INPUT") {
+            // The API rejects offset + limit past the retrievable window.
+            // Only a hand-edited page gets here; the pager itself never
+            // requests past totalPages.
+            return emptySearchResponse(
+              "empty",
+              "Deze pagina ligt buiten de eerste resultaten. Verfijn je zoekopdracht of ga terug naar pagina 1.",
+              request.page
             );
           }
           return emptySearchResponse(
