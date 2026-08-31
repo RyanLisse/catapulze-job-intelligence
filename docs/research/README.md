@@ -5,6 +5,7 @@ Ruwe onderzoeksrapporten die de besluiten in `../brainstorms/2026-08-27-techstac
 | Bestand | Vraag | Uitkomst |
 |---|---|---|
 | `search-architecture.md` | Instant Boolean-search over 2,5–15M vacatures, self-hosted | Postgres SoR + Manticore RT via outbox; ParadeDB runner-up; DuckDB/LanceDB/Lakebase/Meili/Typesense afgewezen |
+| `hosting-cost-comparison-2026-08.md` | Hostingkosten van JI PoC tot 3–5 gedeelde Catapulze-platforms | Hetzner + Coolify blijft de voorkeursroute; Railway is de ops-arme tweede keuze; GCP direct alleen bij behoefte aan managed HA/back-ups; Encore past niet bij de huidige stack |
 | `orchestration.md` | Trigger.dev optimaliseren vs Temporal; kosten bij 1M en 6M fetches | Trigger.dev Cloud (TS-runtime); fan-out per bron; self-host boven $150–200/mnd |
 | `workers-language-and-managed-scraping.md` | Rust/Go vs Bun voor de pipeline; Browserbase/Stagehand/Firecrawl | Alles TypeScript (168 CPU-s/mnd te winnen); per-bord ladder |
 | `motian-profile.md` | Wat is herbruikbaar uit motian | Scrapers lift; search rebuild (index-mismatch) |
