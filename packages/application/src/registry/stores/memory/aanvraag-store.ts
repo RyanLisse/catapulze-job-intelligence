@@ -19,6 +19,17 @@ export class MemoryAanvraagStore implements AanvraagStore {
     return Promise.resolve(record ? structuredClone(record) : null);
   }
 
+  getByIds(ids: readonly string[]): Promise<readonly AanvraagRecord[]> {
+    const records: AanvraagRecord[] = [];
+    for (const id of ids) {
+      const record = this.records.get(id);
+      if (record) {
+        records.push(structuredClone(record));
+      }
+    }
+    return Promise.resolve(records);
+  }
+
   listVersies(aanvraagId: string): Promise<readonly AanvraagVersieRecord[]> {
     const record = this.records.get(aanvraagId);
     if (!record) {

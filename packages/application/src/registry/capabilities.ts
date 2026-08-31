@@ -8,8 +8,11 @@ import {
   completeTaskOutputSchema,
   commitExportInputSchema,
   commitExportOutputSchema,
+  batchGetAanvragenInputSchema,
+  batchGetAanvragenOutputSchema,
   createAckAlertHandler,
   createApproveSnapshotHandler,
+  createBatchGetAanvragenHandler,
   createCompleteTaskHandler,
   createCommitExportHandler,
   createGetAanvraagHandler,
@@ -96,6 +99,26 @@ export const createSliceACapabilityCatalog = (deps: SliceAHandlerDeps) => {
     inputSchema: getAanvraagInputSchema,
     outcome: "Haal aanvraagdetail op (preview standaard)",
     outputSchema: getAanvraagOutputSchema,
+  });
+
+  const batchGetAanvragen = defineCapability({
+    // Recruiter, the stricter of the two per-id capabilities this batches
+    // (get_aanvraag: slice-a:read, list_versies: recruiter).
+    authorization: { permission: ROLE_RECRUITER },
+    bindings: dualBindings(
+      "POST",
+      "/v1/aanvragen/batch",
+      "batch_get_aanvragen"
+    ),
+    effect: "read",
+    failureSchema: domainFailureSchema,
+    grounding: true,
+    handler: createBatchGetAanvragenHandler(deps),
+    id: "batch_get_aanvragen",
+    inputSchema: batchGetAanvragenInputSchema,
+    outcome:
+      "Haal previews en versies van meerdere aanvragen op in één aanroep",
+    outputSchema: batchGetAanvragenOutputSchema,
   });
 
   const listVersies = defineCapability({
@@ -362,6 +385,17 @@ export const createSliceACapabilityCatalog = (deps: SliceAHandlerDeps) => {
         "mcp:get_aanvraag",
         "rest:GET /v1/aanvragen/{id}",
         "ui:DetailPanel.Open",
+      ],
+    }),
+    defineSliceACapabilityEntry(batchGetAanvragen, {
+      auditClass: "access",
+      reversible: true,
+      sideEffectClass: "read",
+      target: "internal",
+      wiredTransports: [
+        "mcp:batch_get_aanvragen",
+        "rest:POST /v1/aanvragen/batch",
+        "ui:SearchPanel.HydrateResults",
       ],
     }),
     defineSliceACapabilityEntry(listVersies, {

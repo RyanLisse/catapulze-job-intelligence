@@ -152,6 +152,11 @@ export interface ApprovalStore {
 
 export interface AanvraagStore {
   getById: (id: string) => Promise<AanvraagRecord | null>;
+  /**
+   * Batch read for search hydration (RJC-379). Returns records in input-id
+   * order; ids without a record are skipped rather than failing the batch.
+   */
+  getByIds: (ids: readonly string[]) => Promise<readonly AanvraagRecord[]>;
   listVersies: (aanvraagId: string) => Promise<readonly AanvraagVersieRecord[]>;
 }
 
