@@ -13,6 +13,7 @@ import {
   PostgresApprovalStore,
   PostgresExportAttemptStore,
   PostgresExternalIdCrosswalkStore,
+  PostgresExternalReceiptStore,
   PostgresQuerySnapshotStore,
   PostgresRawPayloadStore,
   PostgresSearchVersionStore,
@@ -21,9 +22,12 @@ import {
 import { PostgresCurateStore } from "@ji/db/postgres-curate-store";
 import { ManticoreSearchEngine, SearchAdapter } from "@ji/search";
 
+import { assertProductionPersistence } from "./assert-production-persistence";
+
 export interface ProductionSliceADepsInput {
   databaseUrl: string;
   manticoreUrl: string;
+  nodeEnv: string;
   rawObjectStorePath?: string;
 }
 
@@ -51,9 +55,16 @@ export const createProductionSliceADeps = (
     approvals: new PostgresApprovalStore(runtime.database),
     exportAttempts: new PostgresExportAttemptStore(runtime.database),
     externalCrosswalk: new PostgresExternalIdCrosswalkStore(runtime.database),
+    externalReceipts: new PostgresExternalReceiptStore(runtime.database),
     rawPayloads: new PostgresRawPayloadStore(objectStore),
     snapshots: new PostgresQuerySnapshotStore(runtime.database),
   };
+
+  assertProductionPersistence({
+    memoryStores,
+    nodeEnv: input.nodeEnv,
+    stores,
+  });
 
   // CONTRACT (RJC-384): the engine and any drainPostgresOutbox call against
   // this database MUST share one PostgresSearchVersionStore-backed checkpoint
