@@ -4,7 +4,12 @@ import type { BronId, ScrapeRunId } from "@ji/domain";
 
 import type { Connector } from "./contract";
 import { CrawlDelayLimiter } from "./limiter";
-import { buildRawObjectPath, InMemoryObjectStore } from "./object-store";
+import {
+  buildContentAddressedRawObjectPath,
+  buildRawObjectPath,
+  InMemoryObjectStore,
+  parseContentAddressedRawObjectPath,
+} from "./object-store";
 import { InMemoryObservationRecorder } from "./observation-recorder";
 import type { ObservationRecordInput } from "./observation-recorder";
 import { withRetry } from "./retry";
@@ -47,7 +52,8 @@ const createFakeConnector = (bronId: BronId): Connector => ({
         JSON.stringify({ id: item.bronReferentie })
       ),
       bronReferentie: item.bronReferentie,
-      contentHash: "detail-hash",
+      contentHash:
+        "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
       contentType: "json",
       status: "fetched",
     }),
@@ -114,6 +120,75 @@ describe("buildRawObjectPath", () => {
         startedAt: new Date("2026-08-28T10:15:00.000Z"),
       })
     ).toBe("raw/tenderned/2026/08/28/run-1/TN-100.json");
+  });
+});
+
+describe("buildContentAddressedRawObjectPath", () => {
+  const validHash =
+    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+
+  it("throws on a bronSlug containing a slash", () => {
+    expect(() =>
+      buildContentAddressedRawObjectPath({
+        bronSlug: "tender/ned",
+        contentHash: validHash,
+        contentType: "json",
+      })
+    ).toThrow(/Invalid bronSlug/u);
+  });
+
+  it("normalises an uppercase digest and remains digest-verifiable", () => {
+    const upperHash = validHash.toUpperCase();
+    const path = buildContentAddressedRawObjectPath({
+      bronSlug: "tenderned",
+      contentHash: upperHash,
+      contentType: "json",
+      startedAt: new Date("2026-08-28T00:00:00.000Z"),
+    });
+
+    expect(path).toBe(`raw/tenderned/2026/08/${validHash}.json`);
+    expect(parseContentAddressedRawObjectPath(path)).toEqual({
+      contentHash: validHash,
+    });
+  });
+
+  it("throws on a contentHash that is not a 64-character hex digest", () => {
+    expect(() =>
+      buildContentAddressedRawObjectPath({
+        bronSlug: "tenderned",
+        contentHash: "too-short",
+        contentType: "json",
+      })
+    ).toThrow(/Invalid contentHash/u);
+  });
+});
+
+describe("parseContentAddressedRawObjectPath", () => {
+  const validHash =
+    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+
+  it("rejects a near-miss with an extra path segment", () => {
+    expect(
+      parseContentAddressedRawObjectPath(
+        `raw/tender/ned/2026/08/${validHash}.json`
+      )
+    ).toBeNull();
+  });
+
+  it("rejects an uppercase digest (would have to come from a path the builder never produces)", () => {
+    expect(
+      parseContentAddressedRawObjectPath(
+        `raw/tenderned/2026/08/${validHash.toUpperCase()}.json`
+      )
+    ).toBeNull();
+  });
+
+  it("rejects a legacy day/runId/recordId path", () => {
+    expect(
+      parseContentAddressedRawObjectPath(
+        "raw/tenderned/2026/08/28/run-1/TN-100.json"
+      )
+    ).toBeNull();
   });
 });
 
@@ -651,8 +726,10 @@ describe("runConnector", () => {
       {
         bronId: "bron-tenderned",
         bronReferentie: "TN-100",
-        contentHash: "detail-hash",
-        rawPayloadRef: "raw/tenderned/2026/08/28/run-1/TN-100-detail-hash.json",
+        contentHash:
+          "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        rawPayloadRef:
+          "raw/tenderned/2026/08/dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd.json",
         scrapeRunId: "run-1",
       },
     ]);
@@ -671,8 +748,16 @@ describe("runConnector", () => {
             checkpoint: { page: 1 },
             hasMore: false,
             items: [
-              { bronReferentie: "REF-1", contentHash: "hash-a" },
-              { bronReferentie: "REF-1", contentHash: "hash-b" },
+              {
+                bronReferentie: "REF-1",
+                contentHash:
+                  "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              },
+              {
+                bronReferentie: "REF-1",
+                contentHash:
+                  "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+              },
             ],
           }),
         fetch: (item) =>
@@ -688,9 +773,9 @@ describe("runConnector", () => {
     });
 
     const firstPath =
-      "raw/raw-collision/2026/08/28/run-raw-collision/REF-1-hash-a.json";
+      "raw/raw-collision/2026/08/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.json";
     const secondPath =
-      "raw/raw-collision/2026/08/28/run-raw-collision/REF-1-hash-b.json";
+      "raw/raw-collision/2026/08/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb.json";
     expect(await dependencies.objectStore.get(firstPath)).not.toBeNull();
     expect(await dependencies.objectStore.get(secondPath)).not.toBeNull();
     expect(
@@ -714,8 +799,16 @@ describe("runConnector", () => {
             checkpoint: { page: 1 },
             hasMore: false,
             items: [
-              { bronReferentie: "REF-1", contentHash: "hash-1" },
-              { bronReferentie: "REF-1", contentHash: "hash-1" },
+              {
+                bronReferentie: "REF-1",
+                contentHash:
+                  "1111111111111111111111111111111111111111111111111111111111111111",
+              },
+              {
+                bronReferentie: "REF-1",
+                contentHash:
+                  "1111111111111111111111111111111111111111111111111111111111111111",
+              },
             ],
           }),
         fetch: (item) =>
@@ -854,7 +947,7 @@ describe("runConnector", () => {
             items: [
               {
                 bronReferentie: `record-${page + 1}`,
-                contentHash: `listing-${page + 1}`,
+                contentHash: String(page + 1).padStart(64, "0"),
               },
             ],
           });
@@ -967,12 +1060,21 @@ describe("runConnector", () => {
         observationRecorder,
       });
     };
-    const created = await runOnce("run-new", "hash-1");
+    const created = await runOnce(
+      "run-new",
+      "1111111111111111111111111111111111111111111111111111111111111111"
+    );
     expect(created.metrics.new).toBe(1);
-    const unchanged = await runOnce("run-unchanged", "hash-1");
+    const unchanged = await runOnce(
+      "run-unchanged",
+      "1111111111111111111111111111111111111111111111111111111111111111"
+    );
     expect(unchanged.metrics).toMatchObject({ changed: 0, new: 0 });
     expect(unchanged.writtenRecords).toBe(0);
-    const changed = await runOnce("run-changed", "hash-2");
+    const changed = await runOnce(
+      "run-changed",
+      "2222222222222222222222222222222222222222222222222222222222222222"
+    );
     expect(changed.metrics).toMatchObject({ changed: 1, new: 0 });
     expect(changed.writtenRecords).toBe(1);
   });
@@ -1118,7 +1220,7 @@ describe("runConnector", () => {
     });
 
     const rawPath =
-      "raw/canonical-time/2026/08/20/run-canonical-time/TN-100-detail-hash.json";
+      "raw/canonical-time/2026/08/dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd.json";
     const storedObject = await dependencies.objectStore.get(rawPath);
     expect(storedObject).not.toBeNull();
     expect(storedObject?.expiresAt).toEqual(

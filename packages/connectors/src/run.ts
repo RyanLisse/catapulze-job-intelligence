@@ -22,7 +22,10 @@ import type {
   DiscoverItem,
 } from "./contract";
 import type { RequestLimiter } from "./limiter";
-import { buildRawObjectPath, hashContent } from "./object-store";
+import {
+  buildContentAddressedRawObjectPath,
+  hashContent,
+} from "./object-store";
 import type { ObjectStore } from "./object-store";
 import type { ObservationRecorder } from "./observation-recorder";
 import type { RetryPolicy, Sleep } from "./retry";
@@ -218,11 +221,14 @@ const runConnectorInner = async (
     }
     const contentHash =
       fetched.contentHash || (await hashContent(fetched.body));
-    const rawPayloadRef = buildRawObjectPath({
+    // RJC-386: content-addressed so every new raw object is digest-validated
+    // on readback (see RawObjectDigestMismatchError). Legacy buildRawObjectPath
+    // keys stay readable unverified; this is the only writer, so all new
+    // writes go through the content-addressed scheme from here on.
+    const rawPayloadRef = buildContentAddressedRawObjectPath({
       bronSlug,
+      contentHash,
       contentType: fetched.contentType,
-      recordId: `${fetched.bronReferentie}-${contentHash}`,
-      runId: scrapeRunId,
       startedAt: itemObservedAt,
     });
     await withFailureEnvelope(

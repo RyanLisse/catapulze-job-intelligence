@@ -268,7 +268,8 @@ describe("bron register", () => {
         Promise.resolve({
           body: new Uint8Array([1]),
           bronReferentie: "r1",
-          contentHash: "h",
+          contentHash:
+            "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
           contentType: "html" as const,
           status: "fetched" as const,
         }),
@@ -293,7 +294,7 @@ describe("bron register", () => {
       writeNow: () => new Date("2026-08-29T00:00:00Z"),
     });
     const object = await objectStore.get(
-      "raw/tenderned/2026/08/29/run-1/r1-h.html"
+      "raw/tenderned/2026/08/ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff.html"
     );
     expect(object?.expiresAt.getTime()).toBe(
       new Date("2026-11-27T00:00:00Z").getTime()

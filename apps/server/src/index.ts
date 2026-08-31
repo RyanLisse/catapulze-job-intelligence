@@ -69,6 +69,11 @@ const sliceA = createProductionSliceARegistry({
   manticoreUrl: env.MANTICORE_URL,
   nodeEnv: env.NODE_ENV,
   rawObjectStorePath: env.RAW_OBJECT_STORE_PATH,
+  rawS3AccessKeyId: env.RAW_S3_ACCESS_KEY_ID,
+  rawS3Bucket: env.RAW_S3_BUCKET,
+  rawS3Endpoint: env.RAW_S3_ENDPOINT,
+  rawS3Region: env.RAW_S3_REGION,
+  rawS3SecretAccessKey: env.RAW_S3_SECRET_ACCESS_KEY,
 });
 const restRoutes = restRoutesFromRegistry(sliceA.registry);
 const restHandler = createRestCapabilityHandler(sliceA.registry, restRoutes);
