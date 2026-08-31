@@ -19,7 +19,7 @@ exeDev:
   # Multi-arch exeuntu image resolved on 2026-08-28. It includes Docker,
   # Compose, Git, rsync, curl, and the exe.dev SSH bootstrap.
   image: ghcr.io/boldsoftware/exeuntu@sha256:a85bf5d50de2d3dbe079b0a4c5ee5ef03f5c806e88d36eaeb432dddbaca2017f
-  cpus: 4
+  cpus: 2
   memory: 8GB
   disk: 40GB
   workRoot: /tmp/crabbox
@@ -104,7 +104,7 @@ profiles:
       PERF_EXECUTOR: crabbox
       PERF_PROVIDER: exe-dev
       PERF_RUNNER: exe-dev
-      PERF_MACHINE: 4cpu-8gb-40gb
+      PERF_MACHINE: 2cpu-8gb-40gb
       PERF_TOOLCHAIN: bun-1.3.14
       PERF_WORKFLOW: remote-performance
       PERF_JOB: ordered-pair
