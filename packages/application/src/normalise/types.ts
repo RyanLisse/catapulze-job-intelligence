@@ -92,6 +92,103 @@ export const stripHtml = (html: string): string =>
     .replaceAll(/\s+/gu, " ")
     .trim();
 
+/** Dutch tenders/aanvragen close in Europe/Amsterdam wall-clock time. Every
+ * source that publishes a closing moment (RJC-376) resolves against this
+ * zone, never the deploy host's local time or a naive UTC read of a
+ * timezone-less string. */
+const CLOSING_TIME_ZONE = "Europe/Amsterdam";
+
+/** Offset (ms) between UTC and `timeZone` in effect at `instant` -- i.e. how
+ * much later `timeZone`'s wall clock reads than UTC's at that same instant.
+ * Positive for Europe/Amsterdam (UTC+1 / UTC+2 DST). */
+const timeZoneOffsetMsAt = (instant: Date, timeZone: string): number => {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    day: "2-digit",
+    hour: "2-digit",
+    hourCycle: "h23",
+    minute: "2-digit",
+    month: "2-digit",
+    second: "2-digit",
+    timeZone,
+    year: "numeric",
+  }).formatToParts(instant);
+  const get = (type: string): number =>
+    Number(parts.find((part) => part.type === type)?.value ?? 0);
+  const wallClockAsUtcMs = Date.UTC(
+    get("year"),
+    get("month") - 1,
+    get("day"),
+    get("hour"),
+    get("minute"),
+    get("second")
+  );
+  return wallClockAsUtcMs - instant.getTime();
+};
+
+/** Interprets a naive `YYYY-MM-DDTHH:mm:ss[.sss]` wall-clock string (no `Z`
+ * or offset) as local time in `timeZone`, returning the true UTC instant.
+ * Resolved in two passes: the offset near that wall clock (treating it as if
+ * it were already UTC) is close enough to correct even across a DST
+ * transition for this use case. */
+const zonedWallClockToUtc = (wallClock: string, timeZone: string): Date => {
+  const naiveUtc = new Date(`${wallClock}Z`);
+  // Malformed/unrecognised input (e.g. a Dutch "31-12-2026" reaching the
+  // bare-date branch) must not crash Intl.DateTimeFormat below -- bail with
+  // the Invalid Date as-is, which reads as "not passed" downstream.
+  if (Number.isNaN(naiveUtc.getTime())) {
+    return naiveUtc;
+  }
+  const offsetMs = timeZoneOffsetMsAt(naiveUtc, timeZone);
+  return new Date(naiveUtc.getTime() - offsetMs);
+};
+
+const OFFSET_PATTERN = /(?:Z|[+-]\d{2}:?\d{2})$/u;
+
+/**
+ * Resolves whether a source's raw closing-moment string is already in the
+ * past, at full instant precision rather than truncating to a date first
+ * (RJC-376: truncating to midnight flipped `sluitingsdatumPassed` up to ~11
+ * hours before the real deadline).
+ *
+ * - Absent/empty -> `false` (unknown closing information must not read as
+ *   "already closed").
+ * - A string carrying a time component (`T` or a space separator, e.g.
+ *   CTM's `"2026-10-13T11:00:00"` or Opdrachtoverheid's
+ *   `"2026-09-01 16:00:00"`) is compared at that instant. An explicit `Z`/
+ *   offset suffix is honoured as-is; otherwise the naive wall clock is
+ *   interpreted as `timeZone` (Europe/Amsterdam), never deploy-host local
+ *   time or naive UTC.
+ * - A bare `YYYY-MM-DD` date (Striive's `closingDateClient` truncated by
+ *   `toDateOnly`, or any source that only ever publishes a date) is honest
+ *   about carrying no time-of-day: the deadline is read as still open
+ *   through the end of that day in `timeZone`, not its first instant.
+ */
+export const hasClosingMomentPassed = (
+  raw: string | null | undefined,
+  timeZone: string = CLOSING_TIME_ZONE
+): boolean => {
+  const trimmed = raw?.trim();
+  if (!trimmed) {
+    return false;
+  }
+  const normalised = trimmed.includes("T")
+    ? trimmed
+    : trimmed.replace(" ", "T");
+  const hasTimeComponent = normalised.length > 10 && normalised[10] === "T";
+  let instant: Date;
+  if (!hasTimeComponent) {
+    instant = zonedWallClockToUtc(
+      `${normalised.slice(0, 10)}T23:59:59.999`,
+      timeZone
+    );
+  } else if (OFFSET_PATTERN.test(normalised)) {
+    instant = new Date(normalised);
+  } else {
+    instant = zonedWallClockToUtc(normalised, timeZone);
+  }
+  return instant.getTime() < Date.now();
+};
+
 export const normalizeDedupText = (value: string): string =>
   value.replaceAll("\u001F", " ").trim().toLowerCase().replaceAll(/\s+/gu, " ");
 

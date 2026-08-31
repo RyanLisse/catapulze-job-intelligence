@@ -3,7 +3,7 @@ import { STRIIVE_PARSER_VERSION } from "@ji/connectors/striive";
 import { UNKNOWN } from "@ji/domain";
 import { resolveLifecycleStatus } from "@ji/domain/lifecycle";
 
-import { field, stripHtml } from "./types";
+import { field, hasClosingMomentPassed, stripHtml } from "./types";
 import type { NormalisedAanvraagDraft, NormalisedTarief } from "./types";
 
 const isPresent = <Value>(value: Value | null | undefined): value is Value =>
@@ -64,10 +64,12 @@ export const parseStriivePayload = (
   // The `?open=true` listing filter means every observed job was open at
   // fetch time; Striive exposes no per-job "still open" signal beyond that,
   // so lifecycle only closes on the client-facing deadline having passed.
-  const sluitingsdatum = toDateOnly(job.closingDateClient);
-  const sluitingsdatumPassed =
-    sluitingsdatum !== UNKNOWN &&
-    new Date(sluitingsdatum).getTime() < Date.now();
+  // `closingDateClient` carries a real time component at the source (see
+  // toDateOnly above -- it is only truncated for the *canonical* date-only
+  // field). hasClosingMomentPassed compares at that full instant instead of
+  // truncating to midnight first, which used to flip lifecycle to "closed"
+  // up to ~11 hours before the real deadline (RJC-376).
+  const sluitingsdatumPassed = hasClosingMomentPassed(job.closingDateClient);
   const lifecycle = resolveLifecycleStatus({
     bronSaysClosed: false,
     current: "unknown",

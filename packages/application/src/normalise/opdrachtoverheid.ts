@@ -7,7 +7,7 @@ import {
 import { UNKNOWN } from "@ji/domain";
 import { resolveLifecycleStatus } from "@ji/domain/lifecycle";
 
-import { field, stripHtml } from "./types";
+import { field, hasClosingMomentPassed, stripHtml } from "./types";
 import type { NormalisedAanvraagDraft, NormalisedTarief } from "./types";
 
 const isPresent = <Value>(value: Value | null | undefined): value is Value =>
@@ -137,10 +137,14 @@ export const parseOpdrachtoverheidPayload = (
 ): NormalisedAanvraagDraft => {
   const { tender, jobPosting } = payload;
   const parserVersion = OPDRACHTOVERHEID_PARSER_VERSION;
-  const sluitingsdatum = tender.tender_offline_date?.slice(0, 10);
-  const sluitingsdatumPassed = sluitingsdatum
-    ? new Date(sluitingsdatum).getTime() < Date.now()
-    : false;
+  // `tender_offline_date` carries a real time component at the source
+  // (e.g. "2026-09-01 16:00:00", naive Europe/Amsterdam wall clock, no
+  // offset); hasClosingMomentPassed compares at that full instant instead
+  // of truncating to midnight first, which used to flip lifecycle to
+  // "closed" up to ~11 hours before the real deadline (RJC-376).
+  const sluitingsdatumPassed = hasClosingMomentPassed(
+    tender.tender_offline_date
+  );
   const seenOpen = isOpdrachtoverheidTenderOpen(tender);
   const lifecycle = resolveLifecycleStatus({
     bronSaysClosed: !seenOpen,

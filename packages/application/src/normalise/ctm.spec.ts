@@ -120,6 +120,44 @@ describe("parseCtmPayload", () => {
     expect(draft.lifecycle).toBe("active");
     expect(draft.status).toBe("active");
   });
+
+  it("stays active when sluitingstijd closes later today (RJC-376 regression)", () => {
+    // Reproduces the bug: truncating "later today" to a bare date and
+    // comparing at midnight used to flip this to "closed" hours before the
+    // real deadline. A naive Europe/Amsterdam wall-clock string a few
+    // minutes in the future must not close it.
+    const parts = new Intl.DateTimeFormat("en-US", {
+      day: "2-digit",
+      hour: "2-digit",
+      hourCycle: "h23",
+      minute: "2-digit",
+      month: "2-digit",
+      second: "2-digit",
+      timeZone: "Europe/Amsterdam",
+      year: "numeric",
+    }).formatToParts(new Date(Date.now() + 5 * 60 * 1000));
+    const get = (type: string) =>
+      parts.find((part) => part.type === type)?.value;
+    const laterToday = `${get("year")}-${get("month")}-${get("day")}T${get("hour")}:${get("minute")}:${get("second")}`;
+
+    const draft = parseCtmPayload(
+      { entry: buildEntry({ sluitingstijd: laterToday }) },
+      "hash-1"
+    );
+
+    expect(draft.lifecycle).toBe("active");
+    expect(draft.status).toBe("active");
+  });
+
+  it("stays unknown/open rather than auto-closing when sluitingstijd is absent", () => {
+    const draft = parseCtmPayload(
+      { entry: buildEntry({ sluitingstijd: undefined }) },
+      "hash-1"
+    );
+
+    // No closing information at all -- must not read as "already closed".
+    expect(draft.lifecycle).not.toBe("closed");
+  });
 });
 
 describe("normaliseCtmObservation", () => {

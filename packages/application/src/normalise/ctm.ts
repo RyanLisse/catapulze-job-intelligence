@@ -3,7 +3,7 @@ import { CTM_PARSER_VERSION } from "@ji/connectors/ctm";
 import { UNKNOWN } from "@ji/domain";
 import { resolveLifecycleStatus } from "@ji/domain/lifecycle";
 
-import { field } from "./types";
+import { field, hasClosingMomentPassed } from "./types";
 import type { NormalisedAanvraagDraft, NormalisedTarief } from "./types";
 
 /**
@@ -24,10 +24,6 @@ const UNKNOWN_TARIEF: NormalisedTarief = {
   min: UNKNOWN,
   valuta: "EUR",
 };
-
-/** ISO datetime -> ISO date (`YYYY-MM-DD`); UNKNOWN when absent. */
-const toDateOnly = (raw: string | undefined): string | typeof UNKNOWN =>
-  raw?.slice(0, 10) || UNKNOWN;
 
 /** `CtmCpvCode` is a declared interface, and interfaces get no implicit
  * index signature -- assigning it directly where `JsonValue` (an indexed
@@ -62,11 +58,13 @@ export const parseCtmPayload = (
   // The feed carries no explicit open/closed signal beyond the closing
   // date (`sluitingstijd`/etq): every observed entry was still listed at
   // fetch time, so lifecycle only closes once that deadline has passed —
-  // same pattern as Striive's closingDateClient.
-  const sluitingsdatum = toDateOnly(entry.sluitingstijd);
-  const sluitingsdatumPassed =
-    sluitingsdatum !== UNKNOWN &&
-    new Date(sluitingsdatum).getTime() < Date.now();
+  // same pattern as Striive's closingDateClient. `sluitingstijd` (the
+  // Atom feed's `etq`) carries a real time component (e.g.
+  // "2026-10-13T11:00:00", naive Europe/Amsterdam wall clock, no offset);
+  // hasClosingMomentPassed compares at that full instant instead of
+  // truncating to midnight first, which used to flip lifecycle to
+  // "closed" up to ~11 hours before the real deadline (RJC-376).
+  const sluitingsdatumPassed = hasClosingMomentPassed(entry.sluitingstijd);
   const lifecycle = resolveLifecycleStatus({
     bronSaysClosed: false,
     current: "unknown",

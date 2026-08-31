@@ -451,6 +451,70 @@ describe("normalise opdrachtoverheid", () => {
     expect(draft.lifecycle).toBe("closed");
     expect(draft.status).toBe("closed");
   });
+
+  it("closes lifecycle once tender_offline_date has passed", () => {
+    const draft = parseOpdrachtoverheidPayload(
+      buildOpdrachtoverheidPayload({
+        tender_offline_date: "2000-01-01 00:00:00",
+      }),
+      "hash-oo-closed-past"
+    );
+
+    expect(draft.lifecycle).toBe("closed");
+    expect(draft.status).toBe("closed");
+  });
+
+  it("stays active while tender_offline_date is still in the future", () => {
+    const draft = parseOpdrachtoverheidPayload(
+      buildOpdrachtoverheidPayload({
+        tender_offline_date: "2099-01-01 00:00:00",
+      }),
+      "hash-oo-active-future"
+    );
+
+    expect(draft.lifecycle).toBe("active");
+    expect(draft.status).toBe("active");
+  });
+
+  it("stays active when tender_offline_date closes later today (RJC-376 regression)", () => {
+    // Reproduces the bug: truncating "later today" to a bare date and
+    // comparing at midnight used to flip this to "closed" hours before the
+    // real deadline. tender_offline_date carries a real time component at
+    // the source (space-separated, e.g. "2026-09-01 16:00:00"), so a naive
+    // Europe/Amsterdam wall-clock string a few minutes in the future must
+    // not close it.
+    const parts = new Intl.DateTimeFormat("en-US", {
+      day: "2-digit",
+      hour: "2-digit",
+      hourCycle: "h23",
+      minute: "2-digit",
+      month: "2-digit",
+      second: "2-digit",
+      timeZone: "Europe/Amsterdam",
+      year: "numeric",
+    }).formatToParts(new Date(Date.now() + 5 * 60 * 1000));
+    const get = (type: string) =>
+      parts.find((part) => part.type === type)?.value;
+    const laterToday = `${get("year")}-${get("month")}-${get("day")} ${get("hour")}:${get("minute")}:${get("second")}`;
+
+    const draft = parseOpdrachtoverheidPayload(
+      buildOpdrachtoverheidPayload({ tender_offline_date: laterToday }),
+      "hash-oo-later-today"
+    );
+
+    expect(draft.lifecycle).toBe("active");
+    expect(draft.status).toBe("active");
+  });
+
+  it("stays unknown/open rather than auto-closing when tender_offline_date is absent", () => {
+    const draft = parseOpdrachtoverheidPayload(
+      buildOpdrachtoverheidPayload({ tender_offline_date: undefined }),
+      "hash-oo-no-offline-date"
+    );
+
+    // No closing information at all -- must not read as "already closed".
+    expect(draft.lifecycle).not.toBe("closed");
+  });
 });
 
 describe("identity", () => {
