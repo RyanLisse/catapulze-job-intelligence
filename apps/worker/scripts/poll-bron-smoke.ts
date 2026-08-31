@@ -6,7 +6,10 @@ import {
   SOURCES,
   SUPPORTED_BRON_SLUGS,
 } from "@ji/application/sources";
-import type { SupportedBronSlug } from "@ji/application/sources";
+import type {
+  SourceDefinition,
+  SupportedBronSlug,
+} from "@ji/application/sources";
 import { config as loadEnv } from "dotenv";
 
 import {
@@ -77,13 +80,28 @@ const parseArgs = (): SmokeArgs => {
   return { activate, targets, testImport } satisfies SmokeArgs;
 };
 
+/**
+ * `bron_ready_policy_check` (packages/db/src/migrations/0001_u3_durable_ingestion.sql)
+ * forbids `status = 'ready'` unless `voorwaarden_status = 'toegestaan'`. Only
+ * seed a source as immediately pollable when its own definition says its
+ * terms have been cleared; otherwise leave it `deferred` (the schema
+ * default) so the constraint holds regardless of which bronnen a fresh
+ * database already has rows for.
+ */
+const seedStatusFor = (
+  voorwaardenStatus: SourceDefinition["seed"]["voorwaardenStatus"]
+): "deferred" | "ready" =>
+  voorwaardenStatus === "toegestaan" ? "ready" : "deferred";
+
 const ensureSliceABronnen = async (
-  runtime: ReturnType<typeof createPollBronRuntime>
+  runtime: ReturnType<typeof createPollBronRuntime>,
+  targets: SupportedBronSlug[]
 ): Promise<void> => {
   const { bron } = await import("@ji/db/schema/index");
   /* oxlint-disable no-await-in-loop -- bron seed rows are upserted one at a time */
-  for (const slug of SUPPORTED_BRON_SLUGS) {
+  for (const slug of targets) {
     const definition = SOURCES[slug];
+    const status = seedStatusFor(definition.seed.voorwaardenStatus);
     await runtime.database
       .insert(bron)
       .values({
@@ -99,7 +117,7 @@ const ensureSliceABronnen = async (
         rateLimitPerMinute: 30,
         retentionDays: 90,
         secretRef: null,
-        status: "ready",
+        status,
         voorwaardenStatus: definition.seed.voorwaardenStatus,
       })
       .onConflictDoUpdate({
@@ -107,7 +125,7 @@ const ensureSliceABronnen = async (
           crawlDelayMs: definition.seed.crawlDelayMs,
           interval: "*/15 * * * *",
           rateLimitPerMinute: 30,
-          status: "ready",
+          status,
           updatedAt: new Date(),
           voorwaardenStatus: definition.seed.voorwaardenStatus,
         },
@@ -122,7 +140,7 @@ const main = async (): Promise<void> => {
   requireManticoreUrl();
   const runtime = createPollBronRuntime(requireDatabaseUrl());
   try {
-    await ensureSliceABronnen(runtime);
+    await ensureSliceABronnen(runtime, targets);
     const results = [];
     /* oxlint-disable no-await-in-loop -- smoke runs bronnen sequentially for readable logs */
     for (const bronSlug of targets) {
