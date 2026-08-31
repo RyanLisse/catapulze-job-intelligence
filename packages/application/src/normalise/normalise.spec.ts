@@ -14,13 +14,18 @@ import {
   parseTenderNedPayload,
   validateNormalisedDraft,
 } from "@ji/application/normalise";
-import { hashContent } from "@ji/connectors";
+import { hashContent, loadConnectorFixture } from "@ji/connectors";
 import type { InhuurdeskFetchedPayload } from "@ji/connectors/inhuurdesk";
 import type { NeedstaffingFetchedPayload } from "@ji/connectors/needstaffing";
+import type {
+  OpdrachtoverheidFetchedPayload,
+  OpdrachtoverheidListingResponse,
+} from "@ji/connectors/opdrachtoverheid";
 import type { TenderNedFetchedPayload } from "@ji/connectors/tenderned";
 import { UNKNOWN } from "@ji/domain";
 
 import { parseNeedstaffingPayload } from "./needstaffing";
+import { parseOpdrachtoverheidPayload } from "./opdrachtoverheid";
 
 const TENDER_NED_HASH = "sha256-test";
 
@@ -250,6 +255,201 @@ describe("normalise needstaffing", () => {
     expect(draft.tarief.min).toBe(UNKNOWN);
     expect(draft.tarief.max).toBe(UNKNOWN);
     expect(draft.startDatum.value).toBe(UNKNOWN);
+  });
+});
+
+const buildOpdrachtoverheidPayload = (
+  overrides: Partial<OpdrachtoverheidFetchedPayload["tender"]> = {}
+): OpdrachtoverheidFetchedPayload => ({
+  jobPosting: null,
+  tender: {
+    contract_type: "detachering",
+    opdracht_overheid_url:
+      "https://www.opdrachtoverheid.nl/inhuuropdracht/Enexis/Senior-Coordinator/36A6A824",
+    tender_buying_organization: "Enexis",
+    tender_id: "harveynash_298847",
+    tender_job_location: null,
+    tender_max_hours: 40,
+    tender_maximum_tariff: 119,
+    tender_min_hours: 32,
+    tender_name: "Senior Project- en Programmacoordinator Grootzakelijk",
+    tender_no_max_tariff: false,
+    tender_source: "harveynash",
+    tender_start_date: "2026-08-29",
+    tender_url:
+      "https://www.harveynash.nl/vacatures/298847-Senior-Project--en-Programmacoordinator-Grootzakelijk",
+    web_key: "36A6A824-B5F2-4D3E-A749-425BA6B99EDD",
+    ...overrides,
+  },
+});
+
+describe("normalise opdrachtoverheid", () => {
+  it("uses tender_id as the stable bron_referentie", () => {
+    const draft = parseOpdrachtoverheidPayload(
+      buildOpdrachtoverheidPayload(),
+      "hash-oo-1"
+    );
+
+    expect(draft.bronReferentie.value).toBe("harveynash_298847");
+    expect(validateNormalisedDraft(draft)).toEqual([]);
+  });
+
+  it("parses tender_maximum_tariff as a numeric hourly max tarief", () => {
+    const draft = parseOpdrachtoverheidPayload(
+      buildOpdrachtoverheidPayload(),
+      "hash-oo-2"
+    );
+
+    expect(draft.tarief.max).toBe("119");
+    expect(draft.tarief.min).toBe(UNKNOWN);
+    expect(draft.tarief.eenheid).toBe("uur");
+    expect(draft.tarief.valuta).toBe("EUR");
+  });
+
+  it("keeps tender_source and tender_url in bron_specifiek for cross-source dedup", () => {
+    const draft = parseOpdrachtoverheidPayload(
+      buildOpdrachtoverheidPayload(),
+      "hash-oo-3"
+    );
+
+    // SAFETY: parseOpdrachtoverheidPayload always emits these bron_specifiek fields.
+    const specifiek = draft.bronSpecifiek.value as {
+      tender_source: unknown;
+      tender_url: unknown;
+    };
+    expect(specifiek.tender_source).toBe("harveynash");
+    expect(specifiek.tender_url).toBe(
+      "https://www.harveynash.nl/vacatures/298847-Senior-Project--en-Programmacoordinator-Grootzakelijk"
+    );
+  });
+
+  it("falls back to unknown tarief when tender_maximum_tariff is absent", () => {
+    const draft = parseOpdrachtoverheidPayload(
+      buildOpdrachtoverheidPayload({ tender_maximum_tariff: undefined }),
+      "hash-oo-4"
+    );
+
+    expect(draft.tarief.max).toBe(UNKNOWN);
+    expect(draft.tarief.min).toBe(UNKNOWN);
+    expect(draft.tarief.eenheid).toBe(UNKNOWN);
+  });
+
+  it("falls back to tender_hours_week when min/max hours are both absent", () => {
+    const draft = parseOpdrachtoverheidPayload(
+      buildOpdrachtoverheidPayload({
+        tender_hours_week: "36",
+        tender_max_hours: undefined,
+        tender_min_hours: undefined,
+      }),
+      "hash-oo-5"
+    );
+
+    // SAFETY: parseOpdrachtoverheidPayload always emits these bron_specifiek fields.
+    const specifiek = draft.bronSpecifiek.value as {
+      uren_max: unknown;
+      uren_min: unknown;
+    };
+    expect(specifiek.uren_min).toBe("36");
+    expect(specifiek.uren_max).toBe("36");
+  });
+
+  it("falls back to vacancies_location when tender_job_location is absent", () => {
+    const draft = parseOpdrachtoverheidPayload(
+      buildOpdrachtoverheidPayload({
+        tender_job_location: null,
+        vacancies_location: { province: "Noord-Holland" },
+      }),
+      "hash-oo-6"
+    );
+
+    expect(draft.locatieTekst.value).toBe("Noord-Holland");
+  });
+
+  it("reports an unknown location when no location field is populated", () => {
+    const draft = parseOpdrachtoverheidPayload(
+      buildOpdrachtoverheidPayload({ tender_job_location: null }),
+      "hash-oo-7"
+    );
+
+    expect(draft.locatieTekst.value).toBe(UNKNOWN);
+  });
+
+  it("prefers the JobPosting JSON-LD description and marks jsonld extractieMethode", () => {
+    const draft = parseOpdrachtoverheidPayload(
+      {
+        jobPosting: {
+          "@type": "JobPosting",
+          description: "Verrijkte beschrijving uit JSON-LD detailpagina.",
+        },
+        tender: buildOpdrachtoverheidPayload().tender,
+      },
+      "hash-oo-8"
+    );
+
+    expect(draft.beschrijving.value).toBe(
+      "Verrijkte beschrijving uit JSON-LD detailpagina."
+    );
+    expect(draft.extractieMethode).toBe("jsonld");
+  });
+
+  it("uses the api extractieMethode when no JobPosting enrichment is present", () => {
+    const draft = parseOpdrachtoverheidPayload(
+      buildOpdrachtoverheidPayload(),
+      "hash-oo-9"
+    );
+
+    expect(draft.extractieMethode).toBe("api");
+  });
+
+  it("parses tender_tariff free text into a numeric max when tender_maximum_tariff is absent (fixture)", async () => {
+    const fixture = await loadConnectorFixture<OpdrachtoverheidListingResponse>(
+      "opdrachtoverheid/listing-page-0.json"
+    );
+    const [record] = fixture.payload.negometrix_tenders;
+    if (!record) {
+      throw new Error("Expected an Opdrachtoverheid fixture record");
+    }
+    // Confirmed live 2026-08-31: all 5 fixture records have
+    // tender_maximum_tariff: null and a numeric tender_tariff string.
+    expect(record.tender_maximum_tariff).toBeNull();
+    expect(record.tender_tariff).toBe("70");
+
+    const draft = parseOpdrachtoverheidPayload(
+      { jobPosting: null, tender: record },
+      "hash-oo-fixture-tarief"
+    );
+
+    expect(draft.tarief.max).toBe("70");
+    expect(draft.tarief.min).toBe(UNKNOWN);
+    expect(draft.tarief.eenheid).toBe("uur");
+  });
+
+  it("derives a closed lifecycle from the bron's own tender_status/tender_active (fixture, future offline_date)", async () => {
+    const fixture = await loadConnectorFixture<OpdrachtoverheidListingResponse>(
+      "opdrachtoverheid/listing-page-0.json"
+    );
+    const [record] = fixture.payload.negometrix_tenders;
+    if (!record) {
+      throw new Error("Expected an Opdrachtoverheid fixture record");
+    }
+    // Confirmed live 2026-08-31: every fixture record is already closed.
+    expect(record.tender_status).toBe("closed");
+    expect(record.tender_active).toBe(false);
+
+    // Push tender_offline_date into the future so `sluitingsdatumPassed`
+    // cannot be what forces the lifecycle to "closed" — without deriving
+    // bronSaysClosed from tender_status/tender_active, this would
+    // (incorrectly) resolve to "active".
+    const draft = parseOpdrachtoverheidPayload(
+      {
+        jobPosting: null,
+        tender: { ...record, tender_offline_date: "2099-01-01 00:00:00" },
+      },
+      "hash-oo-fixture-closed"
+    );
+
+    expect(draft.lifecycle).toBe("closed");
+    expect(draft.status).toBe("closed");
   });
 });
 
