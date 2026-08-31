@@ -56,3 +56,7 @@ Alle bovenstaande URL’s zijn op 28 augustus 2026 rechtstreeks opgehaald met HT
 ## Onopgelost bewijs
 
 Er is in deze ADR geen Crabbox-lease of exe.dev-VM gestart. Provider-authenticatie, betaalstatus, Docker-preflight, werkelijke cleanup en een eerste timingartifact moeten in een geautoriseerde shadow run worden bewezen voordat de lane “operationeel” heet. Acceptatie vereist daarnaast een gecontroleerde direct-run-wrapper die `--timing-json` en een lokale `--timing-record <path>` gebruikt zonder de stop/finally-cleanup te omzeilen.
+
+## Addendum 2026-08-31 — exe.dev sizing
+
+De eerste live provisioning-poging (`crabbox job run exe-dev-shadow`, lease `cbx_f04fd7cdd10c`) werd door exe.dev geweigerd: het huidige plan (Individual — Small: 2 vCPU en 8 GB geheugen totaal, gedeeld over alle VM's; 100 GB pooled disk) staat maximaal `--cpu 2` toe. De vaste sizing van de exe.dev-lane is daarom teruggebracht van `4cpu-8gb-40gb` naar **`2cpu-8gb-40gb`** (`.crabbox.yaml` `exeDev.cpus/memory`, `PERF_MACHINE`, `MACHINE_CLASS` in `scripts/crabbox-exe-dev-shadow.sh`). Dit is een nieuwe cohortdimensie: records met `machine=2cpu-8gb-40gb` mogen niet met een eventuele latere 4-vCPU-cohort worden samengevoegd. De schijf blijft 40 GB omdat de doctor minimaal 20 GB eist en Docker-images ruimte nodig hebben.

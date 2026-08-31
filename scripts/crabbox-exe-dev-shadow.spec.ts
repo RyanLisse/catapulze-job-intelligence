@@ -702,7 +702,7 @@ printf '%s\\n' "\${DATABASE_URL-unset}" "\${DATABASE_TEST_URL-unset}" "\${DATABA
 
       expect(result.stderr.toString()).toBe("");
       expect(result.exitCode).toBe(0);
-      expect(fingerprint.machine).toBe("4cpu-8gb-40gb");
+      expect(fingerprint.machine).toBe("2cpu-8gb-40gb");
       expect(fingerprint.crabboxClientVersion).toBe("0.46.0");
       expect(fingerprint.cpuModel.length).toBeGreaterThan(0);
       expect(fingerprint.nodeImage).toBe(nodeImage);
