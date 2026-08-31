@@ -112,6 +112,53 @@ Zolang hiervoor geen gecontroleerde wrapper bestaat en met timingoutput plus cle
 
 Controleer na iedere live run in zowel Crabbox/exe.dev als GitHub dat er geen actieve runner, lease, VM of achtergebleven service bestaat. Als cleanup niet aantoonbaar is, start geen volgende run en escaleer naar de accountoperator. Verwijder lokale tijdelijke binaries en downloadmappen die alleen voor validatie zijn gemaakt.
 
+## Search benchmark lane (RJC-344)
+
+`benchmarks/search/run.ts` meet p50/p95/p99 op `SearchAdapter` tegen het queryprofiel in `benchmarks/search/profile.json` (SLO: p95 ≤ 100 ms). Het profiel verwacht een versioned 200k-corpus; die corpus wordt niet gecommit (`fixtures/search/benchmark-corpus.jsonl` staat in `.gitignore`) en moet gegenereerd worden voor gebruik.
+
+### Corpus lokaal genereren
+
+`benchmarks/search/generate-corpus.ts` is een deterministische, geseede synthetic-corpusgenerator (mulberry32 PRNG, geen externe dependency). Gelijke `--seed` en `--documents` geven byte-identieke output — geverifieerd via SHA-256 over twee losse runs.
+
+```sh
+bun run bench:generate -- --documents 200000
+```
+
+Zonder `--out` schrijft dit naar `fixtures/search/benchmark-corpus.jsonl` (het `corpus.pointer`-pad uit `profile.json`). Elke regel is een `SearchDocument` (zie `packages/search/src/types.ts`), met `laatstGezienOp` als ISO-string in plaats van een `Date` — JSON kent geen Date-type. De vijf queries uit `profile.json` matchen elk ruwweg 1-15% van de documenten; dat wordt bewaakt in `benchmarks/search/generate-corpus.spec.ts` op een 5k-sample via de echte `SearchAdapter`/`InMemorySearchEngine`.
+
+### Tegen lokale compose-Manticore draaien
+
+```sh
+docker compose up -d manticore
+bun run bench:generate -- --documents 200000
+MANTICORE_URL=http://localhost:9308 bun run bench:search
+```
+
+`run.ts` leest de corpus via `BENCH_CORPUS` (override) of anders `profile.corpus.pointer`, en valt terug op de bestaande synthetische `seedDocuments`-generator wanneer geen van beide bestanden bestaat (ongewijzigd gedrag voor bestaande lokale/testruns zonder gegenereerde corpus).
+
+**Manticore document-id fix (RJC-356, gevonden tijdens RJC-344).** `ManticoreSearchEngine.upsertDocument` stuurde `SearchDocument.id` (een string — een Postgres UUID in productie) als Manticore's top-level `id`, die verplicht een integer is. Elke write faalde daardoor met `400 Document ids should be integer or array of integers`, geverifieerd met een losstaande `curl` tegen een lokale Manticore-container — ook met een puur numerieke string. Dit was nooit eerder gedekt: alleen mock-based specs (`golden.spec.ts`) raakten dit pad; de enige live-Manticore-integratietest sloeg in de praktijk altijd de vroege-return over omdat `MANTICORE_URL` in `bun run gate`/CI nooit gezet is. Bevestigd via `packages/db/src/aanvraag-stores.ts`'s `PostgresSearchDocumentLoader.loadByAggregateId` (WHERE `aanvraag.id = aggregateId`, retourneert `id: row.id`) dat `document.id === aggregateId` altijd geldt — de outbox-projector's delete-pad (`engine.deleteDocument(event.aggregateId)`, `packages/search/src/projector.ts`) hasht dus al de juiste waarde, geen aparte fix nodig daar. Root-cause fix in `packages/search/src/manticore/`: `id-hash.ts` (nieuw) hasht de originele string-id deterministisch (cyrb53, 53-bit, geen BigInt) naar het numerieke Manticore-document-id; het origineel blijft bewaard als apart attribuut `document_id` (nieuw in `tools/manticore/manticore.conf` en `ManticoreIndexedDocument` — niet `external_id`, dat betekent in dit domein al de bronsysteem-id/bronReferentie) zodat zoekresultaten de echte id teruggeven (`client.ts`'s hit-parsing leest nu `_source.document_id` in plaats van het niet-bestaande `_source.id`). Callers (`apps/worker`, `benchmarks/search/run.ts`) zijn ongewijzigd — zij geven nog steeds de originele string-id door aan `upsertDocument`/`deleteDocument`. Nieuwe live-integratietest: `packages/search/src/manticore/live.spec.ts` (gate: replace → search vindt het origineel via `_source.document_id` → delete → weg), gated op `MANTICORE_URL` net als `golden.spec.ts`, en gewired in `scripts/docker-compose-smoke.sh` zodra die stack Manticore start.
+
+Een schemawijziging op een RT-tabel vergt een herindexering en `manticore_data` is een persisted named volume, dus een bestaand lokaal/CI-volume met de oude `aanvragen`-tabel geeft `unknown column: document_id` op `/replace`. Omdat er nooit succesvol iets op het oude pad is geïndexeerd (RJC-356), is er geen data om te migreren: `tools/manticore/manticore.conf`'s tabelpad is daarom verhoogd naar `aanvragen_v2` (tabelnaam ongewijzigd) — een nieuw pad in plaats van het bestaande pad hergebruiken, data-loss-free. `docker compose down -v` is verboden (BUILD_BRIEF); gebruik in plaats daarvan `docker compose rm -f manticore && docker compose up -d manticore` om het volume naar het nieuwe pad te laten aanmaken.
+
+**Indexeer-concurrency.** `benchmarks/search/run.ts`'s `upsertAll` deed voorheen één ongebonden `Promise.all` over de hele corpus — bij 20.000 documenten resette dit de Manticore-verbinding (`ECONNRESET`), bevestigd lokaal. Nu indexeert het in batches van 100 gelijktijdige `upsertDocument`-calls; dit is de enige wijziging aan `upsertAll`'s gedrag en verandert de externe interface niet.
+
+### CI-lane
+
+`.github/workflows/bench-search.yml` draait op `workflow_dispatch` (input `documents`, default `50000` — zie hieronder) en op `push` naar `main` voor `benchmarks/**`, `packages/search/**`, `packages/domain/**`, `docker-compose.yml`, `tools/manticore/manticore.conf` of de workflow zelf. De job start Manticore 6.3.8 via `docker compose --env-file .env.example up -d --wait manticore` **na** checkout (een `services:`-container start vóór checkout, dus zijn bind-mounted `manticore.conf` zou tegen een lege directory resolven en searchd zou nooit gezond worden — dit is dezelfde `docker-compose.yml`-healthcheck als lokaal), genereert de corpus, en draait de benchmark met `BENCH_ALLOW_FAIL=1` en `PERF_METRICS_DIR=artifacts/perf`. De performance-records landen als artifact `bench-search-<run-id>`.
+
+**Waarom de default 50.000 is, niet 200.000.** Lokaal gemeten tegen compose-Manticore (batches van 100, na de concurrency-fix hierboven): 20.000 documenten indexeren + benchmarken kostte **~306s (5:06) end-to-end**, oftewel ~66,7 docs/sec indexeerdoorvoer — `upsertAll` is één `/replace`-aanroep per document. Geëxtrapoleerd naar 200.000 documenten: ~200.000 / 66,7 ≈ **3.000s (50+ minuten)** — ruim boven de 30 minuten `timeout-minutes` van deze job, zelfs vóór checkout/install/corpus-generatie/Manticore-healthcheck-overhead wordt meegerekend. Bij 50.000 documenten: ~50.000 / 66,7 ≈ 750s (12,5 min), met ruime marge binnen het budget. Drie cohort-dimensies worden meegestuurd, alle via bestaande `buildWorkloadMetadata()`-velden in `packages/performance/src/critical-path/session.ts` (geen nieuwe schemavelden): het corpusaantal (`PERF_ITEM_COUNT` → `item-count` → `cohortDimensions.itemCount`), een sha256-digest van de corpus (`PERF_DATASET_DIGEST` → `dataset-digest` → `cohortDimensions.datasetDigest`; het formaat is `sha256:<hex>`, niet een kale hex-string — de schema-pattern in `scripts/performance/performance-record.schema.json` eist `<algorithm>:<digest>` en `record.ts`'s validator gooit anders een `PerformanceSchemaError`) en de query-concurrency (`PERF_CONCURRENCY` → `concurrency` → `cohortDimensions.concurrency`, uit `profile.concurrency`). Zo tellen een 50k- en een toekomstige 200k-run, of runs met een andere corpusversie of concurrency, nooit als hetzelfde cohort.
+
+**Follow-up (RJC-344): een echte `upsertMany` via Manticore's `/bulk`-endpoint** is de eigenlijke fix om 200k binnen budget te krijgen — één request per batch in plaats van één request per document. Tot die follow-up gebouwd is, blijft de default 50.000; verhoog hem pas na het bouwen van `/bulk`-batching of een hogere jobtimeout, en herhaal dan eerst deze 20k-meting op de CI-runnerklasse zelf, niet alleen lokaal.
+
+Deze lane is bewust **observe-only** en mag niet in een required-check-lijst staan: per ADR-0003 zijn runs 1-9 measure-only en is een tijdgate pas toegestaan vanaf 20 homogene succesvolle runs mét een geaccepteerd absoluut budget in `scripts/performance/performance-budgets.json`. `BENCH_ALLOW_FAIL=1` betekent dat `run.ts`'s eigen exitcode nooit op een SLO-overschrijding faalt, ongeacht de gemeten p95.
+
+**Exacte flip naar enforce**, pas uit te voeren zodra aan beide voorwaarden is voldaan:
+
+1. minstens 20 homogene succesvolle samples uit dezelfde cohortfingerprint (zelfde runner, Manticore-versie, corpusversie, concurrency) zijn verzameld uit de `bench-search-*`-artifacts;
+2. een geaccepteerd absoluut budget staat in `scripts/performance/performance-budgets.json`.
+
+Verwijder daarna `BENCH_ALLOW_FAIL: "1"` uit de `env:`-blok van de `Run search benchmark against Manticore`-stap in `.github/workflows/bench-search.yml`, zodat `run.ts` weer op zijn eigen `passed`-berekening faalt (`process.exitCode = 1` wanneer `p95 > sloMaxMs`). Voeg de workflow pas dán toe aan branch-protection required checks.
+
 Officiële referenties:
 
 - [Crabbox run/timing, gepinde release](https://github.com/openclaw/crabbox/blob/8ba71f913bbe57285ae29af45ef0d8ec6712477d/docs/commands/run.md)

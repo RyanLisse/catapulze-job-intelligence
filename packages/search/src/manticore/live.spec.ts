@@ -10,7 +10,6 @@ import { ManticoreSearchEngine } from "./engine";
 // convention so `bun run gate` (which never sets MANTICORE_URL) stays fast
 // and mock-only.
 const manticoreUrl = process.env.MANTICORE_URL;
-const AE1_QUERY = '(Azure OR "platform engineer") NOT intern';
 
 describe("Manticore document-id live integration (RJC-356)", () => {
   it("replaces a doc, finds it by its original string id, then deletes it", async () => {
@@ -19,14 +18,21 @@ describe("Manticore document-id live integration (RJC-356)", () => {
     }
 
     const engine = ManticoreSearchEngine.fromUrl(manticoreUrl);
-    const parsed = parseBooleanQuery(AE1_QUERY);
+    // A persisted Manticore volume can already hold docs from prior runs, so
+    // a generic query (e.g. "Azure") could be crowded out of the default
+    // top-10 hits. Search on a run-unique token instead — no other document,
+    // past or present, can match it. Hyphens are stripped: the boolean
+    // parser treats a leading "-" as NOT, and a bare term should stay a
+    // single unbroken token.
+    const runToken = `livespec${crypto.randomUUID().replaceAll("-", "")}`;
+    const parsed = parseBooleanQuery(runToken);
     if (!parsed.ok) {
-      throw new Error("Expected AE1 parse success");
+      throw new Error("Expected run-token query parse success");
     }
 
     const documentId = `live-doc-${crypto.randomUUID()}`;
     await engine.upsertDocument({
-      beschrijving: "Azure platform engineer senior",
+      beschrijving: `Azure platform engineer senior ${runToken}`,
       bronId: "bron-live",
       contracttype: "detachering",
       id: documentId,

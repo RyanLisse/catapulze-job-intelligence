@@ -41,7 +41,11 @@ curl --fail --silent --show-error --retry 10 --retry-delay 2 http://localhost:30
 echo "docker-compose smoke: postgres, server and web are healthy"
 
 # RJC-356: exercise the live Manticore document-id integration test now that
-# a real Manticore instance is up as part of this stack.
-MANTICORE_URL="http://localhost:${MANTICORE_HTTP_PORT:-9308}" \
+# a real Manticore instance is up as part of this stack. This script never
+# sources the compose env file into the shell, so ${MANTICORE_HTTP_PORT}
+# could disagree with the port compose actually published — ask compose for
+# the real published address instead of assuming the default.
+manticore_address="$("${compose_command[@]}" port manticore 9308)"
+MANTICORE_URL="http://${manticore_address}" \
   bun test packages/search/src/manticore/live.spec.ts
 echo "docker-compose smoke: Manticore document-id live test passed"
