@@ -4,7 +4,7 @@ import { emptySearchFacets, SearchAdapter } from "@ji/search";
 import type { SearchEngine } from "@ji/search";
 
 import type { BenchmarkProfile } from "./run";
-import { runMeasured, runWarmup } from "./run";
+import { benchmarkProfileSchema, runMeasured, runWarmup } from "./run";
 
 const SEARCH_DELAY_MS = 5;
 
@@ -93,5 +93,12 @@ describe("runMeasured concurrency", () => {
     expect(durationsMs).toHaveLength(
       profile.measuredIterations * profile.queries.length
     );
+  });
+});
+
+describe("benchmarkProfileSchema concurrency", () => {
+  it("rejects a profile with concurrency: 0", () => {
+    const profile = buildProfile(0, 1);
+    expect(benchmarkProfileSchema.safeParse(profile).success).toBe(false);
   });
 });

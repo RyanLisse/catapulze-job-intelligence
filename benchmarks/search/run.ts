@@ -32,8 +32,8 @@ export interface BenchmarkProfile {
   warmupIterations: number;
 }
 
-const benchmarkProfileSchema = z.object({
-  concurrency: z.number(),
+export const benchmarkProfileSchema = z.object({
+  concurrency: z.number().int().min(1),
   corpus: z.object({
     expectedDocuments: z.number(),
     pointer: z.string(),
