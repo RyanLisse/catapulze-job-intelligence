@@ -75,6 +75,36 @@ export interface ManticoreDeleteBody {
   index: string;
 }
 
+/** One NDJSON line of a POST /bulk body. */
+export type ManticoreBulkLine =
+  | { delete: ManticoreDeleteBody }
+  | { replace: ManticoreReplaceBody };
+
+/**
+ * POST /bulk response on 6.3.8 (verified live, RJC-389). There are NO
+ * per-line outcomes: `items` holds one aggregated entry per consecutive
+ * same-table run, and on any error the whole run is discarded (nothing
+ * before the failing line lands either), `current_line` names the 1-based
+ * failing line, `error` carries the message, and later lines are not
+ * attempted. Error responses are HTTP 500/400 with this same JSON body.
+ */
+export const manticoreBulkPayloadSchema = z.object({
+  current_line: z.number().optional(),
+  error: z.string().optional(),
+  errors: z.boolean().optional(),
+  items: z.array(z.unknown()).optional(),
+  skipped_lines: z.number().optional(),
+});
+
+export type ManticoreBulkPayload = z.infer<typeof manticoreBulkPayloadSchema>;
+
+export const parseManticoreBulkPayload = (
+  raw: string
+): ManticoreBulkPayload => {
+  const parsed: unknown = JSON.parse(raw);
+  return manticoreBulkPayloadSchema.parse(parsed);
+};
+
 export interface ManticoreIndexedDocument {
   beschrijving: string;
   bron_id: string;

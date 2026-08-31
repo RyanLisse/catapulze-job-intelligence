@@ -1,8 +1,9 @@
 import type { SearchFilters, SearchSort } from "../types";
 import { emptySearchFacets, SEARCH_WINDOW_LIMIT } from "../types";
 import { hashDocumentId } from "./id-hash";
-import { parseManticoreSearchPayload } from "./json";
+import { parseManticoreBulkPayload, parseManticoreSearchPayload } from "./json";
 import type {
+  ManticoreBulkPayload,
   ManticoreDeleteBody,
   ManticoreFilterClause,
   ManticoreIndexedDocument,
@@ -29,6 +30,8 @@ export interface ManticoreSearchResponse {
 }
 
 export interface ManticoreHttpClient {
+  /** POST /bulk with one serialized ManticoreBulkLine per entry. */
+  bulk: (lines: readonly string[]) => Promise<ManticoreBulkPayload>;
   request: (
     path: string,
     body:
@@ -82,6 +85,30 @@ export class FetchManticoreClient implements ManticoreHttpClient {
     this.timeoutMs = timeoutMs;
   }
 
+  async bulk(lines: readonly string[]): Promise<ManticoreBulkPayload> {
+    const response = await this.post(
+      "/bulk",
+      `${lines.join("\n")}\n`,
+      "application/x-ndjson"
+    );
+    const raw = await response.text();
+    // A failed bulk is HTTP 500 (or 400 for a malformed line) with the
+    // regular bulk JSON body — that body is the outcome, not a transport
+    // error, so it is returned for the engine to interpret. Only a body
+    // that is not bulk JSON at all (proxy error page) is thrown.
+    try {
+      return parseManticoreBulkPayload(raw);
+    } catch (error) {
+      if (response.ok) {
+        throw error;
+      }
+      throw new Error(
+        `Manticore bulk request failed (${response.status}): ${response.statusText}`,
+        { cause: error }
+      );
+    }
+  }
+
   async request(
     path: string,
     body:
@@ -89,26 +116,11 @@ export class FetchManticoreClient implements ManticoreHttpClient {
       | ManticoreReplaceBody
       | ManticoreSearchRequestBody
   ): Promise<ManticoreSearchPayload> {
-    const url = `${this.baseUrl}${path}`;
-    let response: Response;
-    try {
-      response = await fetch(url, {
-        body: JSON.stringify(body),
-        headers: { "Content-Type": "application/json" },
-        method: "POST",
-        signal: AbortSignal.timeout(this.timeoutMs),
-      });
-    } catch (error) {
-      // catch bindings are always `unknown` by language rule (not a
-      // decodable I/O boundary) — narrow with an instanceof check rather
-      // than delegating to a function typed to accept `unknown`.
-      const isAbortTimeout =
-        error instanceof DOMException && error.name === "TimeoutError";
-      if (isAbortTimeout) {
-        throw new ManticoreTimeoutError(url, this.timeoutMs);
-      }
-      throw error;
-    }
+    const response = await this.post(
+      path,
+      JSON.stringify(body),
+      "application/json"
+    );
 
     const raw = await response.text();
     if (!response.ok) {
@@ -127,6 +139,32 @@ export class FetchManticoreClient implements ManticoreHttpClient {
     }
 
     return parseManticoreSearchPayload(raw);
+  }
+
+  private async post(
+    path: string,
+    body: string,
+    contentType: string
+  ): Promise<Response> {
+    const url = `${this.baseUrl}${path}`;
+    try {
+      return await fetch(url, {
+        body,
+        headers: { "Content-Type": contentType },
+        method: "POST",
+        signal: AbortSignal.timeout(this.timeoutMs),
+      });
+    } catch (error) {
+      // catch bindings are always `unknown` by language rule (not a
+      // decodable I/O boundary) — narrow with an instanceof check rather
+      // than delegating to a function typed to accept `unknown`.
+      const isAbortTimeout =
+        error instanceof DOMException && error.name === "TimeoutError";
+      if (isAbortTimeout) {
+        throw new ManticoreTimeoutError(url, this.timeoutMs);
+      }
+      throw error;
+    }
   }
 }
 
@@ -345,6 +383,39 @@ export const replaceManticoreDocument = async (
     id: hashDocumentId(document.document_id),
     index,
   });
+};
+
+export type ManticoreBulkOutcome =
+  | { readonly ok: true }
+  | {
+      readonly error: string;
+      /** 0-based index into the submitted lines, or null when Manticore did not name one. */
+      readonly failingLine: number | null;
+      readonly ok: false;
+    };
+
+/**
+ * Interprets a /bulk response under the 6.3.8 semantics documented on
+ * manticoreBulkPayloadSchema: success means every line applied; failure
+ * means NO line applied and `failingLine` is the one Manticore rejected.
+ */
+export const bulkManticore = async (
+  client: ManticoreHttpClient,
+  lines: readonly string[]
+): Promise<ManticoreBulkOutcome> => {
+  const payload = await client.bulk(lines);
+  const error = payload.error ?? "";
+  if (payload.errors !== true && error === "") {
+    return { ok: true };
+  }
+  const line = payload.current_line;
+  const failingLine =
+    line !== undefined && line >= 1 && line <= lines.length ? line - 1 : null;
+  return {
+    error: error === "" ? "Manticore bulk request failed" : error,
+    failingLine,
+    ok: false,
+  };
 };
 
 export const deleteManticoreDocument = async (

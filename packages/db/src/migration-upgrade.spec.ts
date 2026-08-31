@@ -506,3 +506,130 @@ describe.serial("0006 to 0007 snapshot search version migration", () => {
     expect(String(beyondInt32[0]?.search_applied_sequence)).toBe("3000000000");
   });
 });
+
+describe.serial("0007 to 0008 bulk projector claims migration", () => {
+  let client: ReturnType<typeof postgres> | undefined;
+  let priorStatements: string[] = [];
+  let claimStatements: string[] = [];
+  const priorMigrations = [
+    "0000_core.sql",
+    "0001_u3_durable_ingestion.sql",
+    "0002_u8_backfill_observability.sql",
+    "0003_u9_snapshot_approval.sql",
+    "0004_u10_export_idempotency.sql",
+    "0005_u11_external_receipt.sql",
+    "0006_search_projection_checkpoint.sql",
+    "0007_snapshot_search_version.sql",
+  ];
+
+  beforeAll(async () => {
+    if (!upgradeDatabaseUrl) {
+      if (upgradeDatabaseRequired) {
+        throw new Error("Required upgrade test database URL is unavailable");
+      }
+      return;
+    }
+    client = postgres(upgradeDatabaseUrl, { max: 1 });
+    const perMigration = await Promise.all(
+      priorMigrations.map((name) => readMigrationStatements(name))
+    );
+    priorStatements = perMigration.flat();
+    claimStatements = await readMigrationStatements(
+      "0008_bulk_projector_claims.sql"
+    );
+  });
+
+  afterAll(async () => {
+    await client?.end({ timeout: 5 });
+  });
+
+  it("applies on a database at 0007 with existing outbox rows and widens index_version", async () => {
+    if (!client) {
+      expect(upgradeDatabaseUrl).toBeUndefined();
+      return;
+    }
+
+    await client.unsafe(`
+      DROP SCHEMA IF EXISTS curated CASCADE;
+      DROP SCHEMA IF EXISTS marts CASCADE;
+      DROP SCHEMA IF EXISTS staging CASCADE;
+      DROP SCHEMA IF EXISTS drizzle CASCADE;
+      DROP SCHEMA IF EXISTS public CASCADE;
+      CREATE SCHEMA public;
+    `);
+    await client.begin(async (transaction) => {
+      for (const statement of priorStatements) {
+        // oxlint-disable-next-line no-await-in-loop -- migration statements are order-dependent
+        await transaction.unsafe(statement);
+      }
+    });
+
+    const inserted = await client.unsafe(`
+      INSERT INTO curated.outbox_event (aggregate_id, aggregate_type, event_type, payload, index_version, processed_at)
+      VALUES
+        ('00000000-0000-4000-8000-000000000001', 'aanvraag', 'aanvraag.nieuw', '{}'::jsonb, 5, now()),
+        ('00000000-0000-4000-8000-000000000002', 'aanvraag', 'aanvraag.gewijzigd', '{}'::jsonb, NULL, NULL)
+      RETURNING id;
+    `);
+    expect(inserted).toHaveLength(2);
+
+    await client.begin(async (transaction) => {
+      for (const statement of claimStatements) {
+        // oxlint-disable-next-line no-await-in-loop -- migration statements are order-dependent
+        await transaction.unsafe(statement);
+      }
+    });
+
+    const rows = await client.unsafe(`
+      SELECT aggregate_id, index_version, retry_count, claimed_until, last_error, dead_lettered_at, processed_at
+      FROM curated.outbox_event
+      ORDER BY sequence_number ASC;
+    `);
+    expect(rows).toHaveLength(2);
+    const [done, pending] = rows;
+    // bigint since 0008 — postgres.js returns it as a string
+    expect(String(done?.index_version)).toBe("5");
+    expect(done?.retry_count).toBe(0);
+    expect(done?.claimed_until).toBeNull();
+    expect(done?.dead_lettered_at).toBeNull();
+    expect(pending?.index_version).toBeNull();
+    expect(pending?.retry_count).toBe(0);
+    expect(pending?.last_error).toBeNull();
+
+    // The claim query the drain runs, verbatim in SQL: only the pending row.
+    const claimed = await client.unsafe(`
+      UPDATE curated.outbox_event SET claimed_until = now() + make_interval(secs => 120), claim_token = gen_random_uuid()
+      WHERE id IN (
+        SELECT id FROM curated.outbox_event o
+        WHERE processed_at IS NULL AND dead_lettered_at IS NULL
+          AND (claimed_until IS NULL OR claimed_until < now())
+          AND NOT EXISTS (
+            SELECT 1 FROM curated.outbox_event s
+            WHERE s.aggregate_id = o.aggregate_id AND s.processed_at IS NULL
+              AND s.claimed_until > now() AND s.id <> o.id)
+        ORDER BY sequence_number LIMIT 100 FOR UPDATE SKIP LOCKED)
+      RETURNING aggregate_id, claim_token;
+    `);
+    expect(claimed).toHaveLength(1);
+    expect(claimed[0]?.aggregate_id).toBe(
+      "00000000-0000-4000-8000-000000000002"
+    );
+    expect(claimed[0]?.claim_token).toMatch(/^[0-9a-f-]{36}$/u);
+
+    // index_version was integer before 0008; it mirrors a bigint sequence.
+    const beyondInt32 = await client.unsafe(`
+      INSERT INTO curated.outbox_event (aggregate_id, aggregate_type, event_type, payload, index_version)
+      VALUES ('00000000-0000-4000-8000-000000000003', 'aanvraag', 'aanvraag.nieuw', '{}'::jsonb, 3000000000)
+      RETURNING index_version;
+    `);
+    expect(String(beyondInt32[0]?.index_version)).toBe("3000000000");
+
+    const state = await client.unsafe(`
+      INSERT INTO curated.search_projection_state (aggregate_id, applied_sequence, generation, projection_hash)
+      VALUES ('00000000-0000-4000-8000-000000000002', 3000000000, 1, 'abc.def')
+      RETURNING applied_sequence, generation;
+    `);
+    expect(String(state[0]?.applied_sequence)).toBe("3000000000");
+    expect(state[0]?.generation).toBe(1);
+  });
+});

@@ -7,6 +7,7 @@ import type {
   SearchEngine,
   SearchEngineResult,
   SearchIndexBatch,
+  SearchIndexBatchResult,
 } from "./types";
 import { emptySearchFacets, SEARCH_WINDOW_LIMIT } from "./types";
 import { InMemorySearchVersionStore } from "./version";
@@ -56,7 +57,7 @@ export class PostgresFtsFallbackEngine implements SearchEngine {
     }
   }
 
-  applyBatch(batch: SearchIndexBatch): Promise<SearchVersion> {
+  async applyBatch(batch: SearchIndexBatch): Promise<SearchIndexBatchResult> {
     for (const mutation of batch.mutations) {
       if (mutation.kind === "delete") {
         this.documents.delete(mutation.id);
@@ -67,7 +68,9 @@ export class PostgresFtsFallbackEngine implements SearchEngine {
         );
       }
     }
-    return this.versionStore.advance(batch.appliedSequence);
+    // Map writes cannot partially fail: every mutation applies.
+    const version = await this.versionStore.advance(batch.appliedSequence);
+    return { ...version, failures: [], unapplied: [] };
   }
 
   deleteDocument(id: string): Promise<void> {

@@ -14,6 +14,7 @@ import type {
   SearchFacets,
   SearchFilters,
   SearchIndexBatch,
+  SearchIndexBatchResult,
   SearchSort,
 } from "./types";
 import {
@@ -196,7 +197,7 @@ export class InMemorySearchEngine implements SearchEngine {
     this.versionStore = versionStore;
   }
 
-  applyBatch(batch: SearchIndexBatch): Promise<SearchVersion> {
+  async applyBatch(batch: SearchIndexBatch): Promise<SearchIndexBatchResult> {
     for (const mutation of batch.mutations) {
       if (mutation.kind === "delete") {
         this.documents.delete(mutation.id);
@@ -207,7 +208,9 @@ export class InMemorySearchEngine implements SearchEngine {
         );
       }
     }
-    return this.versionStore.advance(batch.appliedSequence);
+    // Map writes cannot partially fail: every mutation applies.
+    const version = await this.versionStore.advance(batch.appliedSequence);
+    return { ...version, failures: [], unapplied: [] };
   }
 
   deleteDocument(id: string): Promise<void> {

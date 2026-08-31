@@ -11,16 +11,26 @@ import {
 } from "./client";
 import { buildQueryString } from "./emitter";
 import { ManticoreSearchEngine } from "./engine";
-import type { ManticoreRequestBody, ManticoreSearchPayload } from "./json";
+import type {
+  ManticoreBulkPayload,
+  ManticoreRequestBody,
+  ManticoreSearchPayload,
+} from "./json";
 
 const AE1_QUERY = '(Azure OR "platform engineer") NOT intern';
 
 class RecordedManticoreClient implements ManticoreHttpClient {
+  readonly bulkLines: string[][] = [];
   readonly requests: { body: ManticoreRequestBody; path: string }[] = [];
   private readonly responses: Record<string, ManticoreSearchPayload>;
 
   constructor(responses: Record<string, ManticoreSearchPayload>) {
     this.responses = responses;
+  }
+
+  bulk(lines: readonly string[]): Promise<ManticoreBulkPayload> {
+    this.bulkLines.push([...lines]);
+    return Promise.resolve({ errors: false });
   }
 
   request(

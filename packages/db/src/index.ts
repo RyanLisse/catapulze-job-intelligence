@@ -62,8 +62,18 @@ export {
 export { PostgresKnownHashStore } from "./known-hash-store";
 export {
   drainPostgresOutbox,
+  listDeadLetteredOutboxEvents,
+  OUTBOX_DEFAULT_BATCH_SIZE,
+  OUTBOX_DEFAULT_LEASE_SECONDS,
+  OUTBOX_DEFAULT_MAX_ATTEMPTS,
+  readOutboxLag,
+  requeueDeadLetteredOutboxEvents,
+  summarizeOutboxFailures,
+  type DeadLetteredOutboxEvent,
   type DrainPostgresOutboxInput,
   type DrainPostgresOutboxResult,
+  type OutboxFailureGroup,
+  type OutboxLag,
 } from "./outbox-drain";
 export {
   PostgresSearchVersionStore,

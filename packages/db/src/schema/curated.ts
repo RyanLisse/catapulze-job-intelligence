@@ -383,19 +383,36 @@ export const auditEvent = curatedSchema.table(
   ]
 );
 
+/**
+ * Search outbox (RJC-389). Rows are claimed per row (`claimed_until` lease,
+ * `FOR UPDATE SKIP LOCKED`), retried per row (`retry_count`, `last_error`)
+ * and parked per row (`dead_lettered_at`); `processed_at` is the ack. The
+ * projector's checkpoint is a pure watermark and never selects rows.
+ */
 export const outboxEvent = curatedSchema.table(
   "outbox_event",
   {
     aggregateId: uuid("aggregate_id").notNull(),
     aggregateType: text("aggregate_type").notNull(),
+    /** Fencing token of the drain holding the lease: every ack/blame/release is `WHERE claim_token = mine`. */
+    claimToken: uuid("claim_token"),
+    /** Lease held by the drain that claimed this row; expired leases are reclaimable. */
+    claimedUntil: timestamp("claimed_until", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true })
       .defaultNow()
       .notNull(),
+    /** Set once retry_count reaches the drain's maxAttempts; excluded from claims until requeued. */
+    deadLetteredAt: timestamp("dead_lettered_at", { withTimezone: true }),
     eventType: text("event_type").notNull(),
     id: uuid("id").defaultRandom().primaryKey(),
-    indexVersion: integer("index_version"),
+    // bigint since 0008: mirrors the bigint sequence_number (same class of
+    // fix as query_snapshot.index_version in 0007); mode "number" keeps the
+    // JS type of existing readers.
+    indexVersion: bigint("index_version", { mode: "number" }),
+    lastError: text("last_error"),
     payload: jsonb("payload").notNull(),
     processedAt: timestamp("processed_at", { withTimezone: true }),
+    retryCount: integer("retry_count").default(0).notNull(),
     sequenceNumber: bigint("sequence_number", { mode: "bigint" })
       .notNull()
       .generatedAlwaysAsIdentity(),
@@ -404,8 +421,41 @@ export const outboxEvent = curatedSchema.table(
     index("outbox_event_unprocessed_idx")
       .on(table.createdAt)
       .where(sql`${table.processedAt} IS NULL`),
+    // Claim scan: unprocessed, not dead-lettered, lowest sequence first.
+    index("outbox_event_claimable_idx")
+      .on(table.sequenceNumber)
+      .where(
+        sql`${table.processedAt} IS NULL AND ${table.deadLetteredAt} IS NULL`
+      ),
+    // Claim-time aggregate serialisation: "does this aggregate have another
+    // open row under a live claim?"
+    index("outbox_event_aggregate_open_idx")
+      .on(table.aggregateId)
+      .where(sql`${table.processedAt} IS NULL`),
     uniqueIndex("outbox_event_sequence_number_uidx").on(table.sequenceNumber),
+    check("outbox_event_retry_count_check", sql`${table.retryCount} >= 0`),
   ]
+);
+
+/**
+ * Last search projection applied per aggregate (RJC-389): the hash of the
+ * search-relevant fields (see projectionHash in @ji/search) plus the
+ * generation it was written under. The drain skips the Manticore write when
+ * the hash is unchanged within the same generation, so curated edits that do
+ * not touch indexed fields never reindex. A new generation (rebuild) starts
+ * with an empty index, hence the generation guard rather than a table wipe.
+ */
+export const searchProjectionState = curatedSchema.table(
+  "search_projection_state",
+  {
+    aggregateId: uuid("aggregate_id").primaryKey(),
+    appliedSequence: bigint("applied_sequence", { mode: "bigint" }).notNull(),
+    generation: integer("generation").notNull(),
+    projectionHash: text("projection_hash").notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  }
 );
 
 /**
