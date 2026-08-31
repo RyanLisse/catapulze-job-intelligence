@@ -214,21 +214,28 @@ export const generateCorpus = function* generateCorpus(
 };
 
 export const MAX_DOCUMENT_COUNT = 5_000_000;
+// mulberry32's `seed >>> 0` silently wraps anything outside uint32 range —
+// reject out-of-range/non-integer seeds here instead of wrapping silently.
+// 2^32 - 1
+export const MAX_SEED = 4_294_967_295;
 
-const parseDocumentCount = (raw: string | undefined): number => {
+const parseNonNegativeInteger = (
+  raw: string | undefined,
+  flagName: string,
+  fallback: number,
+  max: number
+): number => {
   if (raw === undefined) {
-    return DEFAULT_DOCUMENT_COUNT;
+    return fallback;
   }
   if (!/^\d+$/u.test(raw)) {
     throw new Error(
-      `--documents must be a non-negative integer, got ${JSON.stringify(raw)}`
+      `--${flagName} must be a non-negative integer, got ${JSON.stringify(raw)}`
     );
   }
   const value = Number(raw);
-  if (value > MAX_DOCUMENT_COUNT) {
-    throw new Error(
-      `--documents must be <= ${MAX_DOCUMENT_COUNT}, got ${value}`
-    );
+  if (value > max) {
+    throw new Error(`--${flagName} must be <= ${max}, got ${value}`);
   }
   return value;
 };
@@ -239,14 +246,24 @@ export const parseArgs = (argv: string[]) => {
     return index === -1 ? undefined : argv[index + 1];
   };
 
-  const documents = parseDocumentCount(flag("documents"));
-  const seedRaw = flag("seed");
+  const documents = parseNonNegativeInteger(
+    flag("documents"),
+    "documents",
+    DEFAULT_DOCUMENT_COUNT,
+    MAX_DOCUMENT_COUNT
+  );
+  const seed = parseNonNegativeInteger(
+    flag("seed"),
+    "seed",
+    DEFAULT_SEED,
+    MAX_SEED
+  );
   const outRaw = flag("out");
 
   return {
     documents,
     out: outRaw ?? DEFAULT_OUT_PATH,
-    seed: seedRaw ? Number(seedRaw) : DEFAULT_SEED,
+    seed,
   } satisfies { documents: number; out: string; seed: number };
 };
 
