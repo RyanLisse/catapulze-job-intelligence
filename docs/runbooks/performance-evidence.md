@@ -80,6 +80,10 @@ CRABBOX_EXE_DEV_CONTROL_HOST=exe.dev crabbox job run --dry-run performance-exe-d
 
 Een dry-run is de standaard stopconditie voor configuratievalidatie. Hij geeft geen toestemming voor kosten en is geen bewijs van een werkende provider-lane. Een plain `crabbox config show` zonder expliciete control-host approval geldt in deze repository niet als verwacht-groene validatie.
 
+De exe.dev-shadow-launcher maakt in de gematerialiseerde workspace een tijdelijke Git-repository aan, omdat Crabbox v0.46.0 met `sync.gitSeed: true` Git-gebaseerd synchroniseert. Die throwaway-commit is uitsluitend voor Crabbox-sync; de evidencefingerprint gebruikt de expliciet overgedragen bronidentiteit.
+
+Op macOS kan een door `uv` beheerde `python3`-shim in sommige sandboxed shells met SIGKILL eindigen wanneer de launcher vanuit een getrapt Bash-script `monotonic_ms` meet. Eindigt de launcher direct met status 137, start hem dan met `PATH=/usr/bin:$PATH` zodat de systeem-Python wordt gebruikt.
+
 Inspecteer in het dry-run-plan expliciet de volgorde warmup → hydrate → run → stop. De jobconfig bewijst daarmee orchestration en de verwachte applicatie-artifacts, maar niet de Crabbox providerfasetiming.
 
 ## Crabbox en exe.dev live uitvoeren
