@@ -1,0 +1,106 @@
+import type { BronId } from "@ji/domain";
+
+import type {
+  Connector,
+  ConnectorCheckpoint,
+  ConnectorDiscoverResult,
+  DiscoverItem,
+} from "../contract";
+import type { KnownHashStore } from "../known-hash";
+import {
+  buildNeedstaffingRawHtml,
+  createNeedstaffingClient,
+  parseNeedstaffingDetail,
+} from "./client";
+import type { NeedstaffingClient } from "./client";
+import { hashNeedstaffingListingItem, hashNeedstaffingPayload } from "./hash";
+import type {
+  NeedstaffingFetchedPayload,
+  NeedstaffingListingItem,
+} from "./types";
+import { NEEDSTAFFING_MAX_LISTING_PAGES } from "./types";
+
+export interface NeedstaffingConnectorOptions {
+  bronId: BronId;
+  client?: NeedstaffingClient;
+  knownHashes?: KnownHashStore;
+}
+
+export const createNeedstaffingConnector = (
+  options: NeedstaffingConnectorOptions
+): Connector => {
+  const client = options.client ?? createNeedstaffingClient();
+  const { knownHashes } = options;
+
+  return {
+    bronId: options.bronId,
+    discover: async (
+      checkpoint: ConnectorCheckpoint | null
+    ): Promise<ConnectorDiscoverResult> => {
+      const page = checkpoint?.page ?? 0;
+      const listing = await client.fetchListing(page);
+      const items: DiscoverItem[] = await Promise.all(
+        listing.items.map(async (item) => ({
+          bronReferentie: item.id,
+          contentHash: await hashNeedstaffingListingItem(item),
+          listingPayload: item,
+        }))
+      );
+      return {
+        checkpoint: { page: page + 1 },
+        hasMore:
+          listing.hasNextPage && page + 1 < NEEDSTAFFING_MAX_LISTING_PAGES,
+        items,
+      };
+    },
+    fetch: async (item) => {
+      // SAFETY: discover() attaches parsed Needstaffing listing rows as listingPayload.
+      const listing = item.listingPayload as
+        | NeedstaffingListingItem
+        | undefined;
+      if (!listing?.id) {
+        return {
+          bronReferentie: item.bronReferentie,
+          reason: "listing payload missing id",
+          status: "rejected" as const,
+        };
+      }
+
+      const knownHash = knownHashes
+        ? await knownHashes.get(options.bronId, item.bronReferentie)
+        : null;
+      if (
+        knownHash !== null &&
+        knownHash !== undefined &&
+        knownHash === item.contentHash
+      ) {
+        return null;
+      }
+
+      const detailHtml = await client.fetchDetailHtml(listing.id);
+      const detail = await parseNeedstaffingDetail(detailHtml, listing.id);
+      if (!detail.titel) {
+        return {
+          bronReferentie: item.bronReferentie,
+          reason: "detail page missing titel",
+          status: "rejected" as const,
+        };
+      }
+
+      const payload: NeedstaffingFetchedPayload = {
+        detail,
+        listing,
+        raw: { html: buildNeedstaffingRawHtml(detailHtml) },
+      };
+      const body = new TextEncoder().encode(JSON.stringify(payload));
+      const contentHash = await hashNeedstaffingPayload(body);
+      return {
+        body,
+        bronReferentie: item.bronReferentie,
+        contentHash,
+        contentType: "json",
+        status: "fetched" as const,
+      };
+    },
+  };
+};

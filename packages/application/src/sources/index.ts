@@ -1,5 +1,6 @@
 import type { SourceDefinition } from "./definition";
 import { inhuurdesk } from "./inhuurdesk";
+import { needstaffing } from "./needstaffing";
 import { tenderned } from "./tenderned";
 
 export type {
@@ -11,6 +12,7 @@ export { resolveTenderNedTestImportDays } from "./tenderned";
 /** Registry of every ingestable bron. Adding a source = one file in this folder + one line here. */
 export const SOURCES = {
   inhuurdesk,
+  needstaffing,
   tenderned,
 } as const satisfies Record<string, SourceDefinition>;
 
