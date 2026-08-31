@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 
@@ -14,6 +13,8 @@ import {
   SearchAdapter,
 } from "@ji/search";
 import { z } from "zod";
+
+import { sha256Digest } from "./digest";
 
 interface BenchmarkProfile {
   concurrency: number;
@@ -120,7 +121,7 @@ interface ResolvedCorpus {
 // has no Date type), so it is parsed back into a Date here.
 const readCorpusFile = (filePath: string): ResolvedCorpus => {
   const raw = readFileSync(filePath, "utf-8");
-  const corpusDigest = createHash("sha256").update(raw).digest("hex");
+  const corpusDigest = sha256Digest(raw);
   const documents = raw
     .split("\n")
     .filter((line) => line.trim().length > 0)
@@ -146,9 +147,7 @@ const resolveCorpusDocuments = (profile: BenchmarkProfile): ResolvedCorpus => {
 
   const count = Number(process.env.BENCH_CORPUS_SIZE ?? 1000);
   return {
-    corpusDigest: createHash("sha256")
-      .update(`seedDocuments:${count}`)
-      .digest("hex"),
+    corpusDigest: sha256Digest(`seedDocuments:${count}`),
     documents: seedDocuments(count),
   };
 };
@@ -229,7 +228,10 @@ const main = async (): Promise<void> => {
   // set during warmup/measured, that both times the instrumentation itself
   // into the p50/p95/p99 and floods PERF_METRICS_DIR with hundreds of
   // incidental per-call records. Unset it for the timed loop; restore only
-  // to write the single summary record below.
+  // to write the single summary record below. Note isCriticalPathEnabled()
+  // also trips on PERF_CRITICAL_PATH=1 alone — exporting that in the
+  // environment before running this script re-enables per-call
+  // instrumentation regardless of this delete.
   const metricsDir = process.env.PERF_METRICS_DIR;
   delete process.env.PERF_METRICS_DIR;
 
