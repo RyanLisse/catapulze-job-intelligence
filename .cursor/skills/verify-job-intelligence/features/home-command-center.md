@@ -5,7 +5,7 @@ The public home page (`/`) is a recruiter command center with preview metrics an
 ## Sub-features
 
 - `home-open` loads `/` with heading `Vind de juiste opdracht vóór de rest.`
-- `home-brand` header lockup still contains `Job Intelligence` (brand text in `header.tsx`).
+- `home-brand` header lockup contains `Job Intelligence` as brand text only (not a page heading on `/`).
 - `home-cta-search` primary link `Open job search` routes to `/jobs`.
 - `home-cta-example` secondary link `Bekijk een zoekvoorbeeld` routes to `/jobs?q=Azure&freshness=30d`.
 - `home-health-ok` tRPC `healthCheck` returns `OK` (doctor-only; not rendered on home).

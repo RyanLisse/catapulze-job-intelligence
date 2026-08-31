@@ -1,10 +1,10 @@
 # Dashboard guard
 
-Visiting the dashboard without a session sends the user to login. The dashboard is not a public page and has no header nav link (only `Overzicht` and `Zoeken` appear in the main nav).
+Visiting the dashboard without a session sends the user to login. The guard is implemented as a page-level `redirect("/login")` in `apps/web/src/app/dashboard/page.tsx`, not Next.js middleware. The dashboard is not a public page and has no header nav link (only `Overzicht` and `Zoeken` appear in the main nav).
 
 ## Sub-features
 
-- `guard-redirect` unauthenticated `GET /dashboard` redirects to `/login`.
+- `guard-redirect` unauthenticated `GET /dashboard` redirects to `/login` (307/302).
 - `guard-login-visible` the login route then shows `Create Account` (default) or `Welcome Back`.
 
 ## How to get to it (user POV)
@@ -27,3 +27,4 @@ Preconditions:
 - A 200 dashboard HTML that still says `Welcome` is a logged-in session, not a passing guard.
 - The login page defaults to **Sign Up** (`Create Account`). `Welcome Back` appears only after choosing `Already have an account? Sign In`.
 - There is no `Dashboard` link in the header; do not follow a stale map that references one.
+- Do not expect middleware-based auth on `/dashboard`; assert the page redirect response.
