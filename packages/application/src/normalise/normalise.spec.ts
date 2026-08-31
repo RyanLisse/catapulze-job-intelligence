@@ -9,6 +9,7 @@ import {
 import {
   buildDedupKey,
   normaliseInhuurdeskObservation,
+  normalizeDedupText,
   parseTariefFromText,
   parseTenderNedPayload,
   validateNormalisedDraft,
@@ -70,6 +71,12 @@ describe("normalise", () => {
       "senior developer\u001Fgemeente amsterdam\u001F2026-09-01"
     );
     expect(dedupKey).not.toContain("\u0000");
+  });
+
+  it("keeps a unit separator distinct from no separator", () => {
+    expect(normalizeDedupText("foo\u001Fbar")).not.toBe(
+      normalizeDedupText("foobar")
+    );
   });
 
   it("covers AE6: unstructured tarief stays in beschrijving with unknown structured fields", async () => {
