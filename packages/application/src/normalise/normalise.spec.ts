@@ -16,8 +16,11 @@ import {
 } from "@ji/application/normalise";
 import { hashContent } from "@ji/connectors";
 import type { InhuurdeskFetchedPayload } from "@ji/connectors/inhuurdesk";
+import type { NeedstaffingFetchedPayload } from "@ji/connectors/needstaffing";
 import type { TenderNedFetchedPayload } from "@ji/connectors/tenderned";
 import { UNKNOWN } from "@ji/domain";
+
+import { parseNeedstaffingPayload } from "./needstaffing";
 
 const TENDER_NED_HASH = "sha256-test";
 
@@ -184,6 +187,69 @@ describe("normalise tenderned", () => {
     expect(validateNormalisedDraft(draft)).toEqual([
       { field: "bron_referentie", message: "bron_referentie is required" },
     ]);
+  });
+});
+
+const buildNeedstaffingPayload = (
+  overrides: Partial<NeedstaffingFetchedPayload["detail"]> = {}
+): NeedstaffingFetchedPayload => ({
+  detail: {
+    deadline: "1788778800000",
+    id: "15520",
+    locatie: "Den Haag",
+    periode: "4 maanden",
+    referentie: "2026-BZB-0457",
+    start: "1790380800000",
+    tariefMax: "102",
+    tariefMin: "98",
+    titel: "Operationeel Database Ontwikkelaar 2026-BZB-0457",
+    uren: "36",
+    ...overrides,
+  },
+  listing: {
+    id: "15520",
+    opdrachtgeverNaam: "Belastingdienst",
+    titel: "Operationeel Database Ontwikkelaar 2026-BZB-0457",
+  },
+  raw: { html: "<p>Rolomschrijving voor database ontwikkelaar.</p>" },
+});
+
+describe("normalise needstaffing", () => {
+  it("derives typed tarief.min/max and an ISO startDatum from epoch fields", () => {
+    const draft = parseNeedstaffingPayload(
+      buildNeedstaffingPayload(),
+      "hash-needstaffing"
+    );
+
+    expect(draft.tarief.min).toBe("98");
+    expect(draft.tarief.max).toBe("102");
+    expect(draft.tarief.eenheid).toBe("uur");
+    expect(draft.startDatum.value).toBe("2026-09-26");
+    expect(draft.bronReferentie.value).toBe("15520");
+    expect(draft.bronUrl.value).toBe(
+      "https://www.needstaffing.nl/Opdrachten/15520"
+    );
+    expect(draft.opdrachtgeverNaam.value).toBe("Belastingdienst");
+    expect(draft.beschrijving.value).toContain(
+      "Rolomschrijving voor database ontwikkelaar"
+    );
+    expect(validateNormalisedDraft(draft)).toEqual([]);
+  });
+
+  it("falls back to UNKNOWN when tarief or start data is missing", () => {
+    const draft = parseNeedstaffingPayload(
+      buildNeedstaffingPayload({
+        deadline: undefined,
+        start: undefined,
+        tariefMax: undefined,
+        tariefMin: undefined,
+      }),
+      "hash-needstaffing-unknown"
+    );
+
+    expect(draft.tarief.min).toBe(UNKNOWN);
+    expect(draft.tarief.max).toBe(UNKNOWN);
+    expect(draft.startDatum.value).toBe(UNKNOWN);
   });
 });
 
