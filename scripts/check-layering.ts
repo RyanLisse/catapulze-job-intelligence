@@ -1,6 +1,8 @@
 const IMPORT_SPEC = /(?:from|import)\s+["'](?<specifier>[^"']+)["']/gu;
 
 const FORBIDDEN_PREFIXES = [
+  "@ji/application/identity",
+  "@ji/application/sources",
   "@ji/db",
   "@ji/infra",
   "drizzle-orm",

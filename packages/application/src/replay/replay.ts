@@ -1,9 +1,3 @@
-import {
-  createInhuurdeskClient,
-  createInhuurdeskConnector,
-  createTenderNedClient,
-  createTenderNedConnector,
-} from "@ji/connectors";
 import type {
   Connector,
   ObjectStore,
@@ -15,6 +9,7 @@ import type { BronId, ScrapeRunId } from "@ji/domain";
 import { executeBronRun } from "../bronnen/execute";
 import type { ExecuteBronRunInput } from "../bronnen/execute";
 import type { BronPersistence } from "../bronnen/register";
+import { resolveSourceByNaam } from "../sources";
 
 export type ReplaySource =
   | { kind: "fixture"; path: string }
@@ -59,39 +54,30 @@ const bronSlugFromNaam = (naam: string): string => naam.trim().toLowerCase();
 
 const buildFixtureConnector = (
   bronId: BronId,
-  bronSlug: string,
+  naam: string,
   fixturePath: string
 ): Connector => {
-  if (bronSlug === "tenderned") {
-    return createTenderNedConnector({
-      bronId,
-      client: createTenderNedClient({
-        listingFixturePath: fixturePath,
-        liveEnabled: false,
-      }),
-    });
+  const source = resolveSourceByNaam(naam);
+  if (!source) {
+    throw new Error(
+      `No fixture-backed connector is registered for bron "${bronSlugFromNaam(naam)}"`
+    );
   }
-  if (bronSlug === "inhuurdesk") {
-    return createInhuurdeskConnector({
-      bronId,
-      client: createInhuurdeskClient({
-        listingFixturePath: fixturePath,
-        liveEnabled: false,
-      }),
-    });
-  }
-  throw new Error(
-    `No fixture-backed connector is registered for bron "${bronSlug}"`
-  );
+  return source.createConnector({
+    bronId,
+    listingFixturePath: fixturePath,
+    live: false,
+    runKind: "test",
+  });
 };
 
 const buildConnector = (
   bronId: BronId,
-  bronSlug: string,
+  naam: string,
   source: ReplaySource
 ): Connector => {
   if (source.kind === "fixture") {
-    return buildFixtureConnector(bronId, bronSlug, source.path);
+    return buildFixtureConnector(bronId, naam, source.path);
   }
   // ponytail: object-store replay needs a read port over stored observations
   // by scrapeRunId (rawPayloadRef + contentHash), which no port in
@@ -117,8 +103,9 @@ export const replayBron = async (
   if (!record) {
     throw new Error(`bron not found: ${bronId}`);
   }
-  const bronSlug = bronSlugFromNaam(record.naam);
-  const connector = buildConnector(bronId, bronSlug, source);
+  const bronSlug =
+    resolveSourceByNaam(record.naam)?.slug ?? bronSlugFromNaam(record.naam);
+  const connector = buildConnector(bronId, record.naam, source);
   const runId: ScrapeRunId = crypto.randomUUID();
   const startedMs = Date.now();
 

@@ -2,13 +2,9 @@ import path from "node:path";
 
 import { executeBronRun } from "@ji/application/bronnen";
 import type { BronPersistence } from "@ji/application/bronnen";
-import {
-  buildTenderNedPollFilters,
-  createInhuurdeskConnector,
-  createTenderNedConnector,
-  FilesystemObjectStore,
-  fullJitter,
-} from "@ji/connectors";
+import { SOURCES } from "@ji/application/sources";
+import type { SourceDefinition } from "@ji/application/sources";
+import { FilesystemObjectStore, fullJitter } from "@ji/connectors";
 import type {
   Connector,
   ConnectorRunKind,
@@ -28,10 +24,7 @@ import { PostgresCurateStore } from "@ji/db/postgres-curate-store";
 import type { BronId, ScrapeRunId } from "@ji/domain";
 import { ManticoreSearchEngine } from "@ji/search";
 
-import {
-  requireManticoreUrl,
-  resolveTenderNedTestImportDays,
-} from "./poll-bron-env";
+import { requireManticoreUrl } from "./poll-bron-env";
 import type { SliceABronSlug } from "./slice-a-bronnen";
 import type { PollBronPayload } from "./tasks/poll-bron-schema";
 
@@ -75,13 +68,6 @@ export interface PollBronRuntime {
   runLifecycleStore: RunLifecycleStore;
 }
 
-const isLiveEnabled = (bronSlug: SliceABronSlug): boolean => {
-  if (bronSlug === "tenderned") {
-    return process.env.TENDER_NED_LIVE === "1";
-  }
-  return process.env.INHUURDESK_LIVE === "1";
-};
-
 export const createPollBronRuntime = (databaseUrl: string): PollBronRuntime => {
   const client = createBronRuntimeClient(databaseUrl);
   const rawRoot =
@@ -92,28 +78,20 @@ export const createPollBronRuntime = (databaseUrl: string): PollBronRuntime => {
     bronPersistence: client.bronPersistence,
     close: client.close,
     createConnector: ({ bronId, bronSlug, knownHashes, runKind }) => {
-      if (bronSlug === "tenderned") {
-        let filters: ReturnType<typeof buildTenderNedPollFilters> | undefined;
-        if (!isLiveEnabled("tenderned")) {
-          filters = undefined;
-        } else if (runKind === "poll") {
-          filters = buildTenderNedPollFilters();
-        } else {
-          const days = resolveTenderNedTestImportDays();
-          filters = buildTenderNedPollFilters(undefined, undefined, days);
-        }
-        return createTenderNedConnector({
-          bronId,
-          filters,
-          knownHashes,
-        });
+      // Payload slugs are schema-validated, but the registry lookup stays guarded
+      // so a stale task payload fails loudly instead of with a TypeError.
+      const source: SourceDefinition | undefined = SOURCES[bronSlug];
+      if (!source) {
+        throw new Error(
+          `Unknown bronSlug for connector routing: ${String(bronSlug)}`
+        );
       }
-      if (bronSlug === "inhuurdesk") {
-        return createInhuurdeskConnector({ bronId, knownHashes });
-      }
-      throw new Error(
-        `Unknown bronSlug for connector routing: ${String(bronSlug)}`
-      );
+      return source.createConnector({
+        bronId,
+        knownHashes,
+        live: process.env[source.liveEnv] === "1",
+        runKind,
+      });
     },
     curateStore: new PostgresCurateStore(client.database),
     database: client.database,

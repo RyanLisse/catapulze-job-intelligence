@@ -4,12 +4,9 @@ import {
   timeCriticalPathPhase,
 } from "@ji/performance";
 
-import {
-  normaliseInhuurdeskObservation,
-  normaliseTenderNedObservation,
-  validateNormalisedDraft,
-} from "../normalise";
-import type { NormalisedAanvraagDraft } from "../normalise";
+import { validateNormalisedDraft } from "../normalise";
+import { SOURCES } from "../sources";
+import type { SupportedBronSlug } from "../sources";
 import { curateObservation } from "./curate";
 import type {
   CurateObservationInput,
@@ -18,7 +15,7 @@ import type {
   ObservationProcessingStatus,
 } from "./curate";
 
-export type SupportedBronSlug = "inhuurdesk" | "tenderned";
+export type { SupportedBronSlug } from "../sources";
 
 export interface ProcessObservationInput {
   body: Uint8Array;
@@ -35,24 +32,12 @@ export interface ProcessObservationResult extends CurateObservationResult {
   validationIssues?: { field: string; message: string }[];
 }
 
-const normaliseForBron = (
-  bronSlug: SupportedBronSlug,
-  body: Uint8Array,
-  contentHash: string
-): NormalisedAanvraagDraft => {
-  if (bronSlug === "tenderned") {
-    return normaliseTenderNedObservation(body, contentHash);
-  }
-  return normaliseInhuurdeskObservation(body, contentHash);
-};
-
 export const processObservation = async (
   store: CurateStore,
   input: ProcessObservationInput
 ): Promise<ProcessObservationResult> => {
   const draft = recordCriticalPathPhaseSync("ingest-normalisation", () => {
-    const normalised = normaliseForBron(
-      input.bronSlug,
+    const normalised = SOURCES[input.bronSlug].normalise(
       input.body,
       input.contentHash
     );
