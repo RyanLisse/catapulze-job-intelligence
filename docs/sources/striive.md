@@ -1,13 +1,15 @@
 # Striive — ingest-recept (geverifieerd 2026-08-31)
 
-Status: **probe afgerond; connector nog niet gebouwd** — adapter-categorie `json-api`; 100 open opdrachten. Lezen is publiek; Auth0 staat alleen voor reageren en voorwaardenstatus is nog te toetsen.
+Status: **connector gebouwd en gemerged** (PR #69, RJC-363); niet geactiveerd — `STRIIVE_LIVE` staat ongezet en `voorwaarden_status` blijft `te_toetsen`. Adapter-categorie `json-api`; 109 open opdrachten (live capture 2026-08-31, momentopname). Lezen is publiek; Auth0 staat alleen voor reageren en voorwaardenstatus is nog te toetsen.
+
+> **Correctie 2026-08-31:** De oorspronkelijke probe vermeldde dat de JSON-listing alle open opdrachten in één call teruggeeft (~100). Een live capture op dezelfde datum toonde paginering: `total` 109, 25 records per pagina, 5 pagina's (`page` 1..5; `page=6` leeg). De endpointtabel en het ingest-patroon hieronder zijn hierop gecorrigeerd.
 
 ## Endpoints
 
 | Doel | URL | Opmerking |
 |---|---|---|
-| Listing | `GET https://striive.com/nl/opdrachten` | Angular SSR; 27 MB HTML, eerste 25 van 100 records in TransferState. |
-| JSON-listing | `GET https://striive-cms.codebridge.nl/api/jobs?open=true` | Publiek, CORS-open, geen auth-header waargenomen; `{total:100,data:[…]}`. |
+| Listing | `GET https://striive.com/nl/opdrachten` | Angular SSR; 27 MB HTML, eerste 25 records in TransferState (geen volledige set). |
+| JSON-listing | `GET https://striive-cms.codebridge.nl/api/jobs?open=true&page=<n>` | Publiek, CORS-open, geen auth-header waargenomen; pagineert met `page` (1-indexed; `page=0` en `page=1` geven dezelfde eerste pagina); `{total:<n>,data:[…]}`, 25 records per pagina. Live capture 2026-08-31: `total` 109, 5 pagina's. |
 | Detail | `GET https://striive.com/nl/opdrachten?id=<uuid>` | Publieke detailtekst; JobPosting JSON-LD is malformed. |
 
 ## Veldmapping → canoniek `aanvraag`
@@ -28,7 +30,8 @@ Recruiternaam, e-mail en telefoon worden niet genormaliseerd of gelogd.
 
 ## Ingest-patroon
 
-- Gebruik één JSON-listing-call voor alle 100 open opdrachten en diff op id plus payload-hash.
+- Loop de JSON-listing met `page=1,2,…` tot stop: een korte pagina (`data.length` < `STRIIVE_PAGE_SIZE`, 25) **of** het paginacap (`nextPage` > `STRIIVE_MAX_PAGES`, 40) — beide stopcondities zijn onafhankelijk; vertrouw niet op `total`-rekenwerk alleen.
+- Diff op id plus payload-hash over alle verzamelde pagina's.
 - Vermijd herhaald ophalen van de 27 MB SSR-listing; fetch detail alleen wanneer aanvullende openbare tekst nodig is.
 - Log niet in: lezen vereist geen Auth0-account.
 
