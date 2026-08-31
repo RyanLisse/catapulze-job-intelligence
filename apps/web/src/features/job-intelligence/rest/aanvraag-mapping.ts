@@ -41,15 +41,17 @@ const mapApiStatus = (status: string): JobLifecycleStatus => {
   }
 };
 
+// RJC-368: previously fell back to the literal "tenderned" whenever the bron
+// naam didn't match one of 4 hardcoded brand names — silently mislabeling
+// every other registered source. bronNameToSource is now a total slugifier,
+// so the only remaining fallback is an unknown bronId itself (never a
+// specific other bron's name).
 const resolveSourceName = (
   bronId: string,
   bronCatalog: ReadonlyMap<string, BronCatalogEntry>
 ): JobSource => {
   const bron = bronCatalog.get(bronId);
-  if (!bron) {
-    return "tenderned";
-  }
-  return bronNameToSource(bron.naam) ?? "tenderned";
+  return bron ? bronNameToSource(bron.naam) : bronId;
 };
 
 const latestVersie = (

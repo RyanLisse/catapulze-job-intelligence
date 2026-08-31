@@ -1,5 +1,11 @@
+import { sourceLabel } from "./presentation";
 import { searchJobs } from "./search-state";
-import type { JobDataAdapter, JobListing, JobSourceRecord } from "./types";
+import type {
+  JobDataAdapter,
+  JobListing,
+  JobSourceOption,
+  JobSourceRecord,
+} from "./types";
 
 const sourceRecord = (
   name: JobSourceRecord["name"],
@@ -260,8 +266,27 @@ export const JOB_FIXTURES: readonly JobListing[] = [
   },
 ] as const;
 
+// RJC-368: mirrors the live adapter's contract — derived from the fixture
+// data instead of a separately maintained hardcoded list, so it can't drift.
+const fixtureSourceOptions = (): readonly JobSourceOption[] => {
+  const seen = new Set<string>();
+  const options: JobSourceOption[] = [];
+  for (const job of JOB_FIXTURES) {
+    for (const record of job.sourceRecords) {
+      if (!seen.has(record.name)) {
+        seen.add(record.name);
+        options.push({ label: sourceLabel(record.name), value: record.name });
+      }
+    }
+  }
+  return options.toSorted((left, right) =>
+    left.label.localeCompare(right.label, "nl-NL")
+  );
+};
+
 export const fixtureJobDataAdapter: JobDataAdapter = {
   getById: (id) =>
     Promise.resolve(JOB_FIXTURES.find((job) => job.id === id) ?? null),
+  listSources: () => Promise.resolve(fixtureSourceOptions()),
   search: (request) => Promise.resolve(searchJobs(JOB_FIXTURES, request)),
 };

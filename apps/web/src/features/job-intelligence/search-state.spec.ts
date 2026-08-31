@@ -28,7 +28,10 @@ describe("job search URL state", () => {
       )
     );
 
-    expect(state.filters.sources).toEqual([]);
+    // RJC-368: sources are opaque bron slugs from the live register, not a
+    // fixed enum, so any provided value passes through unfiltered (deduped)
+    // -- an unrecognized slug just matches zero bronnen/facets downstream.
+    expect(state.filters.sources).toEqual(["database"]);
     expect(state.filters.contractTypes).toEqual([]);
     expect(state.filters.freshness).toBe("all");
     expect(state.filters.minRate).toBeNull();

@@ -2,22 +2,16 @@
 
 import { RotateCcw } from "lucide-react";
 
-import { contractLabels, freshnessLabels, sourceLabels } from "./presentation";
+import { contractLabels, freshnessLabels } from "./presentation";
 import type {
   FacetCount,
   JobContractType,
   JobSearchFacets,
   JobSearchFilters,
   JobSource,
+  JobSourceOption,
 } from "./types";
 import { FRESHNESS_FILTERS } from "./types";
-
-const sourceOptions: readonly JobSource[] = [
-  "inhuurdesk",
-  "tenderned",
-  "werkenvoor",
-  "indeed",
-];
 
 const contractOptions: readonly JobContractType[] = [
   "interim",
@@ -90,6 +84,7 @@ interface JobFiltersProps {
   readonly onLocationToggle: (value: string) => void;
   readonly onMinRateChange: (value: number | null) => void;
   readonly onSourceToggle: (value: JobSource) => void;
+  readonly sources: readonly JobSourceOption[];
 }
 
 export const JobFilters = ({
@@ -101,6 +96,7 @@ export const JobFilters = ({
   onLocationToggle,
   onMinRateChange,
   onSourceToggle,
+  sources,
 }: JobFiltersProps) => {
   const visibleLocations = facets.locations.slice(0, 7);
 
@@ -119,13 +115,13 @@ export const JobFilters = ({
       </div>
 
       <FilterGroup legend="Bron">
-        {sourceOptions.map((source) => (
+        {sources.map((source) => (
           <FilterCheckbox
-            key={source}
-            value={source}
-            label={sourceLabels[source]}
-            count={findFacetCount(facets.sources, source)}
-            checked={filters.sources.includes(source)}
+            key={source.value}
+            value={source.value}
+            label={source.label}
+            count={findFacetCount(facets.sources, source.value)}
+            checked={filters.sources.includes(source.value)}
             onChange={onSourceToggle}
           />
         ))}

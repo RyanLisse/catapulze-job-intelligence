@@ -102,14 +102,12 @@ const mapSourceFacet = (
   bronCatalog: ReadonlyMap<string, BronCatalogEntry>
 ): FacetCount<JobSource> | null => {
   const bron = bronCatalog.get(bucket.value);
-  if (!bron) {
-    return null;
-  }
-  const source = bronNameToSource(bron.naam);
-  if (!source) {
-    return null;
-  }
-  return { count: bucket.count, value: source };
+  // RJC-368: bronNameToSource is a total slugifier now, so any bron present
+  // in the catalog produces a facet count — not just the 4 previously
+  // hardcoded names.
+  return bron
+    ? { count: bucket.count, value: bronNameToSource(bron.naam) }
+    : null;
 };
 
 export const mapApiFacetsToUi = (

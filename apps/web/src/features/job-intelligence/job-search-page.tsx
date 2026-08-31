@@ -35,6 +35,7 @@ import type {
   JobSearchResponse,
   JobSearchState,
   JobSource,
+  JobSourceOption,
   PreviewStatus,
 } from "./types";
 
@@ -214,6 +215,7 @@ const JobSearchPageContent = ({
   const [snapshotMessage, setSnapshotMessage] = useState<string | null>(null);
   const [isSavingSearch, setIsSavingSearch] = useState(false);
   const [isCreatingSnapshot, setIsCreatingSnapshot] = useState(false);
+  const [sources, setSources] = useState<readonly JobSourceOption[]>([]);
   const isDetailOverlay = useMediaQuery("(max-width: 1199px)");
   const detailTriggerRef = useRef<HTMLButtonElement | null>(null);
   const previousSelectedJobId = useRef<string | null>(state.selectedJobId);
@@ -221,6 +223,29 @@ const JobSearchPageContent = ({
   useEffect(() => {
     setQueryDraft(state.query);
   }, [state.query]);
+
+  // RJC-368: the bron filter list comes from the live catalog, loaded once
+  // and independent of the current search's facet counts, so it doesn't
+  // flash empty or shrink when a query returns zero hits.
+  useEffect(() => {
+    let isCurrent = true;
+    const loadSources = async () => {
+      try {
+        const nextSources = await adapter.listSources();
+        if (isCurrent) {
+          setSources(nextSources);
+        }
+      } catch {
+        if (isCurrent) {
+          setSources([]);
+        }
+      }
+    };
+    void loadSources();
+    return () => {
+      isCurrent = false;
+    };
+  }, [adapter]);
 
   useEffect(() => {
     let isCurrent = true;
@@ -381,6 +406,7 @@ const JobSearchPageContent = ({
         ...state.filters,
         sources: toggleSearchFilter(state.filters.sources, value),
       }),
+    sources,
   };
 
   return (

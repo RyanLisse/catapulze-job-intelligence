@@ -12,7 +12,7 @@ import {
   contractLabels,
   formatDate,
   formatRate,
-  sourceLabels,
+  sourceLabel,
 } from "./presentation";
 import type { JobListing, JobMarkering } from "./types";
 
@@ -170,7 +170,7 @@ export const JobDetail = ({
                 <div className="flex items-start justify-between gap-3">
                   <div>
                     <p className="text-sm font-semibold">
-                      {sourceLabels[record.name]}
+                      {sourceLabel(record.name)}
                     </p>
                     <p className="ji-mono mt-1 text-[10px] text-muted-foreground">
                       {record.reference}
@@ -190,7 +190,7 @@ export const JobDetail = ({
                   <div className="flex justify-between gap-3">
                     <dt>bron</dt>
                     <dd className="text-foreground/72">
-                      {sourceLabels[record.name]}
+                      {sourceLabel(record.name)}
                     </dd>
                   </div>
                   <div className="flex justify-between gap-3">

@@ -8,12 +8,18 @@ import type {
   JobSource,
 } from "./types";
 
-export const sourceLabels = {
-  indeed: "Indeed",
-  inhuurdesk: "Inhuurdesk",
-  tenderned: "TenderNed",
-  werkenvoor: "Werken voor Nederland",
-} satisfies Record<JobSource, string>;
+// RJC-368: fallback labels for the fixture demo sources only. Real bronnen
+// get their label from the live /v1/bronnen catalog (see JobSourceOption);
+// sourceLabel() falls back to the raw slug for anything not listed here.
+const fixtureSourceLabels: ReadonlyMap<string, string> = new Map([
+  ["indeed", "Indeed"],
+  ["inhuurdesk", "Inhuurdesk"],
+  ["tenderned", "TenderNed"],
+  ["werkenvoor", "Werken voor Nederland"],
+]);
+
+export const sourceLabel = (source: JobSource): string =>
+  fixtureSourceLabels.get(source) ?? source;
 
 export const contractLabels = {
   detachering: "Detachering",
@@ -62,7 +68,7 @@ export const formatRate = (job: JobListing): string => {
 
 export const primarySource = (job: JobListing): string => {
   const [source] = job.sourceRecords;
-  return source ? sourceLabels[source.name] : "Bron onbekend";
+  return source ? sourceLabel(source.name) : "Bron onbekend";
 };
 
 const describeBooleanError = (message: string, offset: number): string => {
