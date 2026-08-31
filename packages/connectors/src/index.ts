@@ -35,9 +35,14 @@ export {
 export { FilesystemObjectStore } from "./filesystem-object-store";
 export {
   buildRawObjectPath,
+  buildContentAddressedRawObjectPath,
   hashContent,
+  parseContentAddressedRawObjectPath,
   DurableObjectStore,
   InMemoryObjectStore,
+  RawObjectDigestMismatchError,
+  RawObjectMetadataMissingError,
+  type ContentAddressedRawObjectPathInput,
   type ObjectStore,
   type DurableObjectClient,
   type RawContentType,
@@ -47,6 +52,12 @@ export {
   type SourceRecordWriteResult,
   type StoredObject,
 } from "./object-store";
+// S3ObjectClient / createRawObjectStore are deliberately NOT re-exported from
+// this barrel: it uses Bun.S3Client, which needs Bun's ambient types. Any
+// consumer whose TS program lacks bun-types (e.g. apps/web, transitively
+// reached through @ji/api's AppRouter type) would fail to type-check the
+// instant this barrel's static import graph touched that file. Import
+// directly from "@ji/connectors/s3-object-client" in Bun runtimes instead.
 export {
   runConnector,
   type ConnectorRunInput,

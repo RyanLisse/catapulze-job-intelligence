@@ -31,6 +31,7 @@ describe("createProductionSliceADeps", () => {
     const deps = createProductionSliceADeps({
       ...baseInput,
       nodeEnv: "production",
+      rawS3Bucket: "ji-raw-prod",
     });
     try {
       expect(deps.stores.externalReceipts).toBeInstanceOf(
@@ -46,5 +47,41 @@ describe("createProductionSliceADeps", () => {
       createProductionSliceADeps({ ...baseInput, nodeEnv })
     );
     await Promise.all(depsByEnv.map((deps) => deps.close()));
+  });
+
+  // RJC-386: production must refuse the worker-local filesystem raw-object
+  // store (no shared filesystem with the server) and must accept the S3
+  // backend without touching the network at construction time.
+  describe("raw object store production guard", () => {
+    it("throws naming RAW_S3_BUCKET when production resolves to the filesystem store", () => {
+      expect(() =>
+        createProductionSliceADeps({ ...baseInput, nodeEnv: "production" })
+      ).toThrow(/RAW_S3_BUCKET/u);
+    });
+
+    it("does not throw when production resolves to the S3 store", async () => {
+      const deps = createProductionSliceADeps({
+        ...baseInput,
+        nodeEnv: "production",
+        rawS3Bucket: "ji-raw-prod",
+      });
+      try {
+        expect(deps.objectStore).toBeDefined();
+      } finally {
+        await deps.close();
+      }
+    });
+
+    it("leaves the filesystem store usable outside production", async () => {
+      const deps = createProductionSliceADeps({
+        ...baseInput,
+        nodeEnv: "development",
+      });
+      try {
+        expect(deps.objectStore).toBeDefined();
+      } finally {
+        await deps.close();
+      }
+    });
   });
 });

@@ -1,10 +1,8 @@
-import path from "node:path";
-
 import { executeBronRun } from "@ji/application/bronnen";
 import type { BronPersistence } from "@ji/application/bronnen";
 import { SOURCES } from "@ji/application/sources";
 import type { SourceDefinition } from "@ji/application/sources";
-import { FilesystemObjectStore, fullJitter } from "@ji/connectors";
+import { fullJitter } from "@ji/connectors";
 import type {
   Connector,
   ConnectorRunKind,
@@ -13,6 +11,8 @@ import type {
   ObservationRecorder,
   RunLifecycleStore,
 } from "@ji/connectors";
+// Bun-only: see the equivalent import note in apps/server/src/slice-a-registry.ts.
+import { createRawObjectStore } from "@ji/connectors/s3-object-client";
 import {
   createBronRuntimeClient,
   drainPostgresOutbox,
@@ -71,9 +71,36 @@ export interface PollBronRuntime {
 
 export const createPollBronRuntime = (databaseUrl: string): PollBronRuntime => {
   const client = createBronRuntimeClient(databaseUrl);
-  const rawRoot =
-    process.env.RAW_OBJECT_STORE_PATH?.trim() ||
-    path.join(process.cwd(), ".data", "raw-objects");
+  // RJC-386: same selection factory the server uses, so the worker never
+  // falls back to the filesystem store behind the server's back when S3 is
+  // configured — they must share one durable backend for raw payload refs
+  // written here to be readable back by the server.
+  const rawObjectStore = createRawObjectStore({
+    RAW_OBJECT_STORE_PATH: process.env.RAW_OBJECT_STORE_PATH,
+    RAW_S3_ACCESS_KEY_ID: process.env.RAW_S3_ACCESS_KEY_ID,
+    RAW_S3_BUCKET: process.env.RAW_S3_BUCKET,
+    RAW_S3_ENDPOINT: process.env.RAW_S3_ENDPOINT,
+    RAW_S3_REGION: process.env.RAW_S3_REGION,
+    RAW_S3_SECRET_ACCESS_KEY: process.env.RAW_S3_SECRET_ACCESS_KEY,
+  });
+  const objectStore = rawObjectStore.store;
+
+  // RJC-386: the worker is a separate deployment (Trigger.dev, its own env)
+  // and the WRITER of raw payloads — the server's equivalent guard in
+  // slice-a-registry.ts cannot see this process. Forgetting RAW_S3_BUCKET
+  // here only would silently write to the worker-local filesystem while the
+  // server reads S3, so every readback comes back null: the exact failure
+  // this store exists to prevent. Same check, same spirit.
+  if (
+    process.env.NODE_ENV === "production" &&
+    rawObjectStore.kind === "filesystem"
+  ) {
+    throw new Error(
+      "Production startup refused: raw object store is the worker-local " +
+        "filesystem backend, not S3. Set RAW_S3_BUCKET (and RAW_S3_ENDPOINT/" +
+        "RAW_S3_REGION/credentials as needed) to select the durable S3 backend."
+    );
+  }
 
   return {
     bronPersistence: client.bronPersistence,
@@ -97,7 +124,7 @@ export const createPollBronRuntime = (databaseUrl: string): PollBronRuntime => {
     curateStore: new PostgresCurateStore(client.database),
     database: client.database,
     knownHashStore: client.knownHashStore,
-    objectStore: new FilesystemObjectStore(rawRoot),
+    objectStore,
     observationRecorder: client.observationRecorder,
     runLifecycleStore: client.runLifecycleStore,
   };

@@ -463,7 +463,7 @@ describe("durable bron runtime adapters", () => {
           items: [
             {
               bronReferentie: `crash-${page}`,
-              contentHash: `hash-${page}`,
+              contentHash: String(page).padStart(64, "0"),
             },
           ],
         });

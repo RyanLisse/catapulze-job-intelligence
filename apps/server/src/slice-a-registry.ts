@@ -1,5 +1,3 @@
-import path from "node:path";
-
 import { listPublicBronnen, mapPublicBronnen } from "@ji/application/bronnen";
 import type { BronPersistence } from "@ji/application/bronnen";
 import {
@@ -7,7 +5,11 @@ import {
   createSliceARegistry,
 } from "@ji/application/registry";
 import type { SliceAHandlerDeps, SliceAStores } from "@ji/application/registry";
-import { FilesystemObjectStore } from "@ji/connectors";
+import type { ObjectStore } from "@ji/connectors";
+// Bun-only: not re-exported from the "@ji/connectors" barrel because it
+// needs bun-types, which apps/web's TS program (reached transitively via
+// @ji/api's AppRouter type) does not have.
+import { createRawObjectStore } from "@ji/connectors/s3-object-client";
 import {
   PostgresAanvraagStore,
   PostgresApprovalStore,
@@ -29,6 +31,11 @@ export interface ProductionSliceADepsInput {
   manticoreUrl: string;
   nodeEnv: string;
   rawObjectStorePath?: string;
+  rawS3Bucket?: string;
+  rawS3Endpoint?: string;
+  rawS3Region?: string;
+  rawS3AccessKeyId?: string;
+  rawS3SecretAccessKey?: string;
 }
 
 export type ProductionSliceADeps = SliceAHandlerDeps & {
@@ -36,17 +43,35 @@ export type ProductionSliceADeps = SliceAHandlerDeps & {
   readonly curateStore: PostgresCurateStore;
   readonly close: () => Promise<void>;
   readonly database: ReturnType<typeof createBronRuntimeClient>["database"];
-  readonly objectStore: FilesystemObjectStore;
+  readonly objectStore: ObjectStore;
 };
 
 export const createProductionSliceADeps = (
   input: ProductionSliceADepsInput
 ): ProductionSliceADeps => {
   const runtime = createBronRuntimeClient(input.databaseUrl);
-  const objectStore = new FilesystemObjectStore(
-    input.rawObjectStorePath?.trim() ||
-      path.join(process.cwd(), ".data", "raw-objects")
-  );
+  const rawObjectStore = createRawObjectStore({
+    RAW_OBJECT_STORE_PATH: input.rawObjectStorePath,
+    RAW_S3_ACCESS_KEY_ID: input.rawS3AccessKeyId,
+    RAW_S3_BUCKET: input.rawS3Bucket,
+    RAW_S3_ENDPOINT: input.rawS3Endpoint,
+    RAW_S3_REGION: input.rawS3Region,
+    RAW_S3_SECRET_ACCESS_KEY: input.rawS3SecretAccessKey,
+  });
+  const objectStore = rawObjectStore.store;
+
+  // RJC-386: the filesystem raw-object store is worker-local and shares no
+  // filesystem with the server, so it silently loses payloads and breaks
+  // replay in production — same spirit as assertProductionPersistence below,
+  // but for the object store rather than a SliceAStores entry.
+  if (input.nodeEnv === "production" && rawObjectStore.kind === "filesystem") {
+    throw new Error(
+      "Production startup refused: raw object store is the worker-local " +
+        "filesystem backend, not S3. Set RAW_S3_BUCKET (and RAW_S3_ENDPOINT/" +
+        "RAW_S3_REGION/credentials as needed) to select the durable S3 backend."
+    );
+  }
+
   const memoryStores: SliceAStores = createMemorySliceAStores();
 
   const stores: SliceAStores = {

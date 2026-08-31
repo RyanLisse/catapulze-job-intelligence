@@ -6,6 +6,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./lifecycle": "./src/lifecycle.ts",
+    "./s3-object-client": "./src/s3-object-client.ts",
     "./*": "./src/*/index.ts"
   },
   "scripts": {
