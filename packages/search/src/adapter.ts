@@ -185,11 +185,19 @@ export class SearchAdapter {
           "instrumentation-overhead-ms": String(overheadMs),
         },
       });
+      // One clock read: two separate `new Date()` calls evaluated in key order
+      // (endedAt before startedAt) could straddle a millisecond tick and make
+      // endedAt precede startedAt, which scripts/performance/report.ts rejects
+      // and fails CI. startedAt is derived from the measured overhead instead.
+      const overheadEndedAt = new Date();
+      const overheadStartedAt = new Date(
+        overheadEndedAt.getTime() - overheadMs
+      );
       overheadSession.recordSample({
         durationMs: overheadMs,
-        endedAt: new Date().toISOString(),
+        endedAt: overheadEndedAt.toISOString(),
         label: "instrumentation-overhead",
-        startedAt: new Date().toISOString(),
+        startedAt: overheadStartedAt.toISOString(),
         success: true,
       });
       await overheadSession.flush();
