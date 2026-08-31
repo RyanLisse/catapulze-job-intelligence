@@ -4,7 +4,6 @@ import {
   createTestSliceARegistry,
   permissionsForRole,
 } from "@ji/application/registry";
-import type { InMemorySearchEngine } from "@ji/search";
 
 const recruiterPrincipal = {
   kind: "user" as const,
@@ -18,39 +17,45 @@ const approverPrincipal = {
   subjectId: "approver-1",
 };
 
-const seedSearchDocuments = async (
-  engine: InMemorySearchEngine,
-  count: number
-) => {
-  await Promise.all(
-    Array.from({ length: count }, (_, index) =>
-      engine.upsertDocument({
-        beschrijving: `Azure platform engineer beschrijving ${index}`,
-        bronId: "00000000-0000-4000-8000-000000000001",
-        contracttype: "detachering",
-        id: `00000000-0000-4000-8000-${String(index).padStart(12, "0")}`,
-        laatstGezienOp: new Date("2026-08-01T00:00:00.000Z"),
-        locatieLand: "NL",
-        status: "active",
-        tariefMax: 120,
-        tariefMin: 80,
-        titel: `Azure engineer ${index}`,
-      })
-    )
+const snapshotSelection = (count: number, offset = 0): string[] =>
+  Array.from(
+    { length: count },
+    (_, index) =>
+      `00000000-0000-4000-8000-${String(index + offset).padStart(12, "0")}`
   );
+
+const seedAanvragen = (
+  bundle: ReturnType<typeof createTestSliceARegistry>,
+  ids: readonly string[]
+) => {
+  for (const [index, id] of ids.entries()) {
+    bundle.deps.stores.aanvragen.seed({
+      beschrijving: `Azure platform engineer beschrijving ${index}`,
+      bronId: "00000000-0000-4000-8000-000000000001",
+      bronReferentie: `TN-${index}`,
+      id,
+      rawPayloadRef: `raw/${id}.json`,
+      scrapeRunId: "00000000-0000-4000-8000-000000000020",
+      status: "active",
+      titel: `Azure engineer ${index}`,
+      versies: [],
+    });
+  }
 };
 
 const createSnapshot = async (
   bundle: ReturnType<typeof createTestSliceARegistry>,
+  selectedIds: readonly string[],
   query = "Azure"
 ) => {
+  seedAanvragen(bundle, selectedIds);
   const invoker = bundle.registry.createInvoker({
     capabilityId: "create_snapshot",
     operation: "POST /v1/snapshots",
     transport: "rest",
   });
   const created = await invoker(
-    { query },
+    { query, selectedIds: [...selectedIds] },
     { principal: recruiterPrincipal, requestId: "snapshot-create" }
   );
   expect(created.ok).toBe(true);
@@ -63,8 +68,7 @@ const createSnapshot = async (
 describe("approve_snapshot", () => {
   it("creates an approval bound to an existing snapshot and writes audit", async () => {
     const bundle = createTestSliceARegistry();
-    await seedSearchDocuments(bundle.deps.engine, 3);
-    const snapshot = await createSnapshot(bundle);
+    const snapshot = await createSnapshot(bundle, snapshotSelection(3));
     const beforeAudit = bundle.deps.stores.audit.list().length;
 
     const approve = bundle.registry.createInvoker({
@@ -113,8 +117,7 @@ describe("approve_snapshot", () => {
 
   it("denies recruiters without approval permission", async () => {
     const bundle = createTestSliceARegistry();
-    await seedSearchDocuments(bundle.deps.engine, 1);
-    const snapshot = await createSnapshot(bundle);
+    const snapshot = await createSnapshot(bundle, snapshotSelection(1));
     const approve = bundle.registry.createInvoker({
       capabilityId: "approve_snapshot",
       operation: "approve_snapshot",
@@ -138,8 +141,7 @@ describe("approve_snapshot", () => {
 describe("validate_snapshot_approval", () => {
   it("accepts a valid unexpired approval for the same snapshot", async () => {
     const bundle = createTestSliceARegistry();
-    await seedSearchDocuments(bundle.deps.engine, 2);
-    const snapshot = await createSnapshot(bundle);
+    const snapshot = await createSnapshot(bundle, snapshotSelection(2));
     const approve = bundle.registry.createInvoker({
       capabilityId: "approve_snapshot",
       operation: "approve_snapshot",
@@ -172,8 +174,7 @@ describe("validate_snapshot_approval", () => {
 
   it("rejects expired approvals", async () => {
     const bundle = createTestSliceARegistry();
-    await seedSearchDocuments(bundle.deps.engine, 2);
-    const snapshot = await createSnapshot(bundle);
+    const snapshot = await createSnapshot(bundle, snapshotSelection(2));
     await bundle.deps.stores.approvals.create({
       actorId: approverPrincipal.subjectId,
       expiresAt: new Date("2020-01-01T00:00:00.000Z"),
@@ -199,22 +200,8 @@ describe("validate_snapshot_approval", () => {
 
   it("does not reuse an approval from another snapshot with different result ids", async () => {
     const bundle = createTestSliceARegistry();
-    await seedSearchDocuments(bundle.deps.engine, 2);
-    const firstSnapshot = await createSnapshot(bundle);
-
-    await bundle.deps.engine.upsertDocument({
-      beschrijving: "Extra Azure match",
-      bronId: "00000000-0000-4000-8000-000000000001",
-      contracttype: "detachering",
-      id: "00000000-0000-4000-8000-000000000099",
-      laatstGezienOp: new Date("2026-08-02T00:00:00.000Z"),
-      locatieLand: "NL",
-      status: "active",
-      tariefMax: 130,
-      tariefMin: 90,
-      titel: "Azure engineer extra",
-    });
-    const secondSnapshot = await createSnapshot(bundle);
+    const firstSnapshot = await createSnapshot(bundle, snapshotSelection(2));
+    const secondSnapshot = await createSnapshot(bundle, snapshotSelection(3));
     expect(secondSnapshot.resultIds).not.toEqual(firstSnapshot.resultIds);
 
     await bundle.deps.stores.approvals.create({

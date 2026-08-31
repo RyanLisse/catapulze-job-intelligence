@@ -10,6 +10,7 @@ interface JobSearchMutationsInput {
   readonly actions?: JobIntelligenceActions;
   readonly filters: JobSearchFilters;
   readonly query: string;
+  readonly results: readonly JobListing[];
   readonly selectedJob: JobListing | null;
   readonly setIsCreatingSnapshot: Dispatch<SetStateAction<boolean>>;
   readonly setIsSavingSearch: Dispatch<SetStateAction<boolean>>;
@@ -22,6 +23,7 @@ export const createJobSearchMutations = ({
   actions,
   filters,
   query,
+  results,
   selectedJob,
   setIsCreatingSnapshot,
   setIsSavingSearch,
@@ -33,10 +35,23 @@ export const createJobSearchMutations = ({
     if (!actions) {
       return;
     }
+    // RJC-385: a snapshot covers an explicit selection. The UI snapshots the
+    // results the recruiter is looking at; with nothing on screen there is
+    // nothing to approve.
+    if (results.length === 0) {
+      setSnapshotMessage(
+        "Geen resultaten om vast te leggen. Voer eerst een zoekopdracht uit."
+      );
+      return;
+    }
     setIsCreatingSnapshot(true);
     setSnapshotMessage(null);
     try {
-      const snapshot = await actions.createSnapshot({ filters, query });
+      const snapshot = await actions.createSnapshot({
+        filters,
+        query,
+        selectedIds: results.map((job) => job.id),
+      });
       setSnapshotMessage(
         `Snapshot aangemaakt (${snapshot.resultCount} resultaten).`
       );

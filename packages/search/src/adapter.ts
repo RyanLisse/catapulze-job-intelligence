@@ -22,6 +22,7 @@ import type {
   SearchEngine,
   SearchFilters,
 } from "./types";
+import type { SearchVersion } from "./version";
 
 const DEFAULT_LIMIT = 20;
 const DEFAULT_OFFSET = 0;
@@ -45,6 +46,15 @@ export class SearchAdapter {
     this.engine = options.engine;
     this.cache = options.cache;
     this.cacheTtlSeconds = options.cacheTtlSeconds ?? DEFAULT_CACHE_TTL_SECONDS;
+  }
+
+  /**
+   * Durable index version passthrough (RJC-384). Consumers that persist a
+   * point-in-time reference (query snapshots, RJC-385) record this full
+   * version, not the legacy scalar.
+   */
+  getAppliedVersion(): Promise<SearchVersion> {
+    return this.engine.getAppliedVersion();
   }
 
   async search(input: SearchAdapterInput): Promise<SearchAdapterResult> {

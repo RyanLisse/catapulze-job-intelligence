@@ -1,4 +1,4 @@
-import { BOOLEAN_PARSER_VERSION } from "@ji/domain";
+import { BOOLEAN_PARSER_VERSION, parseBooleanQuery } from "@ji/domain";
 import {
   createCriticalPathSession,
   isCriticalPathEnabled,
@@ -450,11 +450,23 @@ export const createSavedSearchHandler =
     return { ok: true as const, value: toSavedSearchView(saved) };
   };
 
+/**
+ * Cap on an explicit snapshot selection. Matches the search hydration window
+ * (BATCH_GET_AANVRAGEN_MAX_IDS / searchAanvragen limit max 100): a recruiter
+ * selects from results that arrive at most 100 per request, so a selection
+ * larger than one hydrated window cannot have been reviewed as a unit.
+ */
+export const SNAPSHOT_MAX_SELECTED_IDS = 100;
+
 export const createSnapshotInputSchema = z
   .object({
     filters: searchFiltersSchema.optional(),
     query: z.string(),
     savedSearchId: z.string().uuid().optional(),
+    selectedIds: z
+      .array(z.string().uuid())
+      .min(1)
+      .max(SNAPSHOT_MAX_SELECTED_IDS),
   })
   .strict();
 
@@ -469,6 +481,12 @@ export const snapshotViewSchema = z
     resultIds: z.array(z.string()),
     savedSearchId: z.string().nullable(),
     schemaVersion: z.string(),
+    searchVersion: z
+      .object({
+        appliedSequence: z.string(),
+        generation: z.number().int().min(1),
+      })
+      .strict(),
     userId: z.string(),
   })
   .strict();
@@ -483,30 +501,76 @@ const toSnapshotView = (record: QuerySnapshotRecord) => ({
   resultIds: [...record.resultIds],
   savedSearchId: record.savedSearchId,
   schemaVersion: record.schemaVersion,
+  searchVersion: {
+    // bigint is not JSON-serializable; the wire format is a decimal string.
+    appliedSequence: record.searchVersion.appliedSequence.toString(),
+    generation: record.searchVersion.generation,
+  },
   userId: record.userId,
 });
 
+/**
+ * Selection-bound snapshot (RJC-385, Option A): the recruiter explicitly
+ * selects the vacancies the snapshot covers; `resultIds` stores exactly that
+ * selection. The query and filters are recorded as context only — they no
+ * longer determine the result set, so the old implicit behaviour (run the
+ * search, keep whatever page one returned — silently the adapter's default
+ * limit of 20) is dead: a request without `selectedIds` is a validation
+ * error, never a fallback.
+ *
+ * Every selected id must exist and be retrievable by this caller. Under the
+ * current permission model, invoking this capability already requires the
+ * recruiter role, and every existing aanvraag is preview-readable to a
+ * recruiter — so "retrievable" reduces to "exists in the aanvraag store",
+ * checked via the same `getByIds` read path search hydration uses. A snapshot
+ * therefore cannot capture ids the caller could not have read.
+ *
+ * Option B (full async materialisation of ALL query matches) was considered
+ * and deferred: the ticket documents it; add it in a follow-up if a product
+ * need for "approve all matches" materialises.
+ */
 export const createSnapshotHandler =
   (deps: SliceAHandlerDeps) =>
   async (
     input: z.output<typeof createSnapshotInputSchema>,
     context: { principal: { subjectId: string } }
   ) => {
-    const search = await deps.searchAdapter.search({
-      filters: input.filters,
-      query: input.query,
-    });
-    if (!search.ok) {
-      return domainFailure("SYNTAX_ERROR", search.error.message, search.error);
+    const parsed = parseBooleanQuery(input.query);
+    if (!parsed.ok) {
+      return domainFailure("SYNTAX_ERROR", parsed.error.message, parsed.error);
     }
+
+    const uniqueIds = new Set(input.selectedIds);
+    if (uniqueIds.size !== input.selectedIds.length) {
+      return domainFailure(
+        "VALIDATION_ERROR",
+        "selectedIds must not contain duplicates"
+      );
+    }
+
+    const readable = await deps.stores.aanvragen.getByIds(input.selectedIds);
+    if (readable.length !== input.selectedIds.length) {
+      const readableIds = new Set(readable.map((record) => record.id));
+      const unknownIds = input.selectedIds.filter((id) => !readableIds.has(id));
+      return domainFailure(
+        "VALIDATION_ERROR",
+        "selectedIds contains aanvragen that do not exist or are not readable by this caller",
+        { unknownIds }
+      );
+    }
+
+    const searchVersion = await deps.searchAdapter.getAppliedVersion();
     const snapshot = await deps.stores.snapshots.create({
       filters: input.filters ?? {},
-      indexVersion: search.indexVersion,
-      parserVersion: String(search.parserVersion),
+      // Legacy scalar kept for existing readers; mirrors how engines derive
+      // indexVersion from the durable version (Number(appliedSequence)).
+      indexVersion: Number(searchVersion.appliedSequence),
+      parserVersion: String(parsed.version),
       queryText: input.query,
-      resultIds: search.hits.map((hit) => hit.id),
+      resultIds: [...input.selectedIds],
       savedSearchId: input.savedSearchId ?? null,
       schemaVersion: SLICE_A_SCHEMA_VERSION,
+      searchVersion,
       userId: context.principal.subjectId,
     });
     return { ok: true as const, value: toSnapshotView(snapshot) };

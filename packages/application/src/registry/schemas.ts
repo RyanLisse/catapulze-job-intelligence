@@ -61,7 +61,12 @@ export const syntaxErrorDetailsSchema = z
   })
   .strict();
 
+export const invalidSnapshotSelectionDetailsSchema = z
+  .object({ unknownIds: z.array(z.string().uuid()) })
+  .strict();
+
 export type SliceADomainFailureDetails =
+  | z.infer<typeof invalidSnapshotSelectionDetailsSchema>
   | z.infer<typeof notFoundByAlertIdDetailsSchema>
   | z.infer<typeof notFoundByBronIdDetailsSchema>
   | z.infer<typeof notFoundByIdDetailsSchema>

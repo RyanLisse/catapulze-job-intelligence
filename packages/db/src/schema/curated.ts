@@ -330,7 +330,9 @@ export const querySnapshot = curatedSchema.table(
       .notNull(),
     filters: jsonb("filters").default({}).notNull(),
     id: uuid("id").defaultRandom().primaryKey(),
-    indexVersion: integer("index_version"),
+    // bigint in the DB since 0007 so the legacy mirror of appliedSequence
+    // never caps at 2^31; mode "number" keeps existing readers' JS type.
+    indexVersion: bigint("index_version", { mode: "number" }),
     parserVersion: text("parser_version").notNull(),
     queryText: text("query_text").notNull(),
     resultIds: jsonb("result_ids").default([]).notNull(),
@@ -338,9 +340,23 @@ export const querySnapshot = curatedSchema.table(
       onDelete: "set null",
     }),
     schemaVersion: text("schema_version").notNull(),
+    searchAppliedSequence: bigint("search_applied_sequence", {
+      mode: "bigint",
+    }).notNull(),
+    searchGeneration: integer("search_generation").notNull(),
     userId: text("user_id").notNull(),
   },
-  (table) => [index("query_snapshot_user_id_idx").on(table.userId)]
+  (table) => [
+    index("query_snapshot_user_id_idx").on(table.userId),
+    check(
+      "query_snapshot_search_generation_check",
+      sql`${table.searchGeneration} >= 1`
+    ),
+    check(
+      "query_snapshot_search_applied_sequence_check",
+      sql`${table.searchAppliedSequence} >= 0`
+    ),
+  ]
 );
 
 export const auditEvent = curatedSchema.table(

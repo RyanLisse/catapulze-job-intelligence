@@ -18,6 +18,7 @@ const snapshot = (
   resultIds: ["hit-1", "hit-2"],
   savedSearchId: null,
   schemaVersion: "slice-a-v1",
+  searchVersion: { appliedSequence: 1n, generation: 1 },
   userId: "recruiter-1",
   ...overrides,
 });

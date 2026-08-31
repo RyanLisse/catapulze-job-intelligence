@@ -375,6 +375,7 @@ const JobSearchPageContent = ({
       actions,
       filters: state.filters,
       query: state.query,
+      results: response.items,
       selectedJob,
       setIsCreatingSnapshot,
       setIsSavingSearch,

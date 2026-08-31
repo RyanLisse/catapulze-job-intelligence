@@ -42,6 +42,10 @@ const toQuerySnapshotRecord = (
   resultIds: parseResultIds(row.resultIds),
   savedSearchId: row.savedSearchId,
   schemaVersion: row.schemaVersion,
+  searchVersion: {
+    appliedSequence: row.searchAppliedSequence,
+    generation: row.searchGeneration,
+  },
   userId: row.userId,
 });
 
@@ -77,6 +81,8 @@ export class PostgresQuerySnapshotStore implements QuerySnapshotStore {
         resultIds: [...record.resultIds],
         savedSearchId: record.savedSearchId,
         schemaVersion: record.schemaVersion,
+        searchAppliedSequence: record.searchVersion.appliedSequence,
+        searchGeneration: record.searchVersion.generation,
         userId: record.userId,
       })
       .returning();
