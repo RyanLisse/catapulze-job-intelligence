@@ -12,9 +12,13 @@ export const manticoreFacetSchema = z.object({
 });
 
 export const manticoreHitSchema = z.object({
-  _id: z.string().optional(),
+  // Manticore's own doc id is numeric (a hashDocumentId hash); coerced to a
+  // string here since ManticoreSearchHit.id is a string. The real
+  // SearchDocument.id lives in _source.document_id and is preferred when
+  // present — see parseManticoreSearchResponse.
+  _id: z.union([z.string(), z.number()]).optional(),
   _score: z.number().optional(),
-  _source: z.object({ id: z.string().optional() }).optional(),
+  _source: z.object({ document_id: z.string().optional() }).optional(),
 });
 
 export const manticoreSearchPayloadSchema = z.object({
@@ -56,12 +60,12 @@ export const parseManticoreSearchPayload = (
 
 export interface ManticoreReplaceBody {
   doc: ManticoreIndexedDocument;
-  id: string;
+  id: number;
   index: string;
 }
 
 export interface ManticoreDeleteBody {
-  id: string;
+  id: number;
   index: string;
 }
 
@@ -69,7 +73,10 @@ export interface ManticoreIndexedDocument {
   beschrijving: string;
   bron_id: string;
   contracttype: string;
-  id: string;
+  // The original SearchDocument.id (a string, UUID in production). Manticore's
+  // own reserved "id" attribute is the numeric ManticoreReplaceBody.id/
+  // ManticoreDeleteBody.id above, computed via hashDocumentId — see id-hash.ts.
+  document_id: string;
   index_version: number;
   laatst_gezien_op: number;
   locatie_land: string;
