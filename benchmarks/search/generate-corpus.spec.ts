@@ -100,3 +100,26 @@ describe("parseArgs --documents validation", () => {
     expect(parseArgs(["--documents", "500"]).documents).toBe(500);
   });
 });
+
+describe("parseArgs --seed validation", () => {
+  it("rejects a non-numeric value", () => {
+    expect(() => parseArgs(["--seed", "nope"])).toThrow();
+  });
+
+  it("rejects a negative value", () => {
+    expect(() => parseArgs(["--seed", "-1"])).toThrow();
+  });
+
+  it("rejects a non-integer value", () => {
+    expect(() => parseArgs(["--seed", "1.5"])).toThrow();
+  });
+
+  it("rejects a value above uint32 max (mulberry32's >>> 0 range)", () => {
+    expect(() => parseArgs(["--seed", "4294967296"])).toThrow();
+  });
+
+  it("accepts a valid seed and echoes the validated integer", () => {
+    expect(parseArgs(["--seed", "42"]).seed).toBe(42);
+    expect(parseArgs(["--seed", "4294967295"]).seed).toBe(4_294_967_295);
+  });
+});

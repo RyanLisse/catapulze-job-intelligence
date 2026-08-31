@@ -16,7 +16,7 @@ import { z } from "zod";
 
 import { sha256Digest } from "./digest";
 
-interface BenchmarkProfile {
+export interface BenchmarkProfile {
   concurrency: number;
   corpus: {
     expectedDocuments: number;
@@ -32,8 +32,8 @@ interface BenchmarkProfile {
   warmupIterations: number;
 }
 
-const benchmarkProfileSchema = z.object({
-  concurrency: z.number(),
+export const benchmarkProfileSchema = z.object({
+  concurrency: z.number().int().min(1),
   corpus: z.object({
     expectedDocuments: z.number(),
     pointer: z.string(),
@@ -57,6 +57,45 @@ const benchmarkProfileSchema = z.object({
 interface BenchmarkArgs {
   profilePath: string;
 }
+
+// Runs `worker` over `items` with at most `concurrency` calls in flight —
+// a small bounded pool: each of `concurrency` loops pulls the next item off
+// a shared cursor until the list is exhausted. Item order in `items` is not
+// preserved in execution order, but total call count is exact.
+export const runWithConcurrency = async <T>(
+  items: readonly T[],
+  concurrency: number,
+  worker: (item: T) => Promise<void>
+): Promise<void> => {
+  let cursor = 0;
+  const poolSize = Math.max(1, Math.min(concurrency, items.length || 1));
+  const workers = Array.from({ length: poolSize }, async () => {
+    for (;;) {
+      const index = cursor;
+      cursor += 1;
+      const item = items[index];
+      if (item === undefined) {
+        return;
+      }
+      // oxlint-disable-next-line no-await-in-loop -- each pool worker must process its items sequentially; concurrency comes from running poolSize workers in parallel
+      await worker(item);
+    }
+  });
+  await Promise.all(workers);
+};
+
+// Flattens (iterations * queries) into one task list — the shape
+// runWithConcurrency's worker pool consumes.
+const buildTaskList = (
+  profile: BenchmarkProfile,
+  iterations: number
+): BenchmarkProfile["queries"] => {
+  const tasks: BenchmarkProfile["queries"] = [];
+  for (let index = 0; index < iterations; index += 1) {
+    tasks.push(...profile.queries);
+  }
+  return tasks;
+};
 
 const percentile = (values: number[], pct: number): number => {
   if (values.length === 0) {
@@ -182,36 +221,30 @@ const parseArgs = (): BenchmarkArgs => {
   return { profilePath: path.resolve(process.cwd(), profilePath) };
 };
 
-const runWarmup = async (
+export const runWarmup = async (
   adapter: SearchAdapter,
   profile: BenchmarkProfile
 ): Promise<void> => {
-  const tasks: Promise<unknown>[] = [];
-  for (let index = 0; index < profile.warmupIterations; index += 1) {
-    for (const query of profile.queries) {
-      tasks.push(adapter.search({ query: query.query }));
-    }
-  }
-  await Promise.all(tasks);
+  const tasks = buildTaskList(profile, profile.warmupIterations);
+  await runWithConcurrency(tasks, profile.concurrency, async (query) => {
+    await adapter.search({ query: query.query });
+  });
 };
 
-const runMeasured = async (
+export const runMeasured = async (
   adapter: SearchAdapter,
   profile: BenchmarkProfile
 ): Promise<number[]> => {
   const durationsMs: number[] = [];
-  for (let index = 0; index < profile.measuredIterations; index += 1) {
-    /* oxlint-disable no-await-in-loop -- benchmark records sequential adapter latency samples */
-    for (const query of profile.queries) {
-      const started = performance.now();
-      const result = await adapter.search({ query: query.query });
-      durationsMs.push(performance.now() - started);
-      if (!result.ok) {
-        throw new Error(`Benchmark query failed: ${query.id}`);
-      }
+  const tasks = buildTaskList(profile, profile.measuredIterations);
+  await runWithConcurrency(tasks, profile.concurrency, async (query) => {
+    const started = performance.now();
+    const result = await adapter.search({ query: query.query });
+    durationsMs.push(performance.now() - started);
+    if (!result.ok) {
+      throw new Error(`Benchmark query failed: ${query.id}`);
     }
-    /* oxlint-enable no-await-in-loop */
-  }
+  });
 
   return durationsMs;
 };
@@ -288,4 +321,10 @@ const main = async (): Promise<void> => {
   }
 };
 
-await main();
+// Root-cause fix: without this guard, importing anything from this module
+// (e.g. from a spec file) runs the entire benchmark as an import side
+// effect — bitten once already when digest.ts had to be split out just to
+// avoid it. Matches generate-corpus.ts's own convention.
+if (import.meta.main) {
+  await main();
+}
