@@ -1,24 +1,24 @@
 ---
 name: verify-job-intelligence
-description: Drive the Catapulze Job Intelligence Next.js UI (port 3001) and Hono/tRPC API (port 3000) the way a user does. Use when proving home API status, login/signup/dashboard, or sign-out against a real local instance.
+description: Drive the Catapulze Job Intelligence Next.js UI (port 3001) and Hono/tRPC API (port 3000) the way a user does. Use when proving home command center, job search, login/signup/dashboard, or sign-out against a real local instance.
 ---
 
 # Verify Job Intelligence
 
-Scripted control for the live Better-T-Stack skeleton: Next.js web on **3001**, Hono + tRPC + Better Auth on **3000**. Product features in `docs/` are not implemented; do not treat them as drive targets.
+Scripted control for the Catapulze Job Intelligence stack: Next.js web on **3001**, Hono + tRPC + Better Auth on **3000**. Job search at `/jobs` is user-facing (fixture adapter with `NEXT_PUBLIC_USE_FIXTURES=1`, or REST when unset). Vacancy ingest pipelines, approvals, and Spott export remain planning docs without drive targets here.
 
 Run every command from the repository root. The parent directory `clients:catapulze` contains a colon; never prepend an absolute `node_modules/.bin` to `PATH`.
 
 ```bash
 bun .cursor/skills/verify-job-intelligence/scripts/control.mjs launch
 bun .cursor/skills/verify-job-intelligence/scripts/control.mjs doctor
-bun .cursor/skills/verify-job-intelligence/scripts/control.mjs snapshot home-api-status
+bun .cursor/skills/verify-job-intelligence/scripts/control.mjs snapshot home-command-center
 bun .cursor/skills/verify-job-intelligence/scripts/control.mjs stop
 ```
 
 ## Launch
 
-Preconditions: `apps/server/.env` and `apps/web/.env` exist (copy from `.env.example`). Server needs a reachable `DATABASE_URL` and a 32+ character `BETTER_AUTH_SECRET`. Web needs `NEXT_PUBLIC_SERVER_URL=http://localhost:3000`. Set `CORS_ORIGIN=http://localhost:3001` on the server so browser and API origins match.
+Preconditions: `apps/server/.env` and `apps/web/.env` exist (copy from `.env.example`). Server needs a reachable `DATABASE_URL` and a 32+ character `BETTER_AUTH_SECRET`. Web needs `NEXT_PUBLIC_SERVER_URL=http://localhost:3000`. Set `CORS_ORIGIN=http://localhost:3001` on the server so browser and API origins match. For `/jobs` without Manticore, set `NEXT_PUBLIC_USE_FIXTURES=1` in `apps/web/.env`.
 
 `launch` starts `bun run dev:server` and `bun run dev:web` as a detached process group and records PIDs in `.cursor/skills/verify-job-intelligence/.run/pids.json`.
 
@@ -55,10 +55,16 @@ Read `features/README.md`, then the matching feature file. Prefer those recipes 
 Harness:
 
 - HTTP through `control.mjs http <url>` or `control.mjs snapshot <feature-id>`
-- Browser (Cursor browser tools, or Chrome headless) for client-rendered text such as the home **Connected** label — curl only sees the SSR/CSR shell
-- Stable handles: heading `Job Intelligence`, heading `API status`, link `Dashboard` → `/dashboard`, button `Sign In` → `/login`, headings `Create Account` / `Welcome Back`, labels `Name` / `Email` / `Password`, buttons `Sign Up` / `Sign In`, paragraph `Welcome <name>` on the dashboard, `sr-only` name `Toggle theme`
+- Browser (Cursor browser tools, or Playwright headless) for client-rendered auth UI and job-search interactions — curl only sees SSR shells on `/login`
+- Stable handles:
+  - Home H1 `Vind de juiste opdracht vóór de rest.`, link `Open job search` → `/jobs`, brand `Job Intelligence`
+  - Header nav `Overzicht` → `/`, `Zoeken` → `/jobs`, button `Inloggen` → `/login`, menu item `Uitloggen`
+  - Jobs search label `Zoek opdrachten met Boolean-logica`, results `aria-label="Zoekresultaten"`
+  - Login headings `Create Account` / `Welcome Back`, labels `Name` / `Email` / `Password`, buttons `Sign Up` / `Sign In`
+  - Dashboard paragraph `Welcome <name>`, text `API: This is private`
+  - Theme toggle `sr-only` name `Toggle theme`
 
-Drive at `http://localhost:3001` (not `127.0.0.1`). Next.js 16 dev blocks `_next` chunks for mismatched hostnames; the app appears stuck on `Checking...` when opened at `127.0.0.1`. Match `CORS_ORIGIN` and `NEXT_PUBLIC_SERVER_URL` to `localhost` as in `.env.example`.
+Drive at `http://localhost:3001` (not `127.0.0.1`). Next.js 16 dev blocks `_next` chunks for mismatched hostnames. Match `CORS_ORIGIN` and `NEXT_PUBLIC_SERVER_URL` to `localhost` as in `.env.example`.
 
 Do not call tRPC `privateData` from a test-only client and call that a dashboard proof. The user path is `/login` then `/dashboard`.
 
@@ -101,7 +107,7 @@ If visual proof is infeasible, state the exact blocker in the PR — never skip 
 - For mutations, read back from a second user-facing view (dashboard paragraph `Welcome <name>`, or session cookie + `GET /dashboard` not redirecting to `/login`)
 - Record the feature ID in `meta.json`
 
-Home-page **Connected** is client-side React Query. An HTML snapshot without that word is incomplete for `home-connected`; still capture `trpc-healthCheck.txt` containing `OK`.
+tRPC `healthCheck` is verified by doctor and snapshot `trpc-healthCheck.txt`; home no longer renders an on-page API status section.
 
 **Refactors are not exempt.** Tests can stay green while visible behavior moves; do not substitute passing test output for user-visible evidence.
 
@@ -118,7 +124,7 @@ Sends SIGTERM (then SIGKILL) to the process groups recorded in `pids.json` only.
 ```bash
 bun .cursor/skills/verify-job-intelligence/scripts/control.mjs launch
 bun .cursor/skills/verify-job-intelligence/scripts/control.mjs doctor
-bun .cursor/skills/verify-job-intelligence/scripts/control.mjs snapshot home-api-status
-bun .cursor/skills/verify-job-intelligence/scripts/control.mjs http http://localhost:3001/login
+bun .cursor/skills/verify-job-intelligence/scripts/control.mjs snapshot home-command-center
+bun .cursor/skills/verify-job-intelligence/scripts/control.mjs http http://localhost:3001/jobs
 bun .cursor/skills/verify-job-intelligence/scripts/control.mjs stop
 ```
