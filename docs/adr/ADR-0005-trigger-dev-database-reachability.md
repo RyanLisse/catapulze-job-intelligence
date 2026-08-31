@@ -2,7 +2,7 @@
 
 - Status: Proposed (voorgesteld — het besluit is aan Ryan; dit ADR legt de tegenspraak en de opties vast)
 - Datum: 2026-08-31
-- Herzien: 2026-08-31 — zie "Revisie" hieronder. De aanbeveling is gewijzigd na extern onderzoek dat Optie C1 ongeldig maakt; Status blijft Proposed.
+- Herzien: 2026-08-31 (tweemaal) — zie "Revisie" en "Herziening 2" hieronder. Eerst is Optie C1 ongeldig gebleken; daarna is via [ADR-0006](ADR-0006-neon-as-system-of-record.md) Optie A gekozen. De Manticore-helft van de vraag blijft open.
 - Eigenaar: Job Intelligence platform
 - Gerelateerd: ADR-0004, DEC-005, RJC-373, [orchestration.md](../research/orchestration.md), [neon-trigger-verification-2026-08-31.md](../runbooks/neon-trigger-verification-2026-08-31.md)
 
@@ -110,3 +110,15 @@ Twee varianten, oplopend in complexiteit:
 3. Werkelijke resourceruimte op de gekozen box (CX43/CPX32 start vs CCX33) naast Postgres + Manticore — ADR-0003-cohortmeting vereist. Nu de enige route naar B, en daarmee de facto de beslissende meting voor dit hele ADR.
 4. BYOC: geen publieke prijs, tier of technische architectuur gevonden ([trigger.dev/changelog/bring-your-own-cloud](https://trigger.dev/changelog/bring-your-own-cloud), T2) — sales-led, dus niet in te plannen zonder offerte.
 5. Kan een self-hosted supervisor `TRIGGER_API_URL` naar `api.trigger.dev` wijzen, en zou Trigger.dev Cloud daarbij een worker-group-token en bijpassende `MANAGED_WORKER_SECRET` uitgeven? Client-side houdt niets het tegen (geen allowlist/host-check in de supervisor-broncode), maar token-uitgifte en -validatie zijn server-side — dat is onbevestigd en niet testbaar zonder account. Dit is in de kern dezelfde vraag als de "In Review"-status van de self-hosted-workers-aanvraag, nu preciezer geformuleerd.
+
+## Herziening 2 (2026-08-31) — optie A gekozen via ADR-0006
+
+De aanbeveling hierboven — na de eerste revisie: **optie B**, omdat C1 geen bestaand product bleek — is dezelfde dag ingehaald door een eigenaarsbesluit. [ADR-0006](ADR-0006-neon-as-system-of-record.md) maakt **Neon het production system of record**, en daarmee is **optie A de gekozen route**. Beide eerdere lagen blijven hierboven ongewijzigd staan: ze leggen vast wat er bekend was op het moment van schrijven, en waarom de conclusie twee keer verschoof.
+
+Wat dit met de argumentatie doet:
+
+- Het bezwaar tegen A was tweeledig: (1) ADR-0004's escape-hatch-voorwaarden waren aantoonbaar niet vervuld, en (2) A lost Manticore niet op. Punt (1) is niet weerlegd maar **overruled** — ADR-0006 amendeert ADR-0004 expliciet en voert de omkering op bereikbaarheids- en operationele gronden, niet op de escape-hatch-criteria. Dat onderscheid hoort zichtbaar te blijven: de voorwaarden zijn niet alsnog gehaald.
+- Punt (2) staat **volledig overeind**. Voor **Postgres** is de bereikbaarheidsvraag van dit ADR hiermee effectief beantwoord; voor **Manticore** niet. Een cloud-worker moet in het drain-pad ook `MANTICORE_URL` bereiken (`apps/worker/src/poll-bron-env.ts`), en Manticore staat privé. Die keuze — publieke ingress met authenticatie, een tunnel, of de drain on-box houden — is met ADR-0006 níét genomen en blijft de resterende blocker voor een volledig gedeployed schrijfpad.
+- Optie B (volledige self-host) vervalt daarmee als noodzaak, maar de bijbehorende meting blijft nuttig als de Manticore-helft alsnog on-box wordt opgelost.
+
+**De knoop is dus half gelegd, en dat moet expliciet blijven staan.** Een gedeployde worker die Neon bereikt maar Manticore niet, faalt in `poll-bron` — niet bij het schrijven naar Postgres, maar bij de drain erna. Een onderzoek naar Upstash Search als managed alternatief is op 2026-08-31 uitgevoerd en negatief beoordeeld: geen booleaanse tekstqueries, geen facetten, geen gedocumenteerde Nederlandse taalanalyse, geen totaaltelling of `offset`, en een limiet van 4.096 tekens per document. Dat lost de bereikbaarheid wél op maar kost drie eigenschappen die het product draagt. De goedkopere kandidaten — Manticore achter TLS met authenticatie, of de bestaande `postgres-fts-fallback` die op Neon per definitie bereikbaar is — zijn nog niet uitgewerkt.

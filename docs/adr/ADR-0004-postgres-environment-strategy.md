@@ -1,9 +1,11 @@
 # ADR-0004 — Postgres-omgevingsstrategie
 
-- Status: Accepted
+- Status: Gedeeltelijk superseded door [ADR-0006](ADR-0006-neon-as-system-of-record.md) (2026-08-31); lokale/CI-deel blijft Accepted
 - Datum: 2026-08-28
 - Eigenaar: Job Intelligence platform
-- Gerelateerd: ADR-0001, ADR-0003, DEC-005, RJC-321, RJC-347
+- Gerelateerd: ADR-0001, ADR-0003, ADR-0006, DEC-005, RJC-321, RJC-347
+
+> **Superseded-notitie (2026-08-31).** [ADR-0006](ADR-0006-neon-as-system-of-record.md) kiest Neon als production system of record. Daarmee vervallen uit dit ADR: de dedicated on-box PostgreSQL 16-productie-instance, de zeven productie-eisen daarvoor (regel 18–26), de "afwezigheid van een publieke 5432-listener"-verificatie voor het SoR, en de framing van managed Postgres als niet-gekozen escape hatch. **Wat blijft gelden:** de lokale/CI Docker Postgres 16-lane voor correctness- en performance-evidence, de scheiding van instances en credentials per omgeving, en alle regels rond de Motian/Lovable-Neon-database als strikt read-only importbron. De redenering hieronder is bewust ongewijzigd gelaten — een superseded ADR behoudt zijn argument; ADR-0006 legt vast waarom en waarop is omgekeerd (bereikbaarheid voor Trigger.dev Cloud, niet de escape-hatch-voorwaarden van dit ADR, die niet vervuld waren). *Regelverwijzingen naar dit ADR in oudere documenten (o.a. ADR-0005, ADR-0006) verwijzen naar de versie vóór deze notitie (commit `4eac8a8`); door deze notitie verschuiven regelnummers hieronder met +2.*
 
 ## Context
 

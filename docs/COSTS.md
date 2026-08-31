@@ -13,7 +13,7 @@ Zie [`research/hosting-cost-comparison-2026-08.md`](research/hosting-cost-compar
 | Hetzner Cloud CCX33 (8 vCPU dedicated, 32 GB, 240 GB NVMe) | — | €138,99/mnd, 20 TB verkeer | 139 | app + Postgres + search jaar 1; capaciteit en onderlinge resourceconcurrentie nog te bewijzen | hetzner.com/cloud/general-purpose |
 | Hetzner AX42 (Ryzen 8700GE, 64 GB DDR5 ECC) | dedicated | €99/mnd + €49 setup | 99 (jaar 2) | search-only box; AX41 €59 zonder ECC; CCX43 cloud €276 — niet doen | hetzner.com/dedicated-rootserver |
 | Hetzner Object Storage | base | €6,49/mnd incl. 1 TB + 1 TB egress | 6,49 | 45–90 GB raw past in base | hetzner.com/storage/object-storage |
-| Neon | Launch | $0,106/CU-h, $0,35/GB-mnd, historie $0,20/GB-mnd | 60 → 160 → 250 | **Niet gekozen voor de nieuwe SoR**; historische prijsbasis en fallback. Motian-Neon blijft read-only importbron | neon.com/pricing |
+| Neon | Launch | $0,106/CU-h, $0,35/GB-mnd, historie $0,20/GB-mnd | 60 → 160 → 250 | **Gekozen als production SoR per [ADR-0006](adr/ADR-0006-neon-as-system-of-record.md) (2026-08-31)** — dit corrigeert de eerdere "niet gekozen"-notitie. Motian-Neon blijft een aparte read-only importbron | neon.com/pricing |
 | Coolify | self-host | gratis (Cloud $5/mnd) | 0 | | coolify.io/pricing |
 | Trigger.dev | Hobby → Pro | Hobby $10 (50 concurrent); Pro $50 (200); small-1x $0,0000338/s; $0,000025/run | 16 → 62 | 1,1M s + 1,2M runs − credit | trigger.dev/pricing |
 | Upstash Redis | PAYG | $0,20/100k cmds; 1 GB gratis | 3 → 12 | ~5 cmds/fetch | upstash.com/pricing/redis |
@@ -47,15 +47,17 @@ Extractie 20 % × (4k in + 1k out) + scoring 100 % × (2k + 0,3k) = **1,68 B in 
 | **(b) Jaar 1** — 600k/mnd, 32 GB box met Postgres + Manticore, Firecrawl Growth, Browserbase Startup | ≈ €740 — **opnieuw te herleiden** | €2.926 | **≈ €3.665/mnd — opnieuw te herleiden** | ≈ €2.200 |
 | **(c) Jaar 2** — + AX42 64 GB search-box; Postgres blijft op de DB/app-host | ≈ €840 — **opnieuw te herleiden** | €2.926 | **≈ €3.765/mnd — opnieuw te herleiden** | ≈ €2.300 |
 
-Versus JI-NFR-06 "infra fase 1 < €300/mnd": de voorlopige P0-infra ≈ €210 (LLM apart) moet opnieuw worden herleid na de CCX33-prijscorrectie hierboven. Dit was de eerdere raming minus Neon; zie het nieuwe hostingonderzoek voor de gecorrigeerde build-up. Kosten voor het beschermde externe volume en continue off-site WAL-back-up zijn in deze kostenkaart nog niet live geprijsd en kunnen het bedrag verhogen.
+Versus JI-NFR-06 "infra fase 1 < €300/mnd": de voorlopige P0-infra ≈ €210 (LLM apart) moet opnieuw worden herleid na de CCX33-prijscorrectie hierboven én na [ADR-0006](adr/ADR-0006-neon-as-system-of-record.md) (2026-08-31): Neon (€60/mnd P0) komt terug in de raming, de on-box-Postgres-productiepost vervalt. Dit was de eerdere raming minus Neon; zie het nieuwe hostingonderzoek voor de gecorrigeerde build-up. Kosten voor het beschermde externe volume en continue off-site WAL-back-up zijn in deze kostenkaart nog niet live geprijsd en kunnen het bedrag verhogen.
 
 ## Grootste posten en hun hefboom
 
 1. **LLM-tokens (75–80 %)** — Batch API halveert Claude; scoring naar mini-klasse (luna 5× goedkoper dan Haiku); prompt-prefix cachen ($0,10/MTok); elke procentpunt minder LLM-extractie (meer deterministische parsers) ≈ €120/mnd.
 2. **Firecrawl (€367 bij Growth)** — geen pay-per-use: 100k → 200k pagina's kost 4×. Hefboom: JS-borden ≤ 100k/mnd houden (Standard), of die vijf borden on-box renderen en terug naar Hobby.
-3. **Databasebeheer (DEC-005)** — Neon à €60–250/mnd valt uit de nieuwe SoR-raming. Daarvoor komen een beschermd extern volume, continue WAL/off-site-back-up, restore-tests en monitoring terug; prijs deze posten vóór productie. Motian-Neon blijft alleen een read-only importbron.
+3. **Databasebeheer (DEC-005, herzien 2026-08-31 door [ADR-0006](adr/ADR-0006-neon-as-system-of-record.md))** — Neon à €60–250/mnd komt **terug** in de SoR-raming: Neon is nu het production system of record. De on-box-posten die hier eerder voor terugkwamen (beschermd extern volume, continue WAL/off-site-back-up, restore-tests, monitoring voor productie-Postgres) vervallen voor het SoR; de scenario-totalen hierboven zijn hier nog niet op herrekend. Motian-Neon blijft alleen een read-only importbron.
 
 ## DEC-005 kosten- en capaciteitsgrens
+
+**Herzien 2026-08-31:** [ADR-0006](adr/ADR-0006-neon-as-system-of-record.md) vervangt de on-box-productie-Postgres door Neon als SoR; de alinea hieronder beschrijft de vervallen on-box-inrichting en blijft staan als context bij de oude ramingen. De capaciteitsafweging verschuift naar de box zónder Postgres (Manticore + apps) en naar Neons CU-verbruik.
 
 Postgres 16 draait vanaf P0 on-box naast Manticore. Budgetteer Postgres als primaire, niet-rebuildbare state: het krijgt CPU-, geheugen- en diskprioriteit. Manticore mag worden begrensd of naar een aparte search-box verhuizen omdat de index uit Postgres plus raw storage kan worden herbouwd. Kies een aparte DB-host of managed Postgres zodra HA vereist is of metingen aantonen dat disk-, RAM- of CPU-concurrentie de database-SLO bedreigt.
 

@@ -1,7 +1,7 @@
 # Postgres restore runbook v1
 
 Version: **1.0**  
-Status: **In-repo drill verified in CI; production ops evidence still required on Hetzner**  
+Status: **In-repo drill verified in CI. Production scope changed 2026-08-31: [ADR-0006](../adr/ADR-0006-neon-as-system-of-record.md) makes Neon the production SoR, so production restore evidence is now a Neon PITR/branch-restore drill (procedure to be written), not a Hetzner wal-g restore. The CI drill below keeps proving the local/CI Docker wal-g path only.**  
 Requirements: **R21, AE9, JI-037, DEC-005**
 
 ## When to use
