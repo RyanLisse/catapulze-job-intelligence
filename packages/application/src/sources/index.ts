@@ -6,6 +6,7 @@ import { inhuurdesk } from "./inhuurdesk";
 import { needstaffing } from "./needstaffing";
 import { opdrachtoverheid } from "./opdrachtoverheid";
 import { proAct } from "./pro-act";
+import { striive } from "./striive";
 import { tenderned } from "./tenderned";
 
 export type {
@@ -23,6 +24,7 @@ export const SOURCES = {
   needstaffing,
   opdrachtoverheid,
   "pro-act": proAct,
+  striive,
   tenderned,
 } as const satisfies Record<string, SourceDefinition>;
 

@@ -1,0 +1,194 @@
+import { describe, expect, it } from "bun:test";
+
+import {
+  CrawlDelayLimiter,
+  InMemoryObjectStore,
+  InMemoryObservationRecorder,
+  InMemoryRunLifecycleStore,
+  runConnector,
+} from "@ji/connectors";
+
+import { createStriiveClient, striiveBronReferentie } from "./client";
+import type { StriiveClient } from "./client";
+import { createStriiveConnector } from "./connector";
+import type { StriiveFetchedPayload, StriiveJob } from "./types";
+import { STRIIVE_PAGE_SIZE } from "./types";
+
+const retryPolicy = {
+  initialDelayMs: 0,
+  jitter: (delayMs: number) => delayMs,
+  maxAttempts: 1,
+  maxDelayMs: 0,
+  multiplier: 1,
+};
+
+describe("Striive listing helpers", () => {
+  it("uses the job id as bronReferentie", () => {
+    expect(striiveBronReferentie({ id: "abc-123" })).toBe("abc-123");
+  });
+});
+
+describe("Striive connector", () => {
+  it("ingests the real listing fixture with found/new/changed/rejected/error metrics", async () => {
+    const bronId = "bron-striive-fixture";
+    const result = await runConnector({
+      bronId,
+      bronSlug: "striive",
+      checkpoint: null,
+      connector: createStriiveConnector({
+        bronId,
+        client: createStriiveClient({ liveEnabled: false }),
+      }),
+      limiter: new CrawlDelayLimiter({ crawlDelayMs: 0 }),
+      objectStore: new InMemoryObjectStore(),
+      observationRecorder: new InMemoryObservationRecorder(),
+      rawRetentionDays: 90,
+      retryPolicy,
+      runKind: "test",
+      runLifecycleStore: new InMemoryRunLifecycleStore(),
+      scrapeRunId: "run-striive-1",
+      startedAt: new Date("2026-08-31T13:31:00.000Z"),
+    });
+
+    expect(result.metrics).toMatchObject({
+      changed: 0,
+      error: 0,
+      found: 5,
+      new: 5,
+      rejected: 0,
+    });
+  });
+
+  it("projects the real fixture job into a whitelisted payload with no recruiter PII", async () => {
+    const bronId = "bron-striive-project";
+    const connector = createStriiveConnector({
+      bronId,
+      client: createStriiveClient({ liveEnabled: false }),
+    });
+    const discovered = await connector.discover(null);
+    const [target] = discovered.items;
+    if (!target) {
+      throw new Error("expected the fixture job in discovered items");
+    }
+    expect(target.bronReferentie).toBe("d0ab03db-13d1-42d4-a55d-3d238f02b3c0");
+    const fetched = await connector.fetch(target);
+    expect(fetched?.status).toBe("fetched");
+    if (fetched?.status !== "fetched") {
+      throw new Error("expected fetched result");
+    }
+    // SAFETY: the connector serialises StriiveFetchedPayload; only the
+    // whitelisted job shape asserted below is inspected here.
+    const payload = JSON.parse(
+      new TextDecoder().decode(fetched.body)
+    ) as StriiveFetchedPayload;
+
+    expect(payload.job.title).toBe("Functioneel Beheerder Youforce");
+    expect(payload.job.clientName).toBe("WMD Drinkwater N.V.");
+    expect(payload.job.brokerUrl).toBe(
+      "https://striive.com/nl/opdrachten?id=d0ab03db-13d1-42d4-a55d-3d238f02b3c0"
+    );
+    for (const piiKey of [
+      "recruiterFirstName",
+      "recruiterLastName",
+      "recruiterEmail",
+      "recruiterPhoneNumber",
+    ]) {
+      expect(payload.job).not.toHaveProperty(piiKey);
+    }
+    for (const tariefKey of [
+      "hasMaxRate",
+      "hourlyRateMin",
+      "hourlyRateMax",
+      "monthlyRateMin",
+      "monthlyRateMax",
+      "rateType",
+    ]) {
+      expect(payload.job).not.toHaveProperty(tariefKey);
+    }
+  });
+
+  it("rejects a listing row missing an id/title", async () => {
+    const bronId = "bron-striive-missing-id";
+    const client: StriiveClient = {
+      fetchListing: () =>
+        Promise.resolve({
+          data: [{ id: "", title: "" } satisfies StriiveJob],
+          total: 1,
+        }),
+    };
+    const connector = createStriiveConnector({ bronId, client });
+    const discovered = await connector.discover(null);
+    const [item] = discovered.items;
+    if (!item) {
+      throw new Error("expected one discover item");
+    }
+    const fetched = await connector.fetch(item);
+    expect(fetched?.status).toBe("rejected");
+  });
+
+  it("replays fixture ingest without duplicate source records", async () => {
+    const bronId = "bron-striive-replay";
+    const recorder = new InMemoryObservationRecorder();
+    const objectStore = new InMemoryObjectStore();
+    const connector = createStriiveConnector({
+      bronId,
+      client: createStriiveClient({ liveEnabled: false }),
+    });
+    const sharedInput = {
+      bronId,
+      bronSlug: "striive" as const,
+      checkpoint: null,
+      connector,
+      limiter: new CrawlDelayLimiter({ crawlDelayMs: 0 }),
+      objectStore,
+      observationRecorder: recorder,
+      rawRetentionDays: 90,
+      retryPolicy,
+      runKind: "test" as const,
+      runLifecycleStore: new InMemoryRunLifecycleStore(),
+    };
+
+    await runConnector({ ...sharedInput, scrapeRunId: "run-striive-replay-1" });
+    await runConnector({ ...sharedInput, scrapeRunId: "run-striive-replay-2" });
+
+    expect(recorder.records).toHaveLength(5);
+    expect(
+      new Set(recorder.records.map((record) => record.bronReferentie)).size
+    ).toBe(5);
+  });
+
+  it("advances through listing pages until a short page signals the end", async () => {
+    const jobs: StriiveJob[] = Array.from({ length: 30 }, (_, index) => ({
+      id: `ST-${index + 1}`,
+      title: `Job ${index + 1}`,
+    }));
+    const client: StriiveClient = {
+      fetchListing: (page) => {
+        if (page === 1) {
+          return Promise.resolve({
+            data: jobs.slice(0, STRIIVE_PAGE_SIZE),
+            total: jobs.length,
+          });
+        }
+        if (page === 2) {
+          return Promise.resolve({
+            data: jobs.slice(STRIIVE_PAGE_SIZE),
+            total: jobs.length,
+          });
+        }
+        return Promise.resolve({ data: [], total: jobs.length });
+      },
+    };
+    const connector = createStriiveConnector({
+      bronId: "bron-striive-pages",
+      client,
+    });
+    const first = await connector.discover(null);
+    expect(first.hasMore).toBe(true);
+    expect(first.items).toHaveLength(STRIIVE_PAGE_SIZE);
+
+    const second = await connector.discover(first.checkpoint);
+    expect(second.hasMore).toBe(false);
+    expect(second.items).toHaveLength(jobs.length - STRIIVE_PAGE_SIZE);
+  });
+});
