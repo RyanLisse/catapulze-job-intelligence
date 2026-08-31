@@ -12,6 +12,7 @@ import {
   createFlinterClient,
   extractFlinterSlug,
   extractFlinterUrenPerWeek,
+  isFlinterLooptijdDuration,
   isFlinterPermanentVacancy,
   parseFlinterDetail,
   parseFlinterListing,
@@ -91,12 +92,13 @@ const PERMANENT_VACANCY_DETAIL_HTML = `
 `;
 
 describe("parseFlinterListing", () => {
-  it("parses each card's title, slug and positional locatie/looptijd/eindklant", () => {
+  it("parses each card's title, slug and positional locatie/looptijd/eindklant (regression: today's field order)", () => {
     const items = parseFlinterListing(LISTING_HTML);
     expect(items).toEqual([
       {
         locatiePlaats: "Assen",
         looptijdTekst: "1 jr",
+        looptijdValid: true,
         opdrachtgeverNaam: "Omgevingsdienst Drenthe",
         slug: "vergunningverlener-agrarisch",
         titel: "Vergunningverlener Agrarisch",
@@ -104,6 +106,7 @@ describe("parseFlinterListing", () => {
       {
         locatiePlaats: "Gouda",
         looptijdTekst: ">1 jr",
+        looptijdValid: true,
         opdrachtgeverNaam: "Oasen",
         slug: "bedrijfsjurist",
         titel: "Bedrijfsjurist",
@@ -113,6 +116,83 @@ describe("parseFlinterListing", () => {
 
   it("returns an empty list for a page with no vacancy cards", () => {
     expect(parseFlinterListing("<div>no cards here</div>")).toEqual([]);
+  });
+});
+
+describe("isFlinterLooptijdDuration (RJC-375 field-order guard)", () => {
+  it("accepts the real observed duration formats and plausible neighbours", () => {
+    expect(isFlinterLooptijdDuration("1 jr")).toBe(true);
+    expect(isFlinterLooptijdDuration(">1 jr")).toBe(true);
+    expect(isFlinterLooptijdDuration("6 mnd")).toBe(true);
+    expect(isFlinterLooptijdDuration("<3 mnd")).toBe(true);
+    expect(isFlinterLooptijdDuration("2,5 jaar")).toBe(true);
+    expect(isFlinterLooptijdDuration("12 weken")).toBe(true);
+  });
+
+  it("rejects free text with no duration format at all", () => {
+    expect(isFlinterLooptijdDuration("Rotterdam")).toBe(false);
+    expect(isFlinterLooptijdDuration("Gemeente Rotterdam")).toBe(false);
+    expect(isFlinterLooptijdDuration("Flexibele opdracht")).toBe(false);
+    expect(isFlinterLooptijdDuration()).toBe(false);
+  });
+});
+
+describe("parseFlinterListing field-order guard (RJC-375)", () => {
+  const REORDERED_TO_FIRST_HTML = `
+<div class="vacancy-item">
+  <h2>Interim Controller</h2>
+  <div class="vacancy-content">
+    <ul>
+      <li><svg><path/></svg>1 jr</li>
+      <li><svg><path/></svg>Rotterdam</li>
+      <li><svg><path/></svg>Gemeente Rotterdam</li>
+    </ul>
+    <a href="https://www.flinter.nl/opdrachten/interim-controller">Lees meer</a>
+  </div>
+</div>
+`;
+
+  const REORDERED_TO_LAST_HTML = `
+<div class="vacancy-item">
+  <h2>Interim Controller</h2>
+  <div class="vacancy-content">
+    <ul>
+      <li><svg><path/></svg>Rotterdam</li>
+      <li><svg><path/></svg>Gemeente Rotterdam</li>
+      <li><svg><path/></svg>1 jr</li>
+    </ul>
+    <a href="https://www.flinter.nl/opdrachten/interim-controller">Lees meer</a>
+  </div>
+</div>
+`;
+
+  const NO_DURATION_MIDDLE_ROW_HTML = `
+<div class="vacancy-item">
+  <h2>Interim Controller</h2>
+  <div class="vacancy-content">
+    <ul>
+      <li><svg><path/></svg>Rotterdam</li>
+      <li><svg><path/></svg>Flexibele opdracht</li>
+      <li><svg><path/></svg>Gemeente Rotterdam</li>
+    </ul>
+    <a href="https://www.flinter.nl/opdrachten/interim-controller">Lees meer</a>
+  </div>
+</div>
+`;
+
+  it("flags looptijdValid false when looptijd has moved to the first position", () => {
+    const [item] = parseFlinterListing(REORDERED_TO_FIRST_HTML);
+    expect(item?.looptijdValid).toBe(false);
+  });
+
+  it("flags looptijdValid false when looptijd has moved to the last position", () => {
+    const [item] = parseFlinterListing(REORDERED_TO_LAST_HTML);
+    expect(item?.looptijdValid).toBe(false);
+  });
+
+  it("flags looptijdValid false when the middle row is free text with no duration at all", () => {
+    const [item] = parseFlinterListing(NO_DURATION_MIDDLE_ROW_HTML);
+    expect(item?.looptijdValid).toBe(false);
   });
 });
 
@@ -309,6 +389,42 @@ describe("Flinter connector", () => {
       reason: "detail page missing titel",
       status: "rejected",
     });
+  });
+
+  it("rejects a card whose field order changed instead of silently swapping locatie/opdrachtgever, with an explicit reason", async () => {
+    const bronId = "bron-flinter-field-order-guard";
+    const items: FlinterListingItem[] = [
+      {
+        locatiePlaats: "1 jr",
+        looptijdTekst: "Rotterdam",
+        looptijdValid: false,
+        opdrachtgeverNaam: "Gemeente Rotterdam",
+        slug: "interim-controller",
+        titel: "Interim Controller",
+      },
+    ];
+    const client: FlinterClient = {
+      fetchDetailHtml: () =>
+        Promise.reject(
+          new Error(
+            "fetchDetailHtml should not be called for a field-order-rejected card"
+          )
+        ),
+      fetchListing: () => Promise.resolve(items),
+    };
+    const connector = createFlinterConnector({ bronId, client });
+    const discovery = await connector.discover(null);
+    const [discoveredItem] = discovery.items;
+    if (!discoveredItem) {
+      throw new Error("Expected a discovered item");
+    }
+    const fetched = await connector.fetch(discoveredItem);
+    expect(fetched).toMatchObject({
+      reason:
+        "listing field order guard: middle icon row does not match the expected looptijd duration format -- locatie/looptijd/opdrachtgever field order may have changed",
+      status: "rejected",
+    });
+    expect(fetched).not.toHaveProperty("body");
   });
 
   it("rejects a permanent-employment vacancy instead of ingesting it as an aanvraag", async () => {
