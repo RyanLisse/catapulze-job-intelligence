@@ -46,6 +46,28 @@ repository_git() {
   )
 }
 
+materialized_git() {
+  (
+    unset GIT_ALTERNATE_OBJECT_DIRECTORIES
+    unset GIT_COMMON_DIR
+    unset GIT_CONFIG
+    unset GIT_CONFIG_COUNT
+    unset GIT_CONFIG_PARAMETERS
+    unset GIT_DIR
+    unset GIT_GRAFT_FILE
+    unset GIT_IMPLICIT_WORK_TREE
+    unset GIT_INDEX_FILE
+    unset GIT_NO_REPLACE_OBJECTS
+    unset GIT_OBJECT_DIRECTORY
+    unset GIT_PREFIX
+    unset GIT_REPLACE_REF_BASE
+    unset GIT_SHALLOW_FILE
+    unset GIT_WORK_TREE
+    cd "$materialized_workspace"
+    git --no-replace-objects "$@"
+  )
+}
+
 if ! workspace_root="$(repository_git rev-parse --show-toplevel)"; then
   printf 'exe.dev shadow: could not resolve the source Git workspace\n' >&2
   exit 1
@@ -155,6 +177,18 @@ input_preflight_started_ms="$(monotonic_ms)"
     --write-manifest .crabbox-input-manifest.sha256
 )
 input_preflight_ended_ms="$(monotonic_ms)"
+
+# Crabbox v0.46.0 sync is Git-based when sync.gitSeed is true, so seed the
+# materialized input with a throwaway repository. Crabbox may fingerprint this
+# synthetic commit, while the evidence fingerprint remains bound to the
+# explicitly exported CRABBOX_SOURCE_GIT_SHA and CRABBOX_SOURCE_GIT_STATE.
+materialized_git init -q
+materialized_git add -A
+materialized_git \
+  -c user.name="crabbox-launcher" \
+  -c user.email="crabbox-launcher@catapulze.invalid" \
+  -c commit.gpgsign=false \
+  commit -q -m "materialized ${source_git_sha}"
 
 source_manifest="${materialized_workspace}/.crabbox-input-manifest.sha256"
 source_manifest_digest="$(sha256_file "$source_manifest")"

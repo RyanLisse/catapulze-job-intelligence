@@ -14,6 +14,7 @@ import path from "node:path";
 const launcher = path.join(import.meta.dir, "crabbox-exe-dev-shadow-run.sh");
 const shadowScript = path.join(import.meta.dir, "crabbox-exe-dev-shadow.sh");
 const sourceSha = "a".repeat(40);
+const realGit = Bun.which("git") ?? "";
 const launcherFixtureTimeoutMs = 30_000;
 const nodeImage =
   "node:24-slim@sha256:ba849c60be29959425b8734d57b8b4b7d56f98edd9504c9af091d5281095a71e";
@@ -28,10 +29,14 @@ const createLauncherFixture = (
   statusExitCode = 0,
   statusOutput = ""
 ) => {
+  if (!realGit) {
+    throw new Error("git is required for launcher fixtures");
+  }
   const workspace = mkdtempSync(path.join(tmpdir(), "ji-shadow-launcher-"));
   const binDirectory = path.join(workspace, "bin");
   const argumentsFile = path.join(workspace, "arguments");
   const environmentFile = path.join(workspace, "environment");
+  const gitStateFile = path.join(workspace, "git-state");
   const materializedWorkspaceFile = path.join(
     workspace,
     "materialized-workspace"
@@ -71,6 +76,8 @@ elif [[ "$#" -eq 5 && "$1" == "-C" && "$2" == "$expected_workspace_root" && "$3"
 elif [[ "$#" -eq 6 && "$1" == "-C" && "$2" == "$expected_workspace_root" && "$3" == "archive" && "$4" == "--format=tar" && "$5" == --output=* && "$6" == "${sourceShaValue}" ]]; then
   output="\${5#--output=}"
   /usr/bin/tar -cf "$output" -C "$expected_workspace_root" scripts
+elif [[ "\${1:-}" == "init" || "\${1:-}" == "add" || "\${1:-}" == "-c" ]]; then
+  exec "$REAL_GIT" --no-replace-objects "$@"
 else
   exit 64
 fi
@@ -100,6 +107,18 @@ if [[ -n "\${MATERIALIZED_EVIDENCE_FIXTURE:-}" ]]; then
   mkdir -p .artifacts/crabbox/exe-dev-shadow
   printf 'fresh\\n' >.artifacts/crabbox/exe-dev-shadow/report.md
 fi
+if [[ -n "\${CAPTURE_GIT_STATE:-}" ]]; then
+  # Git exports GIT_DIR/GIT_PREFIX to hooks (pre-push gate); inspect the
+  # materialized repo, not the repo that launched the hook.
+  unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_PREFIX GIT_COMMON_DIR
+  "$REAL_GIT" log --oneline >"$CAPTURE_GIT_STATE"
+  if "$REAL_GIT" -C . ls-files --error-unmatch .crabbox-input-manifest.sha256 >/dev/null; then
+    printf 'manifest-ls-files-exit=0\\n' >>"$CAPTURE_GIT_STATE"
+  else
+    git_exit_status="$?"
+    printf 'manifest-ls-files-exit=%s\\n' "$git_exit_status" >>"$CAPTURE_GIT_STATE"
+  fi
+fi
 `
   );
 
@@ -107,6 +126,7 @@ fi
     argumentsFile,
     binDirectory,
     environmentFile,
+    gitStateFile,
     materializedWorkspaceFile,
     workspace,
   };
@@ -123,6 +143,7 @@ const launcherEnvironment = (
   EXE_DEV_REGION: "FRA",
   EXPECTED_WORKSPACE_ROOT: fixture.workspace,
   PATH: `${fixture.binDirectory}:${process.env.PATH ?? "/usr/bin:/bin"}`,
+  REAL_GIT: realGit,
 });
 
 const writeInputManifest = (workspace: string, entries: string[]): string => {
@@ -173,6 +194,33 @@ describe("exe.dev shadow scripts", () => {
       const metadata = environment.trim().split("\n");
       expect(Number.isInteger(Number(metadata[4]))).toBe(true);
       expect(Number.isInteger(Number(metadata[5]))).toBe(true);
+    } finally {
+      rmSync(fixture.workspace, { force: true, recursive: true });
+    }
+  });
+
+  test("seeds the materialized workspace with a tracked input manifest", () => {
+    const fixture = createLauncherFixture();
+    try {
+      const result = Bun.spawnSync(["bash", launcher, "--dry-run"], {
+        env: {
+          ...launcherEnvironment(fixture),
+          CAPTURE_GIT_STATE: fixture.gitStateFile,
+        },
+        stderr: "pipe",
+        stdout: "pipe",
+      });
+
+      expect(result.stderr.toString()).toBe("");
+      expect(result.exitCode).toBe(0);
+      const gitState = readFileSync(fixture.gitStateFile, "utf-8")
+        .trim()
+        .split("\n");
+      expect(gitState).toHaveLength(2);
+      expect(gitState[0]).toMatch(
+        new RegExp(`^[0-9a-f]+ materialized ${sourceSha}$`, "u")
+      );
+      expect(gitState[1]).toBe("manifest-ls-files-exit=0");
     } finally {
       rmSync(fixture.workspace, { force: true, recursive: true });
     }
