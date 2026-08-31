@@ -71,11 +71,16 @@ describe("read-path Postgres stores", () => {
       resultIds: ["00000000-0000-4000-8000-000000000001"],
       savedSearchId: null,
       schemaVersion: "slice-a-v1",
+      searchVersion: { appliedSequence: 42n, generation: 2 },
       userId: "recruiter-1",
     });
 
     const loaded = await snapshots.getById(snapshot.id);
     expect(loaded?.resultIds).toEqual(snapshot.resultIds);
+    expect(loaded?.searchVersion).toEqual({
+      appliedSequence: 42n,
+      generation: 2,
+    });
 
     const approval = await approvals.create({
       actorId: "approver-1",

@@ -171,6 +171,7 @@ export const buildSavedSearchBody = (input: {
 export const buildSnapshotBody = (input: {
   readonly filters: JobSearchFilters;
   readonly query: string;
+  readonly selectedIds: readonly string[];
   readonly bronCatalog: ReadonlyMap<string, BronCatalogEntry>;
 }): CapabilityJsonObject => {
   const searchBody = buildSearchRequestBody({
@@ -183,5 +184,8 @@ export const buildSnapshotBody = (input: {
   return {
     filters: searchBody.filters,
     query: input.query,
+    // RJC-385: a snapshot is bound to an explicit selection; the query and
+    // filters above travel along as context only.
+    selectedIds: [...input.selectedIds],
   };
 };

@@ -36,6 +36,7 @@ const seedApprovedSnapshot = async (
     resultIds: [...aanvraagIds],
     savedSearchId: null,
     schemaVersion: "slice-a-v1",
+    searchVersion: { appliedSequence: 1n, generation: 1 },
     userId: "recruiter-1",
   });
 
@@ -242,6 +243,7 @@ describe("commitExport", () => {
       resultIds: ["00000000-0000-4000-8000-000000000004"],
       savedSearchId: null,
       schemaVersion: "slice-a-v1",
+      searchVersion: { appliedSequence: 1n, generation: 1 },
       userId: "recruiter-1",
     });
 
@@ -273,6 +275,7 @@ describe("commitExport", () => {
       resultIds: [aanvraagId],
       savedSearchId: null,
       schemaVersion: "slice-a-v1",
+      searchVersion: { appliedSequence: 1n, generation: 1 },
       userId: "recruiter-1",
     });
 

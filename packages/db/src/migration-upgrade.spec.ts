@@ -394,3 +394,115 @@ describe.serial("0000 to 0001 observation migration", () => {
     expect(columns).toHaveLength(0);
   });
 });
+
+describe.serial("0006 to 0007 snapshot search version migration", () => {
+  let client: ReturnType<typeof postgres> | undefined;
+  let priorStatements: string[] = [];
+  let searchVersionStatements: string[] = [];
+  const priorMigrations = [
+    "0000_core.sql",
+    "0001_u3_durable_ingestion.sql",
+    "0002_u8_backfill_observability.sql",
+    "0003_u9_snapshot_approval.sql",
+    "0004_u10_export_idempotency.sql",
+    "0005_u11_external_receipt.sql",
+    "0006_search_projection_checkpoint.sql",
+  ];
+
+  beforeAll(async () => {
+    if (!upgradeDatabaseUrl) {
+      if (upgradeDatabaseRequired) {
+        throw new Error("Required upgrade test database URL is unavailable");
+      }
+      return;
+    }
+    client = postgres(upgradeDatabaseUrl, { max: 1 });
+    const perMigration = await Promise.all(
+      priorMigrations.map((name) => readMigrationStatements(name))
+    );
+    priorStatements = perMigration.flat();
+    searchVersionStatements = await readMigrationStatements(
+      "0007_snapshot_search_version.sql"
+    );
+  });
+
+  afterAll(async () => {
+    await client?.end({ timeout: 5 });
+  });
+
+  it("applies on a database at 0006 and backfills existing snapshot rows", async () => {
+    if (!client) {
+      expect(upgradeDatabaseUrl).toBeUndefined();
+      return;
+    }
+
+    await client.unsafe(`
+      DROP SCHEMA IF EXISTS curated CASCADE;
+      DROP SCHEMA IF EXISTS marts CASCADE;
+      DROP SCHEMA IF EXISTS staging CASCADE;
+      DROP SCHEMA IF EXISTS drizzle CASCADE;
+      DROP SCHEMA IF EXISTS public CASCADE;
+      CREATE SCHEMA public;
+    `);
+    await client.begin(async (transaction) => {
+      for (const statement of priorStatements) {
+        // oxlint-disable-next-line no-await-in-loop -- migration statements are order-dependent
+        await transaction.unsafe(statement);
+      }
+    });
+
+    const inserted = await client.unsafe(`
+      INSERT INTO curated.query_snapshot
+        (index_version, parser_version, query_text, result_ids, schema_version, user_id)
+      VALUES
+        (3, '1', 'Azure', '["00000000-0000-4000-8000-000000000001"]'::jsonb, 'slice-a-v1', 'recruiter-1'),
+        (NULL, '1', 'DevOps', '[]'::jsonb, 'slice-a-v1', 'recruiter-1')
+      RETURNING id;
+    `);
+    expect(inserted).toHaveLength(2);
+
+    await client.begin(async (transaction) => {
+      for (const statement of searchVersionStatements) {
+        // oxlint-disable-next-line no-await-in-loop -- migration statements are order-dependent
+        await transaction.unsafe(statement);
+      }
+    });
+
+    const rows = await client.unsafe(`
+      SELECT index_version, query_text, result_ids, search_applied_sequence, search_generation
+      FROM curated.query_snapshot
+      ORDER BY query_text ASC;
+    `);
+    expect(rows).toHaveLength(2);
+    const [azure, devops] = rows;
+    expect(azure?.search_generation).toBe(1);
+    expect(String(azure?.search_applied_sequence)).toBe("3");
+    // bigint since 0007 — postgres.js returns it as a string
+    expect(String(azure?.index_version)).toBe("3");
+    expect(azure?.result_ids).toEqual(["00000000-0000-4000-8000-000000000001"]);
+    expect(devops?.search_generation).toBe(1);
+    expect(String(devops?.search_applied_sequence)).toBe("0");
+
+    const postMigration = await client.unsafe(`
+      INSERT INTO curated.query_snapshot
+        (index_version, parser_version, query_text, result_ids, schema_version, search_applied_sequence, search_generation, user_id)
+      VALUES
+        (9, '1', 'Kubernetes', '[]'::jsonb, 'slice-a-v1', 9, 1, 'recruiter-1')
+      RETURNING search_applied_sequence, search_generation;
+    `);
+    expect(String(postMigration[0]?.search_applied_sequence)).toBe("9");
+    expect(postMigration[0]?.search_generation).toBe(1);
+
+    // index_version was integer before 0007; appliedSequence is a bigint
+    // sequence, so the legacy mirror must accept values past 2^31.
+    const beyondInt32 = await client.unsafe(`
+      INSERT INTO curated.query_snapshot
+        (index_version, parser_version, query_text, result_ids, schema_version, search_applied_sequence, search_generation, user_id)
+      VALUES
+        (3000000000, '1', 'Terraform', '[]'::jsonb, 'slice-a-v1', 3000000000, 1, 'recruiter-1')
+      RETURNING index_version, search_applied_sequence;
+    `);
+    expect(String(beyondInt32[0]?.index_version)).toBe("3000000000");
+    expect(String(beyondInt32[0]?.search_applied_sequence)).toBe("3000000000");
+  });
+});

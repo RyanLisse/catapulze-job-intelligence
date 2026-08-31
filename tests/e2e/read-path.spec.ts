@@ -169,16 +169,37 @@ describe("JI-052 e2e read path", () => {
     }
     expect(search.value.total).toBeGreaterThan(0);
 
+    // RJC-385: a snapshot is bound to an explicit selection. The recruiter
+    // reviews the search results and selects them; the memory aanvraag store
+    // mirrors the curated rows so the handler's readability check passes.
+    const selectedIds = search.value.ids;
+    for (const [index, id] of selectedIds.entries()) {
+      stores.aanvragen.seed({
+        beschrijving: `E2E aanvraag ${index}`,
+        bronId,
+        bronReferentie: `TN-${index}`,
+        id,
+        rawPayloadRef: `raw/${id}.json`,
+        scrapeRunId: "run-e2e-tn-1",
+        status: "active",
+        titel: `E2E aanvraag ${index}`,
+        versies: [],
+      });
+    }
     const snapshot = await registry.createInvoker({
       capabilityId: "create_snapshot",
       operation: "POST /v1/snapshots",
       transport: "rest",
-    })({ filters: {}, query: "Azure" }, recruiterAuth);
+    })({ filters: {}, query: "Azure", selectedIds }, recruiterAuth);
     expect(snapshot.ok).toBe(true);
     if (!snapshot.ok) {
       throw new Error("Expected snapshot to succeed");
     }
-    expect(snapshot.value.resultIds.length).toBeGreaterThan(0);
+    expect(snapshot.value.resultIds).toEqual(selectedIds);
     expect(snapshot.value.indexVersion).toBeGreaterThan(0);
+    expect(snapshot.value.searchVersion.generation).toBe(1);
+    expect(
+      Number(snapshot.value.searchVersion.appliedSequence)
+    ).toBeGreaterThan(0);
   });
 });

@@ -1,4 +1,4 @@
-import type { SearchFilters } from "@ji/search";
+import type { SearchFilters, SearchVersion } from "@ji/search";
 
 export interface SavedSearchRecord {
   readonly createdAt: Date;
@@ -22,6 +22,12 @@ export interface QuerySnapshotRecord {
   readonly resultIds: readonly string[];
   readonly savedSearchId: string | null;
   readonly schemaVersion: string;
+  /**
+   * Durable search index version at snapshot time (RJC-385): the full
+   * {generation, appliedSequence} from RJC-384. `indexVersion` above stays
+   * populated (Number(appliedSequence)) for legacy readers only.
+   */
+  readonly searchVersion: SearchVersion;
   readonly userId: string;
 }
 

@@ -4,7 +4,6 @@ import {
   createTestSliceARegistry,
   permissionsForRole,
 } from "@ji/application/registry";
-import type { InMemorySearchEngine } from "@ji/search";
 
 const recruiterPrincipal = {
   kind: "user" as const,
@@ -18,27 +17,12 @@ const approverPrincipal = {
   subjectId: "approver-1",
 };
 
-const seedSearchDocuments = async (
-  engine: InMemorySearchEngine,
-  count: number
-) => {
-  await Promise.all(
-    Array.from({ length: count }, (_, index) =>
-      engine.upsertDocument({
-        beschrijving: `Azure platform engineer beschrijving ${index}`,
-        bronId: "00000000-0000-4000-8000-000000000001",
-        contracttype: "detachering",
-        id: `00000000-0000-4000-8000-${String(index).padStart(12, "0")}`,
-        laatstGezienOp: new Date("2026-08-01T00:00:00.000Z"),
-        locatieLand: "NL",
-        status: "active",
-        tariefMax: 120,
-        tariefMin: 80,
-        titel: `Azure engineer ${index}`,
-      })
-    )
+const snapshotSelection = (count: number, offset = 0): string[] =>
+  Array.from(
+    { length: count },
+    (_, index) =>
+      `00000000-0000-4000-8000-${String(index + offset).padStart(12, "0")}`
   );
-};
 
 const seedAanvragenForSnapshot = (
   bundle: ReturnType<typeof createTestSliceARegistry>,
@@ -61,15 +45,17 @@ const seedAanvragenForSnapshot = (
 
 const createSnapshot = async (
   bundle: ReturnType<typeof createTestSliceARegistry>,
+  selectedIds: readonly string[],
   query = "Azure"
 ) => {
+  seedAanvragenForSnapshot(bundle, selectedIds);
   const invoker = bundle.registry.createInvoker({
     capabilityId: "create_snapshot",
     operation: "POST /v1/snapshots",
     transport: "rest",
   });
   const created = await invoker(
-    { query },
+    { query, selectedIds: [...selectedIds] },
     { principal: recruiterPrincipal, requestId: "snapshot-create" }
   );
   expect(created.ok).toBe(true);
@@ -106,9 +92,7 @@ const approveSnapshot = async (
 describe("commit_export", () => {
   it("creates once and skips on replay for the same approved snapshot", async () => {
     const bundle = createTestSliceARegistry();
-    await seedSearchDocuments(bundle.deps.engine, 2);
-    const snapshot = await createSnapshot(bundle);
-    seedAanvragenForSnapshot(bundle, snapshot.resultIds);
+    const snapshot = await createSnapshot(bundle, snapshotSelection(2));
     await approveSnapshot(bundle, snapshot.id);
 
     const commit = bundle.registry.createInvoker({
@@ -139,8 +123,7 @@ describe("commit_export", () => {
 
   it("refuses export without approval", async () => {
     const bundle = createTestSliceARegistry();
-    await seedSearchDocuments(bundle.deps.engine, 1);
-    const snapshot = await createSnapshot(bundle);
+    const snapshot = await createSnapshot(bundle, snapshotSelection(1));
 
     const commit = bundle.registry.createInvoker({
       capabilityId: "commit_export",
@@ -160,12 +143,10 @@ describe("commit_export", () => {
 
   it("does not reuse approval from another snapshot", async () => {
     const bundle = createTestSliceARegistry();
-    await seedSearchDocuments(bundle.deps.engine, 1);
-    const snapshotA = await createSnapshot(bundle);
-    seedAanvragenForSnapshot(bundle, snapshotA.resultIds);
+    const snapshotA = await createSnapshot(bundle, snapshotSelection(1));
     await approveSnapshot(bundle, snapshotA.id);
 
-    const snapshotB = await createSnapshot(bundle);
+    const snapshotB = await createSnapshot(bundle, snapshotSelection(1, 1));
 
     const commit = bundle.registry.createInvoker({
       capabilityId: "commit_export",
@@ -185,9 +166,7 @@ describe("commit_export", () => {
 
   it("denies recruiters without export permission", async () => {
     const bundle = createTestSliceARegistry();
-    await seedSearchDocuments(bundle.deps.engine, 1);
-    const snapshot = await createSnapshot(bundle);
-    seedAanvragenForSnapshot(bundle, snapshot.resultIds);
+    const snapshot = await createSnapshot(bundle, snapshotSelection(1));
     await approveSnapshot(bundle, snapshot.id);
 
     const commit = bundle.registry.createInvoker({

@@ -159,6 +159,7 @@ export interface JobIntelligenceActions {
   readonly createSnapshot: (input: {
     readonly filters: JobSearchFilters;
     readonly query: string;
+    readonly selectedIds: readonly string[];
   }) => Promise<{ readonly id: string; readonly resultCount: number }>;
   readonly markeerAanvraag: (input: {
     readonly aanvraagId: string;

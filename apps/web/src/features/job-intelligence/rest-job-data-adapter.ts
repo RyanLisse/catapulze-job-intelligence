@@ -345,11 +345,11 @@ export const createRestJobIntelligence = ({
       );
       return { id: saved.id, naam: saved.naam };
     },
-    createSnapshot: async ({ filters, query }) => {
+    createSnapshot: async ({ filters, query, selectedIds }) => {
       const bronCatalog = await loadBronCatalog();
       const snapshot = await client.post<SnapshotResponseBody>(
         "/v1/snapshots",
-        buildSnapshotBody({ bronCatalog, filters, query })
+        buildSnapshotBody({ bronCatalog, filters, query, selectedIds })
       );
       return { id: snapshot.id, resultCount: snapshot.resultIds.length };
     },
