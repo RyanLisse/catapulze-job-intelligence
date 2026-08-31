@@ -108,6 +108,9 @@ if [[ -n "\${MATERIALIZED_EVIDENCE_FIXTURE:-}" ]]; then
   printf 'fresh\\n' >.artifacts/crabbox/exe-dev-shadow/report.md
 fi
 if [[ -n "\${CAPTURE_GIT_STATE:-}" ]]; then
+  # Git exports GIT_DIR/GIT_PREFIX to hooks (pre-push gate); inspect the
+  # materialized repo, not the repo that launched the hook.
+  unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_PREFIX GIT_COMMON_DIR
   "$REAL_GIT" log --oneline >"$CAPTURE_GIT_STATE"
   if "$REAL_GIT" -C . ls-files --error-unmatch .crabbox-input-manifest.sha256 >/dev/null; then
     printf 'manifest-ls-files-exit=0\\n' >>"$CAPTURE_GIT_STATE"
