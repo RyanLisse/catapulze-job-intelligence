@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 
@@ -109,12 +110,18 @@ const upsertAll = async (
   }
 };
 
+interface ResolvedCorpus {
+  corpusDigest: string;
+  documents: SearchDocument[];
+}
+
 // Reads corpus JSONL produced by benchmarks/search/generate-corpus.ts. Each
 // line matches SearchDocument except laatstGezienOp is an ISO string (JSON
 // has no Date type), so it is parsed back into a Date here.
-const readCorpusFile = (filePath: string): SearchDocument[] => {
+const readCorpusFile = (filePath: string): ResolvedCorpus => {
   const raw = readFileSync(filePath, "utf-8");
-  return raw
+  const corpusDigest = createHash("sha256").update(raw).digest("hex");
+  const documents = raw
     .split("\n")
     .filter((line) => line.trim().length > 0)
     .map((line) => {
@@ -124,34 +131,43 @@ const readCorpusFile = (filePath: string): SearchDocument[] => {
       const parsed = JSON.parse(line) as SearchDocument;
       return { ...parsed, laatstGezienOp: new Date(parsed.laatstGezienOp) };
     });
+  return { corpusDigest, documents };
 };
 
 // BENCH_CORPUS overrides the profile's corpus pointer; falls back to
 // synthetic seedDocuments when neither path exists on disk (e.g. local
 // dev runs that never generated a corpus).
-const resolveCorpusDocuments = (
-  profile: BenchmarkProfile
-): SearchDocument[] => {
+const resolveCorpusDocuments = (profile: BenchmarkProfile): ResolvedCorpus => {
   const pointer = process.env.BENCH_CORPUS ?? profile.corpus.pointer;
   const resolved = path.resolve(process.cwd(), pointer);
   if (existsSync(resolved)) {
     return readCorpusFile(resolved);
   }
 
-  return seedDocuments(Number(process.env.BENCH_CORPUS_SIZE ?? 1000));
+  const count = Number(process.env.BENCH_CORPUS_SIZE ?? 1000);
+  return {
+    corpusDigest: createHash("sha256")
+      .update(`seedDocuments:${count}`)
+      .digest("hex"),
+    documents: seedDocuments(count),
+  };
 };
 
 const createEngine = async (
   profile: BenchmarkProfile
-): Promise<{ documentCount: number; engine: SearchEngine }> => {
+): Promise<{
+  corpusDigest: string;
+  documentCount: number;
+  engine: SearchEngine;
+}> => {
   const manticoreUrl = process.env.MANTICORE_URL;
-  const docs = resolveCorpusDocuments(profile);
+  const { corpusDigest, documents } = resolveCorpusDocuments(profile);
   const engine = manticoreUrl
     ? ManticoreSearchEngine.fromUrl(manticoreUrl)
     : new InMemorySearchEngine();
-  await upsertAll(engine, docs);
+  await upsertAll(engine, documents);
   await engine.setIndexVersion(1);
-  return { documentCount: docs.length, engine };
+  return { corpusDigest, documentCount: documents.length, engine };
 };
 
 const parseArgs = (): BenchmarkArgs => {
@@ -204,8 +220,18 @@ const runMeasured = async (
 const main = async (): Promise<void> => {
   const { profilePath } = parseArgs();
   const profile = loadProfile(profilePath);
-  const { documentCount, engine } = await createEngine(profile);
+  const { corpusDigest, documentCount, engine } = await createEngine(profile);
   const adapter = new SearchAdapter({ engine });
+
+  // SearchAdapter.search() checks isCriticalPathEnabled() (true whenever
+  // PERF_METRICS_DIR is set) and, if true, creates + flushes a session
+  // (plus a second "instrumentation-overhead" session) on EVERY call. Left
+  // set during warmup/measured, that both times the instrumentation itself
+  // into the p50/p95/p99 and floods PERF_METRICS_DIR with hundreds of
+  // incidental per-call records. Unset it for the timed loop; restore only
+  // to write the single summary record below.
+  const metricsDir = process.env.PERF_METRICS_DIR;
+  delete process.env.PERF_METRICS_DIR;
 
   await runWarmup(adapter, profile);
   const durationsMs = await runMeasured(adapter, profile);
@@ -231,12 +257,16 @@ const main = async (): Promise<void> => {
 
   console.log(JSON.stringify(report, null, 2));
 
-  if (process.env.PERF_METRICS_DIR) {
+  if (metricsDir) {
+    process.env.PERF_METRICS_DIR = metricsDir;
     process.env.PERF_CRITICAL_PATH = "1";
-    // Corpus size is a cohort dimension (item-count / itemCount) the
-    // performance schema already carries — set it here so a 50k and a
-    // future 200k run are never treated as the same cohort.
+    // Cohort-identity dimensions the performance schema already carries
+    // (buildWorkloadMetadata / CriticalPathMetadata) — set here so two runs
+    // with a different corpus, document count, or concurrency are never
+    // folded into the same cohort fingerprint.
     process.env.PERF_ITEM_COUNT = String(documentCount);
+    process.env.PERF_DATASET_DIGEST = corpusDigest;
+    process.env.PERF_CONCURRENCY = String(profile.concurrency);
     await buildSearchSummaryRecord({
       durationsMs,
       errorCount: 0,

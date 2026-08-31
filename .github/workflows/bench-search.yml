@@ -23,6 +23,8 @@ name: Bench Search
       - "benchmarks/**"
       - "packages/search/**"
       - "packages/domain/**"
+      - "docker-compose.yml"
+      - "tools/manticore/manticore.conf"
       - ".github/workflows/bench-search.yml"
 
 permissions:

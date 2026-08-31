@@ -213,18 +213,38 @@ export const generateCorpus = function* generateCorpus(
   }
 };
 
-const parseArgs = (argv: string[]) => {
+export const MAX_DOCUMENT_COUNT = 5_000_000;
+
+const parseDocumentCount = (raw: string | undefined): number => {
+  if (raw === undefined) {
+    return DEFAULT_DOCUMENT_COUNT;
+  }
+  if (!/^\d+$/u.test(raw)) {
+    throw new Error(
+      `--documents must be a non-negative integer, got ${JSON.stringify(raw)}`
+    );
+  }
+  const value = Number(raw);
+  if (value > MAX_DOCUMENT_COUNT) {
+    throw new Error(
+      `--documents must be <= ${MAX_DOCUMENT_COUNT}, got ${value}`
+    );
+  }
+  return value;
+};
+
+export const parseArgs = (argv: string[]) => {
   const flag = (name: string): string | undefined => {
     const index = argv.indexOf(`--${name}`);
     return index === -1 ? undefined : argv[index + 1];
   };
 
-  const documentsRaw = flag("documents");
+  const documents = parseDocumentCount(flag("documents"));
   const seedRaw = flag("seed");
   const outRaw = flag("out");
 
   return {
-    documents: documentsRaw ? Number(documentsRaw) : DEFAULT_DOCUMENT_COUNT,
+    documents,
     out: outRaw ?? DEFAULT_OUT_PATH,
     seed: seedRaw ? Number(seedRaw) : DEFAULT_SEED,
   } satisfies { documents: number; out: string; seed: number };

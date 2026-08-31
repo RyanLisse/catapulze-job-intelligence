@@ -5,7 +5,7 @@ import { InMemorySearchEngine, SearchAdapter } from "@ji/search";
 import type { SearchDocument } from "@ji/search";
 
 import type { CorpusRecord } from "./generate-corpus";
-import { generateCorpus } from "./generate-corpus";
+import { generateCorpus, parseArgs } from "./generate-corpus";
 import profile from "./profile.json";
 
 const SAMPLE_SIZE = 5000;
@@ -75,5 +75,28 @@ describe("generateCorpus", () => {
       expect(ratio).toBeGreaterThanOrEqual(0.01);
       expect(ratio).toBeLessThanOrEqual(0.15);
     }
+  });
+});
+
+describe("parseArgs --documents validation", () => {
+  it("rejects a non-numeric value", () => {
+    expect(() => parseArgs(["--documents", "nope"])).toThrow();
+  });
+
+  it("rejects a negative value", () => {
+    expect(() => parseArgs(["--documents", "-5"])).toThrow();
+  });
+
+  it("rejects a non-integer value", () => {
+    expect(() => parseArgs(["--documents", "1.5"])).toThrow();
+  });
+
+  it("rejects a value above the cap", () => {
+    expect(() => parseArgs(["--documents", "5000001"])).toThrow();
+  });
+
+  it("accepts zero and a valid count", () => {
+    expect(parseArgs(["--documents", "0"]).documents).toBe(0);
+    expect(parseArgs(["--documents", "500"]).documents).toBe(500);
   });
 });
