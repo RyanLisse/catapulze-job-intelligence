@@ -90,3 +90,8 @@ coverage
 .cache
 tmp
 temp
+
+# Local evidence and raw object-store dirs
+.playwright-mcp/
+.data/
+apps/*/.data/
