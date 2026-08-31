@@ -93,7 +93,7 @@ export const stripHtml = (html: string): string =>
     .trim();
 
 export const normalizeDedupText = (value: string): string =>
-  value.trim().toLowerCase().replaceAll(/\s+/gu, " ");
+  value.replaceAll("\u001F", "").trim().toLowerCase().replaceAll(/\s+/gu, " ");
 
 export const buildDedupKey = (input: {
   opdrachtgeverNaam: string | typeof UNKNOWN;
@@ -106,7 +106,7 @@ export const buildDedupKey = (input: {
       ? UNKNOWN
       : normalizeDedupText(input.opdrachtgeverNaam),
     input.startDatum === UNKNOWN ? UNKNOWN : input.startDatum,
-  ].join("\0");
+  ].join("\u001F");
 
 export const provenanceFor = (
   parserVersion: string,
