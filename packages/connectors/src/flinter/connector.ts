@@ -51,6 +51,21 @@ export const createFlinterConnector = (
           status: "rejected" as const,
         };
       }
+      // RJC-375 field-order guard (see isFlinterLooptijdDuration in client.ts):
+      // Flinter's icons carry no alt/label text, so the connector reads
+      // locatie/looptijd/opdrachtgever by position alone. If the middle row
+      // no longer matches the looptijd duration format, the row order may
+      // have changed -- reject rather than ingest a possibly-swapped
+      // locatie_plaats/opdrachtgever_naam. Checked before any detail fetch:
+      // this is a listing-order problem, not a detail-page problem.
+      if (listing.looptijdValid === false) {
+        return {
+          bronReferentie: item.bronReferentie,
+          reason:
+            "listing field order guard: middle icon row does not match the expected looptijd duration format -- locatie/looptijd/opdrachtgever field order may have changed",
+          status: "rejected" as const,
+        };
+      }
 
       const knownHash = knownHashes
         ? await knownHashes.get(options.bronId, item.bronReferentie)

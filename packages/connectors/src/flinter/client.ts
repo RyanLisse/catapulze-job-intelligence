@@ -131,11 +131,35 @@ export const extractFlinterSlug = (href: string): string | undefined => {
 const LI_PATTERN = /<li>(?<text>[\s\S]*?)<\/li>/gu;
 const H2_PATTERN = /<h2>(?<text>[\s\S]*?)<\/h2>/u;
 
-/** Each `.vacancy-item` card lists exactly 3 icon+text rows, in this fixed
- * order across all 18 cards in the live 2026-08-31 capture: locatie,
- * looptijd, eindklant (opdrachtgever). Flinter labels these rows by icon
- * only (no `alt`/label text to match against, unlike needstaffing/harvey
- * nash), so position is the only signal this source offers. */
+/** RJC-375: matches the real observed looptijd durations ("1 jr", ">1 jr",
+ * "6 mnd") plus reasonable neighbours -- an optional `>`/`<` prefix, a
+ * number (optionally decimal with `,` or `.`), and a Dutch duration unit.
+ * Anchored against the whole trimmed text so a locatie or opdrachtgever
+ * name (always digit-free free text in every card observed live) cannot
+ * accidentally satisfy it. */
+const LOOPTIJD_DURATION_PATTERN =
+  /^[<>]?\s*\d+(?:[.,]\d+)?\s*(?:jr|jaar|mnd|maand|maanden|wk|week|weken)$/iu;
+
+/** RJC-375 field-order guard. Flinter's `.vacancy-item` cards carry exactly
+ * 3 icon+text rows in a fixed order across all 18 cards in the live
+ * 2026-08-31 capture: locatie, looptijd, eindklant (opdrachtgever).
+ * Flinter labels these rows by icon only (no `alt`/label text to match
+ * against, unlike needstaffing/harveynash), so position is the only signal
+ * this source offers -- and locatie and opdrachtgever are both free text,
+ * indistinguishable from each other. Looptijd is the one row with a
+ * recognisable duration format, so this guard checks the MIDDLE row
+ * against it. If Flinter ever reorders these rows, the guard fails and
+ * `parseFlinterListing` marks the card `looptijdValid: false`; the
+ * connector then REJECTS the card outright (see connector.ts) instead of
+ * remapping fields -- if the order changed we still cannot tell which of
+ * the remaining two rows is the place and which is the client, so
+ * remapping would just be a quieter guess. Deliberate consequence of a
+ * future layout change: the source yields zero records with a visible
+ * rejected count, not silently swapped opdrachtgever_naam/locatie_plaats
+ * values. Loud failure over silent corruption. */
+export const isFlinterLooptijdDuration = (text?: string): boolean =>
+  text !== undefined && LOOPTIJD_DURATION_PATTERN.test(text.trim());
+
 export const parseFlinterListing = (html: string): FlinterListingItem[] => {
   const items: FlinterListingItem[] = [];
   for (const block of extractVacancyItemBlocks(html)) {
@@ -156,6 +180,7 @@ export const parseFlinterListing = (html: string): FlinterListingItem[] => {
     items.push({
       locatiePlaats: liTexts[0] || undefined,
       looptijdTekst: liTexts[1] || undefined,
+      looptijdValid: isFlinterLooptijdDuration(liTexts[1]),
       opdrachtgeverNaam: liTexts[2] || undefined,
       slug,
       titel,

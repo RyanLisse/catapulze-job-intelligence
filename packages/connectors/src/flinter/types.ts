@@ -21,6 +21,15 @@ export interface FlinterListingItem {
   looptijdTekst?: string;
   /** Third `<li>`: the hiring organisation ("eindklant"). */
   opdrachtgeverNaam?: string;
+  /** RJC-375 field-order guard: true when `looptijdTekst` (the middle icon
+   * row) matches the expected looptijd duration format, false when it does
+   * not (the card is then rejected by the connector rather than ingested
+   * with possibly-swapped fields -- see isFlinterLooptijdDuration in
+   * client.ts). Only `parseFlinterListing` sets this field; it is left
+   * undefined on hand-built listing items (as in tests exercising other
+   * rejection paths) so the guard never interferes with payloads it did
+   * not itself parse. */
+  looptijdValid?: boolean;
 }
 
 export interface FlinterDetail {
