@@ -36,7 +36,7 @@ describe("REST search request mapping", () => {
     ]);
     const state = parseJobSearchState(
       new URLSearchParams(
-        "q=Azure&source=tenderned&contract=detachering&freshness=7d&minRate=90"
+        "q=Azure&source=tenderned&contract=detachering&freshness=7d&minRate=90&location=Nederland&sort=newest"
       )
     );
 
@@ -44,26 +44,32 @@ describe("REST search request mapping", () => {
       bronIds: ["00000000-0000-4000-8000-000000000001"],
       contracttype: ["detachering"],
       freshnessDays: 7,
+      // RJC-378: the UI label "Nederland" maps back to the indexed value
+      // (RJC-394: country attribute until the loader fills `locatie`).
+      locatieLand: ["NL"],
       tariefMin: 90,
     });
     expect(
       buildSearchRequestBody({
         bronCatalog,
         filters: state.filters,
-        limit: 20,
-        offset: 0,
+        limit: 8,
+        offset: 16,
         query: state.query,
+        sort: state.sort,
       })
     ).toEqual({
       filters: {
         bronIds: ["00000000-0000-4000-8000-000000000001"],
         contracttype: ["detachering"],
         freshnessDays: 7,
+        locatieLand: ["NL"],
         tariefMin: 90,
       },
-      limit: 20,
-      offset: 0,
+      limit: 8,
+      offset: 16,
       query: "Azure",
+      sort: "newest",
     });
   });
 });
@@ -100,6 +106,7 @@ describe("AE5 UI query parity with MCP search_aanvragen", () => {
       limit: 20,
       offset: 0,
       query: state.query,
+      sort: state.sort,
     });
 
     const rest = await bundle.registry.createInvoker({

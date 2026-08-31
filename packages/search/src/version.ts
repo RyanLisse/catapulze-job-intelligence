@@ -54,6 +54,13 @@ export const isStaleSearchVersion = (
 // ponytail: hand-maintained constant; runtime hashing of the mapping buys
 // nothing until the mapping itself is data-driven.
 export const SEARCH_SCHEMA_HASH =
+  "aanvragen-v2:beschrijving,bron_id,contracttype,document_id,index_version,laatst_gezien_op,locatie,locatie_land,sluitingsdatum,status,tarief_max,tarief_min,titel";
+
+/**
+ * The mapping before RJC-378 added `locatie` and `sluitingsdatum`. Kept only
+ * so version.spec.ts can prove a checkpoint stamped with it is rejected.
+ */
+export const SEARCH_SCHEMA_HASH_V1 =
   "aanvragen-v1:beschrijving,bron_id,contracttype,document_id,index_version,laatst_gezien_op,locatie_land,status,tarief_max,tarief_min,titel";
 
 export interface SearchVersionStore {
@@ -64,6 +71,31 @@ export interface SearchVersionStore {
   /** Full rebuild: bumps generation and resets appliedSequence to 0. */
   startNewGeneration: (schemaHash: string) => Promise<SearchVersion>;
 }
+
+export interface StartSearchGenerationResult {
+  /** Null when the checkpoint already carries `schemaHash` and force was off. */
+  readonly next: SearchVersion | null;
+  readonly previous: SearchVersionCheckpoint;
+}
+
+/**
+ * Operator entry point for a schema bump (tools/manticore/
+ * start-search-generation.ts). Refuses to re-run for a hash the checkpoint
+ * already has — a second generation without a reindex only loses data —
+ * unless `force` is set.
+ */
+export const startSearchGeneration = async (
+  store: SearchVersionStore,
+  schemaHash: string,
+  options: { readonly force?: boolean } = {}
+): Promise<StartSearchGenerationResult> => {
+  const previous = await store.read();
+  if (previous.schemaHash === schemaHash && options.force !== true) {
+    return { next: null, previous };
+  }
+  const next = await store.startNewGeneration(schemaHash);
+  return { next, previous };
+};
 
 export class SearchIndexSchemaMismatchError extends Error {
   readonly expectedSchemaHash: string;

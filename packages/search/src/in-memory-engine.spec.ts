@@ -1,0 +1,217 @@
+import { describe, expect, it } from "bun:test";
+
+import { InMemorySearchEngine } from "./in-memory-engine";
+import { hashDocumentId } from "./manticore/id-hash";
+import type { SearchDocument, SearchSort } from "./types";
+import { SEARCH_WINDOW_LIMIT } from "./types";
+
+const document = (
+  id: string,
+  overrides: Partial<SearchDocument> = {}
+): SearchDocument => ({
+  beschrijving: "Azure platform engineer",
+  bronId: "bron-1",
+  contracttype: "detachering",
+  id,
+  laatstGezienOp: new Date("2026-08-01T00:00:00.000Z"),
+  locatieLand: "NL",
+  status: "active",
+  tariefMax: 100,
+  tariefMin: 80,
+  titel: "Engineer",
+  ...overrides,
+});
+
+/** Expected tiebreak order: Manticore's numeric doc id (hashDocumentId). */
+const byHash = (ids: readonly string[]): string[] =>
+  [...ids].toSorted(
+    (left, right) => hashDocumentId(left) - hashDocumentId(right)
+  );
+
+const seeded = async (documents: readonly SearchDocument[]) => {
+  const engine = new InMemorySearchEngine();
+  for (const item of documents) {
+    // oxlint-disable-next-line no-await-in-loop -- ordered seeding keeps ids deterministic
+    await engine.upsertDocument(item);
+  }
+  await engine.applyBatch({ appliedSequence: 1n, mutations: [] });
+  return engine;
+};
+
+const idsFor = async (
+  engine: InMemorySearchEngine,
+  sort: SearchSort,
+  offset = 0,
+  limit = 10
+): Promise<string[]> => {
+  const result = await engine.search({
+    ast: null,
+    filters: {},
+    limit,
+    offset,
+    sort,
+  });
+  return result.hits.map((hit) => hit.id);
+};
+
+// RJC-378: the in-memory engine is the test double and golden-set baseline,
+// so its ordering contract must match what manticore/client.ts asks of
+// Manticore: one primary key per sort, document id as the final tiebreak,
+// missing rates and deadlines last.
+describe("InMemorySearchEngine sorting", () => {
+  it("newest orders by laatstGezienOp desc with id as tiebreak", async () => {
+    const engine = await seeded([
+      document("b", { laatstGezienOp: new Date("2026-08-02T00:00:00Z") }),
+      document("c", { laatstGezienOp: new Date("2026-08-03T00:00:00Z") }),
+      document("a", { laatstGezienOp: new Date("2026-08-02T00:00:00Z") }),
+    ]);
+
+    expect(await idsFor(engine, "newest")).toEqual([
+      "c",
+      ...byHash(["a", "b"]),
+    ]);
+  });
+
+  it("rate-high orders by tariefMax desc, missing rates last, id tiebreak", async () => {
+    const engine = await seeded([
+      document("b", { tariefMax: 120 }),
+      document("none", { tariefMax: null, tariefMin: null }),
+      document("a", { tariefMax: 120 }),
+      document("low", { tariefMax: 90 }),
+    ]);
+
+    expect(await idsFor(engine, "rate-high")).toEqual([
+      ...byHash(["a", "b"]),
+      "low",
+      "none",
+    ]);
+  });
+
+  it("closing-soon orders by sluitingsdatum asc, missing deadlines last, id tiebreak", async () => {
+    const engine = await seeded([
+      document("later", { sluitingsdatum: new Date("2026-09-20T00:00:00Z") }),
+      document("none-b"),
+      document("soon-b", { sluitingsdatum: new Date("2026-09-05T00:00:00Z") }),
+      document("soon-a", { sluitingsdatum: new Date("2026-09-05T00:00:00Z") }),
+      document("none-a", { sluitingsdatum: null }),
+    ]);
+
+    expect(await idsFor(engine, "closing-soon")).toEqual([
+      ...byHash(["soon-a", "soon-b"]),
+      "later",
+      ...byHash(["none-a", "none-b"]),
+    ]);
+  });
+
+  it("relevance falls back to the hashed-id tiebreak Manticore uses", async () => {
+    const engine = await seeded([document("b"), document("a"), document("c")]);
+    const expected = byHash(["a", "b", "c"]);
+    expect(expected).not.toEqual(["a", "b", "c"]);
+
+    expect(await idsFor(engine, "relevance")).toEqual(expected);
+    const unsorted = await engine.search({
+      ast: null,
+      filters: {},
+      limit: 10,
+      offset: 0,
+    });
+    expect(unsorted.hits.map((hit) => hit.id)).toEqual(expected);
+  });
+});
+
+describe("InMemorySearchEngine locatie", () => {
+  it("filters and facets on locatie, defaulting to locatieLand when absent", async () => {
+    const engine = await seeded([
+      document("nl-1"),
+      document("nl-2"),
+      document("ams", { locatie: "Amsterdam" }),
+      document("be", { locatieLand: "BE" }),
+    ]);
+
+    const all = await engine.search({
+      ast: null,
+      filters: {},
+      limit: 10,
+      offset: 0,
+    });
+    expect(all.facets.locatie).toEqual([
+      { count: 1, value: "Amsterdam" },
+      { count: 1, value: "BE" },
+      { count: 2, value: "NL" },
+    ]);
+
+    const filtered = await engine.search({
+      ast: null,
+      filters: { locatie: ["Amsterdam", "BE"] },
+      limit: 10,
+      offset: 0,
+    });
+    expect(filtered.total).toBe(2);
+    expect(filtered.hits.map((hit) => hit.id)).toEqual(byHash(["ams", "be"]));
+  });
+});
+
+describe("InMemorySearchEngine pagination", () => {
+  it("reports the true total and returns distinct consecutive pages", async () => {
+    const engine = await seeded(
+      Array.from({ length: 20 }, (_, index) =>
+        document(`doc-${String(index).padStart(2, "0")}`)
+      )
+    );
+
+    const first = await engine.search({
+      ast: null,
+      filters: {},
+      limit: 8,
+      offset: 0,
+    });
+    const second = await engine.search({
+      ast: null,
+      filters: {},
+      limit: 8,
+      offset: 8,
+    });
+
+    expect(first.total).toBe(20);
+    expect(first.hits).toHaveLength(8);
+    expect(second.total).toBe(20);
+    expect(second.hits).toHaveLength(8);
+    const firstIds = new Set(first.hits.map((hit) => hit.id));
+    expect(second.hits.every((hit) => !firstIds.has(hit.id))).toBe(true);
+    expect(first.windowLimit).toBe(SEARCH_WINDOW_LIMIT);
+    expect(second.windowLimit).toBe(SEARCH_WINDOW_LIMIT);
+  });
+
+  it("returns nothing past the window while total stays exact, like max_matches", async () => {
+    const engine = await seeded(
+      Array.from({ length: 3 }, (_, index) => document(`doc-${index}`))
+    );
+
+    const beyond = await engine.search({
+      ast: null,
+      filters: {},
+      limit: 8,
+      offset: SEARCH_WINDOW_LIMIT,
+    });
+
+    expect(beyond.total).toBe(3);
+    expect(beyond.hits).toEqual([]);
+  });
+});
+
+describe("InMemorySearchEngine tiebreak parity", () => {
+  it("orders tied documents by hashDocumentId, exactly like Manticore's numeric id", async () => {
+    const ids = ["tie-1", "tie-2", "tie-3", "tie-4"];
+    const engine = await seeded(ids.map((id) => document(id)));
+
+    for (const sort of [
+      "relevance",
+      "newest",
+      "rate-high",
+      "closing-soon",
+    ] as const) {
+      // oxlint-disable-next-line no-await-in-loop -- one assertion per sort key
+      expect(await idsFor(engine, sort)).toEqual(byHash(ids));
+    }
+  });
+});

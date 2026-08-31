@@ -12,6 +12,7 @@ export type {
 } from "./emitter";
 export {
   buildManticoreSearchRequest,
+  buildManticoreSort,
   FetchManticoreClient,
   ManticoreTimeoutError,
   parseManticoreSearchResponse,
@@ -27,4 +28,8 @@ export type {
   ManticoreSearchPayload,
   ManticoreSearchRequestBody,
 } from "./json";
-export { buildRecordedQuery, ManticoreSearchEngine } from "./engine";
+export {
+  buildRecordedQuery,
+  ManticoreSearchEngine,
+  SLUITINGSDATUM_MISSING_SENTINEL,
+} from "./engine";

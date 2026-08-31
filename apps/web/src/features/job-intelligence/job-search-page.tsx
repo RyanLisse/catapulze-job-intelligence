@@ -160,6 +160,17 @@ const jobSelectionHistoryMode = (
 const resultCountLabel = (total: number): "opdracht" | "opdrachten" =>
   total === 1 ? "opdracht" : "opdrachten";
 
+// RJC-378: totalPages is capped by the engine's retrievable window, so when
+// the true total reaches past the last page the user is told to refine
+// rather than left wondering where the rest went.
+const pageLabel = (response: JobSearchResponse): string => {
+  const base = `Pagina ${response.page} van ${response.totalPages}`;
+  const beyondWindow = response.totalPages * response.pageSize < response.total;
+  return beyondWindow
+    ? `${base} — verfijn je zoekopdracht om de overige resultaten te zien`
+    : base;
+};
+
 const emptyResponse = (
   status: "engine-error" | "loading"
 ): JobSearchResponse => ({
@@ -500,7 +511,7 @@ const JobSearchPageContent = ({
           {displayStatus === "ready" ? (
             <div className="flex min-h-16 items-center justify-between gap-4 border-t border-foreground/10 px-4">
               <p className="text-xs text-muted-foreground tabular-nums">
-                Pagina {response.page} van {response.totalPages}
+                {pageLabel(response)}
               </p>
               <div className="flex items-center gap-1">
                 <button

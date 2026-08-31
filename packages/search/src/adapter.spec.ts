@@ -3,6 +3,7 @@ import { describe, expect, it } from "bun:test";
 import { SearchAdapter } from "./adapter";
 import { MemoryResultCache } from "./cache/result-cache";
 import { InMemorySearchEngine } from "./in-memory-engine";
+import { hashDocumentId } from "./manticore/id-hash";
 import type { SearchDocument, SearchEngine } from "./types";
 
 const sampleDocument = (
@@ -98,6 +99,7 @@ describe("SearchAdapter", () => {
     expect(result.facets).toEqual({
       bron_id: [],
       contracttype: [],
+      locatie: [],
       locatie_land: [],
       status: [],
     });
@@ -124,5 +126,57 @@ describe("SearchAdapter", () => {
     expect(first.ok).toBe(true);
     expect(second.ok).toBe(true);
     expect(searchCalls).toBe(1);
+  });
+});
+
+// RJC-378: pages are engine-side now, so a cached first page must never be
+// served for the second one.
+describe("SearchAdapter pagination", () => {
+  it("keys the cache per page and sort, and passes the window through", async () => {
+    const engine = new InMemorySearchEngine();
+    for (let index = 0; index < 12; index += 1) {
+      // oxlint-disable-next-line no-await-in-loop -- ordered seeding
+      await engine.upsertDocument(
+        sampleDocument({ id: `doc-${String(index).padStart(2, "0")}` })
+      );
+    }
+    await engine.applyBatch({ appliedSequence: 1n, mutations: [] });
+
+    let searchCalls = 0;
+    const adapter = new SearchAdapter({
+      cache: new MemoryResultCache(),
+      engine: instrumentEngine(engine, () => {
+        searchCalls += 1;
+      }),
+    });
+
+    const first = await adapter.search({ limit: 8, offset: 0, query: "Azure" });
+    const second = await adapter.search({
+      limit: 8,
+      offset: 8,
+      query: "Azure",
+    });
+    const newest = await adapter.search({
+      limit: 8,
+      offset: 0,
+      query: "Azure",
+      sort: "newest",
+    });
+    await adapter.search({ limit: 8, offset: 0, query: "Azure" });
+
+    if (!(first.ok && second.ok && newest.ok)) {
+      throw new Error("Expected successful searches");
+    }
+    expect(searchCalls).toBe(3);
+    expect(first.total).toBe(12);
+    expect(first.hits).toHaveLength(8);
+    expect(second.hits).toHaveLength(4);
+    const allIds = Array.from(
+      { length: 12 },
+      (_, index) => `doc-${String(index).padStart(2, "0")}`
+    ).toSorted((left, right) => hashDocumentId(left) - hashDocumentId(right));
+    expect(first.hits.map((hit) => hit.id)).toEqual(allIds.slice(0, 8));
+    expect(second.hits.map((hit) => hit.id)).toEqual(allIds.slice(8));
+    expect(first.windowLimit).toBe(1000);
   });
 });

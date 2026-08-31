@@ -22,6 +22,9 @@ export {
 export { drainOutboxEvents, resolveOutboxMutation } from "./projector";
 export {
   SEARCH_INDEX_NAME,
+  SEARCH_SORT_OPTIONS,
+  SEARCH_WINDOW_LIMIT,
+  documentLocatie,
   emptySearchFacets,
   type OutboxEventRecord,
   type ResultCache,
@@ -34,6 +37,7 @@ export {
   type SearchHit,
   type SearchIndexBatch,
   type SearchIndexMutation,
+  type SearchSort,
 } from "./types";
 export {
   compareSearchVersions,
@@ -41,8 +45,10 @@ export {
   isStaleSearchVersion,
   SEARCH_SCHEMA_HASH,
   SearchIndexSchemaMismatchError,
+  startSearchGeneration,
   ZERO_SEQUENCE,
   type SearchVersion,
   type SearchVersionCheckpoint,
   type SearchVersionStore,
+  type StartSearchGenerationResult,
 } from "./version";

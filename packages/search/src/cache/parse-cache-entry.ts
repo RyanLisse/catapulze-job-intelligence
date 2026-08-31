@@ -15,6 +15,7 @@ const searchFacetBucketSchema = z.object({
 const searchFacetsSchema = z.object({
   bron_id: z.array(searchFacetBucketSchema),
   contracttype: z.array(searchFacetBucketSchema),
+  locatie: z.array(searchFacetBucketSchema),
   locatie_land: z.array(searchFacetBucketSchema),
   status: z.array(searchFacetBucketSchema),
 });
@@ -27,6 +28,7 @@ const resultCacheEntrySchema = z.object({
     bronIds: z.array(z.string()).optional(),
     contracttype: z.array(z.string()).optional(),
     freshnessDays: z.number().optional(),
+    locatie: z.array(z.string()).optional(),
     locatieLand: z.array(z.string()).optional(),
     status: z
       .array(z.enum(["active", "closed", "stale", "unknown"]))
@@ -37,6 +39,7 @@ const resultCacheEntrySchema = z.object({
   hits: z.array(searchHitSchema),
   indexVersion: z.number(),
   total: z.number(),
+  windowLimit: z.number(),
 });
 
 export const parseResultCacheEntry = (raw: string): ResultCacheEntry => {

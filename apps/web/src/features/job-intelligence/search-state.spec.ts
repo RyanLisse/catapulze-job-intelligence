@@ -7,6 +7,7 @@ import {
   serializeJobSearchState,
   toggleSearchFilter,
 } from "./search-state";
+import { selectableJobSortOptions } from "./types";
 
 describe("job search URL state", () => {
   it("round-trips shareable filters and selection", () => {
@@ -150,5 +151,23 @@ describe("fixture job search", () => {
     expect(toggleSearchFilter(values, "vast")).toEqual(["interim", "vast"]);
     expect(toggleSearchFilter(values, "interim")).toEqual([]);
     expect(values).toEqual(["interim"]);
+  });
+});
+
+// RJC-394: the deadline sort stays hidden until the loader provides real
+// sluitingsdatum values; one flag flips it back on.
+describe("selectableJobSortOptions", () => {
+  it("hides closing-soon without enriched data and offers it with", () => {
+    expect(selectableJobSortOptions(false)).toEqual([
+      "relevance",
+      "newest",
+      "rate-high",
+    ]);
+    expect(selectableJobSortOptions(true)).toContain("closing-soon");
+  });
+
+  it("parses a hidden sort from the URL back to relevance", () => {
+    const state = parseJobSearchState(new URLSearchParams("sort=closing-soon"));
+    expect(state.sort).toBe("relevance");
   });
 });

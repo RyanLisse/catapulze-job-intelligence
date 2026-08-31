@@ -26,6 +26,22 @@ export const JOB_SORT_OPTIONS = [
 
 export type JobSort = (typeof JOB_SORT_OPTIONS)[number];
 
+/**
+ * RJC-394: the production search loader (packages/db PostgresSearchDocumentLoader)
+ * does not yet fill `sluitingsdatum` and indexes `locatie` as the country
+ * code, so the deadline sort would order by id and a `locatie` facet would
+ * duplicate the country facet. The API and engines already support both;
+ * flip this single constant once the loader provides real values.
+ */
+export const ENRICHED_SEARCH_DATA_AVAILABLE = false;
+
+export const selectableJobSortOptions = (
+  enrichedDataAvailable: boolean
+): readonly JobSort[] =>
+  enrichedDataAvailable
+    ? JOB_SORT_OPTIONS
+    : JOB_SORT_OPTIONS.filter((option) => option !== "closing-soon");
+
 export const FRESHNESS_FILTERS = ["all", "24h", "7d", "30d"] as const;
 
 export type FreshnessFilter = (typeof FRESHNESS_FILTERS)[number];
