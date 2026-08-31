@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, setDefaultTimeout, test } from "bun:test";
 import {
   chmodSync,
   existsSync,
@@ -10,6 +10,14 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
+
+// These tests spawn the real bash launcher (git fixture, subprocesses). Under
+// the default 5s per-test budget they time out when several gates run in
+// parallel on one machine (observed 5.7s and 8.7s) — the launcher is not
+// slow, the box is busy. A generous file-scoped budget keeps the assertion
+// meaningful without turning host load into a red gate.
+const LAUNCHER_TEST_TIMEOUT_MS = 60_000;
+setDefaultTimeout(LAUNCHER_TEST_TIMEOUT_MS);
 
 const launcher = path.join(import.meta.dir, "crabbox-exe-dev-shadow-run.sh");
 const shadowScript = path.join(import.meta.dir, "crabbox-exe-dev-shadow.sh");
