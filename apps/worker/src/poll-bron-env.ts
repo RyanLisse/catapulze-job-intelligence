@@ -13,3 +13,15 @@ export const requireManticoreUrl = (): string => {
   }
   return manticoreUrl;
 };
+
+export const resolveTenderNedTestImportDays = (): number => {
+  const configuredDays =
+    process.env.TENDER_NED_TEST_IMPORT_DAYS?.trim() || "14";
+  const days = Number(configuredDays);
+  if (!Number.isInteger(days) || days < 1 || days > 90) {
+    throw new Error(
+      `TENDER_NED_TEST_IMPORT_DAYS must be an integer in the range 1-90; received "${configuredDays}"`
+    );
+  }
+  return days;
+};

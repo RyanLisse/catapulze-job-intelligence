@@ -28,7 +28,10 @@ import { PostgresCurateStore } from "@ji/db/postgres-curate-store";
 import type { BronId, ScrapeRunId } from "@ji/domain";
 import { ManticoreSearchEngine } from "@ji/search";
 
-import { requireManticoreUrl } from "./poll-bron-env";
+import {
+  requireManticoreUrl,
+  resolveTenderNedTestImportDays,
+} from "./poll-bron-env";
 import type { SliceABronSlug } from "./slice-a-bronnen";
 import type { PollBronPayload } from "./tasks/poll-bron-schema";
 
@@ -96,14 +99,7 @@ export const createPollBronRuntime = (databaseUrl: string): PollBronRuntime => {
         } else if (runKind === "poll") {
           filters = buildTenderNedPollFilters();
         } else {
-          const configuredDays =
-            process.env.TENDER_NED_TEST_IMPORT_DAYS ?? "14";
-          const days = Number(configuredDays);
-          if (!Number.isInteger(days) || days < 1 || days > 90) {
-            throw new Error(
-              `TENDER_NED_TEST_IMPORT_DAYS must be an integer from 1 through 90; received "${configuredDays}"`
-            );
-          }
+          const days = resolveTenderNedTestImportDays();
           filters = buildTenderNedPollFilters(undefined, undefined, days);
         }
         return createTenderNedConnector({

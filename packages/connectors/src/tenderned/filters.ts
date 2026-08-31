@@ -19,7 +19,8 @@ const formatDateInTimeZone = (date: Date, timeZone: string): string => {
   return `${year}-${month}-${day}`;
 };
 
-/** Poll window from docs/sources/tenderned.md: yesterday through today, CPV + diensten filters. */
+/** Poll window from `daysBack` days before `now` through `now`, plus CPV + diensten filters.
+ * The default reproduces docs/sources/tenderned.md's yesterday-through-today window. */
 export const buildTenderNedPollFilters = (
   now = new Date(),
   timeZone = POLL_TIME_ZONE,
