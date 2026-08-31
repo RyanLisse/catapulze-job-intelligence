@@ -14,8 +14,16 @@ name: Claude Code Review
 permissions:
   contents: read
 
+concurrency:
+  group: claude-review-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   claude-review:
+    # Skip drafts: `ready_for_review` above still triggers one run when a
+    # draft is marked ready. Without this, every `synchronize` push to a
+    # draft PR (which draft PRs get plenty of) also ran the full review.
+    if: github.event.pull_request.draft == false
     # Optional: Filter by PR author
     # if: |
     #   github.event.pull_request.user.login == 'external-contributor' ||
