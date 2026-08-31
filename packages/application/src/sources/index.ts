@@ -1,7 +1,10 @@
+import { bluetrail } from "./bluetrail";
 import type { SourceDefinition } from "./definition";
+import { hero } from "./hero";
 import { inhuurdesk } from "./inhuurdesk";
 import { needstaffing } from "./needstaffing";
 import { opdrachtoverheid } from "./opdrachtoverheid";
+import { proAct } from "./pro-act";
 import { tenderned } from "./tenderned";
 
 export type {
@@ -12,9 +15,12 @@ export { resolveTenderNedTestImportDays } from "./tenderned";
 
 /** Registry of every ingestable bron. Adding a source = one file in this folder + one line here. */
 export const SOURCES = {
+  bluetrail,
+  hero,
   inhuurdesk,
   needstaffing,
   opdrachtoverheid,
+  "pro-act": proAct,
   tenderned,
 } as const satisfies Record<string, SourceDefinition>;
 
