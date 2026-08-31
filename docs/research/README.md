@@ -12,6 +12,7 @@ Ruwe onderzoeksrapporten die de besluiten in `../brainstorms/2026-08-27-techstac
 | `ducklake.md` | DuckLake voor marts/export | (b) export/analytics-laan naast Postgres-marts |
 | `openship.md` | Wat leert oblien/openship ons | MCP-catalogus uit registry; per-call her-auth; `resolveWith[]` |
 | `source-verification.md` | 20 "aanname"-bronnen geverifieerd | zie `../SOURCE_MATRIX.md` (dit is het bewijs erachter) |
+| `source-probes-2026-08-31.md` | Welke publieke ingest-route en velddekking hebben negen Slice C-bronnen? | Per-bron ingest-recept, fallback en bouwvolgorde op basis van afgeronde browser-probes |
 | `redteam-doelplaat.md` | RedTeam op doelarchitectuur v1.1 | fix-first: lagen kloppen, volgorde niet |
 | `bench/` | Bun vs Go vs Rust micro-benchmarks (MinHash, 50-concurrent fetch) | reproduceerbaar |
 | `../artifacts/` | HTML-overzichten (techstack, redteam) | statisch, zelfstandig |
