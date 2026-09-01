@@ -22,7 +22,11 @@ import {
   createBronRuntimeClient,
 } from "@ji/db";
 import { PostgresCurateStore } from "@ji/db/postgres-curate-store";
-import { ManticoreSearchEngine, SearchAdapter } from "@ji/search";
+import {
+  createResultCache,
+  ManticoreSearchEngine,
+  SearchAdapter,
+} from "@ji/search";
 
 import { assertProductionPersistence } from "./assert-production-persistence";
 
@@ -36,6 +40,8 @@ export interface ProductionSliceADepsInput {
   rawS3Region?: string;
   rawS3AccessKeyId?: string;
   rawS3SecretAccessKey?: string;
+  /** Search result cache backend (RJC-388); unset runs the memory cache. */
+  redisUrl?: string;
 }
 
 export type ProductionSliceADeps = SliceAHandlerDeps & {
@@ -46,9 +52,9 @@ export type ProductionSliceADeps = SliceAHandlerDeps & {
   readonly objectStore: ObjectStore;
 };
 
-export const createProductionSliceADeps = (
+export const createProductionSliceADeps = async (
   input: ProductionSliceADepsInput
-): ProductionSliceADeps => {
+): Promise<ProductionSliceADeps> => {
   const runtime = createBronRuntimeClient(input.databaseUrl);
   const rawObjectStore = createRawObjectStore({
     RAW_OBJECT_STORE_PATH: input.rawObjectStorePath,
@@ -100,7 +106,14 @@ export const createProductionSliceADeps = (
     input.manticoreUrl,
     new PostgresSearchVersionStore(runtime.database)
   );
-  const searchAdapter = new SearchAdapter({ engine });
+  const { cache: searchResultCache } = await createResultCache(
+    input.redisUrl,
+    input.nodeEnv
+  );
+  const searchAdapter = new SearchAdapter({
+    cache: searchResultCache,
+    engine,
+  });
   const curateStore = new PostgresCurateStore(runtime.database);
 
   return {
@@ -124,9 +137,9 @@ export const createProductionSliceADeps = (
   };
 };
 
-export const createProductionSliceARegistry = (
+export const createProductionSliceARegistry = async (
   input: ProductionSliceADepsInput
 ) => {
-  const deps = createProductionSliceADeps(input);
+  const deps = await createProductionSliceADeps(input);
   return { deps, ...createSliceARegistry(deps) };
 };
