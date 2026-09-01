@@ -39,3 +39,9 @@ Status: **probe afgerond; connector nog niet gebouwd** — adapter-categorie `js
 1. `baseSalary` is onbetrouwbaar en mag niet als tarief worden genormaliseerd.
 2. Eindklant is alleen gedeeltelijk uit vrije tekst beschikbaar.
 3. Een volledige detailpass is door de crawl-delay bewust traag.
+
+## Sluitingsdatum (RJC-377)
+
+BlueTrail publiceert een echte sluitingsdatum op twee plekken die elkaar bevestigen: de "In het kort"-sidebar (`Sluitingsdatum`, Nederlandse tekst zoals "2 september 2026") en `jobPosting.validThrough` (RFC 2822-tekst, bv. "Wed, 02 Sep 2026 00:00:00 +0000") — in een live capture (2026-08-31) wijzen beide naar dezelfde dag. Vóór RJC-377 werd het label-blokveld wel opgeslagen in `bronSpecifiek.sluitings_datum` maar nooit gebruikt om te sluiten. De gedeelde json-ld-normaliser gebruikt nu bij voorkeur het label-blokveld (Nederlandse tekst, via `parseDutchDate`), met `validThrough` als fallback voor bronnen zonder label-blok (Pro-Act).
+
+**Bij tegenspraak (codex review):** als het label-blok een `sluitingsDatum` bevat én die wijkt af van `jobPosting.validThrough`, wint het label-blokveld stilzwijgend — er is vandaag geen waarschuwings-/observations-kanaal op deze normaliser om zo'n afwijking te signaleren (niet toegevoegd in deze pass; zie `docs/research/closing-dates-per-source-2026-09-01.md`).

@@ -16,7 +16,12 @@ const FLINTER_BASE_URL = "https://www.flinter.nl";
  * docs/sources/flinter.md and packages/connectors/src/flinter/types.ts).
  * This is not a parsing gap: none of these three fields is ever rendered
  * anywhere on the listing or detail pages, so they resolve to UNKNOWN
- * unconditionally rather than being inferred from prose. */
+ * unconditionally rather than being inferred from prose. Re-confirmed for
+ * RJC-377: `sluitingsdatumPassed` stays hard `false` below for the same
+ * reason -- there is no closing date to derive it from, and `looptijdTekst`
+ * (kept in bronSpecifiek) is a free-text contract-duration description, not
+ * a deadline. Listing removal is the only closing signal Flinter offers
+ * today. */
 const unknownTarief: NormalisedTarief = {
   eenheid: UNKNOWN,
   max: UNKNOWN,

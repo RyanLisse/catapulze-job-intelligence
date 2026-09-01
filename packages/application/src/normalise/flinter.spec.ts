@@ -84,6 +84,12 @@ describe("parseFlinterPayload", () => {
     expect(draft.contentHash).toBe("hash-4");
     expect(draft.titel.provenance.parserVersion).toBe("flinter/v1");
   });
+
+  it("never auto-closes on a closing date (RJC-377): no such field exists at this source", () => {
+    const draft = parseFlinterPayload(buildAssignmentPayload(), "hash-5");
+    expect(draft.lifecycle).not.toBe("closed");
+    expect(draft.status).not.toBe("closed");
+  });
 });
 
 describe("normaliseFlinterObservation", () => {

@@ -9,7 +9,7 @@ import { UNKNOWN } from "@ji/domain";
 import { resolveLifecycleStatus } from "@ji/domain/lifecycle";
 
 import { parseTariefFromText } from "./tarief";
-import { field, stripHtml } from "./types";
+import { field, hasClosingMomentPassed, stripHtml } from "./types";
 import type { NormalisedAanvraagDraft } from "./types";
 
 const asText = (value: JsonLdValue | undefined): string =>
@@ -41,9 +41,28 @@ const DUTCH_MONTHS = new Map<string, string>([
 const DUTCH_DATE_PATTERN =
   /(?<day>\d{1,2})\s+(?<month>[a-zé]+)\s+(?<year>\d{4})/iu;
 
+/** Round-trips year/month/day (1-indexed month) through `Date.UTC` and
+ * compares the fields back out, so an impossible calendar date (`2026-02-30`,
+ * month 13) is rejected instead of silently rolling over into a neighbouring
+ * real date (codex review, RJC-377 amendment) -- `new Date` never throws on
+ * an out-of-range day/month, it just overflows into the next one. */
+const isValidCalendarDate = (
+  year: number,
+  month1to12: number,
+  day: number
+): boolean => {
+  const date = new Date(Date.UTC(year, month1to12 - 1, day));
+  return (
+    date.getUTCFullYear() === year &&
+    date.getUTCMonth() === month1to12 - 1 &&
+    date.getUTCDate() === day
+  );
+};
+
 /** Parses a Dutch textual date like "21 september 2026" into "2026-09-21". Returns
- * `undefined` when the text doesn't match (label-block extraction failed, or the
- * source didn't publish one at all). */
+ * `undefined` when the text doesn't match (label-block extraction failed, the
+ * source didn't publish one at all, or the parsed day/month combination isn't a
+ * real calendar date). */
 export const parseDutchDate = (text?: string): string | undefined => {
   if (!text) {
     return;
@@ -59,7 +78,44 @@ export const parseDutchDate = (text?: string): string | undefined => {
   if (!month) {
     return;
   }
+  if (!isValidCalendarDate(Number(year), Number(month), Number(day))) {
+    return;
+  }
   return `${year}-${month}-${day.padStart(2, "0")}`;
+};
+
+const BARE_ISO_DATE_PATTERN = /^(?<year>\d{4})-(?<month>\d{2})-(?<day>\d{2})$/u;
+
+/** Normalises `jobPosting.validThrough` for `hasClosingMomentPassed`, without
+ * ever truncating a real instant to a date (codex review, RJC-377
+ * amendment): a bare `YYYY-MM-DD` (Pro-Act, e.g. "2026-09-01") carries no
+ * time-of-day, so it passes through verbatim -- `hasClosingMomentPassed`'s
+ * own bare-date branch already reads that as open through end-of-day
+ * Europe/Amsterdam (RJC-376). Anything else -- BlueTrail's RFC 2822 string
+ * ("Wed, 02 Sep 2026 00:00:00 +0000") or any other datetime-with-offset --
+ * genuinely carries a time component and is therefore an instant, not a
+ * date: it is parsed (never string-sliced -- slicing a date substring out of
+ * an offset timestamp can land on the wrong UTC day near midnight) and
+ * re-emitted as a full ISO instant so `hasClosingMomentPassed` compares it
+ * exactly rather than reading it as "closes at midnight". Returns `undefined`
+ * for anything absent, unparsable, or calendar-invalid. */
+const validThroughToClosingMoment = (
+  raw: string | null
+): string | undefined => {
+  if (!raw) {
+    return;
+  }
+  const trimmed = raw.trim();
+  const bareDateMatch = BARE_ISO_DATE_PATTERN.exec(trimmed);
+  if (bareDateMatch?.groups) {
+    const { year, month, day } = bareDateMatch.groups;
+    if (!isValidCalendarDate(Number(year), Number(month), Number(day))) {
+      return;
+    }
+    return trimmed;
+  }
+  const parsed = new Date(trimmed);
+  return Number.isNaN(parsed.getTime()) ? undefined : parsed.toISOString();
 };
 
 /**
@@ -99,12 +155,29 @@ export const parseJsonLdPayload = (
   const jobLocationAddress = asNode(asNode(jobPosting.jobLocation)?.address);
   const startDatum = parseDutchDate(labelBlock.startDatum);
   const tarief = parseTariefFromText(labelBlock.tarief ?? descriptionText);
+  // Only BlueTrail's label block ever carries `sluitingsDatum` (its
+  // "Sluitingsdatum" sidebar field, Dutch text like "2 september 2026" --
+  // confirmed to agree exactly with its own `jobPosting.validThrough` in a
+  // live capture, 2026-08-31). Pro-Act has no label-block closing field but
+  // does publish `jobPosting.validThrough` (confirmed as a real per-listing
+  // ISO date, not a fixed placeholder, in
+  // fixtures/connectors/pro-act/detail-{1,2}.json). Hero.eu publishes
+  // neither (confirmed absent in both fixtures/connectors/hero/detail-*.json
+  // captures) -- it stays UNKNOWN/false honestly rather than being inferred.
+  // When both the label block and validThrough exist and disagree, the
+  // label block silently wins (no warnings/observations channel exists on
+  // this normaliser to surface the conflict -- see docs/research/
+  // closing-dates-per-source-2026-09-01.md, "no signal today" note).
+  const sluitingsDatum =
+    parseDutchDate(labelBlock.sluitingsDatum) ??
+    validThroughToClosingMoment(asTextOrNull(jobPosting.validThrough));
+  const sluitingsdatumPassed = hasClosingMomentPassed(sluitingsDatum);
   const lifecycle = resolveLifecycleStatus({
     bronSaysClosed: false,
     current: "unknown",
     missedPolls: 0,
     seenOpen: true,
-    sluitingsdatumPassed: false,
+    sluitingsdatumPassed,
   });
 
   return {

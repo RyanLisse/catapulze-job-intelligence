@@ -39,3 +39,7 @@ Status: **probe afgerond; connector nog niet gebouwd** — adapter-categorie `js
 1. `employmentType=FULL_TIME` is onbetrouwbaar voor interim-opdrachten.
 2. `jobLocation` is te grof; parse het zichtbare Locatie-label.
 3. Tarief kan niet-numeriek zijn.
+
+## Sluitingsdatum (RJC-377)
+
+Pro-Act IT heeft geen `sluitingsDatum` in zijn label-blok, maar publiceert wel een echte `jobPosting.validThrough` als bare ISO-datum (bv. "2026-09-01"/"2026-10-01" in beide live captures — geen vaste placeholder). Vóór RJC-377 werd dit veld wel opgeslagen in `bronSpecifiek.valid_through` maar nooit gebruikt om te sluiten. De gedeelde json-ld-normaliser gebruikt dit nu als fallback wanneer het label-blok geen `sluitingsDatum` heeft.

@@ -133,6 +133,15 @@ describe("normalise", () => {
     expect(result.status).toBe("quarantined");
     expect(store.aanvragen).toHaveLength(0);
   });
+
+  it("never auto-closes Inhuurdesk on a closing date (RJC-377): no such field exists at this source", async () => {
+    const body = buildInhuurdeskBody("<p>Rolomschrijving.</p>");
+    const contentHash = await hashContent(body);
+    const draft = normaliseInhuurdeskObservation(body, contentHash);
+
+    expect(draft.lifecycle).not.toBe("closed");
+    expect(draft.status).not.toBe("closed");
+  });
 });
 
 describe("normalise tenderned", () => {
@@ -192,6 +201,38 @@ describe("normalise tenderned", () => {
     expect(validateNormalisedDraft(draft)).toEqual([
       { field: "bron_referentie", message: "bron_referentie is required" },
     ]);
+  });
+
+  it("stays hard-false on sluitingsdatumPassed (no closing date at this source) yet still closes via aankondigingCode (RJC-377)", () => {
+    const rawDetail = [
+      '{"aanbestedingNaam":"Platform engineer Azure DAS"',
+      '"aankondigingCode":{"code":"AGO"}',
+      '"kenmerk":"TN563214"',
+      '"numberOfDaysBeforeAanmeldenInschrijven":14',
+      '"opdrachtBeschrijving":"Volledige detailbeschrijving."',
+      '"opdrachtgeverNaam":"Gemeente Amsterdam"',
+      '"publicatieDatum":"2026-08-28T12:15:00+02:00"',
+      '"publicatieId":"fixture-pub-001"}',
+    ].join(",");
+    // SAFETY: rawDetail above is a literal object matching the shape of
+    // TenderNedFetchedPayload["detail"] (same pattern as buildTenderNedPayload).
+    const detail = JSON.parse(rawDetail) as TenderNedFetchedPayload["detail"];
+    const draft = parseTenderNedPayload(
+      { detail, listing: detail, publicatieId: "fixture-pub-001" },
+      TENDER_NED_HASH
+    );
+
+    expect(draft.lifecycle).toBe("closed");
+    expect(draft.status).toBe("closed");
+  });
+
+  it("stays open when neither the day-count nor the aankondigingCode signal closure", () => {
+    const draft = parseTenderNedPayload(
+      buildTenderNedPayload({ kenmerk: 563_214, publicatieId: 608_998 }),
+      TENDER_NED_HASH
+    );
+
+    expect(draft.lifecycle).not.toBe("closed");
   });
 });
 
@@ -255,6 +296,64 @@ describe("normalise needstaffing", () => {
     expect(draft.tarief.min).toBe(UNKNOWN);
     expect(draft.tarief.max).toBe(UNKNOWN);
     expect(draft.startDatum.value).toBe(UNKNOWN);
+  });
+
+  it("closes lifecycle once the epoch-ms deadline has passed (RJC-377)", () => {
+    const draft = parseNeedstaffingPayload(
+      buildNeedstaffingPayload({ deadline: String(Date.parse("2000-01-01")) }),
+      "hash-needstaffing-closed-past"
+    );
+
+    expect(draft.lifecycle).toBe("closed");
+    expect(draft.status).toBe("closed");
+  });
+
+  it("stays active while the epoch-ms deadline is still in the future", () => {
+    const draft = parseNeedstaffingPayload(
+      buildNeedstaffingPayload({ deadline: String(Date.parse("2099-01-01")) }),
+      "hash-needstaffing-active-future"
+    );
+
+    expect(draft.lifecycle).toBe("active");
+    expect(draft.status).toBe("active");
+  });
+
+  it("stays active when the deadline is a few minutes from now (RJC-376-style boundary)", () => {
+    const draft = parseNeedstaffingPayload(
+      buildNeedstaffingPayload({
+        deadline: String(Date.now() + 5 * 60 * 1000),
+      }),
+      "hash-needstaffing-later-today"
+    );
+
+    expect(draft.lifecycle).toBe("active");
+  });
+
+  it("stays unknown/open rather than auto-closing when the deadline is absent or unparsable", () => {
+    const missing = parseNeedstaffingPayload(
+      buildNeedstaffingPayload({ deadline: undefined }),
+      "hash-needstaffing-no-deadline"
+    );
+    expect(missing.lifecycle).not.toBe("closed");
+
+    const malformed = parseNeedstaffingPayload(
+      buildNeedstaffingPayload({ deadline: "not-a-number" }),
+      "hash-needstaffing-bad-deadline"
+    );
+    expect(malformed.lifecycle).not.toBe("closed");
+  });
+
+  it("never reads an empty/whitespace/absurd deadline as epoch 1970 (RJC-377 amendment, codex review)", () => {
+    // Number("") and Number(" ") are 0 in JS -- that used to resolve to
+    // epoch 1970, a false "already closed". 1e20 and a negative value must
+    // not throw or reach new Date() as a bogus instant either.
+    for (const deadline of ["", " ", "1e20", "-100000000000"]) {
+      const draft = parseNeedstaffingPayload(
+        buildNeedstaffingPayload({ deadline }),
+        `hash-needstaffing-edge-${deadline || "empty"}`
+      );
+      expect(draft.lifecycle).not.toBe("closed");
+    }
   });
 });
 

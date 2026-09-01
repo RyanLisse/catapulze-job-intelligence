@@ -38,3 +38,7 @@ Status: **probe afgerond; connector nog niet gebouwd** — adapter-categorie `js
 1. Opdrachtgever is geanonimiseerd.
 2. Tarief, start en deadline ontbreken.
 3. De listing bevat geen JSON-LD; discovery en detailparsing zijn twee stappen.
+
+## Sluitingsdatum (RJC-377)
+
+Hero.eu publiceert geen enkel sluitingssignaal: geen label-blok (er is geen `labelBlock`-config voor deze bron) en geen `jobPosting.validThrough` (bevestigd afwezig in beide live captures, `fixtures/connectors/hero/detail-{1,2}.json`). `sluitingsdatumPassed` blijft hard `false` via de gedeelde json-ld-normaliser — eerlijk, geen parse-gat. Het verdwijnen van de listing is vandaag het enige sluitingssignaal.

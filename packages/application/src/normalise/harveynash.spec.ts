@@ -219,3 +219,69 @@ describe("parseHarveyNashPayload", () => {
     expect(draft.contentHash).toBe("hash-5");
   });
 });
+
+describe("parseHarveyNashPayload — closing lifecycle (RJC-377)", () => {
+  it("closes once jsonLd.validThrough has passed", () => {
+    const draft = parseHarveyNashPayload(
+      buildPayload({
+        jsonLd: { validThrough: "2000-01-01T00:00:00.000Z" },
+      }),
+      "hash-closed-past"
+    );
+
+    expect(draft.lifecycle).toBe("closed");
+    expect(draft.status).toBe("closed");
+  });
+
+  it("stays active while jsonLd.validThrough is still in the future", () => {
+    const draft = parseHarveyNashPayload(
+      buildPayload({
+        jsonLd: { validThrough: "2099-01-01T00:00:00.000Z" },
+      }),
+      "hash-active-future"
+    );
+
+    expect(draft.lifecycle).toBe("active");
+    expect(draft.status).toBe("active");
+  });
+
+  it("uses the client-facing validThrough, not the supplier-facing facts.deadline, when they diverge", () => {
+    // facts.deadline ("04-09 om 09:00" -> candidate-submission cutoff) is in
+    // the past relative to the fixture's own publishedAt anchor, but
+    // validThrough is what must drive lifecycle (RJC-377 judgment call).
+    const draft = parseHarveyNashPayload(
+      buildPayload({
+        facts: {
+          deadline: "01-01 om 09:00",
+          jobRef: "BBBH121494_1788161094",
+          locatie: "Bunnik , Utrecht",
+          richttarief: "Max tarief 106.50 euro all-in exclusief btw",
+          start: "01-11-2026",
+          uren: "36",
+        },
+        jsonLd: { validThrough: "2099-01-01T00:00:00.000Z" },
+      }),
+      "hash-supplier-vs-client"
+    );
+
+    expect(draft.lifecycle).toBe("active");
+  });
+
+  it("stays unknown/open rather than auto-closing when validThrough is absent", () => {
+    const draft = parseHarveyNashPayload(
+      buildPayload({ jsonLd: {} }),
+      "hash-no-valid-through"
+    );
+
+    expect(draft.lifecycle).not.toBe("closed");
+  });
+
+  it("rejects an impossible calendar date in validThrough (Feb 30) rather than rolling it over (codex review)", () => {
+    const draft = parseHarveyNashPayload(
+      buildPayload({ jsonLd: { validThrough: "2026-02-30T23:59:59.999Z" } }),
+      "hash-invalid-calendar-date"
+    );
+
+    expect(draft.lifecycle).not.toBe("closed");
+  });
+});
