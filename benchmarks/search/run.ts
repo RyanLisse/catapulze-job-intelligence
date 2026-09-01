@@ -6,7 +6,7 @@ import {
   buildWorkloadMetadata,
   digestQueryset,
 } from "@ji/performance";
-import type { SearchDocument, SearchEngine } from "@ji/search";
+import type { SearchDocument, SearchEngine, SearchFilters } from "@ji/search";
 import {
   InMemorySearchEngine,
   InMemorySearchVersionStore,
@@ -86,17 +86,22 @@ export const runWithConcurrency = async <T>(
 };
 
 // Flattens (iterations * queries) into one task list — the shape
-// runWithConcurrency's worker pool consumes.
-const buildTaskList = (
-  profile: BenchmarkProfile,
-  iterations: number
-): BenchmarkProfile["queries"] => {
-  const tasks: BenchmarkProfile["queries"] = [];
+// runWithConcurrency's worker pool consumes. Generalised over any query
+// list (not just profile.queries) so the RJC-382 golden-query mode below
+// can reuse the exact same flattening instead of a second implementation.
+const buildTaskListFrom = <T>(items: readonly T[], iterations: number): T[] => {
+  const tasks: T[] = [];
   for (let index = 0; index < iterations; index += 1) {
-    tasks.push(...profile.queries);
+    tasks.push(...items);
   }
   return tasks;
 };
+
+const buildTaskList = (
+  profile: BenchmarkProfile,
+  iterations: number
+): BenchmarkProfile["queries"] =>
+  buildTaskListFrom(profile.queries, iterations);
 
 const percentile = (values: number[], pct: number): number => {
   if (values.length === 0) {
@@ -212,6 +217,168 @@ const createEngine = async (
   return { corpusDigest, documentCount: documents.length, engine };
 };
 
+// RJC-382 latency round: builds a named engine against an explicit URL
+// (rather than always reading MANTICORE_URL), so the same corpus can be
+// indexed into a second Manticore instance (the 29.x shadow) in the same
+// invocation, mirroring the MANTICORE_29_URL pattern already used by
+// benchmarks/relevance/run.ts. Reports indexing throughput (docs/s) since
+// that also matters for the RJC-389 1M-backfill design.
+interface NamedEngineRun {
+  documentCount: number;
+  engine: SearchEngine;
+  indexingDocsPerSecond: number;
+  indexingMs: number;
+  label: string;
+}
+
+const buildNamedEngineRun = async (
+  label: string,
+  url: string | undefined,
+  documents: SearchDocument[]
+): Promise<NamedEngineRun> => {
+  const engine = url
+    ? ManticoreSearchEngine.fromUrl(url, new InMemorySearchVersionStore())
+    : new InMemorySearchEngine();
+  const startedAt = performance.now();
+  await upsertAll(engine, documents);
+  await engine.applyBatch({ appliedSequence: 1n, mutations: [] });
+  const indexingMs = performance.now() - startedAt;
+  return {
+    documentCount: documents.length,
+    engine,
+    indexingDocsPerSecond:
+      indexingMs > 0
+        ? Number((documents.length / (indexingMs / 1000)).toFixed(1))
+        : 0,
+    indexingMs: Number(indexingMs.toFixed(1)),
+    label,
+  };
+};
+
+interface LatencyQuery {
+  filters?: SearchFilters;
+  id: string;
+  query: string;
+  weight: number;
+}
+
+// RJC-382: the production request shape after RJC-378 is facets-on,
+// sort=relevance, limit=20 — SearchAdapter's own defaults (see adapter.ts
+// DEFAULT_LIMIT/DEFAULT_SORT), so no extra params are needed here, only a
+// different query set. Loads the 43 golden queries used by
+// benchmarks/relevance/run.ts so the latency round can also measure the
+// real query mix, not just the 5 synthetic profile queries.
+const GOLDEN_QUERIES_PATH = "benchmarks/relevance/queries.jsonl";
+
+const loadGoldenQueries = (): LatencyQuery[] => {
+  const raw = readFileSync(
+    path.resolve(process.cwd(), GOLDEN_QUERIES_PATH),
+    "utf-8"
+  );
+  return raw
+    .split("\n")
+    .filter((line) => line.trim().length > 0)
+    .map((line) => {
+      // SAFETY: line is a JSONL record written by benchmarks/relevance's own
+      // querySchema (id, query, optional filters); this loader only reads
+      // the three fields it needs, same as benchmarks/relevance/run.ts.
+      const parsed = JSON.parse(line) as {
+        filters?: SearchFilters;
+        id: string;
+        query: string;
+      };
+      return {
+        filters: parsed.filters,
+        id: parsed.id,
+        query: parsed.query,
+        weight: 1,
+      };
+    });
+};
+
+interface PerQueryStats {
+  count: number;
+  p50Ms: number;
+  p95Ms: number;
+  queryId: string;
+}
+
+interface SeriesStats {
+  errorCount: number;
+  maxMs: number;
+  p50Ms: number;
+  p95Ms: number;
+  p99Ms: number;
+  perQuery: PerQueryStats[];
+}
+
+// Groups (queryId -> durationsMs[]) into a sorted-by-id per-query
+// breakdown. Isolates which query id dominates a series' p95/p99 — e.g. a
+// query set where one query is consistently slow shows up here as a
+// distinct high-p50 row, distinguishing a query-set artifact from host
+// contention.
+const buildPerQueryStats = (
+  byQueryId: ReadonlyMap<string, number[]>
+): PerQueryStats[] =>
+  [...byQueryId.entries()]
+    .map(([queryId, durations]) => ({
+      count: durations.length,
+      p50Ms: Number(percentile(durations, 50).toFixed(2)),
+      p95Ms: Number(percentile(durations, 95).toFixed(2)),
+      queryId,
+    }))
+    .toSorted((left, right) => left.queryId.localeCompare(right.queryId));
+
+// Non-throwing sibling of runMeasured (which intentionally throws on a
+// failed query for the existing gate/spec contract — see
+// concurrency.spec.ts). The RJC-382 extended report wants an error count
+// and a per-query breakdown alongside p50/p95/p99/max instead of a hard
+// failure, so it reuses runWithConcurrency directly rather than
+// duplicating the pool logic.
+const runSeries = async (
+  adapter: SearchAdapter,
+  queries: readonly LatencyQuery[],
+  concurrency: number,
+  warmupIterations: number,
+  measuredIterations: number
+): Promise<SeriesStats> => {
+  const warmupTasks = buildTaskListFrom(queries, warmupIterations);
+  await runWithConcurrency(warmupTasks, concurrency, async (query) => {
+    await adapter.search({ filters: query.filters ?? {}, query: query.query });
+  });
+
+  const durationsMs: number[] = [];
+  const byQueryId = new Map<string, number[]>();
+  let errorCount = 0;
+  const measuredTasks = buildTaskListFrom(queries, measuredIterations);
+  await runWithConcurrency(measuredTasks, concurrency, async (query) => {
+    const started = performance.now();
+    const result = await adapter.search({
+      filters: query.filters ?? {},
+      query: query.query,
+    });
+    const elapsed = performance.now() - started;
+    durationsMs.push(elapsed);
+    const perId = byQueryId.get(query.id) ?? [];
+    perId.push(elapsed);
+    byQueryId.set(query.id, perId);
+    if (!result.ok) {
+      errorCount += 1;
+    }
+  });
+
+  return {
+    errorCount,
+    maxMs: Number(
+      (durationsMs.length > 0 ? Math.max(...durationsMs) : 0).toFixed(2)
+    ),
+    p50Ms: Number(percentile(durationsMs, 50).toFixed(2)),
+    p95Ms: Number(percentile(durationsMs, 95).toFixed(2)),
+    p99Ms: Number(percentile(durationsMs, 99).toFixed(2)),
+    perQuery: buildPerQueryStats(byQueryId),
+  };
+};
+
 const parseArgs = (): BenchmarkArgs => {
   const profileFlagIndex = process.argv.indexOf("--profile");
   const profilePath =
@@ -253,9 +420,117 @@ export const runMeasured = async (
   return durationsMs;
 };
 
+// RJC-382 latency round: runs the profile (or golden) queries against the
+// base engine plus, when set, a second named Manticore engine (e.g. the
+// 29.x shadow) in one invocation, printing an extended per-engine report
+// (adds maxMs/errorCount/indexing throughput to the base report shape).
+// Only engaged when MANTICORE_29_URL or LATENCY_GOLDEN_QUERIES is set, so
+// the default `bun run bench:search` invocation is entirely unaffected —
+// see runLatencyRound's caller in main() below.
+interface LatencyEngineReport {
+  boundary: string;
+  documentCount: number;
+  engine: string;
+  errorCount: number;
+  indexingDocsPerSecond: number;
+  indexingMs: number;
+  maxMs: number;
+  p50Ms: number;
+  p95Ms: number;
+  p99Ms: number;
+  passed: boolean;
+  perQuery: PerQueryStats[];
+  profile: string;
+  queryMode: "golden" | "profile";
+  queryset: string;
+  sloMaxMs: number;
+}
+
+const runLatencyRound = async (
+  profile: BenchmarkProfile,
+  profilePath: string
+): Promise<void> => {
+  const useGolden = process.env.LATENCY_GOLDEN_QUERIES === "1";
+  const queries: LatencyQuery[] = useGolden
+    ? loadGoldenQueries()
+    : profile.queries.map((q) => ({ ...q }));
+  const { documents } = resolveCorpusDocuments(profile);
+
+  const engineSpecs: { label: string; url: string | undefined }[] = [
+    {
+      label: process.env.MANTICORE_URL ? "manticore-6.3.8" : "in-memory",
+      url: process.env.MANTICORE_URL,
+    },
+  ];
+  const manticore29Url = process.env.MANTICORE_29_URL?.trim();
+  if (manticore29Url) {
+    engineSpecs.push({
+      label: process.env.MANTICORE_29_LABEL?.trim() || "manticore-29",
+      url: manticore29Url,
+    });
+  }
+
+  const reports: LatencyEngineReport[] = [];
+  for (const spec of engineSpecs) {
+    // oxlint-disable-next-line no-await-in-loop -- engines are indexed and measured sequentially so each series is isolated and comparable
+    const run = await buildNamedEngineRun(spec.label, spec.url, documents);
+    const adapter = new SearchAdapter({ engine: run.engine });
+    // oxlint-disable-next-line no-await-in-loop -- sequential series, see above
+    const stats = await runSeries(
+      adapter,
+      queries,
+      profile.concurrency,
+      profile.warmupIterations,
+      profile.measuredIterations
+    );
+    reports.push({
+      boundary: profile.slo.boundary,
+      documentCount: run.documentCount,
+      engine: run.label,
+      errorCount: stats.errorCount,
+      indexingDocsPerSecond: run.indexingDocsPerSecond,
+      indexingMs: run.indexingMs,
+      maxMs: stats.maxMs,
+      p50Ms: stats.p50Ms,
+      p95Ms: stats.p95Ms,
+      p99Ms: stats.p99Ms,
+      passed: stats.p95Ms <= profile.slo.maxMs,
+      perQuery: stats.perQuery,
+      profile: profilePath,
+      queryMode: useGolden ? "golden" : "profile",
+      queryset: useGolden ? GOLDEN_QUERIES_PATH : profile.corpus.pointer,
+      sloMaxMs: profile.slo.maxMs,
+    });
+  }
+
+  console.log(JSON.stringify(reports, null, 2));
+
+  const anyFailed = reports.some((r) => r.passed !== true);
+  if (anyFailed && process.env.BENCH_ALLOW_FAIL !== "1") {
+    process.exitCode = 1;
+  }
+};
+
 const main = async (): Promise<void> => {
   const { profilePath } = parseArgs();
   const profile = loadProfile(profilePath);
+
+  // Extended RJC-382 latency-round mode is opt-in only; the default path
+  // below (none of these three set) is completely untouched, keeping
+  // `bun run bench:search` output byte-identical. LATENCY_EXTENDED_REPORT
+  // forces the extended (array, per-query breakdown) report shape for a
+  // single engine without requiring a second Manticore target — useful for
+  // running one engine's series in isolation (e.g. to avoid one engine's
+  // indexing timeout aborting a report for an engine that already finished).
+  if (
+    process.env.MANTICORE_29_URL ||
+    process.env.LATENCY_GOLDEN_QUERIES === "1" ||
+    process.env.LATENCY_EXTENDED_REPORT === "1"
+  ) {
+    await runLatencyRound(profile, profilePath);
+    return;
+  }
+
   const { corpusDigest, documentCount, engine } = await createEngine(profile);
   const adapter = new SearchAdapter({ engine });
 
