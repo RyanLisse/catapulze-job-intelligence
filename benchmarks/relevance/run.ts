@@ -2,7 +2,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import { AANVRAAG_LIFECYCLE, parseBooleanQuery } from "@ji/domain";
-import type { SearchEngine, SearchFilters } from "@ji/search";
+import type { SearchEngine, SearchFilters, SearchScope } from "@ji/search";
 import {
   InMemorySearchEngine,
   InMemorySearchVersionStore,
@@ -22,6 +22,17 @@ import type { RelevanceCorpusSummary } from "./corpus";
  * Always runs in-memory; adds Manticore when MANTICORE_URL is set. No
  * app-layer code changes are needed to add an engine — anything satisfying
  * the `SearchEngine` seam plugs into `buildEngineRuns`.
+ *
+ * RJC-383 (active/archive split): the FIRST table and the `engines` key of
+ * the report are scored with `scope: "all"` — the whole corpus, exactly what
+ * the pre-split single table held — so every number stays comparable with
+ * the history. A SECOND table (`enginesActiveScope`) scores the same query
+ * set against the default active scope; judged documents that sit in the
+ * archive (closed status or a passed sluitingsdatum at BENCH_NOW) are then
+ * unreachable by design, so lower recall there measures the split's
+ * product effect, not engine quality. Engines are built with the fixed
+ * BENCH_NOW clock so the partition of each corpus document — and therefore
+ * the report — is byte-identical from one day to the next.
  */
 
 const RECALL_DEPTH = 20;
@@ -29,6 +40,9 @@ const NDCG_DEPTH = 10;
 const MIN_QUERY_COUNT = 35;
 const METRIC_PRECISION = 6;
 const REPORT_PATH = path.join(".artifacts", "relevance", "report.json");
+/** Fixed partition clock (RJC-383); one day after the corpus' laatstGezienOp. */
+const BENCH_NOW = new Date("2026-09-01T00:00:00.000Z");
+const benchClock = (): Date => BENCH_NOW;
 
 const QUERY_CATEGORIES = [
   "exact-skill",
@@ -189,14 +203,9 @@ const scoreEngine = async (
   name: string,
   engine: SearchEngine,
   corpus: RelevanceCorpusSummary,
-  queries: readonly RelevanceQuery[]
+  queries: readonly RelevanceQuery[],
+  scope: SearchScope
 ): Promise<EngineReport> => {
-  for (const item of corpus.documents) {
-    // oxlint-disable-next-line no-await-in-loop -- upserts are ordered so both engines index identically
-    await engine.upsertDocument(item.document);
-  }
-  await engine.applyBatch({ appliedSequence: 1n, mutations: [] });
-
   const perQuery: QueryScore[] = [];
   for (const query of queries) {
     const parsed = parseBooleanQuery(query.query);
@@ -214,6 +223,7 @@ const scoreEngine = async (
       filters,
       limit: RECALL_DEPTH,
       offset: 0,
+      scope,
     });
     const rankedIds = result.hits.map((hit) => hit.id);
     const relevant = new Set(query.relevant);
@@ -245,7 +255,72 @@ interface EngineRun {
   cleanup: (() => Promise<void>) | null;
   engine: SearchEngine;
   name: string;
+  /** Manticore only: refuse dirty tables before indexing, prove them clean after (RJC-383). */
+  preflight: ((phase: "after" | "before") => Promise<void>) | null;
 }
+
+/** Tables `bun run relevance` writes into on a Manticore target (RJC-383). */
+const MANTICORE_BENCH_TABLES = [
+  "aanvragen_active",
+  "aanvragen_archive",
+] as const;
+
+/**
+ * Row count per table via `SELECT COUNT(*)` over `/sql?mode=raw`. Never use a
+ * `/search` with `limit: 0` for this: its `hits.total` reflects the returned
+ * window, not the table, and reported 0 on a 505-row table — the probe
+ * behind the polluted RJC-382 baseline
+ * (docs/research/manticore-relevance-baseline-correction-2026-09-01.md).
+ */
+const countManticoreRows = async (
+  url: string
+): Promise<Record<string, number>> => {
+  const countTable = async (table: string): Promise<[string, number]> => {
+    const response = await fetch(`${url}/sql?mode=raw`, {
+      body: `query=${encodeURIComponent(`SELECT COUNT(*) FROM ${table}`)}`,
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      method: "POST",
+    });
+    if (!response.ok) {
+      throw new Error(
+        `SELECT COUNT(*) FROM ${table} failed (${response.status}) on ${url}`
+      );
+    }
+    const parsed = z
+      .array(z.object({ data: z.array(z.record(z.string(), z.unknown())) }))
+      .parse(await response.json());
+    return [table, Number(parsed[0]?.data[0]?.["count(*)"] ?? Number.NaN)];
+  };
+  return Object.fromEntries(
+    await Promise.all(MANTICORE_BENCH_TABLES.map((table) => countTable(table)))
+  );
+};
+
+/**
+ * Relevance numbers are only comparable on empty tables: foreign rows take
+ * result slots and skew BM25 statistics (0.477 vs 0.523 on the same corpus,
+ * see the correction doc above). Refuses unless RELEVANCE_ALLOW_DIRTY_TABLE=1.
+ */
+const assertCleanManticore = async (
+  name: string,
+  url: string,
+  phase: "after" | "before"
+): Promise<void> => {
+  const counts = await countManticoreRows(url);
+  console.log(`${name}: rows ${phase} run ${JSON.stringify(counts)}`);
+  const dirty = Object.entries(counts).filter(([, count]) => count !== 0);
+  if (dirty.length === 0 || process.env.RELEVANCE_ALLOW_DIRTY_TABLE === "1") {
+    return;
+  }
+  console.error(
+    `${name}: refusing to score against non-empty tables ${dirty
+      .map(([table, count]) => `${table}=${count}`)
+      .join(", ")} on ${url}.\n` +
+      "  Pre-existing rows skew ranking and BM25 statistics, so the numbers would not be comparable.\n" +
+      "  Use an empty volume or a throwaway Manticore for baselines, or set RELEVANCE_ALLOW_DIRTY_TABLE=1 to override knowingly."
+  );
+  process.exit(1);
+};
 
 /** Builds one Manticore EngineRun. Shared by both the default MANTICORE_URL
  * engine and the optional RJC-382 comparison engine below. */
@@ -256,7 +331,9 @@ const buildManticoreRun = (
 ): EngineRun => {
   const manticore = ManticoreSearchEngine.fromUrl(
     url,
-    new InMemorySearchVersionStore()
+    new InMemorySearchVersionStore(),
+    undefined,
+    benchClock
   );
   return {
     // The local Manticore table is shared with the app; benchmark ids are
@@ -270,6 +347,9 @@ const buildManticoreRun = (
     },
     engine: manticore,
     name,
+    preflight: async (phase) => {
+      await assertCleanManticore(name, url, phase);
+    },
   };
 };
 
@@ -284,7 +364,12 @@ const buildManticoreRun = (
  * with only MANTICORE_URL set is unaffected. */
 const buildEngineRuns = (corpus: RelevanceCorpusSummary): EngineRun[] => {
   const runs: EngineRun[] = [
-    { cleanup: null, engine: new InMemorySearchEngine(), name: "in-memory" },
+    {
+      cleanup: null,
+      engine: new InMemorySearchEngine(undefined, benchClock),
+      name: "in-memory",
+      preflight: null,
+    },
   ];
   const manticoreUrl = process.env.MANTICORE_URL?.trim();
   if (manticoreUrl) {
@@ -301,7 +386,13 @@ const buildEngineRuns = (corpus: RelevanceCorpusSummary): EngineRun[] => {
 const COLUMN_WIDTH = 18;
 const pad = (value: string): string => value.padEnd(COLUMN_WIDTH);
 
-const printReport = (reports: readonly EngineReport[]): void => {
+const printReport = (
+  reports: readonly EngineReport[],
+  title: string | null = null
+): void => {
+  if (title !== null) {
+    console.log(`\n${title}`);
+  }
   const header = [pad("category"), ...reports.map((r) => pad(r.engine))].join(
     ""
   );
@@ -336,28 +427,65 @@ const main = async (): Promise<void> => {
   );
 
   const reports: EngineReport[] = [];
+  const activeScopeReports: EngineReport[] = [];
   for (const run of buildEngineRuns(corpus)) {
+    if (run.preflight) {
+      // oxlint-disable-next-line no-await-in-loop -- must refuse before anything is indexed
+      await run.preflight("before");
+    }
     try {
+      for (const item of corpus.documents) {
+        // oxlint-disable-next-line no-await-in-loop -- upserts are ordered so both engines index identically
+        await run.engine.upsertDocument(item.document);
+      }
+      // oxlint-disable-next-line no-await-in-loop -- the index must be complete before it is scored
+      await run.engine.applyBatch({ appliedSequence: 1n, mutations: [] });
       // oxlint-disable-next-line no-await-in-loop -- engines are scored one at a time so a shared Manticore index is never measured concurrently
-      reports.push(await scoreEngine(run.name, run.engine, corpus, queries));
+      const allScope = await scoreEngine(
+        run.name,
+        run.engine,
+        corpus,
+        queries,
+        "all"
+      );
+      reports.push(allScope);
+      // oxlint-disable-next-line no-await-in-loop -- same engine, same index, second scope
+      const activeScope = await scoreEngine(
+        run.name,
+        run.engine,
+        corpus,
+        queries,
+        "active"
+      );
+      activeScopeReports.push(activeScope);
     } finally {
       if (run.cleanup) {
         // oxlint-disable-next-line no-await-in-loop -- cleanup must finish before the next engine runs
         await run.cleanup();
       }
+      if (run.preflight) {
+        // oxlint-disable-next-line no-await-in-loop -- prove the run left the tables as it found them
+        await run.preflight("after");
+      }
     }
   }
 
   printReport(reports);
+  printReport(
+    activeScopeReports,
+    "scope=active (default search space; archived judgements are unreachable by design)"
+  );
 
   // Deterministic report (no timestamps): two runs on the same corpus and
-  // query set produce byte-identical JSON (ISC-5).
+  // query set produce byte-identical JSON (ISC-5). `engines` is the
+  // scope=all history; `enginesActiveScope` is additive (RJC-383).
   const report = {
     corpus: {
       documents: corpus.documents.length,
       skipped: corpus.skipped,
     },
     engines: reports,
+    enginesActiveScope: activeScopeReports,
     metrics: { ndcgDepth: NDCG_DEPTH, recallDepth: RECALL_DEPTH },
     queryCount: queries.length,
   };

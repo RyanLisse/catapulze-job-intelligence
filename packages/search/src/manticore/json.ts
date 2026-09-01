@@ -167,7 +167,8 @@ export interface ManticoreTermsAgg {
 }
 
 export interface ManticoreSearchRequestBody {
-  aggs: {
+  /** Omitted on the RJC-383 archive count request, which only needs `total`. */
+  aggs?: {
     bron_id: { terms: ManticoreTermsAgg };
     contracttype: { terms: ManticoreTermsAgg };
     locatie: { terms: ManticoreTermsAgg };

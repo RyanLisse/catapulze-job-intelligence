@@ -344,10 +344,16 @@ export const querySnapshot = curatedSchema.table(
       mode: "bigint",
     }).notNull(),
     searchGeneration: integer("search_generation").notNull(),
+    /** Search scope the selection was made under (RJC-383): 'active' or 'all'. */
+    searchScope: text("search_scope").default("active").notNull(),
     userId: text("user_id").notNull(),
   },
   (table) => [
     index("query_snapshot_user_id_idx").on(table.userId),
+    check(
+      "query_snapshot_search_scope_check",
+      sql`${table.searchScope} IN ('active', 'all')`
+    ),
     check(
       "query_snapshot_search_generation_check",
       sql`${table.searchGeneration} >= 1`

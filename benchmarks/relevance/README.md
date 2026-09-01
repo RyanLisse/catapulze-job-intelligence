@@ -62,7 +62,9 @@ When a second annotator joins, disagreements resolve by discussion and the resol
 The runner talks only to the `SearchEngine` seam (`packages/search`):
 
 - **in-memory** — always runs; the floor. Its "ranking" is lexicographic id order with substring matching, so treat its nDCG as a baseline artifact.
-- **manticore** — runs when `MANTICORE_URL` is set. Uses the shared local `aanvragen` table: benchmark documents use `slug:referentie` ids (which cannot collide with the app's UUID ids) and are deleted again after scoring. For a strictly clean comparison, run against a fresh Manticore volume; pre-existing documents can occupy result slots but can never be counted as relevant.
+- **manticore** — runs when `MANTICORE_URL` is set. **Writes into the app's live tables** (`aanvragen_active` / `aanvragen_archive` since RJC-383; `aanvragen` before): benchmark documents use `slug:referentie` ids (which cannot collide with the app's UUID ids) and are deleted again after scoring — nothing else in those tables is touched. **Clean-table requirement:** numbers are only comparable when the target tables are empty (`SELECT count(*) FROM aanvragen_active` = 0, same for `_archive`) at the start of the run. Pre-existing rows can never be counted as relevant, but they take result slots and skew BM25 statistics: the RJC-382 6.3.8 baseline (0.477 / 0.425) was measured with 505 fixture rows present and is 0.523 / 0.529 on an empty table (`docs/research/manticore-relevance-baseline-correction-2026-09-01.md`). Use a fresh volume or a throwaway 6.3.8 container for baselines.
+
+  Scoring runs twice per engine: `scope: "all"` (both partitions, the number comparable with pre-split history — printed first and stored under `engines`) and `scope: "active"` (the default search space; stored under `enginesActiveScope`).
 
 Adding a candidate engine = one entry in `buildEngineRuns` in `run.ts` (construct anything implementing `SearchEngine`). No application-layer code changes (ISC-4).
 
@@ -77,7 +79,7 @@ MANTICORE_29_LABEL=manticore29-infix \
 bun run relevance
 ```
 
-Run once against `tools/manticore/manticore29.conf` (infix enabled) and once against `tools/manticore/manticore29-noinfix.conf` (identical minus `min_infix_len`) to isolate the infix config change from the version upgrade itself — swap the conf file mounted at `/etc/manticoresearch/manticore.conf` and restart `manticore29` between runs, on a fresh volume each time (`docker volume rm catapulze-job-intelligence_manticore29_data`) so the schema actually reloads. Verify the table is empty (`total: 0` from a `match_all` search) before each run.
+Run once against `tools/manticore/manticore29.conf` (infix enabled) and once against `tools/manticore/manticore29-noinfix.conf` (identical minus `min_infix_len`) to isolate the infix config change from the version upgrade itself — swap the conf file mounted at `/etc/manticoresearch/manticore.conf` and restart `manticore29` between runs, on a fresh volume each time (`docker volume rm catapulze-job-intelligence_manticore29_data`) so the schema actually reloads. Verify the tables are empty with `SELECT COUNT(*) FROM aanvragen_active` / `aanvragen_archive` over `/sql?mode=raw` before each run — never with a `/search … "limit": 0`, whose `hits.total` is not a row count (it reported 0 on a 505-row table). The runner does this check itself and refuses a non-empty table unless `RELEVANCE_ALLOW_DIRTY_TABLE=1`.
 
 ## Judgments: extending the golden set with real recruiter judgments
 

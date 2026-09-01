@@ -6,7 +6,8 @@ import type {
   QuerySnapshotStore,
 } from "@ji/application/registry";
 import { searchFiltersSchema } from "@ji/application/registry";
-import type { SearchFilters } from "@ji/search";
+import type { SearchFilters, SearchScope } from "@ji/search";
+import { SEARCH_SCOPES } from "@ji/search";
 import { eq } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import { z } from "zod";
@@ -17,6 +18,12 @@ import { approvalRecord, querySnapshot } from "./schema";
 export type ReadPathDatabase = PostgresJsDatabase<typeof schema>;
 
 const resultIdsSchema = z.array(z.string());
+const searchScopeSchema = z.enum(SEARCH_SCOPES);
+
+const parseScope = (value: string): SearchScope => {
+  const parsed = searchScopeSchema.safeParse(value);
+  return parsed.success ? parsed.data : "active";
+};
 
 const parseFilters = (value: SearchFilters | unknown): SearchFilters => {
   const parsed = searchFiltersSchema.safeParse(value);
@@ -42,6 +49,7 @@ const toQuerySnapshotRecord = (
   resultIds: parseResultIds(row.resultIds),
   savedSearchId: row.savedSearchId,
   schemaVersion: row.schemaVersion,
+  scope: parseScope(row.searchScope),
   searchVersion: {
     appliedSequence: row.searchAppliedSequence,
     generation: row.searchGeneration,
@@ -83,6 +91,7 @@ export class PostgresQuerySnapshotStore implements QuerySnapshotStore {
         schemaVersion: record.schemaVersion,
         searchAppliedSequence: record.searchVersion.appliedSequence,
         searchGeneration: record.searchVersion.generation,
+        searchScope: record.scope,
         userId: record.userId,
       })
       .returning();

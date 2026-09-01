@@ -13,7 +13,7 @@ describe("job search URL state", () => {
   it("round-trips shareable filters and selection", () => {
     const original = parseJobSearchState(
       new URLSearchParams(
-        "q=data&source=inhuurdesk&source=tenderned&contract=interim&location=Amsterdam&freshness=7d&minRate=90&sort=rate-high&page=2&job=job-001&preview=loading"
+        "q=data&source=inhuurdesk&source=tenderned&contract=interim&location=Amsterdam&freshness=7d&minRate=90&sort=rate-high&page=2&job=job-001&preview=loading&archief=1"
       )
     );
 
@@ -40,9 +40,35 @@ describe("job search URL state", () => {
     expect(state.page).toBe(1);
     expect(state.previewStatus).toBe("ready");
   });
+
+  it("defaults to the active scope and only serialises the archive opt-in (RJC-383)", () => {
+    const active = parseJobSearchState(new URLSearchParams("q=data"));
+    expect(active.scope).toBe("active");
+    expect(serializeJobSearchState(active).has("archief")).toBe(false);
+    const all = parseJobSearchState(new URLSearchParams("q=data&archief=1"));
+    expect(all.scope).toBe("all");
+    expect(serializeJobSearchState(all).get("archief")).toBe("1");
+    expect(parseJobSearchState(new URLSearchParams("archief=yes")).scope).toBe(
+      "active"
+    );
+  });
 });
 
 describe("fixture job search", () => {
+  it("keeps closed listings in the archive: hidden and counted under active, listed under all (RJC-383)", () => {
+    const closed = JOB_FIXTURES.filter((job) => job.status === "closed");
+    expect(closed.length).toBeGreaterThan(0);
+    const active = searchJobs(JOB_FIXTURES, parseJobSearchState({}));
+    expect(active.items.some((job) => job.status === "closed")).toBe(false);
+    expect(active.archiveTotal).toBe(closed.length);
+    const all = searchJobs(
+      JOB_FIXTURES,
+      parseJobSearchState(new URLSearchParams("archief=1"))
+    );
+    expect(all.archiveTotal).toBeNull();
+    expect(all.total).toBe(active.total + closed.length);
+  });
+
   it("searches, filters and sorts deterministically", () => {
     const state = parseJobSearchState(
       new URLSearchParams(

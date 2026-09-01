@@ -54,7 +54,7 @@ never a hung request.
 | Component | `failed`/worse means | Maps to overall |
 |---|---|---|
 | `postgres` | Migration mismatch or the database is unreachable | `unavailable` |
-| `manticore` | Unreachable, or `SHOW TABLES` doesn't list the index — search is the product | `unavailable` |
+| `manticore` | Unreachable, or `SHOW TABLES` doesn't list BOTH partition tables (`aanvragen_active` and `aanvragen_archive`, RJC-383) — search is the product | `unavailable` |
 | `rawObjectStore` | Filesystem backend selected in production (RJC-386: worker-local, shares no disk with the server — production startup already refuses to boot on this; reaching it live would mean that guard was bypassed) | `unavailable` |
 | `rawObjectStore` | S3 HEAD/list of the sentinel key fails or times out | `degraded` (ingest reads break; search keeps working) |
 | `redis` | Unset (`REDIS_URL` not configured) | `not-configured`, does not affect overall status |

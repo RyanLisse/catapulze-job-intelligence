@@ -24,6 +24,8 @@ import { MemoryFacetCache } from "./cache/facets-cache";
 import type { FacetCache } from "./cache/facets-cache";
 import { ParserLruCache } from "./cache/parser-cache";
 import { Singleflight } from "./cache/singleflight";
+import { DEFAULT_SEARCH_SCOPE } from "./partition";
+import type { SearchScope } from "./partition";
 import type {
   ResultCache,
   SearchAdapterInput,
@@ -98,7 +100,12 @@ export class SearchAdapter {
     filters: SearchFilters,
     cacheKey: string,
     facetKey: string,
-    page: { limit: number; offset: number; sort: SearchSort }
+    page: {
+      limit: number;
+      offset: number;
+      scope: SearchScope;
+      sort: SearchSort;
+    }
   ): Promise<SearchAdapterSuccess> {
     const cachedFacets = await this.facetsCache.get(facetKey);
 
@@ -108,6 +115,7 @@ export class SearchAdapter {
         filters,
         limit: page.limit,
         offset: page.offset,
+        scope: page.scope,
         sort: page.sort,
       })
     );
@@ -122,6 +130,7 @@ export class SearchAdapter {
     }
 
     const success: SearchAdapterSuccess = {
+      archiveTotal: engineResult.archiveTotal,
       astHash,
       emptyReason: engineResult.emptyReason,
       facets,
@@ -129,6 +138,7 @@ export class SearchAdapter {
       indexVersion: engineResult.indexVersion,
       ok: true,
       parserVersion,
+      scope: engineResult.scope,
       total: engineResult.total,
       windowLimit: engineResult.windowLimit,
     };
@@ -137,12 +147,14 @@ export class SearchAdapter {
       await this.cache.set(
         cacheKey,
         {
+          archiveTotal: engineResult.archiveTotal,
           astHash,
           emptyReason: engineResult.emptyReason,
           facets,
           filters,
           hits: engineResult.hits,
           indexVersion: engineResult.indexVersion,
+          scope: engineResult.scope,
           total: engineResult.total,
           windowLimit: engineResult.windowLimit,
         },
@@ -167,6 +179,7 @@ export class SearchAdapter {
       const limit = input.limit ?? DEFAULT_LIMIT;
       const offset = input.offset ?? DEFAULT_OFFSET;
       const sort = input.sort ?? DEFAULT_SORT;
+      const scope = input.scope ?? DEFAULT_SEARCH_SCOPE;
 
       return timeCriticalPathPhase("search-adapter", async () => {
         const astHash = await hashAst(parsed.ast);
@@ -174,6 +187,7 @@ export class SearchAdapter {
         const cacheKey = await buildCacheKey(astHash, version, filters, {
           limit,
           offset,
+          scope,
           sort,
         });
 
@@ -181,6 +195,7 @@ export class SearchAdapter {
           const cached = await this.cache.get(cacheKey);
           if (cached) {
             const success: SearchAdapterSuccess = {
+              archiveTotal: cached.archiveTotal,
               astHash,
               cache: "hit",
               emptyReason: cached.emptyReason,
@@ -189,6 +204,7 @@ export class SearchAdapter {
               indexVersion: cached.indexVersion,
               ok: true,
               parserVersion: parsed.version,
+              scope: cached.scope,
               total: cached.total,
               windowLimit: cached.windowLimit,
             };
@@ -196,7 +212,12 @@ export class SearchAdapter {
           }
         }
 
-        const facetKey = await buildFacetCacheKey(astHash, version, filters);
+        const facetKey = await buildFacetCacheKey(
+          astHash,
+          version,
+          filters,
+          scope
+        );
         const { coalesced, promise } = this.singleflight.run(cacheKey, () =>
           this.computeAndCache(
             canonicalizeAst(parsed.ast),
@@ -205,7 +226,7 @@ export class SearchAdapter {
             filters,
             cacheKey,
             facetKey,
-            { limit, offset, sort }
+            { limit, offset, scope, sort }
           )
         );
         const result = await promise;

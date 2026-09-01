@@ -28,8 +28,13 @@ const byHash = (ids: readonly string[]): string[] =>
     (left, right) => hashDocumentId(left) - hashDocumentId(right)
   );
 
+// Fixed clock (RJC-383): the partition rule compares sluitingsdatum with
+// "now", so the fixtures below (deadlines in Sept 2026) must not drift into
+// the archive as the calendar advances.
+const FIXTURE_NOW = new Date("2026-08-30T12:00:00.000Z");
+
 const seeded = async (documents: readonly SearchDocument[]) => {
-  const engine = new InMemorySearchEngine();
+  const engine = new InMemorySearchEngine(undefined, () => FIXTURE_NOW);
   for (const item of documents) {
     // oxlint-disable-next-line no-await-in-loop -- ordered seeding keeps ids deterministic
     await engine.upsertDocument(item);
@@ -213,5 +218,98 @@ describe("InMemorySearchEngine tiebreak parity", () => {
       // oxlint-disable-next-line no-await-in-loop -- one assertion per sort key
       expect(await idsFor(engine, sort)).toEqual(byHash(ids));
     }
+  });
+});
+
+describe("InMemorySearchEngine partitions (RJC-383)", () => {
+  it("defaults to the active scope, counts the archive, and serves both under scope all", async () => {
+    const engine = await seeded([
+      document("open"),
+      document("closed", { status: "closed" }),
+      document("stale", { status: "stale" }),
+      document("expired", {
+        sluitingsdatum: new Date("2026-08-01T00:00:00.000Z"),
+      }),
+    ]);
+
+    const active = await engine.search({
+      ast: null,
+      filters: {},
+      limit: 10,
+      offset: 0,
+    });
+    expect(active.scope).toBe("active");
+    expect(active.hits.map((hit) => hit.id)).toEqual(["open"]);
+    expect(active.total).toBe(1);
+    expect(active.archiveTotal).toBe(3);
+    // Facets describe the active set only.
+    expect(active.facets.status).toEqual([{ count: 1, value: "active" }]);
+
+    const all = await engine.search({
+      ast: null,
+      filters: {},
+      limit: 10,
+      offset: 0,
+      scope: "all",
+    });
+    expect(all.scope).toBe("all");
+    expect(all.total).toBe(4);
+    expect(all.archiveTotal).toBeUndefined();
+    expect(all.hits.map((hit) => hit.id)).toEqual(
+      byHash(["open", "closed", "stale", "expired"])
+    );
+    expect(all.facets.status).toEqual([
+      { count: 2, value: "active" },
+      { count: 1, value: "closed" },
+      { count: 1, value: "stale" },
+    ]);
+  });
+
+  it("archiveTotal honours the query and filters of the active search", async () => {
+    const engine = await seeded([
+      document("open-nl"),
+      document("closed-nl", { status: "closed" }),
+      document("closed-be", { locatieLand: "BE", status: "closed" }),
+    ]);
+    const nl = await engine.search({
+      ast: null,
+      filters: { locatieLand: ["NL"] },
+      limit: 10,
+      offset: 0,
+    });
+    expect(nl.total).toBe(1);
+    expect(nl.archiveTotal).toBe(1);
+  });
+
+  it("moves a document between partitions on re-upsert: never in both", async () => {
+    const engine = await seeded([document("d")]);
+    await engine.applyBatch({
+      appliedSequence: 2n,
+      mutations: [
+        {
+          document: document("d", { status: "closed" }),
+          kind: "upsert",
+          partition: "archive",
+          previousPartition: "active",
+          sequenceNumber: 2n,
+        },
+      ],
+    });
+    const active = await engine.search({
+      ast: null,
+      filters: {},
+      limit: 10,
+      offset: 0,
+    });
+    expect(active.total).toBe(0);
+    expect(active.archiveTotal).toBe(1);
+    const all = await engine.search({
+      ast: null,
+      filters: {},
+      limit: 10,
+      offset: 0,
+      scope: "all",
+    });
+    expect(all.total).toBe(1);
   });
 });

@@ -174,6 +174,7 @@ const pageLabel = (response: JobSearchResponse): string => {
 const emptyResponse = (
   status: "engine-error" | "loading"
 ): JobSearchResponse => ({
+  archiveTotal: null,
   facets: { contractTypes: [], locations: [], sources: [] },
   items: [],
   message:
@@ -387,6 +388,7 @@ const JobSearchPageContent = ({
       filters: state.filters,
       query: state.query,
       results: response.items,
+      scope: state.scope,
       selectedJob,
       setIsCreatingSnapshot,
       setIsSavingSearch,
@@ -444,17 +446,22 @@ const JobSearchPageContent = ({
 
       <JobSearchQueryBar
         activeFilterCount={activeFilterCount}
+        archiveTotal={response.archiveTotal}
         countLabel={countLabel}
         isRefreshing={isRefreshing}
         onClearQueryDraft={() => setQueryDraft("")}
         onOpenFilters={() => setFiltersOpen(true)}
         onQueryDraftChange={setQueryDraft}
         onResetQueryDraft={() => setQueryDraft(state.query)}
+        onScopeChange={(scope) =>
+          writeState(withResetPage(state, { scope, selectedJobId: null }))
+        }
         onSortChange={(sort) =>
           writeState(withResetPage(state, { selectedJobId: null, sort }))
         }
         onSubmit={submitSearch}
         queryDraft={queryDraft}
+        scope={state.scope}
         sort={state.sort}
         syntaxError={syntaxError}
         total={response.total}

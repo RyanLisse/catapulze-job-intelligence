@@ -44,6 +44,15 @@ export const selectableJobSortOptions = (
 
 export const FRESHNESS_FILTERS = ["all", "24h", "7d", "30d"] as const;
 
+/**
+ * RJC-383: which search partitions a query reads. "active" is the placeable
+ * stock and the default; "all" also searches the archive (closed, stale and
+ * expired work) — the "ook in archief zoeken" toggle.
+ */
+export const JOB_SEARCH_SCOPES = ["active", "all"] as const;
+
+export type JobSearchScope = (typeof JOB_SEARCH_SCOPES)[number];
+
 export type FreshnessFilter = (typeof FRESHNESS_FILTERS)[number];
 
 export const PREVIEW_STATUSES = [
@@ -128,6 +137,7 @@ export interface JobSearchFilters {
 export interface JobSearchState {
   readonly query: string;
   readonly filters: JobSearchFilters;
+  readonly scope: JobSearchScope;
   readonly sort: JobSort;
   readonly page: number;
   readonly selectedJobId: string | null;
@@ -152,6 +162,8 @@ export interface JobSearchFacets {
 export interface JobSearchResponse {
   readonly items: readonly JobListing[];
   readonly total: number;
+  /** Matches the same search has in the archive; null when the archive was searched too (RJC-383). */
+  readonly archiveTotal: number | null;
   readonly page: number;
   readonly pageSize: number;
   readonly totalPages: number;
@@ -175,6 +187,7 @@ export interface JobIntelligenceActions {
   readonly createSnapshot: (input: {
     readonly filters: JobSearchFilters;
     readonly query: string;
+    readonly scope: JobSearchScope;
     readonly selectedIds: readonly string[];
   }) => Promise<{ readonly id: string; readonly resultCount: number }>;
   readonly markeerAanvraag: (input: {
@@ -195,6 +208,7 @@ export const DEFAULT_JOB_SEARCH_STATE: JobSearchState = {
   page: 1,
   previewStatus: "ready",
   query: "",
+  scope: "active",
   selectedJobId: null,
   sort: "relevance",
 };

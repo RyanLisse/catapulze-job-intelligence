@@ -71,6 +71,13 @@
       "when": 1788681600000,
       "tag": "0009_source_record_missed_polls",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1788768000000,
+      "tag": "0010_query_snapshot_search_scope",
+      "breakpoints": true
     }
   ]
 }

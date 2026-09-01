@@ -785,3 +785,109 @@ describe.serial("0008 to 0009 source_record missed polls migration", () => {
     ]);
   });
 });
+
+describe.serial("0009 to 0010 query_snapshot search scope migration", () => {
+  let client: ReturnType<typeof postgres> | undefined;
+  let priorStatements: string[] = [];
+  let scopeStatements: string[] = [];
+  const priorMigrations = [
+    "0000_core.sql",
+    "0001_u3_durable_ingestion.sql",
+    "0002_u8_backfill_observability.sql",
+    "0003_u9_snapshot_approval.sql",
+    "0004_u10_export_idempotency.sql",
+    "0005_u11_external_receipt.sql",
+    "0006_search_projection_checkpoint.sql",
+    "0007_snapshot_search_version.sql",
+    "0008_bulk_projector_claims.sql",
+    "0009_source_record_missed_polls.sql",
+  ];
+
+  beforeAll(async () => {
+    if (!upgradeDatabaseUrl) {
+      if (upgradeDatabaseRequired) {
+        throw new Error("Required upgrade test database URL is unavailable");
+      }
+      return;
+    }
+    client = postgres(upgradeDatabaseUrl, { max: 1 });
+    const perMigration = await Promise.all(
+      priorMigrations.map((name) => readMigrationStatements(name))
+    );
+    priorStatements = perMigration.flat();
+    scopeStatements = await readMigrationStatements(
+      "0010_query_snapshot_search_scope.sql"
+    );
+  });
+
+  afterAll(async () => {
+    await client?.end({ timeout: 5 });
+  });
+
+  it("applies on a database at 0009: existing snapshots become scope 'all', new rows default to 'active'", async () => {
+    if (!client) {
+      expect(upgradeDatabaseUrl).toBeUndefined();
+      return;
+    }
+
+    await client.unsafe(`
+      DROP SCHEMA IF EXISTS curated CASCADE;
+      DROP SCHEMA IF EXISTS marts CASCADE;
+      DROP SCHEMA IF EXISTS staging CASCADE;
+      DROP SCHEMA IF EXISTS drizzle CASCADE;
+      DROP SCHEMA IF EXISTS public CASCADE;
+      CREATE SCHEMA public;
+    `);
+    await client.begin(async (transaction) => {
+      for (const statement of priorStatements) {
+        // oxlint-disable-next-line no-await-in-loop -- migration statements are order-dependent
+        await transaction.unsafe(statement);
+      }
+    });
+
+    const inserted = await client.unsafe(`
+      INSERT INTO curated.query_snapshot
+        (index_version, parser_version, query_text, result_ids, schema_version, search_applied_sequence, search_generation, user_id)
+      VALUES
+        (3, '1', 'Azure', '["00000000-0000-4000-8000-000000000001"]'::jsonb, 'slice-a-v1', 3, 1, 'recruiter-1')
+      RETURNING id;
+    `);
+    expect(inserted).toHaveLength(1);
+
+    await client.begin(async (transaction) => {
+      for (const statement of scopeStatements) {
+        // oxlint-disable-next-line no-await-in-loop -- migration statements are order-dependent
+        await transaction.unsafe(statement);
+      }
+    });
+
+    // Pre-split snapshots were made against the single table that held the
+    // whole stock, so they are backfilled as 'all'; the column default then
+    // flips to 'active' for rows written after the split.
+    const rows = await client.unsafe(`
+      SELECT query_text, search_scope FROM curated.query_snapshot;
+    `);
+    expect(rows).toMatchObject([{ query_text: "Azure", search_scope: "all" }]);
+
+    const defaulted = await client.unsafe(`
+      INSERT INTO curated.query_snapshot
+        (index_version, parser_version, query_text, result_ids, schema_version, search_applied_sequence, search_generation, user_id)
+      VALUES
+        (4, '1', 'DevOps', '[]'::jsonb, 'slice-a-v1', 4, 1, 'recruiter-1')
+      RETURNING search_scope;
+    `);
+    expect(defaulted[0]?.search_scope).toBe("active");
+
+    // postgres.js queries are lazy thenables; `expect(...).rejects` never
+    // settles on them, so catch explicitly.
+    let constraintError: unknown;
+    try {
+      await client.unsafe(`
+        UPDATE curated.query_snapshot SET search_scope = 'archive' WHERE query_text = 'DevOps';
+      `);
+    } catch (error) {
+      constraintError = error;
+    }
+    expect(constraintError).toMatchObject({ code: "23514" });
+  });
+});

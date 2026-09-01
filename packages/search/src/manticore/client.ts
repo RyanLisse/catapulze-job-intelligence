@@ -29,6 +29,11 @@ export interface ManticoreSearchResponse {
   total: number;
 }
 
+export interface ManticoreRequestOptions {
+  /** Transport budget for this one request; defaults to the client's own timeout. */
+  readonly timeoutMs?: number;
+}
+
 export interface ManticoreHttpClient {
   /** POST /bulk with one serialized ManticoreBulkLine per entry. */
   bulk: (lines: readonly string[]) => Promise<ManticoreBulkPayload>;
@@ -37,7 +42,8 @@ export interface ManticoreHttpClient {
     body:
       | ManticoreDeleteBody
       | ManticoreReplaceBody
-      | ManticoreSearchRequestBody
+      | ManticoreSearchRequestBody,
+    options?: ManticoreRequestOptions
   ) => Promise<ManticoreSearchPayload>;
 }
 
@@ -75,6 +81,16 @@ const DEFAULT_MAX_QUERY_TIME_MS = 5000;
  * near-max_matches response body.
  */
 const DEFAULT_FETCH_TIMEOUT_MS = 8000;
+
+/**
+ * Budget for the RJC-383 archive count that accompanies an active-scope
+ * search. The count is decoration next to the search, so it gets a smaller
+ * query budget and a smaller transport budget than the search itself, and
+ * the engine degrades it to `null` instead of failing the search when either
+ * is exceeded.
+ */
+export const ARCHIVE_COUNT_MAX_QUERY_TIME_MS = 1500;
+export const ARCHIVE_COUNT_TIMEOUT_MS = 2000;
 
 export class FetchManticoreClient implements ManticoreHttpClient {
   private readonly baseUrl: string;
@@ -114,12 +130,14 @@ export class FetchManticoreClient implements ManticoreHttpClient {
     body:
       | ManticoreDeleteBody
       | ManticoreReplaceBody
-      | ManticoreSearchRequestBody
+      | ManticoreSearchRequestBody,
+    options: ManticoreRequestOptions = {}
   ): Promise<ManticoreSearchPayload> {
     const response = await this.post(
       path,
       JSON.stringify(body),
-      "application/json"
+      "application/json",
+      options.timeoutMs ?? this.timeoutMs
     );
 
     const raw = await response.text();
@@ -144,7 +162,8 @@ export class FetchManticoreClient implements ManticoreHttpClient {
   private async post(
     path: string,
     body: string,
-    contentType: string
+    contentType: string,
+    timeoutMs: number = this.timeoutMs
   ): Promise<Response> {
     const url = `${this.baseUrl}${path}`;
     try {
@@ -152,7 +171,7 @@ export class FetchManticoreClient implements ManticoreHttpClient {
         body,
         headers: { "Content-Type": contentType },
         method: "POST",
-        signal: AbortSignal.timeout(this.timeoutMs),
+        signal: AbortSignal.timeout(timeoutMs),
       });
     } catch (error) {
       // catch bindings are always `unknown` by language rule (not a
@@ -161,7 +180,7 @@ export class FetchManticoreClient implements ManticoreHttpClient {
       const isAbortTimeout =
         error instanceof DOMException && error.name === "TimeoutError";
       if (isAbortTimeout) {
-        throw new ManticoreTimeoutError(url, this.timeoutMs);
+        throw new ManticoreTimeoutError(url, timeoutMs);
       }
       throw error;
     }
@@ -365,11 +384,43 @@ export const buildManticoreSearchRequest = (
   return request;
 };
 
+/**
+ * Aggregation-free `limit: 0` request that only asks for `total` (RJC-383:
+ * the "N in archief" count next to an active-scope search). Same query and
+ * filters as the search it accompanies; no facets, no hits, no sort work.
+ */
+export const buildManticoreCountRequest = (
+  index: string,
+  query: ManticoreQueryBody | null,
+  filters: SearchFilters
+): ManticoreSearchRequestBody => {
+  const request: ManticoreSearchRequestBody = {
+    index,
+    limit: 0,
+    max_matches: 1,
+    max_query_time: ARCHIVE_COUNT_MAX_QUERY_TIME_MS,
+    offset: 0,
+    sort: [{ id: ASC }],
+    track_total_hits: true,
+  };
+  const filter = buildFilterClauses(filters);
+  if (filter.length > 0) {
+    request.query =
+      query === null
+        ? { bool: { filter } }
+        : { bool: { filter, must: [query] } };
+  } else if (query !== null) {
+    request.query = query;
+  }
+  return request;
+};
+
 export const searchManticore = async (
   client: ManticoreHttpClient,
-  request: ManticoreSearchRequestBody
+  request: ManticoreSearchRequestBody,
+  options?: ManticoreRequestOptions
 ): Promise<ManticoreSearchResponse> => {
-  const payload = await client.request("/search", request);
+  const payload = await client.request("/search", request, options);
   return parseManticoreSearchResponse(payload);
 };
 

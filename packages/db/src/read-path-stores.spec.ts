@@ -71,6 +71,7 @@ describe("read-path Postgres stores", () => {
       resultIds: ["00000000-0000-4000-8000-000000000001"],
       savedSearchId: null,
       schemaVersion: "slice-a-v1",
+      scope: "active",
       searchVersion: { appliedSequence: 42n, generation: 2 },
       userId: "recruiter-1",
     });

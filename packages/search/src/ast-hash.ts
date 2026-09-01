@@ -1,5 +1,6 @@
 import type { BooleanNode } from "@ji/domain";
 
+import type { SearchScope } from "./partition";
 import type { SearchFilters, SearchSort } from "./types";
 import type { SearchVersion } from "./version";
 
@@ -132,6 +133,8 @@ export const hashAst = (ast: BooleanNode): Promise<string> =>
 export interface CacheKeyPage {
   limit: number;
   offset: number;
+  /** Partitions read (RJC-383); an active-scope page must never serve an all-scope request. */
+  scope: SearchScope;
   sort: SearchSort;
 }
 
@@ -140,6 +143,8 @@ export interface CacheKeyPage {
  * carries sort/offset/limit. `v4` retires every v3 entry: canonicalizeAst
  * changes what `astHash` resolves to for the same query text (RJC-388), so
  * a v3 key could otherwise resolve to a now-stale hash for the same page.
+ * `v5` adds the scope (RJC-383): the same page under "active" and "all"
+ * are different result sets.
  */
 export const buildCacheKey = (
   astHash: string,
@@ -148,7 +153,7 @@ export const buildCacheKey = (
   page: CacheKeyPage
 ): Promise<string> =>
   hashString(
-    `search:v4:${astHash}:${version.generation}:${version.appliedSequence}:${stableStringifyFilters(filters)}:${page.sort}:${page.offset}:${page.limit}`
+    `search:v5:${astHash}:${version.generation}:${version.appliedSequence}:${stableStringifyFilters(filters)}:${page.scope}:${page.sort}:${page.offset}:${page.limit}`
   );
 
 /**
@@ -159,8 +164,9 @@ export const buildCacheKey = (
 export const buildFacetCacheKey = (
   astHash: string,
   version: SearchVersion,
-  filters: SearchFilters
+  filters: SearchFilters,
+  scope: SearchScope
 ): Promise<string> =>
   hashString(
-    `search:facets:v1:${astHash}:${version.generation}:${version.appliedSequence}:${stableStringifyFilters(filters)}`
+    `search:facets:v2:${astHash}:${version.generation}:${version.appliedSequence}:${stableStringifyFilters(filters)}:${scope}`
   );

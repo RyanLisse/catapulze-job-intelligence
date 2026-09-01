@@ -106,15 +106,165 @@ describe("outbox projector", () => {
       loader: new StaticLoader(document),
     });
 
-    const result = await engine.search({
+    // RJC-383: the close moved the document into the archive partition. The
+    // default (active) scope no longer lists it but still counts it, and
+    // scope "all" finds it under its new status.
+    const active = await engine.search({
       ast: null,
       filters: { status: ["closed"] },
       limit: 10,
       offset: 0,
     });
-
-    expect(result.total).toBe(1);
+    expect(active.total).toBe(0);
+    expect(active.archiveTotal).toBe(1);
+    const all = await engine.search({
+      ast: null,
+      filters: { status: ["closed"] },
+      limit: 10,
+      offset: 0,
+      scope: "all",
+    });
+    expect(all.total).toBe(1);
+    expect(all.archiveTotal).toBeUndefined();
     expect(version.appliedSequence).toBe(2n);
+  });
+
+  it("resolves the partition from the LAST event's status, never a cached one: active→stale→active in one batch ends ACTIVE (RJC-383)", async () => {
+    // RJC-397 reopens a stale record (listing_teruggekeerd) and curate then
+    // rewrites `active` without an outbox row; the projector must follow the
+    // event payload / loaded row at projection time. Coalescing keeps the
+    // highest-sequence event, so the flip lands in the active table even
+    // though the loaded row still says stale and the middle event archived.
+    const now = new Date("2026-09-01T00:00:00.000Z");
+    const staleRow: SearchDocument = { ...document, status: "stale" };
+    const event = (
+      id: string,
+      sequenceNumber: bigint,
+      status: "active" | "stale"
+    ): OutboxEventRecord => ({
+      aggregateId: document.id,
+      aggregateType: "aanvraag",
+      eventType: "aanvraag.gewijzigd",
+      id,
+      payload: { status },
+      sequenceNumber,
+    });
+    const plan = await planOutboxBatch({
+      // Out of order on purpose: coalescing sorts by sequence.
+      events: [
+        event("e-stale", 2n, "stale"),
+        event("e-reopen", 3n, "active"),
+        event("e-first", 1n, "active"),
+      ],
+      knownHashes: new Map([[document.id, projectionHash(staleRow, now)]]),
+      loadDocuments: () =>
+        Promise.resolve(new Map([[document.id, structuredClone(staleRow)]])),
+      now,
+    });
+    expect(plan.mutations).toEqual([
+      {
+        document: { ...document, status: "active" },
+        kind: "upsert",
+        partition: "active",
+        previousPartition: "archive",
+        sequenceNumber: 3n,
+      },
+    ]);
+    expect(plan.hashes.get(document.id)?.startsWith("active:")).toBe(true);
+
+    // And end to end through the in-memory engine: one batch, ends active.
+    const engine = new InMemorySearchEngine(undefined, () => now);
+    await engine.applyBatch({
+      appliedSequence: 0n,
+      mutations: [{ document: staleRow, kind: "upsert", sequenceNumber: 0n }],
+    });
+    await drainOutboxEvents({
+      engine,
+      events: [
+        event("e-first", 1n, "active"),
+        event("e-stale", 2n, "stale"),
+        event("e-reopen", 3n, "active"),
+      ],
+      loader: new StaticLoader(staleRow),
+    });
+    const active = await engine.search({
+      ast: null,
+      filters: {},
+      limit: 10,
+      offset: 0,
+    });
+    expect(active.hits.map((hit) => hit.id)).toEqual([document.id]);
+    expect(active.archiveTotal).toBe(0);
+  });
+
+  it("plans a close as a MOVE: partition archive, previousPartition active, hash prefix changed (RJC-383)", async () => {
+    const now = new Date("2026-09-01T00:00:00.000Z");
+    const activeHash = projectionHash(document, now);
+    expect(activeHash.startsWith("active:")).toBe(true);
+    const closeEvent: OutboxEventRecord = {
+      aggregateId: document.id,
+      aggregateType: "aanvraag",
+      eventType: "aanvraag.gesloten",
+      id: "outbox-move",
+      payload: { status: "closed" },
+      sequenceNumber: 5n,
+    };
+
+    const plan = await planOutboxBatch({
+      events: [closeEvent],
+      knownHashes: new Map([[document.id, activeHash]]),
+      loadDocuments: () =>
+        Promise.resolve(new Map([[document.id, structuredClone(document)]])),
+      now,
+    });
+
+    expect(plan.unchangedAggregateIds).toEqual([]);
+    expect(plan.mutations).toEqual([
+      {
+        document: { ...document, status: "closed" },
+        kind: "upsert",
+        partition: "archive",
+        previousPartition: "active",
+        sequenceNumber: 5n,
+      },
+    ]);
+    expect(plan.hashes.get(document.id)?.startsWith("archive:")).toBe(true);
+
+    // A delete of a document with a known partition targets that table only;
+    // without a known hash the partition is left unknown (engine clears both).
+    const deleteEvent: OutboxEventRecord = {
+      ...closeEvent,
+      eventType: "aanvraag.verwijderd",
+      id: "outbox-delete",
+      sequenceNumber: 6n,
+    };
+    const known = await planOutboxBatch({
+      events: [deleteEvent],
+      knownHashes: new Map([[document.id, plan.hashes.get(document.id) ?? ""]]),
+      loadDocuments: () => Promise.resolve(new Map()),
+      now,
+    });
+    expect(known.mutations).toEqual([
+      {
+        id: document.id,
+        kind: "delete",
+        partition: "archive",
+        sequenceNumber: 6n,
+      },
+    ]);
+    const unknown = await planOutboxBatch({
+      events: [deleteEvent],
+      loadDocuments: () => Promise.resolve(new Map()),
+      now,
+    });
+    expect(unknown.mutations).toEqual([
+      {
+        id: document.id,
+        kind: "delete",
+        partition: undefined,
+        sequenceNumber: 6n,
+      },
+    ]);
   });
 
   it("consumes skipped events: the applied sequence still advances", async () => {

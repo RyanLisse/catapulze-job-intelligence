@@ -439,57 +439,69 @@ describe("SearchAdapter canonical execution (live, RJC-388)", () => {
     const runToken = `permcheck${crypto.randomUUID().replaceAll("-", "")}`;
     const termA = `${runToken}alpha`;
     const termB = `${runToken}beta`;
-    await engine.upsertDocument(
-      sampleDocument({
-        beschrijving: `${termA} appears many times ${termA} ${termA} ${termA}, ${termB} appears once`,
-        id: `perm-doc-a-${crypto.randomUUID()}`,
-      })
-    );
-    await engine.upsertDocument(
-      sampleDocument({
-        beschrijving: `${termB} appears many times ${termB} ${termB} ${termB}, ${termA} appears once`,
-        id: `perm-doc-b-${crypto.randomUUID()}`,
-      })
-    );
-    await engine.applyBatch({ appliedSequence: 1n, mutations: [] });
+    // Run-scoped ids, deleted in `finally`: this spec writes into the shared
+    // instance's live tables, and leftovers from earlier versions of it are
+    // exactly what polluted the RJC-382 baseline
+    // (docs/research/manticore-relevance-baseline-correction-2026-09-01.md).
+    const ids = [`perm-doc-a-${runToken}`, `perm-doc-b-${runToken}`] as const;
+    try {
+      await engine.upsertDocument(
+        sampleDocument({
+          beschrijving: `${termA} appears many times ${termA} ${termA} ${termA}, ${termB} appears once`,
+          id: ids[0],
+        })
+      );
+      await engine.upsertDocument(
+        sampleDocument({
+          beschrijving: `${termB} appears many times ${termB} ${termB} ${termB}, ${termA} appears once`,
+          id: ids[1],
+        })
+      );
+      await engine.applyBatch({ appliedSequence: 1n, mutations: [] });
 
-    // Cold: two separate adapters (no shared cache), one query permutation
-    // each, so both go straight to the engine.
-    const coldForward = await new SearchAdapter({ engine }).search({
-      query: `${termA} AND ${termB}`,
-    });
-    const coldReversed = await new SearchAdapter({ engine }).search({
-      query: `${termB} AND ${termA}`,
-    });
-    if (!(coldForward.ok && coldReversed.ok)) {
-      throw new Error("Expected successful live searches");
-    }
-    expect(coldReversed.hits.map((hit) => hit.id)).toEqual(
-      coldForward.hits.map((hit) => hit.id)
-    );
+      // Cold: two separate adapters (no shared cache), one query permutation
+      // each, so both go straight to the engine.
+      const coldForward = await new SearchAdapter({ engine }).search({
+        query: `${termA} AND ${termB}`,
+      });
+      const coldReversed = await new SearchAdapter({ engine }).search({
+        query: `${termB} AND ${termA}`,
+      });
+      if (!(coldForward.ok && coldReversed.ok)) {
+        throw new Error("Expected successful live searches");
+      }
+      expect(coldReversed.hits.map((hit) => hit.id)).toEqual(
+        coldForward.hits.map((hit) => hit.id)
+      );
 
-    // Cached: one adapter, one shared cache — the second permutation must
-    // hit the same cache entry the first one populated, not silently
-    // re-execute with a different order.
-    const sharedCache = new MemoryResultCache();
-    const cachedAdapter = new SearchAdapter({ cache: sharedCache, engine });
-    const first = await cachedAdapter.search({
-      query: `${termA} AND ${termB}`,
-    });
-    const second = await cachedAdapter.search({
-      query: `${termB} AND ${termA}`,
-    });
-    if (!(first.ok && second.ok)) {
-      throw new Error("Expected successful live searches");
+      // Cached: one adapter, one shared cache — the second permutation must
+      // hit the same cache entry the first one populated, not silently
+      // re-execute with a different order.
+      const sharedCache = new MemoryResultCache();
+      const cachedAdapter = new SearchAdapter({ cache: sharedCache, engine });
+      const first = await cachedAdapter.search({
+        query: `${termA} AND ${termB}`,
+      });
+      const second = await cachedAdapter.search({
+        query: `${termB} AND ${termA}`,
+      });
+      if (!(first.ok && second.ok)) {
+        throw new Error("Expected successful live searches");
+      }
+      expect(first.cache).toBe("miss");
+      expect(second.cache).toBe("hit");
+      expect(second.hits.map((hit) => hit.id)).toEqual(
+        first.hits.map((hit) => hit.id)
+      );
+      expect(first.hits.map((hit) => hit.id)).toEqual(
+        coldForward.hits.map((hit) => hit.id)
+      );
+    } finally {
+      for (const id of ids) {
+        // oxlint-disable-next-line no-await-in-loop -- sequential cleanup of exactly the ids this run wrote
+        await engine.deleteDocument(id);
+      }
     }
-    expect(first.cache).toBe("miss");
-    expect(second.cache).toBe("hit");
-    expect(second.hits.map((hit) => hit.id)).toEqual(
-      first.hits.map((hit) => hit.id)
-    );
-    expect(first.hits.map((hit) => hit.id)).toEqual(
-      coldForward.hits.map((hit) => hit.id)
-    );
   });
 
   it("X NOT Y and a NOT-first-equivalent permutation match a raw-ast engine.search of the original query", async () => {
@@ -509,54 +521,65 @@ describe("SearchAdapter canonical execution (live, RJC-388)", () => {
     const runToken = `notcheck${crypto.randomUUID().replaceAll("-", "")}`;
     const termA = `${runToken}alpha`;
     const termB = `${runToken}beta`;
-    // termA-only doc matches "termA NOT termB"; termA+termB doc is
-    // excluded. Doc text must never mention termB unless it's meant to be
-    // matched by it — including the word as English prose (e.g. "absent")
-    // still indexes the literal token.
-    await engine.upsertDocument(
-      sampleDocument({
-        beschrijving: `role mentions only ${termA} and nothing else notable`,
-        id: `not-doc-only-a-${crypto.randomUUID()}`,
-      })
-    );
-    await engine.upsertDocument(
-      sampleDocument({
-        beschrijving: `role mentions both ${termA} and ${termB} together`,
-        id: `not-doc-both-${crypto.randomUUID()}`,
-      })
-    );
-    await engine.applyBatch({ appliedSequence: 1n, mutations: [] });
+    const ids = [
+      `not-doc-only-a-${runToken}`,
+      `not-doc-both-${runToken}`,
+    ] as const;
+    try {
+      // termA-only doc matches "termA NOT termB"; termA+termB doc is
+      // excluded. Doc text must never mention termB unless it's meant to be
+      // matched by it — including the word as English prose (e.g. "absent")
+      // still indexes the literal token.
+      await engine.upsertDocument(
+        sampleDocument({
+          beschrijving: `role mentions only ${termA} and nothing else notable`,
+          id: ids[0],
+        })
+      );
+      await engine.upsertDocument(
+        sampleDocument({
+          beschrijving: `role mentions both ${termA} and ${termB} together`,
+          id: ids[1],
+        })
+      );
+      await engine.applyBatch({ appliedSequence: 1n, mutations: [] });
 
-    const originalQuery = `${termA} NOT ${termB}`;
-    // Source-text permutation that leads with the NOT clause; canonically
-    // equivalent to originalQuery (AND is commutative, NOT sorts last).
-    const notFirstQuery = `NOT ${termB} AND ${termA}`;
+      const originalQuery = `${termA} NOT ${termB}`;
+      // Source-text permutation that leads with the NOT clause; canonically
+      // equivalent to originalQuery (AND is commutative, NOT sorts last).
+      const notFirstQuery = `NOT ${termB} AND ${termA}`;
 
-    const parsedOriginal = parseBooleanQuery(originalQuery);
-    if (!parsedOriginal.ok) {
-      throw new Error("Expected original query parse success");
+      const parsedOriginal = parseBooleanQuery(originalQuery);
+      if (!parsedOriginal.ok) {
+        throw new Error("Expected original query parse success");
+      }
+      const rawResult = await engine.search({
+        ast: parsedOriginal.ast,
+        filters: {},
+        limit: 10,
+        offset: 0,
+      });
+      const rawIds = rawResult.hits.map((hit) => hit.id);
+      // termA-only doc matches; termA+termB doc is excluded by NOT.
+      expect(rawIds).toHaveLength(1);
+
+      const adapterOriginal = await new SearchAdapter({ engine }).search({
+        query: originalQuery,
+      });
+      const adapterNotFirst = await new SearchAdapter({ engine }).search({
+        query: notFirstQuery,
+      });
+      if (!(adapterOriginal.ok && adapterNotFirst.ok)) {
+        throw new Error("Expected successful live searches");
+      }
+
+      expect(adapterOriginal.hits.map((hit) => hit.id)).toEqual(rawIds);
+      expect(adapterNotFirst.hits.map((hit) => hit.id)).toEqual(rawIds);
+    } finally {
+      for (const id of ids) {
+        // oxlint-disable-next-line no-await-in-loop -- sequential cleanup of exactly the ids this run wrote
+        await engine.deleteDocument(id);
+      }
     }
-    const rawResult = await engine.search({
-      ast: parsedOriginal.ast,
-      filters: {},
-      limit: 10,
-      offset: 0,
-    });
-    const rawIds = rawResult.hits.map((hit) => hit.id);
-    // termA-only doc matches; termA+termB doc is excluded by NOT.
-    expect(rawIds).toHaveLength(1);
-
-    const adapterOriginal = await new SearchAdapter({ engine }).search({
-      query: originalQuery,
-    });
-    const adapterNotFirst = await new SearchAdapter({ engine }).search({
-      query: notFirstQuery,
-    });
-    if (!(adapterOriginal.ok && adapterNotFirst.ok)) {
-      throw new Error("Expected successful live searches");
-    }
-
-    expect(adapterOriginal.hits.map((hit) => hit.id)).toEqual(rawIds);
-    expect(adapterNotFirst.hits.map((hit) => hit.id)).toEqual(rawIds);
   });
 });

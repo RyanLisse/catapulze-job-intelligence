@@ -24,10 +24,24 @@ export {
   MANTICORE_BULK_ISOLATION_RESENDS_PER_CHUNK,
   MANTICORE_BULK_MAX_BYTES,
   ManticoreSearchEngine,
+  partitionFromProjectionHash,
   projectionHash,
   SEARCH_TEXT_FIELDS,
 } from "./manticore";
 export { readOutboxStatus, type OutboxEventPayload } from "./outbox-payload";
+export {
+  ACTIVE_RECENT_DAYS,
+  DEFAULT_SEARCH_SCOPE,
+  documentPartition,
+  partitionInScope,
+  partitionTable,
+  resolveSearchPartition,
+  SEARCH_PARTITIONS,
+  SEARCH_SCOPES,
+  scopeTables,
+  type SearchPartition,
+  type SearchScope,
+} from "./partition";
 export {
   PostgresFtsFallbackEngine,
   type PostgresFtsExecutor,
