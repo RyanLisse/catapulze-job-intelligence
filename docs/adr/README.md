@@ -20,6 +20,7 @@ Deze map bevat de canonieke architectuurbesluiten die meerdere packages, uitvoer
 | [ADR-0005](ADR-0005-trigger-dev-database-reachability.md) | Beslist via ADR-0006 (Postgres); Manticore-helft open | Trigger.dev-workers versus private Postgres en Manticore |
 | [ADR-0006](ADR-0006-neon-as-system-of-record.md) | Accepted | Neon (managed Postgres) als production system of record; supersedeert het on-box deel van ADR-0004 |
 | [ADR-0007](ADR-0007-search-platform-state-2026-09-01.md) | Accepted (staat-vastlegging) | Zoek-/ingest-/opslagarchitectuur op `main` per 2026-09-01: on-box projector, S3 raw store, cache-lagen, component-readiness, SearchVersion-invarianten |
+| [ADR-0008](ADR-0008-cloudflare-r2-for-raw-payloads.md) | Accepted | Cloudflare R2 als productie-raw-payload-store; MinIO blijft lokale dev-target; nul applicatiecode geraakt |
 
 ## Runbooks
 

@@ -46,6 +46,20 @@ equivalent runtime guard in the worker process itself (Trigger.dev tasks run
 under whatever env the deploy provides); the server-side guard is the one
 enforcement point today.
 
+## Production provider (ADR-0008)
+
+Production uses **Cloudflare R2** — decided in
+[ADR-0008](../adr/ADR-0008-cloudflare-r2-for-raw-payloads.md)
+(cost: base tier covers the estimated 45–90 GB many times over; box disk and
+I/O stay reserved for Manticore; the replay source is decoupled from the box
+it would replay after). The bucket, endpoint and credentials do not exist
+yet — creating them is an operator action, and a credential-rotation
+procedure still needs to be written (flagged in the ADR). Configuration is
+the same five `RAW_S3_*` variables above, set identically on server AND
+worker. MinIO below remains the local development target; both resolve
+through the same `createRawObjectStore`, so switching providers is
+configuration only.
+
 ## Local MinIO (docker-compose)
 
 A `raw-storage-minio` / `raw-storage-minio-init` pair lives in the root

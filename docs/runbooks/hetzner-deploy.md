@@ -31,7 +31,7 @@ service, met bron:
 | `manticore` | **Ja.** | Manticore 6.3.8 (digest-gepind), privaat op de box, index `aanvragen_active`/`aanvragen_archive` (RJC-383). Blijft privé per ADR-0006 ("Voor diensten die wél op de box blijven … blijft de private-poortregel gelden"). |
 | `manticore29` | **Nee — shadow, geen productieservice.** | RJC-382-vergelijkingsinstance achter het `shadow`-profile; het compose-commentaar zegt letterlijk dat de productieservice de gepinde 6.3.8 hierboven is. De engine-beslissing zelf is open — zie [§ Open blockers](#open-blockers). |
 | `projector` | **Ja — als proces op de box.** | On-box search-projector (RJC-387): leest de Neon-outbox over TLS, schrijft lokaal naar Manticore. De compose-service (profile `projector`) is de lokale stand-in; op de box draait hetzelfde `bun run projector` onder een supervisor per [search-projector.md](search-projector.md) § Supervision. |
-| `raw-storage-minio` + `raw-storage-minio-init` | **Nee — lokale S3-target.** | Het compose-commentaar (RJC-386) noemt dit expliciet een "local S3-compatible target". Productie heeft wél een S3-compatible store nodig (de server weigert de filesystem-backend in productie, [raw-object-storage.md](raw-object-storage.md) § Production guard), maar **welke provider — MinIO op de box of Hetzner Object Storage — is onbeslist**: [COSTS.md](../COSTS.md) prijst Hetzner Object Storage (€6,49/mnd) als kandidaat, een besluit-ADR bestaat niet. UNDECIDED. |
+| `raw-storage-minio` + `raw-storage-minio-init` | **Nee — lokale S3-target.** | Het compose-commentaar (RJC-386) noemt dit expliciet een "local S3-compatible target". Productie draait op een S3-compatible store (de server weigert de filesystem-backend in productie, [raw-object-storage.md](raw-object-storage.md) § Production guard); de provider is **beslist: Cloudflare R2** ([ADR-0008](../adr/ADR-0008-cloudflare-r2-for-raw-payloads.md)) — bucket en keys moeten nog worden aangemaakt. |
 
 Niet in compose, wél onderdeel van productie:
 
@@ -63,7 +63,7 @@ git of in chat.**
 | `CORS_ORIGIN` | ja (URL) | boot faalt | operator: publieke web-URL |
 | `MANTICORE_URL` | nee, default `http://127.0.0.1:9308` | zoekopdrachten en `/readyz`-manticore-check falen als de default niet klopt | on-box: default volstaat als server en Manticore dezelfde host delen; in compose `http://manticore:9308` |
 | `REDIS_URL` | nee | in-process cache; `/readyz` meldt `redis: not-configured` | operator; on-box Redis |
-| `RAW_S3_BUCKET` (+ `RAW_S3_ENDPOINT`, `RAW_S3_REGION`, `RAW_S3_ACCESS_KEY_ID`, `RAW_S3_SECRET_ACCESS_KEY`) | in productie effectief ja | zonder `RAW_S3_BUCKET` valt de store terug op filesystem en **weigert de server in productie te starten** (`apps/server/src/slice-a-registry.ts`, RJC-386) | operator; provider is UNDECIDED (§ 1) |
+| `RAW_S3_BUCKET` (+ `RAW_S3_ENDPOINT`, `RAW_S3_REGION`, `RAW_S3_ACCESS_KEY_ID`, `RAW_S3_SECRET_ACCESS_KEY`) | in productie effectief ja | zonder `RAW_S3_BUCKET` valt de store terug op filesystem en **weigert de server in productie te starten** (`apps/server/src/slice-a-registry.ts`, RJC-386) | operator; provider beslist: Cloudflare R2 ([ADR-0008](../adr/ADR-0008-cloudflare-r2-for-raw-payloads.md)); bucket/keys `<TBD: Ryan>` |
 | `RAW_OBJECT_STORE_PATH` | nee | alleen relevant voor de filesystem-fallback (niet-productie) | — |
 | `NODE_ENV` | nee (default `development`) | productie-guards (filesystem-weigering, Redis-boot-weigering) staan dan uit — zet hem in productie dus expliciet op `production` | deploy-configuratie |
 | `PORT` | nee (default 3000) | — | deploy-configuratie |
@@ -137,8 +137,155 @@ Elke stap eindigt met een verificatie. Ga niet door zolang die faalt.
 4. Deploymethode op de box: de enige in de repo beproefde route is de
    Coolify-inrichting uit [coolify-local.md](coolify-local.md), maar die is
    uitsluitend lokaal bewezen ("Nog geen productie-bewijs"). De
-   host-installatie van Coolify zelf staat nergens in de repo beschreven —
-   eerlijke leemte, geen stap die dit document kan specificeren.
+   host-installatie zelf staat in stap 0.5 hieronder — gedocumenteerd uit
+   officiële bronnen, maar **ongerehearsed** (zie de waarschuwing daar).
+
+### Stap 0.5 — Host-provisioning: van niets naar de host die stap 1 aanneemt
+
+> ⚠️ **ONGEREHEARSED.** Anders dan de rest van dit runbook heeft niemand deze
+> stappen uitgevoerd — er bestaat nog geen Hetzner-host. Elke opdracht komt
+> uit officiële documentatie (bron en checkdatum per stap), maar de eerste
+> echte uitvoering is tegelijk de eerste test. Voer uit met de Console
+> ernaast, en bij twijfel over een firewallregel: eerst de Console-route,
+> die je nooit buitensluit.
+
+#### 0.5.1 Server bestellen
+
+Kandidaat uit [COSTS.md](../COSTS.md): **CCX33** (8 dedicated vCPU / 32 GB /
+240 GB NVMe, €138,99/mnd) — maar de keuze is `<TBD: Ryan>` en de
+COSTS.md-totalen zijn gemarkeerd "opnieuw te herleiden". Verifieer specs en
+prijs vóór het bestellen met `hcloud server-type list`, nooit uit dit
+document of uit het hoofd.
+
+Via `hcloud` (bron: hcloud CLI, `--help`-gedreven; volgorde is verplicht —
+key en firewall moeten bestaan vóór `server create` ze refereert; gecheckt
+2026-09-01):
+
+```bash
+hcloud context create catapulze          # token uit Console → project → Security → API Tokens
+hcloud location list                     # kies bewust; <TBD: Ryan — locatie>
+hcloud server-type list                  # verifieer type + actuele prijs
+hcloud ssh-key  create --name <TBD-keynaam> --public-key-from-file ~/.ssh/<TBD>.pub
+hcloud firewall create --name <TBD-fw-naam> --rules-file rules.json   # zie 0.5.2
+hcloud server   create --name <TBD-servernaam> --type ccx33 --image ubuntu-24.04 \
+                --location <TBD> --ssh-key <TBD-keynaam> --firewall <TBD-fw-naam>
+```
+
+Via de Console (voor wie geen `hcloud` heeft): console.hetzner.cloud →
+project → "Add Server" → locatie → image **Ubuntu 24.04** (Coolify
+ondersteunt Debian-based; bron: coolify.io/docs installatiepagina, gecheckt
+2026-09-01) → type (dedicated vCPU-tab voor CCX) → SSH-key uploaden →
+firewall koppelen → Create.
+
+Let op (hcloud-skill gotcha's): publieke IP's worden hergebruikt — na een
+eerdere serververwijdering kan `ssh` weigeren met "REMOTE HOST
+IDENTIFICATION HAS CHANGED"; dat is dan het oude host-key-record, niet een
+aanval (`ssh-keygen -R <ip>` en opnieuw verifiëren).
+
+#### 0.5.2 Firewall — alleen 22/80/443 publiek, en waarom dit vóór alles komt
+
+**De compose-file publiceert host-poorten; een naïeve deploy zet Manticore
+(9308/9306) zonder enige auth aan het internet.** Postgres 5432, Manticore
+9308/9306, MinIO, server 3000, web 3001 en het Coolify-dashboard (8000)
+zijn NOOIT publiek bereikbaar — verkeer loopt via het Docker-netwerk of een
+SSH-tunnel. Nuance uit `docker-compose.yml` zelf: postgres, redis en
+manticore binden op `127.0.0.1` (`host_ip`), maar **`server` (3000) en
+`web` (3001) publiceren zónder `host_ip` en binden dus op alle
+interfaces** — zonder host-firewall staan die twee direct aan het
+internet, vóór de Coolify-proxy en zonder TLS. De firewall is dus geen
+tweede laag maar de enige laag voor die poorten.
+
+Primair de **Hetzner Cloud Firewall** (buiten de host, altijd corrigeerbaar
+via de Console — een foute regel sluit je dus niet definitief buiten, het
+lockout-risico van een verkeerde `ufw`-regel op de host zelf vervalt).
+Inbound allow: TCP 22, TCP 80, TCP 443; al het overige inbound dicht.
+Aanmaken via Console → Firewalls, of `hcloud firewall create --rules-file
+rules.json` (JSON-formaat: `hcloud firewall create --help`; gecheckt
+2026-09-01). Een extra `ufw` op de host is optioneel en ongerehearsed —
+niet doen zonder Console-vangnet.
+
+Coolify-dashboard (poort 8000; bron: coolify.io/docs, gecheckt 2026-09-01)
+bereik je via een SSH-tunnel in plaats van een open poort:
+
+```bash
+ssh -L 8000:localhost:8000 <TBD-user>@<TBD-server-ip>
+# daarna in de browser: http://localhost:8000
+```
+
+#### 0.5.3 Basis-hardening
+
+Standaard Ubuntu/OpenSSH-configuratie (geen exotische bron, wél
+ongerehearsed op deze host): maak een non-root gebruiker met sudo, zet
+SSH op key-only en schakel wachtwoordlogin uit.
+
+```bash
+adduser <TBD-user> && usermod -aG sudo <TBD-user>
+# kopieer ~/.ssh/authorized_keys van root naar de nieuwe gebruiker, verifieer
+# een LOGIN MET DIE USER IN EEN TWEEDE SESSIE vóór je verder gaat, en pas dan:
+# in /etc/ssh/sshd_config: PasswordAuthentication no · PermitRootLogin no
+systemctl reload ssh
+```
+
+De tweede-sessie-verificatie is de lockout-verzekering: pas `sshd_config`
+nooit aan in je enige werkende sessie.
+
+#### 0.5.4 Docker + Coolify
+
+Coolify's officiële installer (bron: coolify.io/docs/get-started/installation,
+gecheckt 2026-09-01; geen versienummer gepind in de docs zelf):
+
+```bash
+curl -fsSL https://cdn.coollabs.io/coolify/install.sh | sudo bash
+```
+
+**Dit is een gepiped shell-script met root** — lees het vóór uitvoering
+(`curl -fsSL … -o install.sh` en dan inspecteren). Wat het volgens de
+documentatie doet: basistools (curl, wget, git, jq, openssl) installeren,
+**Docker Engine 24+** installeren en configureren (logging, daemon),
+`/data/coolify` aanmaken, SSH-keys voor serverbeheer configureren en
+Coolify starten. Minimumeisen (2 cores / 2 GB / 30 GB) zijn op een CCX33
+ruimschoots gedekt. Dashboard daarna via de SSH-tunnel uit 0.5.2.
+
+#### 0.5.5 DNS en TLS
+
+Domein: `<TBD: Ryan — domein en registrar>`. Een A-record (en AAAA bij
+IPv6) per publieke hostname (web, API) naar het server-IP; welke hostnames
+dat precies worden hangt af van `BETTER_AUTH_URL`/`CORS_ORIGIN`/
+`NEXT_PUBLIC_SERVER_URL` uit § 2 — dezelfde waarden, één keuze. Coolify
+gebruikt standaard **Traefik** als proxy met Let's Encrypt-ondersteuning
+voor certificaten (bron: coolify.io/docs Traefik-overview, gecheckt
+2026-09-01); poorten 80/443 uit 0.5.2 zijn precies wat de HTTP-01-flow en
+het productieverkeer nodig hebben. De exacte per-domein
+certificaatconfiguratie in Coolify is **niet geverifieerd** — volg de
+Coolify-docs bij uitvoering in plaats van een hier verzonnen click-path.
+
+#### 0.5.6 Cloudflare R2-bucket (ADR-0008)
+
+Maak de raw-payload-bucket uit
+[ADR-0008](../adr/ADR-0008-cloudflare-r2-for-raw-payloads.md) aan. R2 staat
+los van de Hetzner-box en kan dus **vooruitlopend op de host** worden
+aangemaakt:
+
+1. Cloudflare-dashboard → R2 → bucket aanmaken. Naam en locatie zijn
+   `<TBD: Ryan>` — dit document verzint er geen.
+2. R2 → Manage API Tokens → een token met lees/schrijfrechten op die bucket.
+   Dat levert de S3 access key id en secret.
+3. Noteer het account-id: het S3-endpoint is
+   `https://<ACCOUNT_ID>.r2.cloudflarestorage.com`.
+
+De vier `RAW_S3_*`-waarden (namen in § 2) gaan naar 1Password en vandaar naar
+de Coolify-secrets van server én worker — nooit in git. `RAW_S3_REGION` mag
+leeg blijven: R2 verwacht `auto`, en `us-east-1` (onze code-default) aliast
+daarnaartoe. Rotatiepad voor deze keys bestaat nog niet — zie ADR-0008
+§ Open punten.
+
+#### Hand-off
+
+Hier eindigt provisioning: er draait een geharde Ubuntu-host met Docker en
+Coolify, alleen 22/80/443 publiek, DNS wijst, en de Object Storage-bucket
+bestaat. **Stap 1 (Manticore op de box) neemt exact deze staat aan.** De
+bestaande stapnummers hieronder zijn ongewijzigd gelaten zodat alle
+kruisverwijzingen (blockers-tabel, § 2) blijven kloppen.
 
 ### Stap 1 — Manticore op de box
 
@@ -221,9 +368,12 @@ naar `server:3000`.
 
 ### Stap 6 — Redis en raw object store
 
-Redis on-box (privaat), `REDIS_URL` op de server. Raw store: S3-compatible
-bucket bij de gekozen provider (`<TBD: Ryan — MinIO op de box of Hetzner
-Object Storage>`), `RAW_S3_*` op server én worker met dezelfde bucket.
+Redis on-box (privaat), `REDIS_URL` op de server. Raw store: een Hetzner
+Object Storage-bucket ([ADR-0008](../adr/ADR-0008-cloudflare-r2-for-raw-payloads.md));
+bucket, endpoint en keys `<TBD: Ryan — aanmaken bij Hetzner>`. `RAW_S3_*`
+op server én worker met exact dezelfde waarden — de worker heeft geen eigen
+runtime-guard, dus een vergeten worker-env schrijft stil naar zijn lokale
+filesystem (raw-object-storage.md § Production guard).
 
 Verificatie: `/readyz` toont `redis: {"status":"ok"}` en
 `rawObjectStore: {"status":"ok"}`. (`rawObjectStore` probet alleen de
@@ -371,10 +521,10 @@ Allemaal buiten het mandaat van dit runbook:
 | RJC-371: rotatie gelekte Neon-credential | Stap 2/4 — ADR-0006 is "pas operationeel gedekt als de rotatie is afgerond" | Ryan |
 | RJC-373: `TRIGGER_SECRET_KEY` bestaat nergens | Stap 9 (worker-deploy en gedeployd bewijs) | Ryan / Trigger.dev-account |
 | RJC-382: engine-beslissing 6.3.8 vs 29.x | Niet blokkerend voor de sequentie (6.3.8 ís productie), wel voor het al dan niet meenemen van een 29.x-migratie in stap 1 | Ryan |
-| Raw-store-provider (MinIO on-box vs Hetzner Object Storage) | Stap 6 | Ryan |
+| ~~Raw-store-provider~~ — beslist: Cloudflare R2 ([ADR-0008](../adr/ADR-0008-cloudflare-r2-for-raw-payloads.md)); rest: bucket + keys aanmaken | Stap 6 (alleen nog de aanmaak-actie) | Ryan |
 | Branch protection op `main` | Geen deploystap, wel de release-hygiëne eromheen | Ryan |
 
-Daarnaast één eerlijke leemte zonder ticket: de Coolify-installatie op de
-host zelf (stap 0.4) is nergens in de repo gespecificeerd. (Het
+Daarnaast: de host-provisioning (stap 0.5) is nu wél gespecificeerd, maar
+integraal **ongerehearsed** — de eerste uitvoering is de eerste test. (Het
 Neon-rollen-script bestaat inmiddels — `tools/postgres/neon-roles.sql`,
 RJC-381 — maar is nog niet tegen Neon uitgevoerd; zie stap 2.)
