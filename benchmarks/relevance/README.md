@@ -70,16 +70,16 @@ Adding a candidate engine = one entry in `buildEngineRuns` in `run.ts` (construc
 
 ## RJC-382: comparing against a second engine
 
-Set `MANTICORE_29_URL` (and optionally `MANTICORE_29_LABEL`) to score a second Manticore target in the same run — used to compare the 6.3.8 production instance against the 29.0.2 shadow instance (`tools/manticore/README-29-shadow.md`):
+Set `MANTICORE_29_URL` (and optionally `MANTICORE_29_LABEL`) to score a second Manticore target in the same run. Originally used for the 6.3.8-vs-29.0.2 shadow comparison (RJC-382, now closed — production runs 29.0.2, see `docs/runbooks/manticore-29-upgrade.md`); the slot is version-agnostic and works against any candidate instance, e.g. a throwaway `docker run` container:
 
 ```bash
 MANTICORE_URL=http://127.0.0.1:9308 \
 MANTICORE_29_URL=http://127.0.0.1:9312 \
-MANTICORE_29_LABEL=manticore29-infix \
+MANTICORE_29_LABEL=manticore-candidate \
 bun run relevance
 ```
 
-Run once against `tools/manticore/manticore29.conf` (infix enabled) and once against `tools/manticore/manticore29-noinfix.conf` (identical minus `min_infix_len`) to isolate the infix config change from the version upgrade itself — swap the conf file mounted at `/etc/manticoresearch/manticore.conf` and restart `manticore29` between runs, on a fresh volume each time (`docker volume rm catapulze-job-intelligence_manticore29_data`) so the schema actually reloads. Verify the tables are empty with `SELECT COUNT(*) FROM aanvragen_active` / `aanvragen_archive` over `/sql?mode=raw` before each run — never with a `/search … "limit": 0`, whose `hits.total` is not a row count (it reported 0 on a 505-row table). The runner does this check itself and refuses a non-empty table unless `RELEVANCE_ALLOW_DIRTY_TABLE=1`.
+To isolate a config change from a version change, run the candidate twice on fresh containers/volumes — once with the production `tools/manticore/manticore.conf`, once with the candidate conf — so the schema really reloads (RT tables ignore conf changes on an existing path). Verify the tables are empty with `SELECT COUNT(*) FROM aanvragen_active` / `aanvragen_archive` over `/sql?mode=raw` before each run — never with a `/search … "limit": 0`, whose `hits.total` is not a row count (it reported 0 on a 505-row table). The runner does this check itself and refuses a non-empty table unless `RELEVANCE_ALLOW_DIRTY_TABLE=1`.
 
 ## Judgments: extending the golden set with real recruiter judgments
 

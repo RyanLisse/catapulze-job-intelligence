@@ -91,8 +91,8 @@ destructive: the legacy single `aanvragen` table is left exactly as it is.
 
 1. **Conf → new tables.** The tables come from the conf (production runs in
    plain mode, so there is no `CREATE TABLE`). Deploy the updated
-   `tools/manticore/manticore.conf` (and both `manticore29*.conf` for the
-   shadow instances) and restart `searchd` once. New tables ARE picked up on
+   `tools/manticore/manticore.conf` (the RJC-382 shadow confs were retired
+   with the 29.0.2 upgrade — see docs/runbooks/manticore-29-upgrade.md) and restart `searchd` once. New tables ARE picked up on
    an existing volume — only schema changes to an existing table's path are
    ignored — so no volume reset is needed. Verify:
 

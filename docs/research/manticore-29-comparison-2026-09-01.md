@@ -150,3 +150,124 @@ Both `manticore29.conf` and `manticore29-noinfix.conf` now carry the same schema
 - Given the version change is a trade (gains on exact-skill/phrase-filter, a real loss on semantic-synonym) and latency is completely unmeasured, this round does **not** support switching. Next round must measure p50/p95 latency on both engines before the switch criteria can be re-evaluated, and the semantic-synonym stemming regression should be understood (does 29.0.2 bundle a different Snowball/libstemmer release?) before treating the version upgrade as net-positive.
 
 Two-line pointer added to `tools/manticore/README-29-shadow.md`.
+
+---
+
+## Closing section (2026-09-01, RJC-382 upgrade lane): decision, fix, final numbers
+
+**Decision (owner: Ryan) — upgrade.** Production moves to
+`manticoresearch/manticore:29.0.2` (digest-pinned in `docker-compose.yml`;
+still the newest STABLE tag on Docker Hub as of 2026-09-01 — everything newer
+is `dev-29.3.x`). The semantic-synonym regression documented above is **fixed
+in config, not accepted**.
+
+### Root cause, one level deeper than "the stemmer weakened"
+
+Manticore 29.x bundles **Snowball 3.x**, which *replaced* the `dutch`
+stemmer with a new algorithm and renamed the old one `dutch_porter`. So
+`morphology = libstemmer_nl` selects a *different algorithm* on 29.0.2 than
+it did on 6.3.8. Measured with `CALL KEYWORDS` on equal confs:
+
+| word | 6.3.8 `stem_en, libstemmer_nl` | 29.0.2 `stem_en, libstemmer_nl` | 29.0.2 `stem_en, libstemmer_dutch_porter` |
+|---|---|---|---|
+| duurzaam | `duurzam` | `duurzaam` (unstemmed) | `duurzam` |
+| duurzame | `duurzam` | `duurzam` | `duurzam` |
+| gemeente | `gemeent` | `gemeent` | `gemeent` |
+| gemeenten | `gemeent` | **`meen`** | `gemeent` |
+| azure | `azur` | `azur` | `azur` |
+| energie | `energi` | `energi` | `energi` |
+| ontwikkelaar | `ontwikkelar` | `ontwikkel` | `ontwikkelar` |
+| ontwikkelaars | `ontwikkelaar` | `ontwikkelaar` | `ontwikkelaar` |
+
+The new Snowball `dutch` no longer collapses `duurzaam`/`duurzame` or
+`gemeente`/`gemeenten` (`gemeenten → meen` is its new prefix-stripping
+behaviour colliding with the `stem_en` chain), which is exactly the two-query
+semantic-synonym loss above.
+
+### The fix, and why it is principled
+
+`tools/manticore/manticore.conf` now sets
+`morphology = stem_en, libstemmer_dutch_porter` on all three tables. The
+options were evaluated in the task's mandated order:
+
+1. **Dutch lemmatizer** — does not exist in 29.0.2:
+   `CREATE TABLE … morphology='lemmatize_nl_all'` fails with
+   `unknown stemmer lemmatize_nl_all` (only en/ru/de lemmatizers ship).
+2. **Morphology variant** — `libstemmer_dutch_porter` is the *same
+   algorithm* 6.3.8 ran, renamed upstream; verified stem-for-stem identical
+   on every probe word above. This is a rename-chase, not a tuning trick.
+3. **Wordforms file** — not needed; never considered per-query mappings.
+
+No golden query is named anywhere in the config; the fix restores the
+baseline algorithm for the whole language.
+
+### Final golden-set numbers (clean tables, runner-enforced; two runs each, byte-identical reports)
+
+Both engines scored in the same invocations against fresh, empty containers
+(`SELECT COUNT(*)` = 0 pre-run), on the rebased branch (post RJC-394/396/399):
+
+| Category | 6.3.8 control | 29.0.2 + dutch_porter |
+|---|---|---|
+| exact-skill | 0.792 / 0.809 | 0.792 / 0.809 |
+| nl-morphology | 0.786 / 0.758 | 0.786 / 0.758 |
+| compound | 0.429 / 0.429 | 0.429 / 0.429 |
+| semantic-synonym | **0.188 / 0.202** | **0.188 / 0.202** |
+| phrase-filter | 0.881 / 0.911 | 0.881 / 0.911 |
+| nl-en-mix | 0.000 / 0.000 | 0.000 / 0.000 |
+| **OVERALL (macro, scope=all)** | **0.523 / 0.529** | **0.523 / 0.529** |
+| OVERALL (scope=active) | 0.465 / 0.474 | 0.465 / 0.474 |
+
+Per-query the two engines are **byte-identical across all 43 queries in both
+scopes** — `se-jeugdzorg` 0.500/1 hit and `se-duurzameenergie` 1.000/1 hit
+are back; `es-azure` 1.000 (3 hits), `es-firewall` 0 (unresolved on both,
+pre-existing), `es-scrum` 0.333, `mo-ontwikkelaars` 0 (the known "-aars"
+split, byte-identical stems on both engines — parity, not regression).
+Acceptance bar (≥ 0.523 / 0.529 overall, semantic-synonym ≥ 0.188 / 0.202):
+**met exactly**.
+
+Consequences for this document's earlier conclusions: the "trade, not a
+clean win" verdict was correct for `libstemmer_nl` on 29.0.2 and is now
+retired — with `dutch_porter` the version upgrade is relevance-neutral on
+the golden set, and the remaining gaps (`es-firewall`, `nl-en-mix`,
+"-aars") are engine-version-independent items for the corpus/judgments
+backlog.
+
+### Latency: explicit negative result (2026-09-01)
+
+A trustworthy 6.3.8-vs-29.0.2 latency comparison **could not be obtained on
+this laptop**. Six measurement attempts (the existing harness, `bun run
+bench:search`, 20k generated corpus seed 20260901, ids `latency-rjc382b-N`,
+both engines in the same invocation, dedicated throwaway containers — the
+last runs on tmpfs data dirs to rule out overlayfs) all aborted during bulk
+indexing on a sporadic `/replace` request stalling past the client's 8s
+timeout. The stall is **host infrastructure, not a 29.x signal**:
+
+- it hit BOTH engines — including the unchanged 6.3.8 control — at roughly
+  1 request in 40k;
+- direct `curl` probes of the same `/replace` endpoint on the same
+  containers answer in ~3ms;
+- the harness indexes in batches of 100 concurrent connections through
+  Docker Desktop's localhost port proxy, and when the proxy wedges, every
+  in-flight request stalls together (a one-retry-per-upsert patch was tried
+  and could not save a run — the retry stalled with the batch — so it was
+  not kept);
+- recorded load windows for the attempts spanned 3.6–6.9 (1-min average)
+  at start; failures occurred in clean and loaded windows alike.
+
+Consequence: the earlier indicative figures from
+`docs/research/manticore-latency-2026-09-01.md` (both engines pass the
+p95 ≤ 100ms SLO at 20k docs; 29.x boolean profile queries ~3–6ms p95 vs
+~40ms on 6.3.8) stand as the best available numbers but were measured
+with `min_infix_len` and `libstemmer_nl`, NOT with this branch's
+`dutch_porter` morphology — whether the boolean-query advantage survives
+the morphology change is **unmeasured**. Morphology affects tokenisation,
+not the boolean query execution path, so a large shift is not expected,
+but that is reasoning, not measurement. A clean latency round needs a
+quiet host — the planned 200k Hetzner run
+(`docs/research/manticore-latency-2026-09-01.md`, Gaps) is the right
+place for it, now with the upgraded production conf.
+
+The engine decision does not rest on this: the acceptance bar for the
+upgrade was the golden-set relevance floor, which is met exactly (table
+above), and the latency SLO gate (`bench:search` on the 200k profile) is
+enforced by CI on `main` after merge in any case.

@@ -55,12 +55,24 @@ export const isStaleSearchVersion = (
  * string whenever the Manticore column mapping (`documentToManticore`) or
  * the set of tables it writes to changes; a checkpoint carrying a different
  * hash means the index was built for another schema and requires a full
- * rebuild (new generation), never a silent reindex. v3 (RJC-383): the same
- * columns, now split over `aanvragen_active` + `aanvragen_archive`.
+ * rebuild (new generation), never a silent reindex. v4 (RJC-382): identical
+ * columns and split, but the index moved to Manticore 29.0.2 with
+ * `morphology = stem_en, libstemmer_dutch_porter` (Snowball 3.x renamed the
+ * old Dutch stemmer) and fresh RT table paths — tokens stemmed under the old
+ * engine/morphology are not comparable, so the upgrade is a full rebuild
+ * (docs/runbooks/manticore-29-upgrade.md).
  */
 // ponytail: hand-maintained constant; runtime hashing of the mapping buys
 // nothing until the mapping itself is data-driven.
 export const SEARCH_SCHEMA_HASH =
+  "aanvragen-v4[active|archive][m29-dutch_porter]:beschrijving,bron_id,contracttype,document_id,index_version,laatst_gezien_op,locatie,locatie_land,sluitingsdatum,status,tarief_max,tarief_min,titel";
+
+/**
+ * The v3 mapping (RJC-383 split, Manticore 6.3.8, libstemmer_nl). Kept, like
+ * the older hashes below, so a checkpoint stamped with it is provably
+ * rejected as a schema mismatch.
+ */
+export const SEARCH_SCHEMA_HASH_V3 =
   "aanvragen-v3[active|archive]:beschrijving,bron_id,contracttype,document_id,index_version,laatst_gezien_op,locatie,locatie_land,sluitingsdatum,status,tarief_max,tarief_min,titel";
 
 /**

@@ -356,10 +356,11 @@ const buildManticoreRun = (
 /** In-memory always; Manticore when MANTICORE_URL is set (ISC-4: adding an
  * engine here is the only change needed — never in the application layer).
  *
- * RJC-382: an optional second Manticore target for the 6.3.8-vs-29.0.2
- * golden-set comparison. Set MANTICORE_29_URL to score a second engine in
- * the same run (e.g. the manticore29 shadow instance); MANTICORE_29_LABEL
- * optionally names it in the report (e.g. "manticore29-infix"), defaulting
+ * RJC-382: an optional second Manticore target, originally for the
+ * 6.3.8-vs-29.0.2 golden-set comparison (closed — production runs 29.0.2)
+ * and kept as a version-agnostic candidate slot. Set MANTICORE_29_URL to
+ * score a second engine in the same run (e.g. an ad hoc candidate
+ * container); MANTICORE_29_LABEL optionally names it in the report, defaulting
  * to "manticore-29". Both are no-ops when unset, so `bun run relevance`
  * with only MANTICORE_URL set is unaffected. */
 const buildEngineRuns = (corpus: RelevanceCorpusSummary): EngineRun[] => {

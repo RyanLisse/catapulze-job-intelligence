@@ -12,7 +12,7 @@ const okCheckpoint = () => ({
   appliedSequence: 42n,
   generation: 1,
   schemaHash:
-    "aanvragen-v3[active|archive]:beschrijving,bron_id,contracttype,document_id,index_version,laatst_gezien_op,locatie,locatie_land,sluitingsdatum,status,tarief_max,tarief_min,titel",
+    "aanvragen-v4[active|archive][m29-dutch_porter]:beschrijving,bron_id,contracttype,document_id,index_version,laatst_gezien_op,locatie,locatie_land,sluitingsdatum,status,tarief_max,tarief_min,titel",
 });
 
 const baseDeps = (overrides: Partial<ReadinessDeps> = {}): ReadinessDeps => ({
