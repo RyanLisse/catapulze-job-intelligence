@@ -59,6 +59,9 @@ docs/research/bench/rs/target/
 # Generated search benchmark corpus (RJC-344) — regenerate via `bun run bench:generate`
 fixtures/search/benchmark-corpus.jsonl
 
+# Generated search corpora (RJC-382 latency round and similar) — never commit, regenerate via `bun run bench:generate`
+fixtures/search/
+
 # Logs
 logs
 .qlty/configs/
