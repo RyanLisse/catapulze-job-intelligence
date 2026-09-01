@@ -13,13 +13,25 @@ import type {
   ScrapeRunId,
 } from "@ji/domain";
 import { AANVRAAG_LIFECYCLE } from "@ji/domain";
+import type { ExtractTablesWithRelations } from "drizzle-orm";
 import { and, eq, isNull } from "drizzle-orm";
-import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
+import type {
+  PostgresJsDatabase,
+  PostgresJsTransaction,
+} from "drizzle-orm/postgres-js";
 
 import type * as schema from "./schema";
 import { aanvraag, aanvraagVersie, dedupGroep, outboxEvent } from "./schema";
 
 export type PostgresCurateDatabase = PostgresJsDatabase<typeof schema>;
+/** A drizzle transaction handle: the same query surface, scoped to one tx. */
+export type PostgresCurateTransaction = PostgresJsTransaction<
+  typeof schema,
+  ExtractTablesWithRelations<typeof schema>
+>;
+type PostgresCurateExecutor =
+  | PostgresCurateDatabase
+  | PostgresCurateTransaction;
 
 const requireRow = <Row>(rows: Row[], description: string): Row => {
   const [row] = rows;
@@ -89,10 +101,21 @@ const toStoredAanvraag = (
 });
 
 export class PostgresCurateStore implements CurateStore {
-  private readonly database: PostgresCurateDatabase;
+  private readonly database: PostgresCurateExecutor;
 
-  constructor(database: PostgresCurateDatabase) {
+  constructor(database: PostgresCurateExecutor) {
     this.database = database;
+  }
+
+  /**
+   * One Postgres transaction per aanvraag mutation (RJC-399): `fn` runs
+   * against a store bound to the transaction handle, so close versie,
+   * insert versie, update aanvraag and the outbox insert commit together
+   * or roll back together. Called on a store already inside a transaction
+   * this opens a savepoint (drizzle's nested-transaction behaviour).
+   */
+  withTransaction<T>(fn: (store: CurateStore) => Promise<T>): Promise<T> {
+    return this.database.transaction((tx) => fn(new PostgresCurateStore(tx)));
   }
 
   async findAanvraagByIdentity(

@@ -73,6 +73,7 @@
     "backfill:neon-v1": "PATH=\"./node_modules/.bin:$PATH\" bun scripts/backfill-neon-v1.ts",
     "replay:run": "PATH=\"./node_modules/.bin:$PATH\" bun run scripts/replay-run.ts",
     "search:new-generation": "PATH=\"./node_modules/.bin:$PATH\" bun tools/manticore/start-search-generation.ts",
+    "search:reconcile-projection": "PATH=\"./node_modules/.bin:$PATH\" bun tools/search/reconcile-projection.ts",
     "prepare": "PATH=\"./node_modules/.bin:$PATH\" lefthook install --reset-hooks-path"
   },
   "dependencies": {

@@ -40,7 +40,16 @@ export {
 export {
   PostgresCurateStore,
   type PostgresCurateDatabase,
+  type PostgresCurateTransaction,
 } from "./postgres-curate-store";
+export {
+  PROJECTION_REPAIR_EVENT_TYPE,
+  ProjectionRepairSchemaMismatchError,
+  reconcileProjection,
+  type ProjectionDivergence,
+  type ReconcileProjectionInput,
+  type ReconcileProjectionResult,
+} from "./projection-repair";
 export {
   resolveNeonV1BackfillSource,
   runMotianV1Backfill,
