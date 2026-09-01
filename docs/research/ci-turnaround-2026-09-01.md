@@ -110,17 +110,59 @@ breakdown without downloading the artifact.
 | verify job | ~2m38s | ~1m55s | ~1m25s–1m40s |
 | build (now parallel) | (inside verify) | ~1m15s | ~45s |
 
-### What a real CI run must show (the lead pushes; read these numbers)
+### Measured on PR #111 — cache-MISS run (run 33483731056, 2026-09-01)
 
-1. First push of this branch = **turbo cache-miss run**: `verify` log shows
-   `gate: phase 'typecheck' took ~35s`, `build` job appears as its own check,
-   two new cache entries `turbo-verify-…`/`turbo-build-…` saved.
-2. Second push (empty or trivial commit) = **cache-hit run**: turbo prints
-   `FULL TURBO` / cache-hit lines, `gate: phase 'typecheck'` drops to single
-   digits, `build` job total well under a minute.
-3. `Start isolated PostgreSQL` step ≤ ~8s (pull already backgrounded).
+First real run of the changed workflow, and the first real output of the gate
+instrumentation. Turbo cache was a clean miss (`Cache not found for input
+keys: turbo-verify-Linux-…`), so this is the *worst case* for the new layout.
+
+| | Baseline (median) | PR #111 miss run |
+|---|---|---|
+| Wall clock to green | ~2m52s | **2m25s** (07:46:09 → 07:48:40) |
+| verify job | ~2m38s | **2m21s** (gate-only; build removed) |
+| build (parallel job) | (inside verify, 38–49s) | **61s** — off the critical path |
+| postgres-restore-drill | 50–80s | 54s |
+| changes | ~6s | 4s |
+
+Gate phases as printed by the new instrumentation (verify log):
+
+| Gate phase | Baseline (artifact) | Miss run (log) |
+|---|---|---|
+| typecheck | 36.1s | 28s (miss — full run, as expected) |
+| qlty | 18.8s | 23s |
+| test | 13.9s | 18s |
+| ultracite | 2.4s | 3s |
+| performance-typecheck | 2.3s | 2s |
+| ci-metrics-typecheck | 0.9s | 1s |
+| layering / secrets / compose guards | <1.5s | 0s each |
+
+Cache mechanics confirmed from the run log: restore looked up
+`turbo-verify-Linux-<sha>` then `turbo-verify-Linux-` and found nothing
+(clean miss); post-steps saved `turbo-verify-Linux-63d2a30…` (3.6 KiB —
+check-types has no outputs, so the entry is replay logs only) and
+`turbo-build-Linux-63d2a30…` (22.5 MiB of build outputs). `Start isolated
+PostgreSQL` was 23s this run — the background pre-pull step itself took 1s
+but the pull had not finished before compose needed it; see the hit run for
+whether the overlap pays on a warmer path. All checks green: verify, build,
+postgres-restore-drill, CodeRabbit, Claude review.
+
+Note for the warm measurement: the follow-up commit is docs-only, but
+`dorny/paths-filter` on `pull_request` evaluates the whole PR diff (which
+includes `ci.yml`), so `changes.outputs.code` stays `true` and the full
+gate runs — the warm numbers are real, not a skip.
+
+### What the cache-HIT run must show (the lead pushes; read these numbers)
+
+1. Turbo prints `FULL TURBO` / cache-hit lines; `gate: phase 'typecheck'`
+   drops to single digits (miss run: 28s).
+2. `build` job total well under a minute (miss run: 61s).
+3. `Start isolated PostgreSQL` duration vs the miss run's 23s — tells us
+   whether the background pre-pull pays.
 4. `postgres-restore-drill` and the migration-upgrade gate lines unchanged
    (`gate: migration-upgrade suite will run against database …`).
+5. If typecheck is NOT single digits, the likely cause is a restore-key
+   miss across SHAs — check the `Restore Turborepo cache` log for which
+   key matched.
 
 ## 4. Runner class: Blacksmith
 
