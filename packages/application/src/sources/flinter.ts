@@ -8,14 +8,17 @@ import type { SourceDefinition } from "./definition";
 
 export const flinter = {
   bronId: "00000000-0000-4000-8000-00000000000a",
-  createConnector: ({ bronId, knownHashes, listingFixturePath }) =>
+  // RJC-357/RJC-401: knownHashes deliberately NOT forwarded -- a skip here
+  // would freeze detail-only changes; see listingHashCoversDetail below.
+  createConnector: ({ bronId, listingFixturePath }) =>
     createFlinterConnector({
       bronId,
       client: listingFixturePath
         ? createFlinterClient({ listingFixturePath, liveEnabled: false })
         : undefined,
-      knownHashes,
     }),
+  // RJC-357/RJC-401: the detail page carries titel/beschrijving/tarief/closing the listing hash cannot see.
+  listingHashCoversDetail: false,
   liveEnv: "FLINTER_LIVE",
   naam: "Flinter",
   normalise: normaliseFlinterObservation,

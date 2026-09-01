@@ -42,3 +42,7 @@ Opdrachtgever, locatie, uren, start en deadline zijn in de aangeleverde probe ni
 ## Sluitingsdatum (RJC-377)
 
 De detailpagina publiceert een echte, per-opdracht sluitingsmoment: het "Deadline voor reageren"-blok (`data-date-utc`, epoch-ms met tijdcomponent — live capture 2026-08-31, `fixtures/connectors/needstaffing/detail-15520.json`). Vóór RJC-377 werd dit veld wel geparsed naar `bronSpecifiek.deadline` maar nooit gebruikt om de lifecycle te sluiten, waardoor elke Need Staffing-aanvraag voor altijd "actief" bleef. `sluitingsdatumPassed` wordt nu op volle instant-precisie (niet afgekapt op datum) tegen dit veld berekend, zodat een deadline later op de dag van vandaag niet te vroeg sluit (RJC-376-discipline).
+
+## Known-hash short-circuit (RJC-357 / RJC-401)
+
+`listingHashCoversDetail: false` — de fetch parset de detail-HTML en de normaliser leest daaruit velden (titel, beschrijving, tarief) die op de detailpagina kunnen wijzigen terwijl de listing-rij (en dus de listing-hash) gelijk blijft. Geen `knownHashes`-store doorgegeven (afgedwongen in `sources.spec.ts`).

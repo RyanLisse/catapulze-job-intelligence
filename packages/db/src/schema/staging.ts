@@ -37,6 +37,13 @@ export const sourceRecord = stagingSchema.table(
       { onDelete: "set null" }
     ),
     /**
+     * Listing-tier hash from the discover pass (RJC-357), updated on every
+     * observation. NULL (rows older than 0012, or never observed since)
+     * means "no listing hash known" and must never allow a fetch skip.
+     * Distinct from `content_hash`, which hashes the fetched payload.
+     */
+    listingHash: text("listing_hash"),
+    /**
      * Consecutive complete listing runs of this bron that did not show the
      * record (RJC-397). Saturates at the stale threshold + 1 (one retry for
      * an interrupted stale write); `last_seen_at` carries the age past that

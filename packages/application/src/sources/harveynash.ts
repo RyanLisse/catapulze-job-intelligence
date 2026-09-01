@@ -8,14 +8,17 @@ import type { SourceDefinition } from "./definition";
 
 export const harveynash = {
   bronId: "00000000-0000-4000-8000-000000000007",
-  createConnector: ({ bronId, knownHashes, listingFixturePath }) =>
+  // RJC-357/RJC-401: knownHashes deliberately NOT forwarded -- a skip here
+  // would freeze detail-only changes; see listingHashCoversDetail below.
+  createConnector: ({ bronId, listingFixturePath }) =>
     createHarveyNashConnector({
       bronId,
       client: listingFixturePath
         ? createHarveyNashClient({ listingFixturePath, liveEnabled: false })
         : undefined,
-      knownHashes,
     }),
+  // RJC-357/RJC-401: the detail page carries the facts block incl. the closing field the listing hash cannot see (RJC-401).
+  listingHashCoversDetail: false,
   liveEnv: "HARVEYNASH_LIVE",
   naam: "Harvey Nash",
   normalise: normaliseHarveyNashObservation,

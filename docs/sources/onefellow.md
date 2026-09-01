@@ -47,3 +47,7 @@ Contact- en recruiter-/sourcer-velden worden niet genormaliseerd of gelogd.
 1. Het private endpoint kan zonder aankondiging wijzigen of verdwijnen.
 2. De fallback vereist browser-rendering omdat de site geen SSR gebruikt.
 3. `max_rate` is meestal leeg; `baseSalary=0/HOUR` in de ItemList is een placeholder.
+
+## Known-hash short-circuit (RJC-357 / RJC-401)
+
+`listingHashCoversDetail: true` — de fetch her-serialiseert de listing-job zonder tweede request. `hashOnefellowListingItem` dekt elk veld dat de normaliser leest (incl. `time_deadline` → `sluitingsdatum` en `status` → lifecycle). Bewust NIET gehasht: `time_published`/`time_updated` — de normaliser leest ze niet, dus een re-poll die alleen die timestamps bumpt mag geskipt worden (zelfde DEC-008-redenering als het hash-docblock).

@@ -20,7 +20,6 @@ export {
   createFixtureEnvelope,
 } from "./fixtures/load";
 export { InMemoryKnownHashStore, type KnownHashStore } from "./known-hash";
-export { ObservationKnownHashStore } from "./observation-known-hash";
 export {
   type CheckpointKey,
   type ConnectorRunProgress,

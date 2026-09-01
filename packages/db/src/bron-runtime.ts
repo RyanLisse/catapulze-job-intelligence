@@ -46,6 +46,10 @@ const HISTORICAL_POINTER_PAYLOAD_SCHEMA = z.object({
   rawPayloadRef: z.string().trim().min(1),
 });
 
+/** RJC-357: absent listing hash persists as NULL (never authorises a skip). */
+const toStoredListingHash = (value: string | null | undefined): string | null =>
+  value ?? null;
+
 const requireMutation = <Row>(rows: Row[], description: string): Row => {
   const [row] = rows;
   if (!row) {
@@ -823,6 +827,12 @@ export class PostgresObservationRecorder implements ObservationRecorder {
           .update(sourceRecord)
           .set({
             contentHash: canonicalPointer.contentHash,
+            // RJC-357: always the CURRENT observation's listing hash, not the
+            // canonical pointer's — the skip asks "does the live listing
+            // still look like the last one we acted on". `?? null` clears a
+            // stale value when this observation carried no listing hash, so
+            // it can never wrongly authorise a skip.
+            listingHash: toStoredListingHash(record.listingHash),
             rawPayloadRef: canonicalPointer.rawPayloadRef,
             scrapeRunId: canonicalPointer.scrapeRunId,
           })

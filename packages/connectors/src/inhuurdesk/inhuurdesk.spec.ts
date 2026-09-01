@@ -11,6 +11,7 @@ import {
 
 import { createInhuurdeskClient } from "./client";
 import type { InhuurdeskClient } from "./client";
+import { hashInhuurdeskListingItem } from "./hash";
 import type { InhuurdeskAssignment } from "./types";
 
 const retryPolicy = {
@@ -128,5 +129,35 @@ describe("Inhuurdesk connector", () => {
     const second = await connector.discover(first.checkpoint);
     expect(second.hasMore).toBe(false);
     expect(second.items).toHaveLength(2);
+  });
+});
+
+describe("Inhuurdesk listing hash coverage (RJC-357 / RJC-401)", () => {
+  const baseAssignment: InhuurdeskAssignment = {
+    aanvraagnummer: "AANVR-1",
+    title: "Senior Developer",
+  };
+
+  it("covers every InhuurdeskAssignment field the normaliser can read", async () => {
+    const variants: Partial<InhuurdeskAssignment>[] = [
+      { aanvraagnummer: "AANVR-2" },
+      { client: "Gemeente Amsterdam" },
+      { description: "Andere omschrijving" },
+      { endDate: "2027-01-01" },
+      { hoursPerWeek: 36 },
+      { id: 12_345 },
+      { location: "Utrecht" },
+      { startDate: "2026-10-01" },
+      { title: "Andere titel" },
+    ];
+    const base = await hashInhuurdeskListingItem(baseAssignment);
+    for (const variant of variants) {
+      // oxlint-disable-next-line no-await-in-loop -- sequential hash comparisons keep the failure message per-field
+      const changed = await hashInhuurdeskListingItem({
+        ...baseAssignment,
+        ...variant,
+      });
+      expect(changed).not.toBe(base);
+    }
   });
 });

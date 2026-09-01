@@ -304,6 +304,10 @@ const runConnectorInner = async (
             bronId,
             bronReferentie: fetched.bronReferentie,
             contentHash,
+            // RJC-357: persist the discover pass's listing-tier hash next to
+            // the payload hash so the next poll's known-hash short-circuit
+            // compares like with like.
+            listingHash: item.contentHash,
             rawPayloadRef,
             scrapeRunId,
           },

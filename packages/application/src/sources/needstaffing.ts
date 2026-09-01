@@ -8,14 +8,17 @@ import type { SourceDefinition } from "./definition";
 
 export const needstaffing = {
   bronId: "00000000-0000-4000-8000-000000000003",
-  createConnector: ({ bronId, knownHashes, listingFixturePath }) =>
+  // RJC-357/RJC-401: knownHashes deliberately NOT forwarded -- a skip here
+  // would freeze detail-only changes; see listingHashCoversDetail below.
+  createConnector: ({ bronId, listingFixturePath }) =>
     createNeedstaffingConnector({
       bronId,
       client: listingFixturePath
         ? createNeedstaffingClient({ listingFixturePath, liveEnabled: false })
         : undefined,
-      knownHashes,
     }),
+  // RJC-357/RJC-401: the detail page carries titel/beschrijving/tarief the listing hash cannot see.
+  listingHashCoversDetail: false,
   liveEnv: "NEEDSTAFFING_LIVE",
   naam: "Need Staffing IT",
   normalise: normaliseNeedstaffingObservation,

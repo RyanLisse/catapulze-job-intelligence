@@ -16,6 +16,8 @@ export const striive = {
         : undefined,
       knownHashes,
     }),
+  // RJC-357/RJC-401: listing hash covers every projected StriiveJob field (fetch re-serialises the DEC-008 projection; no detail request) -- see docs/sources/striive.md.
+  listingHashCoversDetail: true,
   liveEnv: "STRIIVE_LIVE",
   naam: "Striive",
   normalise: normaliseStriiveObservation,

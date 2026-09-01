@@ -42,3 +42,7 @@ Status: **probe afgerond; connector nog niet gebouwd** — adapter-categorie `js
 ## Sluitingsdatum (RJC-377)
 
 Hero.eu publiceert geen enkel sluitingssignaal: geen label-blok (er is geen `labelBlock`-config voor deze bron) en geen `jobPosting.validThrough` (bevestigd afwezig in beide live captures, `fixtures/connectors/hero/detail-{1,2}.json`). `sluitingsdatumPassed` blijft hard `false` via de gedeelde json-ld-normaliser — eerlijk, geen parse-gat. Het verdwijnen van de listing is vandaag het enige sluitingssignaal.
+
+## Known-hash short-circuit (RJC-357 / RJC-401)
+
+`listingHashCoversDetail: false` — de listing-hash (`hashJsonLdListingItem`) ziet alleen `url` + `lastmod` uit de sitemap, terwijl de complete JobPosting (incl. sluitings-/deadline-velden, RJC-401) op de detailpagina leeft. Een deadline-only wijziging zonder betrouwbare `lastmod`-bump zou bij een skip een verouderde `sluitingsdatum` bevriezen; `lastmod` is niet bewezen betrouwbaar genoeg om daarop te vertrouwen. Geen `knownHashes`-store doorgegeven (afgedwongen in `sources.spec.ts`).

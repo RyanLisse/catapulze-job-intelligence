@@ -179,6 +179,13 @@ export interface SourceRecordPointer {
   bronId: BronId;
   bronReferentie: string;
   contentHash: string;
+  /**
+   * RJC-357: the listing-tier hash (`hash*ListingItem`) the discover pass
+   * computed for this record, persisted so the known-hash short-circuit can
+   * compare listing hash to listing hash. Absent/null means "no listing
+   * hash recorded", which must never skip a fetch.
+   */
+  listingHash?: string | null;
   rawPayloadRef: string;
   scrapeRunId: ScrapeRunId;
 }

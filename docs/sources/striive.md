@@ -45,3 +45,7 @@ Recruiternaam, e-mail en telefoon worden niet genormaliseerd of gelogd.
 1. JobPosting JSON-LD is malformed en niet parsebaar.
 2. De SSR-listing is 27 MB en bevat slechts de eerste 25 records.
 3. Tariefvelden zijn in de probe niet bruikbaar.
+
+## Known-hash short-circuit (RJC-357 / RJC-401)
+
+`listingHashCoversDetail: true` — de fetch her-serialiseert de DEC-008-projectie zonder tweede request, en `hashStriiveListingItem` hasht alle 17 velden van `StriiveJob` (het docblock daar zegt dit expliciet). Alles wat de normaliser leest (incl. `closingDateClient` → `sluitingsdatum`) zit dus in de listing-hash. Een nieuw `StriiveJob`-veld hoort ook in de hash.

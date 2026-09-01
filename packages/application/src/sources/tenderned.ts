@@ -39,21 +39,20 @@ const resolveFilters = (
 
 export const tenderned = {
   bronId: "00000000-0000-4000-8000-000000000001",
-  createConnector: ({
-    bronId,
-    knownHashes,
-    listingFixturePath,
-    live,
-    runKind,
-  }) =>
+  // RJC-357/RJC-401: knownHashes deliberately NOT forwarded -- a skip here
+  // would freeze detail-only changes; see listingHashCoversDetail below.
+  createConnector: ({ bronId, listingFixturePath, live, runKind }) =>
     createTenderNedConnector({
       bronId,
       client: listingFixturePath
         ? createTenderNedClient({ listingFixturePath, liveEnabled: false })
         : undefined,
       filters: resolveFilters(live, runKind),
-      knownHashes,
     }),
+  // RJC-357/RJC-401: the detail response carries opdrachtBeschrijving,
+  // cpvCodes, nutsCodes, opdrachtAardCode, procedureCode and
+  // opdrachtgeverNaam -- all persisted, none visible to the listing hash.
+  listingHashCoversDetail: false,
   liveEnv: "TENDER_NED_LIVE",
   naam: "TenderNed",
   normalise: normaliseTenderNedObservation,
