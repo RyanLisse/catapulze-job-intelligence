@@ -18,16 +18,21 @@ run_phase() {
   local label="$1"
   shift
 
+  # Print elapsed seconds per phase so any CI log or local run shows where
+  # gate time goes without needing the performance artifact.
+  local phase_started="$SECONDS"
+
   if [[ -n "${PERF_METRICS_DIR:-}" ]]; then
     bun scripts/performance/measure.ts \
       --label "$label" \
       --output-dir "$PERF_METRICS_DIR" \
       --run-kind "${PERF_RUN_KIND:-unknown}" \
       -- "$@"
-    return
+  else
+    "$@"
   fi
 
-  "$@"
+  echo "gate: phase '$label' took $((SECONDS - phase_started))s"
 }
 
 hooks_path="$(git config --get core.hooksPath 2>/dev/null || true)"
