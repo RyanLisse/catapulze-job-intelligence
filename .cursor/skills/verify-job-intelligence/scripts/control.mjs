@@ -23,7 +23,7 @@ const usage = `Usage: bun .cursor/skills/verify-job-intelligence/scripts/control
   launch     Start server (3000) and web (3001) if we do not already own them
   doctor     Read-only health: ports, GET /, tRPC healthCheck
   stop       Kill only PIDs recorded by launch
-  snapshot   Save home HTML + tRPC body under artifacts/<name>/
+  snapshot   Save home HTML + tRPC body under artifacts/<feature-id>/
   http       GET a URL (pass the URL as the next argument)
 `;
 
@@ -197,7 +197,7 @@ const stop = async () => {
   console.log("Stopped verification instance. Evidence under artifacts/ was kept.");
 };
 
-const snapshot = async (name = "home-api-status") => {
+const snapshot = async (name = "home-command-center") => {
   const dir = join(ARTIFACTS_DIR, name);
   await mkdir(dir, { recursive: true });
   const home = await httpGet(`${WEB_URL}/`);
@@ -236,7 +236,7 @@ try {
       await stop();
       break;
     case "snapshot":
-      await snapshot(process.argv[3] ?? "home-api-status");
+      await snapshot(process.argv[3] ?? "home-command-center");
       break;
     case "http": {
       const url = process.argv[3];

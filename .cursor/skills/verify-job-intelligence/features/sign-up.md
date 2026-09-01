@@ -10,7 +10,7 @@ A visitor creates an email-and-password account and lands on the dashboard, whic
 
 ## How to get to it (user POV)
 
-- Choose header button `Sign In` (it routes to `/login`, which starts on Sign Up).
+- Choose header button `Inloggen` (routes to `/login`, which starts on Sign Up).
 - Open `/login` directly.
 
 ## Driving it with control.mjs
@@ -18,7 +18,7 @@ A visitor creates an email-and-password account and lands on the dashboard, whic
 Preconditions:
 
 - Doctor reports `ok: true`.
-- Use a unique email `verify+<run-id>@example.test` that is not already in Neon.
+- Use a unique email `verify+<run-id>@example.test` that is not already in the database.
 - Password at least 8 characters.
 
 This path needs a browser (or Better Auth `POST http://localhost:3000/api/auth/sign-up/email` with JSON `{ "name", "email", "password" }`, then a request to `/dashboard` that forwards the `Set-Cookie` values). Prefer the browser: fill labeled `Name`, `Email`, `Password`, choose `Sign Up`.
@@ -30,8 +30,8 @@ This path needs a browser (or Better Auth `POST http://localhost:3000/api/auth/s
 
 ## Gotchas
 
-- Signup writes a real Neon user. Do not use a personal email. There is no delete-user control in this app.
+- Signup writes a real database user. Do not use a personal email. There is no delete-user control in this app.
 - Duplicate email fails with a toast; that is not a passing signup.
 - Client `router.push("/dashboard")` can race session cookies. Re-load `/dashboard` before asserting.
 - `API: This is private` is client-rendered via React Query; wait for it after the welcome paragraph.
-- `control.mjs snapshot` only captures home/tRPC. For this feature, save browser evidence yourself under `artifacts/sign-up/`.
+- Header chrome is Dutch (`Inloggen`, `Uitloggen`); login form copy remains English.
