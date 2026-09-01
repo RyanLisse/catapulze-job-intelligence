@@ -899,7 +899,12 @@ describe("bulk outbox drain with row claims (RJC-389)", () => {
 
     const before = await readOutboxLag(requireDb());
     expect(before.events).toBeGreaterThanOrEqual(1);
-    expect(before.seconds).toBeGreaterThanOrEqual(3600);
+    // `seconds` is EXTRACT(EPOCH FROM now() - createdAt) computed by Postgres,
+    // while `oneHourAgo` was stamped from this process's Date.now(); any
+    // sub-millisecond clock skew between the two clocks can put the value
+    // fractionally under 3600 (observed: 3599.999937). Tolerate a small skew
+    // instead of asserting exact wall-clock alignment across two clocks.
+    expect(before.seconds).toBeGreaterThanOrEqual(3599.9);
 
     const store = newStore();
     const result = await drain(new ScriptedEngine(store), store, loader);

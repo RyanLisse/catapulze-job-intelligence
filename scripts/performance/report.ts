@@ -22,7 +22,23 @@ const parseOutputDirectory = (args: string[]): string => {
 if (import.meta.main) {
   try {
     const outputDirectory = parseOutputDirectory(Bun.argv.slice(2));
-    const records = await readRecords(outputDirectory);
+    let invalidCount = 0;
+    const records = await readRecords(outputDirectory, {
+      onInvalidRecord: (error) => {
+        invalidCount += 1;
+        process.stderr.write(
+          `performance: skipping invalid record — ${error.message}\n`
+        );
+      },
+    });
+    if (invalidCount > 0) {
+      process.stderr.write(
+        `performance: skipped ${invalidCount} invalid record(s); reporting on ${records.length} valid record(s)\n`
+      );
+    }
+    if (records.length === 0) {
+      throw new Error("no valid performance records found (empty result set)");
+    }
     const report = renderAggregateMarkdown(records);
     const reportPath = path.join(outputDirectory, "report.md");
     await atomicWrite(reportPath, report);
