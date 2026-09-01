@@ -1,6 +1,7 @@
 # ADR-0005 — Trigger.dev-workers en de bereikbaarheid van Postgres en Manticore
 
 - Status: Proposed (voorgesteld — het besluit is aan Ryan; dit ADR legt de tegenspraak en de opties vast)
+- Zie ook [ADR-0006](ADR-0006-neon-as-system-of-record.md)/[ADR-0007](ADR-0007-search-platform-state-2026-09-01.md) (2026-09-01): de Manticore-helft is nu opgelost door de on-box projector (#96) — de worker hoeft in `onbox`-modus geen Manticore-bereikbaarheid meer te hebben.
 - Datum: 2026-08-31
 - Herzien: 2026-08-31 (tweemaal) — zie "Revisie" en "Herziening 2" hieronder. Eerst is Optie C1 ongeldig gebleken; daarna is via [ADR-0006](ADR-0006-neon-as-system-of-record.md) Optie A gekozen. De Manticore-helft van de vraag blijft open.
 - Eigenaar: Job Intelligence platform

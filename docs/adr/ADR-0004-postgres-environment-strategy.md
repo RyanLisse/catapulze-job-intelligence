@@ -1,6 +1,7 @@
 # ADR-0004 — Postgres-omgevingsstrategie
 
 - Status: Gedeeltelijk superseded door [ADR-0006](ADR-0006-neon-as-system-of-record.md) (2026-08-31); lokale/CI-deel blijft Accepted
+- Zie ook [ADR-0006](ADR-0006-neon-as-system-of-record.md)/[ADR-0007](ADR-0007-search-platform-state-2026-09-01.md) (2026-09-01): de Manticore-helft is nu opgelost door de on-box projector (#96) — de worker hoeft in `onbox`-modus geen Manticore-bereikbaarheid meer te hebben.
 - Datum: 2026-08-28
 - Eigenaar: Job Intelligence platform
 - Gerelateerd: ADR-0001, ADR-0003, ADR-0006, DEC-005, RJC-321, RJC-347
