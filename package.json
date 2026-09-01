@@ -35,6 +35,7 @@
     "check-types:performance": "PATH=\"./node_modules/.bin:$PATH\" tsc --noEmit -p scripts/performance/tsconfig.json",
     "dev:web": "PATH=\"./node_modules/.bin:$PATH\" turbo run dev -F web --",
     "dev:server": "PATH=\"./node_modules/.bin:$PATH\" turbo run dev -F server --",
+    "projector": "PATH=\"./node_modules/.bin:$PATH\" turbo run projector -F server --",
     "db:push": "PATH=\"./node_modules/.bin:$PATH\" turbo run db:push -F @ji/db --",
     "db:studio": "PATH=\"./node_modules/.bin:$PATH\" turbo run db:studio -F @ji/db --",
     "db:generate": "PATH=\"./node_modules/.bin:$PATH\" turbo run db:generate -F @ji/db --",

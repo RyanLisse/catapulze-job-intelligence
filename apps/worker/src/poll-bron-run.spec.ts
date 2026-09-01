@@ -102,6 +102,90 @@ describe("poll-bron runtime guards", () => {
   });
 });
 
+const withEnvVar = async (
+  key: "SEARCH_PROJECTOR" | "MANTICORE_URL",
+  value: string | undefined,
+  run: () => Promise<void> | void
+): Promise<void> => {
+  const previous = process.env[key];
+  if (value === undefined) {
+    Reflect.deleteProperty(process.env, key);
+  } else {
+    process.env[key] = value;
+  }
+  try {
+    await run();
+  } finally {
+    if (previous === undefined) {
+      Reflect.deleteProperty(process.env, key);
+    } else {
+      process.env[key] = previous;
+    }
+  }
+};
+
+describe("SEARCH_PROJECTOR mode (RJC-387)", () => {
+  it("readSearchProjectorMode defaults to worker when unset", async () => {
+    const { readSearchProjectorMode } = await import("./poll-bron-env");
+    await withEnvVar("SEARCH_PROJECTOR", undefined, () => {
+      expect(readSearchProjectorMode()).toBe("worker");
+    });
+  });
+
+  it("readSearchProjectorMode accepts onbox", async () => {
+    const { readSearchProjectorMode } = await import("./poll-bron-env");
+    await withEnvVar("SEARCH_PROJECTOR", "onbox", () => {
+      expect(readSearchProjectorMode()).toBe("onbox");
+    });
+  });
+
+  it("readSearchProjectorMode rejects an invalid value", async () => {
+    const { readSearchProjectorMode } = await import("./poll-bron-env");
+    await withEnvVar("SEARCH_PROJECTOR", "cloud", () => {
+      expect(() => readSearchProjectorMode()).toThrow(
+        'SEARCH_PROJECTOR must be "worker" or "onbox"'
+      );
+    });
+  });
+
+  it("onbox mode drains nothing and never needs MANTICORE_URL", async () => {
+    const { drainOrDeferToProjector } = await import("./poll-bron-run");
+    await withEnvVar("SEARCH_PROJECTOR", "onbox", async () => {
+      await withEnvVar("MANTICORE_URL", undefined, async () => {
+        // A runtime whose `database` would throw if touched: proves the
+        // onbox branch returns before drainPostgresOutbox ever reads it,
+        // let alone constructs a ManticoreSearchEngine from MANTICORE_URL.
+        const untouchableRuntime = {
+          get database(): never {
+            throw new Error("onbox mode must not touch runtime.database");
+          },
+        };
+
+        const summary = await drainOrDeferToProjector(untouchableRuntime);
+
+        expect(summary).toEqual({ drained: 0, indexVersion: null });
+        expect(process.env.MANTICORE_URL).toBeUndefined();
+      });
+    });
+  });
+
+  it("worker mode (default) still requires MANTICORE_URL before draining", async () => {
+    const { drainOrDeferToProjector } = await import("./poll-bron-run");
+    await withEnvVar("SEARCH_PROJECTOR", undefined, async () => {
+      await withEnvVar("MANTICORE_URL", undefined, async () => {
+        // SAFETY: worker mode reads MANTICORE_URL before touching
+        // `database` (see drainOrDeferToProjector), so this placeholder is
+        // never dereferenced — the assertion below only proves the
+        // MANTICORE_URL guard fires first.
+        const untouchedRuntime = { database: {} as never };
+        await expect(drainOrDeferToProjector(untouchedRuntime)).rejects.toThrow(
+          "MANTICORE_URL is required"
+        );
+      });
+    });
+  });
+});
+
 describe("TenderNed test-import window", () => {
   it("defaults to 14 days when unset", () => {
     const previous = process.env.TENDER_NED_TEST_IMPORT_DAYS;

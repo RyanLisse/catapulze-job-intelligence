@@ -1,0 +1,138 @@
+import {
+  createBronRuntimeClient,
+  drainPostgresOutbox,
+  PostgresSearchDocumentLoader,
+  PostgresSearchVersionStore,
+} from "@ji/db";
+/**
+ * On-box search projector process (RJC-387, runbook: docs/runbooks/search-projector.md).
+ *
+ *   bun run projector
+ *
+ * Reads the Neon outbox over TLS (DATABASE_URL) and writes to a
+ * loopback-only Manticore (MANTICORE_URL), so it must run next to Manticore
+ * rather than inside the cloud worker — see the runbook for why (ADR-0006
+ * keeps Manticore off the public network).
+ */
+import { env as databaseEnv } from "@ji/env/database";
+import { ManticoreSearchEngine } from "@ji/search";
+
+import { acquireAdvisoryLock, LockLostError } from "./lock";
+import type { ProjectorCycleLog } from "./loop";
+import { runProjectorLoop } from "./loop";
+
+const POLL_INTERVAL_MS = 1000;
+const MAX_BACKOFF_MS = 30_000;
+const DRAIN_LIMIT = 500;
+
+/**
+ * Arbitrary 31-bit key for the projector's singleton `pg_advisory_lock`.
+ * Chosen once, kept stable for the process's lifetime (advisory locks are
+ * keyed by this literal, not by name) — a repo-wide grep for
+ * `pg_advisory_lock` / `pg_try_advisory_lock` at authoring time found no
+ * other caller. If a second advisory lock is ever added to this codebase,
+ * give it a different constant so the two never collide silently.
+ */
+const ADVISORY_LOCK_KEY = 847_732_991;
+
+/** `process.stdout` and `process.stderr` differ only in their `fd` literal type — this accepts either. */
+interface LogStream {
+  write: (chunk: string) => boolean;
+}
+
+const logLine = <Fields extends object>(
+  stream: LogStream,
+  event: string,
+  fields: Fields
+): void => {
+  stream.write(`${JSON.stringify({ event, ...fields })}\n`);
+};
+
+const requireManticoreUrl = (): string => {
+  const manticoreUrl = process.env.MANTICORE_URL?.trim();
+  if (!manticoreUrl) {
+    throw new Error("MANTICORE_URL is required for the search projector");
+  }
+  return manticoreUrl;
+};
+
+const main = async (): Promise<void> => {
+  const databaseUrl = databaseEnv.DATABASE_URL;
+  const manticoreUrl = requireManticoreUrl();
+
+  const lock = await acquireAdvisoryLock(databaseUrl, ADVISORY_LOCK_KEY);
+  if (!lock.acquired) {
+    logLine(process.stdout, "projector_lock_held", {
+      message: "another projector holds the lock",
+    });
+    return;
+  }
+
+  const runtime = createBronRuntimeClient(databaseUrl);
+  const versionStore = new PostgresSearchVersionStore(runtime.database);
+  const engine = ManticoreSearchEngine.fromUrl(manticoreUrl, versionStore);
+  const loader = new PostgresSearchDocumentLoader(runtime.database);
+
+  const controller = new AbortController();
+  // `process.once` would let a second signal (supervisor impatience, a
+  // `docker stop` retry, operator double-Ctrl-C) fall through to Bun's
+  // default handler and exit immediately mid-cycle. `process.on` catches
+  // every signal: the first aborts the loop, every one after is logged and
+  // otherwise ignored — the in-flight cycle keeps running to completion.
+  // SIGKILL remains the hard stop; nothing in userspace can catch that.
+  let shutdownRequested = false;
+  const requestShutdown = (signal: string): void => {
+    if (shutdownRequested) {
+      logLine(process.stdout, "projector_shutdown_in_progress", { signal });
+      return;
+    }
+    shutdownRequested = true;
+    controller.abort();
+  };
+  process.on("SIGINT", () => requestShutdown("SIGINT"));
+  process.on("SIGTERM", () => requestShutdown("SIGTERM"));
+
+  const onCycle = (log: ProjectorCycleLog): void => {
+    logLine(process.stdout, "projector_cycle", log);
+  };
+
+  try {
+    await runProjectorLoop({
+      drain: async () => {
+        // Heartbeat: the lock connection can drop silently (idle reaping,
+        // Neon autosuspend) without the loop ever seeing an error — the
+        // next query on that connection just transparently reconnects with
+        // no lock held. Re-asserting every cycle is what makes "never runs
+        // concurrently" actually true instead of just usually true.
+        const stillHeld = await lock.reassert();
+        if (!stillHeld) {
+          throw new LockLostError(ADVISORY_LOCK_KEY);
+        }
+        const result = await drainPostgresOutbox({
+          database: runtime.database,
+          engine,
+          limit: DRAIN_LIMIT,
+          loader,
+          versionStore,
+        });
+        return { drained: result.drained, indexVersion: result.indexVersion };
+      },
+      maxBackoffMs: MAX_BACKOFF_MS,
+      onCycle,
+      pollIntervalMs: POLL_INTERVAL_MS,
+      signal: controller.signal,
+    });
+    logLine(process.stdout, "projector_shutdown", {});
+  } catch (error) {
+    logLine(process.stderr, "projector_fatal", {
+      errorName: error instanceof Error ? error.name : "UnknownError",
+      message: error instanceof Error ? error.message : String(error),
+    });
+    process.exitCode = 1;
+  } finally {
+    await lock.release();
+    await runtime.close();
+  }
+};
+
+await main();

@@ -229,6 +229,28 @@ services:
       start_period: 5s
     restart: unless-stopped
 
+  # RJC-387: on-box search projector, standing in locally for the process
+  # that runs next to Manticore in production (docs/runbooks/search-projector.md).
+  # Opt-in via `--profile projector` — never started by a plain `docker
+  # compose up`. Talks to the same postgres/manticore services above, over
+  # the compose network rather than TLS/loopback like production.
+  projector:
+    build:
+      context: .
+      dockerfile: apps/server/Dockerfile
+    profiles: ["projector"]
+    init: true
+    command: ["bun", "run", "projector"]
+    environment:
+      DATABASE_URL: ${CATAPULZE_DATABASE_URL:?CATAPULZE_DATABASE_URL is required}
+      MANTICORE_URL: http://manticore:9308
+    depends_on:
+      postgres:
+        condition: service_healthy
+      manticore:
+        condition: service_healthy
+    restart: unless-stopped
+
   # One-shot bucket bootstrap: creates `ji-raw-local` and exits. Re-running
   # `up --profile storage` is idempotent (`mc mb --ignore-existing`).
   raw-storage-minio-init:
