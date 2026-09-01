@@ -62,6 +62,43 @@ run_phase layering bun run check-layering
 echo "gate: check-secrets"
 run_phase secrets bun run check-secrets
 
+# RJC-395: point the migration-upgrade suite (packages/db/src/migration-upgrade.spec.ts)
+# at a dedicated database instead of letting it skip silently. Every merged
+# migration between 0006 and 0010 passed CI without this suite ever running.
+if [[ -z "${DATABASE_UPGRADE_TEST_URL:-}" ]]; then
+  echo "gate: preparing migration-upgrade test database"
+  migration_upgrade_db_result="$(bun tools/postgres/ensure-migration-upgrade-db.ts)"
+  case "$migration_upgrade_db_result" in
+    READY:*)
+      migration_upgrade_db_name="${migration_upgrade_db_result#READY:}"
+      # Built here (not printed by the script) so the admin password never
+      # appears in a log line, in this repo's default or a real one.
+      migration_upgrade_admin_user="${POSTGRES_ADMIN_USER:-ji_admin}"
+      migration_upgrade_admin_password="${POSTGRES_ADMIN_PASSWORD:-ji_admin_local}"
+      migration_upgrade_host_port="${POSTGRES_HOST_PORT:-5432}"
+      export DATABASE_UPGRADE_TEST_URL="postgresql://${migration_upgrade_admin_user}:${migration_upgrade_admin_password}@127.0.0.1:${migration_upgrade_host_port}/${migration_upgrade_db_name}"
+      export REQUIRE_DATABASE_UPGRADE_TESTS=1
+      echo "gate: migration-upgrade suite will run against database '$migration_upgrade_db_name'"
+      ;;
+    SKIP:*)
+      # In CI, an unreachable migration-upgrade database must fail loudly
+      # rather than silently reproduce RJC-395 (admin auth/pg_hba failing
+      # while DATABASE_TEST_URL still works would otherwise skip this suite
+      # again with every other DB test still green). Only a laptop without
+      # Postgres running gets the graceful skip.
+      if [[ -n "${CI:-}" ]]; then
+        echo "gate: migration-upgrade database unavailable in CI: ${migration_upgrade_db_result#SKIP:}" >&2
+        exit 1
+      fi
+      echo "gate: ${migration_upgrade_db_result#SKIP:} — skipping the migration-upgrade suite"
+      ;;
+    *)
+      echo "gate: unexpected ensure-migration-upgrade-db.ts output: $migration_upgrade_db_result" >&2
+      exit 1
+      ;;
+  esac
+fi
+
 echo "gate: test"
 test_command=(bun test --max-concurrency 2 --path-ignore-patterns '**/dist/**')
 if [[ -n "${PERF_JUNIT_PATH:-}" ]]; then

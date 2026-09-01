@@ -742,8 +742,18 @@ const validateRecordInvariants = (
   return record;
 };
 
+export interface ReadRecordsOptions {
+  /**
+   * Called once per record that fails to parse or validate, instead of
+   * rejecting the whole read. Omit to preserve the strict default: any
+   * invalid record rejects the entire call.
+   */
+  onInvalidRecord?: (error: PerformanceSchemaError) => void;
+}
+
 export const readRecords = async (
-  outputDirectory: string
+  outputDirectory: string,
+  options: ReadRecordsOptions = {}
 ): Promise<PerformanceRecord[]> => {
   if (!existsSync(outputDirectory)) {
     return [];
@@ -755,20 +765,38 @@ export const readRecords = async (
       .toSorted()
       .map(async (entry) => {
         const filename = path.join(outputDirectory, entry);
-        let value: JsonValue;
         try {
-          value = await Bun.file(filename).json();
+          let value: JsonValue;
+          try {
+            value = await Bun.file(filename).json();
+          } catch (error) {
+            const detail =
+              error instanceof Error ? error.message : String(error);
+            throw new PerformanceSchemaError(entry, `invalid JSON: ${detail}`);
+          }
+          return validateRecordInvariants(
+            parsePerformanceRecord(value, entry),
+            entry
+          );
         } catch (error) {
-          const detail = error instanceof Error ? error.message : String(error);
-          throw new PerformanceSchemaError(entry, `invalid JSON: ${detail}`);
+          if (!options.onInvalidRecord) {
+            throw error;
+          }
+          const schemaError =
+            error instanceof PerformanceSchemaError
+              ? error
+              : new PerformanceSchemaError(
+                  entry,
+                  error instanceof Error ? error.message : String(error)
+                );
+          options.onInvalidRecord(schemaError);
+          return null;
         }
-        return validateRecordInvariants(
-          parsePerformanceRecord(value, entry),
-          entry
-        );
       })
   );
-  return recordResults;
+  return recordResults.filter(
+    (record): record is PerformanceRecord => record !== null
+  );
 };
 
 export const runtimeMetadata = (): PerformanceRecord["runtime"] => {
