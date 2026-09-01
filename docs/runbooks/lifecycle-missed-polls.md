@@ -82,10 +82,16 @@ exhausted, so `truncated` is honestly absent there.
   Consequence: that poll's misses are simply not counted -- one poll of slack,
   nothing corrupted; the next complete run counts as usual. An operator sees a
   failed `poll-bron` task whose output has no `lifecycle` summary.
-- **Status write and outbox row are separate statements.** A crash between the
-  SCD2/status write and the outbox insert leaves the DB `stale` and the search
-  index `active` until the next content-changing event. This is parity with
-  `curateObservation` today; making both paths transactional is RJC-399.
+- ~~Status write and outbox row are separate statements.~~ Closed by RJC-399:
+  the SCD2/status write and the outbox insert run in one Postgres transaction
+  (`CurateStore.withTransaction`), in both `curateObservation` and this
+  reconcile step. Rows that diverged before the fix do not self-heal (a later
+  same-content event is skipped by the projection hash) — repair them with
+  `bun run search:reconcile-projection` (see
+  [projection-repair.md](projection-repair.md)). Still open:
+  `curateObservation`'s unchanged-content branch writes a status change with
+  no outbox event when the content hash is equal, so such a status flip
+  diverges the index the same way; the repair tool is also the remedy there.
 
 ## Operator checks
 

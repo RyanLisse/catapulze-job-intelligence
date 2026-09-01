@@ -100,6 +100,14 @@ export interface CurateStore {
     patch: Partial<StoredAanvraag>
   ) => Promise<StoredAanvraag>;
   closeOpenVersie: (aanvraagId: AanvraagId, closedAt: Date) => Promise<void>;
+  /**
+   * Runs `fn` against a store whose writes commit together or not at all
+   * (RJC-399). A throw inside `fn` rolls every write back, so the SCD2
+   * status write and its outbox event can never be split by a crash —
+   * without the event the projector would keep the old status forever,
+   * because a later same-content event is skipped by the projection hash.
+   */
+  withTransaction: <T>(fn: (store: CurateStore) => Promise<T>) => Promise<T>;
 }
 
 export interface CurateObservationInput {
@@ -190,6 +198,11 @@ export const curateObservation = async (
   );
 
   if (existing && existing.contentHash === input.draft.contentHash) {
+    // ponytail: known gap — this branch writes a status change with NO outbox
+    // event, so a draft whose status flips while the content hash stays equal
+    // silently diverges the search index (the projection hash skips later
+    // same-content events). Repair: bun run search:reconcile-projection —
+    // see docs/runbooks/projection-repair.md.
     await store.updateAanvraag(existing.aanvraagId, {
       laatstGezienOp: input.observedAt,
       status: input.draft.status,
@@ -197,84 +210,91 @@ export const curateObservation = async (
     return { aanvraagId: existing.aanvraagId, status: "unchanged" };
   }
 
+  // One transaction per mutation (RJC-399): versie + aanvraag + outbox
+  // commit together, with the outbox insert last, so a crash can never
+  // leave Postgres on a new status while the search index keeps the old.
   if (!existing) {
-    const created = await store.insertAanvraag(toStoredFields(input));
-    const dedupGroep = await timeCriticalPathPhase("ingest-dedupe", () =>
-      ensureDedupGroep(store, input.draft)
-    );
-    if (dedupGroep) {
-      await store.linkAanvraagToDedupGroep(
-        created.aanvraagId,
-        dedupGroep.dedupGroepId
+    return store.withTransaction(async (tx) => {
+      const created = await tx.insertAanvraag(toStoredFields(input));
+      const dedupGroep = await timeCriticalPathPhase("ingest-dedupe", () =>
+        ensureDedupGroep(tx, input.draft)
       );
-    }
-    await store.insertVersie({
-      aanvraagId: created.aanvraagId,
-      contentHash: created.contentHash,
-      geldigTot: null,
-      geldigVan: input.observedAt,
-      rawPayloadRef: created.rawPayloadRef,
-      scrapeRunId: created.scrapeRunId,
-      snapshot: buildSnapshot(created),
-      versie: 1,
+      if (dedupGroep) {
+        await tx.linkAanvraagToDedupGroep(
+          created.aanvraagId,
+          dedupGroep.dedupGroepId
+        );
+      }
+      await tx.insertVersie({
+        aanvraagId: created.aanvraagId,
+        contentHash: created.contentHash,
+        geldigTot: null,
+        geldigVan: input.observedAt,
+        rawPayloadRef: created.rawPayloadRef,
+        scrapeRunId: created.scrapeRunId,
+        snapshot: buildSnapshot(created),
+        versie: 1,
+      });
+      const outbox = await timeCriticalPathPhase("ingest-outbox", () =>
+        tx.insertOutboxEvent({
+          aggregateId: created.aanvraagId,
+          aggregateType: "aanvraag",
+          eventType: "aanvraag.nieuw",
+          payload: {
+            bron_id: created.bronId,
+            bron_referentie: created.bronReferentie,
+            parser_version: created.parserVersion,
+          },
+        })
+      );
+      return {
+        aanvraagId: created.aanvraagId,
+        dedupGroepId: dedupGroep?.dedupGroepId,
+        outboxEventId: outbox.id,
+        status: "curated",
+        versie: 1,
+      };
     });
-    const outbox = await timeCriticalPathPhase("ingest-outbox", () =>
-      store.insertOutboxEvent({
-        aggregateId: created.aanvraagId,
-        aggregateType: "aanvraag",
-        eventType: "aanvraag.nieuw",
-        payload: {
-          bron_id: created.bronId,
-          bron_referentie: created.bronReferentie,
-          parser_version: created.parserVersion,
-        },
-      })
-    );
-    return {
-      aanvraagId: created.aanvraagId,
-      dedupGroepId: dedupGroep?.dedupGroepId,
-      outboxEventId: outbox.id,
-      status: "curated",
-      versie: 1,
-    };
   }
 
   const nextVersie = existing.versie + 1;
   const closedAt = input.observedAt;
-  await store.closeOpenVersie(existing.aanvraagId, closedAt);
-  const updated = await store.updateAanvraag(existing.aanvraagId, {
-    ...toStoredFields(input),
-    dedupGroepId: existing.dedupGroepId,
-    eersteGezienOp: existing.eersteGezienOp,
-    versie: nextVersie,
+  return store.withTransaction(async (tx) => {
+    await tx.closeOpenVersie(existing.aanvraagId, closedAt);
+    const updated = await tx.updateAanvraag(existing.aanvraagId, {
+      ...toStoredFields(input),
+      dedupGroepId: existing.dedupGroepId,
+      eersteGezienOp: existing.eersteGezienOp,
+      versie: nextVersie,
+    });
+    await tx.insertVersie({
+      aanvraagId: updated.aanvraagId,
+      contentHash: updated.contentHash,
+      geldigTot: null,
+      geldigVan: closedAt,
+      rawPayloadRef: updated.rawPayloadRef,
+      scrapeRunId: updated.scrapeRunId,
+      snapshot: buildSnapshot(updated),
+      versie: nextVersie,
+    });
+    const outbox = await timeCriticalPathPhase("ingest-outbox", () =>
+      tx.insertOutboxEvent({
+        aggregateId: updated.aanvraagId,
+        aggregateType: "aanvraag",
+        eventType: "aanvraag.gewijzigd",
+        payload: {
+          content_hash: updated.contentHash,
+          parser_version: updated.parserVersion,
+        },
+      })
+    );
+    return {
+      aanvraagId: updated.aanvraagId,
+      outboxEventId: outbox.id,
+      status: "curated",
+      versie: nextVersie,
+    };
   });
-  await store.insertVersie({
-    aanvraagId: updated.aanvraagId,
-    contentHash: updated.contentHash,
-    geldigTot: null,
-    geldigVan: closedAt,
-    rawPayloadRef: updated.rawPayloadRef,
-    scrapeRunId: updated.scrapeRunId,
-    snapshot: buildSnapshot(updated),
-    versie: nextVersie,
-  });
-  const outbox = await timeCriticalPathPhase("ingest-outbox", () =>
-    store.insertOutboxEvent({
-      aggregateId: updated.aanvraagId,
-      aggregateType: "aanvraag",
-      eventType: "aanvraag.gewijzigd",
-      payload: {
-        content_hash: updated.contentHash,
-        parser_version: updated.parserVersion,
-      },
-    })
-  );
-  return {
-    aanvraagId: updated.aanvraagId,
-    outboxEventId: outbox.id,
-    status: "curated",
-    versie: nextVersie,
-  };
 };
 
 export const splitDedupGroep = (

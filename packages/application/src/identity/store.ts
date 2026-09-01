@@ -120,6 +120,37 @@ export class InMemoryCurateStore implements CurateStore {
     return Promise.resolve(structuredClone(merged));
   }
 
+  /**
+   * Models Postgres transaction semantics: a throw inside `fn` restores
+   * every table to its pre-transaction state, so a failure after the versie
+   * write leaves nothing (RJC-399).
+   */
+  async withTransaction<T>(fn: (store: CurateStore) => Promise<T>): Promise<T> {
+    const backup = structuredClone({
+      aanvragen: this.aanvragen,
+      dedupGroepen: this.dedupGroepen,
+      outboxEvents: this.outboxEvents,
+      versies: this.versies,
+    });
+    try {
+      return await fn(this);
+    } catch (error) {
+      this.aanvragen.splice(0, this.aanvragen.length, ...backup.aanvragen);
+      this.dedupGroepen.splice(
+        0,
+        this.dedupGroepen.length,
+        ...backup.dedupGroepen
+      );
+      this.outboxEvents.splice(
+        0,
+        this.outboxEvents.length,
+        ...backup.outboxEvents
+      );
+      this.versies.splice(0, this.versies.length, ...backup.versies);
+      throw error;
+    }
+  }
+
   closeOpenVersie(aanvraagId: AanvraagId, closedAt: Date): Promise<void> {
     for (const versie of this.versies) {
       if (versie.aanvraagId === aanvraagId && versie.geldigTot === null) {

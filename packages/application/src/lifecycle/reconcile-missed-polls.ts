@@ -87,33 +87,38 @@ const writeStatusTransition = async (
   reden: LifecycleReden,
   missedPolls: number
 ): Promise<void> => {
-  const { curateStore } = ports;
   const versie = existing.versie + 1;
-  await curateStore.closeOpenVersie(existing.aanvraagId, input.observedAt);
-  const updated = await curateStore.updateAanvraag(existing.aanvraagId, {
-    status,
-    versie,
-  });
-  await curateStore.insertVersie({
-    aanvraagId: updated.aanvraagId,
-    contentHash: updated.contentHash,
-    geldigTot: null,
-    geldigVan: input.observedAt,
-    rawPayloadRef: updated.rawPayloadRef,
-    scrapeRunId: input.scrapeRunId,
-    snapshot: buildSnapshot(updated),
-    versie,
-  });
-  await curateStore.insertOutboxEvent({
-    aggregateId: updated.aanvraagId,
-    aggregateType: "aanvraag",
-    eventType: AANVRAAG_STATUS_GEWIJZIGD_EVENT,
-    payload: {
-      missed_polls: missedPolls,
-      reden,
-      scrape_run_id: input.scrapeRunId,
+  // One transaction (RJC-399): the SCD2 status write and its outbox event
+  // commit together, so a crash can never leave the DB stale while the
+  // search index keeps active — the projection hash would skip a later
+  // same-content event, so that split does not self-heal.
+  await ports.curateStore.withTransaction(async (tx) => {
+    await tx.closeOpenVersie(existing.aanvraagId, input.observedAt);
+    const updated = await tx.updateAanvraag(existing.aanvraagId, {
       status,
-    },
+      versie,
+    });
+    await tx.insertVersie({
+      aanvraagId: updated.aanvraagId,
+      contentHash: updated.contentHash,
+      geldigTot: null,
+      geldigVan: input.observedAt,
+      rawPayloadRef: updated.rawPayloadRef,
+      scrapeRunId: input.scrapeRunId,
+      snapshot: buildSnapshot(updated),
+      versie,
+    });
+    await tx.insertOutboxEvent({
+      aggregateId: updated.aanvraagId,
+      aggregateType: "aanvraag",
+      eventType: AANVRAAG_STATUS_GEWIJZIGD_EVENT,
+      payload: {
+        missed_polls: missedPolls,
+        reden,
+        scrape_run_id: input.scrapeRunId,
+        status,
+      },
+    });
   });
 };
 
