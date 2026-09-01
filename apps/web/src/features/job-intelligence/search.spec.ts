@@ -10,6 +10,7 @@ import { buildBronCatalog } from "./rest/bron-catalog";
 import {
   buildSearchRequestBody,
   buildSnapshotBody,
+  mapApiFacetsToUi,
   mapUiFiltersToApi,
 } from "./rest/filter-mapping";
 import { parseJobSearchState } from "./search-state";
@@ -45,9 +46,9 @@ describe("REST search request mapping", () => {
       bronIds: ["00000000-0000-4000-8000-000000000001"],
       contracttype: ["detachering"],
       freshnessDays: 7,
-      // RJC-378: the UI label "Nederland" maps back to the indexed value
-      // (RJC-394: country attribute until the loader fills `locatie`).
-      locatieLand: ["NL"],
+      // RJC-378/RJC-394: the UI label "Nederland" maps back to the indexed
+      // `locatie` value now that the loader fills it.
+      locatie: ["NL"],
       tariefMin: 90,
     });
     expect(
@@ -64,7 +65,7 @@ describe("REST search request mapping", () => {
         bronIds: ["00000000-0000-4000-8000-000000000001"],
         contracttype: ["detachering"],
         freshnessDays: 7,
-        locatieLand: ["NL"],
+        locatie: ["NL"],
         tariefMin: 90,
       },
       limit: 8,
@@ -108,6 +109,33 @@ describe("REST search request mapping", () => {
       scope: "all",
       selectedIds: ["00000000-0000-4000-8000-000000000011"],
     });
+  });
+
+  it("switches the location filter/facet key on ENRICHED_SEARCH_DATA_AVAILABLE (RJC-394)", () => {
+    const bronCatalog = buildBronCatalog([]);
+    const state = parseJobSearchState(
+      new URLSearchParams("location=Nederland")
+    );
+
+    expect(mapUiFiltersToApi(state.filters, bronCatalog, true)).toEqual({
+      locatie: ["NL"],
+    });
+    expect(mapUiFiltersToApi(state.filters, bronCatalog, false)).toEqual({
+      locatieLand: ["NL"],
+    });
+
+    const facets = {
+      bron_id: [],
+      contracttype: [],
+      locatie: [{ count: 3, value: "Amsterdam" }],
+      locatie_land: [{ count: 9, value: "NL" }],
+    };
+    expect(mapApiFacetsToUi(facets, bronCatalog, true).locations).toEqual([
+      { count: 3, value: "Amsterdam" },
+    ]);
+    expect(mapApiFacetsToUi(facets, bronCatalog, false).locations).toEqual([
+      { count: 9, value: "Nederland" },
+    ]);
   });
 });
 

@@ -73,7 +73,8 @@ const parseMinRate = (value: string | null): number | null => {
 };
 
 export const parseJobSearchState = (
-  input: SearchParamInput
+  input: SearchParamInput,
+  enrichedDataAvailable: boolean = ENRICHED_SEARCH_DATA_AVAILABLE
 ): JobSearchState => {
   const freshness = readFirst(input, "freshness");
   const sort = readFirst(input, "sort");
@@ -101,10 +102,7 @@ export const parseJobSearchState = (
     // RJC-383: `archief=1` opts a shareable URL into the archive partition.
     scope: readFirst(input, "archief") === "1" ? "all" : "active",
     selectedJobId: readFirst(input, "job"),
-    sort: isOneOf(
-      sort,
-      selectableJobSortOptions(ENRICHED_SEARCH_DATA_AVAILABLE)
-    )
+    sort: isOneOf(sort, selectableJobSortOptions(enrichedDataAvailable))
       ? sort
       : "relevance",
   };

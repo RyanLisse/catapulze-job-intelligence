@@ -228,6 +228,7 @@ export const parseOnefellowPayload = (
       "job.company"
     ),
     parserVersion,
+    sluitingsdatum,
     startDatum: field(
       unixSecondsToIsoDate(job.start_date),
       parserVersion,

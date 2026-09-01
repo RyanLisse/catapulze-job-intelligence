@@ -192,8 +192,9 @@ describe("selectableJobSortOptions", () => {
     expect(selectableJobSortOptions(true)).toContain("closing-soon");
   });
 
-  it("parses a hidden sort from the URL back to relevance", () => {
-    const state = parseJobSearchState(new URLSearchParams("sort=closing-soon"));
-    expect(state.sort).toBe("relevance");
+  it("parses a hidden sort from the URL back to relevance when disabled, keeps it when enabled", () => {
+    const params = new URLSearchParams("sort=closing-soon");
+    expect(parseJobSearchState(params, false).sort).toBe("relevance");
+    expect(parseJobSearchState(params, true).sort).toBe("closing-soon");
   });
 });

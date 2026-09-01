@@ -3,7 +3,12 @@ import { STRIIVE_PARSER_VERSION } from "@ji/connectors/striive";
 import { UNKNOWN } from "@ji/domain";
 import { resolveLifecycleStatus } from "@ji/domain/lifecycle";
 
-import { field, hasClosingMomentPassed, stripHtml } from "./types";
+import {
+  closingMomentInstant,
+  field,
+  hasClosingMomentPassed,
+  stripHtml,
+} from "./types";
 import type { NormalisedAanvraagDraft, NormalisedTarief } from "./types";
 
 const isPresent = <Value>(value: Value | null | undefined): value is Value =>
@@ -124,6 +129,7 @@ export const parseStriivePayload = (
       "job.clientName"
     ),
     parserVersion,
+    sluitingsdatum: closingMomentInstant(job.closingDateClient),
     startDatum: field(
       toDateOnly(job.startDate),
       parserVersion,

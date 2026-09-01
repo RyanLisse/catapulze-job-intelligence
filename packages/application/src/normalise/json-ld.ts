@@ -9,7 +9,13 @@ import { UNKNOWN } from "@ji/domain";
 import { resolveLifecycleStatus } from "@ji/domain/lifecycle";
 
 import { parseTariefFromText } from "./tarief";
-import { field, hasClosingMomentPassed, stripHtml } from "./types";
+import {
+  closingMomentInstant,
+  field,
+  hasClosingMomentPassed,
+  isValidCalendarDate,
+  stripHtml,
+} from "./types";
 import type { NormalisedAanvraagDraft } from "./types";
 
 const asText = (value: JsonLdValue | undefined): string =>
@@ -40,24 +46,6 @@ const DUTCH_MONTHS = new Map<string, string>([
 
 const DUTCH_DATE_PATTERN =
   /(?<day>\d{1,2})\s+(?<month>[a-zé]+)\s+(?<year>\d{4})/iu;
-
-/** Round-trips year/month/day (1-indexed month) through `Date.UTC` and
- * compares the fields back out, so an impossible calendar date (`2026-02-30`,
- * month 13) is rejected instead of silently rolling over into a neighbouring
- * real date (codex review, RJC-377 amendment) -- `new Date` never throws on
- * an out-of-range day/month, it just overflows into the next one. */
-const isValidCalendarDate = (
-  year: number,
-  month1to12: number,
-  day: number
-): boolean => {
-  const date = new Date(Date.UTC(year, month1to12 - 1, day));
-  return (
-    date.getUTCFullYear() === year &&
-    date.getUTCMonth() === month1to12 - 1 &&
-    date.getUTCDate() === day
-  );
-};
 
 /** Parses a Dutch textual date like "21 september 2026" into "2026-09-21". Returns
  * `undefined` when the text doesn't match (label-block extraction failed, the
@@ -221,6 +209,7 @@ export const parseJsonLdPayload = (
       "jobPosting.hiringOrganization"
     ),
     parserVersion,
+    sluitingsdatum: closingMomentInstant(sluitingsDatum),
     startDatum: field(
       startDatum || UNKNOWN,
       parserVersion,

@@ -891,3 +891,115 @@ describe.serial("0009 to 0010 query_snapshot search scope migration", () => {
     expect(constraintError).toMatchObject({ code: "23514" });
   });
 });
+
+describe.serial(
+  "0010 to 0011 aanvraag locatie_tekst/sluitingsdatum migration",
+  () => {
+    let client: ReturnType<typeof postgres> | undefined;
+    let priorStatements: string[] = [];
+    let columnStatements: string[] = [];
+    const priorMigrations = [
+      "0000_core.sql",
+      "0001_u3_durable_ingestion.sql",
+      "0002_u8_backfill_observability.sql",
+      "0003_u9_snapshot_approval.sql",
+      "0004_u10_export_idempotency.sql",
+      "0005_u11_external_receipt.sql",
+      "0006_search_projection_checkpoint.sql",
+      "0007_snapshot_search_version.sql",
+      "0008_bulk_projector_claims.sql",
+      "0009_source_record_missed_polls.sql",
+      "0010_query_snapshot_search_scope.sql",
+    ];
+
+    beforeAll(async () => {
+      if (!upgradeDatabaseUrl) {
+        if (upgradeDatabaseRequired) {
+          throw new Error("Required upgrade test database URL is unavailable");
+        }
+        return;
+      }
+      client = postgres(upgradeDatabaseUrl, { max: 1 });
+      const perMigration = await Promise.all(
+        priorMigrations.map((name) => readMigrationStatements(name))
+      );
+      priorStatements = perMigration.flat();
+      columnStatements = await readMigrationStatements(
+        "0011_aanvraag_locatie_sluitingsdatum.sql"
+      );
+    });
+
+    afterAll(async () => {
+      await client?.end({ timeout: 5 });
+    });
+
+    it("adds nullable columns: existing rows read NULL, new rows can set both", async () => {
+      if (!client) {
+        expect(upgradeDatabaseUrl).toBeUndefined();
+        return;
+      }
+
+      await client.unsafe(`
+      DROP SCHEMA IF EXISTS curated CASCADE;
+      DROP SCHEMA IF EXISTS marts CASCADE;
+      DROP SCHEMA IF EXISTS staging CASCADE;
+      DROP SCHEMA IF EXISTS drizzle CASCADE;
+      DROP SCHEMA IF EXISTS public CASCADE;
+      CREATE SCHEMA public;
+    `);
+      await client.begin(async (transaction) => {
+        for (const statement of priorStatements) {
+          // oxlint-disable-next-line no-await-in-loop -- migration statements are order-dependent
+          await transaction.unsafe(statement);
+        }
+      });
+
+      const [bron] = await client.unsafe(`
+      INSERT INTO curated.bron (categorie, naam) VALUES ('msp_broker', 'Existing Bron')
+      RETURNING id;
+    `);
+      const [scrapeRun] = await client.unsafe(`
+      INSERT INTO curated.scrape_run (bron_id) VALUES ('${bron?.id}')
+      RETURNING id;
+    `);
+      await client.unsafe(`
+      INSERT INTO curated.aanvraag
+        (beschrijving, bron_id, bron_referentie, content_hash, eerste_gezien_op, extractie_methode, laatst_gezien_op, raw_payload_ref, scrape_run_id, titel)
+      VALUES
+        ('pre-migration row', '${bron?.id}', 'ref-existing', 'hash-existing', now(), 'html_parser', now(), 'raw/existing.html', '${scrapeRun?.id}', 'Existing aanvraag');
+    `);
+
+      await client.begin(async (transaction) => {
+        for (const statement of columnStatements) {
+          // oxlint-disable-next-line no-await-in-loop -- migration statements are order-dependent
+          await transaction.unsafe(statement);
+        }
+      });
+
+      // Existing rows have no way to backfill a value the source never
+      // carried at ingest time -- they read NULL until the next poll re-curates
+      // them (see RJC-394 loader comment).
+      const existing = await client.unsafe(`
+      SELECT locatie_tekst, sluitingsdatum FROM curated.aanvraag WHERE bron_referentie = 'ref-existing';
+    `);
+      expect(existing).toMatchObject([
+        { locatie_tekst: null, sluitingsdatum: null },
+      ]);
+
+      await client.unsafe(`
+      INSERT INTO curated.aanvraag
+        (beschrijving, bron_id, bron_referentie, content_hash, eerste_gezien_op, extractie_methode, laatst_gezien_op, locatie_tekst, raw_payload_ref, scrape_run_id, sluitingsdatum, titel)
+      VALUES
+        ('post-migration row', '${bron?.id}', 'ref-new', 'hash-new', now(), 'html_parser', now(), 'Amsterdam', 'raw/new.html', '${scrapeRun?.id}', '2026-09-07T11:00:00.000Z', 'New aanvraag');
+    `);
+      const created = await client.unsafe(`
+      SELECT locatie_tekst, sluitingsdatum FROM curated.aanvraag WHERE bron_referentie = 'ref-new';
+    `);
+      expect(created).toHaveLength(1);
+      expect(created[0]?.locatie_tekst).toBe("Amsterdam");
+      expect(new Date(created[0]?.sluitingsdatum).toISOString()).toBe(
+        "2026-09-07T11:00:00.000Z"
+      );
+    });
+  }
+);

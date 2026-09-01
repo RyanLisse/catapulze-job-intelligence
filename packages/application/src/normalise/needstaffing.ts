@@ -3,7 +3,12 @@ import { NEEDSTAFFING_PARSER_VERSION } from "@ji/connectors/needstaffing";
 import { UNKNOWN } from "@ji/domain";
 import { resolveLifecycleStatus } from "@ji/domain/lifecycle";
 
-import { field, hasClosingMomentPassed, stripHtml } from "./types";
+import {
+  closingMomentInstant,
+  field,
+  hasClosingMomentPassed,
+  stripHtml,
+} from "./types";
 import type { NormalisedAanvraagDraft } from "./types";
 
 /** `detail.start`/`detail.deadline` are `data-date-utc` epoch-ms strings.
@@ -111,6 +116,7 @@ export const parseNeedstaffingPayload = (
       "listing.opdrachtgeverNaam"
     ),
     parserVersion,
+    sluitingsdatum: closingMomentInstant(epochToIsoInstant(detail.deadline)),
     startDatum: field(
       epochToIsoDate(detail.start),
       parserVersion,
