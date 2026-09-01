@@ -74,13 +74,18 @@ Or inspect `runMotianV1Backfill` JSON output (`imported`, `skipped`, `failed`).
 | -------- | -------- | ------- |
 | `DATABASE_URL` | Yes (persist mode) | Catapulze Postgres app role |
 | `MOTIAN_DATABASE_URL` | Opt-in live Motian source | Read-only Motian-Neon role; **never commit** |
+| `RAW_S3_BUCKET` | Yes in production | Durable destination for copied raw Motian payloads |
+| `RAW_S3_ENDPOINT` | For S3-compatible stores | Object-store endpoint (for example Hetzner or MinIO) |
+| `RAW_S3_REGION` | No (default `us-east-1`) | Object-store region |
+| `RAW_S3_ACCESS_KEY_ID` | Provider-dependent | Object-store access key |
+| `RAW_S3_SECRET_ACCESS_KEY` | Provider-dependent | Object-store secret key |
 | `MANTICORE_URL` | Yes for search | Manticore HTTP endpoint (server + worker) |
 | `NEON_V1_BATCH_SIZE` | No (default 1000) | Keyset batch size for live Motian import |
 | `NEON_V1_INCLUDE_CLOSED` | No | Set to `1` to include non-open Motian rows |
 | `TENDER_NED_LIVE` | No | Set to `1` for live TenderNed HTTP (worker) |
 | `INHUURDESK_LIVE` | No | Set to `1` for live Inhuurdesk HTTP (worker) |
 
-When `MOTIAN_DATABASE_URL` is unset, `bun run backfill:neon-v1` imports `fixtures/backfill/neon-v1-sample.json` instead. **CI uses fixtures only** — no Motian URL, no live connector flags, no secrets in git.
+When `MOTIAN_DATABASE_URL` is unset, `bun run backfill:neon-v1` imports `fixtures/backfill/neon-v1-sample.json` instead. **CI uses fixtures only** — no Motian URL, no live connector flags, no secrets in git. Outside production, an unset `RAW_S3_BUCKET` selects the local filesystem store. Production refuses to start the backfill without `RAW_S3_BUCKET`; an in-memory store would leave `raw_payload_ref` values pointing at payloads lost as soon as the one-shot process exits.
 
 ## Commands
 
