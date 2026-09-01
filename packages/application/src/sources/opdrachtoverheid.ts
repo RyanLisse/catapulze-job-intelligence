@@ -11,7 +11,9 @@ export const opdrachtoverheid = {
   // tenderned/inhuurdesk) to avoid collisions with sibling Slice C source
   // branches picking the same next-in-sequence id.
   bronId: "00000000-0000-4000-8000-0000000000ad",
-  createConnector: ({ bronId, knownHashes, listingFixturePath }) =>
+  // RJC-357/RJC-401: knownHashes deliberately NOT forwarded -- a skip here
+  // would freeze detail-only changes; see listingHashCoversDetail below.
+  createConnector: ({ bronId, listingFixturePath }) =>
     createOpdrachtoverheidConnector({
       bronId,
       client: listingFixturePath
@@ -20,8 +22,9 @@ export const opdrachtoverheid = {
             liveEnabled: false,
           })
         : undefined,
-      knownHashes,
     }),
+  // RJC-357/RJC-401: the JSON-LD detail enrichment can change while the listing row is unchanged.
+  listingHashCoversDetail: false,
   liveEnv: "OPDRACHTOVERHEID_LIVE",
   naam: "Opdrachtoverheid",
   normalise: normaliseOpdrachtoverheidObservation,

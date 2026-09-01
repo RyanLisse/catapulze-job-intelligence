@@ -41,3 +41,7 @@ Status: **probe afgerond; connector nog niet gebouwd** — adapter-categorie `ht
 ## Sluitingsdatum (RJC-377)
 
 Bevestigd (opnieuw) tegen een live capture van alle 18 vermelde opdrachten: Flinter publiceert nergens een sluitingsdatum, op geen enkele listing- of detailpagina. `sluitingsdatumPassed` blijft hard `false` — eerlijk, geen parse-gat. `looptijdTekst` (bewaard in `bronSpecifiek`) is een vrije contractduur-tekst, geen deadline. Het verdwijnen van de listing is vandaag het enige sluitingssignaal dat Flinter biedt.
+
+## Known-hash short-circuit (RJC-357 / RJC-401)
+
+`listingHashCoversDetail: false` — de listing-hash (`locatiePlaats`, `looptijdTekst`, `opdrachtgeverNaam`, `slug`, `titel`) ziet de detailpagina niet; daar leven titel/beschrijving/tarief en de permanent-vacancy-detectie. Geen `knownHashes`-store doorgegeven (afgedwongen in `sources.spec.ts`).

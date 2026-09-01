@@ -43,3 +43,7 @@ Status: **probe afgerond; connector nog niet gebouwd** — adapter-categorie `js
 ## Sluitingsdatum (RJC-377)
 
 Pro-Act IT heeft geen `sluitingsDatum` in zijn label-blok, maar publiceert wel een echte `jobPosting.validThrough` als bare ISO-datum (bv. "2026-09-01"/"2026-10-01" in beide live captures — geen vaste placeholder). Vóór RJC-377 werd dit veld wel opgeslagen in `bronSpecifiek.valid_through` maar nooit gebruikt om te sluiten. De gedeelde json-ld-normaliser gebruikt dit nu als fallback wanneer het label-blok geen `sluitingsDatum` heeft.
+
+## Known-hash short-circuit (RJC-357 / RJC-401)
+
+`listingHashCoversDetail: false` — de listing-hash (`hashJsonLdListingItem`) ziet alleen `url` + `lastmod` uit de sitemap, terwijl de complete JobPosting (incl. sluitings-/deadline-velden, RJC-401) op de detailpagina leeft. Een deadline-only wijziging zonder betrouwbare `lastmod`-bump zou bij een skip een verouderde `sluitingsdatum` bevriezen; `lastmod` is niet bewezen betrouwbaar genoeg om daarop te vertrouwen. Geen `knownHashes`-store doorgegeven (afgedwongen in `sources.spec.ts`).

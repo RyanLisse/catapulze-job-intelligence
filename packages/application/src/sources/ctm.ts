@@ -13,6 +13,8 @@ export const ctm = {
         : undefined,
       knownHashes,
     }),
+  // RJC-357/RJC-401: listing hash covers every CtmEntry field (fetch re-serialises the feed entry; no detail request) -- see docs/sources/ctm.md.
+  listingHashCoversDetail: true,
   liveEnv: "CTM_LIVE",
   naam: "CTM",
   normalise: normaliseCtmObservation,

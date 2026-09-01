@@ -55,3 +55,21 @@ Boven-drempel aanbestedingen die al via TenderNed binnenkomen, zullen dus als du
 1. Geen paginering/cursor → volledige window-overlap bij elke poll is verwacht gedrag, geen bug.
 2. T&C onverifieerbaar (redirect-loop) → voorwaardenstatus blijft `te_toetsen` tot een mens dit oplost.
 3. Detail/documenten (geraamde waarde, volledige bijlagenlijst) zijn niet beschikbaar zonder account — deze connector observeert alleen wat in de feed staat.
+
+## Known-hash short-circuit (RJC-357 / RJC-401)
+
+`listingHashCoversDetail: true` — de fetch her-serialiseert de feed-entry zonder tweede request, dus de listing-hash ziet alles wat de normaliser leest. Veld-voor-veld (`hashCtmListingItem` vs `normalise/ctm.ts`):
+
+| `CtmEntry`-veld | In listing-hash | Normaliser leest |
+|---|---|---|
+| `aanvraagnummer` | ja | `bronReferentie`, `bronSpecifiek` |
+| `cpv` | ja | `beschrijving`, `bronSpecifiek` |
+| `link` | ja (toegevoegd RJC-357) | `bronUrl` |
+| `organisatie` | ja | `beschrijving`, `opdrachtgeverNaam` |
+| `procedure` | ja | `beschrijving`, `bronSpecifiek` |
+| `publicatiedatum` | ja | `bronSpecifiek` |
+| `referentie` | ja | `bronSpecifiek` |
+| `sluitingstijd` | ja | `sluitingsdatum`, lifecycle |
+| `titel` | ja | `titel`, `beschrijving`-fallback |
+
+Houd `hashCtmListingItem` in sync met `CtmEntry`: een nieuw veld dat niet gehasht wordt maakt de skip onveilig (zie `packages/connectors/src/ctm/ctm.spec.ts`, coverage-test).

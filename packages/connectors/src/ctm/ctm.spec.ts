@@ -15,6 +15,7 @@ import {
   parseCtmFeed,
 } from "./client";
 import type { CtmClient } from "./client";
+import { hashCtmListingItem } from "./hash";
 import type { CtmEntry } from "./types";
 
 const retryPolicy = {
@@ -178,5 +179,41 @@ describe("CTM connector", () => {
     });
 
     expect(fetched).toMatchObject({ status: "rejected" });
+  });
+});
+
+describe("CTM listing hash coverage (RJC-357 / RJC-401)", () => {
+  const baseEntry: CtmEntry = {
+    aanvraagnummer: "460057",
+    link: "https://eu.eu-supply.com/app/rfq/rwlentrance_s.asp?PID=460057",
+    titel: "Openbare Europese aanbesteding",
+  };
+
+  it("changes when the link changes, so a moved bronUrl can never be skipped past", async () => {
+    const moved = await hashCtmListingItem({
+      ...baseEntry,
+      link: "https://eu.eu-supply.com/app/rfq/rwlentrance_s.asp?PID=999999",
+    });
+    expect(moved).not.toBe(await hashCtmListingItem(baseEntry));
+  });
+
+  it("covers every CtmEntry field the normaliser can read", async () => {
+    const variants: Partial<CtmEntry>[] = [
+      { aanvraagnummer: "999" },
+      { cpv: [{ code: "35111320-4", name: "Portable fire-extinguishers" }] },
+      { link: "https://example.test/other" },
+      { organisatie: "Andere Organisatie" },
+      { procedure: "01 - Niet-openbare procedure" },
+      { publicatiedatum: "2026-08-27T00:00:00" },
+      { referentie: "REF-1" },
+      { sluitingstijd: "2026-12-01T11:00:00" },
+      { titel: "Andere titel" },
+    ];
+    const base = await hashCtmListingItem(baseEntry);
+    for (const variant of variants) {
+      // oxlint-disable-next-line no-await-in-loop -- sequential hash comparisons keep the failure message per-field
+      const changed = await hashCtmListingItem({ ...baseEntry, ...variant });
+      expect(changed).not.toBe(base);
+    }
   });
 });

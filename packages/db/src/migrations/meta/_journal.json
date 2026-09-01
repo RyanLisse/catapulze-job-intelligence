@@ -85,6 +85,13 @@
       "when": 1788854400000,
       "tag": "0011_aanvraag_locatie_sluitingsdatum",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1788940800000,
+      "tag": "0012_source_record_listing_hash",
+      "breakpoints": true
     }
   ]
 }

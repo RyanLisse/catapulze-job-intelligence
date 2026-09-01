@@ -1003,3 +1003,105 @@ describe.serial(
     });
   }
 );
+
+describe.serial("0011 to 0012 source_record listing_hash migration", () => {
+  let client: ReturnType<typeof postgres> | undefined;
+  let priorStatements: string[] = [];
+  let listingHashStatements: string[] = [];
+  const priorMigrations = [
+    "0000_core.sql",
+    "0001_u3_durable_ingestion.sql",
+    "0002_u8_backfill_observability.sql",
+    "0003_u9_snapshot_approval.sql",
+    "0004_u10_export_idempotency.sql",
+    "0005_u11_external_receipt.sql",
+    "0006_search_projection_checkpoint.sql",
+    "0007_snapshot_search_version.sql",
+    "0008_bulk_projector_claims.sql",
+    "0009_source_record_missed_polls.sql",
+    "0010_query_snapshot_search_scope.sql",
+    "0011_aanvraag_locatie_sluitingsdatum.sql",
+  ];
+
+  beforeAll(async () => {
+    if (!upgradeDatabaseUrl) {
+      if (upgradeDatabaseRequired) {
+        throw new Error("Required upgrade test database URL is unavailable");
+      }
+      return;
+    }
+    client = postgres(upgradeDatabaseUrl, { max: 1 });
+    const perMigration = await Promise.all(
+      priorMigrations.map((name) => readMigrationStatements(name))
+    );
+    priorStatements = perMigration.flat();
+    listingHashStatements = await readMigrationStatements(
+      "0012_source_record_listing_hash.sql"
+    );
+  });
+
+  afterAll(async () => {
+    await client?.end({ timeout: 5 });
+  });
+
+  it("adds a nullable listing_hash: existing rows read NULL (never skip), new observations can set it", async () => {
+    if (!client) {
+      expect(upgradeDatabaseUrl).toBeUndefined();
+      return;
+    }
+
+    await client.unsafe(`
+      DROP SCHEMA IF EXISTS curated CASCADE;
+      DROP SCHEMA IF EXISTS marts CASCADE;
+      DROP SCHEMA IF EXISTS staging CASCADE;
+      DROP SCHEMA IF EXISTS drizzle CASCADE;
+      DROP SCHEMA IF EXISTS public CASCADE;
+      CREATE SCHEMA public;
+    `);
+    await client.begin(async (transaction) => {
+      for (const statement of priorStatements) {
+        // oxlint-disable-next-line no-await-in-loop -- migration statements are order-dependent
+        await transaction.unsafe(statement);
+      }
+    });
+
+    const [bron] = await client.unsafe(`
+      INSERT INTO curated.bron (categorie, naam) VALUES ('msp_broker', 'Existing Bron')
+      RETURNING id;
+    `);
+    const [scrapeRun] = await client.unsafe(`
+      INSERT INTO curated.scrape_run (bron_id) VALUES ('${bron?.id}')
+      RETURNING id;
+    `);
+    await client.unsafe(`
+      INSERT INTO staging.source_record
+        (bron_id, bron_referentie, content_hash, raw_payload_ref, scrape_run_id)
+      VALUES
+        ('${bron?.id}', 'ref-existing', 'payload-hash-existing', 'raw/existing.json', '${scrapeRun?.id}');
+    `);
+
+    await client.begin(async (transaction) => {
+      for (const statement of listingHashStatements) {
+        // oxlint-disable-next-line no-await-in-loop -- migration statements are order-dependent
+        await transaction.unsafe(statement);
+      }
+    });
+
+    // A pre-0012 row has never recorded a listing hash: it must read NULL,
+    // which the known-hash short-circuit treats as "never skip".
+    const existing = await client.unsafe(`
+      SELECT content_hash, listing_hash FROM staging.source_record WHERE bron_referentie = 'ref-existing';
+    `);
+    expect(existing).toMatchObject([
+      { content_hash: "payload-hash-existing", listing_hash: null },
+    ]);
+
+    await client.unsafe(`
+      UPDATE staging.source_record SET listing_hash = 'listing-hash-1' WHERE bron_referentie = 'ref-existing';
+    `);
+    const updated = await client.unsafe(`
+      SELECT listing_hash FROM staging.source_record WHERE bron_referentie = 'ref-existing';
+    `);
+    expect(updated).toMatchObject([{ listing_hash: "listing-hash-1" }]);
+  });
+});

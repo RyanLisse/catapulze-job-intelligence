@@ -47,3 +47,7 @@ Voor Opdrachtoverheid is dit een ongedocumenteerd, privé endpoint; het kan zond
 1. Het private endpoint kan zonder aankondiging wijzigen of verdwijnen.
 2. De bron republish't andere brokers; zonder bronattributie ontstaat dubbele inhoud.
 3. Detail-JSON-LD staat dubbel in de pagina en moet worden gededupliceerd.
+
+## Known-hash short-circuit (RJC-357 / RJC-401)
+
+`listingHashCoversDetail: false` — de fetch verrijkt de listing-rij met JobPosting JSON-LD van de SSR-detailpagina; die verrijking kan wijzigen terwijl de listing-rij gelijk blijft, dus de listing-hash dekt de payload niet. Geen `knownHashes`-store doorgegeven (afgedwongen in `sources.spec.ts`).

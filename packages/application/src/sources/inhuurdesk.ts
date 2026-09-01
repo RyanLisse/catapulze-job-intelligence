@@ -16,6 +16,8 @@ export const inhuurdesk = {
         : undefined,
       knownHashes,
     }),
+  // RJC-357/RJC-401: listing hash covers every InhuurdeskAssignment field (fetch re-serialises the listing row; no detail request) -- see docs/sources/inhuurdesk.md.
+  listingHashCoversDetail: true,
   liveEnv: "INHUURDESK_LIVE",
   naam: "Inhuurdesk",
   normalise: normaliseInhuurdeskObservation,

@@ -213,8 +213,15 @@ describe("TenderNed connector guardrails", () => {
       await hashTenderNedListingItem(listingItem)
     );
 
-    await runConnector({ ...sharedRunInput, scrapeRunId: "run-tn-skip-2" });
+    const skippedRun = await runConnector({
+      ...sharedRunInput,
+      scrapeRunId: "run-tn-skip-2",
+    });
 
     expect(detailFetches).toBe(1);
+    // RJC-397 x RJC-357: a skipped fetch is still an observed listing entry —
+    // the source still lists it, so the missed-polls reconciliation must not
+    // count it as missed once the short-circuit really fires.
+    expect(skippedRun.observedBronReferenties).toContain(listingItem.kenmerk);
   });
 });

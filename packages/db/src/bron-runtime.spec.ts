@@ -20,6 +20,7 @@ import {
   PostgresRunStore,
 } from "./bron-runtime";
 import type { BronRuntimeDatabase } from "./bron-runtime";
+import { PostgresKnownHashStore } from "./known-hash-store";
 import * as schema from "./schema";
 import { aanvraagObservation, bron, scrapeRun, sourceRecord } from "./schema";
 
@@ -1473,6 +1474,115 @@ describe("durable bron runtime adapters", () => {
         repository.create({ ...valid.record, actief: true })
       ).rejects.toThrow("Bron must be created inactive");
       expect(await repository.findById(bronId)).toBeNull();
+    } finally {
+      await database.delete(bron).where(eq(bron.id, bronId));
+      await client.end({ timeout: 5 });
+    }
+  });
+  it("persists listing_hash on insert and update, and PostgresKnownHashStore reads that tier (RJC-357)", async () => {
+    if (!available) {
+      expect(available).toBe(false);
+      return;
+    }
+    const client = postgres(applicationUrl, { max: 2 });
+    const database = drizzle(client, { schema });
+    const bronId = crypto.randomUUID();
+    const firstRunId = crypto.randomUUID();
+    const secondRunId = crypto.randomUUID();
+    const store = new PostgresRunStore(database);
+    const recorder = new PostgresObservationRecorder(database);
+    const knownHashes = new PostgresKnownHashStore(database);
+    const progress = { checkpoint: null, metrics: emptyRunMetrics() };
+    const record = (
+      scrapeRunId: string,
+      fenceToken: number,
+      contentHash: string,
+      listingHash: string | null,
+      observedAt: string
+    ) =>
+      recorder.record({
+        fenceToken,
+        key: { bronId, scrapeRunId },
+        observation: {
+          bronId,
+          bronReferentie: "listing-hash-reference",
+          contentHash,
+          contentType: "json",
+          contractVersion: CONNECTOR_OBSERVATION_CONTRACT_VERSION,
+          observedAt,
+          rawPayloadRef: `raw/listing-hash/${contentHash}.json`,
+          scrapeRunId,
+        },
+        sourceRecord: {
+          bronId,
+          bronReferentie: "listing-hash-reference",
+          contentHash,
+          listingHash,
+          rawPayloadRef: `raw/listing-hash/${contentHash}.json`,
+          scrapeRunId,
+        },
+      });
+    try {
+      await database.insert(bron).values({
+        categorie: "runtime-test",
+        id: bronId,
+        naam: `Listing hash ${bronId}`,
+      });
+      const firstRun = await store.start({
+        key: { bronId, scrapeRunId: firstRunId },
+        mode: "reset",
+        progress,
+        runKind: "poll",
+        startedAt: new Date("2026-08-30T09:00:00Z"),
+      });
+      // No listing hash recorded yet: the store must answer null (never skip).
+      expect(
+        await knownHashes.get(bronId, "listing-hash-reference")
+      ).toBeNull();
+
+      await record(
+        firstRunId,
+        firstRun.fenceToken,
+        "payload-hash-1",
+        "listing-hash-1",
+        "2026-08-30T09:01:00.000Z"
+      );
+      // The store returns the LISTING hash, never the payload hash — the
+      // two tiers never match each other (the RJC-357 bug).
+      expect(await knownHashes.get(bronId, "listing-hash-reference")).toBe(
+        "listing-hash-1"
+      );
+
+      const secondRun = await store.start({
+        key: { bronId, scrapeRunId: secondRunId },
+        mode: "reset",
+        progress,
+        runKind: "poll",
+        startedAt: new Date("2026-08-30T10:00:00Z"),
+      });
+      await record(
+        secondRunId,
+        secondRun.fenceToken,
+        "payload-hash-2",
+        "listing-hash-2",
+        "2026-08-30T10:01:00.000Z"
+      );
+      expect(await knownHashes.get(bronId, "listing-hash-reference")).toBe(
+        "listing-hash-2"
+      );
+
+      // An observation without a listing hash clears the stored value so a
+      // stale listing hash can never authorise a skip.
+      await record(
+        secondRunId,
+        secondRun.fenceToken,
+        "payload-hash-3",
+        null,
+        "2026-08-30T10:02:00.000Z"
+      );
+      expect(
+        await knownHashes.get(bronId, "listing-hash-reference")
+      ).toBeNull();
     } finally {
       await database.delete(bron).where(eq(bron.id, bronId));
       await client.end({ timeout: 5 });

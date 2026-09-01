@@ -66,3 +66,7 @@ Geverifieerd: alle URL's hierboven met HTTP-status; headless Chrome gebruikt voo
 ## Sluitingsdatum (RJC-377)
 
 TenderNed publiceert geen absolute sluitingsdatum in de gemodelleerde API-velden — alleen `numberOfDaysBeforeAanmeldenInschrijven`, een relatief dagaantal, geen datum (bevestigd tegen `fixtures/connectors/tenderned/detail-pub-001.json`; de RSS-feed zou de datum wél als tekst bevatten, maar dat is een ander discovery-pad, buiten scope van deze normaliser). `sluitingsdatumPassed` blijft daarom hard `false` — een eerlijke waarde, geen parse-gat. Dit laat TenderNed niet voor altijd open staan: `isTenderNedListingOpen` sluit de aanvraag al via `bronSaysClosed` zodra `aankondigingCode` `AGO`/`VBE` is of het dagaantal op nul staat — dat dagaantal is hier het echte sluitingssignaal.
+
+## Known-hash short-circuit (RJC-357 / RJC-401)
+
+`listingHashCoversDetail: false` — de fetch haalt een detailrespons op en de normaliser leest daaruit velden die de listing-hash niet ziet: `opdrachtBeschrijving` (→ `beschrijving`), `cpvCodes`, `nutsCodes`, `opdrachtAardCode`, `procedureCode` (→ `bronSpecifiek`) en `opdrachtgeverNaam`. Een detail-wijziging zonder listing-wijziging zou bij een skip bevroren raken. De bron-definitie geeft daarom bewust géén `knownHashes`-store door (afgedwongen in `sources.spec.ts`).

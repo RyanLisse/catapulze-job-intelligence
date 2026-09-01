@@ -16,6 +16,8 @@ export const onefellow = {
         : undefined,
       knownHashes,
     }),
+  // RJC-357/RJC-401: listing hash covers every OnefellowJob field the normaliser reads (fetch re-serialises the listing job; time_published/time_updated are deliberately untracked) -- see docs/sources/onefellow.md.
+  listingHashCoversDetail: true,
   liveEnv: "ONEFELLOW_LIVE",
   naam: "Onefellow",
   normalise: normaliseOnefellowObservation,

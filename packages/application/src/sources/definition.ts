@@ -21,6 +21,19 @@ export interface CreateSourceConnectorInput {
 export interface SourceDefinition<Slug extends string = string> {
   bronId: BronId;
   createConnector: (input: CreateSourceConnectorInput) => Connector;
+  /**
+   * RJC-357/RJC-401: whether this source's `hash*ListingItem` demonstrably
+   * covers EVERY field the normaliser reads for a persisted or
+   * lifecycle-relevant value (closing moment, status, locatie, tarief,
+   * titel, beschrijving, bronUrl, bronSpecifiek). Only when true may the
+   * known-hash short-circuit skip a fetch — so `createConnector` must
+   * forward `knownHashes` to the connector iff this is true (asserted in
+   * sources.spec.ts). False for every source whose fetch reads a detail
+   * page the listing hash cannot see: skipping there freezes detail-only
+   * changes (e.g. a moved sluitingsdatum) into the curated aanvraag.
+   * Field-by-field evidence lives in docs/sources/<slug>.md.
+   */
+  listingHashCoversDetail: boolean;
   /** Env var name that switches the connector from fixtures to live HTTP. */
   liveEnv: string;
   naam: string;

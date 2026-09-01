@@ -728,6 +728,9 @@ describe("runConnector", () => {
         bronReferentie: "TN-100",
         contentHash:
           "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        // RJC-357: the discover pass's listing-tier hash rides along so the
+        // next poll's short-circuit compares like with like.
+        listingHash: "listing-hash",
         rawPayloadRef:
           "raw/tenderned/2026/08/dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd.json",
         scrapeRunId: "run-1",
