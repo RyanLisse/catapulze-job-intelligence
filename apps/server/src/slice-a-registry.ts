@@ -22,6 +22,7 @@ import {
   createBronRuntimeClient,
 } from "@ji/db";
 import { PostgresCurateStore } from "@ji/db/postgres-curate-store";
+import type { ResultCacheBackend } from "@ji/search";
 import {
   createResultCache,
   ManticoreSearchEngine,
@@ -50,6 +51,13 @@ export type ProductionSliceADeps = SliceAHandlerDeps & {
   readonly close: () => Promise<void>;
   readonly database: ReturnType<typeof createBronRuntimeClient>["database"];
   readonly objectStore: ObjectStore;
+  /** Which result-cache backend actually resolved (RJC-388), for readiness
+   * reporting (RJC-391) — not itself the live reachability check. */
+  readonly cacheBackend: ResultCacheBackend;
+  readonly manticoreUrl: string;
+  /** Which raw-object-store backend actually resolved (RJC-386), for
+   * readiness reporting (RJC-391). */
+  readonly rawObjectStoreKind: "s3" | "filesystem";
 };
 
 export const createProductionSliceADeps = async (
@@ -106,10 +114,8 @@ export const createProductionSliceADeps = async (
     input.manticoreUrl,
     new PostgresSearchVersionStore(runtime.database)
   );
-  const { cache: searchResultCache } = await createResultCache(
-    input.redisUrl,
-    input.nodeEnv
-  );
+  const { backend: cacheBackend, cache: searchResultCache } =
+    await createResultCache(input.redisUrl, input.nodeEnv);
   const searchAdapter = new SearchAdapter({
     cache: searchResultCache,
     engine,
@@ -128,10 +134,13 @@ export const createProductionSliceADeps = async (
       },
       list: () => listPublicBronnen(runtime.bronPersistence),
     },
+    cacheBackend,
     close: runtime.close,
     curateStore,
     database: runtime.database,
+    manticoreUrl: input.manticoreUrl,
     objectStore,
+    rawObjectStoreKind: rawObjectStore.kind,
     searchAdapter,
     stores,
   };
