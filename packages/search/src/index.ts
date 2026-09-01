@@ -11,7 +11,10 @@ export {
   buildQueryString,
   emitMatch,
   FetchManticoreClient,
+  MANTICORE_BULK_ISOLATION_RESENDS_PER_CHUNK,
+  MANTICORE_BULK_MAX_BYTES,
   ManticoreSearchEngine,
+  projectionHash,
   SEARCH_TEXT_FIELDS,
 } from "./manticore";
 export { readOutboxStatus, type OutboxEventPayload } from "./outbox-payload";
@@ -19,13 +22,24 @@ export {
   PostgresFtsFallbackEngine,
   type PostgresFtsExecutor,
 } from "./postgres-fts-fallback";
-export { drainOutboxEvents, resolveOutboxMutation } from "./projector";
+export {
+  coalesceOutboxEvents,
+  drainOutboxEvents,
+  planOutboxBatch,
+  resolveOutboxMutation,
+  type CoalescedOutbox,
+  type CoalescedOutboxAggregate,
+  type OutboxBatchPlan,
+  type OutboxBatchPlanInput,
+} from "./projector";
 export {
   SEARCH_INDEX_NAME,
   SEARCH_SORT_OPTIONS,
   SEARCH_WINDOW_LIMIT,
   documentLocatie,
   emptySearchFacets,
+  mutationId,
+  type BulkSearchDocumentLoader,
   type OutboxEventRecord,
   type ResultCache,
   type SearchAdapterInput,
@@ -36,7 +50,9 @@ export {
   type SearchFilters,
   type SearchHit,
   type SearchIndexBatch,
+  type SearchIndexBatchResult,
   type SearchIndexMutation,
+  type SearchMutationFailure,
   type SearchSort,
 } from "./types";
 export {

@@ -108,23 +108,65 @@ export interface EngineSearchParams {
   sort?: SearchSort;
 }
 
+/**
+ * One index write per document id (RJC-389: the projector coalesces an
+ * aggregate's outbox events into a single mutation). `sequenceNumber` is the
+ * highest outbox sequence the mutation covers — what the watermark advances
+ * to when this mutation, but not the whole batch, is applied.
+ */
 export type SearchIndexMutation =
-  | { readonly document: SearchDocument; readonly kind: "upsert" }
-  | { readonly id: string; readonly kind: "delete" };
+  | {
+      readonly document: SearchDocument;
+      readonly kind: "upsert";
+      readonly sequenceNumber: bigint;
+    }
+  | {
+      readonly id: string;
+      readonly kind: "delete";
+      readonly sequenceNumber: bigint;
+    };
+
+/** Document id a mutation targets. */
+export const mutationId = (mutation: SearchIndexMutation): string =>
+  mutation.kind === "delete" ? mutation.id : mutation.document.id;
 
 export interface SearchIndexBatch {
-  /** Sequence of the last outbox event this batch covers. */
+  /**
+   * Sequence of the last outbox event this batch covers — including events
+   * that produced no mutation. The watermark lands here when every mutation
+   * applies.
+   */
   readonly appliedSequence: bigint;
   readonly mutations: readonly SearchIndexMutation[];
 }
 
+export interface SearchMutationFailure {
+  readonly error: string;
+  readonly id: string;
+}
+
+/**
+ * Per-batch outcome (RJC-389). Every mutation id ends up in exactly one of:
+ * applied (implicit — not listed), `failures` (the engine rejected it; the
+ * caller retries it with blame) or `unapplied` (not attempted because an
+ * earlier mutation failed; retry without blame). `appliedSequence` is the
+ * durable watermark after the batch: the batch's own appliedSequence when
+ * everything applied, otherwise the highest sequenceNumber among applied
+ * mutations (or the previous watermark when none applied).
+ */
+export interface SearchIndexBatchResult extends SearchVersion {
+  readonly failures: readonly SearchMutationFailure[];
+  readonly unapplied: readonly string[];
+}
+
 export interface SearchEngine {
   /**
-   * Applies mutations in order, then advances the durable version store.
-   * A crash between the index writes and the advance re-applies the batch,
-   * so mutations must be idempotent (upserts/deletes by document id are).
+   * Applies mutations, then advances the durable version store to the
+   * applied watermark (see SearchIndexBatchResult). A crash between the
+   * index writes and the advance re-applies the batch, so mutations must be
+   * idempotent (upserts/deletes by document id are).
    */
-  applyBatch: (batch: SearchIndexBatch) => Promise<SearchVersion>;
+  applyBatch: (batch: SearchIndexBatch) => Promise<SearchIndexBatchResult>;
   deleteDocument: (id: string) => Promise<void>;
   /** Reads the durable version — checkpoint-backed, never process-local. */
   getAppliedVersion: () => Promise<SearchVersion>;
@@ -174,6 +216,12 @@ export interface ResultCacheEntry {
   emptyReason?: string;
 }
 
+/**
+ * Entries are keyed on SearchVersion, and that key is a watermark, not a
+ * proof of completeness: it can sit above unprocessed or retrying outbox
+ * rows, and a row re-applied below it does not bump the version (RJC-389).
+ * Cache freshness is therefore bounded by TTL, not by version equality.
+ */
 export interface ResultCache {
   get: (key: string) => Promise<ResultCacheEntry | null>;
   set: (
@@ -195,4 +243,12 @@ export interface OutboxEventRecord {
 
 export interface SearchDocumentLoader {
   loadByAggregateId: (aggregateId: string) => Promise<SearchDocument | null>;
+}
+
+/** Loader the bulk projector needs: one query for a whole batch of ids. */
+export interface BulkSearchDocumentLoader extends SearchDocumentLoader {
+  /** Missing ids are simply absent from the map. */
+  loadManyByAggregateIds: (
+    aggregateIds: readonly string[]
+  ) => Promise<Map<string, SearchDocument>>;
 }

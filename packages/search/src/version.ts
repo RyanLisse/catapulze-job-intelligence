@@ -39,6 +39,11 @@ export const compareSearchVersions = (
 /**
  * True when `candidate` is older than `current` — the check the cache and
  * cursor work (later RJC-384 steps) uses to detect stale snapshots.
+ *
+ * Equal versions do not mean equal index contents (RJC-389): the watermark
+ * can sit above unprocessed or retrying outbox rows, and a row re-applied
+ * below it does not bump the version. Treat "not stale" as "no newer
+ * batch has landed", and bound cache freshness by TTL.
  */
 export const isStaleSearchVersion = (
   candidate: SearchVersion,

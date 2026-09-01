@@ -9,7 +9,7 @@ import type {
 } from "@ji/application/registry";
 import type { ObjectStore } from "@ji/connectors";
 import type { AanvraagLifecycle } from "@ji/domain";
-import type { SearchDocument, SearchDocumentLoader } from "@ji/search";
+import type { BulkSearchDocumentLoader, SearchDocument } from "@ji/search";
 import { asc, eq, inArray } from "drizzle-orm";
 
 import type { BronRuntimeDatabase } from "./bron-runtime";
@@ -158,7 +158,31 @@ export class PostgresRawPayloadStore implements RawPayloadStore {
   }
 }
 
-export class PostgresSearchDocumentLoader implements SearchDocumentLoader {
+type AanvraagRow = typeof aanvraag.$inferSelect;
+
+const toSearchDocument = (row: AanvraagRow): SearchDocument => {
+  const bronSpecifiek = row.bronSpecifiek as Record<string, unknown>;
+  const contracttype =
+    "contracttype" in bronSpecifiek &&
+    typeof bronSpecifiek.contracttype === "string"
+      ? bronSpecifiek.contracttype
+      : null;
+  return {
+    beschrijving: row.beschrijving,
+    bronId: row.bronId,
+    contracttype,
+    id: row.id,
+    laatstGezienOp: row.laatstGezienOp,
+    locatieLand: row.locatieLand,
+    // SAFETY: curated.status is constrained to AanvraagLifecycle at write time.
+    status: row.status as AanvraagLifecycle,
+    tariefMax: row.tariefMax ? Number(row.tariefMax) : null,
+    tariefMin: row.tariefMin ? Number(row.tariefMin) : null,
+    titel: row.titel,
+  };
+};
+
+export class PostgresSearchDocumentLoader implements BulkSearchDocumentLoader {
   private readonly database: BronRuntimeDatabase;
 
   constructor(database: BronRuntimeDatabase) {
@@ -171,27 +195,24 @@ export class PostgresSearchDocumentLoader implements SearchDocumentLoader {
       .from(aanvraag)
       .where(eq(aanvraag.id, aggregateId))
       .limit(1);
-    if (!row) {
-      return null;
+    return row ? toSearchDocument(row) : null;
+  }
+
+  /** One `WHERE id IN (...)` for the whole batch (RJC-389). */
+  async loadManyByAggregateIds(
+    aggregateIds: readonly string[]
+  ): Promise<Map<string, SearchDocument>> {
+    const documents = new Map<string, SearchDocument>();
+    if (aggregateIds.length === 0) {
+      return documents;
     }
-    const bronSpecifiek = row.bronSpecifiek as Record<string, unknown>;
-    const contracttype =
-      "contracttype" in bronSpecifiek &&
-      typeof bronSpecifiek.contracttype === "string"
-        ? bronSpecifiek.contracttype
-        : null;
-    return {
-      beschrijving: row.beschrijving,
-      bronId: row.bronId,
-      contracttype,
-      id: row.id,
-      laatstGezienOp: row.laatstGezienOp,
-      locatieLand: row.locatieLand,
-      // SAFETY: curated.status is constrained to AanvraagLifecycle at write time.
-      status: row.status as AanvraagLifecycle,
-      tariefMax: row.tariefMax ? Number(row.tariefMax) : null,
-      tariefMin: row.tariefMin ? Number(row.tariefMin) : null,
-      titel: row.titel,
-    };
+    const rows = await this.database
+      .select()
+      .from(aanvraag)
+      .where(inArray(aanvraag.id, [...aggregateIds]));
+    for (const row of rows) {
+      documents.set(row.id, toSearchDocument(row));
+    }
+    return documents;
   }
 }

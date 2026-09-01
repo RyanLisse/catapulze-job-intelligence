@@ -12,7 +12,11 @@ import {
   ManticoreSearchEngine,
   SLUITINGSDATUM_MISSING_SENTINEL,
 } from "./engine";
-import type { ManticoreRequestBody, ManticoreSearchPayload } from "./json";
+import type {
+  ManticoreBulkPayload,
+  ManticoreRequestBody,
+  ManticoreSearchPayload,
+} from "./json";
 
 // RJC-378: sort, filter and pagination moved into Manticore. These specs pin
 // the exact clauses the client emits so a regression shows up here, not as
@@ -121,6 +125,12 @@ describe("parseManticoreSearchResponse", () => {
 
 class RecordingClient implements ManticoreHttpClient {
   readonly bodies: ManticoreRequestBody[] = [];
+  readonly bulkLines: string[][] = [];
+
+  bulk(lines: readonly string[]): Promise<ManticoreBulkPayload> {
+    this.bulkLines.push([...lines]);
+    return Promise.resolve({ errors: false });
+  }
 
   request(
     _path: string,

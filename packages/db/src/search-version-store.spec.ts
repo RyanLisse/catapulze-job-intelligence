@@ -6,7 +6,8 @@ import {
   isStaleSearchVersion,
   SearchIndexSchemaMismatchError,
 } from "@ji/search";
-import type { SearchDocument, SearchDocumentLoader } from "@ji/search";
+import type { BulkSearchDocumentLoader, SearchDocument } from "@ji/search";
+import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/postgres-js";
 import { migrate } from "drizzle-orm/postgres-js/migrator";
 import postgres from "postgres";
@@ -49,7 +50,7 @@ const sampleDocument = (id: string): SearchDocument => ({
   titel: "Platform engineer Azure",
 });
 
-class MapLoader implements SearchDocumentLoader {
+class MapLoader implements BulkSearchDocumentLoader {
   private readonly documents = new Map<string, SearchDocument>();
 
   add(document: SearchDocument): void {
@@ -59,6 +60,19 @@ class MapLoader implements SearchDocumentLoader {
   loadByAggregateId(aggregateId: string): Promise<SearchDocument | null> {
     const document = this.documents.get(aggregateId);
     return Promise.resolve(document ? structuredClone(document) : null);
+  }
+
+  loadManyByAggregateIds(
+    aggregateIds: readonly string[]
+  ): Promise<Map<string, SearchDocument>> {
+    const loaded = new Map<string, SearchDocument>();
+    for (const aggregateId of aggregateIds) {
+      const document = this.documents.get(aggregateId);
+      if (document) {
+        loaded.set(aggregateId, structuredClone(document));
+      }
+    }
+    return Promise.resolve(loaded);
   }
 }
 
@@ -107,11 +121,11 @@ describe("durable search version (RJC-384)", () => {
     return rows.map((row) => row.sequenceNumber);
   };
 
-  // Other spec files may insert their own outbox rows concurrently, so this
-  // helper parks a fresh checkpoint past everything already in the table:
-  // the drain then only sees rows this spec inserts afterwards (plus any
-  // concurrent strays, which the assertions tolerate by keying on document
-  // ids owned by this spec).
+  // Other spec files insert their own outbox rows concurrently and the
+  // drain claims whatever is unprocessed, so every assertion keys on
+  // document ids owned by this spec. The poll below exists because a
+  // concurrent drain (another test in this file, or a sibling connection)
+  // can hold the claim on a row this spec is waiting for until it acks it.
 
   const drainUntilApplied = async (
     engine: InMemorySearchEngine,
@@ -123,14 +137,14 @@ describe("durable search version (RJC-384)", () => {
       throw new Error("database unavailable");
     }
     for (let attempt = 0; attempt < 50; attempt += 1) {
-      // oxlint-disable-next-line no-await-in-loop -- polls until concurrent transactions clear the xmin gate
+      // oxlint-disable-next-line no-await-in-loop -- polls until concurrent claims are acked
       await drainPostgresOutbox({
         database: db,
         engine,
         loader,
         versionStore: store,
       });
-      // oxlint-disable-next-line no-await-in-loop -- polls until concurrent transactions clear the xmin gate
+      // oxlint-disable-next-line no-await-in-loop -- polls until concurrent claims are acked
       const found = await engine.search({
         ast: null,
         filters: {},
@@ -141,7 +155,7 @@ describe("durable search version (RJC-384)", () => {
       if (expectedIds.every((id) => ids.has(id))) {
         return;
       }
-      // oxlint-disable-next-line no-await-in-loop -- polls until concurrent transactions clear the xmin gate
+      // oxlint-disable-next-line no-await-in-loop -- polls until concurrent claims are acked
       await Bun.sleep(100);
     }
     throw new Error("expected outbox events were never applied");
@@ -291,7 +305,17 @@ describe("durable search version (RJC-384)", () => {
     expect(checkpoint.schemaHash).toBe("aanvragen-v2");
   });
 
-  it("does not skip an outbox row whose transaction commits out of sequence order", async () => {
+  /**
+   * RJC-392 item 3: the RJC-384 xmin gate is gone. It protected a drain that
+   * selected `sequence_number > checkpoint` from advancing past a row whose
+   * inserting transaction had not committed yet. Selection is per-row state
+   * now (processed_at / dead_lettered_at / claimed_until, FOR UPDATE SKIP
+   * LOCKED), so a late-committing lower sequence is simply claimed by a
+   * later drain — even after the watermark has moved past it. This test
+   * encodes exactly that: the watermark overtakes the held row, and the held
+   * row is still applied once it commits.
+   */
+  it("applies a row whose transaction commits out of sequence order, even after the watermark passed it", async () => {
     if (!postgresAvailable || !db) {
       expect(postgresAvailable).toBe(false);
       return;
@@ -312,11 +336,14 @@ describe("durable search version (RJC-384)", () => {
     const clientA = postgres(testDatabaseUrl, { max: 1 });
     const held = Promise.withResolvers<null>();
     const insertedInA = Promise.withResolvers<null>();
+    let heldSequence = 0n;
     const transactionA = clientA.begin(async (tx) => {
-      await tx`
+      const [row] = await tx<[{ seq: string }]>`
         INSERT INTO curated.outbox_event (aggregate_id, aggregate_type, event_type, payload)
         VALUES (${heldDoc.id}, 'aanvraag', 'aanvraag.nieuw', '{}')
+        RETURNING sequence_number::text AS seq
       `;
+      heldSequence = BigInt(row?.seq ?? "0");
       insertedInA.resolve(null);
       await held.promise;
     });
@@ -325,37 +352,38 @@ describe("durable search version (RJC-384)", () => {
       await insertedInA.promise;
 
       // Connection B: commit a row with a HIGHER sequence number.
-      await insertOutboxEvents([committedDoc.id]);
+      const [committedSequence] = await insertOutboxEvents([committedDoc.id]);
 
-      // Drain while A is open: the xmin gate must stop before BOTH rows —
-      // advancing past the committed higher sequence would skip the held
-      // row forever once A commits.
-      await drainPostgresOutbox({
-        database: db,
-        engine,
-        loader,
-        versionStore: store,
-      });
-      const during = await engine.search({
+      // Drain while A is open: the committed row is applied and the
+      // watermark moves past the held sequence. Nothing is lost by that.
+      await drainUntilApplied(engine, store, loader, [committedDoc.id]);
+      const during = await store.read();
+      expect(during.appliedSequence >= (committedSequence ?? 0n)).toBe(true);
+      expect(during.appliedSequence > heldSequence).toBe(true);
+      const searched = await engine.search({
         ast: null,
         filters: {},
         limit: 200,
         offset: 0,
       });
-      const idsDuring = new Set(during.hits.map((hit) => hit.id));
+      const idsDuring = new Set(searched.hits.map((hit) => hit.id));
       expect(idsDuring.has(heldDoc.id)).toBe(false);
-      expect(idsDuring.has(committedDoc.id)).toBe(false);
     } finally {
       held.resolve(null);
       await transactionA;
       await clientA.end({ timeout: 5 });
     }
 
-    // After A commits both rows clear the gate: nothing was skipped.
-    await drainUntilApplied(engine, store, loader, [
-      heldDoc.id,
-      committedDoc.id,
-    ]);
+    // After A commits the held row is an ordinary unprocessed row: claimed
+    // and applied by the next drain, watermark unchanged (GREATEST).
+    await drainUntilApplied(engine, store, loader, [heldDoc.id]);
+    const after = await store.read();
+    const [heldRow] = await db
+      .select({ processedAt: outboxEvent.processedAt })
+      .from(outboxEvent)
+      .where(eq(outboxEvent.aggregateId, heldDoc.id));
+    expect(heldRow?.processedAt).not.toBeNull();
+    expect(after.appliedSequence >= heldSequence).toBe(true);
   });
 
   it("surfaces a schema hash mismatch as full-rebuild-required, not a silent reindex", async () => {

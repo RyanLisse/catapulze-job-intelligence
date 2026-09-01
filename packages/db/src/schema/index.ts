@@ -33,6 +33,7 @@ export {
   scrapeRun,
   scrapeRunRelations,
   searchProjectionCheckpoint,
+  searchProjectionState,
 } from "./curated";
 export { curatedSchema, martsSchema, stagingSchema } from "./schemas";
 export {

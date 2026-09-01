@@ -25,7 +25,9 @@ const createInFlightTrackingEngine = (): InFlightTracker => {
       applyBatch: (batch) =>
         Promise.resolve({
           appliedSequence: batch.appliedSequence,
+          failures: [],
           generation: 1,
+          unapplied: [],
         }),
       deleteDocument: () => Promise.resolve(),
       getAppliedVersion: () =>
