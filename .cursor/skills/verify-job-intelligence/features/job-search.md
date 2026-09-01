@@ -9,6 +9,9 @@ The `/jobs` route exposes Boolean job search with filters, sort, pagination, and
 - `jobs-query` the query input accepts Boolean syntax (placeholder e.g. `(Azure OR "Power BI") NOT junior`).
 - `jobs-detail` selecting a result adds `job=<id>` to the URL while staying on `/jobs`; closing detail removes `job` and preserves other params (e.g. `q=Azure`).
 - `jobs-nav` header nav link `Zoeken` routes to `/jobs`.
+- `jobs-chips` every active filter and the query render as a removable chip above the results; `Alles wissen` clears query and filters together.
+- `jobs-facets` the sidebar facet groups (`Bron`, `Contract`, `Locatie`, `Gepubliceerd`, `Minimum uurtarief`) collapse on their heading and show live counts; groups past six entries expose `Toon alle N …`.
+- `jobs-archive` the `Ook in archief zoeken` checkbox sends `scope=all` (RJC-383).
 
 ## How to get to it (user POV)
 
@@ -34,5 +37,6 @@ Preconditions:
 - Fixture mode is the default verification precondition; record it in `meta.json` when fixtures were required.
 - Without fixtures, an empty or loading shell may mean Manticore/REST is down — that is an environment gap, not a passing search proof.
 - Search UI copy is Dutch; auth pages remain English (`Create Account`, `Sign In`, etc.).
-- Pagination controls use Dutch labels `Vorige pagina` / `Volgende pagina`.
+- Pagination controls read `Vorige` / `Volgende` on screen with accessible names `Vorige pagina` / `Volgende pagina`.
+- Boolean search and the facet sidebar are the capability the reference design does not have; a port that drops either is a regression, not a simplification.
 - Do not invent separate feature files for approvals or Spott export — they have no `:3001` UI yet.

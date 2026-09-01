@@ -9,10 +9,12 @@ import { queryClient } from "@/utils/trpc";
 import { ThemeProvider } from "./theme-provider";
 
 export default function Providers({ children }: { children: React.ReactNode }) {
+  // The approved console design is dark-first, so dark is the default a
+  // first-time visitor lands on; Licht/Donker/Systeem stays selectable.
   return (
     <ThemeProvider
       attribute="class"
-      defaultTheme="system"
+      defaultTheme="dark"
       enableSystem
       disableTransitionOnChange
     >

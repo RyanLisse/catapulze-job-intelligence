@@ -1,6 +1,6 @@
 "use client";
 
-import { BriefcaseBusiness, LayoutDashboard, Search } from "lucide-react";
+import { Database, LayoutDashboard, Search } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
@@ -24,25 +24,22 @@ const Header = () => {
   const pathname = usePathname();
 
   return (
-    <header className="sticky top-0 z-40 border-b border-white/8 bg-[var(--ji-ink)]/95 text-[var(--ji-paper)] backdrop-blur-md">
-      <div className="mx-auto flex min-h-16 w-full max-w-[1600px] items-center gap-2 px-3 sm:px-5">
+    <header className="sticky top-0 z-40 border-b border-border bg-background/85 backdrop-blur">
+      <div className="mx-auto flex min-h-16 w-full max-w-[1600px] items-center gap-2 px-3 sm:gap-6 sm:px-6">
         <Link
           href="/"
-          className="mr-auto flex min-h-11 items-center gap-2 rounded-sm pr-2 outline-none focus-visible:ring-2 focus-visible:ring-[var(--ji-signal)]"
+          className="flex min-h-11 items-center gap-2 rounded-md outline-none focus-visible:ring-2 focus-visible:ring-ring"
           aria-label="Catapulze Job Intelligence — overzicht"
         >
-          <span className="grid size-9 place-items-center border border-[var(--ji-signal)]/40 bg-[var(--ji-signal)]/10 text-[var(--ji-signal)]">
-            <BriefcaseBusiness aria-hidden="true" className="size-[18px]" />
+          <span className="grid size-7 shrink-0 place-items-center rounded bg-primary/15 text-primary">
+            <Database aria-hidden="true" className="size-4" />
           </span>
-          <span className="hidden leading-none sm:block">
-            <span className="block text-[10px] font-semibold tracking-[0.2em] text-[var(--ji-signal)] uppercase">
-              Catapulze
-            </span>
-            <span className="mt-1 block text-sm font-semibold tracking-tight">
-              Job Intelligence
-            </span>
+          <span className="font-display text-sm font-semibold tracking-tight whitespace-nowrap">
+            Job Intelligence
           </span>
-          <span className="text-sm font-semibold sm:hidden">JI</span>
+          <span className="hidden font-mono text-[10px] tracking-[0.16em] text-muted-foreground uppercase sm:inline">
+            Catapulze
+          </span>
         </Link>
 
         <nav aria-label="Hoofdnavigatie" className="flex items-center gap-1">
@@ -55,11 +52,11 @@ const Header = () => {
                 key={href}
                 href={href}
                 aria-current={isActive ? "page" : undefined}
-                className={`flex min-h-11 items-center gap-2 rounded-sm px-3 text-sm font-medium outline-none transition-colors focus-visible:ring-2 focus-visible:ring-[var(--ji-signal)] ${
+                className={`min-h-11 items-center gap-2 rounded-md px-3 text-sm outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring ${
                   isActive
-                    ? "bg-white/10 text-white"
-                    : "text-white/62 hover:bg-white/6 hover:text-white"
-                } ${href === "/" ? "hidden sm:flex" : ""}`}
+                    ? "bg-accent text-foreground"
+                    : "text-muted-foreground hover:bg-accent hover:text-foreground"
+                } ${href === "/" ? "hidden sm:flex" : "flex"}`}
               >
                 <Icon aria-hidden="true" className="size-4" />
                 <span>{label}</span>
@@ -68,7 +65,7 @@ const Header = () => {
           })}
         </nav>
 
-        <div className="ml-1 flex items-center gap-1 border-l border-white/10 pl-2">
+        <div className="ml-auto flex items-center gap-1">
           <ModeToggle />
           <UserMenu />
         </div>

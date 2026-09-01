@@ -60,9 +60,16 @@ Harness:
   - Home H1 `Vind de juiste opdracht vóór de rest.`, link `Open job search` → `/jobs`, brand `Job Intelligence`
   - Header nav `Overzicht` → `/`, `Zoeken` → `/jobs`, button `Inloggen` → `/login`, menu item `Uitloggen`
   - Jobs search label `Zoek opdrachten met Boolean-logica`, results `aria-label="Zoekresultaten"`
+  - Jobs active-filter chips: each chip removes one filter, `Alles wissen` resets query and filters
+  - Jobs pagination buttons `Vorige` / `Volgende` with accessible names `Vorige pagina` / `Volgende pagina`
   - Login headings `Create Account` / `Welcome Back`, labels `Name` / `Email` / `Password`, buttons `Sign Up` / `Sign In`
   - Dashboard paragraph `Welcome <name>`, text `API: This is private`
-  - Theme toggle `sr-only` name `Toggle theme`
+  - Theme toggle `sr-only` name `Thema wijzigen`, menu items `Licht` / `Donker` / `Systeem`
+
+The UI ships the approved dark console design and `next-themes` defaults to
+**dark**, so a fresh browser profile renders dark even on a light-mode host.
+That is the expected baseline for screenshots; only a stored `theme=light`
+preference or picking `Licht` renders the light palette.
 
 Drive at `http://localhost:3001` (not `127.0.0.1`). Next.js 16 dev blocks `_next` chunks for mismatched hostnames. Match `CORS_ORIGIN` and `NEXT_PUBLIC_SERVER_URL` to `localhost` as in `.env.example`.
 

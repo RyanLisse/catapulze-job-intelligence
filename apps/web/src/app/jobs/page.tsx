@@ -13,9 +13,12 @@ export const metadata: Metadata = {
 const JobsPage = () => (
   <Suspense
     fallback={
-      <main id="main-content" className="min-h-full bg-[var(--ji-canvas)]">
-        <div className="mx-auto w-full max-w-[1600px] px-4 py-8 sm:px-6 lg:px-8">
-          <div className="mb-5 h-10 w-48 animate-pulse bg-muted" />
+      <main
+        id="main-content"
+        className="mx-auto w-full max-w-[1600px] space-y-5 px-4 py-6 sm:px-6 lg:px-8"
+      >
+        <div className="h-8 w-40 animate-pulse rounded-md bg-muted" />
+        <div className="rounded-lg border border-border bg-card">
           <JobLoadingState />
         </div>
       </main>
