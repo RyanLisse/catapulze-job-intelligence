@@ -1,6 +1,7 @@
 # ADR-0003 — Performancebudgets en regressiebeleid
 
 - Status: Accepted
+- Zie ook het [Manticore-latencyrapport van 2026-09-01](../research/manticore-latency-2026-09-01.md): het SearchAdapter p95 ≤ 100 ms-doel is over het 200k-documentenprofiel gedefinieerd, terwijl de tot dusver gemeten ronde 20k documenten betrof — geen productiegeldige claim, wel binnen-SLO op de gemeten schaal.
 - Datum: 2026-08-28
 - Eigenaar: Job Intelligence platform
 - Gerelateerd: ADR-0001, ADR-0002, RJC-320, RJC-331, RJC-344

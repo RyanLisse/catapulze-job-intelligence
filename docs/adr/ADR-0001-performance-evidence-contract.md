@@ -1,6 +1,7 @@
 # ADR-0001 — Performance-evidencecontract
 
 - Status: Accepted
+- Zie ook het [Manticore-latencyrapport van 2026-09-01](../research/manticore-latency-2026-09-01.md): DEC-004's SLO is gedefinieerd over het 200k-documentenprofiel (ADR-0003, JI-016), terwijl de tot dusver gemeten ronde 20k documenten betrof — een 200k-run op productiehardware staat nog open.
 - Datum: 2026-08-28
 - Eigenaar: Job Intelligence platform
 - Gerelateerd: RJC-320, RJC-331, RJC-334, RJC-344

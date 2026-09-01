@@ -58,3 +58,24 @@ Eerlijk benoemd, want dit zijn de kosten van de omkering:
 - ADR-0005's bereikbaarheidsvraag is hiermee beantwoord: optie A is gekozen; alleen het Manticore-deel van die vraag blijft open.
 - De Coolify-compose voor de Hetzner-box verliest de productie-Postgres-service; runbooks die de on-box-productiegate beschrijven ([postgres-on-box.md](../runbooks/postgres-on-box.md), [coolify-local.md](../runbooks/coolify-local.md)) krijgen een scopenotitie.
 - Lokale en CI-tests blijven volledig zonder provideraccount draaien (ADR-0004, "Gevolgen") — dat was de helft van ADR-0004 die dit besluit bewust intact laat.
+
+## Consequences realised (2026-09-01)
+
+De gevolgen hierboven zijn inmiddels (deels) geïmplementeerd:
+
+- **S3 raw store (#92, RJC-386).** `createRawObjectStore` kiest een
+  S3-compatible backend zodra `RAW_S3_BUCKET` is gezet; de server weigert in
+  productie te starten op de filesystem-fallback. Zie
+  [`docs/runbooks/raw-object-storage.md`](../runbooks/raw-object-storage.md).
+- **On-box projector (#96, RJC-387).** Lost het in "Open punten — eerlijk"
+  genoemde Manticore-vraagstuk op: de worker stopt na de outbox-commit, een
+  losstaand projectorproces on-box leest de Neon-outbox over TLS en schrijft
+  lokaal naar Manticore. Zie
+  [`docs/runbooks/search-projector.md`](../runbooks/search-projector.md).
+- **Component-gewijze readiness (#99, RJC-391).** `/readyz` controleert nu
+  postgres, manticore, rawObjectStore, redis en searchProjection afzonderlijk
+  in plaats van alleen Postgres. Zie
+  [`docs/runbooks/readiness.md`](../runbooks/readiness.md).
+
+Zie [ADR-0007](ADR-0007-search-platform-state-2026-09-01.md) voor de volledige
+staat van de zoek-/ingest-/opslagarchitectuur op deze datum.
