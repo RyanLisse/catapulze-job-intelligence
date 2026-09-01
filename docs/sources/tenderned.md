@@ -62,3 +62,7 @@ Status: **klaar om te bouwen** — eerste nieuwe bron; rung 1 (officiële API, C
 3. Geen server-side sortering → backfill per datumvenster, niet per cursor.
 
 Geverifieerd: alle URL's hierboven met HTTP-status; headless Chrome gebruikt voor de UI-call (`/aankondigingen/overzicht` roept `/v2/publicaties?page=0&size=50&publicatieDatumPreset=AF30` aan).
+
+## Sluitingsdatum (RJC-377)
+
+TenderNed publiceert geen absolute sluitingsdatum in de gemodelleerde API-velden — alleen `numberOfDaysBeforeAanmeldenInschrijven`, een relatief dagaantal, geen datum (bevestigd tegen `fixtures/connectors/tenderned/detail-pub-001.json`; de RSS-feed zou de datum wél als tekst bevatten, maar dat is een ander discovery-pad, buiten scope van deze normaliser). `sluitingsdatumPassed` blijft daarom hard `false` — een eerlijke waarde, geen parse-gat. Dit laat TenderNed niet voor altijd open staan: `isTenderNedListingOpen` sluit de aanvraag al via `bronSaysClosed` zodra `aankondigingCode` `AGO`/`VBE` is of het dagaantal op nul staat — dat dagaantal is hier het echte sluitingssignaal.

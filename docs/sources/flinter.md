@@ -37,3 +37,7 @@ Status: **probe afgerond; connector nog niet gebouwd** — adapter-categorie `ht
 1. Uren zijn slechts gedeeltelijk uit vrije tekst beschikbaar.
 2. Tarief, start en deadline ontbreken.
 3. Onder `/opdrachten` kan een perm-achtige vacature met salaris en dienstverband staan.
+
+## Sluitingsdatum (RJC-377)
+
+Bevestigd (opnieuw) tegen een live capture van alle 18 vermelde opdrachten: Flinter publiceert nergens een sluitingsdatum, op geen enkele listing- of detailpagina. `sluitingsdatumPassed` blijft hard `false` — eerlijk, geen parse-gat. `looptijdTekst` (bewaard in `bronSpecifiek`) is een vrije contractduur-tekst, geen deadline. Het verdwijnen van de listing is vandaag het enige sluitingssignaal dat Flinter biedt.

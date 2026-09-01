@@ -21,6 +21,19 @@ export const parseTenderNedPayload = (
   const publicatieId = asIdString(detail.publicatieId);
   const parserVersion = TENDER_NED_PARSER_VERSION;
   const seenOpen = isTenderNedListingOpen(detail);
+  // TenderNed publishes no absolute closing date in the modelled API fields
+  // (RJC-377): `TenderNedDetail`/`TenderNedListingItem`
+  // (packages/connectors/src/tenderned/types.ts) carry only
+  // `numberOfDaysBeforeAanmeldenInschrijven`, a relative day-count, not a
+  // date -- confirmed against fixtures/connectors/tenderned/detail-pub-001.json
+  // (docs/sources/tenderned.md independently notes "geen expliciet
+  // sluitingsdatum-veld"; the RSS feed reportedly carries the date as text,
+  // but that is a different discovery route, out of scope for this
+  // normaliser). `sluitingsdatumPassed` stays hard `false` -- honest, not a
+  // parsing gap. This does NOT leave TenderNed stuck open forever: unlike
+  // the other five RJC-377 sources, `isTenderNedListingOpen` already closes
+  // it via `bronSaysClosed` once `aankondigingCode` is `AGO`/`VBE` or the
+  // day-count reaches zero, so the countdown is the real closing signal here.
   const lifecycle = resolveLifecycleStatus({
     bronSaysClosed: !seenOpen,
     current: "unknown",

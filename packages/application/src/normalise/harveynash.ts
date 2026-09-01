@@ -4,8 +4,40 @@ import { UNKNOWN } from "@ji/domain";
 import type { TariefEenheid } from "@ji/domain";
 import { resolveLifecycleStatus } from "@ji/domain/lifecycle";
 
-import { field } from "./types";
+import { field, hasClosingMomentPassed } from "./types";
 import type { NormalisedAanvraagDraft, NormalisedTarief } from "./types";
+
+const LEADING_ISO_DATE_PATTERN =
+  /^(?<year>\d{4})-(?<month>\d{2})-(?<day>\d{2})/u;
+
+/** Guards `detail.jsonLd.validThrough` against an impossible calendar date
+ * (codex review, RJC-377 amendment) before it ever reaches
+ * `hasClosingMomentPassed`: `new Date` never throws on an out-of-range day/
+ * month (e.g. "2026-02-30"), it silently rolls over into a neighbouring real
+ * date, which would read as "closes on the wrong day" rather than "no valid
+ * closing information". `validThrough` is machine-generated JSON-LD (unlike
+ * BlueTrail's hand-typed label-block text), so this is a defensive
+ * round-trip check, not an expected failure mode. */
+const validThroughForClosing = (
+  raw: string | undefined
+): string | undefined => {
+  if (!raw) {
+    return;
+  }
+  const match = LEADING_ISO_DATE_PATTERN.exec(raw);
+  if (!match?.groups) {
+    return raw;
+  }
+  const year = Number(match.groups.year);
+  const month = Number(match.groups.month);
+  const day = Number(match.groups.day);
+  const roundTrip = new Date(Date.UTC(year, month - 1, day));
+  const isValidCalendarDate =
+    roundTrip.getUTCFullYear() === year &&
+    roundTrip.getUTCMonth() === month - 1 &&
+    roundTrip.getUTCDate() === day;
+  return isValidCalendarDate ? raw : undefined;
+};
 
 const DUTCH_MONTHS = {
   april: 4,
@@ -215,12 +247,37 @@ export const parseHarveyNashPayload = (
       : new Date(detail.publishedAt * 1000);
   const deadline = resolveHarveyNashDeadline(detail.facts.deadline, observedAt);
   const tarief = parseHarveyNashRichttarief(detail.facts.richttarief);
+  // Two distinct dates are published per listing (confirmed live 2026-08-31,
+  // fixtures/connectors/harveynash/detail-endpoints-specialist.json):
+  // `detail.facts.deadline` ("Deadline voor het voorstellen van kandidaten")
+  // and `detail.jsonLd.validThrough` (the JobPosting's own listing-validity
+  // date; it matches the search endpoint's `expires_at` unix time exactly).
+  // These can diverge (this fixture: deadline "04-09", validThrough
+  // "2026-09-07").
+  //
+  // RATIONALE (revised after Fable review, RJC-377): for this product the
+  // recruiter's own submission deadline IS effectively the client-facing
+  // signal -- "Deadline voor het voorstellen van kandidaten" is exactly when
+  // the aanvraag stops being actionable for a Catapulze user, making
+  // `facts.deadline` the closer analogue of Striive's `closingDateClient`
+  // (RJC-376), not `validThrough`. This code interim-uses `validThrough`
+  // anyway, as the conservative LATER bound: `facts.deadline` is derived
+  // from loose free text via year-inference (`resolveHarveyNashDeadline`)
+  // and can itself be UNKNOWN, and an unknown deadline must never read as
+  // "already closed". `validThrough` is the safer default until Ryan
+  // confirms; the likely correct fix is a one-line change here to
+  // `deadline === UNKNOWN ? detail.jsonLd.validThrough : deadline`
+  // (falling back to validThrough only when the free-text deadline itself
+  // couldn't be resolved) -- not applied in this pass.
+  const sluitingsdatumPassed = hasClosingMomentPassed(
+    validThroughForClosing(detail.jsonLd.validThrough)
+  );
   const lifecycle = resolveLifecycleStatus({
     bronSaysClosed: false,
     current: "unknown",
     missedPolls: 0,
     seenOpen: true,
-    sluitingsdatumPassed: false,
+    sluitingsdatumPassed,
   });
 
   return {

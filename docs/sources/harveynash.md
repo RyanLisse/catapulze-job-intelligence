@@ -47,3 +47,9 @@ Consultantnaam, consultant-e-mail en consultantcategorie worden niet genormalise
 1. Het private endpoint kan zonder aankondiging wijzigen of verdwijnen.
 2. Gestructureerde salarisvelden zijn onbruikbaar voor tariefnormalisatie.
 3. De deadline in de zichtbare tekst kan een jaartal missen.
+
+## Sluitingsdatum (RJC-377, herzien na Fable-review)
+
+Er staan twee verschillende data in elke listing: de vrije tekst "Deadline voor het voorstellen van kandidaten" (`detail.facts.deadline`) en `jsonLd.validThrough` (de eigen geldigheidsdatum van de JobPosting, komt exact overeen met de search-listing's `expires_at` unix-tijd — bevestigd live 2026-08-31). Eerdere framing noemde `facts.deadline` "leverancier-intern" en gebruikte `validThrough` als het Striive-`closingDateClient`-analogon (RJC-376) — dat was onjuist: voor dit product is de kandidaat-inleverdeadline juist het moment waarop de aanvraag voor een Catapulze-gebruiker niet meer actionable is, dus `facts.deadline` is het echte analogon van `closingDateClient`, niet `validThrough`.
+
+De code gebruikt `validThrough` desondanks nog steeds — als de conservatieve, LATERE grens: `facts.deadline` komt via jaartal-inferentie uit losse vrije tekst (`resolveHarveyNashDeadline`) en kan zelf UNKNOWN zijn; een onbekende deadline mag nooit als "al gesloten" gelezen worden. **Judgment call, te bevestigen door Ryan:** de waarschijnlijk juiste fix is `deadline === UNKNOWN ? validThrough : deadline` (regel ~216 in `harveynash.ts`) — niet doorgevoerd in deze pass. De twee data kunnen uiteenlopen (in de fixture: deadline "04-09" vs. validThrough "2026-09-07").

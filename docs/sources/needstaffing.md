@@ -38,3 +38,7 @@ Opdrachtgever, locatie, uren, start en deadline zijn in de aangeleverde probe ni
 1. Zonder sitemap is listingpaginering de enige geprobeerde discovery-route.
 2. Er is geen gestructureerde JSON-LD- of API-fallback.
 3. Velddekking buiten titel, referentie en tariefband is niet vastgesteld.
+
+## Sluitingsdatum (RJC-377)
+
+De detailpagina publiceert een echte, per-opdracht sluitingsmoment: het "Deadline voor reageren"-blok (`data-date-utc`, epoch-ms met tijdcomponent — live capture 2026-08-31, `fixtures/connectors/needstaffing/detail-15520.json`). Vóór RJC-377 werd dit veld wel geparsed naar `bronSpecifiek.deadline` maar nooit gebruikt om de lifecycle te sluiten, waardoor elke Need Staffing-aanvraag voor altijd "actief" bleef. `sluitingsdatumPassed` wordt nu op volle instant-precisie (niet afgekapt op datum) tegen dit veld berekend, zodat een deadline later op de dag van vandaag niet te vroeg sluit (RJC-376-discipline).

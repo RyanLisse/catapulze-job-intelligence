@@ -3,23 +3,53 @@ import { NEEDSTAFFING_PARSER_VERSION } from "@ji/connectors/needstaffing";
 import { UNKNOWN } from "@ji/domain";
 import { resolveLifecycleStatus } from "@ji/domain/lifecycle";
 
-import { field, stripHtml } from "./types";
+import { field, hasClosingMomentPassed, stripHtml } from "./types";
 import type { NormalisedAanvraagDraft } from "./types";
 
-/** `detail.start`/`detail.deadline` are `data-date-utc` epoch-ms strings; convert
- * to a plain ISO date. Falls back to UNKNOWN for anything unparsable. */
+/** `detail.start`/`detail.deadline` are `data-date-utc` epoch-ms strings.
+ * Strict on purpose (codex review, RJC-377 amendment): `Number("")` and
+ * `Number(" ")` are `0` in JS -- a bare `Number(raw)` conversion would
+ * silently read an empty/whitespace value as epoch 1970 (a false "already
+ * closed" for the deadline use below), and an absurd value (`1e20`) or a
+ * negative string could reach `new Date()` unguarded (which throws for
+ * `1e20` and produces nonsense for a negative epoch). Requires a plain
+ * 10-13 digit string (covers real epoch-seconds and epoch-ms ranges) and
+ * clamps to a sane calendar window so nothing out of range ever reaches
+ * `new Date()`. Returns `undefined` for anything missing, malformed, or out
+ * of range. */
+const EPOCH_MS_PATTERN = /^(?<digits>\d{10,13})$/u;
+const EPOCH_MS_MIN = Date.parse("2000-01-01T00:00:00.000Z");
+const EPOCH_MS_MAX = Date.parse("2100-01-01T00:00:00.000Z");
+
+const parseEpochMs = (epochMs: string | undefined): number | undefined => {
+  const trimmed = epochMs?.trim();
+  const match = trimmed ? EPOCH_MS_PATTERN.exec(trimmed) : null;
+  if (!match?.groups?.digits) {
+    return;
+  }
+  const ms = Number(match.groups.digits);
+  return ms < EPOCH_MS_MIN || ms > EPOCH_MS_MAX ? undefined : ms;
+};
+
+/** Converts a validated epoch-ms field (`parseEpochMs`) to a plain ISO date.
+ * Falls back to UNKNOWN for anything unparsable/out of range. */
 const epochToIsoDate = (
   epochMs: string | undefined
 ): string | typeof UNKNOWN => {
-  if (!epochMs) {
-    return UNKNOWN;
-  }
-  const ms = Number(epochMs);
-  if (!Number.isFinite(ms)) {
-    return UNKNOWN;
-  }
-  const iso = new Date(ms).toISOString();
-  return iso.slice(0, 10);
+  const ms = parseEpochMs(epochMs);
+  return ms === undefined ? UNKNOWN : new Date(ms).toISOString().slice(0, 10);
+};
+
+/** Same epoch-ms field as `epochToIsoDate`, but kept at full instant
+ * precision (no `.slice(0, 10)`) for the `sluitingsdatumPassed` comparison --
+ * `detail.deadline` carries a real time-of-day (e.g. "07-09-2026 11:00" per
+ * the detail page's own "Deadline voor reageren" block), so truncating to a
+ * bare date first would flip lifecycle to "closed" hours before the real
+ * deadline (RJC-376). Returns `undefined` for anything unparsable, which
+ * `hasClosingMomentPassed` reads as "no closing information" (`false`). */
+const epochToIsoInstant = (epochMs: string | undefined): string | undefined => {
+  const ms = parseEpochMs(epochMs);
+  return ms === undefined ? undefined : new Date(ms).toISOString();
 };
 
 const tariefAmount = (value: string | undefined): string | typeof UNKNOWN =>
@@ -32,12 +62,21 @@ export const parseNeedstaffingPayload = (
   const { detail, listing, raw } = payload;
   const parserVersion = NEEDSTAFFING_PARSER_VERSION;
   const beschrijving = stripHtml(raw.html) || detail.titel;
+  // The detail page's own "Deadline voor reageren" block (`detail.deadline`)
+  // is a real, per-listing closing moment -- confirmed live 2026-08-31
+  // (fixtures/connectors/needstaffing/detail-15520.json). Previously this
+  // was parsed into bronSpecifiek.deadline for display but never fed into
+  // lifecycle, so every Need Staffing listing stayed "active" forever
+  // (RJC-377).
+  const sluitingsdatumPassed = hasClosingMomentPassed(
+    epochToIsoInstant(detail.deadline)
+  );
   const lifecycle = resolveLifecycleStatus({
     bronSaysClosed: false,
     current: "unknown",
     missedPolls: 0,
     seenOpen: true,
-    sluitingsdatumPassed: false,
+    sluitingsdatumPassed,
   });
 
   return {
