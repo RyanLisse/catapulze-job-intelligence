@@ -44,7 +44,12 @@ interface RecordedRequest {
 }
 
 const searchBodySchema = z.object({
-  filters: z.object({ locatieLand: z.array(z.string()).optional() }).optional(),
+  filters: z
+    .object({
+      locatie: z.array(z.string()).optional(),
+      locatieLand: z.array(z.string()).optional(),
+    })
+    .optional(),
   limit: z.number(),
   offset: z.number(),
   query: z.string(),
@@ -103,7 +108,10 @@ const fakeFetch = (
         facets: {
           bron_id: [],
           contracttype: [],
-          locatie: [],
+          // RJC-394: ENRICHED_SEARCH_DATA_AVAILABLE is on, so the UI reads
+          // the `locatie` bucket; `locatie_land` stays populated too since a
+          // real engine indexes both.
+          locatie: [{ count: searchTotal, value: "NL" }],
           locatie_land: [{ count: searchTotal, value: "NL" }],
           status: [],
         },
@@ -270,7 +278,9 @@ describe("server-side sort, filter and pagination (RJC-378)", () => {
     );
 
     expect(lastSearchBody()).toEqual({
-      filters: { locatieLand: ["NL"] },
+      // RJC-394: ENRICHED_SEARCH_DATA_AVAILABLE is on, so the location
+      // filter now sends the `locatie` key.
+      filters: { locatie: ["NL"] },
       limit: 8,
       offset: 16,
       query: "Azure",

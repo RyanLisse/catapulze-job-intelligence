@@ -34,18 +34,21 @@ export interface ApiSearchFacets {
   readonly locatie_land: readonly ApiFacetBucket[];
 }
 
-// RJC-394: until the loader indexes a real `locatie`, the UI keeps filtering
-// and faceting on the country attribute it always used; the `locatie`
-// attribute is wired end to end but only selected once the flag flips.
-const LOCATION_FILTER_KEY = ENRICHED_SEARCH_DATA_AVAILABLE
-  ? "locatie"
-  : "locatieLand";
-const LOCATION_FACET_KEY = ENRICHED_SEARCH_DATA_AVAILABLE
-  ? "locatie"
-  : "locatie_land";
+// RJC-394: the loader now indexes a real `locatie` (locatie_tekst, falling
+// back to the country code), so the UI switches to filtering/faceting on it
+// once enrichedDataAvailable is on; the flag stays as a single kill switch
+// back to the country-only attribute if the enrichment needs pulling.
+const locationFilterKey = (
+  enrichedDataAvailable: boolean
+): "locatie" | "locatieLand" =>
+  enrichedDataAvailable ? "locatie" : "locatieLand";
+const locationFacetKey = (
+  enrichedDataAvailable: boolean
+): "locatie" | "locatie_land" =>
+  enrichedDataAvailable ? "locatie" : "locatie_land";
 
-// The index stores the curated location value (today the country code, since
-// curated.aanvraag has no finer location column); the UI shows a label. The
+// The index stores the curated location value (locatie_tekst when a bron
+// publishes one, otherwise the country code); the UI shows a label. The
 // filter must send back the indexed value or it never matches (RJC-378).
 const LOCATION_LABELS = [["NL", "Nederland"]] as const;
 
@@ -89,7 +92,8 @@ const resolveBronIds = (
 
 export const mapUiFiltersToApi = (
   filters: JobSearchFilters,
-  bronCatalog: ReadonlyMap<string, BronCatalogEntry>
+  bronCatalog: ReadonlyMap<string, BronCatalogEntry>,
+  enrichedDataAvailable: boolean = ENRICHED_SEARCH_DATA_AVAILABLE
 ): ApiSearchFilters => {
   const bronIds = resolveBronIds(filters.sources, bronCatalog);
   const freshnessDays = freshnessToDays(filters.freshness);
@@ -104,7 +108,8 @@ export const mapUiFiltersToApi = (
     mapped.contracttype = [...filters.contractTypes];
   }
   if (filters.locations.length > 0) {
-    mapped[LOCATION_FILTER_KEY] = filters.locations.map(locationValue);
+    mapped[locationFilterKey(enrichedDataAvailable)] =
+      filters.locations.map(locationValue);
   }
   if (filters.minRate === null) {
     // no rate filter
@@ -141,14 +146,15 @@ const mapSourceFacet = (
 
 export const mapApiFacetsToUi = (
   facets: ApiSearchFacets,
-  bronCatalog: ReadonlyMap<string, BronCatalogEntry>
+  bronCatalog: ReadonlyMap<string, BronCatalogEntry>,
+  enrichedDataAvailable: boolean = ENRICHED_SEARCH_DATA_AVAILABLE
 ): JobSearchFacets => ({
   contractTypes: facets.contracttype.flatMap((bucket) =>
     isJobContractType(bucket.value)
       ? [{ count: bucket.count, value: bucket.value }]
       : []
   ),
-  locations: facets[LOCATION_FACET_KEY].map((bucket) => ({
+  locations: facets[locationFacetKey(enrichedDataAvailable)].map((bucket) => ({
     count: bucket.count,
     value: locationLabel(bucket.value),
   })),

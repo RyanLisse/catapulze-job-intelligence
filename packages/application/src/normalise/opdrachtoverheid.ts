@@ -7,7 +7,12 @@ import {
 import { UNKNOWN } from "@ji/domain";
 import { resolveLifecycleStatus } from "@ji/domain/lifecycle";
 
-import { field, hasClosingMomentPassed, stripHtml } from "./types";
+import {
+  closingMomentInstant,
+  field,
+  hasClosingMomentPassed,
+  stripHtml,
+} from "./types";
 import type { NormalisedAanvraagDraft, NormalisedTarief } from "./types";
 
 const isPresent = <Value>(value: Value | null | undefined): value is Value =>
@@ -193,6 +198,7 @@ export const parseOpdrachtoverheidPayload = (
       "tender.tender_buying_organization"
     ),
     parserVersion,
+    sluitingsdatum: closingMomentInstant(tender.tender_offline_date),
     startDatum: field(
       resolveStartDatum(tender),
       parserVersion,

@@ -42,6 +42,7 @@ const storedAanvraag = (
   extractieMethode: "html_parser",
   laatstGezienOp: OBSERVED_AT,
   locatieLand: "NL",
+  locatieTekst: null,
   parserVersion: "test",
   provenance: {
     beschrijving: { parserVersion: "test", sourcePath: "n/a" },
@@ -59,6 +60,7 @@ const storedAanvraag = (
   },
   rawPayloadRef: `raw/hero/${bronReferentie}.html`,
   scrapeRunId: "run-0",
+  sluitingsdatum: null,
   status,
   tariefEenheid: null,
   tariefMax: null,

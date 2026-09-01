@@ -4,7 +4,12 @@ import { UNKNOWN } from "@ji/domain";
 import type { TariefEenheid } from "@ji/domain";
 import { resolveLifecycleStatus } from "@ji/domain/lifecycle";
 
-import { field, hasClosingMomentPassed } from "./types";
+import {
+  closingMomentInstant,
+  field,
+  hasClosingMomentPassed,
+  isValidCalendarDate,
+} from "./types";
 import type { NormalisedAanvraagDraft, NormalisedTarief } from "./types";
 
 const LEADING_ISO_DATE_PATTERN =
@@ -31,12 +36,7 @@ const validThroughForClosing = (
   const year = Number(match.groups.year);
   const month = Number(match.groups.month);
   const day = Number(match.groups.day);
-  const roundTrip = new Date(Date.UTC(year, month - 1, day));
-  const isValidCalendarDate =
-    roundTrip.getUTCFullYear() === year &&
-    roundTrip.getUTCMonth() === month - 1 &&
-    roundTrip.getUTCDate() === day;
-  return isValidCalendarDate ? raw : undefined;
+  return isValidCalendarDate(year, month, day) ? raw : undefined;
 };
 
 const DUTCH_MONTHS = {
@@ -318,6 +318,9 @@ export const parseHarveyNashPayload = (
       "job.categories.Clients"
     ),
     parserVersion,
+    sluitingsdatum: closingMomentInstant(
+      validThroughForClosing(detail.jsonLd.validThrough)
+    ),
     startDatum: field(
       detail.facts.start?.trim() || UNKNOWN,
       parserVersion,

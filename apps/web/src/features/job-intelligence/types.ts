@@ -28,12 +28,13 @@ export type JobSort = (typeof JOB_SORT_OPTIONS)[number];
 
 /**
  * RJC-394: the production search loader (packages/db PostgresSearchDocumentLoader)
- * does not yet fill `sluitingsdatum` and indexes `locatie` as the country
- * code, so the deadline sort would order by id and a `locatie` facet would
- * duplicate the country facet. The API and engines already support both;
- * flip this single constant once the loader provides real values.
+ * now fills `locatie` (from `locatie_tekst`, falling back to the country
+ * code) and `sluitingsdatum` from the curated columns the normalisers
+ * populate. Only newly-ingested/re-indexed rows carry real values -- rows
+ * indexed before this migration still read as the country code / the
+ * missing-deadline sentinel until the next poll and reindex touches them.
  */
-export const ENRICHED_SEARCH_DATA_AVAILABLE = false;
+export const ENRICHED_SEARCH_DATA_AVAILABLE = true;
 
 export const selectableJobSortOptions = (
   enrichedDataAvailable: boolean

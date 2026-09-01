@@ -213,10 +213,12 @@ export const aanvraag = curatedSchema.table(
       withTimezone: true,
     }).notNull(),
     locatieLand: text("locatie_land").default("NL").notNull(),
+    locatieTekst: text("locatie_tekst"),
     rawPayloadRef: text("raw_payload_ref").notNull(),
     scrapeRunId: uuid("scrape_run_id")
       .notNull()
       .references(() => scrapeRun.id, { onDelete: "restrict" }),
+    sluitingsdatum: timestamp("sluitingsdatum", { withTimezone: true }),
     status: text("status").default("unknown").notNull(),
     taal: text("taal").default("nl").notNull(),
     tariefEenheid: text("tarief_eenheid"),

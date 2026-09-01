@@ -712,4 +712,63 @@ describe("identity", () => {
     expect(store.outboxEvents.at(-1)?.eventType).toBe("aanvraag.gewijzigd");
     expect(store.aanvragen[0]?.tariefMax).toBe("130");
   });
+
+  it("RJC-394 fix-first: an unchanged observation still writes locatieTekst/sluitingsdatum without a new versie or outbox event", async () => {
+    const store = new InMemoryCurateStore();
+    const body = buildInhuurdeskBody("Beschrijving ongewijzigd.");
+    const hash = await hashContent(body);
+    const observedAt = new Date("2026-08-28T10:00:00.000Z");
+
+    const firstDraft = normaliseInhuurdeskObservation(body, hash);
+    const created = await curateObservation(store, {
+      bronId: "bron-unchanged",
+      draft: firstDraft,
+      observedAt,
+      rawPayloadRef: "raw/unchanged-v1.json",
+      scrapeRunId: "run-unchanged-v1",
+    });
+    expect(created.status).toBe("curated");
+    // Inhuurdesk never publishes a closing moment (RJC-377); it does
+    // publish a location, so overwrite that too to keep the test's own
+    // "was absent, is now set" premise honest for both fields.
+    expect(store.aanvragen[0]?.sluitingsdatum).toBeNull();
+
+    const sluitingsdatum = new Date("2026-09-07T11:00:00.000Z");
+    const draftWithValues = normaliseInhuurdeskObservation(body, hash);
+    draftWithValues.locatieTekst.value = "Amsterdam";
+    draftWithValues.sluitingsdatum = sluitingsdatum;
+
+    const unchanged = await curateObservation(store, {
+      bronId: "bron-unchanged",
+      draft: draftWithValues,
+      observedAt: new Date("2026-08-29T10:00:00.000Z"),
+      rawPayloadRef: "raw/unchanged-v2.json",
+      scrapeRunId: "run-unchanged-v2",
+    });
+
+    expect(unchanged.status).toBe("unchanged");
+    expect(store.aanvragen[0]?.locatieTekst).toBe("Amsterdam");
+    expect(store.aanvragen[0]?.sluitingsdatum).toEqual(sluitingsdatum);
+    expect(store.aanvragen[0]?.versie).toBe(1);
+    expect(store.versies).toHaveLength(1);
+    expect(store.outboxEvents).toHaveLength(1);
+
+    // A later unchanged observation whose draft has neither field must not
+    // erase the values already stored -- a source that stops publishing a
+    // deadline should never silently look like it never had one.
+    const draftWithoutValues = normaliseInhuurdeskObservation(body, hash);
+    draftWithoutValues.locatieTekst.value = UNKNOWN;
+    draftWithoutValues.sluitingsdatum = undefined;
+    const stillUnchanged = await curateObservation(store, {
+      bronId: "bron-unchanged",
+      draft: draftWithoutValues,
+      observedAt: new Date("2026-08-30T10:00:00.000Z"),
+      rawPayloadRef: "raw/unchanged-v3.json",
+      scrapeRunId: "run-unchanged-v3",
+    });
+
+    expect(stillUnchanged.status).toBe("unchanged");
+    expect(store.aanvragen[0]?.locatieTekst).toBe("Amsterdam");
+    expect(store.aanvragen[0]?.sluitingsdatum).toEqual(sluitingsdatum);
+  });
 });

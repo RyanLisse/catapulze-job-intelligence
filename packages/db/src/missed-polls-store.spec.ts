@@ -191,6 +191,7 @@ describe("PostgresMissedPollsStore through executeBronRun", () => {
             extractieMethode: "html_parser",
             laatstGezienOp: STARTED_AT,
             locatieLand: "NL",
+            locatieTekst: null,
             parserVersion: "spec",
             provenance: {
               beschrijving: { parserVersion: "spec", sourcePath: "n/a" },
@@ -208,6 +209,7 @@ describe("PostgresMissedPollsStore through executeBronRun", () => {
             },
             rawPayloadRef: `raw/hero/${ref}.html`,
             scrapeRunId: runIdAt(0),
+            sluitingsdatum: null,
             status: "active",
             tariefEenheid: null,
             tariefMax: null,

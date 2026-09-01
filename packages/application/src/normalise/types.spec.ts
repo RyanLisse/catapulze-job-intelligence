@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 
-import { hasClosingMomentPassed } from "./types";
+import { closingMomentInstant, hasClosingMomentPassed } from "./types";
 
 const AMSTERDAM_TIME_ZONE = "Europe/Amsterdam";
 
@@ -121,6 +121,42 @@ describe("hasClosingMomentPassed", () => {
       expect(hasClosingMomentPassed("2026-06-15T22:16:00")).toBe(false);
     } finally {
       Date.now = realDateNow;
+    }
+  });
+});
+
+describe("closingMomentInstant", () => {
+  it("resolves a bare date to Amsterdam end-of-day, not the start of the next day (codex review, RJC-394 amendment)", () => {
+    // Bug: reconstructing the Amsterdam wall clock via
+    // Intl.DateTimeFormat.formatToParts + Date.UTC drops the naive
+    // instant's millisecond remainder (formatToParts carries no
+    // fractional-second field), which perturbed the offset just enough to
+    // round "23:59:59.999 Amsterdam" forward into "00:00:00.xxx" of the
+    // *next* calendar day. Pinned for both a summer (CEST, UTC+2) and a
+    // winter (CET, UTC+1) date so the fix isn't offset-specific.
+    expect(closingMomentInstant("2026-06-15")?.toISOString()).toBe(
+      "2026-06-15T21:59:59.999Z"
+    );
+    expect(closingMomentInstant("2026-01-15")?.toISOString()).toBe(
+      "2026-01-15T22:59:59.999Z"
+    );
+  });
+
+  it("rejects an impossible calendar date instead of rolling over into a neighbouring real date (codex review, RJC-394 amendment)", () => {
+    // `new Date` never throws on an out-of-range day/month, it silently
+    // overflows (`2026-02-30` -> March 2). Every raw string this function
+    // hand-parses must be rejected as "no valid closing information"
+    // instead, on both the instant and the boolean it feeds -- and it must
+    // not throw.
+    for (const impossible of [
+      "2026-02-30",
+      "2026-13-01",
+      "2026-05-00",
+      "2026-06-31",
+      "2026-02-30T11:00:00",
+    ]) {
+      expect(closingMomentInstant(impossible)).toBeUndefined();
+      expect(hasClosingMomentPassed(impossible)).toBe(false);
     }
   });
 });

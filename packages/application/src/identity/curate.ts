@@ -34,10 +34,12 @@ export interface StoredAanvraag {
   eersteGezienOp: Date;
   laatstGezienOp: Date;
   locatieLand: string;
+  locatieTekst: string | null;
   parserVersion: string;
   provenance: ProvenanceMap;
   rawPayloadRef: string;
   scrapeRunId: ScrapeRunId;
+  sluitingsdatum: Date | null;
   status: AanvraagLifecycle;
   tariefEenheid: string | null;
   tariefMax: string | null;
@@ -146,10 +148,13 @@ const toStoredFields = (
     extractieMethode: draft.extractieMethode,
     laatstGezienOp: input.observedAt,
     locatieLand: draft.locatieLand.value,
+    locatieTekst:
+      draft.locatieTekst.value === UNKNOWN ? null : draft.locatieTekst.value,
     parserVersion: draft.parserVersion,
     provenance: buildProvenanceMap(draft),
     rawPayloadRef: input.rawPayloadRef,
     scrapeRunId: input.scrapeRunId,
+    sluitingsdatum: draft.sluitingsdatum ?? null,
     status: draft.status,
     tariefEenheid: tariefColumn(draft.tarief.eenheid),
     tariefMax: tariefColumn(draft.tarief.max),
@@ -203,10 +208,27 @@ export const curateObservation = async (
     // silently diverges the search index (the projection hash skips later
     // same-content events). Repair: bun run search:reconcile-projection —
     // see docs/runbooks/projection-repair.md.
-    await store.updateAanvraag(existing.aanvraagId, {
+    const { draft } = input;
+    const patch: Partial<StoredAanvraag> = {
       laatstGezienOp: input.observedAt,
-      status: input.draft.status,
-    });
+      status: draft.status,
+    };
+    // RJC-394 fix-first: an unchanged raw payload still needs to surface
+    // locatie_tekst/sluitingsdatum on an already-curated row -- otherwise a
+    // listing whose source content never changes again would never get
+    // these columns filled, making the degraded (country-code/sentinel)
+    // state permanent instead of transitional. These are derived fields
+    // like `status` above, so this write does not bump `versie` or emit an
+    // outbox event. Only write when the draft actually has a value: a
+    // source that stops publishing a deadline must never silently erase a
+    // value already stored from an earlier observation.
+    if (draft.locatieTekst.value !== UNKNOWN) {
+      patch.locatieTekst = draft.locatieTekst.value;
+    }
+    if (draft.sluitingsdatum !== undefined) {
+      patch.sluitingsdatum = draft.sluitingsdatum;
+    }
+    await store.updateAanvraag(existing.aanvraagId, patch);
     return { aanvraagId: existing.aanvraagId, status: "unchanged" };
   }
 

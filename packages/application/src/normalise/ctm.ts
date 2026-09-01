@@ -3,7 +3,7 @@ import { CTM_PARSER_VERSION } from "@ji/connectors/ctm";
 import { UNKNOWN } from "@ji/domain";
 import { resolveLifecycleStatus } from "@ji/domain/lifecycle";
 
-import { field, hasClosingMomentPassed } from "./types";
+import { closingMomentInstant, field, hasClosingMomentPassed } from "./types";
 import type { NormalisedAanvraagDraft, NormalisedTarief } from "./types";
 
 /**
@@ -108,6 +108,7 @@ export const parseCtmPayload = (
       "publication.authority.@name"
     ),
     parserVersion,
+    sluitingsdatum: closingMomentInstant(entry.sluitingstijd),
     startDatum: field(UNKNOWN, parserVersion, "entry"),
     status: lifecycle,
     tarief: UNKNOWN_TARIEF,

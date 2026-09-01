@@ -58,6 +58,11 @@ export interface NormalisedAanvraagDraft {
   parserVersion: string;
   startDatum: NormalisedField<string | typeof UNKNOWN>;
   status: AanvraagLifecycle;
+  /** RJC-394: the closing-moment instant, when the bron publishes one --
+   * same underlying value `hasClosingMomentPassed` already compares each
+   * source's own closing signal against. Undefined for a bron that
+   * genuinely publishes no deadline (honest-absent, never guessed). */
+  sluitingsdatum?: Date;
   tarief: NormalisedTarief;
   titel: NormalisedField<string>;
 }
@@ -138,20 +143,64 @@ const zonedWallClockToUtc = (wallClock: string, timeZone: string): Date => {
   if (Number.isNaN(naiveUtc.getTime())) {
     return naiveUtc;
   }
-  const offsetMs = timeZoneOffsetMsAt(naiveUtc, timeZone);
+  // codex review, RJC-394 amendment: `Intl.DateTimeFormat.formatToParts`
+  // carries no fractional-second field, so reconstructing the wall clock via
+  // `Date.UTC` from its parts silently drops any millisecond remainder on
+  // `naiveUtc` (e.g. the bare-date branch's `T23:59:59.999`). That dropped
+  // ~1ms-999ms then leaked into the offset itself, rounding the end-of-day
+  // instant forward into 00:00:00.xxx of the *next* calendar day instead of
+  // 23:59:59.999 of the intended day. Compute the offset off the
+  // whole-second instant (offsets are always whole minutes, never
+  // sub-second, so this is exact) and apply it to the full millisecond-
+  // precise instant.
+  const wholeSecondInstant = new Date(
+    naiveUtc.getTime() - naiveUtc.getMilliseconds()
+  );
+  const offsetMs = timeZoneOffsetMsAt(wholeSecondInstant, timeZone);
   return new Date(naiveUtc.getTime() - offsetMs);
 };
 
 const OFFSET_PATTERN = /(?:Z|[+-]\d{2}:?\d{2})$/u;
+const ISO_DATE_PREFIX_PATTERN =
+  /^(?<year>\d{4})-(?<month>\d{2})-(?<day>\d{2})/u;
+
+/** Round-trips year/month/day (1-indexed month) through `Date.UTC` and
+ * compares the fields back out, so an impossible calendar date (`2026-02-30`,
+ * month 13, day 0) is rejected instead of silently rolling over into a
+ * neighbouring real date -- `new Date` never throws on an out-of-range day/
+ * month, it just overflows into the next one. Shared by every normaliser
+ * that hand-parses a date (RJC-394: was duplicated in json-ld.ts and
+ * harveynash.ts; moved here next to `closingMomentInstant`, which needs the
+ * exact same guard for the raw strings normalisers feed it directly). */
+export const isValidCalendarDate = (
+  year: number,
+  month1to12: number,
+  day: number
+): boolean => {
+  const date = new Date(Date.UTC(year, month1to12 - 1, day));
+  return (
+    date.getUTCFullYear() === year &&
+    date.getUTCMonth() === month1to12 - 1 &&
+    date.getUTCDate() === day
+  );
+};
 
 /**
- * Resolves whether a source's raw closing-moment string is already in the
- * past, at full instant precision rather than truncating to a date first
- * (RJC-376: truncating to midnight flipped `sluitingsdatumPassed` up to ~11
- * hours before the real deadline).
+ * Resolves a source's raw closing-moment string to the actual UTC instant,
+ * using the same rules `hasClosingMomentPassed` compares against (RJC-394:
+ * shared so the two never drift). Returns `undefined` for
+ * absent/empty/unparsable/calendar-invalid input -- never a guessed instant.
  *
- * - Absent/empty -> `false` (unknown closing information must not read as
- *   "already closed").
+ * - Absent/empty -> `undefined` (unknown closing information must not read
+ *   as "already closed").
+ * - An impossible calendar date (`2026-02-30`, month 13, day 0) ->
+ *   `undefined` (codex review, RJC-394 amendment): a normaliser that hands
+ *   this function a raw string directly (ctm, opdrachtoverheid, striive)
+ *   has no upstream validity guard of its own, unlike json-ld/harveynash
+ *   which already reject an impossible date before ever calling this.
+ *   `new Date` never throws on out-of-range fields, it silently rolls over
+ *   into a neighbouring real date, which would read as "closes on the wrong
+ *   day" rather than "no valid closing information".
  * - A string carrying a time component (`T` or a space separator, e.g.
  *   CTM's `"2026-10-13T11:00:00"` or Opdrachtoverheid's
  *   `"2026-09-01 16:00:00"`) is compared at that instant. An explicit `Z`/
@@ -163,17 +212,28 @@ const OFFSET_PATTERN = /(?:Z|[+-]\d{2}:?\d{2})$/u;
  *   about carrying no time-of-day: the deadline is read as still open
  *   through the end of that day in `timeZone`, not its first instant.
  */
-export const hasClosingMomentPassed = (
+export const closingMomentInstant = (
   raw: string | null | undefined,
   timeZone: string = CLOSING_TIME_ZONE
-): boolean => {
+): Date | undefined => {
   const trimmed = raw?.trim();
   if (!trimmed) {
-    return false;
+    return;
   }
   const normalised = trimmed.includes("T")
     ? trimmed
     : trimmed.replace(" ", "T");
+  const dateMatch = ISO_DATE_PREFIX_PATTERN.exec(normalised);
+  if (
+    !dateMatch?.groups ||
+    !isValidCalendarDate(
+      Number(dateMatch.groups.year),
+      Number(dateMatch.groups.month),
+      Number(dateMatch.groups.day)
+    )
+  ) {
+    return;
+  }
   const hasTimeComponent = normalised.length > 10 && normalised[10] === "T";
   let instant: Date;
   if (!hasTimeComponent) {
@@ -186,7 +246,15 @@ export const hasClosingMomentPassed = (
   } else {
     instant = zonedWallClockToUtc(normalised, timeZone);
   }
-  return instant.getTime() < Date.now();
+  return Number.isNaN(instant.getTime()) ? undefined : instant;
+};
+
+export const hasClosingMomentPassed = (
+  raw: string | null | undefined,
+  timeZone: string = CLOSING_TIME_ZONE
+): boolean => {
+  const instant = closingMomentInstant(raw, timeZone);
+  return instant !== undefined && instant.getTime() < Date.now();
 };
 
 export const normalizeDedupText = (value: string): string =>
