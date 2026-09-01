@@ -1,6 +1,7 @@
 # Postgres on-box — productiepoort
 
 Status: **Productiedeel superseded (2026-08-31): [ADR-0006](../adr/ADR-0006-neon-as-system-of-record.md) kiest Neon als production system of record.** Dit runbook blijft gelden voor de lokale/CI Docker-lane (volume-, rol- en compose-checks) en als historisch vastgelegde productiegate; de on-box-productie-instance zelf komt er niet. De Neon-equivalenten (rollen, pooling, PITR/restore-drill, off-provider export) staan als verplichtingen in ADR-0006.
+De geordende Hetzner-deploy-procedure (met Neon als SoR) staat in [hetzner-deploy.md](hetzner-deploy.md).
 Doel (historisch): Catapulze gebruikt vanaf P0 een nieuwe PostgreSQL 16-database in Docker. De bestaande Motian-Neon-database is uitsluitend een read-only importbron — dat laatste blijft ook onder ADR-0006 gelden.
 
 ## Systeemgrens
