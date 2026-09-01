@@ -3,6 +3,7 @@ import { parseResultCacheEntry } from "./parse-cache-entry";
 
 interface RedisReader {
   get: (key: string) => Promise<string | null>;
+  ping: () => Promise<string>;
   quit: () => Promise<void>;
   setEx: (key: string, ttl: number, value: string) => Promise<void>;
 }
@@ -21,6 +22,7 @@ export class RedisResultCache implements ResultCache {
       await rawClient.connect();
       const reader: RedisReader = {
         get: (key) => rawClient.get(key),
+        ping: () => rawClient.ping(),
         quit: async () => {
           await rawClient.quit();
         },
@@ -53,5 +55,11 @@ export class RedisResultCache implements ResultCache {
 
   async close(): Promise<void> {
     await this.reader.quit();
+  }
+
+  /** Live reachability probe (RJC-391 readiness) — distinct from `connect()`,
+   * which only proves the backend was reachable at construction time. */
+  async ping(): Promise<void> {
+    await this.reader.ping();
   }
 }

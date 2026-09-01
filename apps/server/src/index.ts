@@ -3,7 +3,6 @@ import { createContext } from "@ji/api/context";
 import { appRouter } from "@ji/api/routers/index";
 import { auth } from "@ji/auth";
 import { closeDb, getDbReadiness } from "@ji/db";
-import type { DbReadinessResult } from "@ji/db/readiness";
 import { env } from "@ji/env/server";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
@@ -15,7 +14,7 @@ import {
   restRoutesFromRegistry,
 } from "./capabilities/rest";
 import { createHealthRoutes } from "./http/health";
-import { createReadinessHandler } from "./readiness";
+import { createReadinessDeps, createReadinessHandler } from "./readiness";
 import { createProductionSliceARegistry } from "./slice-a-registry";
 
 const DEFAULT_PORT = 3000;
@@ -46,24 +45,6 @@ app.use(
 
 app.get("/", (c) => c.text("OK"));
 
-type DbReadinessFailure = Extract<DbReadinessResult, { ready: false }>;
-
-const reportReadinessFailure = (failure: DbReadinessFailure): void => {
-  process.stderr.write(
-    `${JSON.stringify({ event: "readiness_failed", reason: failure.reason })}\n`
-  );
-};
-
-const readinessHandler = createReadinessHandler(
-  getDbReadiness,
-  reportReadinessFailure
-);
-const healthRoutes = createHealthRoutes(readinessHandler);
-
-app.get("/health", healthRoutes.health);
-app.get("/livez", healthRoutes.live);
-app.get("/readyz", healthRoutes.ready);
-
 const sliceA = await createProductionSliceARegistry({
   databaseUrl: env.DATABASE_URL,
   manticoreUrl: env.MANTICORE_URL,
@@ -76,6 +57,27 @@ const sliceA = await createProductionSliceARegistry({
   rawS3SecretAccessKey: env.RAW_S3_SECRET_ACCESS_KEY,
   redisUrl: env.REDIS_URL,
 });
+
+// Component-wise readiness (RJC-391): postgres/manticore/rawObjectStore/
+// redis/searchProjection, each checked independently — see readiness.ts.
+// `/livez` (createHealthRoutes' `live`) stays process-only, unaffected.
+const readinessHandler = createReadinessHandler(
+  createReadinessDeps({
+    checkDbReadiness: getDbReadiness,
+    database: sliceA.deps.database,
+    manticoreUrl: sliceA.deps.manticoreUrl,
+    nodeEnv: env.NODE_ENV,
+    objectStore: sliceA.deps.objectStore,
+    rawObjectStoreKind: sliceA.deps.rawObjectStoreKind,
+    redisUrl: env.REDIS_URL,
+  })
+);
+const healthRoutes = createHealthRoutes(readinessHandler);
+
+app.get("/health", healthRoutes.health);
+app.get("/livez", healthRoutes.live);
+app.get("/readyz", healthRoutes.ready);
+
 const restRoutes = restRoutesFromRegistry(sliceA.registry);
 const restHandler = createRestCapabilityHandler(sliceA.registry, restRoutes);
 const mcpHandler = createMcpHandler(sliceA.registry);

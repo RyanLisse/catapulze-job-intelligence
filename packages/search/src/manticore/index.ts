@@ -14,6 +14,7 @@ export {
   buildManticoreSearchRequest,
   buildManticoreSort,
   bulkManticore,
+  describeManticoreTable,
   FetchManticoreClient,
   ManticoreTimeoutError,
   parseManticoreSearchResponse,
@@ -23,6 +24,7 @@ export {
   type ManticoreHttpClient,
   type ManticoreSearchHit,
   type ManticoreSearchResponse,
+  type ManticoreTableInfo,
 } from "./client";
 export type {
   ManticoreBulkLine,

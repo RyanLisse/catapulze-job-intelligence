@@ -428,3 +428,79 @@ export const deleteManticoreDocument = async (
     index,
   });
 };
+
+/** Default bound for {@link describeManticoreTable} when the caller doesn't
+ * pick a tighter one (e.g. readiness's own READINESS_CHECK_TIMEOUT_MS). */
+const DEFAULT_DESCRIBE_TABLE_TIMEOUT_MS = 1500;
+
+export interface ManticoreTableInfo {
+  /** True when `SHOW TABLES` lists `tableName` (any table type). */
+  readonly exists: boolean;
+}
+
+interface ManticoreShowTablesRow {
+  /** Column name for Manticore <= ~6.x. */
+  readonly Index?: string;
+  /** Column name on Manticore 29.x (the shadow-instance conf under
+   * tools/manticore/probe-manticore29.sh) — `SHOW TABLES` renamed the
+   * column from `Index` to `Table`. Accept either so a healthy 29.x table
+   * doesn't read back as "table_missing" -> permanent readiness failure. */
+  readonly Table?: string;
+}
+
+interface ManticoreShowTablesEnvelope {
+  readonly data?: readonly ManticoreShowTablesRow[];
+}
+
+/**
+ * Cheap Manticore reachability + table-existence probe for readiness
+ * (RJC-391) — no query engine, no bulk write, just `SHOW TABLES` over
+ * `/sql?mode=raw` (the same endpoint `tools/manticore/probe-manticore29.sh`
+ * uses for SELECTs; `docker-compose.yml`'s own healthcheck greps the
+ * equivalent `SHOW TABLES` output for this project's table name over the
+ * MySQL port). Bounded by an AbortSignal timeout so a hung Manticore never
+ * hangs the caller — pass `signal` to have the caller's own timer abort the
+ * fetch (readiness does this so a timed-out check stops instead of
+ * lingering); omit it to fall back to a self-contained `timeoutMs` timer.
+ */
+export const describeManticoreTable = async (
+  baseUrl: string,
+  tableName: string,
+  timeoutMs: number = DEFAULT_DESCRIBE_TABLE_TIMEOUT_MS,
+  signal: AbortSignal = AbortSignal.timeout(timeoutMs)
+): Promise<ManticoreTableInfo> => {
+  let response: Response;
+  try {
+    response = await fetch(`${baseUrl}/sql?mode=raw`, {
+      body: `query=${encodeURIComponent("SHOW TABLES")}`,
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      method: "POST",
+      signal,
+    });
+  } catch (error) {
+    const isAbortTimeout =
+      error instanceof DOMException && error.name === "TimeoutError";
+    if (isAbortTimeout) {
+      throw new ManticoreTimeoutError(`${baseUrl}/sql?mode=raw`, timeoutMs);
+    }
+    throw error;
+  }
+
+  if (!response.ok) {
+    throw new Error(
+      `Manticore SHOW TABLES failed (${response.status}): ${response.statusText}`
+    );
+  }
+
+  const raw = await response.text();
+  // SAFETY: a 2xx `/sql?mode=raw` response is always
+  // `[{ data: [{ Index, Type }, ...], ... }]` — any other shape would have
+  // been a non-2xx response, already thrown above.
+  const parsed = JSON.parse(raw) as ManticoreShowTablesEnvelope[];
+  const rows = Array.isArray(parsed) ? (parsed[0]?.data ?? []) : [];
+  return {
+    exists: rows.some(
+      (row) => row.Index === tableName || row.Table === tableName
+    ),
+  };
+};
