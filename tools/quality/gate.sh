@@ -70,22 +70,31 @@ if [[ -z "${DATABASE_UPGRADE_TEST_URL:-}" ]]; then
   migration_upgrade_db_result="$(bun tools/postgres/ensure-migration-upgrade-db.ts)"
   case "$migration_upgrade_db_result" in
     READY:*)
-      migration_upgrade_db_name="${migration_upgrade_db_result#READY:}"
-      # Built here (not printed by the script) so the admin password never
-      # appears in a log line, in this repo's default or a real one.
-      migration_upgrade_admin_user="${POSTGRES_ADMIN_USER:-ji_admin}"
-      migration_upgrade_admin_password="${POSTGRES_ADMIN_PASSWORD:-ji_admin_local}"
-      migration_upgrade_host_port="${POSTGRES_HOST_PORT:-5432}"
-      export DATABASE_UPGRADE_TEST_URL="postgresql://${migration_upgrade_admin_user}:${migration_upgrade_admin_password}@127.0.0.1:${migration_upgrade_host_port}/${migration_upgrade_db_name}"
+      # The script writes the full connection string (with password) to a
+      # mode-0600 temp file and prints only the file path — never the URL
+      # itself — so the password never appears in this (or any) log line.
+      migration_upgrade_rest="${migration_upgrade_db_result#READY:}"
+      migration_upgrade_db_name="${migration_upgrade_rest%%|*}"
+      migration_upgrade_url_file="${migration_upgrade_rest#*|}"
+      DATABASE_UPGRADE_TEST_URL="$(cat "$migration_upgrade_url_file")"
+      export DATABASE_UPGRADE_TEST_URL
+      rm -rf "$(dirname "$migration_upgrade_url_file")"
       export REQUIRE_DATABASE_UPGRADE_TESTS=1
       echo "gate: migration-upgrade suite will run against database '$migration_upgrade_db_name'"
       ;;
+    FAIL:*)
+      # Reached Postgres but hit a real error (wrong password, missing
+      # CREATEDB, ...) — never treat this as a skip, in CI or on a laptop:
+      # that would silently disable the suite exactly like RJC-395 did.
+      echo "gate: migration-upgrade database setup failed: ${migration_upgrade_db_result#FAIL:}" >&2
+      exit 1
+      ;;
     SKIP:*)
       # In CI, an unreachable migration-upgrade database must fail loudly
-      # rather than silently reproduce RJC-395 (admin auth/pg_hba failing
-      # while DATABASE_TEST_URL still works would otherwise skip this suite
-      # again with every other DB test still green). Only a laptop without
-      # Postgres running gets the graceful skip.
+      # rather than silently reproduce RJC-395 (the server itself being
+      # down while DATABASE_TEST_URL still works would otherwise skip this
+      # suite again with every other DB test still green). Only a laptop
+      # without Postgres running at all gets the graceful skip.
       if [[ -n "${CI:-}" ]]; then
         echo "gate: migration-upgrade database unavailable in CI: ${migration_upgrade_db_result#SKIP:}" >&2
         exit 1
