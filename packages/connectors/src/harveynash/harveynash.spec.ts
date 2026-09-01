@@ -15,7 +15,10 @@ import {
   resolveHarveyNashDetailUrl,
 } from "./client";
 import type { HarveyNashClient } from "./client";
-import { createHarveyNashConnector } from "./connector";
+import {
+  createHarveyNashConnector,
+  HARVEYNASH_MAX_DISCOVER_PAGES,
+} from "./connector";
 import type { HarveyNashFetchedPayload, HarveyNashSearchItem } from "./types";
 
 const retryPolicy = {
@@ -280,6 +283,38 @@ describe("Harvey Nash connector", () => {
 
     const second = await connector.discover(first.checkpoint);
     expect(second.hasMore).toBe(false);
+    expect(second.truncated).toBe(false);
     expect(second.items).toHaveLength(2);
+  });
+
+  it("reports truncated when the page cap stops the walk while total_size says there is more (RJC-397)", async () => {
+    const client: HarveyNashClient = {
+      fetchDetail: () => {
+        throw new Error("fetchDetail should not be called during discover");
+      },
+      fetchListing: (page) =>
+        Promise.resolve({
+          results: [{ job: { id: `HN-CAP-${page}`, title: "Cap" } }],
+          total_size: HARVEYNASH_MAX_DISCOVER_PAGES * 10,
+        }),
+    };
+    const connector = createHarveyNashConnector({
+      bronId: "bron-harveynash-cap",
+      client,
+    });
+
+    const beforeCap = await connector.discover({
+      page: HARVEYNASH_MAX_DISCOVER_PAGES - 2,
+      pageSize: 1,
+    });
+    expect(beforeCap.hasMore).toBe(true);
+    expect(beforeCap.truncated).toBe(false);
+
+    const atCap = await connector.discover({
+      page: HARVEYNASH_MAX_DISCOVER_PAGES - 1,
+      pageSize: 1,
+    });
+    expect(atCap.hasMore).toBe(false);
+    expect(atCap.truncated).toBe(true);
   });
 });

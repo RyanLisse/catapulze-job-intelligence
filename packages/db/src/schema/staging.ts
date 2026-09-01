@@ -2,6 +2,7 @@ import { relations, sql } from "drizzle-orm";
 import {
   check,
   index,
+  integer,
   jsonb,
   text,
   timestamp,
@@ -24,6 +25,24 @@ export const sourceRecord = stagingSchema.table(
       .defaultNow()
       .notNull(),
     id: uuid("id").defaultRandom().primaryKey(),
+    /** Run that last bumped `missed_polls` (RJC-397): the same run never bumps a row twice. */
+    lastMissedScrapeRunId: uuid("last_missed_scrape_run_id").references(
+      () => scrapeRun.id,
+      { onDelete: "set null" }
+    ),
+    /** Last complete listing run this record was seen in (RJC-397); null for rows older than 0009. */
+    lastSeenAt: timestamp("last_seen_at", { withTimezone: true }),
+    lastSeenScrapeRunId: uuid("last_seen_scrape_run_id").references(
+      () => scrapeRun.id,
+      { onDelete: "set null" }
+    ),
+    /**
+     * Consecutive complete listing runs of this bron that did not show the
+     * record (RJC-397). Saturates at the stale threshold + 1 (one retry for
+     * an interrupted stale write); `last_seen_at` carries the age past that
+     * point. Reset to 0 on every observation.
+     */
+    missedPolls: integer("missed_polls").default(0).notNull(),
     rawPayloadRef: text("raw_payload_ref").notNull(),
     scrapeRunId: uuid("scrape_run_id")
       .notNull()
@@ -35,6 +54,7 @@ export const sourceRecord = stagingSchema.table(
       table.bronReferentie
     ),
     index("source_record_scrape_run_id_idx").on(table.scrapeRunId),
+    check("source_record_missed_polls_check", sql`${table.missedPolls} >= 0`),
   ]
 );
 

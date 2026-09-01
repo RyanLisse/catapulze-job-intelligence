@@ -68,13 +68,14 @@ export const createStriiveConnector = (
         })
       );
       const nextPage = page + 1;
-      const hasMore =
-        listing.data.length === STRIIVE_PAGE_SIZE &&
-        nextPage <= STRIIVE_MAX_PAGES;
+      const sourceHasMore = listing.data.length === STRIIVE_PAGE_SIZE;
+      const hasMore = sourceHasMore && nextPage <= STRIIVE_MAX_PAGES;
       return {
         checkpoint: { page: nextPage },
         hasMore,
         items,
+        // RJC-397: the cap stopped us while Striive still had pages.
+        truncated: sourceHasMore && !hasMore,
       };
     },
     fetch: async (item) => {

@@ -64,6 +64,13 @@
       "when": 1788595200000,
       "tag": "0008_bulk_projector_claims",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1788681600000,
+      "tag": "0009_source_record_missed_polls",
+      "breakpoints": true
     }
   ]
 }

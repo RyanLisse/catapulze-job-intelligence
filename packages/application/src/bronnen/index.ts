@@ -16,4 +16,8 @@ export {
   type PublicBronView,
   validateSecretRef,
 } from "./register";
-export { executeBronRun, type ExecuteBronRunInput } from "./execute";
+export {
+  executeBronRun,
+  type ExecuteBronRunInput,
+  type ExecuteBronRunResult,
+} from "./execute";

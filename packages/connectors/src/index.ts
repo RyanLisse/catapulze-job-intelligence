@@ -62,6 +62,8 @@ export {
   runConnector,
   type ConnectorRunInput,
   type ConnectorRunResult,
+  type RunCompleteness,
+  type RunIncompleteReason,
 } from "./run";
 export {
   fullJitter,

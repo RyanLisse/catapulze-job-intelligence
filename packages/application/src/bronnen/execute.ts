@@ -1,15 +1,22 @@
 import { CrawlDelayLimiter, fullJitter, runConnector } from "@ji/connectors";
 import type {
   Connector,
+  ConnectorRunResult,
   ObjectStore,
   ObservationRecorder,
   RequestLimiter,
   RetryPolicy,
   RunLifecycleStore,
   ConnectorRunKind,
+  RunCompleteness,
 } from "@ji/connectors";
 import type { BronId, ScrapeRunId } from "@ji/domain";
 
+import { reconcileMissedPolls } from "../lifecycle/reconcile-missed-polls";
+import type {
+  LifecycleReconcilePorts,
+  ReconcileMissedPollsResult,
+} from "../lifecycle/reconcile-missed-polls";
 import { isPollableBron } from "./register";
 import type { BronPersistence } from "./register";
 
@@ -22,6 +29,12 @@ export interface ExecuteBronRunInput {
   observationRecorder: ObservationRecorder;
   runLifecycleStore: RunLifecycleStore;
   runKind?: ConnectorRunKind;
+  /**
+   * RJC-397: when present, poll runs reconcile `missed_polls` against the
+   * observed listing after the connector run and write stale/reopen
+   * transitions. Test-import runs never count misses.
+   */
+  lifecycle?: LifecycleReconcilePorts;
   retryPolicy?: RetryPolicy;
   now?: () => number;
   wait?: (milliseconds: number) => Promise<void>;
@@ -114,11 +127,27 @@ const releaseLimiter = (activeLimiter: ActiveLimiter): void => {
   }
 };
 
+/**
+ * RJC-397: a listing with zero items is far more often a parser regression
+ * than an emptied bron, and the two are indistinguishable here. Never count
+ * misses on it; a genuinely emptied bron keeps its records until a date or
+ * operator close (rare, accepted).
+ */
+const guardEmptyListing = (result: ConnectorRunResult): RunCompleteness =>
+  result.completeness.complete && result.observedBronReferenties.length === 0
+    ? { complete: false, reason: "empty" }
+    : result.completeness;
+
+export interface ExecuteBronRunResult extends ConnectorRunResult {
+  /** Null when no lifecycle ports were supplied or the run was not a poll. */
+  lifecycle: ReconcileMissedPollsResult | null;
+}
+
 /** Loads operational policy from the durable bron record before starting any request. */
 export const executeBronRun = async (
   persistence: BronPersistence,
   input: ExecuteBronRunInput
-) => {
+): Promise<ExecuteBronRunResult> => {
   const record = await persistence.findById(input.bronId);
   if (!record) {
     throw new Error("bron not found");
@@ -146,8 +175,9 @@ export const executeBronRun = async (
     wait: input.wait,
   });
 
+  let result: ConnectorRunResult;
   try {
-    return await runConnector({
+    result = await runConnector({
       bronId: input.bronId,
       bronSlug: input.bronSlug,
       connector: input.connector,
@@ -166,4 +196,18 @@ export const executeBronRun = async (
   } finally {
     releaseLimiter(activeLimiter);
   }
+
+  // A failed run threw above and never reaches this point, so a result here
+  // means the listing was read; `completeness` says whether all of it was.
+  const lifecycle =
+    input.lifecycle && runKind === "poll"
+      ? await reconcileMissedPolls(input.lifecycle, {
+          bronId: input.bronId,
+          completeness: guardEmptyListing(result),
+          observedAt: (input.writeNow ?? (() => new Date()))(),
+          observedBronReferenties: result.observedBronReferenties,
+          scrapeRunId: input.scrapeRunId,
+        })
+      : null;
+  return { ...result, lifecycle };
 };

@@ -30,7 +30,7 @@ export interface HarveyNashConnectorOptions {
 /** Bounded page cap so a stale/misreported total_size can never spin
  * discover() into an unbounded loop against the live site. 31 results / 15
  * per page is 3 pages at capture time; this leaves ample headroom. */
-const MAX_DISCOVER_PAGES = 50;
+export const HARVEYNASH_MAX_DISCOVER_PAGES = 50;
 
 export const createHarveyNashConnector = (
   options: HarveyNashConnectorOptions
@@ -57,14 +57,15 @@ export const createHarveyNashConnector = (
         }))
       );
       const nextPage = page + 1;
-      const hasMore =
-        listing.results.length > 0 &&
-        nextPage < MAX_DISCOVER_PAGES &&
-        nextPage * pageSize < listing.total_size;
+      const sourceHasMore =
+        listing.results.length > 0 && nextPage * pageSize < listing.total_size;
+      const hasMore = sourceHasMore && nextPage < HARVEYNASH_MAX_DISCOVER_PAGES;
       return {
         checkpoint: { page: nextPage, pageSize },
         hasMore,
         items,
+        // RJC-397: the cap stopped us while total_size says there is more.
+        truncated: sourceHasMore && !hasMore,
       };
     },
     fetch: async (item) => {

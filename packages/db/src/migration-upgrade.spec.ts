@@ -633,3 +633,155 @@ describe.serial("0007 to 0008 bulk projector claims migration", () => {
     expect(state[0]?.generation).toBe(1);
   });
 });
+
+describe.serial("0008 to 0009 source_record missed polls migration", () => {
+  let client: ReturnType<typeof postgres> | undefined;
+  let priorStatements: string[] = [];
+  let missedPollsStatements: string[] = [];
+  const priorMigrations = [
+    "0000_core.sql",
+    "0001_u3_durable_ingestion.sql",
+    "0002_u8_backfill_observability.sql",
+    "0003_u9_snapshot_approval.sql",
+    "0004_u10_export_idempotency.sql",
+    "0005_u11_external_receipt.sql",
+    "0006_search_projection_checkpoint.sql",
+    "0007_snapshot_search_version.sql",
+    "0008_bulk_projector_claims.sql",
+  ];
+
+  beforeAll(async () => {
+    if (!upgradeDatabaseUrl) {
+      if (upgradeDatabaseRequired) {
+        throw new Error("Required upgrade test database URL is unavailable");
+      }
+      return;
+    }
+    client = postgres(upgradeDatabaseUrl, { max: 1 });
+    const perMigration = await Promise.all(
+      priorMigrations.map((name) => readMigrationStatements(name))
+    );
+    priorStatements = perMigration.flat();
+    missedPollsStatements = await readMigrationStatements(
+      "0009_source_record_missed_polls.sql"
+    );
+  });
+
+  afterAll(async () => {
+    await client?.end({ timeout: 5 });
+  });
+
+  it("applies on a database at 0008 with existing source records, defaulting them to zero misses", async () => {
+    if (!client) {
+      expect(upgradeDatabaseUrl).toBeUndefined();
+      return;
+    }
+
+    await client.unsafe(`
+      DROP SCHEMA IF EXISTS curated CASCADE;
+      DROP SCHEMA IF EXISTS marts CASCADE;
+      DROP SCHEMA IF EXISTS staging CASCADE;
+      DROP SCHEMA IF EXISTS drizzle CASCADE;
+      DROP SCHEMA IF EXISTS public CASCADE;
+      CREATE SCHEMA public;
+    `);
+    await client.begin(async (transaction) => {
+      for (const statement of priorStatements) {
+        // oxlint-disable-next-line no-await-in-loop -- migration statements are order-dependent
+        await transaction.unsafe(statement);
+      }
+    });
+
+    await client.unsafe(`
+      INSERT INTO curated.bron (id, categorie, naam)
+      VALUES ('10000000-0000-0000-0000-000000000009', 'msp_broker', 'Hero');
+      INSERT INTO curated.scrape_run (id, bron_id)
+      VALUES
+        ('20000000-0000-0000-0000-000000000091', '10000000-0000-0000-0000-000000000009'),
+        ('20000000-0000-0000-0000-000000000092', '10000000-0000-0000-0000-000000000009');
+      INSERT INTO staging.source_record (bron_id, bron_referentie, content_hash, raw_payload_ref, scrape_run_id)
+      VALUES
+        ('10000000-0000-0000-0000-000000000009', 'A', 'hash-a', 'raw/hero/a.html', '20000000-0000-0000-0000-000000000091'),
+        ('10000000-0000-0000-0000-000000000009', 'B', 'hash-b', 'raw/hero/b.html', '20000000-0000-0000-0000-000000000091');
+    `);
+
+    await client.begin(async (transaction) => {
+      for (const statement of missedPollsStatements) {
+        // oxlint-disable-next-line no-await-in-loop -- migration statements are order-dependent
+        await transaction.unsafe(statement);
+      }
+    });
+
+    const rows = await client.unsafe(`
+      SELECT bron_referentie, missed_polls, last_seen_scrape_run_id, last_seen_at, last_missed_scrape_run_id
+      FROM staging.source_record
+      ORDER BY bron_referentie;
+    `);
+    expect(rows).toHaveLength(2);
+    expect(rows).toMatchObject([
+      {
+        bron_referentie: "A",
+        last_missed_scrape_run_id: null,
+        last_seen_at: null,
+        last_seen_scrape_run_id: null,
+        missed_polls: 0,
+      },
+      {
+        bron_referentie: "B",
+        last_missed_scrape_run_id: null,
+        last_seen_at: null,
+        last_seen_scrape_run_id: null,
+        missed_polls: 0,
+      },
+    ]);
+
+    // The reconcile step's two statements, verbatim in SQL against upgraded rows.
+    const reset = await client.unsafe(`
+      UPDATE staging.source_record
+      SET missed_polls = 0, last_seen_scrape_run_id = '20000000-0000-0000-0000-000000000092', last_seen_at = now()
+      WHERE bron_id = '10000000-0000-0000-0000-000000000009' AND bron_referentie IN ('A')
+      RETURNING bron_referentie;
+    `);
+    expect(reset).toHaveLength(1);
+    const bumpSql = `
+      UPDATE staging.source_record
+      SET missed_polls = missed_polls + 1, last_missed_scrape_run_id = '20000000-0000-0000-0000-000000000092'
+      WHERE bron_id = '10000000-0000-0000-0000-000000000009'
+        AND missed_polls <= 3
+        AND last_missed_scrape_run_id IS DISTINCT FROM '20000000-0000-0000-0000-000000000092'
+        AND bron_referentie NOT IN ('A')
+      RETURNING bron_referentie, missed_polls;
+    `;
+    const bumped = await client.unsafe(bumpSql);
+    expect(bumped).toHaveLength(1);
+    expect(bumped).toMatchObject([{ bron_referentie: "B", missed_polls: 1 }]);
+    // Replaying the same run is a no-op.
+    const replayed = await client.unsafe(bumpSql);
+    expect(replayed).toHaveLength(0);
+
+    // postgres.js queries are lazy thenables; `expect(...).rejects` never
+    // settles on them, so catch explicitly.
+    let constraintError: unknown;
+    try {
+      await client.unsafe(`
+        UPDATE staging.source_record SET missed_polls = -1 WHERE bron_referentie = 'B';
+      `);
+    } catch (error) {
+      constraintError = error;
+    }
+    expect(constraintError).toMatchObject({ code: "23514" });
+
+    // Deleting the run a record was last seen in must not delete the record.
+    await client.unsafe(`
+      DELETE FROM curated.scrape_run WHERE id = '20000000-0000-0000-0000-000000000092';
+    `);
+    const afterRunDelete = await client.unsafe(`
+      SELECT bron_referentie, last_seen_scrape_run_id
+      FROM staging.source_record WHERE bron_referentie = 'A';
+    `);
+    expect(afterRunDelete).toHaveLength(1);
+    expect(afterRunDelete).toMatchObject([
+      { bron_referentie: "A", last_seen_scrape_run_id: null },
+    ]);
+  });
+});

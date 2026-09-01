@@ -152,7 +152,8 @@ const toStoredFields = (
   };
 };
 
-const buildSnapshot = (stored: StoredAanvraag): AanvraagSnapshot => ({
+/** Shared with the lifecycle reconcile step so status-only versions carry the same snapshot shape. */
+export const buildSnapshot = (stored: StoredAanvraag): AanvraagSnapshot => ({
   beschrijving: stored.beschrijving,
   bron_referentie: stored.bronReferentie,
   bron_specifiek: stored.bronSpecifiek,

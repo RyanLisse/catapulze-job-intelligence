@@ -46,11 +46,13 @@ export const createNeedstaffingConnector = (
           listingPayload: item,
         }))
       );
+      const withinCap = page + 1 < NEEDSTAFFING_MAX_LISTING_PAGES;
       return {
         checkpoint: { page: page + 1 },
-        hasMore:
-          listing.hasNextPage && page + 1 < NEEDSTAFFING_MAX_LISTING_PAGES,
+        hasMore: listing.hasNextPage && withinCap,
         items,
+        // RJC-397: the cap stopped us while the site still had a next page.
+        truncated: listing.hasNextPage && !withinCap,
       };
     },
     fetch: async (item) => {
