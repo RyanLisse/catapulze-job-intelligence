@@ -4,6 +4,7 @@ import {
 } from "@ji/performance";
 
 import { evaluateBooleanAst } from "./adapter";
+import { compareCodepoints } from "./ast-hash";
 import { hashDocumentId } from "./manticore/id-hash";
 import {
   DEFAULT_SEARCH_SCOPE,
@@ -130,9 +131,13 @@ const countFacet = (
     counts.set(value, (counts.get(value) ?? 0) + 1);
   }
 
+  // Codepoint order (RJC-396), not localeCompare: these values get cached
+  // (buildFacetCacheKey), so locale-dependent ordering would make the same
+  // cache entry present differently-ordered facet buckets depending on
+  // which process's locale filled it — user-visible order flapping.
   return [...counts.entries()]
     .map(([value, count]) => ({ count, value }))
-    .toSorted((left, right) => left.value.localeCompare(right.value));
+    .toSorted((left, right) => compareCodepoints(left.value, right.value));
 };
 
 const buildFacets = (documents: SearchDocument[]): SearchFacets => ({

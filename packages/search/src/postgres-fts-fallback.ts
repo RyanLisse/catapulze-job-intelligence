@@ -1,6 +1,7 @@
 import type { BooleanNode } from "@ji/domain";
 
 import { evaluateBooleanAst } from "./adapter";
+import { compareCodepoints } from "./ast-hash";
 import { DEFAULT_SEARCH_SCOPE } from "./partition";
 import type {
   EngineSearchParams,
@@ -121,8 +122,11 @@ export class PostgresFtsFallbackEngine implements SearchEngine {
       );
     });
 
+    // Codepoint order (RJC-396), not localeCompare: page boundaries must not
+    // depend on the process's ICU default locale, the same determinism
+    // property RJC-378 gave the other engines via hashDocumentId.
     const sorted = matched.toSorted((left, right) =>
-      left.id.localeCompare(right.id)
+      compareCodepoints(left.id, right.id)
     );
     const page = sorted.slice(params.offset, params.offset + params.limit);
 
