@@ -119,6 +119,7 @@ describe("cache key prefixes (RJC-388)", () => {
       {
         limit: 20,
         offset: 0,
+        scope: "active",
         sort: "relevance",
       }
     );
@@ -140,14 +141,41 @@ describe("cache key prefixes (RJC-388)", () => {
 
   it("buildFacetCacheKey omits page, so identical query+filters share it across pages", async () => {
     const astHash = await hashAst(parseOk("Azure"));
-    const pageOne = await buildFacetCacheKey(astHash, version, {});
-    const another = await buildFacetCacheKey(astHash, version, {});
+    const pageOne = await buildFacetCacheKey(astHash, version, {}, "active");
+    const another = await buildFacetCacheKey(astHash, version, {}, "active");
     expect(pageOne).toBe(another);
+  });
+
+  it("keys differ per scope (RJC-383): an active-scope entry never serves an all-scope request", async () => {
+    const astHash = await hashAst(parseOk("Azure"));
+    const page = { limit: 20, offset: 0, sort: "relevance" as const };
+    const active = await buildCacheKey(
+      astHash,
+      version,
+      {},
+      {
+        ...page,
+        scope: "active",
+      }
+    );
+    const all = await buildCacheKey(
+      astHash,
+      version,
+      {},
+      {
+        ...page,
+        scope: "all",
+      }
+    );
+    expect(active).not.toBe(all);
+    expect(await buildFacetCacheKey(astHash, version, {}, "active")).not.toBe(
+      await buildFacetCacheKey(astHash, version, {}, "all")
+    );
   });
 
   it("buildFacetCacheKey differs from buildCacheKey for the same inputs", async () => {
     const astHash = await hashAst(parseOk("Azure"));
-    const facetKey = await buildFacetCacheKey(astHash, version, {});
+    const facetKey = await buildFacetCacheKey(astHash, version, {}, "active");
     const resultKey = await buildCacheKey(
       astHash,
       version,
@@ -155,6 +183,7 @@ describe("cache key prefixes (RJC-388)", () => {
       {
         limit: 20,
         offset: 0,
+        scope: "active",
         sort: "relevance",
       }
     );

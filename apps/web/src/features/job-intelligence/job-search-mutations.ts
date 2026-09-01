@@ -4,6 +4,7 @@ import type {
   JobIntelligenceActions,
   JobListing,
   JobSearchFilters,
+  JobSearchScope,
 } from "./types";
 
 interface JobSearchMutationsInput {
@@ -11,6 +12,7 @@ interface JobSearchMutationsInput {
   readonly filters: JobSearchFilters;
   readonly query: string;
   readonly results: readonly JobListing[];
+  readonly scope: JobSearchScope;
   readonly selectedJob: JobListing | null;
   readonly setIsCreatingSnapshot: Dispatch<SetStateAction<boolean>>;
   readonly setIsSavingSearch: Dispatch<SetStateAction<boolean>>;
@@ -24,6 +26,7 @@ export const createJobSearchMutations = ({
   filters,
   query,
   results,
+  scope,
   selectedJob,
   setIsCreatingSnapshot,
   setIsSavingSearch,
@@ -50,6 +53,7 @@ export const createJobSearchMutations = ({
       const snapshot = await actions.createSnapshot({
         filters,
         query,
+        scope,
         selectedIds: results.map((job) => job.id),
       });
       setSnapshotMessage(

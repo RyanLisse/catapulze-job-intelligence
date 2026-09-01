@@ -72,7 +72,7 @@ describe("buildManticoreSearchRequest", () => {
     expect(request.query).toEqual({
       bool: { filter: [{ in: { locatie: ["Amsterdam", "NL"] } }] },
     });
-    expect(request.aggs.locatie).toEqual({
+    expect(request.aggs?.locatie).toEqual({
       terms: { field: "locatie", size: 50 },
     });
   });

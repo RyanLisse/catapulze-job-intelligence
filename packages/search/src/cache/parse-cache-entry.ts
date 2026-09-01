@@ -1,5 +1,6 @@
 import { z } from "zod";
 
+import { SEARCH_SCOPES } from "../partition";
 import type { ResultCacheEntry, SearchFacets, SearchHit } from "../types";
 
 const searchHitSchema = z.object({
@@ -21,6 +22,7 @@ const searchFacetsSchema = z.object({
 });
 
 const resultCacheEntrySchema = z.object({
+  archiveTotal: z.number().nullable().optional(),
   astHash: z.string(),
   emptyReason: z.string().optional(),
   facets: searchFacetsSchema,
@@ -38,6 +40,7 @@ const resultCacheEntrySchema = z.object({
   }),
   hits: z.array(searchHitSchema),
   indexVersion: z.number(),
+  scope: z.enum(SEARCH_SCOPES),
   total: z.number(),
   windowLimit: z.number(),
 });

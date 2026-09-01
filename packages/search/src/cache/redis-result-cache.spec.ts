@@ -24,6 +24,7 @@ const sampleEntry = (
   filters: {},
   hits: [{ id: "doc-1", weight: 1 }],
   indexVersion: 1,
+  scope: "active",
   total: 1,
   windowLimit: 1000,
   ...overrides,

@@ -98,6 +98,8 @@ export const parseJobSearchState = (
       ? previewStatus
       : "ready",
     query: readFirst(input, "q")?.trim() ?? "",
+    // RJC-383: `archief=1` opts a shareable URL into the archive partition.
+    scope: readFirst(input, "archief") === "1" ? "all" : "active",
     selectedJobId: readFirst(input, "job"),
     sort: isOneOf(
       sort,
@@ -130,6 +132,9 @@ export const serializeJobSearchState = (
   }
   if (state.filters.minRate !== null) {
     params.set("minRate", String(state.filters.minRate));
+  }
+  if (state.scope === "all") {
+    params.set("archief", "1");
   }
   if (state.sort !== "relevance") {
     params.set("sort", state.sort);
@@ -362,13 +367,20 @@ export const searchJobs = (
   const hasSyntaxError =
     request.query.trim() !== "" &&
     parseBooleanExpression(request.query) === null;
-  const matchingJobs = jobs
-    .filter((job) => job.status !== "closed")
+  // RJC-383: the fixture mirrors the partitions — closed listings are the
+  // archive; the active scope skips them but counts them.
+  const inScope = (job: JobListing): boolean =>
+    request.scope === "all" || job.status !== "closed";
+  const matchingAll = jobs
     .filter((job) => matchesQuery(job, request.query))
-    .filter((job) => matchesFilters(job, request))
+    .filter((job) => matchesFilters(job, request));
+  const matchingJobs = matchingAll
+    .filter(inScope)
     .toSorted((left, right) =>
       compareJobs(left, right, request.sort, request.query)
     );
+  const archiveTotal =
+    request.scope === "all" ? null : matchingAll.length - matchingJobs.length;
   const requestedStatus = hasSyntaxError
     ? "syntax-error"
     : request.previewStatus;
@@ -391,7 +403,8 @@ export const searchJobs = (
   }
 
   return {
-    facets: buildFacets(jobs.filter((job) => job.status !== "closed")),
+    archiveTotal,
+    facets: buildFacets(jobs.filter(inScope)),
     items,
     message,
     page,

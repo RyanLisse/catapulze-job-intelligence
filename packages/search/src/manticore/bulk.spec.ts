@@ -106,10 +106,24 @@ const poisonAlways =
 
 const never = (): null => null;
 
+// Steady-state mutations (RJC-383): partition known and unchanged, so each
+// one is a single line — the RJC-389 contract below is unchanged for them.
 const mutations: SearchIndexMutation[] = [
-  { document: document("a"), kind: "upsert", sequenceNumber: 10n },
-  { document: document("b"), kind: "upsert", sequenceNumber: 11n },
-  { id: "c", kind: "delete", sequenceNumber: 12n },
+  {
+    document: document("a"),
+    kind: "upsert",
+    partition: "active",
+    previousPartition: "active",
+    sequenceNumber: 10n,
+  },
+  {
+    document: document("b"),
+    kind: "upsert",
+    partition: "active",
+    previousPartition: "active",
+    sequenceNumber: 11n,
+  },
+  { id: "c", kind: "delete", partition: "active", sequenceNumber: 12n },
 ];
 
 describe("ManticoreSearchEngine.applyBatch over /bulk (RJC-389)", () => {
@@ -127,14 +141,14 @@ describe("ManticoreSearchEngine.applyBatch over /bulk (RJC-389)", () => {
     const lines = client.calls[0]?.map((line) => JSON.parse(line)) ?? [];
     expect(lines).toHaveLength(3);
     expect(lines[0]).toMatchObject({
-      replace: { id: hashDocumentId("a"), index: "aanvragen" },
+      replace: { id: hashDocumentId("a"), index: "aanvragen_active" },
     });
     expect(lines[0].replace.doc).toMatchObject({
       document_id: "a",
       index_version: 13,
     });
     expect(lines[2]).toEqual({
-      delete: { id: hashDocumentId("c"), index: "aanvragen" },
+      delete: { id: hashDocumentId("c"), index: "aanvragen_active" },
     });
     expect(result).toEqual({
       appliedSequence: 13n,
@@ -235,19 +249,25 @@ describe("ManticoreSearchEngine.applyBatch over /bulk (RJC-389)", () => {
       {
         document: { ...document("a"), beschrijving: big },
         kind: "upsert",
+        partition: "active",
+        previousPartition: "active",
         sequenceNumber: 10n,
       },
       {
         document: { ...document("b"), beschrijving: big },
         kind: "upsert",
+        partition: "active",
+        previousPartition: "active",
         sequenceNumber: 11n,
       },
       {
         document: { ...document("c"), beschrijving: big },
         kind: "upsert",
+        partition: "active",
+        previousPartition: "active",
         sequenceNumber: 12n,
       },
-      { id: "d", kind: "delete", sequenceNumber: 13n },
+      { id: "d", kind: "delete", partition: "active", sequenceNumber: 13n },
     ];
     const client = new ScriptedBulkClient(poisonAlways("b"));
     const store = new InMemorySearchVersionStore();
@@ -273,5 +293,106 @@ describe("ManticoreSearchEngine.applyBatch over /bulk (RJC-389)", () => {
     expect(result.appliedSequence).toBe(13n);
     const checkpoint = await store.read();
     expect(checkpoint.appliedSequence).toBe(13n);
+  });
+
+  it("moves a document across partitions with replace-then-delete in ONE request (RJC-383)", async () => {
+    const client = new ScriptedBulkClient(never);
+    const engine = new ManticoreSearchEngine(
+      client,
+      new InMemorySearchVersionStore()
+    );
+
+    await engine.applyBatch({
+      appliedSequence: 20n,
+      mutations: [
+        {
+          document: { ...document("a"), status: "closed" },
+          kind: "upsert",
+          partition: "archive",
+          previousPartition: "active",
+          sequenceNumber: 20n,
+        },
+      ],
+    });
+
+    expect(client.calls).toHaveLength(1);
+    const lines = client.calls[0]?.map((line) => JSON.parse(line)) ?? [];
+    // Replace FIRST: 6.3.8 commits per same-table run, so a failing replace
+    // stops the request before the delete and the document stays findable.
+    expect(lines).toHaveLength(2);
+    expect(lines[0]).toMatchObject({
+      replace: { id: hashDocumentId("a"), index: "aanvragen_archive" },
+    });
+    expect(lines[1]).toEqual({
+      delete: { id: hashDocumentId("a"), index: "aanvragen_active" },
+    });
+  });
+
+  it("clears the other table when the previous partition is unknown, and deletes from both tables when a delete's partition is unknown", async () => {
+    const client = new ScriptedBulkClient(never);
+    const engine = new ManticoreSearchEngine(
+      client,
+      new InMemorySearchVersionStore()
+    );
+
+    await engine.applyBatch({
+      appliedSequence: 21n,
+      mutations: [
+        { document: document("a"), kind: "upsert", sequenceNumber: 20n },
+        { id: "b", kind: "delete", sequenceNumber: 21n },
+      ],
+    });
+
+    const lines = client.calls[0]?.map((line) => JSON.parse(line)) ?? [];
+    expect(lines).toEqual([
+      expect.objectContaining({
+        replace: expect.objectContaining({ index: "aanvragen_active" }),
+      }),
+      { delete: { id: hashDocumentId("a"), index: "aanvragen_archive" } },
+      { delete: { id: hashDocumentId("b"), index: "aanvragen_active" } },
+      { delete: { id: hashDocumentId("b"), index: "aanvragen_archive" } },
+    ]);
+  });
+
+  it("isolates a failing MOVE as one unit: its delete never runs without its replace", async () => {
+    // Line 2 of a 3-line request is the move's delete; the failure is
+    // attributed to the whole mutation "b", which is re-sent alone (both
+    // lines) and blamed as one id. Nothing of "b" is ever sent on its own.
+    const client = new ScriptedBulkClient(poisonAlways("b"));
+    const store = new InMemorySearchVersionStore();
+    await store.advance(9n);
+    const engine = new ManticoreSearchEngine(client, store);
+
+    const result = await engine.applyBatch({
+      appliedSequence: 13n,
+      mutations: [
+        {
+          document: document("a"),
+          kind: "upsert",
+          partition: "active",
+          previousPartition: "active",
+          sequenceNumber: 10n,
+        },
+        {
+          document: { ...document("b"), status: "closed" },
+          kind: "upsert",
+          partition: "archive",
+          previousPartition: "active",
+          sequenceNumber: 11n,
+        },
+        { id: "c", kind: "delete", partition: "active", sequenceNumber: 12n },
+      ],
+    });
+
+    expect(client.calls.map((call) => call.map(lineId))).toEqual([
+      ["a", "b", "b", "c"],
+      ["b", "b"],
+      ["a", "c"],
+    ]);
+    expect(result.failures).toEqual([
+      { error: "unknown column: 'boom'", id: "b" },
+    ]);
+    expect(result.unapplied).toEqual([]);
+    expect(result.appliedSequence).toBe(12n);
   });
 });

@@ -170,12 +170,13 @@ class ScriptedEngine implements SearchEngine {
     };
   }
 
-  async search(_params: EngineSearchParams): Promise<SearchEngineResult> {
+  async search(params: EngineSearchParams): Promise<SearchEngineResult> {
     const version = await this.getAppliedVersion();
     return {
       facets: emptySearchFacets(),
       hits: [...this.documents.keys()].map((id) => ({ id, weight: 1 })),
       indexVersion: Number(version.appliedSequence),
+      scope: params.scope ?? "active",
       total: this.documents.size,
       windowLimit: SEARCH_WINDOW_LIMIT,
     };

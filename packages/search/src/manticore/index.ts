@@ -11,6 +11,9 @@ export type {
   ManticoreQueryStringClause,
 } from "./emitter";
 export {
+  ARCHIVE_COUNT_MAX_QUERY_TIME_MS,
+  ARCHIVE_COUNT_TIMEOUT_MS,
+  buildManticoreCountRequest,
   buildManticoreSearchRequest,
   buildManticoreSort,
   bulkManticore,
@@ -22,6 +25,7 @@ export {
   searchManticore,
   type ManticoreBulkOutcome,
   type ManticoreHttpClient,
+  type ManticoreRequestOptions,
   type ManticoreSearchHit,
   type ManticoreSearchResponse,
   type ManticoreTableInfo,
@@ -39,6 +43,7 @@ export {
   MANTICORE_BULK_ISOLATION_RESENDS_PER_CHUNK,
   MANTICORE_BULK_MAX_BYTES,
   ManticoreSearchEngine,
+  partitionFromProjectionHash,
   projectionHash,
   SLUITINGSDATUM_MISSING_SENTINEL,
 } from "./engine";

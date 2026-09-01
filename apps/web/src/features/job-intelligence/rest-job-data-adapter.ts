@@ -38,6 +38,8 @@ const syntaxErrorDetailsSchema = z.object({
 });
 
 interface SearchResponseBody {
+  /** Present for scope "active" only (RJC-383); null when the API's count failed. */
+  readonly archiveTotal?: number | null;
   readonly facets: ApiSearchFacets;
   readonly ids: readonly string[];
   /** True hit count, may exceed what is retrievable. */
@@ -104,6 +106,7 @@ const emptySearchResponse = (
   message: string | null,
   page = 1
 ): JobSearchResponse => ({
+  archiveTotal: null,
   facets: { contractTypes: [], locations: [], sources: [] },
   items: [],
   message,
@@ -271,6 +274,7 @@ export const createRestJobIntelligence = ({
         limit: pageSize,
         offset: (page - 1) * pageSize,
         query: request.query,
+        scope: request.scope,
         sort: request.sort,
       })
     );
@@ -292,6 +296,7 @@ export const createRestJobIntelligence = ({
     );
 
     return {
+      archiveTotal: searchResult.archiveTotal ?? null,
       facets: mapApiFacetsToUi(searchResult.facets, bronCatalog),
       items: status === "empty" ? [] : items,
       message:
@@ -370,11 +375,11 @@ export const createRestJobIntelligence = ({
       );
       return { id: saved.id, naam: saved.naam };
     },
-    createSnapshot: async ({ filters, query, selectedIds }) => {
+    createSnapshot: async ({ filters, query, scope, selectedIds }) => {
       const bronCatalog = await loadBronCatalog();
       const snapshot = await client.post<SnapshotResponseBody>(
         "/v1/snapshots",
-        buildSnapshotBody({ bronCatalog, filters, query, selectedIds })
+        buildSnapshotBody({ bronCatalog, filters, query, scope, selectedIds })
       );
       return { id: snapshot.id, resultCount: snapshot.resultIds.length };
     },

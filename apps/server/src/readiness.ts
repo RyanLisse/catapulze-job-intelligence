@@ -4,8 +4,10 @@ import { PostgresSearchVersionStore, readOutboxLag } from "@ji/db";
 import type { DbReadinessResult } from "@ji/db/readiness";
 import type { SearchVersionCheckpoint } from "@ji/search";
 import {
+  partitionTable,
   RedisResultCache,
   SEARCH_INDEX_NAME,
+  SEARCH_PARTITIONS,
   SEARCH_SCHEMA_HASH,
 } from "@ji/search";
 import type { ManticoreTableInfo } from "@ji/search/manticore";
@@ -564,13 +566,22 @@ export const createReadinessDeps = (
   // The only checker whose transport actually observes the signal: it
   // aborts the underlying fetch instead of leaving it to complete after
   // readiness has already reported "timeout".
-  checkManticore: (signal) =>
-    describeManticoreTable(
-      input.manticoreUrl,
-      SEARCH_INDEX_NAME,
-      READINESS_CHECK_TIMEOUT_MS,
-      signal
-    ),
+  // RJC-383: the index is two RT tables (active + archive); readiness is
+  // "ok" only when both exist — a missing archive would make every
+  // scope=all search and every archive count fail.
+  checkManticore: async (signal) => {
+    const tables = await Promise.all(
+      SEARCH_PARTITIONS.map((partition) =>
+        describeManticoreTable(
+          input.manticoreUrl,
+          partitionTable(SEARCH_INDEX_NAME, partition),
+          READINESS_CHECK_TIMEOUT_MS,
+          signal
+        )
+      )
+    );
+    return { exists: tables.every((table) => table.exists) };
+  },
   // ObjectStore.get() (packages/connectors) takes no signal — Bun's
   // S3Client/fs read relies on its own transport timeout.
   checkRawObjectStore: async () => {

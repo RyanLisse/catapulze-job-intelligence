@@ -48,8 +48,10 @@ const searchBodySchema = z.object({
   limit: z.number(),
   offset: z.number(),
   query: z.string(),
+  scope: z.enum(["active", "all"]).optional(),
   sort: z.string(),
 });
+const ARCHIVE_TOTAL = 7;
 
 // Recording fake server: counts every HTTP round-trip a search performs so a
 // return of the per-id hydration loop (RJC-379) fails this suite loudly, and
@@ -92,8 +94,12 @@ const fakeFetch = (
         String(Math.floor(index / SEARCH_RESULT_COUNT)).padStart(4, "0")
       )
     ).filter((id): id is string => id !== undefined);
+    // RJC-383: the API only counts the archive for the active scope.
+    const archiveCount =
+      search.scope === "all" ? {} : { archiveTotal: ARCHIVE_TOTAL };
     return Promise.resolve(
       Response.json({
+        ...archiveCount,
         facets: {
           bron_id: [],
           contracttype: [],
@@ -102,6 +108,7 @@ const fakeFetch = (
           status: [],
         },
         ids: allIds.slice(search.offset, search.offset + search.limit),
+        scope: search.scope ?? "active",
         total: searchTotal,
         windowLimit: WINDOW_LIMIT,
       })
@@ -283,6 +290,19 @@ describe("server-side sort, filter and pagination (RJC-378)", () => {
     expect(response.facets.locations).toEqual([
       { count: 300, value: "Nederland" },
     ]);
+  });
+
+  it("defaults to the active partition and surfaces the archive count; the toggle sends scope=all (RJC-383)", async () => {
+    recordedRequests.length = 0;
+    searchTotal = 12;
+
+    const active = await search("q=Azure");
+    expect(lastSearchBody().scope).toBeUndefined();
+    expect(active.archiveTotal).toBe(ARCHIVE_TOTAL);
+
+    const all = await search("q=Azure&archief=1");
+    expect(lastSearchBody().scope).toBe("all");
+    expect(all.archiveTotal).toBeNull();
   });
 
   it("derives totalPages from the true total, not the old 100-hit window", async () => {

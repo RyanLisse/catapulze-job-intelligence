@@ -7,7 +7,12 @@ import {
   timeCriticalPathPhase,
   withCriticalPathSession,
 } from "@ji/performance";
-import { SEARCH_SORT_OPTIONS, SEARCH_WINDOW_LIMIT } from "@ji/search";
+import {
+  DEFAULT_SEARCH_SCOPE,
+  SEARCH_SCOPES,
+  SEARCH_SORT_OPTIONS,
+  SEARCH_WINDOW_LIMIT,
+} from "@ji/search";
 import { z } from "zod";
 
 import { validateSnapshotApproval } from "../../approval/validate-snapshot-approval";
@@ -74,6 +79,12 @@ export const searchAanvragenInputSchema = z
       .max(SEARCH_WINDOW_LIMIT - 1)
       .optional(),
     query: z.string(),
+    /**
+     * Partitions to read (RJC-383). Default "active": the placeable stock.
+     * "all" also searches the archive (closed / stale / expired work) —
+     * the "ook in archief zoeken" toggle.
+     */
+    scope: z.enum(SEARCH_SCOPES).optional(),
     sort: z.enum(SEARCH_SORT_OPTIONS).optional(),
   })
   .strict()
@@ -92,6 +103,8 @@ export const searchAanvragenInputSchema = z
 
 export const searchAanvragenOutputSchema = z
   .object({
+    /** Matches the same search has in the archive; present for scope "active" only (RJC-383), null when the count failed. */
+    archiveTotal: z.number().int().nonnegative().nullable().optional(),
     emptyReason: z.string().optional(),
     facets: z.object({
       bron_id: facetBucketsSchema,
@@ -104,6 +117,8 @@ export const searchAanvragenOutputSchema = z
     ids: z.array(z.string()),
     indexVersion: z.number(),
     parserVersion: z.number(),
+    /** Partitions this result was read from (RJC-383). */
+    scope: z.enum(SEARCH_SCOPES),
     /** True hit count — may exceed what is retrievable (see windowLimit). */
     total: z.number(),
     /** Deepest reachable offset + limit; pages beyond it cannot be requested. */
@@ -128,12 +143,14 @@ export const createSearchAanvragenHandler =
       return {
         ok: true as const,
         value: {
+          archiveTotal: result.archiveTotal,
           emptyReason: result.emptyReason,
           facets: result.facets,
           hits: result.hits,
           ids: result.hits.map((hit) => hit.id),
           indexVersion: result.indexVersion,
           parserVersion: result.parserVersion,
+          scope: result.scope,
           total: result.total,
           windowLimit: result.windowLimit,
         },
@@ -487,6 +504,8 @@ export const createSnapshotInputSchema = z
     filters: searchFiltersSchema.optional(),
     query: z.string(),
     savedSearchId: z.string().uuid().optional(),
+    /** Scope the selection was made under (RJC-383); recorded as context like query and filters. */
+    scope: z.enum(SEARCH_SCOPES).optional(),
     selectedIds: z
       .array(z.string().uuid())
       .min(1)
@@ -505,6 +524,7 @@ export const snapshotViewSchema = z
     resultIds: z.array(z.string()),
     savedSearchId: z.string().nullable(),
     schemaVersion: z.string(),
+    scope: z.enum(SEARCH_SCOPES),
     searchVersion: z
       .object({
         appliedSequence: z.string(),
@@ -525,6 +545,7 @@ const toSnapshotView = (record: QuerySnapshotRecord) => ({
   resultIds: [...record.resultIds],
   savedSearchId: record.savedSearchId,
   schemaVersion: record.schemaVersion,
+  scope: record.scope,
   searchVersion: {
     // bigint is not JSON-serializable; the wire format is a decimal string.
     appliedSequence: record.searchVersion.appliedSequence.toString(),
@@ -594,6 +615,7 @@ export const createSnapshotHandler =
       resultIds: [...input.selectedIds],
       savedSearchId: input.savedSearchId ?? null,
       schemaVersion: SLICE_A_SCHEMA_VERSION,
+      scope: input.scope ?? DEFAULT_SEARCH_SCOPE,
       searchVersion,
       userId: context.principal.subjectId,
     });

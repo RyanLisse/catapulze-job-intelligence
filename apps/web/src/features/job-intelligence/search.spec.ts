@@ -9,6 +9,7 @@ import { invokeMcpTool } from "../../../../server/src/capabilities/rest";
 import { buildBronCatalog } from "./rest/bron-catalog";
 import {
   buildSearchRequestBody,
+  buildSnapshotBody,
   mapUiFiltersToApi,
 } from "./rest/filter-mapping";
 import { parseJobSearchState } from "./search-state";
@@ -70,6 +71,42 @@ describe("REST search request mapping", () => {
       offset: 16,
       query: "Azure",
       sort: "newest",
+    });
+  });
+
+  it("sends scope only for the archive opt-in (RJC-383)", () => {
+    const bronCatalog = buildBronCatalog([]);
+    const state = parseJobSearchState(new URLSearchParams("q=Azure&archief=1"));
+    expect(
+      buildSearchRequestBody({
+        bronCatalog,
+        filters: state.filters,
+        limit: 8,
+        offset: 0,
+        query: state.query,
+        scope: state.scope,
+        sort: state.sort,
+      })
+    ).toEqual({
+      limit: 8,
+      offset: 0,
+      query: "Azure",
+      scope: "all",
+      sort: "relevance",
+    });
+    expect(
+      buildSnapshotBody({
+        bronCatalog,
+        filters: state.filters,
+        query: state.query,
+        scope: state.scope,
+        selectedIds: ["00000000-0000-4000-8000-000000000011"],
+      })
+    ).toEqual({
+      filters: undefined,
+      query: "Azure",
+      scope: "all",
+      selectedIds: ["00000000-0000-4000-8000-000000000011"],
     });
   });
 });

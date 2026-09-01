@@ -68,4 +68,75 @@ describe("Manticore /bulk live integration (RJC-389)", () => {
       }
     }
   });
+
+  it("moves a document from active to archive in one bulk and searches it per scope (RJC-383)", async () => {
+    if (!manticoreUrl) {
+      return;
+    }
+    const store = new InMemorySearchVersionStore();
+    const engine = ManticoreSearchEngine.fromUrl(manticoreUrl, store);
+    const runToken = `movelive${crypto.randomUUID().replaceAll("-", "")}`;
+    const parsed = parseBooleanQuery(runToken);
+    if (!parsed.ok) {
+      throw new Error("run token must parse");
+    }
+    const id = `move-live-${crypto.randomUUID()}`;
+    const document: SearchDocument = {
+      beschrijving: `Move fixture ${runToken}`,
+      bronId: "bron-live",
+      contracttype: "detachering",
+      id,
+      laatstGezienOp: new Date("2026-08-01T00:00:00.000Z"),
+      locatieLand: "NL",
+      status: "active",
+      tariefMax: 100,
+      tariefMin: 80,
+      titel: "Move fixture",
+    };
+    const search = (scope: "active" | "all") =>
+      engine.search({
+        ast: parsed.ast,
+        filters: {},
+        limit: 10,
+        offset: 0,
+        scope,
+      });
+    try {
+      await engine.applyBatch({
+        appliedSequence: 1n,
+        mutations: [
+          { document, kind: "upsert", partition: "active", sequenceNumber: 1n },
+        ],
+      });
+      const before = await search("active");
+      expect(before.hits.map((hit) => hit.id)).toEqual([id]);
+      expect(before.archiveTotal).toBe(0);
+
+      const moved = await engine.applyBatch({
+        appliedSequence: 2n,
+        mutations: [
+          {
+            document: { ...document, status: "closed" },
+            kind: "upsert",
+            partition: "archive",
+            previousPartition: "active",
+            sequenceNumber: 2n,
+          },
+        ],
+      });
+      expect(moved.failures).toEqual([]);
+      expect(moved.unapplied).toEqual([]);
+
+      const active = await search("active");
+      expect(active.hits).toEqual([]);
+      expect(active.total).toBe(0);
+      expect(active.archiveTotal).toBe(1);
+      const all = await search("all");
+      expect(all.hits.map((hit) => hit.id)).toEqual([id]);
+      expect(all.total).toBe(1);
+      expect(all.facets.status).toEqual([{ count: 1, value: "closed" }]);
+    } finally {
+      await engine.deleteDocument(id);
+    }
+  });
 });

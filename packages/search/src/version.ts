@@ -51,14 +51,23 @@ export const isStaleSearchVersion = (
 ): boolean => compareSearchVersions(candidate, current) < 0;
 
 /**
- * Identifies the indexed document mapping. Update this string whenever the
- * Manticore column mapping (`documentToManticore`) changes; a checkpoint
- * carrying a different hash means the index was built for another schema and
- * requires a full rebuild (new generation), never a silent reindex.
+ * Identifies the indexed document mapping AND table layout. Update this
+ * string whenever the Manticore column mapping (`documentToManticore`) or
+ * the set of tables it writes to changes; a checkpoint carrying a different
+ * hash means the index was built for another schema and requires a full
+ * rebuild (new generation), never a silent reindex. v3 (RJC-383): the same
+ * columns, now split over `aanvragen_active` + `aanvragen_archive`.
  */
 // ponytail: hand-maintained constant; runtime hashing of the mapping buys
 // nothing until the mapping itself is data-driven.
 export const SEARCH_SCHEMA_HASH =
+  "aanvragen-v3[active|archive]:beschrijving,bron_id,contracttype,document_id,index_version,laatst_gezien_op,locatie,locatie_land,sluitingsdatum,status,tarief_max,tarief_min,titel";
+
+/**
+ * The single-table mapping before RJC-383 split the index. Kept only so
+ * version.spec.ts can prove a checkpoint stamped with it is rejected.
+ */
+export const SEARCH_SCHEMA_HASH_V2 =
   "aanvragen-v2:beschrijving,bron_id,contracttype,document_id,index_version,laatst_gezien_op,locatie,locatie_land,sluitingsdatum,status,tarief_max,tarief_min,titel";
 
 /**

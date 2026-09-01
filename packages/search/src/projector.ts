@@ -1,7 +1,11 @@
 import { timeCriticalPathPhase } from "@ji/performance";
 
-import { projectionHash } from "./manticore/engine";
+import {
+  partitionFromProjectionHash,
+  projectionHash,
+} from "./manticore/engine";
 import { readOutboxStatus } from "./outbox-payload";
+import { documentPartition } from "./partition";
 import type {
   OutboxEventRecord,
   SearchDocument,
@@ -160,6 +164,8 @@ export interface OutboxBatchPlanInput {
   readonly loadDocuments: (
     aggregateIds: readonly string[]
   ) => Promise<ReadonlyMap<string, SearchDocument>>;
+  /** Clock for the partition rule (RJC-383); one value for the whole plan. Defaults to now. */
+  readonly now?: Date;
 }
 
 export interface OutboxBatchPlan {
@@ -182,12 +188,24 @@ export interface OutboxBatchPlan {
  * Coalesce → load once per aggregate → hash-compare → mutations. Pure apart
  * from `loadDocuments`, so the coalescing and skip rules are testable
  * without Postgres or Manticore.
+ *
+ * RJC-383: every mutation carries its partition. The known hash's prefix
+ * (partitionFromProjectionHash) is the partition the document was last
+ * written to under this generation, so a changed partition yields an upsert
+ * with `previousPartition` ≠ `partition` — a move — and a delete targets the
+ * one table that holds the document. No known hash means unknown: the
+ * engine then also clears the other table.
  */
 export const planOutboxBatch = async (
   input: OutboxBatchPlanInput
 ): Promise<OutboxBatchPlan> => {
   const coalesced = coalesceOutboxEvents(input.events);
   const knownHashes = input.knownHashes ?? new Map<string, string>();
+  const now = input.now ?? new Date();
+  const knownPartition = (aggregateId: string) => {
+    const known = knownHashes.get(aggregateId);
+    return known === undefined ? undefined : partitionFromProjectionHash(known);
+  };
   const noopEventIds: string[] = [...coalesced.ignoredEventIds];
   const eventIdsByAggregate = new Map<string, readonly string[]>();
   const mutations: SearchIndexMutation[] = [];
@@ -219,6 +237,7 @@ export const planOutboxBatch = async (
       mutations.push({
         id: aggregate.aggregateId,
         kind: "delete",
+        partition: knownPartition(aggregate.aggregateId),
         sequenceNumber: aggregate.maxSequence,
       });
       continue;
@@ -229,7 +248,7 @@ export const planOutboxBatch = async (
       continue;
     }
     const document = applyEventStatus(loaded, aggregate.last);
-    const hash = projectionHash(document);
+    const hash = projectionHash(document, now);
     if (knownHashes.get(aggregate.aggregateId) === hash) {
       unchangedAggregateIds.push(aggregate.aggregateId);
       noopEventIds.push(...aggregate.eventIds);
@@ -239,6 +258,8 @@ export const planOutboxBatch = async (
     mutations.push({
       document,
       kind: "upsert",
+      partition: documentPartition(document, now),
+      previousPartition: knownPartition(aggregate.aggregateId),
       sequenceNumber: aggregate.maxSequence,
     });
   }

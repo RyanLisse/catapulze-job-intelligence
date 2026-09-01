@@ -1,5 +1,24 @@
 # Manticore 6.3.8 vs 29.0.2 golden-set comparison (RJC-382)
 
+> **Correction (2026-09-01, RJC-383 lane — see
+> [`manticore-relevance-baseline-correction-2026-09-01.md`](./manticore-relevance-baseline-correction-2026-09-01.md)).**
+> The 6.3.8 column below (0.477 / 0.425) was measured against the shared
+> instance's `aanvragen` table, which held 505 foreign spec-fixture rows
+> (37 of them matching `azure`); the 29.x columns ran on fresh volumes. On an
+> empty 6.3.8 table the same commit scores **0.523 / 0.529** (exact-skill
+> 0.792 / 0.809, nl-morphology 0.786 / 0.758, compound 0.429 / 0.429,
+> semantic-synonym 0.188 / 0.202, phrase-filter 0.881 / 0.911, nl-en-mix
+> 0.000 / 0.000). Table settings and tokenisation are identical on legacy and
+> fresh tables; the difference is the foreign rows. Consequences for the
+> findings below: `es-azure` 20 → 3 and the exact-skill / phrase-filter
+> "improvements" do NOT survive — fresh 6.3.8 returns the same 3 `es-azure`
+> hits at recall 1.000 and scores 0.792 / 0.809 and 0.881 / 0.911 in those
+> categories. The semantic-synonym regression DOES survive: fresh 6.3.8 finds
+> `se-jeugdzorg` (0.500 / 1 hit) and `se-duurzameenergie` (1.000 / 1 hit),
+> 29.0.2 finds neither. Net, measured on equal (empty) tables: 6.3.8
+> 0.523 / 0.529 vs 29.0.2 0.488 / 0.482. Any version attribution must re-run
+> the 6.3.8 baseline on an empty table first.
+
 Comparison round following the shadow-instance prep (PR #90, `tools/manticore/README-29-shadow.md`). Runs the golden relevance set (`benchmarks/relevance/`) against three targets, isolating the VERSION change (6.3.8 → 29.0.2) from the CONFIG change (`min_infix_len = 2`, only present in the shadow conf):
 
 1. **6.3.8** (production, `:9308`, `tools/manticore/manticore.conf`) — no infix.

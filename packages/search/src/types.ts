@@ -1,6 +1,7 @@
 import type { AanvraagLifecycle, BooleanNode } from "@ji/domain";
 
 import type { OutboxEventPayload } from "./outbox-payload";
+import type { SearchPartition, SearchScope } from "./partition";
 import type { SearchVersion } from "./version";
 
 export const SEARCH_INDEX_NAME = "aanvragen" as const;
@@ -89,10 +90,19 @@ export interface SearchHit {
 }
 
 export interface SearchEngineResult {
+  /**
+   * Matches the same query would have in the archive partition; only
+   * computed for scope "active" (RJC-383), so the UI can say "N in archief"
+   * without a second round trip. `null` when the count failed or timed out
+   * (the search itself is unaffected); absent for scope "all".
+   */
+  archiveTotal?: number | null;
   emptyReason?: string;
   facets: SearchFacets;
   hits: SearchHit[];
   indexVersion: number;
+  /** Partitions this result was read from (RJC-383). */
+  scope: SearchScope;
   /** True hit count, independent of the retrievable window. */
   total: number;
   /** Max reachable offset + limit; see SEARCH_WINDOW_LIMIT. */
@@ -104,6 +114,8 @@ export interface EngineSearchParams {
   filters: SearchFilters;
   limit: number;
   offset: number;
+  /** Defaults to "active" (RJC-383): the placeable stock, not everything ever seen. */
+  scope?: SearchScope;
   /** Defaults to "relevance" — callers outside the adapter (benchmarks, db specs) predate sorting. */
   sort?: SearchSort;
 }
@@ -118,11 +130,27 @@ export type SearchIndexMutation =
   | {
       readonly document: SearchDocument;
       readonly kind: "upsert";
+      /**
+       * Target partition (RJC-383). The projector resolves it once per plan
+       * with one clock; absent (direct callers) the engine resolves it at
+       * apply time.
+       */
+      readonly partition?: SearchPartition;
+      /**
+       * Partition the document was last written to under this generation,
+       * when known from the projection state. Equal to `partition` means a
+       * plain replace; different means a MOVE (replace in the new table,
+       * then delete from the old one, in one /bulk); absent means unknown,
+       * so the engine also deletes from the other table to be safe.
+       */
+      readonly previousPartition?: SearchPartition;
       readonly sequenceNumber: bigint;
     }
   | {
       readonly id: string;
       readonly kind: "delete";
+      /** Partition the document lives in when known; absent deletes from both. */
+      readonly partition?: SearchPartition;
       readonly sequenceNumber: bigint;
     };
 
@@ -179,6 +207,8 @@ export interface SearchAdapterInput {
   limit?: number;
   offset?: number;
   query: string;
+  /** Defaults to "active" (RJC-383). */
+  scope?: SearchScope;
   sort?: SearchSort;
 }
 
@@ -189,8 +219,10 @@ export interface SearchAdapterSuccess {
   indexVersion: number;
   ok: true;
   parserVersion: number;
+  scope: SearchScope;
   total: number;
   windowLimit: number;
+  archiveTotal?: number | null;
   emptyReason?: string;
   /**
    * How this result was produced (RJC-388): "hit" served straight from the
@@ -218,8 +250,10 @@ export interface ResultCacheEntry {
   filters: SearchFilters;
   hits: SearchHit[];
   indexVersion: number;
+  scope: SearchScope;
   total: number;
   windowLimit: number;
+  archiveTotal?: number | null;
   emptyReason?: string;
 }
 

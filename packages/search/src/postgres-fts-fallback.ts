@@ -1,6 +1,7 @@
 import type { BooleanNode } from "@ji/domain";
 
 import { evaluateBooleanAst } from "./adapter";
+import { DEFAULT_SEARCH_SCOPE } from "./partition";
 import type {
   EngineSearchParams,
   SearchDocument,
@@ -100,6 +101,9 @@ export class PostgresFtsFallbackEngine implements SearchEngine {
         facets: emptySearchFacets(),
         hits: rows.map((row) => ({ id: row.id, weight: row.rank })),
         indexVersion: Number(version.appliedSequence),
+        // ponytail: the fallback has no partitions; it reports the scope it
+        // was asked for and searches everything it holds.
+        scope: params.scope ?? DEFAULT_SEARCH_SCOPE,
         total: rows.length,
         windowLimit: SEARCH_WINDOW_LIMIT,
       };
@@ -127,6 +131,7 @@ export class PostgresFtsFallbackEngine implements SearchEngine {
       facets: emptySearchFacets(),
       hits: page.map((document) => ({ id: document.id, weight: 1 })),
       indexVersion: Number(version.appliedSequence),
+      scope: params.scope ?? DEFAULT_SEARCH_SCOPE,
       total: matched.length,
       windowLimit: SEARCH_WINDOW_LIMIT,
     };

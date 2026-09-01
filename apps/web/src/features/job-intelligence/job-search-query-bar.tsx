@@ -16,15 +16,19 @@ const isJobSort = (value: string): value is JobSearchState["sort"] =>
 
 interface JobSearchQueryBarProps {
   readonly activeFilterCount: number;
+  /** "N in archief" next to an active-scope count; null when the archive is already included. */
+  readonly archiveTotal: number | null;
   readonly countLabel: "opdracht" | "opdrachten";
   readonly isRefreshing: boolean;
   readonly onClearQueryDraft: () => void;
   readonly onOpenFilters: () => void;
   readonly onQueryDraftChange: (value: string) => void;
   readonly onResetQueryDraft: () => void;
+  readonly onScopeChange: (scope: JobSearchState["scope"]) => void;
   readonly onSortChange: (sort: JobSearchState["sort"]) => void;
   readonly onSubmit: (event?: React.FormEvent<HTMLFormElement>) => void;
   readonly queryDraft: string;
+  readonly scope: JobSearchState["scope"];
   readonly sort: JobSearchState["sort"];
   readonly syntaxError: string | null;
   readonly total: number;
@@ -32,15 +36,18 @@ interface JobSearchQueryBarProps {
 
 export const JobSearchQueryBar = ({
   activeFilterCount,
+  archiveTotal,
   countLabel,
   isRefreshing,
   onClearQueryDraft,
   onOpenFilters,
   onQueryDraftChange,
   onResetQueryDraft,
+  onScopeChange,
   onSortChange,
   onSubmit,
   queryDraft,
+  scope,
   sort,
   syntaxError,
   total,
@@ -129,8 +136,24 @@ export const JobSearchQueryBar = ({
             {total}
           </strong>{" "}
           {countLabel}
+          {archiveTotal !== null && archiveTotal > 0
+            ? ` · ${archiveTotal} in archief`
+            : ""}
           {isRefreshing ? " · bijwerken…" : ""}
         </p>
+
+        {/* RJC-383: the one explicit way into the archive partition. */}
+        <label className="flex min-h-11 cursor-pointer items-center gap-2 text-xs text-muted-foreground">
+          <input
+            type="checkbox"
+            checked={scope === "all"}
+            onChange={(event) =>
+              onScopeChange(event.target.checked ? "all" : "active")
+            }
+            className="size-4 accent-[var(--ji-signal-strong)] outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+          />
+          Ook in archief zoeken
+        </label>
 
         <label className="flex min-h-11 items-center gap-2 text-xs text-muted-foreground">
           <span className="hidden sm:inline">Sorteren</span>

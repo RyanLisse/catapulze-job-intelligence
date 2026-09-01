@@ -5,6 +5,7 @@ import type {
   JobContractType,
   JobSearchFacets,
   JobSearchFilters,
+  JobSearchScope,
   JobSort,
   JobSource,
 } from "../types";
@@ -162,14 +163,19 @@ export const buildSearchRequestBody = (input: {
   readonly limit: number;
   readonly offset: number;
   readonly query: string;
+  readonly scope?: JobSearchScope;
   readonly sort: JobSort;
   readonly bronCatalog: ReadonlyMap<string, BronCatalogEntry>;
 }): CapabilityJsonObject => {
   const filters = mapUiFiltersToApi(input.filters, input.bronCatalog);
+  // RJC-383: the API defaults to the active partition; only the archive
+  // opt-in travels on the wire.
+  const scope = input.scope === "all" ? { scope: "all" } : undefined;
   const base = {
     limit: input.limit,
     offset: input.offset,
     query: input.query,
+    ...scope,
     sort: input.sort,
   };
   if (Object.keys(filters).length > 0) {
@@ -200,11 +206,14 @@ export const buildSavedSearchBody = (input: {
 export const buildSnapshotBody = (input: {
   readonly filters: JobSearchFilters;
   readonly query: string;
+  readonly scope: JobSearchScope;
   readonly selectedIds: readonly string[];
   readonly bronCatalog: ReadonlyMap<string, BronCatalogEntry>;
 }): CapabilityJsonObject => ({
   filters: filtersBody(input.filters, input.bronCatalog),
   query: input.query,
+  // RJC-383: the snapshot records the scope the selection was made under.
+  scope: input.scope,
   // RJC-385: a snapshot is bound to an explicit selection; the query and
   // filters above travel along as context only.
   selectedIds: [...input.selectedIds],

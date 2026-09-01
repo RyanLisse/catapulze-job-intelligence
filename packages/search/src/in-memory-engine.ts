@@ -5,6 +5,12 @@ import {
 
 import { evaluateBooleanAst } from "./adapter";
 import { hashDocumentId } from "./manticore/id-hash";
+import {
+  DEFAULT_SEARCH_SCOPE,
+  documentPartition,
+  partitionInScope,
+} from "./partition";
+import type { SearchPartition } from "./partition";
 import type {
   EngineSearchParams,
   SearchDocument,
@@ -187,14 +193,34 @@ const compareDocuments = (
   }
 };
 
+interface PartitionedDocument {
+  document: SearchDocument;
+  partition: SearchPartition;
+}
+
+/**
+ * Mirrors the Manticore layout (RJC-383): one map keyed by id, each entry
+ * tagged with its partition, so a re-upsert that changes partition is a
+ * move here exactly as it is there (a document is in one partition only).
+ */
 export class InMemorySearchEngine implements SearchEngine {
-  private readonly documents = new Map<string, SearchDocument>();
+  private readonly clock: () => Date;
+  private readonly documents = new Map<string, PartitionedDocument>();
   private readonly versionStore: SearchVersionStore;
 
   constructor(
-    versionStore: SearchVersionStore = new InMemorySearchVersionStore()
+    versionStore: SearchVersionStore = new InMemorySearchVersionStore(),
+    clock: () => Date = () => new Date()
   ) {
     this.versionStore = versionStore;
+    this.clock = clock;
+  }
+
+  private store(document: SearchDocument, partition?: SearchPartition): void {
+    this.documents.set(document.id, {
+      document: structuredClone(document),
+      partition: partition ?? documentPartition(document, this.clock()),
+    });
   }
 
   async applyBatch(batch: SearchIndexBatch): Promise<SearchIndexBatchResult> {
@@ -202,10 +228,7 @@ export class InMemorySearchEngine implements SearchEngine {
       if (mutation.kind === "delete") {
         this.documents.delete(mutation.id);
       } else {
-        this.documents.set(
-          mutation.document.id,
-          structuredClone(mutation.document)
-        );
+        this.store(mutation.document, mutation.partition);
       }
     }
     // Map writes cannot partially fail: every mutation applies.
@@ -228,8 +251,9 @@ export class InMemorySearchEngine implements SearchEngine {
 
   async search(params: EngineSearchParams): Promise<SearchEngineResult> {
     const version = await this.getAppliedVersion();
+    const scope = params.scope ?? DEFAULT_SEARCH_SCOPE;
     return timeCriticalPathPhase("search-serialization", () => {
-      const matched = [...this.documents.values()].filter((document) => {
+      const matchesQuery = (document: SearchDocument): boolean => {
         if (!matchesFilters(document, params.filters)) {
           return false;
         }
@@ -243,7 +267,19 @@ export class InMemorySearchEngine implements SearchEngine {
           document.titel,
           document.beschrijving
         );
-      });
+      };
+      const matched: SearchDocument[] = [];
+      let archiveTotal = 0;
+      for (const entry of this.documents.values()) {
+        if (!matchesQuery(entry.document)) {
+          continue;
+        }
+        if (partitionInScope(entry.partition, scope)) {
+          matched.push(entry.document);
+        } else {
+          archiveTotal += 1;
+        }
+      }
 
       const sorted = matched.toSorted((left, right) =>
         compareDocuments(left, right, params.sort ?? "relevance")
@@ -263,10 +299,12 @@ export class InMemorySearchEngine implements SearchEngine {
       }
 
       return Promise.resolve({
+        archiveTotal: scope === "active" ? archiveTotal : undefined,
         emptyReason,
         facets,
         hits: page.map((document) => ({ id: document.id, weight: 1 })),
         indexVersion: Number(version.appliedSequence),
+        scope,
         total: matched.length,
         windowLimit: SEARCH_WINDOW_LIMIT,
       });
@@ -274,7 +312,7 @@ export class InMemorySearchEngine implements SearchEngine {
   }
 
   upsertDocument(document: SearchDocument): Promise<void> {
-    this.documents.set(document.id, structuredClone(document));
+    this.store(document);
     return Promise.resolve();
   }
 }
