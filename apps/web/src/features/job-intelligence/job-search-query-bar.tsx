@@ -1,6 +1,6 @@
 "use client";
 
-import { Search, SlidersHorizontal, X } from "lucide-react";
+import { Loader2, Search, SlidersHorizontal, X } from "lucide-react";
 
 import { sortLabels } from "./presentation";
 import type { JobSearchState } from "./types";
@@ -13,6 +13,9 @@ const sortOptions = selectableJobSortOptions(ENRICHED_SEARCH_DATA_AVAILABLE);
 
 const isJobSort = (value: string): value is JobSearchState["sort"] =>
   sortOptions.some((candidate) => candidate === value);
+
+const selectClass =
+  "min-h-11 rounded-md border border-input bg-background px-3 text-xs font-medium text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring";
 
 interface JobSearchQueryBarProps {
   readonly activeFilterCount: number;
@@ -52,87 +55,108 @@ export const JobSearchQueryBar = ({
   syntaxError,
   total,
 }: JobSearchQueryBarProps) => (
-  <div className="sticky top-16 z-30 border-b border-foreground/10 bg-[var(--ji-canvas)]/96 backdrop-blur-md min-[800px]:static min-[800px]:bg-transparent min-[800px]:backdrop-blur-none">
-    <div className="mx-auto w-full max-w-[1600px] px-3 py-3 sm:px-6 lg:px-8">
-      <form
-        role="search"
-        onSubmit={onSubmit}
-        className="grid gap-2 min-[680px]:grid-cols-[minmax(0,1fr)_auto]"
-      >
-        <div>
-          <label htmlFor="job-query" className="sr-only">
-            Zoek opdrachten met Boolean-logica
-          </label>
-          <div className="flex min-h-12 items-center border border-input bg-card focus-within:border-ring focus-within:ring-2 focus-within:ring-ring/25">
-            <Search
-              aria-hidden="true"
-              className="ml-3 size-4 shrink-0 text-muted-foreground"
-            />
-            <input
-              id="job-query"
-              value={queryDraft}
-              onChange={(event) => onQueryDraftChange(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === "Escape") {
-                  onResetQueryDraft();
-                }
-              }}
-              aria-invalid={syntaxError ? true : undefined}
-              aria-describedby={
-                syntaxError ? "job-query-error" : "job-query-hint"
+  <div className="space-y-2">
+    <form role="search" onSubmit={onSubmit} className="flex flex-wrap gap-2">
+      <div className="min-w-[240px] flex-1">
+        <label htmlFor="job-query" className="sr-only">
+          Zoek opdrachten met Boolean-logica
+        </label>
+        <div className="relative">
+          <Search
+            aria-hidden="true"
+            className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground"
+          />
+          <input
+            id="job-query"
+            value={queryDraft}
+            onChange={(event) => onQueryDraftChange(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Escape") {
+                onResetQueryDraft();
               }
-              placeholder='Bijv. (Azure OR "Power BI") NOT junior'
-              className="min-h-12 min-w-0 flex-1 bg-transparent px-3 text-base outline-none placeholder:text-muted-foreground sm:text-sm"
-            />
-            {queryDraft ? (
-              <button
-                type="button"
-                onClick={onClearQueryDraft}
-                aria-label="Zoekveld leegmaken"
-                className="grid size-11 shrink-0 place-items-center text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
-              >
-                <X aria-hidden="true" className="size-4" />
-              </button>
-            ) : null}
-          </div>
-          <p id="job-query-hint" className="sr-only">
-            Gebruik AND, OR, NOT, haakjes en aanhalingstekens.
-          </p>
-          {syntaxError ? (
-            <p
-              id="job-query-error"
-              className="mt-2 text-xs font-medium text-destructive"
+            }}
+            aria-invalid={syntaxError ? true : undefined}
+            aria-describedby={
+              syntaxError ? "job-query-error" : "job-query-hint"
+            }
+            placeholder='Bijv. (Azure OR "Power BI") NOT junior'
+            className="min-h-11 w-full rounded-md border border-input bg-card pr-11 pl-9 text-base outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30 sm:text-sm"
+          />
+          {queryDraft ? (
+            <button
+              type="button"
+              onClick={onClearQueryDraft}
+              aria-label="Zoekveld leegmaken"
+              className="absolute top-1/2 right-1 grid size-9 -translate-y-1/2 place-items-center rounded-md text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
             >
-              {syntaxError}
-            </p>
+              <X aria-hidden="true" className="size-4" />
+            </button>
           ) : null}
         </div>
-        <button
-          type="submit"
-          className="inline-flex min-h-12 items-center justify-center gap-2 bg-[var(--ji-ink)] px-5 text-sm font-semibold text-[var(--ji-paper)] outline-none transition-colors hover:bg-[var(--ji-ink-raised)] focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 dark:bg-[var(--ji-signal)] dark:text-[var(--ji-ink)] dark:hover:bg-white"
-        >
-          <Search aria-hidden="true" className="size-4" />
-          Zoeken
-        </button>
-      </form>
+        <p id="job-query-hint" className="sr-only">
+          Gebruik AND, OR, NOT, haakjes en aanhalingstekens.
+        </p>
+        {syntaxError ? (
+          <p
+            id="job-query-error"
+            className="mt-2 text-xs font-medium text-destructive"
+          >
+            {syntaxError}
+          </p>
+        ) : null}
+      </div>
 
-      <div className="mt-2 flex min-h-11 flex-wrap items-center gap-2">
-        <button
-          type="button"
-          onClick={onOpenFilters}
-          className="inline-flex min-h-11 items-center gap-2 border border-foreground/12 bg-card px-3 text-xs font-semibold outline-none hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring min-[800px]:hidden"
+      <label className="flex min-h-11 items-center gap-2 text-xs text-muted-foreground">
+        <span className="hidden sm:inline">Sorteren</span>
+        <select
+          aria-label="Resultaten sorteren"
+          value={sort}
+          onChange={(event) => {
+            const { value } = event.target;
+            if (isJobSort(value)) {
+              onSortChange(value);
+            }
+          }}
+          className={selectClass}
         >
-          <SlidersHorizontal aria-hidden="true" className="size-4" />
-          Filters
-          {activeFilterCount > 0 ? (
-            <span className="grid size-5 place-items-center rounded-full bg-[var(--ji-signal-strong)] text-[10px] text-white">
-              {activeFilterCount}
-            </span>
-          ) : null}
-        </button>
+          {sortOptions.map((value) => (
+            <option key={value} value={value}>
+              {sortLabels[value]}
+            </option>
+          ))}
+        </select>
+      </label>
 
-        <p aria-live="polite" className="mr-auto text-xs text-muted-foreground">
-          <strong className="font-semibold text-foreground tabular-nums">
+      <button
+        type="submit"
+        className="inline-flex min-h-11 items-center justify-center gap-2 rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground outline-none transition-colors hover:bg-primary/90 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+      >
+        <Search aria-hidden="true" className="size-4" />
+        Zoeken
+      </button>
+    </form>
+
+    <div className="flex min-h-11 flex-wrap items-center gap-3 text-xs text-muted-foreground">
+      <button
+        type="button"
+        onClick={onOpenFilters}
+        className="inline-flex min-h-11 items-center gap-2 rounded-md border border-input bg-background px-3 text-xs font-medium text-foreground outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring min-[800px]:hidden"
+      >
+        <SlidersHorizontal aria-hidden="true" className="size-4" />
+        Filters
+        {activeFilterCount > 0 ? (
+          <span className="grid size-5 place-items-center rounded-full bg-primary font-mono text-[10px] text-primary-foreground">
+            {activeFilterCount}
+          </span>
+        ) : null}
+      </button>
+
+      <p aria-live="polite" className="mr-auto flex items-center gap-2">
+        {isRefreshing ? (
+          <Loader2 aria-hidden="true" className="size-3 animate-spin" />
+        ) : null}
+        <span>
+          <strong className="font-mono font-semibold text-foreground tabular-nums">
             {total}
           </strong>{" "}
           {countLabel}
@@ -140,42 +164,21 @@ export const JobSearchQueryBar = ({
             ? ` · ${archiveTotal} in archief`
             : ""}
           {isRefreshing ? " · bijwerken…" : ""}
-        </p>
+        </span>
+      </p>
 
-        {/* RJC-383: the one explicit way into the archive partition. */}
-        <label className="flex min-h-11 cursor-pointer items-center gap-2 text-xs text-muted-foreground">
-          <input
-            type="checkbox"
-            checked={scope === "all"}
-            onChange={(event) =>
-              onScopeChange(event.target.checked ? "all" : "active")
-            }
-            className="size-4 accent-[var(--ji-signal-strong)] outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-          />
-          Ook in archief zoeken
-        </label>
-
-        <label className="flex min-h-11 items-center gap-2 text-xs text-muted-foreground">
-          <span className="hidden sm:inline">Sorteren</span>
-          <select
-            aria-label="Resultaten sorteren"
-            value={sort}
-            onChange={(event) => {
-              const { value } = event.target;
-              if (isJobSort(value)) {
-                onSortChange(value);
-              }
-            }}
-            className="min-h-11 border border-foreground/12 bg-card px-3 text-xs font-semibold text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          >
-            {sortOptions.map((value) => (
-              <option key={value} value={value}>
-                {sortLabels[value]}
-              </option>
-            ))}
-          </select>
-        </label>
-      </div>
+      {/* RJC-383: the one explicit way into the archive partition. */}
+      <label className="flex min-h-11 cursor-pointer items-center gap-2">
+        <input
+          type="checkbox"
+          checked={scope === "all"}
+          onChange={(event) =>
+            onScopeChange(event.target.checked ? "all" : "active")
+          }
+          className="size-4 accent-[var(--primary)] outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+        />
+        Ook in archief zoeken
+      </label>
     </div>
   </div>
 );

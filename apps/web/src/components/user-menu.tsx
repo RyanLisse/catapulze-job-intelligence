@@ -28,7 +28,7 @@ export default function UserMenu() {
         render={<Link href="/login" />}
         nativeButton={false}
         variant="ghost"
-        className="h-11 px-3 text-white/72 hover:bg-white/10 hover:text-white"
+        className="h-11 px-3 text-muted-foreground hover:bg-accent hover:text-foreground"
       >
         Inloggen
       </Button>
@@ -38,7 +38,12 @@ export default function UserMenu() {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger
-        render={<Button variant="ghost" className="h-11 text-white/72" />}
+        render={
+          <Button
+            variant="ghost"
+            className="h-11 text-muted-foreground hover:bg-accent hover:text-foreground"
+          />
+        }
       >
         {session.user.name}
       </DropdownMenuTrigger>

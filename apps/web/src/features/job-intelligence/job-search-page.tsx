@@ -5,6 +5,7 @@ import { useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { fixtureJobDataAdapter } from "./fixtures";
+import { JobActiveFilters } from "./job-active-filters";
 import { JobDetail } from "./job-detail";
 import { JobFilters } from "./job-filters";
 import { JobResults } from "./job-results";
@@ -350,6 +351,18 @@ const JobSearchPageContent = ({
     writeState(resetJobSearchState(), "push");
   };
 
+  const clearQuery = () => {
+    setQueryDraft("");
+    writeState(
+      withResetPage(state, {
+        previewStatus: "ready",
+        query: "",
+        selectedJobId: null,
+      }),
+      "push"
+    );
+  };
+
   const submitSearch = (event?: React.FormEvent<HTMLFormElement>) => {
     event?.preventDefault();
     writeState(
@@ -379,8 +392,8 @@ const JobSearchPageContent = ({
   const activeFilterCount = countActiveFilters(state.filters);
   const countLabel = resultCountLabel(response.total);
   const gridColumns = selectedJob
-    ? "min-[800px]:grid-cols-[240px_minmax(0,1fr)] min-[1200px]:grid-cols-[240px_minmax(0,1fr)_400px]"
-    : "min-[800px]:grid-cols-[240px_minmax(0,1fr)]";
+    ? "min-[800px]:grid-cols-[280px_minmax(0,1fr)] min-[1200px]:grid-cols-[280px_minmax(0,1fr)_400px]"
+    : "min-[800px]:grid-cols-[280px_minmax(0,1fr)]";
 
   const { createSnapshot, markSelectedJob, saveCurrentSearch } =
     createJobSearchMutations({
@@ -424,7 +437,10 @@ const JobSearchPageContent = ({
   };
 
   return (
-    <main id="main-content" className="min-h-full bg-[var(--ji-canvas)]">
+    <main
+      id="main-content"
+      className="mx-auto w-full max-w-[1600px] space-y-5 px-4 py-6 sm:px-6 lg:px-8"
+    >
       <JobSearchToolbar
         actions={actions}
         isCreatingSnapshot={isCreatingSnapshot}
@@ -444,120 +460,133 @@ const JobSearchPageContent = ({
         snapshotMessage={snapshotMessage}
       />
 
-      <JobSearchQueryBar
-        activeFilterCount={activeFilterCount}
-        archiveTotal={response.archiveTotal}
-        countLabel={countLabel}
-        isRefreshing={isRefreshing}
-        onClearQueryDraft={() => setQueryDraft("")}
-        onOpenFilters={() => setFiltersOpen(true)}
-        onQueryDraftChange={setQueryDraft}
-        onResetQueryDraft={() => setQueryDraft(state.query)}
-        onScopeChange={(scope) =>
-          writeState(withResetPage(state, { scope, selectedJobId: null }))
-        }
-        onSortChange={(sort) =>
-          writeState(withResetPage(state, { selectedJobId: null, sort }))
-        }
-        onSubmit={submitSearch}
-        queryDraft={queryDraft}
-        scope={state.scope}
-        sort={state.sort}
-        syntaxError={syntaxError}
-        total={response.total}
-      />
-
-      <div
-        className={`mx-auto grid w-full max-w-[1600px] items-start px-0 pb-8 sm:px-6 lg:px-8 ${gridColumns}`}
-      >
-        <aside className="sticky top-2 hidden max-h-[calc(100dvh-5rem)] overflow-y-auto border border-foreground/12 bg-card min-[800px]:block">
+      <div className={`grid items-start gap-6 ${gridColumns}`}>
+        <aside className="hidden min-[800px]:block min-[800px]:sticky min-[800px]:top-20 min-[800px]:max-h-[calc(100dvh-6rem)] min-[800px]:overflow-y-auto min-[800px]:pr-2">
           <JobFilters {...filterProps} />
         </aside>
 
-        <section
-          aria-label="Zoekresultaten"
-          className="relative min-w-0 border-y border-foreground/12 bg-card min-[800px]:border-l-0 min-[800px]:border-r"
-        >
-          {isRefreshing ? (
-            <div
-              className="absolute inset-x-0 top-0 z-10 h-0.5 animate-pulse bg-[var(--ji-signal-strong)]"
-              aria-hidden="true"
-            />
-          ) : null}
+        <div className="min-w-0 space-y-3">
+          <JobSearchQueryBar
+            activeFilterCount={activeFilterCount}
+            archiveTotal={response.archiveTotal}
+            countLabel={countLabel}
+            isRefreshing={isRefreshing}
+            onClearQueryDraft={() => setQueryDraft("")}
+            onOpenFilters={() => setFiltersOpen(true)}
+            onQueryDraftChange={setQueryDraft}
+            onResetQueryDraft={() => setQueryDraft(state.query)}
+            onScopeChange={(scope) =>
+              writeState(withResetPage(state, { scope, selectedJobId: null }))
+            }
+            onSortChange={(sort) =>
+              writeState(withResetPage(state, { selectedJobId: null, sort }))
+            }
+            onSubmit={submitSearch}
+            queryDraft={queryDraft}
+            scope={state.scope}
+            sort={state.sort}
+            syntaxError={syntaxError}
+            total={response.total}
+          />
 
-          {displayStatus === "loading" ? <JobLoadingState /> : null}
-          {displayStatus === "syntax-error" ? (
-            <JobSyntaxErrorState
-              message={
-                syntaxError ??
-                response.message ??
-                "Controleer de Boolean-syntax en probeer opnieuw."
-              }
-              onReset={clearEverything}
-            />
-          ) : null}
-          {displayStatus === "engine-error" ? (
-            <JobEngineErrorState
-              onRetry={() => {
-                writeState({ ...state, previewStatus: "ready" });
-                setRetryNonce((value) => value + 1);
-              }}
-            />
-          ) : null}
-          {displayStatus === "empty" ? (
-            <JobEmptyState onReset={clearEverything} />
-          ) : null}
-          {displayStatus === "ready" ? (
-            <JobResults
-              jobs={response.items}
-              selectedJobId={state.selectedJobId}
-              onSelect={openJob}
-            />
-          ) : null}
+          <JobActiveFilters
+            filters={state.filters}
+            onClearAll={clearEverything}
+            onContractToggle={filterProps.onContractToggle}
+            onFreshnessChange={filterProps.onFreshnessChange}
+            onLocationToggle={filterProps.onLocationToggle}
+            onMinRateChange={filterProps.onMinRateChange}
+            onQueryClear={clearQuery}
+            onSourceToggle={filterProps.onSourceToggle}
+            query={state.query}
+            sources={sources}
+          />
+
+          <section
+            aria-label="Zoekresultaten"
+            className="relative min-w-0 overflow-hidden rounded-lg border border-border bg-card"
+          >
+            {isRefreshing ? (
+              <div
+                className="absolute inset-x-0 top-0 z-10 h-0.5 animate-pulse bg-primary"
+                aria-hidden="true"
+              />
+            ) : null}
+
+            {displayStatus === "loading" ? <JobLoadingState /> : null}
+            {displayStatus === "syntax-error" ? (
+              <JobSyntaxErrorState
+                message={
+                  syntaxError ??
+                  response.message ??
+                  "Controleer de Boolean-syntax en probeer opnieuw."
+                }
+                onReset={clearEverything}
+              />
+            ) : null}
+            {displayStatus === "engine-error" ? (
+              <JobEngineErrorState
+                onRetry={() => {
+                  writeState({ ...state, previewStatus: "ready" });
+                  setRetryNonce((value) => value + 1);
+                }}
+              />
+            ) : null}
+            {displayStatus === "empty" ? (
+              <JobEmptyState onReset={clearEverything} />
+            ) : null}
+            {displayStatus === "ready" ? (
+              <JobResults
+                jobs={response.items}
+                selectedJobId={state.selectedJobId}
+                onSelect={openJob}
+              />
+            ) : null}
+          </section>
 
           {displayStatus === "ready" ? (
-            <div className="flex min-h-16 items-center justify-between gap-4 border-t border-foreground/10 px-4">
-              <p className="text-xs text-muted-foreground tabular-nums">
+            <div className="flex items-center justify-between gap-4">
+              <button
+                type="button"
+                disabled={response.page <= 1}
+                onClick={() =>
+                  writeState({
+                    ...state,
+                    page: Math.max(1, response.page - 1),
+                    selectedJobId: null,
+                  })
+                }
+                aria-label="Vorige pagina"
+                className="inline-flex min-h-9 items-center gap-1.5 rounded-md border border-input bg-background px-3 text-xs font-medium outline-none transition-colors hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                <ChevronLeft aria-hidden="true" className="size-3.5" />
+                Vorige
+              </button>
+              <p className="text-center font-mono text-[11px] text-muted-foreground tabular-nums">
                 {pageLabel(response)}
               </p>
-              <div className="flex items-center gap-1">
-                <button
-                  type="button"
-                  disabled={response.page <= 1}
-                  onClick={() =>
-                    writeState({
-                      ...state,
-                      page: Math.max(1, response.page - 1),
-                      selectedJobId: null,
-                    })
-                  }
-                  aria-label="Vorige pagina"
-                  className="grid size-11 place-items-center border border-foreground/12 outline-none hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-35"
-                >
-                  <ChevronLeft aria-hidden="true" className="size-4" />
-                </button>
-                <button
-                  type="button"
-                  disabled={response.page >= response.totalPages}
-                  onClick={() =>
-                    writeState({
-                      ...state,
-                      page: Math.min(response.totalPages, response.page + 1),
-                      selectedJobId: null,
-                    })
-                  }
-                  aria-label="Volgende pagina"
-                  className="grid size-11 place-items-center border border-foreground/12 outline-none hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-35"
-                >
-                  <ChevronRight aria-hidden="true" className="size-4" />
-                </button>
-              </div>
+              <button
+                type="button"
+                disabled={response.page >= response.totalPages}
+                onClick={() =>
+                  writeState({
+                    ...state,
+                    page: Math.min(response.totalPages, response.page + 1),
+                    selectedJobId: null,
+                  })
+                }
+                aria-label="Volgende pagina"
+                className="inline-flex min-h-9 items-center gap-1.5 rounded-md border border-input bg-background px-3 text-xs font-medium outline-none transition-colors hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                Volgende
+                <ChevronRight aria-hidden="true" className="size-3.5" />
+              </button>
             </div>
           ) : null}
-        </section>
+        </div>
 
         {selectedJob ? (
-          <aside className="sticky top-2 hidden h-[calc(100dvh-5rem)] min-h-[640px] border-y border-r border-foreground/12 min-[1200px]:block">
+          <aside className="sticky top-20 hidden h-[calc(100dvh-6rem)] min-h-[640px] overflow-hidden rounded-lg border border-border min-[1200px]:block">
             <JobDetail
               job={selectedJob}
               liveData={liveData}
@@ -576,11 +605,14 @@ const JobSearchPageContent = ({
         onClose={() => setFiltersOpen(false)}
         titleId="mobile-filters-title"
         descriptionId="mobile-filters-description"
-        className="inset-x-0 top-auto bottom-0 m-0 max-h-[90dvh] w-full max-w-none border border-foreground/15 bg-card p-0 text-foreground"
+        className="inset-x-0 top-auto bottom-0 m-0 max-h-[90dvh] w-full max-w-none rounded-t-lg border border-border bg-card p-0 text-foreground"
       >
-        <div className="flex min-h-16 items-center gap-3 border-b border-foreground/10 px-4">
+        <div className="flex min-h-16 items-center gap-3 border-b border-border px-4">
           <div className="min-w-0 flex-1">
-            <h2 id="mobile-filters-title" className="text-base font-semibold">
+            <h2
+              id="mobile-filters-title"
+              className="font-display text-base font-semibold"
+            >
               Resultaten verfijnen
             </h2>
             <p
@@ -594,7 +626,7 @@ const JobSearchPageContent = ({
             type="button"
             onClick={() => setFiltersOpen(false)}
             aria-label="Filters sluiten"
-            className="grid size-11 shrink-0 place-items-center border border-foreground/12 outline-none hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring"
+            className="grid size-11 shrink-0 place-items-center rounded-md border border-input outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring"
           >
             <X aria-hidden="true" className="size-4" />
           </button>
@@ -602,11 +634,11 @@ const JobSearchPageContent = ({
         <div className="max-h-[calc(90dvh-8rem)] overflow-y-auto overscroll-contain">
           <JobFilters {...filterProps} />
         </div>
-        <div className="sticky bottom-0 border-t border-foreground/10 bg-card p-3">
+        <div className="sticky bottom-0 border-t border-border bg-card p-3">
           <button
             type="button"
             onClick={() => setFiltersOpen(false)}
-            className="min-h-12 w-full bg-[var(--ji-signal-strong)] px-4 text-sm font-semibold text-white outline-none hover:bg-[var(--ji-ink)] focus-visible:ring-2 focus-visible:ring-ring"
+            className="min-h-12 w-full rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground outline-none transition-colors hover:bg-primary/90 focus-visible:ring-2 focus-visible:ring-ring"
           >
             Toon {response.total} {countLabel}
           </button>
@@ -618,7 +650,7 @@ const JobSearchPageContent = ({
         onClose={closeJob}
         titleId="overlay-job-detail-title"
         descriptionId="overlay-job-detail-description"
-        className="inset-y-0 right-0 left-auto m-0 h-dvh w-full max-w-[440px] border-l border-foreground/15 bg-card p-0 text-foreground max-[799px]:max-w-none"
+        className="inset-y-0 right-0 left-auto m-0 h-dvh w-full max-w-[440px] border-l border-border bg-card p-0 text-foreground max-[799px]:max-w-none"
       >
         {selectedJob ? (
           <JobDetail

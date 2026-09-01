@@ -21,7 +21,7 @@ export const ModeToggle = () => {
           <Button
             variant="ghost"
             size="icon"
-            className="size-11 border-white/10 text-white/72 hover:bg-white/10 hover:text-white"
+            className="size-11 text-muted-foreground hover:bg-accent hover:text-foreground"
           />
         }
       >

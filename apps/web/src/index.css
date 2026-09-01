@@ -1,51 +1,88 @@
 @import "@ji/ui/globals.css";
 
+/*
+ * Approved visual design (ported from the neon-data-whisperer reference).
+ *
+ * The console palette is dark-first: `.dark` carries the reference values
+ * verbatim and is the default theme, while `:root` holds a light counterpart
+ * on the same hues so the Licht/Donker/Systeem toggle stays coherent.
+ * All colours are oklch. `--ji-*` remain as semantic aliases for the places
+ * that need a fixed ink/signal regardless of theme (code blocks, hero rules).
+ */
+
+@theme {
+  --font-display: var(--ji-font-display), ui-sans-serif, system-ui, sans-serif;
+  --font-sans: var(--ji-font-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--ji-font-mono), ui-monospace, SFMono-Regular, monospace;
+}
+
 :root {
-  --ji-ink: #0b2426;
-  --ji-ink-raised: #123033;
-  --ji-paper: #f5f0e6;
-  --ji-paper-muted: #c7c4b8;
-  --ji-canvas: #eef0e8;
-  --ji-signal: #45dbc8;
-  --ji-signal-strong: #0f8f82;
-  --ji-warm: #d4a565;
-  --background: oklch(0.952 0.012 101);
-  --foreground: oklch(0.205 0.025 190);
-  --card: oklch(0.982 0.008 96);
-  --card-foreground: oklch(0.205 0.025 190);
-  --primary: oklch(0.535 0.105 181);
-  --primary-foreground: oklch(0.985 0.004 95);
-  --secondary: oklch(0.916 0.016 102);
-  --secondary-foreground: oklch(0.265 0.027 190);
-  --muted: oklch(0.926 0.012 100);
-  --muted-foreground: oklch(0.47 0.018 190);
-  --accent: oklch(0.903 0.04 179);
-  --accent-foreground: oklch(0.265 0.04 185);
-  --border: oklch(0.842 0.018 103);
-  --input: oklch(0.81 0.018 103);
-  --ring: oklch(0.68 0.132 181);
-  --radius: 0.375rem;
+  --radius: 0.5rem;
+
+  --ji-ink: oklch(0.163 0.017 252);
+  --ji-ink-raised: oklch(0.205 0.02 253);
+  --ji-paper: oklch(0.945 0.008 250);
+  --ji-paper-muted: oklch(0.685 0.02 252);
+  --ji-canvas: oklch(0.982 0.003 250);
+  --ji-signal: oklch(0.79 0.135 189);
+  --ji-signal-strong: oklch(0.55 0.1 189);
+  --ji-warm: oklch(0.62 0.13 70);
+
+  --background: oklch(0.982 0.003 250);
+  --foreground: oklch(0.21 0.022 253);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.21 0.022 253);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.21 0.022 253);
+  --primary: oklch(0.55 0.1 189);
+  --primary-foreground: oklch(0.99 0.005 190);
+  --secondary: oklch(0.955 0.006 253);
+  --secondary-foreground: oklch(0.28 0.022 253);
+  --muted: oklch(0.955 0.005 253);
+  --muted-foreground: oklch(0.5 0.018 252);
+  --accent: oklch(0.93 0.022 200);
+  --accent-foreground: oklch(0.24 0.03 250);
+  --destructive: oklch(0.55 0.2 25);
+  --border: oklch(0.9 0.008 253);
+  --input: oklch(0.88 0.01 253);
+  --ring: oklch(0.55 0.1 189);
+  --chart-1: oklch(0.6 0.11 189);
+  --chart-2: oklch(0.68 0.14 85);
+  --chart-3: oklch(0.55 0.16 300);
+  --chart-4: oklch(0.62 0.15 145);
+  --chart-5: oklch(0.6 0.17 20);
 }
 
 .dark {
-  --ji-canvas: #0e292b;
-  --background: oklch(0.205 0.028 190);
-  --foreground: oklch(0.94 0.012 95);
-  --card: oklch(0.245 0.03 190);
-  --card-foreground: oklch(0.94 0.012 95);
-  --popover: oklch(0.245 0.03 190);
-  --popover-foreground: oklch(0.94 0.012 95);
-  --primary: oklch(0.79 0.13 181);
-  --primary-foreground: oklch(0.19 0.03 190);
-  --secondary: oklch(0.29 0.027 190);
-  --secondary-foreground: oklch(0.94 0.012 95);
-  --muted: oklch(0.285 0.025 190);
-  --muted-foreground: oklch(0.73 0.018 100);
-  --accent: oklch(0.35 0.045 183);
-  --accent-foreground: oklch(0.94 0.012 95);
-  --border: oklch(1 0 0 / 13%);
-  --input: oklch(1 0 0 / 18%);
-  --ring: oklch(0.79 0.13 181);
+  color-scheme: dark;
+
+  --ji-canvas: oklch(0.163 0.017 252);
+  --ji-signal-strong: oklch(0.79 0.135 189);
+  --ji-warm: oklch(0.8 0.15 85);
+
+  --background: oklch(0.163 0.017 252);
+  --foreground: oklch(0.945 0.008 250);
+  --card: oklch(0.205 0.02 253);
+  --card-foreground: oklch(0.945 0.008 250);
+  --popover: oklch(0.205 0.02 253);
+  --popover-foreground: oklch(0.945 0.008 250);
+  --primary: oklch(0.79 0.135 189);
+  --primary-foreground: oklch(0.17 0.03 220);
+  --secondary: oklch(0.268 0.021 253);
+  --secondary-foreground: oklch(0.93 0.01 250);
+  --muted: oklch(0.245 0.019 253);
+  --muted-foreground: oklch(0.685 0.02 252);
+  --accent: oklch(0.3 0.028 250);
+  --accent-foreground: oklch(0.95 0.008 250);
+  --destructive: oklch(0.63 0.2 25);
+  --border: oklch(0.3 0.021 253);
+  --input: oklch(0.3 0.021 253);
+  --ring: oklch(0.79 0.135 189);
+  --chart-1: oklch(0.79 0.135 189);
+  --chart-2: oklch(0.8 0.15 85);
+  --chart-3: oklch(0.68 0.16 300);
+  --chart-4: oklch(0.75 0.16 145);
+  --chart-5: oklch(0.7 0.17 20);
 }
 
 html {
@@ -55,6 +92,15 @@ html {
 
 body {
   overflow-x: clip;
+  font-feature-settings: "tnum" 1;
+}
+
+h1,
+h2,
+h3,
+h4 {
+  font-family: var(--font-display);
+  letter-spacing: -0.015em;
 }
 
 ::selection {
@@ -62,7 +108,7 @@ body {
 }
 
 .ji-mono {
-  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-family: var(--font-mono);
 }
 
 .ji-dialog {
@@ -71,7 +117,7 @@ body {
 }
 
 .ji-dialog::backdrop {
-  background: rgb(4 20 21 / 72%);
+  background: oklch(0.12 0.015 252 / 72%);
   backdrop-filter: blur(3px);
 }
 
