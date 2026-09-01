@@ -9,7 +9,8 @@ import {
   runNeonV1Backfill,
 } from "@ji/application/backfill";
 import type { BackfillRunResult, NeonV1Source } from "@ji/application/backfill";
-import { InMemoryObjectStore } from "@ji/connectors";
+import { FilesystemObjectStore, InMemoryObjectStore } from "@ji/connectors";
+import type { ObjectStore } from "@ji/connectors";
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 
@@ -27,7 +28,31 @@ export interface RunMotianV1BackfillOptions {
   readonly fixturePath?: string;
   readonly includeClosed?: boolean;
   readonly motianDatabaseUrl?: string;
+  readonly rawObjectStore?: BackfillRawObjectStore;
 }
+
+export interface BackfillRawObjectStore {
+  readonly kind: "filesystem" | "s3";
+  readonly store: ObjectStore;
+}
+
+export const resolveBackfillObjectStore = (
+  rawObjectStore: BackfillRawObjectStore | undefined,
+  nodeEnv = process.env.NODE_ENV
+): ObjectStore => {
+  if (nodeEnv === "production" && rawObjectStore?.kind !== "s3") {
+    throw new Error(
+      "Production backfill refused: RAW_S3_BUCKET is required so copied Motian payloads remain available after the one-shot process exits."
+    );
+  }
+  if (rawObjectStore) {
+    return rawObjectStore.store;
+  }
+  return new FilesystemObjectStore(
+    process.env.RAW_OBJECT_STORE_PATH?.trim() ||
+      `${process.cwd()}/.data/raw-objects`
+  );
+};
 
 export const resolveNeonV1BackfillSource = async (input: {
   readonly batchSize?: number;
@@ -65,6 +90,8 @@ export const runMotianV1Backfill = async (
   const database = drizzle(sql, { schema });
   await seedMotianV1Bronnen(database, MOTIAN_V1_BRON_SEEDS);
 
+  const objectStore = resolveBackfillObjectStore(options.rawObjectStore);
+
   const source = await resolveNeonV1BackfillSource({
     batchSize: options.batchSize,
     fixturePath: options.fixturePath,
@@ -77,7 +104,7 @@ export const runMotianV1Backfill = async (
       batchSize: options.batchSize,
       bindings: MOTIAN_V1_BRON_BINDINGS,
       curateStore: new PostgresCurateStore(database),
-      objectStore: new InMemoryObjectStore(),
+      objectStore,
       provenanceStore: new PostgresBackfillProvenanceStore(database),
       runStore: new PostgresBackfillRunStore(database),
       source,

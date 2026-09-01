@@ -1,3 +1,4 @@
+import { createRawObjectStore } from "@ji/connectors/s3-object-client";
 import { runMotianV1Backfill } from "@ji/db";
 import { schemaTask } from "@trigger.dev/sdk";
 import { z } from "zod";
@@ -19,9 +20,18 @@ export const backfillNeonV1Task = schemaTask({
     maxAttempts: 1,
   },
   run: async (payload) => {
+    const rawObjectStore = createRawObjectStore({
+      RAW_OBJECT_STORE_PATH: process.env.RAW_OBJECT_STORE_PATH,
+      RAW_S3_ACCESS_KEY_ID: process.env.RAW_S3_ACCESS_KEY_ID,
+      RAW_S3_BUCKET: process.env.RAW_S3_BUCKET,
+      RAW_S3_ENDPOINT: process.env.RAW_S3_ENDPOINT,
+      RAW_S3_REGION: process.env.RAW_S3_REGION,
+      RAW_S3_SECRET_ACCESS_KEY: process.env.RAW_S3_SECRET_ACCESS_KEY,
+    });
     const result = await runMotianV1Backfill({
       batchSize: payload.batchSize,
       includeClosed: payload.includeClosed,
+      rawObjectStore,
     });
     return {
       metrics: result.metrics,

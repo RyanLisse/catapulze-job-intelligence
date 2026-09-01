@@ -12,7 +12,38 @@ import {
 import { InMemoryCurateStore } from "@ji/application/identity";
 import { InMemoryObjectStore } from "@ji/connectors";
 
-import { runMotianV1BackfillInMemory } from "./backfill-runner";
+import {
+  resolveBackfillObjectStore,
+  runMotianV1BackfillInMemory,
+} from "./backfill-runner";
+
+describe("Motian v1 backfill raw payload persistence", () => {
+  it("uses a filesystem store outside production when S3 is not configured", () => {
+    expect(resolveBackfillObjectStore(undefined, "development")).toBeDefined();
+  });
+
+  it("refuses an ephemeral production configuration", () => {
+    expect(() => resolveBackfillObjectStore(undefined, "production")).toThrow(
+      /RAW_S3_BUCKET/u
+    );
+  });
+
+  it("refuses an explicitly supplied filesystem store in production", () => {
+    expect(() =>
+      resolveBackfillObjectStore(
+        { kind: "filesystem", store: new InMemoryObjectStore() },
+        "production"
+      )
+    ).toThrow(/RAW_S3_BUCKET/u);
+  });
+
+  it("uses an explicitly supplied S3 store in production", () => {
+    const store = new InMemoryObjectStore();
+    expect(
+      resolveBackfillObjectStore({ kind: "s3", store }, "production")
+    ).toBe(store);
+  });
+});
 
 describe("Motian v1 backfill runner", () => {
   it("imports all seven platform bindings from neon-v1-platforms.json", async () => {
