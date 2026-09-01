@@ -79,3 +79,64 @@ De gevolgen hierboven zijn inmiddels (deels) geïmplementeerd:
 
 Zie [ADR-0007](ADR-0007-search-platform-state-2026-09-01.md) voor de volledige
 staat van de zoek-/ingest-/opslagarchitectuur op deze datum.
+
+## Operationele gereedheid (2026-09-01, RJC-381)
+
+De twee resterende harde gaten uit "Nieuwe verplichtingen" (backup/restore,
+punt 2; rollen, punt 3) zijn nu gedeeltelijk gedicht. Volledig
+procedureboek: [`docs/runbooks/neon-restore.md`](../runbooks/neon-restore.md).
+
+**Bewezen (echte rehearsal, evidence in het runbook):**
+
+- **Off-provider export.** `tools/postgres/neon-export.ts` (bash;
+  `pg_dump -Fc` + optionele `--verify`-restore in een wegwerpbare lokale
+  Postgres-cluster, geen docker) draaide echt tegen Neon: 106.630 bytes in 2s,
+  lokale restore in 1s, rijaantal en checksum van `curated.aanvraag` kwamen
+  overeen.
+- **Rolscheiding voorbereid en lokaal getest.** `tools/postgres/neon-roles.sql`
+  maakt `ji_migrator`/`ji_app`/`ji_readonly` idempotent aan met de
+  least-privilege-grants uit ADR-0004, gegeneraliseerd van het lokale
+  `public`-only bootstrapscript naar dit projects vier schema's
+  (`public`, `curated`, `staging`, `marts`). Lokaal (niet tegen Neon) bewezen:
+  `ji_app` kan lezen/schrijven maar geen DDL, `ji_readonly` kan alleen lezen,
+  `ji_migrator` kan DDL, en een tweede run is een no-op.
+
+**Nog niet bewezen — expliciete gaten:**
+
+- **PITR/branch-restoredrill.** Deze sessie had een Neon-Postgresverbinding
+  maar geen Neon API-key/`neonctl`-authenticatie/Console-toegang, dus de
+  daadwerkelijke branch-restore (`neon branches create --parent
+  production@<timestamp>`) is niet uitgevoerd. Het runbook documenteert de
+  exacte, bronvermelde CLI/Console-stappen; een operator met Console-toegang
+  moet de drill zelf draaien, de gemeten RTO vastleggen en het geconfigureerde
+  retentievenster in Console → Settings → Instant restore aflezen (Neon's
+  eigen documentatie noemt 6u/Free, 1 dag/betaald, instelbaar tot 7 dagen op
+  Launch — niet geverifieerd voor dít project).
+- **Rolscheiding nog niet uitgevoerd op Neon zelf.** Bewust: de opdracht
+  verbood het uitvoeren van rolwijzigingen op Neon tenzij aantoonbaar veilig
+  en omkeerbaar. Het script staat klaar; een operator (Ryan) draait het één
+  keer met de owner-connectiestring en wijzigt daarna
+  `MIGRATION_DATABASE_URL`/`DATABASE_URL` naar de nieuwe rollen. Tot die stap
+  draait alles nog als `neondb_owner` — functioneel werkt dit, het risico is
+  blast radius (een lek geeft nu DDL/owner-rechten, niet alleen DML), niet
+  functionaliteit.
+- **Schemaversie-gat — gekwantificeerd en gerehearst, harde deploy-blocker.**
+  Neons migratiejournaal (`drizzle.__drizzle_migrations`) toont 6 toegepaste
+  migraties (`0000`–`0005`); `main` heeft er 12 (`0000`–`0011`). Concreet:
+  `curated.outbox_event` mist `sequence_number` en de bulk-projectorkolommen
+  (`0006`, `0008`), `curated.query_snapshot` mist `search_generation`/
+  `search_applied_sequence`/`search_scope` (`0007`, `0010`) — die tabel heeft
+  vandaag 0 rijen op Neon, dus geen backfillrisico —, `staging.source_record`
+  mist `missed_polls` en de twee FK-kolommen naar `curated.scrape_run`
+  (`0009`, 145 rijen, alle nieuwe kolommen `NULL` dus geen FK-validatie
+  nodig), en `curated.aanvraag` mist `locatie_tekst`/`sluitingsdatum`
+  (`0011`, 4 rijen). Dit blokkeert deploy van `main`-code tegen Neon
+  onmiddellijk (niet geleidelijk), en blokkeerde ook een deel van de
+  gevraagde restore-verificatie (`max(sequence_number)` kon niet draaien).
+  **Gerehearst, niet alleen afgeleid:** een volledige `pg_dump`/`pg_restore`
+  van Neon naar een lokale wegwerp-cluster, gevolgd door een echte
+  `bun run db:migrate`-run — slaagde, journaal ging van 6 naar 12, rijaantallen
+  ongewijzigd, `sequence_number` correct gevuld. Volledige procedure,
+  operator-commando's en Neon-branch-als-rollback in
+  [`docs/runbooks/neon-migration-catchup.md`](../runbooks/neon-migration-catchup.md).
+  **Niet tegen Neon zelf uitgevoerd** — dat is aan een operator (Ryan).

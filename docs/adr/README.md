@@ -29,3 +29,5 @@ Deze map bevat de canonieke architectuurbesluiten die meerdere packages, uitvoer
 - [Raw object storage](../runbooks/raw-object-storage.md) — S3-vs-filesystem raw store, content-addressing, digest-validatie, lokale MinIO-compose.
 - [Component-gewijze readiness (`/readyz`)](../runbooks/readiness.md) — postgres, manticore, rawObjectStore, redis, searchProjection, elk met eigen budget en vaste `reason`-strings.
 - [Search-schema-migratie](../runbooks/search-schema-migration.md) — stappenplan bij een `SEARCH_SCHEMA_HASH`-wijziging: RT-attributen toevoegen, nieuwe generatie starten, reindexeren, verifiëren.
+- [Neon restore en rolscheiding](../runbooks/neon-restore.md) — PITR/branch-restoreprocedure, off-provider `pg_dump`-export met verificatie, en de `ji_migrator`/`ji_app`/`ji_readonly`-rolscheiding voor Neon (ADR-0006, RJC-381).
+- [Neon migratie-inhaalslag](../runbooks/neon-migration-catchup.md) — Neons schemaversie loopt 6 migraties achter op `main`; gekwantificeerd en gerehearst tegen een echte kloon van Neons huidige data, met operator-procedure en Neon-branch-als-rollback (RJC-381 vervolg).

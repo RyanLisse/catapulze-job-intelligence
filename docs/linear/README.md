@@ -78,7 +78,7 @@ Plan for Slice A units: [`docs/plans/2026-08-27-2022-feat-slice-a-read-path-plan
 | DEC-002 | Lever definitieve bronmatrix / deep dive | Backlog |
 | DEC-003 | Leg schema en deduperegels vast | Backlog |
 | DEC-004 | Leg searchcontract en SLO vast | Backlog |
-| DEC-005 | Gebruik Postgres 16 on-box; Motian-Neon alleen als read-only importbron | Done (`RJC-321`) |
+| DEC-005 | Gebruik Postgres 16 on-box; Motian-Neon alleen als read-only importbron | Done (`RJC-321`) — **omgekeerd door [ADR-0006](../adr/ADR-0006-neon-as-system-of-record.md), 2026-08-31: Neon is nu de production system of record** |
 | DEC-006 | Bevestig Spot/Spott-product, URL, API en sandbox | Backlog — **blocks Slice B** |
 | DEC-007 | Stel scrape- en hostingbudget vast | Backlog |
 | DEC-008 | Definieer raw-data-minimalisatie en retentie | Backlog |
@@ -102,6 +102,8 @@ Plan for Slice A units: [`docs/plans/2026-08-27-2022-feat-slice-a-read-path-plan
 Sequencing: U1 → U2 → U3. U8 and U9 may proceed in parallel after U7. U10 may proceed after U2, but remains open until private networking, protected persistence, monitoring/resource limits, continuous off-site WAL and an isolated restore are evidenced.
 
 DEC-005 is inhoudelijk definitief in deze catalogus: de nieuwe Catapulze-database is Postgres 16 on-box vanaf P0. Motian-Neon blijft uitsluitend een read-only bron voor de historische U8-backfill. Productie vereist een beschermd persistent volume, private poort 5432, continue WAL/off-site backups met een bewezen restore, monitoring en resourceprioriteit voor Postgres. HA-behoefte of meetbare disk/RAM-concurrentie is de exit-trigger naar een aparte DB-host of managed PostgreSQL.
+
+**Omgekeerd, 2026-08-31.** [ADR-0006](../adr/ADR-0006-neon-as-system-of-record.md) maakt Neon (managed Postgres) de production system of record; er komt géén dedicated on-box PostgreSQL-productie-instance. De alinea hierboven is bewust ongewijzigd gelaten als historisch record van het oorspronkelijke besluit — zie ADR-0006 voor de onderbouwing van de omkering en [docs/runbooks/neon-restore.md](../runbooks/neon-restore.md) voor de resulterende Neon-restore- en rolscheidingsverplichtingen (RJC-381). Dit is een lokale mirror van de ADR-tekst; de live Linear-tekst van `RJC-321` kon deze sessie niet worden gelezen (beide beschikbare Linear-MCP-verbindingen faalden — verkeerde workspace resp. verlopen token) en is dus niet geverifieerd tegen dit bestand.
 
 ### Slice B — placeholders, blocked on DEC-006
 
