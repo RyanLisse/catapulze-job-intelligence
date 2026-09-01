@@ -247,31 +247,53 @@ interface EngineRun {
   name: string;
 }
 
+/** Builds one Manticore EngineRun. Shared by both the default MANTICORE_URL
+ * engine and the optional RJC-382 comparison engine below. */
+const buildManticoreRun = (
+  name: string,
+  url: string,
+  corpus: RelevanceCorpusSummary
+): EngineRun => {
+  const manticore = ManticoreSearchEngine.fromUrl(
+    url,
+    new InMemorySearchVersionStore()
+  );
+  return {
+    // The local Manticore table is shared with the app; benchmark ids are
+    // `slug:referentie` strings that cannot collide with the app's UUID
+    // ids, and every inserted document is removed again after scoring.
+    cleanup: async () => {
+      for (const item of corpus.documents) {
+        // oxlint-disable-next-line no-await-in-loop -- sequential deletes keep cleanup simple and bounded (tens of docs)
+        await manticore.deleteDocument(item.id);
+      }
+    },
+    engine: manticore,
+    name,
+  };
+};
+
 /** In-memory always; Manticore when MANTICORE_URL is set (ISC-4: adding an
- * engine here is the only change needed — never in the application layer). */
+ * engine here is the only change needed — never in the application layer).
+ *
+ * RJC-382: an optional second Manticore target for the 6.3.8-vs-29.0.2
+ * golden-set comparison. Set MANTICORE_29_URL to score a second engine in
+ * the same run (e.g. the manticore29 shadow instance); MANTICORE_29_LABEL
+ * optionally names it in the report (e.g. "manticore29-infix"), defaulting
+ * to "manticore-29". Both are no-ops when unset, so `bun run relevance`
+ * with only MANTICORE_URL set is unaffected. */
 const buildEngineRuns = (corpus: RelevanceCorpusSummary): EngineRun[] => {
   const runs: EngineRun[] = [
     { cleanup: null, engine: new InMemorySearchEngine(), name: "in-memory" },
   ];
   const manticoreUrl = process.env.MANTICORE_URL?.trim();
   if (manticoreUrl) {
-    const manticore = ManticoreSearchEngine.fromUrl(
-      manticoreUrl,
-      new InMemorySearchVersionStore()
-    );
-    runs.push({
-      // The local Manticore table is shared with the app; benchmark ids are
-      // `slug:referentie` strings that cannot collide with the app's UUID
-      // ids, and every inserted document is removed again after scoring.
-      cleanup: async () => {
-        for (const item of corpus.documents) {
-          // oxlint-disable-next-line no-await-in-loop -- sequential deletes keep cleanup simple and bounded (tens of docs)
-          await manticore.deleteDocument(item.id);
-        }
-      },
-      engine: manticore,
-      name: "manticore",
-    });
+    runs.push(buildManticoreRun("manticore", manticoreUrl, corpus));
+  }
+  const manticore29Url = process.env.MANTICORE_29_URL?.trim();
+  if (manticore29Url) {
+    const label = process.env.MANTICORE_29_LABEL?.trim() || "manticore-29";
+    runs.push(buildManticoreRun(label, manticore29Url, corpus));
   }
   return runs;
 };

@@ -34,3 +34,7 @@ Do not switch production traffic to 29.x unless **all** of the following hold, e
 - The RJC-382 owner has signed off on the specific config used for the comparison (this file's `manticore29.conf`, or a revision of it) — config changes made mid-comparison invalidate the result and require a rerun.
 
 If any of these fail, keep 6.3.8 as the served instance and treat `manticore29` as a standing shadow for the next comparison round rather than tearing it down.
+
+## Comparison round results (2026-09-01)
+
+Golden-set Recall@20/nDCG@10 comparison, version isolated from the `min_infix_len` config change, is done: see `docs/research/manticore-29-comparison-2026-09-01.md`. Verdict: the version delta is a **trade, not a clean win** — macro Recall@20 rises (0.477 → 0.488) but semantic-synonym genuinely regresses (0.188 → 0.000, a real Dutch-stemming weakening in 29.0.2, not a corpus artifact); `min_infix_len = 2` measured zero effect (verified active via `SHOW TABLE SETTINGS`, not just assumed); latency is unmeasured and BLOCKED ON LATENCY for the switch decision (speed is the product's most important property); owner sign-off is still open. 6.3.8 stays served.

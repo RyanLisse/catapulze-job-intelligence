@@ -65,3 +65,16 @@ The runner talks only to the `SearchEngine` seam (`packages/search`):
 - **manticore** — runs when `MANTICORE_URL` is set. Uses the shared local `aanvragen` table: benchmark documents use `slug:referentie` ids (which cannot collide with the app's UUID ids) and are deleted again after scoring. For a strictly clean comparison, run against a fresh Manticore volume; pre-existing documents can occupy result slots but can never be counted as relevant.
 
 Adding a candidate engine = one entry in `buildEngineRuns` in `run.ts` (construct anything implementing `SearchEngine`). No application-layer code changes (ISC-4).
+
+## RJC-382: comparing against a second engine
+
+Set `MANTICORE_29_URL` (and optionally `MANTICORE_29_LABEL`) to score a second Manticore target in the same run — used to compare the 6.3.8 production instance against the 29.0.2 shadow instance (`tools/manticore/README-29-shadow.md`):
+
+```bash
+MANTICORE_URL=http://127.0.0.1:9308 \
+MANTICORE_29_URL=http://127.0.0.1:9312 \
+MANTICORE_29_LABEL=manticore29-infix \
+bun run relevance
+```
+
+Run once against `tools/manticore/manticore29.conf` (infix enabled) and once against `tools/manticore/manticore29-noinfix.conf` (identical minus `min_infix_len`) to isolate the infix config change from the version upgrade itself — swap the conf file mounted at `/etc/manticoresearch/manticore.conf` and restart `manticore29` between runs, on a fresh volume each time (`docker volume rm catapulze-job-intelligence_manticore29_data`) so the schema actually reloads. Verify the table is empty (`total: 0` from a `match_all` search) before each run.
