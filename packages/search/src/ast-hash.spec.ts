@@ -7,6 +7,7 @@ import {
   buildCacheKey,
   buildFacetCacheKey,
   canonicalizeAst,
+  compareCodepoints,
   hashAst,
 } from "./ast-hash";
 import { InMemorySearchVersionStore } from "./version";
@@ -106,6 +107,44 @@ describe("canonicalizeAst (RJC-388)", () => {
       const canonical = canonicalizeAst(parseOk(query));
       assertNegationNeverPrecedesPositive(canonical);
     }
+  });
+});
+
+// RJC-396: `String.localeCompare` without an explicit locale argument
+// collates via the process's ICU default locale, so the same two strings
+// can sort in opposite order on different processes/environments. That
+// used to feed dedupeSortedOperands and stableStringifyFilters, both on
+// the path to a SHARED Redis key — a silent cross-process cache miss, not
+// a wrong result. These pairs are confirmed (via a throwaway localeCompare
+// probe under the en-US ICU default) to sort in the OPPOSITE order under
+// locale-aware collation vs plain codepoint order; compareCodepoints must
+// still produce the fixed, codepoint-only answer for every one of them.
+describe("compareCodepoints (RJC-396)", () => {
+  it("sorts punctuation by codepoint, not locale-aware collation weight", () => {
+    // "(" (0x28) < ":" (0x3A) by codepoint; localeCompare("(", ":") is
+    // positive under en-US ICU collation (punctuation is weighted low).
+    expect(compareCodepoints("(", ":")).toBe(-1);
+    // ":" (0x3A) > '"' (0x22) by codepoint; localeCompare(":", '"') is
+    // negative under en-US ICU collation.
+    expect(compareCodepoints(":", '"')).toBe(1);
+  });
+
+  it("sorts case by codepoint (uppercase before lowercase), not locale case-folding", () => {
+    // "A" (0x41) < "a" (0x61) by codepoint; localeCompare("a", "A") is
+    // negative under en-US ICU collation (lowercase sorts first there).
+    expect(compareCodepoints("a", "A")).toBe(1);
+  });
+
+  it("sorts accented characters by codepoint, not diacritic-aware collation", () => {
+    // "é" (U+00E9) > "f" (0x66) by codepoint; localeCompare("é", "f") is
+    // negative under en-US ICU collation (é collates near "e").
+    expect(compareCodepoints("é", "f")).toBe(1);
+  });
+
+  it("is a total order: equal strings compare equal, and it's antisymmetric", () => {
+    expect(compareCodepoints("term:azure", "term:azure")).toBe(0);
+    expect(compareCodepoints("term:a", "term:b")).toBe(-1);
+    expect(compareCodepoints("term:b", "term:a")).toBe(1);
   });
 });
 

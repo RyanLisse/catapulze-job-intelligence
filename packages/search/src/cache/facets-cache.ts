@@ -1,4 +1,5 @@
 import type { SearchFacets } from "../types";
+import { TtlLruCache } from "./ttl-lru-cache";
 
 /**
  * Page-independent facets layer (RJC-388), keyed by buildFacetCacheKey
@@ -11,22 +12,29 @@ export interface FacetCache {
   set: (key: string, facets: SearchFacets, ttlSeconds: number) => Promise<void>;
 }
 
-// ponytail: unbounded and TTL-blind, same ceiling as MemoryResultCache, now
-// doubled by this second layer — every index generation's facets sit here
-// forever in a long-lived non-Redis process. Redis is the bounded backend
-// (TTL-enforced); add an LRU cap here if this ever runs unattended without
-// it.
+/**
+ * Same cap rationale as MEMORY_RESULT_CACHE_MAX_ENTRIES (RJC-396): 500
+ * facets entries per process is generous for realistic query+filter
+ * variety without an unbounded backend.
+ */
+export const MEMORY_FACET_CACHE_MAX_ENTRIES = 500;
+
 export class MemoryFacetCache implements FacetCache {
-  private readonly entries = new Map<string, SearchFacets>();
+  private readonly entries: TtlLruCache<SearchFacets>;
+
+  constructor(
+    maxEntries: number = MEMORY_FACET_CACHE_MAX_ENTRIES,
+    clock?: () => number
+  ) {
+    this.entries = new TtlLruCache(maxEntries, clock);
+  }
 
   get(key: string): Promise<SearchFacets | null> {
     return Promise.resolve(this.entries.get(key) ?? null);
   }
 
-  // ponytail: matches MemoryResultCache's convention of ignoring ttlSeconds
-  // — the memory backend has no eviction clock, Redis is where TTL is real.
-  set(key: string, facets: SearchFacets, _ttlSeconds: number): Promise<void> {
-    this.entries.set(key, structuredClone(facets));
+  set(key: string, facets: SearchFacets, ttlSeconds: number): Promise<void> {
+    this.entries.set(key, structuredClone(facets), ttlSeconds);
     return Promise.resolve();
   }
 }

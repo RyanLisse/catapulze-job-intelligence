@@ -124,6 +124,38 @@ describe("InMemorySearchEngine sorting", () => {
   });
 });
 
+describe("InMemorySearchEngine facet value ordering (RJC-396)", () => {
+  it("orders facet values by codepoint, not locale-aware collation", async () => {
+    // Facet buckets are cached (buildFacetCacheKey), so locale-dependent
+    // ordering would make the same cache entry present differently-ordered
+    // values depending on which process's locale filled it. Codepoint
+    // order of these four is fixed: "Café" (0x43) < "Zorg (NL)" (0x5A) <
+    // "acme:corp" (0x61) < "info" (0x69) — regardless of ICU collation,
+    // which under en-US would instead group case-insensitively and treat
+    // "(" / ":" as low-weight punctuation.
+    const engine = await seeded([
+      document("a", { bronId: "Zorg (NL)" }),
+      document("b", { bronId: "acme:corp" }),
+      document("c", { bronId: "Café" }),
+      document("d", { bronId: "info" }),
+    ]);
+
+    const result = await engine.search({
+      ast: null,
+      filters: {},
+      limit: 10,
+      offset: 0,
+    });
+
+    expect(result.facets.bron_id.map((bucket) => bucket.value)).toEqual([
+      "Café",
+      "Zorg (NL)",
+      "acme:corp",
+      "info",
+    ]);
+  });
+});
+
 describe("InMemorySearchEngine locatie", () => {
   it("filters and facets on locatie, defaulting to locatieLand when absent", async () => {
     const engine = await seeded([

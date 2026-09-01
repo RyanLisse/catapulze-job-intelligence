@@ -28,9 +28,28 @@ const stableStringifyAst = (node: BooleanNode): string => {
   }
 };
 
+/**
+ * Deterministic codepoint-order comparison (RJC-396): `String.localeCompare`
+ * without an explicit locale argument collates via the process's ICU
+ * default locale, which varies punctuation/digit ordering across
+ * processes/environments. That fed a SHARED Redis key, so two servers
+ * under different default locales could hash the same query to different
+ * keys — a silent cache miss, not a wrong result. This never varies: it's
+ * plain UTF-16 code unit order, same as the default `Array.prototype.sort`.
+ */
+export const compareCodepoints = (left: string, right: string): -1 | 0 | 1 => {
+  if (left < right) {
+    return -1;
+  }
+  if (left > right) {
+    return 1;
+  }
+  return 0;
+};
+
 const stableStringifyFilters = (filters: SearchFilters): string => {
   const entries = Object.entries(filters).toSorted(([left], [right]) =>
-    left.localeCompare(right)
+    compareCodepoints(left, right)
   );
   return JSON.stringify(Object.fromEntries(entries));
 };
@@ -82,7 +101,10 @@ const dedupeSortedOperands = (
     if (rankDelta !== 0) {
       return rankDelta;
     }
-    return stableStringifyAst(left).localeCompare(stableStringifyAst(right));
+    return compareCodepoints(
+      stableStringifyAst(left),
+      stableStringifyAst(right)
+    );
   });
 
   const deduped: BooleanNode[] = [];
@@ -144,8 +166,15 @@ export interface CacheKeyPage {
  * changes what `astHash` resolves to for the same query text (RJC-388), so
  * a v3 key could otherwise resolve to a now-stale hash for the same page.
  * `v5` adds the scope (RJC-383): the same page under "active" and "all"
- * are different result sets.
+ * are different result sets. `v6` retires every v5 entry (RJC-396):
+ * dedupeSortedOperands/stableStringifyFilters switched from
+ * `localeCompare` to a codepoint comparator, so a v5 key built under a
+ * different ICU default locale could disagree with a v6 key for the same
+ * query text — old keys become unreachable, which is the point.
  */
+const RESULT_CACHE_KEY_PREFIX = "search:v6";
+const FACET_CACHE_KEY_PREFIX = "search:facets:v3";
+
 export const buildCacheKey = (
   astHash: string,
   version: SearchVersion,
@@ -153,13 +182,14 @@ export const buildCacheKey = (
   page: CacheKeyPage
 ): Promise<string> =>
   hashString(
-    `search:v5:${astHash}:${version.generation}:${version.appliedSequence}:${stableStringifyFilters(filters)}:${page.scope}:${page.sort}:${page.offset}:${page.limit}`
+    `${RESULT_CACHE_KEY_PREFIX}:${astHash}:${version.generation}:${version.appliedSequence}:${stableStringifyFilters(filters)}:${page.scope}:${page.sort}:${page.offset}:${page.limit}`
   );
 
 /**
  * Page-independent companion to buildCacheKey (RJC-388): omits sort/offset/
  * limit so every page of the same query+filters shares one facets entry —
- * page 2 doesn't force a fresh facet computation.
+ * page 2 doesn't force a fresh facet computation. `v3` retires every v2
+ * entry for the same reason RESULT_CACHE_KEY_PREFIX bumped to v6 (RJC-396).
  */
 export const buildFacetCacheKey = (
   astHash: string,
@@ -168,5 +198,5 @@ export const buildFacetCacheKey = (
   scope: SearchScope
 ): Promise<string> =>
   hashString(
-    `search:facets:v2:${astHash}:${version.generation}:${version.appliedSequence}:${stableStringifyFilters(filters)}:${scope}`
+    `${FACET_CACHE_KEY_PREFIX}:${astHash}:${version.generation}:${version.appliedSequence}:${stableStringifyFilters(filters)}:${scope}`
   );
