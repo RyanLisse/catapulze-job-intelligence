@@ -1,5 +1,5 @@
 import { parseBooleanQuery } from "@ji/domain";
-import type { BooleanNode } from "@ji/domain";
+import type { BooleanNode, BooleanParseResult } from "@ji/domain";
 import {
   createCriticalPathSession,
   digestQueryset,
@@ -14,13 +14,24 @@ import {
 } from "@ji/performance";
 import type { QuerysetFilterValue } from "@ji/performance/digest";
 
-import { buildCacheKey, hashAst } from "./ast-hash";
+import {
+  buildCacheKey,
+  buildFacetCacheKey,
+  canonicalizeAst,
+  hashAst,
+} from "./ast-hash";
+import { MemoryFacetCache } from "./cache/facets-cache";
+import type { FacetCache } from "./cache/facets-cache";
+import { ParserLruCache } from "./cache/parser-cache";
+import { Singleflight } from "./cache/singleflight";
 import type {
   ResultCache,
   SearchAdapterInput,
   SearchAdapterResult,
+  SearchAdapterSuccess,
   SearchEngine,
   SearchFilters,
+  SearchSort,
 } from "./types";
 import type { SearchVersion } from "./version";
 
@@ -28,6 +39,7 @@ const DEFAULT_LIMIT = 20;
 const DEFAULT_OFFSET = 0;
 const DEFAULT_SORT = "relevance";
 const DEFAULT_CACHE_TTL_SECONDS = 120;
+const FACETS_CACHE_TTL_SECONDS = 120;
 
 const normalizeFilters = (filters: SearchFilters | undefined): SearchFilters =>
   filters ?? {};
@@ -42,11 +54,31 @@ export class SearchAdapter {
   private readonly cache?: ResultCache;
   private readonly cacheTtlSeconds: number;
   private readonly engine: SearchEngine;
+  private readonly facetsCache: FacetCache = new MemoryFacetCache();
+  private readonly parserCache = new ParserLruCache();
+  private readonly singleflight = new Singleflight<SearchAdapterResult>();
 
   constructor(options: SearchAdapterOptions) {
     this.engine = options.engine;
     this.cache = options.cache;
     this.cacheTtlSeconds = options.cacheTtlSeconds ?? DEFAULT_CACHE_TTL_SECONDS;
+  }
+
+  /**
+   * Query text -> AST via the in-process parser cache (RJC-388). Keyed by
+   * the raw query string, never by search version — a parse doesn't change
+   * when the index does.
+   */
+  private parseWithCache(query: string): BooleanParseResult {
+    const cached = this.parserCache.get(query);
+    if (cached) {
+      return cached;
+    }
+    const parsed = recordCriticalPathPhaseSync("search-parser", () =>
+      parseBooleanQuery(query)
+    );
+    this.parserCache.set(query, parsed);
+    return parsed;
   }
 
   /**
@@ -58,11 +90,72 @@ export class SearchAdapter {
     return this.engine.getAppliedVersion();
   }
 
+  /** Isolated from search() so the singleflight task closure stays small. */
+  private async computeAndCache(
+    ast: BooleanNode,
+    astHash: string,
+    parserVersion: number,
+    filters: SearchFilters,
+    cacheKey: string,
+    facetKey: string,
+    page: { limit: number; offset: number; sort: SearchSort }
+  ): Promise<SearchAdapterSuccess> {
+    const cachedFacets = await this.facetsCache.get(facetKey);
+
+    const engineResult = await timeCriticalPathPhase("search-engine", () =>
+      this.engine.search({
+        ast,
+        filters,
+        limit: page.limit,
+        offset: page.offset,
+        sort: page.sort,
+      })
+    );
+
+    const facets = cachedFacets ?? engineResult.facets;
+    if (!cachedFacets) {
+      await this.facetsCache.set(
+        facetKey,
+        engineResult.facets,
+        FACETS_CACHE_TTL_SECONDS
+      );
+    }
+
+    const success: SearchAdapterSuccess = {
+      astHash,
+      emptyReason: engineResult.emptyReason,
+      facets,
+      hits: engineResult.hits,
+      indexVersion: engineResult.indexVersion,
+      ok: true,
+      parserVersion,
+      total: engineResult.total,
+      windowLimit: engineResult.windowLimit,
+    };
+
+    if (this.cache) {
+      await this.cache.set(
+        cacheKey,
+        {
+          astHash,
+          emptyReason: engineResult.emptyReason,
+          facets,
+          filters,
+          hits: engineResult.hits,
+          indexVersion: engineResult.indexVersion,
+          total: engineResult.total,
+          windowLimit: engineResult.windowLimit,
+        },
+        this.cacheTtlSeconds
+      );
+    }
+
+    return success;
+  }
+
   async search(input: SearchAdapterInput): Promise<SearchAdapterResult> {
     const execute = (): Promise<SearchAdapterResult> => {
-      const parsed = recordCriticalPathPhaseSync("search-parser", () =>
-        parseBooleanQuery(input.query)
-      );
+      const parsed = this.parseWithCache(input.query);
       if (!parsed.ok) {
         return Promise.resolve({
           error: parsed.error,
@@ -87,8 +180,9 @@ export class SearchAdapter {
         if (this.cache) {
           const cached = await this.cache.get(cacheKey);
           if (cached) {
-            const success: SearchAdapterResult = {
+            const success: SearchAdapterSuccess = {
               astHash,
+              cache: "hit",
               emptyReason: cached.emptyReason,
               facets: cached.facets,
               hits: cached.hits,
@@ -102,46 +196,20 @@ export class SearchAdapter {
           }
         }
 
-        const engineResult = await timeCriticalPathPhase("search-engine", () =>
-          this.engine.search({
-            ast: parsed.ast,
+        const facetKey = await buildFacetCacheKey(astHash, version, filters);
+        const { coalesced, promise } = this.singleflight.run(cacheKey, () =>
+          this.computeAndCache(
+            canonicalizeAst(parsed.ast),
+            astHash,
+            parsed.version,
             filters,
-            limit,
-            offset,
-            sort,
-          })
-        );
-
-        const success: SearchAdapterResult = {
-          astHash,
-          emptyReason: engineResult.emptyReason,
-          facets: engineResult.facets,
-          hits: engineResult.hits,
-          indexVersion: engineResult.indexVersion,
-          ok: true,
-          parserVersion: parsed.version,
-          total: engineResult.total,
-          windowLimit: engineResult.windowLimit,
-        };
-
-        if (this.cache) {
-          await this.cache.set(
             cacheKey,
-            {
-              astHash,
-              emptyReason: engineResult.emptyReason,
-              facets: engineResult.facets,
-              filters,
-              hits: engineResult.hits,
-              indexVersion: engineResult.indexVersion,
-              total: engineResult.total,
-              windowLimit: engineResult.windowLimit,
-            },
-            this.cacheTtlSeconds
-          );
-        }
-
-        return success;
+            facetKey,
+            { limit, offset, sort }
+          )
+        );
+        const result = await promise;
+        return { ...result, cache: coalesced ? "coalesced" : "miss" };
       });
     };
 

@@ -17,7 +17,10 @@ const baseInput = {
 
 describe("createProductionSliceADeps", () => {
   it("wires the Postgres-backed ExternalReceiptStore, not the in-memory one", async () => {
-    const deps = createProductionSliceADeps({ ...baseInput, nodeEnv: "test" });
+    const deps = await createProductionSliceADeps({
+      ...baseInput,
+      nodeEnv: "test",
+    });
     try {
       expect(deps.stores.externalReceipts).toBeInstanceOf(
         PostgresExternalReceiptStore
@@ -28,7 +31,7 @@ describe("createProductionSliceADeps", () => {
   });
 
   it("passes assertProductionPersistence in production with the current allowlist", async () => {
-    const deps = createProductionSliceADeps({
+    const deps = await createProductionSliceADeps({
       ...baseInput,
       nodeEnv: "production",
       rawS3Bucket: "ji-raw-prod",
@@ -43,8 +46,10 @@ describe("createProductionSliceADeps", () => {
   });
 
   it("leaves test/development composition unaffected by the production assertion", async () => {
-    const depsByEnv = ["development", "test"].map((nodeEnv) =>
-      createProductionSliceADeps({ ...baseInput, nodeEnv })
+    const depsByEnv = await Promise.all(
+      ["development", "test"].map((nodeEnv) =>
+        createProductionSliceADeps({ ...baseInput, nodeEnv })
+      )
     );
     await Promise.all(depsByEnv.map((deps) => deps.close()));
   });
@@ -53,14 +58,14 @@ describe("createProductionSliceADeps", () => {
   // store (no shared filesystem with the server) and must accept the S3
   // backend without touching the network at construction time.
   describe("raw object store production guard", () => {
-    it("throws naming RAW_S3_BUCKET when production resolves to the filesystem store", () => {
-      expect(() =>
+    it("throws naming RAW_S3_BUCKET when production resolves to the filesystem store", async () => {
+      await expect(
         createProductionSliceADeps({ ...baseInput, nodeEnv: "production" })
-      ).toThrow(/RAW_S3_BUCKET/u);
+      ).rejects.toThrow(/RAW_S3_BUCKET/u);
     });
 
     it("does not throw when production resolves to the S3 store", async () => {
-      const deps = createProductionSliceADeps({
+      const deps = await createProductionSliceADeps({
         ...baseInput,
         nodeEnv: "production",
         rawS3Bucket: "ji-raw-prod",
@@ -73,7 +78,7 @@ describe("createProductionSliceADeps", () => {
     });
 
     it("leaves the filesystem store usable outside production", async () => {
-      const deps = createProductionSliceADeps({
+      const deps = await createProductionSliceADeps({
         ...baseInput,
         nodeEnv: "development",
       });
