@@ -78,3 +78,22 @@ bun run relevance
 ```
 
 Run once against `tools/manticore/manticore29.conf` (infix enabled) and once against `tools/manticore/manticore29-noinfix.conf` (identical minus `min_infix_len`) to isolate the infix config change from the version upgrade itself — swap the conf file mounted at `/etc/manticoresearch/manticore.conf` and restart `manticore29` between runs, on a fresh volume each time (`docker volume rm catapulze-job-intelligence_manticore29_data`) so the schema actually reloads. Verify the table is empty (`total: 0` from a `match_all` search) before each run.
+
+## Judgments: extending the golden set with real recruiter judgments
+
+`export-judgments.ts` and `import-judgments.ts` turn re-judging into a one-sitting recruiter task instead of hand-editing `queries.jsonl`.
+
+```bash
+bun run relevance:export                                       # -> benchmarks/relevance/judgments/<today>.csv (+ .md twin)
+bun run relevance:export -- --out path/to/file.csv --pool-depth 20
+bun run relevance:import -- --file <csv> --grader "<name>" --dry-run
+bun run relevance:import -- --file <csv> --grader "<name>"
+```
+
+**Export** pools, per query, the union of every configured engine's top-N (in-memory always; Manticore/Manticore-29 when `MANTICORE_URL`/ `MANTICORE_29_URL` are set — same engines `bun run relevance` scores) plus every document already labeled `relevant` or `hardNegative`, so a recruiter can confirm or revoke an existing label even if no engine still surfaces it. Output is a `;`-delimited CSV (Dutch Excel default, UTF-8 with a BOM) with an empty `grade` column, plus an `.md` twin for reading in a browser or Linear. Two exports on an unchanged corpus/query set are byte-identical. See `judgments/README.md` for the recruiter-facing instructions (in Dutch).
+
+**Import** folds graded rows back: grade ≥ 1 adds the doc to `relevant` (and removes it from `hardNegatives` if present); grade 0 does the reverse. Unknown query/doc ids and conflicting grades for the same doc (unless `--prefer-latest`) both refuse with a listing and exit non-zero, before anything is written. Only `relevant`/`hardNegatives` on touched queries change — every other line in `queries.jsonl` is byte-identical, and key order is preserved on touched lines too. `--queries <path>` / `--provenance <path>` override the two files the import reads and writes (default: the real committed `queries.jsonl` and `judgments/provenance.jsonl`) — used by the test suite to operate on a `mkdtemp` copy so a test run can never touch the golden set on disk.
+
+A grade of `0` on a query's only `relevant` document would leave it with zero — `run.ts`'s `querySchema` requires `relevant.min(1)`, so the next `bun run relevance` would reject the whole golden set. The import refuses (exit 1, listing the affected queries) unless `--allow-empty-relevant` is passed. Even with that flag, the import only appends a `note` explaining the query is unscorable — it does **not** make `run.ts` accept it. **An engineer must re-pool that query (more candidates) or remove it before it scores again**; `--allow-empty-relevant` exists to let an import land without losing the other queries' judgments in the same CSV, not to make an empty `relevant` array safe to ship as-is. After such a write, both `relevance:import` and `relevance:export` are blocked too (they load `queries.jsonl` through the same schema, not just `bun run relevance`) until an engineer re-pools or removes the query.
+
+**Provenance lives in `judgments/provenance.jsonl`, not in `queries.jsonl`.** `run.ts`'s `querySchema` is `z.object({...}).strict()`, so an unknown key (e.g. a `judgments` field per query) would make every future `bun run relevance` throw at parse time — and `run.ts` is out of scope for this change. Each import instead appends one line per touched query to `judgments/provenance.jsonl`: `{"queryId", "grader", "date", "source", "rows": [{"docId", "comment"}]}`.
