@@ -61,6 +61,11 @@ export {
 } from "./aanvraag-stores";
 export { PostgresKnownHashStore } from "./known-hash-store";
 export {
+  createPostgresLifecyclePorts,
+  PostgresMissedPollsStore,
+  type MissedPollsDatabase,
+} from "./missed-polls-store";
+export {
   drainPostgresOutbox,
   listDeadLetteredOutboxEvents,
   OUTBOX_DEFAULT_BATCH_SIZE,

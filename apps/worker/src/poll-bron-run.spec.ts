@@ -285,3 +285,104 @@ describe("TenderNed test-import window", () => {
     }
   });
 });
+
+const untouched = (name: string): never => {
+  throw new Error(`runPollBron must not touch runtime.${name}`);
+};
+
+describe("runPollBron missed-poll lifecycle wiring (RJC-397)", () => {
+  it("exposes lifecycle ports on the runtime built from a database url", async () => {
+    const runtime = createPollBronRuntime(databaseUrl);
+    try {
+      expect(runtime.lifecycle.curateStore).toBeDefined();
+      expect(runtime.lifecycle.missedPolls).toBeDefined();
+    } finally {
+      await runtime.close();
+    }
+  });
+
+  it("passes the lifecycle port into the run and carries a JSON-safe summary on the result", async () => {
+    const { runPollBron } = await import("./poll-bron-run");
+    const { InMemoryCurateStore } = await import("@ji/application/identity");
+    const { InMemoryMissedPollsStore } =
+      await import("@ji/application/lifecycle");
+    const {
+      InMemoryKnownHashStore,
+      InMemoryObjectStore,
+      InMemoryObservationRecorder,
+      InMemoryRunLifecycleStore,
+    } = await import("@ji/connectors");
+    const { SOURCES } = await import("@ji/application/sources");
+
+    const source = SOURCES.hero;
+    const { bronId } = source;
+    const missedPolls = new InMemoryMissedPollsStore();
+    // A record seen in an earlier run that this run's listing will not show.
+    missedPolls.ensure(bronId, "gone-since-last-run");
+    const record = {
+      actief: true,
+      bronId,
+      categorie: "msp_broker",
+      crawlDelayMs: 0,
+      interval: "*/15 * * * *",
+      lastRun: null,
+      loginVereist: false,
+      mappingRef: null,
+      method: "html" as const,
+      naam: source.naam,
+      rateLimitPerMinute: 600,
+      retentionDays: 30,
+      secretRef: null,
+      status: "ready" as const,
+      voorwaardenStatus: "toegestaan" as const,
+    };
+    const runtime = {
+      bronPersistence: {
+        activate: () => Promise.reject(new Error("unused")),
+        create: () => Promise.reject(new Error("unused")),
+        findById: () => Promise.resolve(record),
+        list: () => Promise.resolve([record]),
+      },
+      close: () => Promise.resolve(),
+      createConnector: () => ({
+        bronId,
+        discover: () =>
+          Promise.resolve({
+            checkpoint: {},
+            hasMore: false,
+            items: [{ bronReferentie: "still-listed", contentHash: "" }],
+          }),
+        fetch: () => Promise.resolve(null),
+      }),
+      get curateStore(): never {
+        return untouched("curateStore");
+      },
+      get database(): never {
+        return untouched("database");
+      },
+      knownHashStore: new InMemoryKnownHashStore(),
+      lifecycle: { curateStore: new InMemoryCurateStore(), missedPolls },
+      objectStore: new InMemoryObjectStore(),
+      observationRecorder: new InMemoryObservationRecorder(),
+      runLifecycleStore: new InMemoryRunLifecycleStore(),
+    };
+
+    const result = await runPollBron(
+      {
+        bronId,
+        bronSlug: "hero",
+        scrapeRunId: "00000000-0000-4000-8000-00000000a397",
+      },
+      runtime,
+      "poll"
+    );
+
+    // Task output must be JSON-safe scalars (Trigger.dev run payload).
+    expect(JSON.stringify(result.lifecycle)).toBe(
+      '{"incremented":1,"reopened":0,"reset":1,"skippedIncrementReason":null,"staled":0}'
+    );
+    expect(missedPolls.read(bronId, "gone-since-last-run")?.missedPolls).toBe(
+      1
+    );
+  });
+});

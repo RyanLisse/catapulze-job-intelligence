@@ -58,7 +58,9 @@ export {
 export { UNKNOWN, isUnknown, type UnknownValue } from "./unknown";
 export {
   DEFAULT_MISSED_POLLS_BEFORE_STALE,
+  LIFECYCLE_REDENEN,
   canReopenFromClosed,
   resolveLifecycleStatus,
+  type LifecycleReden,
   type LifecycleTransitionInput,
 } from "./lifecycle";

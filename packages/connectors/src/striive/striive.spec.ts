@@ -12,7 +12,7 @@ import { createStriiveClient, striiveBronReferentie } from "./client";
 import type { StriiveClient } from "./client";
 import { createStriiveConnector } from "./connector";
 import type { StriiveFetchedPayload, StriiveJob } from "./types";
-import { STRIIVE_PAGE_SIZE } from "./types";
+import { STRIIVE_MAX_PAGES, STRIIVE_PAGE_SIZE } from "./types";
 
 const retryPolicy = {
   initialDelayMs: 0,
@@ -189,6 +189,30 @@ describe("Striive connector", () => {
 
     const second = await connector.discover(first.checkpoint);
     expect(second.hasMore).toBe(false);
+    expect(second.truncated).toBe(false);
     expect(second.items).toHaveLength(jobs.length - STRIIVE_PAGE_SIZE);
+  });
+
+  it("reports truncated when the page cap stops the walk while Striive still has pages (RJC-397)", async () => {
+    const fullPage: StriiveJob[] = Array.from(
+      { length: STRIIVE_PAGE_SIZE },
+      (_, index) => ({ id: `ST-CAP-${index + 1}`, title: `Job ${index + 1}` })
+    );
+    const client: StriiveClient = {
+      fetchListing: () =>
+        Promise.resolve({ data: fullPage, total: STRIIVE_PAGE_SIZE * 100 }),
+    };
+    const connector = createStriiveConnector({
+      bronId: "bron-striive-cap",
+      client,
+    });
+
+    const beforeCap = await connector.discover({ page: STRIIVE_MAX_PAGES - 1 });
+    expect(beforeCap.hasMore).toBe(true);
+    expect(beforeCap.truncated).toBe(false);
+
+    const atCap = await connector.discover({ page: STRIIVE_MAX_PAGES });
+    expect(atCap.hasMore).toBe(false);
+    expect(atCap.truncated).toBe(true);
   });
 });

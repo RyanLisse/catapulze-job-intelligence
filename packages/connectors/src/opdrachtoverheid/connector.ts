@@ -117,10 +117,13 @@ export const createOpdrachtoverheidConnector = (
           };
         })
       );
+      const withinCap = page + 1 < OPDRACHTOVERHEID_MAX_PAGES;
       return {
         checkpoint: { page: page + 1 },
-        hasMore: listing.hasMore && page + 1 < OPDRACHTOVERHEID_MAX_PAGES,
+        hasMore: listing.hasMore && withinCap,
         items,
+        // RJC-397: the cap stopped us while the API still reported more.
+        truncated: listing.hasMore && !withinCap,
       };
     },
     fetch: async (item) => {

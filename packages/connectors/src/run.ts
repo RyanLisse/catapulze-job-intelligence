@@ -120,9 +120,33 @@ export interface ConnectorRunInput {
   writeNow?: () => Date;
 }
 
+/**
+ * RJC-397: whether this run saw the source's WHOLE listing. Only a complete
+ * run may count unseen records as missed. A run is incomplete when it
+ * resumed from a persisted checkpoint (earlier pages were seen by another
+ * attempt, not this one) or when a connector reported a page cap
+ * (`ConnectorDiscoverResult.truncated`). A failed run never returns a
+ * result at all, so failure is covered by the throw, not by this flag.
+ */
+export type RunCompleteness =
+  | { complete: true }
+  | { complete: false; reason: "empty" | "resumed" | "truncated" };
+
+export type RunIncompleteReason = Exclude<
+  RunCompleteness,
+  { complete: true }
+>["reason"];
+
 export interface ConnectorRunResult {
   checkpoint: ConnectorCheckpoint;
+  completeness: RunCompleteness;
   metrics: ConnectorRunMetrics;
+  /**
+   * Every bron_referentie the listing showed this run, including rejected
+   * items and items the known-hash short-circuit skipped fetching: the
+   * source still lists them, so they are not missed.
+   */
+  observedBronReferenties: string[];
   writtenRecords: number;
 }
 
@@ -138,6 +162,19 @@ const request = <Result>(
     return operation();
   };
   return withRetry(limitedOperation, retryPolicy, wait);
+};
+
+const resolveCompleteness = (
+  resumed: boolean,
+  truncated: boolean
+): RunCompleteness => {
+  if (resumed) {
+    return { complete: false, reason: "resumed" };
+  }
+  if (truncated) {
+    return { complete: false, reason: "truncated" };
+  }
+  return { complete: true };
 };
 
 const runConnectorInner = async (
@@ -194,6 +231,9 @@ const runConnectorInner = async (
   let writtenRecords = metrics.new + metrics.changed;
   let hasMore = true;
   const countedObservations = new Set<string>();
+  const observedBronReferenties = new Set<string>();
+  const resumed = checkpoint !== null;
+  let truncated = false;
 
   const persistItem = async (
     item: DiscoverItem,
@@ -302,8 +342,10 @@ const runConnectorInner = async (
         FAILURE_ENVELOPES.discover
       );
       metrics.found += discovery.items.length;
+      truncated ||= discovery.truncated === true;
 
       for (const item of discovery.items) {
+        observedBronReferenties.add(item.bronReferentie);
         // oxlint-disable-next-line no-await-in-loop -- crawl policy requires sequential fetches
         await persistItem(item, observedAt);
       }
@@ -366,7 +408,13 @@ const runConnectorInner = async (
     throw runError;
   }
 
-  return { checkpoint: checkpoint ?? {}, metrics, writtenRecords };
+  return {
+    checkpoint: checkpoint ?? {},
+    completeness: resolveCompleteness(resumed, truncated),
+    metrics,
+    observedBronReferenties: [...observedBronReferenties],
+    writtenRecords,
+  };
 };
 
 export const runConnector = async (

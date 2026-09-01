@@ -8,6 +8,7 @@
     "./backfill": "./src/backfill/index.ts",
     "./bronnen": "./src/bronnen/index.ts",
     "./identity": "./src/identity/index.ts",
+    "./lifecycle": "./src/lifecycle/index.ts",
     "./normalise": "./src/normalise/index.ts",
     "./observability": "./src/observability/index.ts",
     "./approval": "./src/approval/index.ts",

@@ -15,6 +15,7 @@ import type {
   OpdrachtoverheidFetchedPayload,
   OpdrachtoverheidTender,
 } from "./types";
+import { OPDRACHTOVERHEID_MAX_PAGES } from "./types";
 
 const retryPolicy = {
   initialDelayMs: 0,
@@ -142,7 +143,35 @@ describe("Opdrachtoverheid connector", () => {
 
     const second = await connector.discover(first.checkpoint);
     expect(second.hasMore).toBe(false);
+    expect(second.truncated).toBe(false);
     expect(second.items).toHaveLength(1);
+  });
+
+  it("reports truncated when the page cap stops the walk while the API still has more (RJC-397)", async () => {
+    const client: OpdrachtoverheidClient = {
+      fetchDetailJsonLd: () => Promise.resolve(null),
+      fetchListing: () =>
+        Promise.resolve({
+          hasMore: true,
+          items: [buildTender("T-CAP", "Cap")],
+        }),
+    };
+    const connector = createOpdrachtoverheidConnector({
+      bronId: "bron-opdrachtoverheid-cap",
+      client,
+    });
+
+    const beforeCap = await connector.discover({
+      page: OPDRACHTOVERHEID_MAX_PAGES - 2,
+    });
+    expect(beforeCap.hasMore).toBe(true);
+    expect(beforeCap.truncated).toBe(false);
+
+    const atCap = await connector.discover({
+      page: OPDRACHTOVERHEID_MAX_PAGES - 1,
+    });
+    expect(atCap.hasMore).toBe(false);
+    expect(atCap.truncated).toBe(true);
   });
 
   it("rejects an item whose listing payload is missing tender_id", async () => {

@@ -987,6 +987,96 @@ describe("runConnector", () => {
     });
   });
 
+  it("reports a fresh, exhausted listing as complete and lists every discovered reference as observed", async () => {
+    const dependencies = runDependencies("run-complete");
+    const result = await runConnector({
+      ...dependencies,
+      bronId: "bron-complete",
+      bronSlug: "tenderned",
+      checkpoint: null,
+      connector: {
+        bronId: "bron-complete",
+        discover: () =>
+          Promise.resolve({
+            checkpoint: { page: 1 },
+            hasMore: false,
+            items: [
+              { bronReferentie: "seen", contentHash: "a" },
+              { bronReferentie: "rejected", contentHash: "b" },
+              { bronReferentie: "known-hash-skip", contentHash: "c" },
+            ],
+          }),
+        fetch: (item) => {
+          if (item.bronReferentie === "rejected") {
+            return Promise.resolve({
+              bronReferentie: item.bronReferentie,
+              reason: "listing payload missing id",
+              status: "rejected" as const,
+            });
+          }
+          if (item.bronReferentie === "known-hash-skip") {
+            return Promise.resolve(null);
+          }
+          return Promise.resolve({
+            body: new Uint8Array([1]),
+            bronReferentie: item.bronReferentie,
+            contentHash:
+              "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+            contentType: "json" as const,
+            status: "fetched" as const,
+          });
+        },
+      },
+    });
+    expect(result.completeness).toEqual({ complete: true });
+    expect(result.observedBronReferenties.toSorted()).toEqual([
+      "known-hash-skip",
+      "rejected",
+      "seen",
+    ]);
+  });
+
+  it("reports a run that resumed from a checkpoint as incomplete", async () => {
+    const dependencies = runDependencies("run-resumed");
+    const result = await runConnector({
+      ...dependencies,
+      bronId: "bron-resumed",
+      bronSlug: "tenderned",
+      checkpoint: { page: 1 },
+      connector: createFakeConnector("bron-resumed"),
+    });
+    expect(result.completeness).toEqual({
+      complete: false,
+      reason: "resumed",
+    });
+  });
+
+  it("reports a run whose connector hit a page cap as incomplete", async () => {
+    const dependencies = runDependencies("run-truncated");
+    const result = await runConnector({
+      ...dependencies,
+      bronId: "bron-truncated",
+      bronSlug: "tenderned",
+      checkpoint: null,
+      connector: {
+        bronId: "bron-truncated",
+        discover: () =>
+          Promise.resolve({
+            checkpoint: { page: 40 },
+            hasMore: false,
+            items: [{ bronReferentie: "TN-1", contentHash: "a" }],
+            truncated: true,
+          }),
+        fetch: () => Promise.resolve(null),
+      },
+    });
+    expect(result.completeness).toEqual({
+      complete: false,
+      reason: "truncated",
+    });
+    expect(result.observedBronReferenties).toEqual(["TN-1"]);
+  });
+
   it("does not advance the checkpoint when a page fails", async () => {
     const dependencies = runDependencies("run-page-failure");
     const key = {

@@ -23,6 +23,14 @@ export interface ConnectorDiscoverResult {
   checkpoint: ConnectorCheckpoint;
   hasMore: boolean;
   items: DiscoverItem[];
+  /**
+   * RJC-397: set when the connector stopped paging before the source ran
+   * out (a page cap such as STRIIVE_MAX_PAGES) while still reporting
+   * `hasMore: false`. A truncated run must not count unseen records as
+   * missed, so the runner reports it as incomplete. Absent means the
+   * connector exhausted the listing.
+   */
+  truncated?: boolean;
 }
 
 export interface ConnectorFetchedResult {

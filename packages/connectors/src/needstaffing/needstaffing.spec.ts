@@ -23,6 +23,7 @@ import type { NeedstaffingClient } from "./client";
 import { createNeedstaffingConnector } from "./connector";
 import { hashNeedstaffingListingItem } from "./hash";
 import type { NeedstaffingListingItem } from "./types";
+import { NEEDSTAFFING_MAX_LISTING_PAGES } from "./types";
 
 const retryPolicy = {
   initialDelayMs: 0,
@@ -377,5 +378,47 @@ describe("Needstaffing connector", () => {
       reason: "detail page missing titel",
       status: "rejected",
     });
+  });
+});
+
+describe("needstaffing page cap (RJC-397)", () => {
+  const cappedClient: NeedstaffingClient = {
+    fetchDetailHtml: () => Promise.reject(new Error("not used")),
+    fetchListing: () =>
+      Promise.resolve({
+        hasNextPage: true,
+        items: [{ id: "NS-CAP", titel: "Cap" }],
+      }),
+  };
+
+  it("reports truncated when the page cap stops the walk while the site still has a next page", async () => {
+    const connector = createNeedstaffingConnector({
+      bronId: "bron-needstaffing-cap",
+      client: cappedClient,
+    });
+    const beforeCap = await connector.discover({
+      page: NEEDSTAFFING_MAX_LISTING_PAGES - 2,
+    });
+    expect(beforeCap.hasMore).toBe(true);
+    expect(beforeCap.truncated).toBe(false);
+
+    const atCap = await connector.discover({
+      page: NEEDSTAFFING_MAX_LISTING_PAGES - 1,
+    });
+    expect(atCap.hasMore).toBe(false);
+    expect(atCap.truncated).toBe(true);
+  });
+
+  it("reports an exhausted walk as not truncated", async () => {
+    const connector = createNeedstaffingConnector({
+      bronId: "bron-needstaffing-end",
+      client: {
+        ...cappedClient,
+        fetchListing: () => Promise.resolve({ hasNextPage: false, items: [] }),
+      },
+    });
+    const last = await connector.discover(null);
+    expect(last.hasMore).toBe(false);
+    expect(last.truncated).toBe(false);
   });
 });

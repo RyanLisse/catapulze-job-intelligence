@@ -1,11 +1,16 @@
 import { executeBronRun } from "@ji/application/bronnen";
-import type { BronPersistence } from "@ji/application/bronnen";
+import type {
+  BronPersistence,
+  ExecuteBronRunResult,
+} from "@ji/application/bronnen";
+import type { LifecycleReconcilePorts } from "@ji/application/lifecycle";
 import { SOURCES } from "@ji/application/sources";
 import type { SourceDefinition } from "@ji/application/sources";
 import { fullJitter } from "@ji/connectors";
 import type {
   Connector,
   ConnectorRunKind,
+  RunIncompleteReason,
   KnownHashStore,
   ObjectStore,
   ObservationRecorder,
@@ -29,9 +34,23 @@ import { readSearchProjectorMode, requireManticoreUrl } from "./poll-bron-env";
 import type { SliceABronSlug } from "./slice-a-bronnen";
 import type { PollBronPayload } from "./tasks/poll-bron-schema";
 
+/**
+ * RJC-397: JSON-safe mirror of the reconcile result (counts, not id
+ * arrays) so the task output stays small and greppable. Null when the run
+ * was not a poll.
+ */
+export interface PollBronLifecycleSummary {
+  incremented: number;
+  reopened: number;
+  reset: number;
+  skippedIncrementReason: RunIncompleteReason | null;
+  staled: number;
+}
+
 export interface PollBronRunResult {
   bronId: BronId;
   bronSlug: SliceABronSlug;
+  lifecycle: PollBronLifecycleSummary | null;
   metrics: {
     changed: number;
     error: number;
@@ -65,6 +84,8 @@ export interface PollBronRuntime {
   curateStore: PostgresCurateStore;
   database: BronRuntimeDatabase;
   knownHashStore: KnownHashStore;
+  /** RJC-397: missed-poll reconcile ports handed to every poll run. */
+  lifecycle: LifecycleReconcilePorts;
   objectStore: ObjectStore;
   observationRecorder: ObservationRecorder;
   runLifecycleStore: RunLifecycleStore;
@@ -125,11 +146,23 @@ export const createPollBronRuntime = (databaseUrl: string): PollBronRuntime => {
     curateStore: new PostgresCurateStore(client.database),
     database: client.database,
     knownHashStore: client.knownHashStore,
+    lifecycle: client.lifecycle,
     objectStore,
     observationRecorder: client.observationRecorder,
     runLifecycleStore: client.runLifecycleStore,
   };
 };
+
+const summarizeLifecycle = (
+  lifecycle: ExecuteBronRunResult["lifecycle"]
+): PollBronLifecycleSummary | null =>
+  lifecycle && {
+    incremented: lifecycle.incremented,
+    reopened: lifecycle.reopened.length,
+    reset: lifecycle.reset,
+    skippedIncrementReason: lifecycle.skippedIncrementReason,
+    staled: lifecycle.staled.length,
+  };
 
 export const runPollBron = async (
   payload: PollBronPayload,
@@ -151,6 +184,7 @@ export const runPollBron = async (
     bronId,
     bronSlug: payload.bronSlug,
     connector,
+    lifecycle: runtime.lifecycle,
     objectStore: runtime.objectStore,
     observationRecorder: runtime.observationRecorder,
     retryPolicy: {
@@ -168,6 +202,7 @@ export const runPollBron = async (
   return {
     bronId,
     bronSlug: payload.bronSlug,
+    lifecycle: summarizeLifecycle(result.lifecycle),
     metrics: result.metrics,
     scrapeRunId,
     status: "succeeded",
