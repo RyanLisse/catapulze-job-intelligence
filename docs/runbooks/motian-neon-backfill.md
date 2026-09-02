@@ -49,7 +49,12 @@ Do not open Slice C per-bron tickets from this runbook.
 
 Search is **`POST /v1/aanvragen/search`** on `apps/server` (port 3000). The production registry queries Postgres-backed curated state projected into **Manticore** via the outbox drain.
 
-**After Motian backfill:** the backfill script does not drain the outbox. Run the Trigger.dev **`drain-outbox`** task (or wait for a poll-bron cycle) so imported rows appear in search. Server and worker need `DATABASE_URL` and `MANTICORE_URL`.
+**After Motian backfill:** the backfill script does not drain the outbox. In
+`SEARCH_PROJECTOR=worker` mode, run the Trigger.dev **`drain-outbox`** task (or
+wait for a poll-bron cycle); that mode requires worker `DATABASE_URL` and
+`MANTICORE_URL`. In production `SEARCH_PROJECTOR=onbox`, the Trigger task
+returns `deferred: true` and never drains: keep the on-box projector running
+and verify its cycle/lag evidence instead.
 
 **Verify search:**
 

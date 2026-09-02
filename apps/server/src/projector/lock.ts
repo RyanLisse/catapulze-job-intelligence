@@ -1,3 +1,4 @@
+import { parseProjectorDatabaseUrl } from "@ji/env/projector-database-url";
 import postgres from "postgres";
 
 /**
@@ -44,7 +45,10 @@ export const acquireAdvisoryLock = async (
   databaseUrl: string,
   lockKey: number
 ): Promise<AdvisoryLockHandle> => {
-  const sql = postgres(databaseUrl, {
+  // Validate at the lock boundary too: callers cannot accidentally bypass
+  // the typed projector env and put a session lock behind Neon's pooler.
+  const directDatabaseUrl = parseProjectorDatabaseUrl(databaseUrl);
+  const sql = postgres(directDatabaseUrl, {
     idle_timeout: 0,
     max: 1,
     max_lifetime: null,

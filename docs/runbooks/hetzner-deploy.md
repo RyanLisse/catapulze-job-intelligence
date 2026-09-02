@@ -83,14 +83,21 @@ git of in chat.**
 
 ### Projector (on-box proces)
 
-`DATABASE_URL` (Neon, TLS; via `@ji/env/database`) + `MANTICORE_URL=http://127.0.0.1:9308`.
-Weigert te starten zonder `MANTICORE_URL` ([search-projector.md](search-projector.md)).
+- `DATABASE_URL`: Neon pooled TLS-URL voor gewone dataqueries;
+- `PROJECTOR_DATABASE_URL`: directe Neon-URL (zelfde branch/database en
+  app-rol, geen `-pooler`) voor de session-level advisory lock;
+- `MANTICORE_URL=http://127.0.0.1:9308`.
+
+De getypeerde projector-env weigert te starten als een variabele ontbreekt of
+als `PROJECTOR_DATABASE_URL` een bekende Neon-poolerhost is
+([search-projector.md](search-projector.md)).
 
 ### Migraties
 
 `MIGRATION_DATABASE_URL` — aparte migrator-rol; `packages/db/drizzle.config.ts`
-valt terug op `DATABASE_URL`, maar de Coolify-regel is dat de server-runtime
-nóóit de migrator-credential krijgt ([coolify-local.md](coolify-local.md)).
+eist deze variabele expliciet en gebruikt `DATABASE_URL` nooit als fallback.
+Alleen de one-shot migrator krijgt deze credential; de server-runtime nooit
+([coolify-local.md](coolify-local.md)).
 
 ### Alleen lokale/CI-lane (staan wel in compose, niet op de productiebox)
 
@@ -388,9 +395,14 @@ without the other"):
 
 1. Projector op de box starten (`bun run projector`) onder een supervisor
    (systemd `Restart=on-failure`, of de compose-service achter
-   `--profile projector`). Env: Neon-`DATABASE_URL` +
+   `--profile projector`). Env: pooled Neon-`DATABASE_URL` voor dataqueries +
+   directe Neon-`PROJECTOR_DATABASE_URL` voor de lock +
    `MANTICORE_URL=http://127.0.0.1:9308`.
 2. Worker (Trigger.dev) op `SEARCH_PROJECTOR=onbox`, zonder `MANTICORE_URL`.
+
+Een handmatige Trigger.dev-run van `drain-outbox` draineert in deze modus
+bewust niet: de task retourneert `deferred: true`, zodat cloud-worker en
+on-box proces nooit tegelijk eigenaar van de drain zijn.
 
 Verificatie: één cycle-logregel per drain
 (`{"event":"projector_cycle","drained":N,…}`; `drained: 0` per ~1s is normaal

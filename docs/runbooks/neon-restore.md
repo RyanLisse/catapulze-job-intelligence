@@ -192,9 +192,9 @@ instead (see Evidence below) and is otherwise unrehearsed.
 
 | Component | Role | Env var | Notes |
 |---|---|---|---|
-| `bun run db:migrate` (Drizzle, `drizzle-kit migrate`) | `ji_migrator` | `MIGRATION_DATABASE_URL` | Falls back to `DATABASE_URL` if unset (`packages/db/drizzle.config.ts:10`) — **must** be set explicitly once the split lands, or migrations silently run as whatever `DATABASE_URL` points to. |
+| `bun run db:migrate` (Drizzle, `drizzle-kit migrate`) | `ji_migrator` | `MIGRATION_DATABASE_URL` | Required explicitly by `packages/db/drizzle.config.ts`; missing/empty fails before Drizzle connects. `DATABASE_URL` is never a fallback. |
 | `apps/server` runtime (API, tRPC) | `ji_app` | `DATABASE_URL` | Server-side `@ji/env/database` requires only `DATABASE_URL` (`packages/env/src/database.ts`). |
-| `apps/server` projector (`bun run projector`) | `ji_app` | `DATABASE_URL` | Same process family as the server; reads the outbox, writes checkpoints — needs DML, not DDL. |
+| `apps/server` projector (`bun run projector`) | `ji_app` | pooled `DATABASE_URL` + direct `PROJECTOR_DATABASE_URL` | Data queries may stay pooled; the session-level advisory lock must use the direct Neon endpoint for the same branch/database. Both use the app role and need DML, not DDL. |
 | `apps/worker` Trigger.dev tasks (`poll-bron`, `drain-outbox`, `backfill-neon-v1`, `schedule-slice-a-polls`) | `ji_app` | `DATABASE_URL` | Confirmed this session: `apps/worker/.env`'s `DATABASE_URL` is currently **identical** to `NEON_DATABASE_URL` — i.e. the worker is already running every query as `neondb_owner` today. |
 | Operator verification queries / reporting (row counts, this runbook's checks, a future BI/reporting connection) | `ji_readonly` | none wired yet — a new `READONLY_DATABASE_URL` or ad hoc operator connection string | Not consumed by any app code today; exists so a human or script never needs `ji_app`'s write access (or the owner role) just to read. |
 
@@ -280,7 +280,9 @@ user/password) and:
 
 1. Set `MIGRATION_DATABASE_URL` (server + CI deploy step) to the `ji_migrator`
    URL.
-2. Set `DATABASE_URL` (server, worker, projector) to the `ji_app` URL.
+2. Set pooled `DATABASE_URL` (server, worker, projector data path) to the
+   `ji_app` URL. Set direct `PROJECTOR_DATABASE_URL` on the projector to the
+   same branch/database and role, without a `-pooler` host.
 3. Store the `ji_readonly` URL in the secret manager for operator/reporting
    use; nothing in the codebase needs to consume it yet.
 4. Run the verification query above against Neon directly and confirm the

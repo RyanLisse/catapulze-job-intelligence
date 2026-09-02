@@ -5,6 +5,8 @@
   "type": "module",
   "exports": {
     "./database": "./src/database.ts",
+    "./projector": "./src/projector.ts",
+    "./projector-database-url": "./src/projector-database-url.ts",
     "./server": "./src/server.ts",
     "./web": "./src/web.ts"
   },

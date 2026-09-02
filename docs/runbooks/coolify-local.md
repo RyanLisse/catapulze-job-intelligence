@@ -14,7 +14,7 @@ cp .env.example .env.1password
 git check-ignore .env.1password
 ```
 
-Vervang in het lokale, door Git genegeerde `.env.1password` iedere credential door een `op://`-referentie. Dat geldt minimaal voor de drie Postgres-wachtwoorden, `CATAPULZE_DATABASE_URL` en `BETTER_AUTH_SECRET`. Voeg ook `MIGRATION_DATABASE_URL` toe als referentie naar de volledige lokale migrator-URL. Niet-geheime instellingen, zoals poorten, databasenamen en resourcegrenzen, mogen gewone waarden blijven.
+Vervang in het lokale, door Git genegeerde `.env.1password` iedere credential door een `op://`-referentie. Dat geldt minimaal voor de drie Postgres-wachtwoorden, `CATAPULZE_DATABASE_URL`, `PROJECTOR_DATABASE_URL` en `BETTER_AUTH_SECRET`. Voeg ook `MIGRATION_DATABASE_URL` toe als referentie naar de volledige lokale migrator-URL. Niet-geheime instellingen, zoals poorten, databasenamen en resourcegrenzen, mogen gewone waarden blijven. Lokaal mogen `CATAPULZE_DATABASE_URL` en `PROJECTOR_DATABASE_URL` dezelfde directe Compose-Postgres-URL bevatten; productie gebruikt voor de projectorlock expliciet Neons directe endpoint terwijl gewone runtimequeries gepoold mogen blijven.
 
 Voer de smoke-test uit met hetzelfde referentiebestand voor zowel 1Password-injectie als alle Compose-aanroepen:
 

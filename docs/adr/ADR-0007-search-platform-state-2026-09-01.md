@@ -160,6 +160,7 @@ Nieuwe omgevingsvariabelen sinds ADR-0006:
 | `REDIS_URL` | server | Optioneel; onbereikbaar bij boot in productie → weigert te starten; buiten productie, of wegvallen na boot → degradeert naar in-process cache. |
 | `SEARCH_PROJECTOR` | worker | `"worker"` (default, huidig gedrag) of `"onbox"` (nieuw, RJC-387). |
 | `MANTICORE_URL` | **alleen op de projector-host** in onbox-modus; niet meer nodig op de cloud-worker in die modus | Manticore-adres voor de projector; in `worker`-modus blijft dit op de worker zelf staan (ongewijzigd). |
+| `PROJECTOR_DATABASE_URL` | projector | Directe (niet-gepoolde) Postgres/Neon-verbinding voor de session-level advisory lock; gewone dataqueries blijven via `DATABASE_URL` lopen. |
 
 ## Gevolgen
 

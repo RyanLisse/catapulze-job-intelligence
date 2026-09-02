@@ -9,12 +9,13 @@ import {
  *
  *   bun run projector
  *
- * Reads the Neon outbox over TLS (DATABASE_URL) and writes to a
- * loopback-only Manticore (MANTICORE_URL), so it must run next to Manticore
- * rather than inside the cloud worker — see the runbook for why (ADR-0006
- * keeps Manticore off the public network).
+ * Reads the Neon outbox over TLS (pooled DATABASE_URL), holds its session
+ * advisory lock over a direct PROJECTOR_DATABASE_URL, and writes to a
+ * loopback-only Manticore (MANTICORE_URL). It therefore runs next to
+ * Manticore rather than inside the cloud worker — see the runbook for why
+ * (ADR-0006 keeps Manticore off the public network).
  */
-import { env as databaseEnv } from "@ji/env/database";
+import { env as projectorEnv } from "@ji/env/projector";
 import { ManticoreSearchEngine } from "@ji/search";
 
 import { acquireAdvisoryLock, LockLostError } from "./lock";
@@ -48,19 +49,12 @@ const logLine = <Fields extends object>(
   stream.write(`${JSON.stringify({ event, ...fields })}\n`);
 };
 
-const requireManticoreUrl = (): string => {
-  const manticoreUrl = process.env.MANTICORE_URL?.trim();
-  if (!manticoreUrl) {
-    throw new Error("MANTICORE_URL is required for the search projector");
-  }
-  return manticoreUrl;
-};
-
 const main = async (): Promise<void> => {
-  const databaseUrl = databaseEnv.DATABASE_URL;
-  const manticoreUrl = requireManticoreUrl();
+  const databaseUrl = projectorEnv.DATABASE_URL;
+  const lockDatabaseUrl = projectorEnv.PROJECTOR_DATABASE_URL;
+  const manticoreUrl = projectorEnv.MANTICORE_URL;
 
-  const lock = await acquireAdvisoryLock(databaseUrl, ADVISORY_LOCK_KEY);
+  const lock = await acquireAdvisoryLock(lockDatabaseUrl, ADVISORY_LOCK_KEY);
   if (!lock.acquired) {
     logLine(process.stdout, "projector_lock_held", {
       message: "another projector holds the lock",
