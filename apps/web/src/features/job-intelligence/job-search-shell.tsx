@@ -10,7 +10,7 @@ import { fixtureJobDataAdapter } from "./fixtures";
 import { JobSearchPage } from "./job-search-page";
 import { createRestJobIntelligence } from "./rest-job-data-adapter";
 
-const useFixtures =
+const fixturesEnabled =
   process.env.NEXT_PUBLIC_USE_FIXTURES === "true" ||
   process.env.NEXT_PUBLIC_USE_FIXTURES === "1";
 
@@ -19,11 +19,11 @@ export const JobSearchShell = () => {
   const isAuthenticated = Boolean(session?.user.id);
   const wiring = useMemo(
     () =>
-      useFixtures || !isAuthenticated ? null : createRestJobIntelligence(),
+      fixturesEnabled || !isAuthenticated ? null : createRestJobIntelligence(),
     [isAuthenticated]
   );
 
-  if (useFixtures) {
+  if (fixturesEnabled) {
     return <JobSearchPage adapter={fixtureJobDataAdapter} />;
   }
 
