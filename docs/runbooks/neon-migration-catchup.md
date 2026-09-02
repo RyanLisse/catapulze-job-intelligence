@@ -1,27 +1,35 @@
 # Neon migration catch-up (RJC-402)
 
-## Current status: BLOCKED pending exact live readback
+## Current status: BLOCKED pending release-specific evidence and approval
 
-> **Execution stop.** Current `main` contains 13 migrations (`0000`–`0012`).
-> The 2026-09-01 rehearsal in this document covered only `0006`–`0011` and
-> expected a 12-row journal. It does not rehearse or prove
-> `0012_source_record_listing_hash.sql`, and it is not current Neon evidence.
-> A local, unpublished operator record dated 2026-09-01 claims that the live
-> journal moved from 6 to 13 entries, but no current live readback confirms
-> that state.
+> **Execution stop.** The reviewed integration base
+> `80e2882447e1a678855c1334aa30a752808d0f7c` contains exactly 15 ordered
+> migrations (`0000`–`0014`), ending in
+> `0013_durable_user_writes` followed by `0014_auth_user_role`. The 2026-09-01
+> rehearsal in this document covered only `0006`–`0011` and expected a 12-row
+> journal. It does not rehearse or prove `0012`, `0013`, or `0014`, and it is
+> not current Neon evidence. A local, unpublished operator record dated
+> 2026-09-01 claimed that the live journal moved from 6 to 13 entries. No
+> current live readback confirms even that state, and it says nothing about
+> `0013` or `0014`.
+>
 > `bun run db:migrate` applies every pending migration in the checked-out
-> commit, so running it now on the strength of the old rehearsal could include
-> `0012` without evidence. Do not run it until the exact live journal and
-> schema have been read and reconciled with the commit being deployed.
+> commit. Do not run it until the immutable deployment SHA, exact live journal,
+> affected schema objects, current-snapshot rehearsal, rollback branch, and
+> explicit operator approval all agree on the same pending set.
 
 Before any branch creation or write:
 
-1. Read the complete live `drizzle.__drizzle_migrations` journal, ordered by
-   `created_at`; do not rely on a count alone.
-2. Compare every live journal entry with
-   `packages/db/src/migrations/meta/_journal.json` and the migration files in
-   the exact commit being deployed.
-3. Read every affected schema object, including the `0012` column:
+1. Pin the full 40-character `DEPLOY_SHA` from the candidate Coolify release or
+   release manifest. Never derive this gate from a moving `main` ref.
+2. Derive the complete ordered expected journal from that commit's
+   `packages/db/src/migrations/meta/_journal.json` and SQL blobs. Read the
+   complete live `drizzle.__drizzle_migrations` journal ordered by
+   `created_at, id`, then prove the live sequence is an exact prefix. A count
+   or latest timestamp alone is insufficient.
+3. Read every affected schema object, including the `0012` column and the
+   `0013`/`0014` objects in the verification matrix below. The smallest
+   `0012` readback is:
 
    ```sql
    SELECT column_name, data_type, is_nullable
@@ -31,15 +39,16 @@ Before any branch creation or write:
      AND column_name = 'listing_hash';
    ```
 
-   For current `main`, fully applied schema means one row:
-   `listing_hash | text | YES`, plus 13 matching journal entries. These are
-   expectations derived from the checked-in migration, **not** rehearsal or
-   live proof that `0012` has run.
-4. Record the exact pending set. If `0012` is pending, the historical GO below
-   does not authorize it: assess/rehearse and approve that migration
-   explicitly before executing the current migration command.
+   For the reviewed integration base, fully applied means this row plus the
+   `0013` scope/markering objects, the `0014` role contract, and all 15 matching
+   journal entries. These are expectations derived from committed code,
+   **not** a claim that production has applied them.
+4. Record the exact pending tags. Rehearse that exact set against a fresh
+   branch of the current production snapshot, retain a separate pristine
+   rollback branch, and obtain explicit operator approval tied to
+   `DEPLOY_SHA`, pending tags, rehearsal evidence, and rollback branch ID.
 
-## Historical verdict: GO for `0006`–`0011` only
+## Historical rehearsal verdict: GO for `0006`–`0011` only
 
 **The fact that decided the historical verdict:** every `0006`–`0011`
 statement ran against a table with at most 145 rows in the captured
@@ -47,13 +56,14 @@ statement ran against a table with at most 145 rows in the captured
 measured in this rehearsal — the `index_version integer→bigint` rewrite on
 `curated.outbox_event` — took **20ms**. There is no meaningful lock-contention
 window at that historical data volume. This finding says nothing about
-`0012` or current live row counts and is not current execution approval.
+`0012`–`0014` or current live row counts and is not current execution
+approval.
 
 Historical status: `0006`–`0011` were quantified and rehearsed against a real
 clone of the Neon state captured and re-read on 2026-09-01. They were not run
 against Neon in the documented session. All documented writes happened
 against a disposable local Postgres cluster. No equivalent rehearsal or live
-verification for `0012` is recorded here.
+verification for `0012`–`0014` is recorded here.
 
 ## The problem
 
@@ -74,8 +84,8 @@ $ psql "$NEON_DATABASE_URL" -Atqc "select id, hash, created_at from drizzle.__dr
 ```
 
 Six rows meant migrations `0000`–`0005` were applied in that historical
-readback. Current `main` has `0000`–`0012` (13 migrations); its live Neon
-state has not been established in this document.
+readback. The reviewed integration base now has `0000`–`0014` (15
+migrations); its live Neon state has not been established in this document.
 
 ## Historical object checks for `0006`–`0011`
 
@@ -125,8 +135,9 @@ aanvraag|4
 (Matched the captured Neon snapshot exactly — see table above.)
 
 The following is historical output from the commit that ended at `0011`.
-Running the same command from current `main` would also apply pending `0012`;
-do not do that until the current gate at the top of this document is cleared.
+Running the same command from the reviewed integration base would also apply
+any pending `0012`–`0014`; do not do that until the current gate at the top of
+this document is cleared.
 
 ```
 $ MIGRATION_DATABASE_URL=postgresql://scratch_owner@127.0.0.1:5556/neon_clone drizzle-kit migrate
@@ -160,7 +171,7 @@ In that historical clone, the journal went from 6 to 12 rows,
 `created_at` ascending as `0006`'s `UPDATE` intends), row counts were unchanged
 and both new tables existed. Re-running `drizzle-kit migrate` against that
 same `0000`–`0011` checkout applied zero further changes. The 12-row result is
-not the expected result for current `main`.
+not the expected result for the reviewed integration base.
 
 **This is evidence only for `0006`–`0011` against the captured snapshot:** a
 real run of those migrations against a byte-for-byte copy of the schema and
@@ -175,7 +186,10 @@ than silently skipping it) — the two results together cover both ends: sound
 from-scratch with synthetic data (CI) and sound for `0006`–`0011` against the
 captured Neon snapshot. The cited historical evidence did not cover `0012`.
 Current code has a synthetic `0011→0012` upgrade test, but that is not a
-rehearsal against a Neon clone and not live proof.
+rehearsal against a Neon clone and not live proof. No migration-upgrade test
+in this integration base exercises `0012→0013→0014` against existing rows;
+the current-snapshot rehearsal below is therefore a hard gate, not optional
+extra evidence.
 
 ## Lock class and measured duration — per migration file
 
@@ -228,8 +242,8 @@ from an earlier successful invocation remain applied.
 
 **The old rehearsal concluded that `0006`–`0011` needed no stop-the-world
 window at the measured 2026-09-01 row counts.** This is not authorization to
-run current `main`, does not cover `0012`, and must be refreshed against the
-live state before execution. Historical reasoning:
+run the integrated release, does not cover `0012`–`0014`, and must be
+refreshed against the live state before execution. Historical reasoning:
 
 - Every `ACCESS EXCLUSIVE` window measured here is single-digit-to-double-digit
   milliseconds. A concurrent query from the worker or projector that needs the
@@ -277,22 +291,170 @@ alone is insufficient.
 | `0010` | `SELECT count(*) FROM curated.query_snapshot WHERE search_scope NOT IN ('active','all');` | `0` |
 | `0011` | `SELECT column_name FROM information_schema.columns WHERE table_schema='curated' AND table_name='aanvraag' AND column_name IN ('locatie_tekst','sluitingsdatum');` | 2 rows |
 | `0012` | `SELECT column_name, data_type, is_nullable FROM information_schema.columns WHERE table_schema='staging' AND table_name='source_record' AND column_name='listing_hash';` | 1 row: `listing_hash`, `text`, `YES` |
-| all, current `main` | `SELECT count(*) FROM drizzle.__drizzle_migrations;` | `13` |
+| `0013` | Run the scope, markering, index, and constraint readbacks below. | Eight non-null `scope_id` columns, `audit_class` non-null with default, the markering table/indexes/constraints present, and zero invalid/null backfilled values. |
+| `0014` | Run the role-column, role-constraint, and aggregate-user readbacks below. | `public.user.role` is `text NOT NULL DEFAULT 'recruiter'`, `user_role_check` is validated, and no stored role is outside the four allowed values. |
+| all, reviewed integration base | `SELECT count(*) FROM drizzle.__drizzle_migrations;` | `15`; for any other `DEPLOY_SHA`, derive this dynamically rather than copying `15` |
 | all | `SELECT 'outbox_event', count(*) FROM curated.outbox_event UNION ALL SELECT 'source_record', count(*) FROM staging.source_record UNION ALL SELECT 'aanvraag', count(*) FROM curated.aanvraag;` | unchanged from a fresh live pre-write baseline; do not use the historical 3 / 145 / 4 counts |
 
-The `0012` row and 13-entry expectation come from current checked-in code.
-They define what fully applied current `main` should look like; they are not a
-claim that `0012` was rehearsed or observed live.
+The `0012`–`0014` expectations and 15-entry reference come from the reviewed
+integration code. They define what that SHA should look like when fully
+applied; they are not a claim that any of those migrations were rehearsed or
+observed live.
+
+Read `0013` without returning user-entered values:
+
+```sql
+SELECT table_name, column_name, data_type, is_nullable, column_default
+FROM information_schema.columns
+WHERE table_schema = 'curated'
+  AND (
+    (column_name = 'scope_id' AND table_name IN (
+      'aanvraag_markering', 'saved_search', 'query_snapshot',
+      'approval_record', 'audit_event', 'external_id_crosswalk',
+      'export_attempt', 'external_receipt'
+    ))
+    OR (table_name = 'audit_event' AND column_name = 'audit_class')
+  )
+ORDER BY table_name, column_name;
+
+SELECT object_name, to_regclass('curated.' || object_name) AS object_regclass
+FROM unnest(ARRAY[
+  'aanvraag_markering',
+  'aanvraag_markering_user_aanvraag_uidx',
+  'aanvraag_markering_scope_user_idx',
+  'aanvraag_markering_aanvraag_id_idx',
+  'aanvraag_markering_user_id_idx',
+  'saved_search_scope_user_idx',
+  'query_snapshot_scope_id_idx',
+  'approval_record_scope_snapshot_idx',
+  'audit_event_scope_actor_idx'
+]) AS expected(object_name)
+ORDER BY object_name;
+
+SELECT idx.indexrelid::regclass AS object_regclass,
+       idx.indisunique, idx.indisvalid, idx.indisready,
+       ARRAY(
+         SELECT pg_get_indexdef(idx.indexrelid, keys.key_no, false)
+         FROM generate_series(1, idx.indnkeyatts) AS keys(key_no)
+         ORDER BY keys.key_no
+       ) AS key_columns,
+       pg_get_indexdef(idx.indexrelid) AS index_definition
+FROM pg_index AS idx
+JOIN pg_class AS rel ON rel.oid = idx.indexrelid
+JOIN pg_namespace AS ns ON ns.oid = rel.relnamespace
+WHERE ns.nspname = 'curated'
+  AND rel.relname = 'external_id_crosswalk_idempotency_uidx';
+
+SELECT rel.relname AS relation, con.conname, con.convalidated,
+       pg_get_constraintdef(con.oid) AS definition
+FROM pg_constraint AS con
+JOIN pg_class AS rel ON rel.oid = con.conrelid
+JOIN pg_namespace AS ns ON ns.oid = rel.relnamespace
+WHERE ns.nspname = 'curated'
+  AND con.conname IN (
+    'aanvraag_markering_aanvraag_id_aanvraag_id_fk',
+    'aanvraag_markering_status_check',
+    'aanvraag_markering_revision_check',
+    'aanvraag_markering_scope_id_check',
+    'saved_search_scope_id_check',
+    'query_snapshot_scope_id_check',
+    'approval_record_scope_id_check',
+    'audit_event_actor_type_check',
+    'audit_event_audit_class_check',
+    'audit_event_scope_id_check',
+    'external_id_crosswalk_scope_id_check',
+    'export_attempt_scope_id_check',
+    'external_receipt_scope_id_check'
+  )
+ORDER BY relation, con.conname;
+
+SELECT 'aanvraag_markering' AS relation, count(*) AS invalid
+FROM curated.aanvraag_markering
+WHERE scope_id IS NULL OR btrim(scope_id) = ''
+   OR revision < 1
+   OR status NOT IN ('relevant', 'niet_relevant', 'gevolgd')
+UNION ALL
+SELECT 'saved_search', count(*)
+FROM curated.saved_search WHERE scope_id IS NULL OR btrim(scope_id) = ''
+UNION ALL
+SELECT 'query_snapshot', count(*)
+FROM curated.query_snapshot WHERE scope_id IS NULL OR btrim(scope_id) = ''
+UNION ALL
+SELECT 'approval_record', count(*)
+FROM curated.approval_record WHERE scope_id IS NULL OR btrim(scope_id) = ''
+UNION ALL
+SELECT 'audit_event', count(*)
+FROM curated.audit_event
+WHERE scope_id IS NULL OR btrim(scope_id) = ''
+   OR audit_class IS NULL OR audit_class NOT IN ('access', 'effect', 'none')
+UNION ALL
+SELECT 'external_id_crosswalk', count(*)
+FROM curated.external_id_crosswalk
+WHERE scope_id IS NULL OR btrim(scope_id) = ''
+UNION ALL
+SELECT 'export_attempt', count(*)
+FROM curated.export_attempt WHERE scope_id IS NULL OR btrim(scope_id) = ''
+UNION ALL
+SELECT 'external_receipt', count(*)
+FROM curated.external_receipt WHERE scope_id IS NULL OR btrim(scope_id) = '';
+```
+
+The information-schema, regclass, index-definition, and constraint queries are
+safe before `0013`. When `0013` is pending, expect no new column or constraint
+rows: the column query returns only the pre-existing nullable `audit_class`
+row with no default, the constraint query returns no rows, and the nine
+regclass values for the newly introduced table/indexes are null. The
+pre-existing `external_id_crosswalk_idempotency_uidx` must still have `target`
+as the first of exactly three key columns, no `scope_id` in
+`pg_get_indexdef()`, and all three index flags true. When `0013` is applied,
+expect nine column rows, nine non-null regclass values, thirteen validated
+constraints, and that same unique, valid, ready index rebuilt with exactly
+`scope_id`, `target`, `canonical_vacancy_id`, `action_type` in that order; its
+full definition must include `scope_id`. A missing index row, another key
+order, a false flag, or any other partial result is a journal/schema mismatch.
+Run the aggregate `invalid` query only after the information-schema query
+proves every referenced column exists; then expect `invalid = 0` for every
+relation. An empty `aanvraag_markering` table is covered structurally; do not
+invent rows to prove it.
+
+Read `0014` without returning user identifiers:
+
+```sql
+SELECT column_name, data_type, is_nullable, column_default
+FROM information_schema.columns
+WHERE table_schema = 'public'
+  AND table_name = 'user'
+  AND column_name = 'role';
+
+SELECT conname, convalidated, pg_get_constraintdef(oid)
+FROM pg_constraint
+WHERE conrelid = 'public."user"'::regclass
+  AND conname = 'user_role_check';
+
+SELECT count(*) AS invalid_role_count
+FROM public."user"
+WHERE role IS NULL
+   OR role NOT IN ('recruiter', 'operator', 'admin', 'approver');
+```
+
+The first two queries are safe before `0014`: expect no role column/constraint
+when `0014` is pending, or one `role | text | NO | 'recruiter'::text` column
+row and one validated four-role constraint when it is applied. A partial
+result is a journal/schema mismatch. Run the aggregate query only when the role
+column exists; then expect `invalid_role_count = 0`. These checks intentionally
+do not print emails, names, user IDs, or role assignments.
 
 ## §4: Operator procedure — blocked at read-only preflight
 
 Do not enter the write phase until the top-of-document gate is cleared. First
-capture the full live journal and `0012` schema state without modifying Neon:
+capture the full live journal and `0012`–`0014` schema state without modifying
+Neon. The live result remains external production evidence; never replace it
+with the expectations printed in this document.
 
 ```sql
 SELECT id, hash, created_at::text
 FROM drizzle.__drizzle_migrations
-ORDER BY created_at;
+ORDER BY created_at, id;
 
 SELECT column_name, data_type, is_nullable
 FROM information_schema.columns
@@ -301,140 +463,238 @@ WHERE table_schema = 'staging'
   AND column_name = 'listing_hash';
 ```
 
-Compare that output with the exact commit being deployed. If `0012` is
-pending, stop: the historical rehearsal below it does not cover that file.
-Rehearse/assess it explicitly and obtain operator approval before continuing.
-If journal and schema disagree (for example, the column exists without the
-matching journal entry), stop and reconcile; do not use `db:migrate` as a
-diagnostic or repair command.
+Also run the `0013` and `0014` readbacks in the matrix above. If journal and
+schema disagree (for example, an object exists without its journal entry),
+stop and reconcile the inconsistency; do not use `db:migrate` as a diagnostic
+or repair command.
 
-For current `main`, run this deterministic read-only comparison from the
-exact checkout being deployed. It derives the complete expected 13-entry
-sequence from `_journal.json` plus the checked-in SQL bytes, then compares it
-with the live journal in `created_at` order. It prints timestamps and hashes
-only; it never prints the connection string or another secret.
+Run this deterministic read-only comparison from a trusted repository that
+contains the exact 40-character `DEPLOY_SHA`. It reads `_journal.json` and
+every SQL blob from that immutable Git commit, even if another branch is
+checked out. It then proves the live journal is an exact ordered prefix and
+prints the precise pending tags. It prints timestamps, hashes, and migration
+tags only; it never prints the connection string or another secret.
 
 ```bash
 set -euo pipefail
-migration_dir=packages/db/src/migrations
+: "${DEPLOY_SHA:?set the full 40-character release commit}"
+if test "${#DEPLOY_SHA}" -ne 40 || test -n "${DEPLOY_SHA//[0-9a-f]/}"; then
+  echo 'DEPLOY_SHA must be a full lowercase 40-character commit SHA' >&2
+  exit 1
+fi
+git cat-file -e "${DEPLOY_SHA}^{commit}"
+
+migration_path=packages/db/src/migrations
+journal_json=$(mktemp)
 expected_journal=$(mktemp)
+expected_prefix=$(mktemp)
 live_journal=$(mktemp)
-trap 'rm -f "$expected_journal" "$live_journal"' EXIT
+trap 'rm -f "$journal_json" "$expected_journal" "$expected_prefix" "$live_journal"' EXIT
 
-jq -r '.entries[] | [.when, .tag] | @tsv' \
-  "$migration_dir/meta/_journal.json" |
+git show "${DEPLOY_SHA}:${migration_path}/meta/_journal.json" >"$journal_json"
+jq -e '
+  .entries as $entries
+  | (($entries | length) > 0)
+    and ([$entries[].idx] == [range(0; ($entries | length))])
+    and ([$entries[].when] == ([$entries[].when] | sort | unique))
+' "$journal_json" >/dev/null
+
 while IFS=$'\t' read -r folder_millis tag; do
-  migration_file="$migration_dir/$tag.sql"
-  test -f "$migration_file"
-  migration_hash=$(shasum -a 256 "$migration_file" | awk '{print $1}')
-  printf '%s|%s\n' "$folder_millis" "$migration_hash"
-done >"$expected_journal"
+  migration_blob="${DEPLOY_SHA}:${migration_path}/${tag}.sql"
+  git cat-file -e "$migration_blob"
+  migration_hash=$(git cat-file blob "$migration_blob" | shasum -a 256 | awk '{print $1}')
+  printf '%s|%s|%s\n' "$folder_millis" "$migration_hash" "$tag"
+done < <(jq -r '.entries[] | [.when, .tag] | @tsv' "$journal_json") \
+  >"$expected_journal"
 
-test "$(wc -l <"$expected_journal" | tr -d ' ')" = 13
+expected_count=$(wc -l <"$expected_journal" | tr -d ' ')
 psql "$READONLY_DATABASE_URL" -XAt -F '|' -v ON_ERROR_STOP=1 \
   -c 'SELECT created_at::text, hash FROM drizzle.__drizzle_migrations ORDER BY created_at, id' \
   >"$live_journal"
-test "$(wc -l <"$live_journal" | tr -d ' ')" = 13
+live_count=$(wc -l <"$live_journal" | tr -d ' ')
 
-if cmp -s "$expected_journal" "$live_journal"; then
-  echo 'PASS: all 13 migration timestamps and SHA-256 hashes match'
-else
-  echo 'FAIL: checked-in and live migration sequences differ' >&2
-  diff -u "$expected_journal" "$live_journal" || true
+if test "$live_count" -gt "$expected_count"; then
+  echo 'FAIL: live journal is ahead of the deployment SHA' >&2
   exit 1
+fi
+awk -F '|' -v count="$live_count" \
+  'NR <= count { print $1 "|" $2 }' "$expected_journal" >"$expected_prefix"
+
+if ! cmp -s "$expected_prefix" "$live_journal"; then
+  echo 'FAIL: live journal is not the exact deployment-SHA prefix' >&2
+  diff -u "$expected_prefix" "$live_journal" || true
+  exit 1
+fi
+
+if test "$live_count" -eq "$expected_count"; then
+  echo "PASS: all ${expected_count} deployment-SHA migrations match; pending=none"
+else
+  echo "PASS: ${live_count}/${expected_count} entries form an exact prefix"
+  echo 'PENDING tags:'
+  awk -F '|' -v applied="$live_count" 'NR > applied { print $3 }' "$expected_journal"
 fi
 ```
 
-The count guard is intentional: comparing only the latest timestamp or a
-subset can miss a corrupted or substituted earlier journal row. Because
-0.45.2 decides pending status from the latest `created_at` versus
-`folderMillis`, a hash mismatch is a stop-and-investigate signal, not
-something a re-run will repair automatically.
+For the reviewed integration base, this derives 15 entries and the ordered
+tail `0013_durable_user_writes` then `0014_auth_user_role`. A different
+`DEPLOY_SHA` is allowed to have another count or tail; the derived output, not
+this prose, is authoritative. Comparing only the latest timestamp can miss a
+corrupted or substituted earlier row. Because Drizzle 0.45.2 selects pending
+files from the latest `created_at` versus the journal's `when`, a hash or
+prefix mismatch is a stop-and-investigate signal, not something a re-run will
+repair automatically.
 
-**A Neon branch taken immediately before migrating is the rollback source,
-not the rollback action itself.** Neon branches are copy-on-write and
-near-instant to create (see [neon-restore.md](neon-restore.md) §1) and capture
-the schema and data as they stood before the migration. Recovery still
+**A Neon branch is a rollback source, not the rollback action itself.** Neon
+branches are copy-on-write and near-instant to create (see
+[neon-restore.md](neon-restore.md) §1). Never migrate the only pristine branch
+while rehearsing: use one branch as the rehearsal source and a child branch as
+the writable rehearsal target. After rehearsal and approval, create a new
+rollback branch immediately before the production apply. Recovery still
 requires the controlled restore/switchover procedure below.
 
-Create an execution record before proceeding and fill every field from the
-CLI/Console readback; these are identifiers and timestamps, never connection
-strings:
+Create an execution record and fill every field from CLI/Console readback;
+record identifiers, timestamps, aggregate counts, and durations, never
+connection strings or row contents:
 
 | Evidence field | Recorded value |
 |---|---|
-| Verified Neon project ID | `<record at execution>` |
-| Verified production parent branch ID | `<record at execution>` |
-| Rollback branch ID | `<record create output, then confirm by readback>` |
-| Rollback branch parent ID | `<must equal verified production parent ID>` |
-| Rollback branch `created_at` | `<record readback>` |
-| First successful read-only query at | `<record timestamp and elapsed creation-to-queryable time>` |
+| Full immutable `DEPLOY_SHA` | `<record exact 40-character SHA>` |
+| Verified Neon project and production branch IDs | `<record at execution>` |
+| Live journal prefix and exact pending tags | `<record comparator output>` |
+| Live `0012`–`0014` preflight | `<record aggregate/object verdicts>` |
+| Rehearsal source and target branch IDs/parents | `<record verified readbacks>` |
+| Rehearsal duration, journal, objects, and row-count deltas | `<must all pass>` |
+| Writer quiescence started / last in-flight write finished | `<record timestamps>` |
+| Final rollback branch ID, parent ID, and `created_at` | `<record verified readback>` |
+| Explicit operator approval | `<approver, time, DEPLOY_SHA, pending tags, GO/NO-GO>` |
+
+### Rehearse the exact pending set on a fresh production snapshot
+
+Use a clean checkout at the exact deployment commit. The migration command
+reads files from the checkout, so deriving the expected journal from
+`DEPLOY_SHA` is not enough for the write phase:
 
 ```bash
-# 1. Resolve identifiers first. In Console or `neonctl branches list`, verify
-#    the exact project and the branch that currently serves production.
-#    Record both non-secret IDs; never infer "production" from a branch name.
-neonctl branches list --project-id <verified-project-id>
+test "$(git rev-parse HEAD)" = "$DEPLOY_SHA"
+test -z "$(git status --porcelain)"
+```
 
-# 2. Branch explicitly from the verified production parent. `--no-secrets`
-#    is mandatory because branch creation otherwise includes connection
-#    credentials in JSON output. Keep only the non-secret branch metadata.
+Resolve the real production parent from the current app configuration and
+confirm it in Neon; never infer it from a branch name. Create a pristine
+rehearsal source from that parent and a writable child from the source.
+`--no-secrets` is mandatory because the captured JSON is evidence:
+
+```bash
 verified_project_id='<verified-project-id>'
 verified_production_branch_id='<verified-production-branch-id>'
-rollback_create_json="$(
+neonctl branches list --project-id "$verified_project_id"
+
+rehearsal_source_json="$(
   neonctl branches create --project-id "$verified_project_id" \
     --parent "$verified_production_branch_id" \
-    --name pre-migration-current-main-$(date +%Y%m%d-%H%M%S) \
-    --no-secrets \
-    --output json
+    --name migration-rehearsal-source-$(date +%Y%m%d-%H%M%S) \
+    --no-secrets --output json
 )"
-rollback_branch_id="$(
-  printf '%s' "$rollback_create_json" | jq -er '.branch.id // .id'
+rehearsal_source_id="$(
+  printf '%s' "$rehearsal_source_json" | jq -er '.branch.id // .id'
 )"
+rehearsal_source_readback="$(
+  neonctl branches get "$rehearsal_source_id" \
+    --project-id "$verified_project_id" --output json
+)"
+test "$(printf '%s' "$rehearsal_source_readback" | jq -er '.parent_id')" \
+  = "$verified_production_branch_id"
+printf '%s' "$rehearsal_source_readback" | jq -e '{id, parent_id, created_at}'
 
-# 3. Read that exact branch back and prove its parent before any production
-#    write. The equality test MUST exit 0. Record only id, parent_id and
-#    created_at from this readback; never retain secret-bearing CLI output.
-rollback_branch_readback="$(
+rehearsal_target_json="$(
+  neonctl branches create --project-id "$verified_project_id" \
+    --parent "$rehearsal_source_id" \
+    --name migration-rehearsal-target-$(date +%Y%m%d-%H%M%S) \
+    --no-secrets --output json
+)"
+rehearsal_target_id="$(
+  printf '%s' "$rehearsal_target_json" | jq -er '.branch.id // .id'
+)"
+rehearsal_target_readback="$(
+  neonctl branches get "$rehearsal_target_id" \
+    --project-id "$verified_project_id" --output json
+)"
+test "$(printf '%s' "$rehearsal_target_readback" | jq -er '.parent_id')" \
+  = "$rehearsal_source_id"
+printf '%s' "$rehearsal_target_readback" | jq -e '{id, parent_id, created_at}'
+unset rehearsal_source_json rehearsal_source_readback
+unset rehearsal_target_json rehearsal_target_readback
+```
+
+Obtain the rehearsal target's read-only and owner URLs through the secret
+manager without echoing them. Point `READONLY_DATABASE_URL` at the target and
+rerun the deployed-SHA comparator: it must report the same journal prefix and
+pending tags recorded for production. Capture aggregate row counts, then
+inject the target owner URL as `MIGRATION_DATABASE_URL` and run exactly once:
+
+```bash
+/usr/bin/time -p bun run db:migrate
+```
+
+Rerun the comparator; it must now report `pending=none`. Run every applicable
+object query in the verification matrix, including the full `0013` and `0014`
+blocks. Prove aggregate row counts did not change unexpectedly, record the
+duration/locks, and retain the untouched rehearsal source. A green CI test or
+the 2026-09-01 timing is not a substitute for this current-snapshot rehearsal.
+
+### Approval and production apply
+
+The operator must explicitly approve the exact tuple
+`DEPLOY_SHA + pending tags + rehearsal target + rehearsal verdict + rollback
+plan`. Silence, an old GO, a green build, or branch creation is not approval.
+Any SHA, pending-set, schema, or material row-count change invalidates the GO
+and requires a new assessment/rehearsal.
+
+After approval, stop every production database writer (API, Trigger.dev
+worker, projector, and operator jobs) and wait for in-flight transactions to
+finish. Rerun the deployed-SHA comparator and all preflight object/aggregate
+checks with the production read-only role. They must match the approved
+pending set. While writers remain stopped, create a fresh rollback branch
+directly from the verified production parent, read it back, prove its
+`parent_id`, and prove a read-only query succeeds:
+
+```bash
+rollback_json="$(
+  neonctl branches create --project-id "$verified_project_id" \
+    --parent "$verified_production_branch_id" \
+    --name pre-migration-${DEPLOY_SHA:0:8}-$(date +%Y%m%d-%H%M%S) \
+    --no-secrets --output json
+)"
+rollback_branch_id="$(printf '%s' "$rollback_json" | jq -er '.branch.id // .id')"
+rollback_readback="$(
   neonctl branches get "$rollback_branch_id" \
-    --project-id "$verified_project_id" \
-    --output json
+    --project-id "$verified_project_id" --output json
 )"
-rollback_parent_id="$(
-  printf '%s' "$rollback_branch_readback" | jq -er '.parent_id'
-)"
-test "$rollback_parent_id" = "$verified_production_branch_id"
-printf '%s' "$rollback_branch_readback" \
-  | jq -e '{id, parent_id, created_at}'
-unset rollback_create_json rollback_branch_readback
+test "$(printf '%s' "$rollback_readback" | jq -er '.parent_id')" \
+  = "$verified_production_branch_id"
+printf '%s' "$rollback_readback" | jq -e '{id, parent_id, created_at}'
+unset rollback_json rollback_readback
 
-# Obtain this branch's connection string through Console/neonctl without
-# echoing it, then prove it is queryable and record the first-success time:
 psql "$ROLLBACK_BRANCH_READONLY_DATABASE_URL" -XAtqc \
   'SELECT current_database(), pg_is_in_recovery(), now();'
-
-# 4. Point MIGRATION_DATABASE_URL at the OWNER connection string for the
-#    branch you actually intend to migrate (production, once you've
-#    confirmed the branch above exists and is queryable).
-export MIGRATION_DATABASE_URL=...   # from the secret manager, never echoed
-
-# 5. ONLY after the readback, exact pending-set assessment and approval above:
-#    this applies every pending file in the checkout, including 0012.
-bun run db:migrate
-
-# 6. Verify — the per-migration table above ("Verification query — one per
-#    migration") has the full list; the two broadest checks:
-psql "$MIGRATION_DATABASE_URL" -Atqc "select count(*) from drizzle.__drizzle_migrations;"
-# current main expects 13
-psql "$MIGRATION_DATABASE_URL" -Atqc "select column_name, data_type, is_nullable from information_schema.columns where table_schema='staging' and table_name='source_record' and column_name='listing_hash';"
-# current main expects: listing_hash|text|YES
-psql "$MIGRATION_DATABASE_URL" -Atqc "select id, sequence_number, retry_count, claimed_until, dead_lettered_at from curated.outbox_event order by sequence_number;"
-# expect one row per existing event, sequence_number 1..N with no gaps or NULLs
-psql "$MIGRATION_DATABASE_URL" -Atqc "select to_regclass('curated.search_projection_checkpoint'), to_regclass('curated.search_projection_state');"
-# expect both non-null
-psql "$MIGRATION_DATABASE_URL" -Atqc "select count(*) from curated.aanvraag; select count(*) from staging.source_record;"
-# expect the live pre-write row counts captured during this execution
 ```
+
+Keep writers stopped. Inject the production owner URL as
+`MIGRATION_DATABASE_URL`, recheck the clean exact-SHA checkout, and run the
+one-shot migrator once:
+
+```bash
+test "$(git rev-parse HEAD)" = "$DEPLOY_SHA"
+test -z "$(git status --porcelain)"
+bun run db:migrate
+```
+
+Using the production **read-only** URL, rerun the full deployed-SHA comparator
+and every object/aggregate check. Expect `pending=none`; for the reviewed
+integration base that is 15 exact journal entries plus valid `0013` and
+`0014` readbacks. Only then deploy/restart compatible API, worker, and
+projector code and reopen writes. Preserve the rollback branch until the
+retention gate below is explicitly accepted.
 
 ### If a migration fails midway
 
@@ -445,8 +705,9 @@ psql "$MIGRATION_DATABASE_URL" -Atqc "select count(*) from curated.aanvraag; sel
 2. Diagnose against the exact failing file's SQL
    (`packages/db/src/migrations/000N_*.sql`). The historical rehearsal covered
    failure modes for `0006`–`0011` only. It provides no live-data or rehearsal
-   evidence for `0012`; inspect `listing_hash` and the journal explicitly
-   before deciding any recovery action.
+   evidence for `0012`–`0014`; inspect `listing_hash`, all `0013` scope
+   objects, the `0014` role contract, and the journal explicitly before
+   deciding any recovery action.
 3. If unresolvable quickly, execute a controlled restore/switchover:
    - stop or pause every writer (API writes, Trigger.dev worker and on-host
      projector) and record the last accepted production write time;

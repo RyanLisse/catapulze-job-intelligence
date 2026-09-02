@@ -6,7 +6,9 @@ the system of record; Manticore is a rebuildable derived index.
 
 This applies to the existing attributes and to the active/archive partition
 layout (`aanvragen_active`, `aanvragen_archive`). It does not drop the legacy
-`aanvragen` table or clear a Manticore volume automatically.
+`aanvragen` table or clear a Manticore volume automatically. The production
+target remains `manticoresearch/manticore:6.3.8`; the Manticore 29 shadow and
+any production upgrade decision are outside this runbook.
 
 ## Why the order matters
 
@@ -55,10 +57,14 @@ started; Manticore cannot fence that late engine write.
    Run `DESCRIBE` again and prove `projection_hash` exists in both tables.
    Do not stamp the v4 checkpoint while either table still has the v3 shape.
 
-3. Quiesce the singleton projector. Stop its Coolify/worker process and wait
-   for any current drain request to finish. Keep it stopped until the replay
-   command has reported `finalized: true`; do not merely rely on a lease
-   expiring.
+3. Quiesce the singleton on-box projector through its supervisor and wait for
+   any current drain request to finish. Confirm Trigger.dev is already in
+   `SEARCH_PROJECTOR=onbox` mode, where its drain task defers, and prove no
+   operator-started drain is running. Keep the projector stopped until the
+   CLI exits 0 with `Generation <n> is now available to the projector`; that
+   is its success output after finalization. Do not merely rely on a lease
+   expiring. A database coordination lock cannot fence a Manticore write that
+   was already in flight.
 
 4. Keep `DATABASE_URL` scoped to the intended Postgres environment. Do not
    place it in shell history or this repository.
@@ -76,7 +82,9 @@ outbox events:
 bun run search:new-generation
 ```
 
-With the projector still stopped, create or resume the durable replay:
+Record the plan and obtain operator approval for its target environment,
+schema hash, generation, and planned current-aanvraag count. With the
+projector still stopped, create or resume the durable replay:
 
 ```bash
 bun run search:new-generation --apply
@@ -92,7 +100,10 @@ events belonging to that exact index/generation, then atomically replaces the
 pending marker with `SEARCH_SCHEMA_HASH`. Only then may the projector start.
 
 `--force` is only for deliberately creating another generation when the
-checkpoint already has the current schema hash:
+checkpoint already has the current schema hash, such as rebuilding empty
+Manticore tables after host loss. Inspect that path first with the read-only
+`bun run search:new-generation --force`; only the deliberate, approved apply
+phase uses:
 
 ```bash
 bun run search:new-generation --apply --force
@@ -100,6 +111,10 @@ bun run search:new-generation --apply --force
 
 It never replaces a pending generation. A matching pending marker is always
 resumed; a pending marker for a different schema hash is an operator stop.
+The replay enumerates every current `curated.aanvraag` behind its captured
+high-water boundary and does not depend on retained historical outbox rows.
+The durable current-corpus replay is self-contained; no historical-outbox
+recovery procedure participates in this bootstrap.
 
 ### Recovery and resume
 
@@ -108,7 +123,7 @@ resumed; a pending marker for a different schema hash is an operator stop.
 | Process stopped after the marker or after a page | Keep the projector stopped and rerun the same `--apply`. Deterministic event IDs make committed pages conflict-safe. |
 | Command says replay events are dead-lettered | Resolve or requeue those replay events, then rerun `--apply`. The marker stays pending on purpose. |
 | Marker names a different schema hash | Do not force over it. Determine which deployment owns the marker and finish or recover that migration first. |
-| Command reports `finalized: true` | Start one projector, drain the durable replay, then reconcile the physical Manticore contents. |
+| Command exits 0 and reports that the generation is available | Start one projector, drain the durable replay, then reconcile the physical Manticore contents. |
 
 Do not hand-edit `search_projection_checkpoint.schema_hash` to bypass any of
 these cases. That would allow a partial generation to drain.

@@ -38,7 +38,11 @@ arguments.
 Apply `0013_durable_user_writes` first, then
 `0014_auth_user_role`. Migration `0014` backfills existing users to
 `recruiter`, adds a non-null default, and adds a database check constraint for
-the allowed roles. Do not deploy the auth code before the migration is present.
+the allowed roles. This ordering is a code-derived expectation, not proof that
+production has applied either migration. Use the deployed-SHA journal,
+current-snapshot rehearsal, explicit approval, and privacy-safe role readbacks
+in [neon-migration-catchup.md](neon-migration-catchup.md). Do not deploy the
+auth code before both migrations are proven present.
 
 ## Provision the first user
 

@@ -152,18 +152,21 @@ de daarbij genoemde releasestap, maar blokkeren het hostherstel zelf niet.
 2. RJC-371 (gelekte Neon-credential) is geroteerd en de nieuwe credential
    bestaat alleen in 1Password (ADR-0006, "Open punten").
 3. **RJC-402: lees eerst de actuele Neon-journal en het bijbehorende schema.**
-   Current `main` bevat 13 migraties (`0000`–`0012`), inclusief
-   `0012_source_record_listing_hash.sql`; de historische rehearsal in
+   De gereviewde integratiebasis
+   `80e2882447e1a678855c1334aa30a752808d0f7c` bevat exact 15 geordende
+   migraties (`0000`–`0014`), met als staart
+   `0013_durable_user_writes` → `0014_auth_user_role`. Een latere release
+   moet de verwachte set dynamisch uit zijn eigen volledige `DEPLOY_SHA`
+   afleiden; gebruik nooit een bewegende `main`-ref of alleen een count.
+   De historische rehearsal in
    [neon-migration-catchup.md](neon-migration-catchup.md) dekt alleen
-   `0006`–`0011` en verwachtte 12 journalentries.
-   Een lokale, nog niet gepubliceerde operatorrecord van 2026-09-01 claimt
-   dat de journal van 6 naar 13 entries is gegaan, maar een actuele live
-   Neon-readback ontbreekt. Die record en de oudere evidence in
-   [neon-migration-catchup.md](neon-migration-catchup.md) bewijzen de huidige
-   productiestaat niet. Draai de catch-up **niet opnieuw** voordat journal én
-   betrokken schema-objecten live read-only zijn gelezen en met de te
-   deployen commit zijn vergeleken. Alleen een bewezen achterstand activeert
-   het migratiepad; tot die readback blijft deze gate open.
+   `0006`–`0011`. Een lokale, niet-gepubliceerde operatorrecord van
+   2026-09-01 claimde een live journal van 13 entries, maar een actuele
+   read-only Neon-readback ontbreekt en die claim bewijst `0013`/`0014` niet.
+   Draai de catch-up niet voordat de live journal een exact voorvoegsel van
+   de deployment-SHA-set is, alle betrokken schema-objecten zijn gelezen, de
+   exacte pending set op een verse productiesnapshot is gerehearsed, een
+   aparte rollbackbranch is gevalideerd en de operator expliciet GO geeft.
 4. Deploymethode op de box: Coolify is eerder op `catapulze-prod` ingericht,
    maar de huidige installatie en een volledige gezonde applicatie-deploy zijn
    niet opnieuw bewezen. Gebruik [coolify-local.md](coolify-local.md) en stap
@@ -370,10 +373,14 @@ Verificatie:
 
 ```bash
 mysql -h127.0.0.1 -P9306 -e 'SHOW TABLES'
+mysql -h127.0.0.1 -P9306 -e 'DESCRIBE aanvragen_active'
+mysql -h127.0.0.1 -P9306 -e 'DESCRIBE aanvragen_archive'
 ```
 
-Verwacht: `aanvragen_active` en `aanvragen_archive` in de lijst (RJC-383;
-`/readyz` eist beide, `apps/server/src/readiness.ts`).
+Verwacht: `aanvragen_active` en `aanvragen_archive` in de lijst en
+`projection_hash` als string attribute in beide tabellen (v4). `/readyz` eist
+beide tabellen (`apps/server/src/readiness.ts`); de expliciete `DESCRIBE`
+voorkomt dat een bestaande v3-volume alleen door een conf-edit current lijkt.
 
 ### Stap 2 — Neon-rollen en credentials
 
@@ -394,19 +401,27 @@ git (`git grep` op de hostnaam levert niets op).
 Preconditie 0.3 begint met een verse read-only live-readback van de volledige
 Neon-journal en de betrokken schema-objecten. De oudere runbook-evidence
 meldt 6 journalentries; de lokale, ongepubliceerde operatorrecord van
-2026-09-01 claimt 13. Geen van beide vervangt de actuele readback. Vergelijk
-het live resultaat met `packages/db/src/migrations/meta/_journal.json` en de
-schema-eisen van de te deployen commit. Voor current `main` betekent volledig
-toegepast: 13 overeenkomende journalentries én een nullable `text`-kolom
-`staging.source_record.listing_hash` uit `0012`; dit is een verwachting uit de
-code, geen live- of rehearsalbewijs. Is Neon al current, leg dat bewijs vast
-en migreer niet opnieuw. Alleen bij een bewezen achterstand volgt de catch-up
-uit [neon-migration-catchup.md](neon-migration-catchup.md), met een verse
-Neon-branch als rollback source; herstel vereist de gecontroleerde
-restore/switchoverprocedure uit dat runbook. Daarna, en bij elke latere
-release, draait de
-one-shot migrator-job (`apps/server/Dockerfile.migrate`, alleen
-`MIGRATION_DATABASE_URL`) vóór de server-uitrol
+2026-09-01 claimde 13. Geen van beide vervangt de actuele readback of bewijst
+dat `0013`/`0014` zijn toegepast. Pin de volledige release-`DEPLOY_SHA` en
+gebruik de comparator uit
+[neon-migration-catchup.md](neon-migration-catchup.md): die haalt journal en
+SQL-bytes uit exact die commit, controleert dat live een exact geordend
+voorvoegsel is en toont de pending tags. Voor de gereviewde integratiebasis
+betekent volledig toegepast: alle 15 hashes/timestamps, de `0012`
+`listing_hash`, de `0013` scope-/markeringobjecten en het `0014`
+`public.user.role`-contract. Dit zijn codeverwachtingen, geen livebewijs.
+
+Is Neon al exact current en slagen alle objectchecks, leg die externe
+read-only evidence vast en migreer niet opnieuw. Alleen bij een bewezen
+achterstand volgt de catch-up uit het subsysteem-runbook. Rehearse de exacte
+pending set eerst op een verse child-branch van een onaangeraakte
+productiesnapshot, meet de uitvoering, controleer alle objecten en verkrijg
+expliciete operatorgoedkeuring. Pauzeer daarna alle DB-writers, herhaal de
+preflight, maak en valideer een nieuwe pristine rollbackbranch en draai pas
+dan de one-shot migrator-job (`apps/server/Dockerfile.migrate`, alleen
+`MIGRATION_DATABASE_URL`) vanaf de schone exacte `DEPLOY_SHA`. Herstel vereist
+de gecontroleerde restore/switchoverprocedure uit het runbook. Bij elke
+latere release geldt hetzelfde SHA-afgeleide contract
 ([coolify-local.md](coolify-local.md)).
 
 Verificatie (met de read-only rol, URL gescrubd):
@@ -414,15 +429,15 @@ Verificatie (met de read-only rol, URL gescrubd):
 ```sql
 SELECT id, hash, created_at::text
 FROM drizzle.__drizzle_migrations
-ORDER BY created_at;
+ORDER BY created_at, id;
 ```
 
-Gebruik daarnaast de object-voor-object read-only schemaqueries uit
-[neon-migration-catchup.md](neon-migration-catchup.md). Verwacht: de hele
-journal én het live schema komen overeen met
-`packages/db/src/migrations/meta/_journal.json` en de migraties van de te
-deployen commit. De laatste journal-timestamp is de vergelijking die
-`/readyz` uitvoert (`packages/db/src/readiness.ts`,
+Gebruik daarnaast de SHA-afgeleide prefixvergelijking en alle object-voor-
+objectqueries uit [neon-migration-catchup.md](neon-migration-catchup.md), met
+name de privacyveilige readbacks voor `0013` en `0014`. Verwacht: de hele
+journal én het live schema komen overeen met de migraties van de exacte
+`DEPLOY_SHA`. De laatste journal-timestamp is de vergelijking die `/readyz`
+uitvoert (`packages/db/src/readiness.ts`,
 `resolveExpectedMigrationTimestamp`), maar die ene waarde vervangt de
 volledige readback vóór een eventuele migratie niet.
 
@@ -505,21 +520,68 @@ Een verse box heeft lege RT-tabellen terwijl Neon al aanvragen en een
 `curated.search_projection_checkpoint` kan hebben die zegt dat alles al
 geprojecteerd is — de drain gaat dan níet vanzelf herindexeren. Het
 bootstrap-pad is het generatie/reindex-mechanisme uit
-[search-schema-migration.md](search-schema-migration.md):
+[search-schema-migration.md](search-schema-migration.md). Dit pad blijft op de
+productie-engine **Manticore 6.3.8**; de Manticore 29-shadow of
+productie-upgrade hoort niet bij deze procedure.
+
+Stop eerst de singleton projector via zijn supervisor en bewijs dat de laatste
+drain klaar is. Trigger.dev moet al `SEARCH_PROJECTOR=onbox` gebruiken, zodat
+er geen tweede drain-eigenaar is. Houd de projector gestopt gedurende plan,
+apply en finalisatie. Inspecteer daarna read-only wat een geforceerde nieuwe
+generatie zou doen:
 
 ```bash
-DATABASE_URL=<neon-url> bun run search:new-generation --force
+bun run search:new-generation --force
 ```
 
-(`--force` omdat de schema-hash al klopt; het commando reset
-`applied_sequence` naar 0 en de projector herprojecteert alles wat nog in de
-outbox staat.) Is de outbox voorbij sequence 0 gepruned, dan eerst events
-regenereren via [replay-and-backfill.md](replay-and-backfill.md). Sluit af
-met een divergentiecheck:
+Dit is de standaard dry-run: er wijzigt geen checkpoint en er worden geen
+events geschreven. Leg generation, aantal actuele aanvragen en gepland aantal
+replayevents vast. Controleer dat de target-tabellen
+`aanvragen_active`/`aanvragen_archive` op 6.3.8 bestaan en in beide
+`projection_hash` aanwezig is. Verkrijg expliciete operatorgoedkeuring voor de
+geforceerde rebuild. Pas in die bewuste applyfase, met dezelfde geheime
+Neon-omgeving geïnjecteerd en de projector nog steeds quiescent, mag exact dit
+muterende commando draaien:
 
 ```bash
-DATABASE_URL=<neon-url> bun run search:reconcile-projection
+bun run search:new-generation --apply --force
 ```
+
+Het commando verhoogt de generatie, zet eerst een generation-specifieke
+pending marker, legt een high-water-ID vast en maakt vervolgens in begrensde
+pagina's een deterministisch, idempotent `aanvraag.search_reindex`-event voor
+iedere huidige `curated.aanvraag`. Het leunt niet op bewaarde historische
+outboxevents. Pas nadat de volledige replay duurzaam is aangemaakt en er geen
+dead-lettered replayevents voor die generatie zijn, vervangt het de pending
+marker atomair door de gedeployde `SEARCH_SCHEMA_HASH`. Exit 0 met
+`Generation <n> is now available to the projector` is de CLI-evidence voor
+die finalisatie. Bij crash, andere pending hash of dead letters: projector
+gestopt houden en het resume-/herstelpad uit het subsysteem-runbook volgen;
+nooit het checkpoint handmatig aanpassen.
+
+Na die succesvolle finalisatie: start exact één projector, laat zowel de volledige
+replay als ondertussen ontstane normale events drainen en bewijs dat de lag en
+dead-letterqueue tot nul (of een expliciet verklaarde actieve-producergrens)
+zijn gekomen. Stop de projector opnieuw en wacht tot de laatste drain klaar
+is. Voer dan de verplichte fysieke preflight uit tegen dezelfde Manticore:
+
+```bash
+MANTICORE_URL=http://127.0.0.1:9308 \
+  bun run search:reconcile-projection
+```
+
+Als die drift of fysieke corruptie meldt, houd de projector gestopt en voer de
+erkende compare-and-delete/repairstap uit:
+
+```bash
+MANTICORE_URL=http://127.0.0.1:9308 \
+  bun run search:reconcile-projection --apply --projector-quiesced
+```
+
+Start één projector om nieuwe repairevents te drainen, stop hem weer zonder
+in-flight drain en herhaal de read-only reconciliation. Hervat normaal bedrijf
+pas bij nul current-documentdivergenties, nul geldige UUID-orphans, nul
+fysieke corruptie en exacte initial/scanned/final counts per partitie.
 
 Zolang de index nog leeg/achter is meldt `/readyz` dat eerlijk:
 `searchProjection` op `degraded` met `reason":"lag_elevated"` (>300 s) of
@@ -530,12 +592,15 @@ search blijft serveerbaar. Een `schema_hash_mismatch` daarentegen is
 Verificatie:
 
 ```sql
-SELECT generation, schema_hash, applied_sequence FROM curated.search_projection_checkpoint;
+SELECT index_name, generation, schema_hash, applied_sequence
+FROM curated.search_projection_checkpoint;
 ```
 
-`applied_sequence` loopt op; daarna geeft `POST /v1/aanvragen/search` met
+`schema_hash` is de `SEARCH_SCHEMA_HASH` van de gedeployde commit (geen pending
+marker), projectorlag en dead letters zijn gesloten, en de fysieke
+reconciliation is schoon. Daarna geeft `POST /v1/aanvragen/search` met
 `{"query":"","sort":"closing-soon","limit":5}` echte deadlines terug
-([search-schema-migration.md](search-schema-migration.md) § Verify).
+([search-schema-migration.md](search-schema-migration.md) § Verification).
 
 ### Stap 9 — Worker-deploy (Trigger.dev Cloud)
 
@@ -566,7 +631,7 @@ Uit `apps/server/src/readiness.ts` (code, niet proza). **Go** is:
       "appliedSequence": "…",
       "lagEvents": 0,
       "lagSeconds": 0,
-      "schemaHash": "aanvragen-v3[active|archive]:beschrijving,bron_id,contracttype,document_id,index_version,laatst_gezien_op,locatie,locatie_land,sluitingsdatum,status,tarief_max,tarief_min,titel",
+      "schemaHash": "aanvragen-v4[active|archive]:beschrijving,bron_id,contracttype,document_id,index_version,laatst_gezien_op,locatie,locatie_land,sluitingsdatum,status,tarief_max,tarief_min,titel,projection_hash",
       "checkedAt": "…",
       "durationMs": 0
     }
@@ -608,7 +673,7 @@ Wat `degraded` blijft — HTTP 200, serveert door, wel opvolgen:
 | 4–5 Server/web | Vorige image/release in Coolify uitrollen; stateless. | Niets. |
 | 6 Redis / raw store | `REDIS_URL` weghalen (server degradeert naar in-process cache — behalve bij boot in productie, dan is Redis-onbereikbaarheid een startweigering); raw store: eenmaal geschreven objects laten staan. | Reeds geschreven raw payloads verwijderen = observaties onherhaalbaar maken — niet doen. |
 | 7 Projector/onbox | Worker terug naar `SEARCH_PROJECTOR=worker` **mét** `MANTICORE_URL` en projector stoppen — beide tegelijk, zelfde contract als heenweg. Let op: in de cloud kán de worker Manticore niet bereiken, dus deze rollback werkt alleen zolang de worker niet cloud-deployed is. | Niets aan data. |
-| 8 Search-bootstrap | `search:new-generation --force` is zelf al het herstelpad; opnieuw draaien mag. | De oude generatie-teller; irrelevant voor data. |
+| 8 Search-bootstrap | Blijft de marker pending, houd de projector quiescent en hervat exact die generatie met `--apply` volgens het subsysteem-runbook. Is hij finalized, drain en reconcile. Start alleen na een nieuwe dry-run en expliciete GO nogmaals een geforceerde generatie met `--apply --force`. | Replayevents en generatiemetadata blijven duurzaam; Manticore zelf blijft afgeleid en rebuildbaar uit Neon. |
 | 9 Worker | Trigger.dev-deploy terugrollen; reeds geingeste observaties blijven staan (append-only pad). | Geingeste data (bewust — herkomst blijft behouden). |
 
 ## Open blockers
@@ -621,10 +686,10 @@ vallen allemaal buiten het mandaat van dit runbook:
 |---|---|---|
 | Hersteltoegang: Hetzner Console en benodigde SSH-/Coolify-credentials via 1Password beschikbaar maken | Stap 0.5 | Ryan |
 | `catapulze-prod`: via stap 0.5 actuele bootstatus, SSH-bereikbaarheid en Coolify-status opnieuw bewijzen | Stap 1 en alles daarna; stap 0.5 is juist het herstelpad | Ryan |
-| RJC-402: actuele Neon-journal en betrokken schema-objecten live read-only uitlezen en vergelijken met de te deployen commit; niet opnieuw migreren op basis van de lokale 2026-09-01-record | Stap 3 en de server-go/no-go totdat de actuele status bekend is | Ryan |
+| RJC-402: actuele Neon-journal en `0012`–`0014`-objecten live read-only vergelijken met de exacte `DEPLOY_SHA`; een echte pending set eerst op een verse snapshot rehearsen, rollbackbranch valideren en expliciet goedkeuren; niet migreren op basis van de lokale 2026-09-01-record | Stap 3 en de server-go/no-go totdat de actuele status bekend is | Ryan |
 | RJC-371: rotatie gelekte Neon-credential | Stap 2/4 — ADR-0006 is "pas operationeel gedekt als de rotatie is afgerond" | Ryan |
 | RJC-373: productieconfiguratie van `TRIGGER_SECRET_KEY` verifiëren of zo nodig inrichten | Stap 9 (worker-deploy en gedeployd bewijs) | Ryan / Trigger.dev-account |
-| RJC-382: engine-beslissing 6.3.8 vs 29.x | Niet blokkerend voor de sequentie (6.3.8 ís productie), wel voor het al dan niet meenemen van een 29.x-migratie in stap 1 | Ryan |
+| RJC-382: eventuele toekomstige engine-upgrade | Geen onderdeel van deze sequentie en niet blokkerend: productie blijft hier expliciet Manticore 6.3.8; een 29.x-besluit vereist een afzonderlijk gereviewd migratiepad | Ryan |
 | ~~Raw-store-provider~~ — beslist: Cloudflare R2 ([ADR-0008](../adr/ADR-0008-cloudflare-r2-for-raw-payloads.md)); bestaan/configuratie van bucket + keys verifiëren en zo nodig inrichten | Stap 6 | Ryan |
 | Branch protection op `main` | Geen deploystap, wel de release-hygiëne eromheen | Ryan |
 
