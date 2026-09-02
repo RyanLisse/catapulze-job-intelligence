@@ -2,6 +2,8 @@ import { describe, expect, it } from "bun:test";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 
+import picomatch from "picomatch";
+
 const workflowPath = path.join(process.cwd(), ".github/workflows/ci.yml");
 
 const readCodePatterns = (): string[] => {
@@ -27,9 +29,12 @@ const readCodePatterns = (): string[] => {
 
 const isCodeChange = (changedPaths: string[]): boolean => {
   const codePatterns = readCodePatterns();
+  const matchers = codePatterns.map((pattern) =>
+    picomatch(pattern, { dot: true })
+  );
 
   return changedPaths.some((changedPath) =>
-    codePatterns.some((pattern) => new Bun.Glob(pattern).match(changedPath))
+    matchers.some((matches) => matches(changedPath))
   );
 };
 
