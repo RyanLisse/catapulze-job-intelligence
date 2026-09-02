@@ -34,6 +34,13 @@ import {
 
 import { assertProductionPersistence } from "./assert-production-persistence";
 
+/**
+ * Catapulze is single-tenant per deployment. This server-owned value is the
+ * sole scope authority until identity-backed tenant membership is introduced;
+ * request bodies, headers and roles cannot override it.
+ */
+export const CATAPULZE_DEPLOYMENT_SCOPE_ID = "catapulze";
+
 export interface ProductionSliceADepsInput {
   databaseUrl: string;
   manticoreUrl: string;
@@ -147,6 +154,7 @@ export const createProductionSliceADeps = async (
     manticoreUrl: input.manticoreUrl,
     objectStore,
     rawObjectStoreKind: rawObjectStore.kind,
+    scopeId: CATAPULZE_DEPLOYMENT_SCOPE_ID,
     searchAdapter,
     stores,
   };

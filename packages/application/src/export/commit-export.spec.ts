@@ -6,6 +6,8 @@ import { buildExportIdempotencyKey } from "./idempotency";
 import { SpottApiError, createSpottWriteClient } from "./spott/client";
 import type { SpottWriteClient } from "./spott/client";
 
+const scopeId = "catapulze-test";
+
 const seedAanvraag = (
   stores: ReturnType<typeof createMemorySliceAStores>,
   id: string,
@@ -37,19 +39,27 @@ const seedApprovedSnapshot = async (
     savedSearchId: null,
     schemaVersion: "slice-a-v1",
     scope: "active",
+    scopeId,
     searchVersion: { appliedSequence: 1n, generation: 1 },
     userId: "recruiter-1",
   });
 
-  const approval = await stores.approvals.create({
-    actorId: "approver-1",
-    expiresAt: new Date("2026-09-30T00:00:00.000Z"),
-    motivatie: "Gecontroleerd",
-    resultIds: [...snapshot.resultIds],
-    snapshotId: snapshot.id,
-  });
+  const written = await stores.approvals.createWithAudit(
+    {
+      actorId: "approver-1",
+      expiresAt: new Date("2026-09-30T00:00:00.000Z"),
+      motivatie: "Gecontroleerd",
+      resultIds: [...snapshot.resultIds],
+      scopeId,
+      snapshotId: snapshot.id,
+    },
+    "user"
+  );
+  if (!written.ok) {
+    throw new Error("Expected approval seed to succeed");
+  }
 
-  return { approval, snapshot };
+  return { approval: written.approval, snapshot };
 };
 
 describe("buildExportIdempotencyKey", () => {
@@ -83,7 +93,7 @@ describe("commitExport", () => {
 
     const result = await commitExport(
       { snapshotId: snapshot.id },
-      { spottWriteClient, stores }
+      { scopeId, spottWriteClient, stores }
     );
 
     expect(result.ok).toBe(true);
@@ -111,7 +121,8 @@ describe("commitExport", () => {
         }
 
         const receipt = await stores.externalReceipts.getByExportAttemptId(
-          attempt.id
+          attempt.id,
+          scopeId
         );
         expect(receipt).toMatchObject({
           canonicalVacancyId: item.canonicalVacancyId,
@@ -148,11 +159,11 @@ describe("commitExport", () => {
 
     const first = await commitExport(
       { snapshotId: snapshot.id },
-      { spottWriteClient: trackedClient, stores }
+      { scopeId, spottWriteClient: trackedClient, stores }
     );
     const second = await commitExport(
       { snapshotId: snapshot.id },
-      { spottWriteClient: trackedClient, stores }
+      { scopeId, spottWriteClient: trackedClient, stores }
     );
 
     expect(first.ok).toBe(true);
@@ -178,7 +189,10 @@ describe("commitExport", () => {
       );
     expect(skipReceipt).toBeDefined();
     expect(
-      await stores.externalReceipts.listByCanonicalVacancyId(aanvraagId)
+      await stores.externalReceipts.listByCanonicalVacancyId(
+        aanvraagId,
+        scopeId
+      )
     ).toHaveLength(2);
   });
 
@@ -204,7 +218,7 @@ describe("commitExport", () => {
 
     const result = await commitExport(
       { snapshotId: snapshot.id },
-      { spottWriteClient: unconfirmedClient, stores }
+      { scopeId, spottWriteClient: unconfirmedClient, stores }
     );
 
     expect(result.ok).toBe(true);
@@ -217,6 +231,7 @@ describe("commitExport", () => {
       await stores.externalCrosswalk.get({
         actionType: "create",
         canonicalVacancyId: aanvraagId,
+        scopeId,
         target: "spott",
       })
     ).toBeNull();
@@ -224,7 +239,7 @@ describe("commitExport", () => {
     const [attempt] = stores.exportAttempts.list();
     expect(attempt?.status).toBe("failed");
     const receipt = attempt
-      ? await stores.externalReceipts.getByExportAttemptId(attempt.id)
+      ? await stores.externalReceipts.getByExportAttemptId(attempt.id, scopeId)
       : null;
     expect(receipt).toMatchObject({
       canonicalVacancyId: aanvraagId,
@@ -245,6 +260,7 @@ describe("commitExport", () => {
       savedSearchId: null,
       schemaVersion: "slice-a-v1",
       scope: "active",
+      scopeId,
       searchVersion: { appliedSequence: 1n, generation: 1 },
       userId: "recruiter-1",
     });
@@ -252,6 +268,7 @@ describe("commitExport", () => {
     const result = await commitExport(
       { snapshotId: snapshot.id },
       {
+        scopeId,
         spottWriteClient: createSpottWriteClient({ liveEnabled: false }),
         stores,
       }
@@ -278,21 +295,27 @@ describe("commitExport", () => {
       savedSearchId: null,
       schemaVersion: "slice-a-v1",
       scope: "active",
+      scopeId,
       searchVersion: { appliedSequence: 1n, generation: 1 },
       userId: "recruiter-1",
     });
 
-    await stores.approvals.create({
-      actorId: "approver-1",
-      expiresAt: new Date("2020-01-01T00:00:00.000Z"),
-      motivatie: "Verlopen",
-      resultIds: [...snapshot.resultIds],
-      snapshotId: snapshot.id,
-    });
+    await stores.approvals.createWithAudit(
+      {
+        actorId: "approver-1",
+        expiresAt: new Date("2020-01-01T00:00:00.000Z"),
+        motivatie: "Verlopen",
+        resultIds: [...snapshot.resultIds],
+        scopeId,
+        snapshotId: snapshot.id,
+      },
+      "user"
+    );
 
     const result = await commitExport(
       { snapshotId: snapshot.id },
       {
+        scopeId,
         spottWriteClient: createSpottWriteClient({ liveEnabled: false }),
         stores,
       }
@@ -303,5 +326,38 @@ describe("commitExport", () => {
       return;
     }
     expect(result.error.code).toBe("APPROVAL_EXPIRED");
+  });
+
+  it("returns NOT_FOUND without effects for a snapshot from another deployment scope", async () => {
+    const stores = createMemorySliceAStores();
+    const aanvraagId = "00000000-0000-4000-8000-000000000007";
+    seedAanvraag(stores, aanvraagId, "Cross-scope export");
+    const { snapshot } = await seedApprovedSnapshot(stores, [aanvraagId]);
+    let createCalls = 0;
+    const fixtureClient = createSpottWriteClient({ liveEnabled: false });
+    const trackedClient: SpottWriteClient = {
+      ...fixtureClient,
+      createVacancy: (input) => {
+        createCalls += 1;
+        return fixtureClient.createVacancy(input);
+      },
+    };
+
+    const result = await commitExport(
+      { snapshotId: snapshot.id },
+      {
+        scopeId: "other-deployment",
+        spottWriteClient: trackedClient,
+        stores,
+      }
+    );
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error.code).toBe("NOT_FOUND");
+    }
+    expect(createCalls).toBe(0);
+    expect(stores.exportAttempts.list()).toHaveLength(0);
+    expect(stores.externalReceipts.list()).toHaveLength(0);
   });
 });

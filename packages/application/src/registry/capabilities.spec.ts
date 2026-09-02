@@ -3,6 +3,7 @@ import { describe, expect, it } from "bun:test";
 import {
   createTestSliceARegistry,
   permissionsForRole,
+  TEST_DEPLOYMENT_SCOPE_ID,
 } from "@ji/application/registry";
 
 const recruiterPrincipal = {
@@ -88,7 +89,10 @@ describe("create_snapshot selection contract (RJC-385)", () => {
     });
     expect(created.value.indexVersion).toBe(7);
 
-    const stored = await bundle.deps.stores.snapshots.getById(created.value.id);
+    const stored = await bundle.deps.stores.snapshots.getById(
+      created.value.id,
+      TEST_DEPLOYMENT_SCOPE_ID
+    );
     expect(stored?.resultIds).toEqual(picked);
     expect(stored?.searchVersion).toEqual({
       appliedSequence: 7n,
@@ -182,7 +186,8 @@ describe("AE4 snapshot immutability", () => {
     seedAanvragen(bundle, ["00000000-0000-4000-8000-000000000099"]);
 
     const snapshot = await bundle.deps.stores.snapshots.getById(
-      created.value.id
+      created.value.id,
+      TEST_DEPLOYMENT_SCOPE_ID
     );
     expect(snapshot?.resultIds).toHaveLength(17);
     expect(snapshot?.resultIds).toEqual(created.value.resultIds);
@@ -278,7 +283,8 @@ describe("markeer_aanvraag writes audit event", () => {
       transport: "rest",
     });
     const auditBeforeMarkering = await bundle.deps.stores.audit.listByActorId(
-      recruiterPrincipal.subjectId
+      recruiterPrincipal.subjectId,
+      TEST_DEPLOYMENT_SCOPE_ID
     );
     const before = auditBeforeMarkering.length;
     const result = await invoker(
@@ -287,7 +293,10 @@ describe("markeer_aanvraag writes audit event", () => {
     );
     expect(result.ok).toBe(true);
     expect(
-      await bundle.deps.stores.audit.listByActorId(recruiterPrincipal.subjectId)
+      await bundle.deps.stores.audit.listByActorId(
+        recruiterPrincipal.subjectId,
+        TEST_DEPLOYMENT_SCOPE_ID
+      )
     ).toHaveLength(before + 1);
   });
 

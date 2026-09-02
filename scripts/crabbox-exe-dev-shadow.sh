@@ -340,8 +340,10 @@ run_database_integration() {
     DATABASE_APP_TEST_URL="$DATABASE_APP_TEST_URL" \
     DATABASE_TEST_URL="$DATABASE_TEST_URL" \
     REQUIRE_DATABASE_TESTS=1 \
-    bun test packages/db/src/core.spec.ts \
-      --max-concurrency 2 \
+    bun test \
+      packages/db/src/core.spec.ts \
+      packages/db/src/user-write-stores.spec.ts \
+      --max-concurrency 1 \
       --reporter=junit \
       --reporter-outfile="$DATABASE_JUNIT_FILE"
 }

@@ -17,6 +17,7 @@ export interface SnapshotApprovalFailure {
 export interface SnapshotApprovalValidationInput {
   readonly approval: ApprovalRecord | null;
   readonly now?: Date;
+  readonly scopeId: string;
   readonly snapshot: QuerySnapshotRecord | null;
   readonly snapshotId: string;
 }
@@ -41,10 +42,10 @@ export const validateSnapshotApproval = (
 ):
   | { readonly ok: true; readonly value: ApprovalRecord }
   | { readonly error: SnapshotApprovalFailure; readonly ok: false } => {
-  const { approval, snapshot, snapshotId } = input;
+  const { approval, scopeId, snapshot, snapshotId } = input;
   const now = input.now ?? new Date();
 
-  if (!snapshot) {
+  if (!snapshot || snapshot.scopeId !== scopeId) {
     return {
       error: {
         code: "NOT_FOUND",
@@ -54,11 +55,13 @@ export const validateSnapshotApproval = (
     };
   }
 
-  if (!approval) {
+  if (!approval || approval.scopeId !== scopeId) {
     return {
       error: {
-        code: "APPROVAL_NOT_FOUND",
-        message: "No approval exists for this snapshot",
+        code: approval ? "NOT_FOUND" : "APPROVAL_NOT_FOUND",
+        message: approval
+          ? "Approval scope does not match this deployment"
+          : "No approval exists for this snapshot",
       },
       ok: false,
     };

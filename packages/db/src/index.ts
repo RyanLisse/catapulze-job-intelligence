@@ -26,11 +26,11 @@ export {
   type ExportDatabase,
 } from "./export-stores";
 export {
-  PostgresApprovalStore,
   PostgresQuerySnapshotStore,
   type ReadPathDatabase,
 } from "./read-path-stores";
 export {
+  PostgresApprovalStore,
   PostgresAuditStore,
   PostgresMarkeringStore,
   PostgresSavedSearchStore,

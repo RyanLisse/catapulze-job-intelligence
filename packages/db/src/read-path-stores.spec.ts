@@ -5,11 +5,11 @@ import { drizzle } from "drizzle-orm/postgres-js";
 import { migrate } from "drizzle-orm/postgres-js/migrator";
 import postgres from "postgres";
 
-import {
-  PostgresApprovalStore,
-  PostgresQuerySnapshotStore,
-} from "./read-path-stores";
+import { PostgresQuerySnapshotStore } from "./read-path-stores";
 import * as schema from "./schema";
+import { PostgresApprovalStore } from "./user-write-stores";
+
+const scopeId = "catapulze-test";
 
 const testDatabaseUrl =
   process.env.DATABASE_TEST_URL ??
@@ -72,27 +72,39 @@ describe("read-path Postgres stores", () => {
       savedSearchId: null,
       schemaVersion: "slice-a-v1",
       scope: "active",
+      scopeId,
       searchVersion: { appliedSequence: 42n, generation: 2 },
       userId: "recruiter-1",
     });
 
-    const loaded = await snapshots.getById(snapshot.id);
+    const loaded = await snapshots.getById(snapshot.id, scopeId);
     expect(loaded?.resultIds).toEqual(snapshot.resultIds);
     expect(loaded?.searchVersion).toEqual({
       appliedSequence: 42n,
       generation: 2,
     });
 
-    const approval = await approvals.create({
-      actorId: "approver-1",
-      expiresAt: new Date("2026-12-31T00:00:00.000Z"),
-      motivatie: "Durable approval",
-      resultIds: [...snapshot.resultIds],
-      snapshotId: snapshot.id,
-    });
+    const written = await approvals.createWithAudit(
+      {
+        actorId: "approver-1",
+        expiresAt: new Date("2026-12-31T00:00:00.000Z"),
+        motivatie: "Durable approval",
+        resultIds: [...snapshot.resultIds],
+        scopeId,
+        snapshotId: snapshot.id,
+      },
+      "user"
+    );
+    expect(written.ok).toBe(true);
+    if (!written.ok) {
+      return;
+    }
 
-    const loadedApproval = await approvals.getBySnapshotId(snapshot.id);
-    expect(loadedApproval?.id).toBe(approval.id);
+    const loadedApproval = await approvals.getBySnapshotId(
+      snapshot.id,
+      scopeId
+    );
+    expect(loadedApproval?.id).toBe(written.approval.id);
     expect(loadedApproval?.resultIds).toEqual(snapshot.resultIds);
   });
 });

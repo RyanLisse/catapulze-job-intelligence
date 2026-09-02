@@ -18,8 +18,14 @@ export class MemorySavedSearchStore implements SavedSearchStore {
     return Promise.resolve(saved);
   }
 
-  getById(id: string, userId: string): Promise<SavedSearchRecord | null> {
+  getById(
+    id: string,
+    userId: string,
+    scopeId: string
+  ): Promise<SavedSearchRecord | null> {
     const record = this.records.get(id);
-    return Promise.resolve(record?.userId === userId ? record : null);
+    return Promise.resolve(
+      record?.userId === userId && record.scopeId === scopeId ? record : null
+    );
   }
 }

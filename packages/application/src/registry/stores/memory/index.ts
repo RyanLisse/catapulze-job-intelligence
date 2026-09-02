@@ -25,7 +25,7 @@ export const createMemorySliceAStores = (): SliceAStores & {
   return {
     aanvragen: new MemoryAanvraagStore(),
     alerts: new MemoryAlertStore(),
-    approvals: new MemoryApprovalStore(),
+    approvals: new MemoryApprovalStore(audit),
     audit,
     bronHealth: new MemoryBronHealthStore(),
     exportAttempts: new MemoryExportAttemptStore(),

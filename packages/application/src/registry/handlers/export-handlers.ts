@@ -40,7 +40,12 @@ export const createCommitExportHandler =
   (deps: SliceAHandlerDeps) =>
   async (
     input: z.output<typeof commitExportInputSchema>,
-    context: { principal: { subjectId: string } }
+    context: {
+      principal: {
+        kind: "agent" | "service" | "user";
+        subjectId: string;
+      };
+    }
   ) => {
     const spottWriteClient =
       deps.spottWriteClient ?? createSpottWriteClient({ liveEnabled: false });
@@ -48,6 +53,7 @@ export const createCommitExportHandler =
     const result = await commitExport(
       { snapshotId: input.snapshotId },
       {
+        scopeId: deps.scopeId,
         spottWriteClient,
         stores: deps.stores,
       }
@@ -67,6 +73,7 @@ export const createCommitExportHandler =
     const audit = await deps.stores.audit.append({
       action: "commit_export",
       actorId: context.principal.subjectId,
+      actorType: context.principal.kind,
       auditClass: "effect",
       entityId: result.value.snapshotId,
       entityType: "query_snapshot",
@@ -77,6 +84,7 @@ export const createCommitExportHandler =
         skipped: result.value.summary.skipped,
         snapshotId: result.value.snapshotId,
       },
+      scopeId: deps.scopeId,
     });
 
     return {

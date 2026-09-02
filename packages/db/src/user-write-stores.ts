@@ -1,6 +1,10 @@
 /* oxlint-disable max-classes-per-file -- cohesive durable user-write adapters share one transaction boundary */
 import type {
   AanvraagMarkering,
+  ApprovalRecord,
+  ApprovalStore,
+  ApprovalWriteResult,
+  AuditActorType,
   AuditEventMetadata,
   AuditEventRecord,
   AuditStore,
@@ -10,7 +14,7 @@ import type {
 } from "@ji/application/registry";
 import { searchFiltersSchema } from "@ji/application/registry";
 import type { ExtractTablesWithRelations } from "drizzle-orm";
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, sql } from "drizzle-orm";
 import type {
   PostgresJsDatabase,
   PostgresJsTransaction,
@@ -18,22 +22,30 @@ import type {
 import { z } from "zod";
 
 import type * as schema from "./schema";
-import { aanvraagMarkering, auditEvent, savedSearch } from "./schema";
+import {
+  aanvraagMarkering,
+  approvalRecord,
+  auditEvent,
+  savedSearch,
+} from "./schema";
 
 export type UserWriteDatabase = PostgresJsDatabase<typeof schema>;
-type UserWriteTransaction = PostgresJsTransaction<
+export type UserWriteTransaction = PostgresJsTransaction<
   typeof schema,
   ExtractTablesWithRelations<typeof schema>
 >;
-type UserWriteExecutor = UserWriteDatabase | UserWriteTransaction;
+export type UserWriteExecutor = UserWriteDatabase | UserWriteTransaction;
 
 type AuditEventInput = Omit<AuditEventRecord, "createdAt" | "id">;
-type AuditAppender = (
+export type PostgresAuditAppender = (
   executor: UserWriteExecutor,
   event: AuditEventInput
 ) => Promise<AuditEventRecord>;
 
 const markeringStatusSchema = z.enum(["relevant", "niet_relevant", "gevolgd"]);
+const auditActorTypeSchema = z.enum(["agent", "service", "system", "user"]);
+const auditClassSchema = z.enum(["access", "effect", "none"]);
+const resultIdsSchema = z.array(z.string());
 const auditMetadataSchema: z.ZodType<AuditEventMetadata> = z.union([
   z
     .object({
@@ -77,6 +89,7 @@ const toSavedSearchRecord = (
   parserVersion: row.parserVersion,
   queryText: row.queryText,
   schemaVersion: row.schemaVersion,
+  scopeId: row.scopeId,
   updatedAt: row.updatedAt,
   userId: row.userId,
 });
@@ -87,7 +100,10 @@ const toMarkeringRecord = (
   aanvraagId: row.aanvraagId,
   createdAt: row.createdAt,
   reden: row.reden,
+  revision: row.revision,
+  scopeId: row.scopeId,
   status: markeringStatusSchema.parse(row.status),
+  updatedAt: row.updatedAt,
   userId: row.userId,
 });
 
@@ -100,26 +116,32 @@ const toAuditEventRecord = (
   return {
     action: row.action,
     actorId: row.actorId,
-    auditClass: row.auditClass ?? "none",
+    actorType: auditActorTypeSchema.parse(row.actorType),
+    auditClass: auditClassSchema.parse(row.auditClass),
     createdAt: row.createdAt,
     entityId: row.entityId,
     entityType: row.entityType,
     id: row.id,
     metadata: auditMetadataSchema.parse(row.metadata),
+    scopeId: row.scopeId,
   };
 };
 
-const appendAuditEvent: AuditAppender = async (executor, event) => {
+export const appendPostgresAuditEvent: PostgresAuditAppender = async (
+  executor,
+  event
+) => {
   const rows = await executor
     .insert(auditEvent)
     .values({
       action: event.action,
       actorId: event.actorId,
-      actorType: "user",
+      actorType: event.actorType,
       auditClass: event.auditClass,
       entityId: event.entityId,
       entityType: event.entityType,
       metadata: event.metadata,
+      scopeId: event.scopeId,
     })
     .returning();
   return toAuditEventRecord(requireRow(rows, "append audit event"));
@@ -143,17 +165,28 @@ export class PostgresSavedSearchStore implements SavedSearchStore {
         parserVersion: record.parserVersion,
         queryText: record.queryText,
         schemaVersion: record.schemaVersion,
+        scopeId: record.scopeId,
         userId: record.userId,
       })
       .returning();
     return toSavedSearchRecord(requireRow(rows, "create saved search"));
   }
 
-  async getById(id: string, userId: string): Promise<SavedSearchRecord | null> {
+  async getById(
+    id: string,
+    userId: string,
+    scopeId: string
+  ): Promise<SavedSearchRecord | null> {
     const [row] = await this.database
       .select()
       .from(savedSearch)
-      .where(and(eq(savedSearch.id, id), eq(savedSearch.userId, userId)))
+      .where(
+        and(
+          eq(savedSearch.id, id),
+          eq(savedSearch.userId, userId),
+          eq(savedSearch.scopeId, scopeId)
+        )
+      )
       .limit(1);
     return row ? toSavedSearchRecord(row) : null;
   }
@@ -167,26 +200,31 @@ export class PostgresAuditStore implements AuditStore {
   }
 
   append(event: AuditEventInput): Promise<AuditEventRecord> {
-    return appendAuditEvent(this.database, event);
+    return appendPostgresAuditEvent(this.database, event);
   }
 
-  async listByActorId(actorId: string): Promise<readonly AuditEventRecord[]> {
+  async listByActorId(
+    actorId: string,
+    scopeId: string
+  ): Promise<readonly AuditEventRecord[]> {
     const rows = await this.database
       .select()
       .from(auditEvent)
-      .where(eq(auditEvent.actorId, actorId))
+      .where(
+        and(eq(auditEvent.actorId, actorId), eq(auditEvent.scopeId, scopeId))
+      )
       .orderBy(desc(auditEvent.createdAt), desc(auditEvent.id));
     return rows.map(toAuditEventRecord);
   }
 }
 
 export class PostgresMarkeringStore implements MarkeringStore {
-  private readonly appendAudit: AuditAppender;
+  private readonly appendAudit: PostgresAuditAppender;
   private readonly database: UserWriteDatabase;
 
   constructor(
     database: UserWriteDatabase,
-    appendAudit: AuditAppender = appendAuditEvent
+    appendAudit: PostgresAuditAppender = appendPostgresAuditEvent
   ) {
     this.appendAudit = appendAudit;
     this.database = database;
@@ -194,7 +232,8 @@ export class PostgresMarkeringStore implements MarkeringStore {
 
   async get(
     aanvraagId: string,
-    userId: string
+    userId: string,
+    scopeId: string
   ): Promise<AanvraagMarkering | null> {
     const [row] = await this.database
       .select()
@@ -202,14 +241,18 @@ export class PostgresMarkeringStore implements MarkeringStore {
       .where(
         and(
           eq(aanvraagMarkering.aanvraagId, aanvraagId),
-          eq(aanvraagMarkering.userId, userId)
+          eq(aanvraagMarkering.userId, userId),
+          eq(aanvraagMarkering.scopeId, scopeId)
         )
       )
       .limit(1);
     return row ? toMarkeringRecord(row) : null;
   }
 
-  setWithAudit(markering: Omit<AanvraagMarkering, "createdAt">): Promise<{
+  setWithAudit(
+    markering: Omit<AanvraagMarkering, "createdAt" | "revision" | "updatedAt">,
+    actorType: AuditActorType
+  ): Promise<{
     readonly auditEvent: AuditEventRecord;
     readonly markering: AanvraagMarkering;
   }> {
@@ -219,16 +262,26 @@ export class PostgresMarkeringStore implements MarkeringStore {
         .values({
           aanvraagId: markering.aanvraagId,
           reden: markering.reden,
+          scopeId: markering.scopeId,
           status: markering.status,
           userId: markering.userId,
         })
         .onConflictDoUpdate({
           set: {
             reden: markering.reden,
+            revision: sql`${aanvraagMarkering.revision} + 1`,
             status: markering.status,
-            updatedAt: new Date(),
+            // JavaScript Date exposes millisecond precision. Advancing by at
+            // least one millisecond keeps the DB-authoritative ordering
+            // observable to callers even when concurrent updates share a
+            // wall-clock tick.
+            updatedAt: sql`greatest(${aanvraagMarkering.updatedAt} + interval '1 millisecond', clock_timestamp())`,
           },
-          target: [aanvraagMarkering.userId, aanvraagMarkering.aanvraagId],
+          target: [
+            aanvraagMarkering.scopeId,
+            aanvraagMarkering.userId,
+            aanvraagMarkering.aanvraagId,
+          ],
         })
         .returning();
       const storedMarkering = toMarkeringRecord(
@@ -237,6 +290,7 @@ export class PostgresMarkeringStore implements MarkeringStore {
       const storedAuditEvent = await this.appendAudit(transaction, {
         action: "markeer_aanvraag",
         actorId: markering.userId,
+        actorType,
         auditClass: "effect",
         entityId: markering.aanvraagId,
         entityType: "aanvraag",
@@ -244,6 +298,7 @@ export class PostgresMarkeringStore implements MarkeringStore {
           reden: markering.reden,
           status: markering.status,
         },
+        scopeId: markering.scopeId,
       });
 
       return {
@@ -251,5 +306,153 @@ export class PostgresMarkeringStore implements MarkeringStore {
         markering: storedMarkering,
       };
     });
+  }
+}
+
+const toApprovalRecord = (
+  row: typeof approvalRecord.$inferSelect
+): ApprovalRecord => ({
+  actorId: row.actorId,
+  createdAt: row.createdAt,
+  expiresAt: row.expiresAt,
+  id: row.id,
+  motivatie: row.motivatie,
+  resultIds: resultIdsSchema.parse(row.resultIds),
+  scopeId: row.scopeId,
+  snapshotId: row.snapshotId,
+});
+
+const approvalMatches = (
+  approval: ApprovalRecord,
+  input: Omit<ApprovalRecord, "createdAt" | "id">
+): boolean =>
+  approval.actorId === input.actorId &&
+  approval.expiresAt.getTime() === input.expiresAt.getTime() &&
+  approval.motivatie === input.motivatie &&
+  approval.scopeId === input.scopeId &&
+  approval.snapshotId === input.snapshotId &&
+  approval.resultIds.length === input.resultIds.length &&
+  approval.resultIds.every((id, index) => id === input.resultIds[index]);
+
+export class PostgresApprovalStore implements ApprovalStore {
+  private readonly appendAudit: PostgresAuditAppender;
+  private readonly database: UserWriteDatabase;
+
+  constructor(
+    database: UserWriteDatabase,
+    appendAudit: PostgresAuditAppender = appendPostgresAuditEvent
+  ) {
+    this.appendAudit = appendAudit;
+    this.database = database;
+  }
+
+  createWithAudit(
+    record: Omit<ApprovalRecord, "createdAt" | "id">,
+    actorType: AuditActorType
+  ): Promise<ApprovalWriteResult> {
+    return this.database.transaction(async (transaction) => {
+      const rows = await transaction
+        .insert(approvalRecord)
+        .values({
+          actorId: record.actorId,
+          expiresAt: record.expiresAt,
+          motivatie: record.motivatie,
+          resultIds: [...record.resultIds],
+          scopeId: record.scopeId,
+          snapshotId: record.snapshotId,
+        })
+        .onConflictDoNothing({ target: approvalRecord.snapshotId })
+        .returning();
+      const [insertedRow] = rows;
+
+      if (insertedRow) {
+        const approval = toApprovalRecord(insertedRow);
+        const storedAuditEvent = await this.appendAudit(transaction, {
+          action: "approve_snapshot",
+          actorId: record.actorId,
+          actorType,
+          auditClass: "effect",
+          entityId: approval.id,
+          entityType: "approval_record",
+          metadata: {
+            expiresAt: approval.expiresAt.toISOString(),
+            motivatie: approval.motivatie,
+            snapshotId: approval.snapshotId,
+          },
+          scopeId: approval.scopeId,
+        });
+        return {
+          approval,
+          auditEvent: storedAuditEvent,
+          created: true,
+          ok: true,
+        };
+      }
+
+      const [existingRow] = await transaction
+        .select()
+        .from(approvalRecord)
+        .where(eq(approvalRecord.snapshotId, record.snapshotId))
+        .limit(1);
+      if (!existingRow) {
+        return { ok: false, reason: "snapshot_already_approved" };
+      }
+      const approval = toApprovalRecord(existingRow);
+      if (!approvalMatches(approval, record)) {
+        return { ok: false, reason: "snapshot_already_approved" };
+      }
+
+      const [existingAuditRow] = await transaction
+        .select()
+        .from(auditEvent)
+        .where(
+          and(
+            eq(auditEvent.action, "approve_snapshot"),
+            eq(auditEvent.actorId, record.actorId),
+            eq(auditEvent.entityId, approval.id),
+            eq(auditEvent.entityType, "approval_record"),
+            eq(auditEvent.scopeId, record.scopeId)
+          )
+        )
+        .limit(1);
+      if (!existingAuditRow) {
+        return { ok: false, reason: "snapshot_already_approved" };
+      }
+      const existingAudit = toAuditEventRecord(existingAuditRow);
+      const { metadata } = existingAudit;
+      const auditMatches =
+        existingAudit.actorType === actorType &&
+        existingAudit.auditClass === "effect" &&
+        "motivatie" in metadata &&
+        metadata.expiresAt === approval.expiresAt.toISOString() &&
+        metadata.motivatie === approval.motivatie &&
+        metadata.snapshotId === approval.snapshotId;
+      if (!auditMatches) {
+        return { ok: false, reason: "snapshot_already_approved" };
+      }
+      return {
+        approval,
+        auditEvent: existingAudit,
+        created: false,
+        ok: true,
+      };
+    });
+  }
+
+  async getBySnapshotId(
+    snapshotId: string,
+    scopeId: string
+  ): Promise<ApprovalRecord | null> {
+    const [row] = await this.database
+      .select()
+      .from(approvalRecord)
+      .where(
+        and(
+          eq(approvalRecord.snapshotId, snapshotId),
+          eq(approvalRecord.scopeId, scopeId)
+        )
+      )
+      .limit(1);
+    return row ? toApprovalRecord(row) : null;
   }
 }

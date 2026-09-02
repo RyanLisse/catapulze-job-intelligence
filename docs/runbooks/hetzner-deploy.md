@@ -44,6 +44,22 @@ Niet in compose, wél onderdeel van productie:
   (`CMD ["bun","run","db:migrate"]`), per
   [coolify-local.md](coolify-local.md) § Coolify-proef.
 
+### Deployment-scope-invariant
+
+Catapulze is momenteel **single-tenant per deployment**. De server bepaalt de
+scope met de vaste waarde `CATAPULZE_DEPLOYMENT_SCOPE_ID = "catapulze"` in
+`apps/server/src/slice-a-registry.ts`; dit is bewust geen environmentvariabele
+en kan niet via een request-body, header, gebruikersrol of Better Auth-profiel
+worden overschreven. Alle duurzame gebruikerswrites en hun audit/exportrecords
+dragen deze `scope_id`.
+
+Een approver/operator binnen dezelfde deployment mag daarom een snapshot van
+een andere gebruiker verwerken. Een lookup naar een snapshot, approval of
+export uit een andere deployment-scope faalt gesloten als `NOT_FOUND`. Een
+latere multi-tenantvariant vereist eerst identity-backed tenantlidmaatschap en
+een nieuwe autorisatiebeslissing; alleen de scope configureerbaar maken is niet
+voldoende.
+
 ## 2. Environment-inventaris
 
 Bron: de `${VAR}`-referenties in `docker-compose.yml` plus wat de processen

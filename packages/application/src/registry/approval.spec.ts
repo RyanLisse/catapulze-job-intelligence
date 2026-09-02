@@ -1,8 +1,10 @@
 import { describe, expect, it } from "bun:test";
 
 import {
+  createSliceARegistry,
   createTestSliceARegistry,
   permissionsForRole,
+  TEST_DEPLOYMENT_SCOPE_ID,
 } from "@ji/application/registry";
 
 const recruiterPrincipal = {
@@ -66,11 +68,14 @@ const createSnapshot = async (
 };
 
 describe("approve_snapshot", () => {
-  it("creates an approval bound to an existing snapshot and writes audit", async () => {
+  it("allows a same-deployment approver to approve another user's snapshot and writes audit", async () => {
     const bundle = createTestSliceARegistry();
     const snapshot = await createSnapshot(bundle, snapshotSelection(3));
+    expect(snapshot.userId).toBe(recruiterPrincipal.subjectId);
+    expect(approverPrincipal.subjectId).not.toBe(snapshot.userId);
     const auditBeforeApproval = await bundle.deps.stores.audit.listByActorId(
-      approverPrincipal.subjectId
+      approverPrincipal.subjectId,
+      TEST_DEPLOYMENT_SCOPE_ID
     );
     const beforeAudit = auditBeforeApproval.length;
 
@@ -93,9 +98,13 @@ describe("approve_snapshot", () => {
       return;
     }
     expect(result.value.snapshotId).toBe(snapshot.id);
+    expect(result.value.actorId).toBe(approverPrincipal.subjectId);
     expect(result.value.resultIds).toEqual(snapshot.resultIds);
     expect(
-      await bundle.deps.stores.audit.listByActorId(approverPrincipal.subjectId)
+      await bundle.deps.stores.audit.listByActorId(
+        approverPrincipal.subjectId,
+        TEST_DEPLOYMENT_SCOPE_ID
+      )
     ).toHaveLength(beforeAudit + 1);
   });
 
@@ -120,6 +129,61 @@ describe("approve_snapshot", () => {
     }
   });
 
+  it("returns the same approval for an exact retry and rejects divergent retries", async () => {
+    const bundle = createTestSliceARegistry();
+    const snapshot = await createSnapshot(bundle, snapshotSelection(1));
+    const approve = bundle.registry.createInvoker({
+      capabilityId: "approve_snapshot",
+      operation: "approve_snapshot",
+      transport: "mcp",
+    });
+    const input = {
+      expiresAt: "2026-09-30T00:00:00.000Z",
+      id: snapshot.id,
+      motivatie: "Idempotent approval",
+    };
+
+    const first = await approve(input, {
+      principal: approverPrincipal,
+      requestId: "approve-first",
+    });
+    const retry = await approve(input, {
+      principal: approverPrincipal,
+      requestId: "approve-retry",
+    });
+    expect(first.ok).toBe(true);
+    expect(retry.ok).toBe(true);
+    if (!first.ok || !retry.ok) {
+      return;
+    }
+    expect(retry.value.id).toBe(first.value.id);
+    expect(retry.value.auditEventId).toBe(first.value.auditEventId);
+
+    const divergent = await approve(
+      { ...input, motivatie: "Different retry" },
+      { principal: approverPrincipal, requestId: "approve-divergent" }
+    );
+    expect(divergent.ok).toBe(false);
+    if (!divergent.ok) {
+      expect(divergent.error.code).toBe("ALREADY_APPROVED");
+    }
+
+    const actorTypeConflict = await approve(input, {
+      principal: { ...approverPrincipal, kind: "service" },
+      requestId: "approve-actor-type-conflict",
+    });
+    expect(actorTypeConflict.ok).toBe(false);
+    if (!actorTypeConflict.ok) {
+      expect(actorTypeConflict.error.code).toBe("ALREADY_APPROVED");
+    }
+
+    const audit = await bundle.deps.stores.audit.listByActorId(
+      approverPrincipal.subjectId,
+      TEST_DEPLOYMENT_SCOPE_ID
+    );
+    expect(audit).toHaveLength(1);
+  });
+
   it("denies recruiters without approval permission", async () => {
     const bundle = createTestSliceARegistry();
     const snapshot = await createSnapshot(bundle, snapshotSelection(1));
@@ -139,6 +203,76 @@ describe("approve_snapshot", () => {
     expect(result.ok).toBe(false);
     if (!result.ok && "code" in result.error) {
       expect(result.error.code).toBe("FORBIDDEN");
+    }
+  });
+
+  it("hides snapshots and approvals from another deployment scope", async () => {
+    const bundle = createTestSliceARegistry();
+    const snapshot = await createSnapshot(bundle, snapshotSelection(1));
+    const otherScopeRegistry = createSliceARegistry({
+      ...bundle.deps,
+      scopeId: "other-deployment",
+    }).registry;
+
+    const crossScopeApprove = otherScopeRegistry.createInvoker({
+      capabilityId: "approve_snapshot",
+      operation: "approve_snapshot",
+      transport: "mcp",
+    });
+    const approveResult = await crossScopeApprove(
+      {
+        expiresAt: "2026-09-30T00:00:00.000Z",
+        id: snapshot.id,
+        motivatie: "Must remain invisible",
+      },
+      { principal: approverPrincipal, requestId: "cross-scope-approve" }
+    );
+    expect(approveResult.ok).toBe(false);
+    if (!approveResult.ok) {
+      expect(approveResult.error.code).toBe("NOT_FOUND");
+    }
+
+    const sameScopeApprove = bundle.registry.createInvoker({
+      capabilityId: "approve_snapshot",
+      operation: "approve_snapshot",
+      transport: "mcp",
+    });
+    const sameScopeResult = await sameScopeApprove(
+      {
+        expiresAt: "2026-09-30T00:00:00.000Z",
+        id: snapshot.id,
+        motivatie: "Visible only in the owning deployment",
+      },
+      { principal: approverPrincipal, requestId: "same-scope-approve" }
+    );
+    expect(sameScopeResult.ok).toBe(true);
+
+    const crossScopeGet = otherScopeRegistry.createInvoker({
+      capabilityId: "get_snapshot_approval",
+      operation: "get_snapshot_approval",
+      transport: "mcp",
+    });
+    const getResult = await crossScopeGet(
+      { id: snapshot.id },
+      { principal: approverPrincipal, requestId: "cross-scope-get" }
+    );
+    expect(getResult.ok).toBe(false);
+    if (!getResult.ok) {
+      expect(getResult.error.code).toBe("NOT_FOUND");
+    }
+
+    const crossScopeValidate = otherScopeRegistry.createInvoker({
+      capabilityId: "validate_snapshot_approval",
+      operation: "validate_snapshot_approval",
+      transport: "mcp",
+    });
+    const validateResult = await crossScopeValidate(
+      { id: snapshot.id },
+      { principal: approverPrincipal, requestId: "cross-scope-validate" }
+    );
+    expect(validateResult.ok).toBe(false);
+    if (!validateResult.ok) {
+      expect(validateResult.error.code).toBe("NOT_FOUND");
     }
   });
 });
@@ -180,13 +314,17 @@ describe("validate_snapshot_approval", () => {
   it("rejects expired approvals", async () => {
     const bundle = createTestSliceARegistry();
     const snapshot = await createSnapshot(bundle, snapshotSelection(2));
-    await bundle.deps.stores.approvals.create({
-      actorId: approverPrincipal.subjectId,
-      expiresAt: new Date("2020-01-01T00:00:00.000Z"),
-      motivatie: "Verlopen",
-      resultIds: [...snapshot.resultIds],
-      snapshotId: snapshot.id,
-    });
+    await bundle.deps.stores.approvals.createWithAudit(
+      {
+        actorId: approverPrincipal.subjectId,
+        expiresAt: new Date("2020-01-01T00:00:00.000Z"),
+        motivatie: "Verlopen",
+        resultIds: [...snapshot.resultIds],
+        scopeId: TEST_DEPLOYMENT_SCOPE_ID,
+        snapshotId: snapshot.id,
+      },
+      "user"
+    );
 
     const validate = bundle.registry.createInvoker({
       capabilityId: "validate_snapshot_approval",
@@ -209,13 +347,17 @@ describe("validate_snapshot_approval", () => {
     const secondSnapshot = await createSnapshot(bundle, snapshotSelection(3));
     expect(secondSnapshot.resultIds).not.toEqual(firstSnapshot.resultIds);
 
-    await bundle.deps.stores.approvals.create({
-      actorId: approverPrincipal.subjectId,
-      expiresAt: new Date("2026-09-30T00:00:00.000Z"),
-      motivatie: "Alleen eerste snapshot",
-      resultIds: [...firstSnapshot.resultIds],
-      snapshotId: firstSnapshot.id,
-    });
+    await bundle.deps.stores.approvals.createWithAudit(
+      {
+        actorId: approverPrincipal.subjectId,
+        expiresAt: new Date("2026-09-30T00:00:00.000Z"),
+        motivatie: "Alleen eerste snapshot",
+        resultIds: [...firstSnapshot.resultIds],
+        scopeId: TEST_DEPLOYMENT_SCOPE_ID,
+        snapshotId: firstSnapshot.id,
+      },
+      "user"
+    );
 
     const validate = bundle.registry.createInvoker({
       capabilityId: "validate_snapshot_approval",

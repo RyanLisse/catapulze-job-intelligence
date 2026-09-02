@@ -10,13 +10,14 @@ export class MemoryExternalIdCrosswalkStore implements ExternalIdCrosswalkStore 
   get(input: {
     actionType: ExternalIdCrosswalkRecord["actionType"];
     canonicalVacancyId: string;
+    scopeId: string;
     target: ExternalIdCrosswalkRecord["target"];
   }): Promise<ExternalIdCrosswalkRecord | null> {
-    const key = buildExportIdempotencyKey(
+    const key = `${input.scopeId}:${buildExportIdempotencyKey(
       input.target,
       input.canonicalVacancyId,
       input.actionType
-    );
+    )}`;
     const record = this.byKey.get(key);
     return Promise.resolve(record ? { ...record } : null);
   }
@@ -24,11 +25,11 @@ export class MemoryExternalIdCrosswalkStore implements ExternalIdCrosswalkStore 
   create(
     record: Omit<ExternalIdCrosswalkRecord, "createdAt">
   ): Promise<ExternalIdCrosswalkRecord> {
-    const key = buildExportIdempotencyKey(
+    const key = `${record.scopeId}:${buildExportIdempotencyKey(
       record.target,
       record.canonicalVacancyId,
       record.actionType
-    );
+    )}`;
     const stored: ExternalIdCrosswalkRecord = {
       ...record,
       createdAt: new Date(),
