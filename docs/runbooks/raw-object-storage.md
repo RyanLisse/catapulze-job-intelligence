@@ -20,7 +20,9 @@ exported only via the `@ji/connectors/s3-object-client` subpath — see
 
 Both `apps/server/src/slice-a-registry.ts` and
 `apps/worker/src/poll-bron-run.ts` call the same factory with the same
-environment variable names, so they always resolve to the same backend.
+environment variable names. They resolve to the same backend only when the
+two deployments receive the same values; the shared factory is not proof of
+environment parity.
 
 ## Environment variables
 
@@ -41,10 +43,22 @@ MinIO defaults (commented out).
 startup when `nodeEnv === "production"` and the resolved store is the
 filesystem backend, naming `RAW_S3_BUCKET` as the missing configuration —
 same spirit as `assertProductionPersistence` in the same file, but for the
-object store rather than a `SliceAStores` entry. There is currently no
-equivalent runtime guard in the worker process itself (Trigger.dev tasks run
-under whatever env the deploy provides); the server-side guard is the one
-enforcement point today.
+object store rather than a `SliceAStores` entry.
+
+The ordinary poll worker enforces the same invariant in its own process:
+`createPollBronRuntime` (`apps/worker/src/poll-bron-run.ts`) throws when
+`process.env.NODE_ENV === "production"` and the resolved store is
+`filesystem`. The production Motian backfill is independently fail-closed:
+`resolveBackfillObjectStore` (`packages/db/src/backfill-runner.ts`) accepts
+only a store with `kind: "s3"` when its explicit execution mode is
+`production`; both the CLI and Trigger.dev backfill entrypoints pass their
+factory result through that gate.
+
+These are backend-kind guards, not deployment proof. The operator must still
+verify that server and worker have exactly the same bucket, endpoint, region
+and credentials (without logging secret values), and prove a live R2 write
+and exact readback. The poll-worker guard also depends on the deployed worker
+actually receiving `NODE_ENV=production`.
 
 ## Production provider (ADR-0008)
 
@@ -143,8 +157,9 @@ scaling ceiling.
   `.zst` to the content-addressed path scheme and a round-trip test if so.
 - **CI MinIO service.** Not wired up; the S3 suite skips in CI the same way
   it does locally without `RAW_S3_BUCKET`.
-- **Worker-side production guard.** Only the server enforces "no filesystem
-  backend in production" today.
+- **Live env-parity and R2 proof.** The fail-closed guards do not establish
+  that the separately deployed server and worker received identical values,
+  nor that the configured R2 bucket accepts a write and exact readback.
 
 ## Why a subpath export
 

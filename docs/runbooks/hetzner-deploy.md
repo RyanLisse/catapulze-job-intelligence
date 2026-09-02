@@ -32,7 +32,7 @@ service, met bron:
 | `manticore` | **Ja.** | Manticore 6.3.8 (tag-/versiegepind, niet digest-gepind), privaat op de box, index `aanvragen_active`/`aanvragen_archive` (RJC-383). Blijft privé per ADR-0006 ("Voor diensten die wél op de box blijven … blijft de private-poortregel gelden"). |
 | `manticore29` | **Nee — shadow, geen productieservice.** | RJC-382-vergelijkingsinstance achter het `shadow`-profile; het compose-commentaar zegt letterlijk dat de productieservice de gepinde 6.3.8 hierboven is. De engine-beslissing zelf is open — zie [§ Open blockers](#open-blockers). |
 | `projector` | **Ja — als proces op de box.** | On-box search-projector (RJC-387): leest de Neon-outbox over TLS, schrijft lokaal naar Manticore. De compose-service (profile `projector`) is de lokale stand-in; op de box draait hetzelfde `bun run projector` onder een supervisor per [search-projector.md](search-projector.md) § Supervision. |
-| `raw-storage-minio` + `raw-storage-minio-init` | **Nee — lokale S3-target.** | Het compose-commentaar (RJC-386) noemt dit expliciet een "local S3-compatible target". Productie draait op een S3-compatible store (de server weigert de filesystem-backend in productie, [raw-object-storage.md](raw-object-storage.md) § Production guard); de provider is **beslist: Cloudflare R2** ([ADR-0008](../adr/ADR-0008-cloudflare-r2-for-raw-payloads.md)) — bestaan en configuratie van bucket en keys moeten live worden geverifieerd en zo nodig ingericht. |
+| `raw-storage-minio` + `raw-storage-minio-init` | **Nee — lokale S3-target.** | Het compose-commentaar (RJC-386) noemt dit expliciet een "local S3-compatible target". Productie draait op een S3-compatible store: server en gewone poll-worker weigeren de filesystem-backend in productie, en de productiebackfill accepteert alleen `kind: "s3"` ([raw-object-storage.md](raw-object-storage.md) § Production guard). De provider is **beslist: Cloudflare R2** ([ADR-0008](../adr/ADR-0008-cloudflare-r2-for-raw-payloads.md)) — bestaan en configuratie van bucket en keys moeten live worden geverifieerd en zo nodig ingericht. |
 
 Niet in compose, wél onderdeel van productie:
 
@@ -92,7 +92,8 @@ git of in chat.**
 | `DATABASE_URL` | ja (`packages/env/src/database.ts`) | taken falen bij import | Neon pooled TLS-URL |
 | `SEARCH_PROJECTOR` | productie: `onbox` | default `worker` = inline drain, en dan eist de worker Manticore-toegang die hij in de cloud niet heeft ([search-projector.md](search-projector.md)) | deploy-configuratie |
 | `MANTICORE_URL` | alleen in `worker`-modus | in `onbox`-modus bewust afwezig | — |
-| `RAW_S3_*` (zelfde vijf als server) | in productie ja | worker schrijft naar zijn lokale filesystem en de server kan niets teruglezen (RJC-386) | zelfde bucket + credentials als de server |
+| `RAW_S3_*` (zelfde vijf als server) | in productie ja | met `NODE_ENV=production` weigert de gewone poll-worker de filesystem-backend; de productiebackfill weigert onafhankelijk alles behalve `kind: "s3"` (RJC-386) | exact dezelfde bucket, endpoint, regio en credentials als de server |
+| `NODE_ENV` | productie: `production` | de filesystem-weigering van de gewone poll-worker staat anders uit; de productiebackfill blijft apart fail-closed via execution mode | deploy-configuratie |
 | `TENDER_NED_TEST_IMPORT_DAYS` | nee (default 14, bereik 1–90) | — | operator, alleen voor test-imports |
 | Per-bron live-vlaggen (`TENDER_NED_LIVE`, `INHUURDESK_LIVE`, …) | per bron | bron draait op fixtures i.p.v. live HTTP (`process.env[source.liveEnv] === "1"` in `apps/worker/src/poll-bron-run.ts`; namen in `packages/application/src/sources/*.ts`) | operator, per bron-activatiebesluit |
 | `TRIGGER_PROJECT_REF` | nee (default in `trigger.config.ts`) | — | Trigger.dev-project |
@@ -463,9 +464,13 @@ Redis on-box (privaat), `REDIS_URL` op de server. Raw store: een Cloudflare
 R2-bucket ([ADR-0008](../adr/ADR-0008-cloudflare-r2-for-raw-payloads.md));
 bestaan en configuratie van bucket, endpoint en keys eerst verifiëren en zo
 nodig in Cloudflare R2 inrichten. `RAW_S3_*` op server én worker met exact
-dezelfde waarden — de worker heeft geen eigen
-runtime-guard, dus een vergeten worker-env schrijft stil naar zijn lokale
-filesystem (raw-object-storage.md § Production guard).
+dezelfde waarden. Met `NODE_ENV=production` weigert de gewone poll-worker te
+starten wanneer zijn store naar filesystem resolveert; de productiebackfill
+weigert onafhankelijk alles behalve `kind: "s3"`
+([raw-object-storage.md](raw-object-storage.md) § Production guard). Deze
+guards bewijzen geen env-pariteit of bereikbaarheid: vergelijk de niet-geheime
+configuratievelden zonder secrets te loggen en voer een toegestane non-PII
+canary-write met exacte R2-readback uit.
 
 Verificatie: `/readyz` toont `redis: {"status":"ok"}` en
 `rawObjectStore: {"status":"ok"}`. (`rawObjectStore` probet alleen de

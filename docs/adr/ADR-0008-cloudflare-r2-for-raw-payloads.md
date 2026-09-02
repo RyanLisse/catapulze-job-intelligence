@@ -22,12 +22,18 @@ uitsluitend in endpoint en credentials. De keuze is puur configuratie.
 
 ## Context en onderbouwing
 
-1. **"Geen van beide" was nooit een optie.** In productie weigert de server
-   te starten op de filesystem-fallback: `createProductionSliceADeps`
-   (`apps/server/src/slice-a-registry.ts`) gooit bij
-   `nodeEnv === "production"` zonder `RAW_S3_BUCKET`. En zou die guard ooit
-   omzeild raken, dan rapporteert `/readyz` de component `rawObjectStore`
-   als `failed` met reason `filesystem_backend_in_production` → overall
+1. **"Geen van beide" was nooit een optie.** In productie weigeren zowel de
+   server als de gewone poll-worker de filesystem-fallback:
+   `createProductionSliceADeps` (`apps/server/src/slice-a-registry.ts`) gooit
+   bij `nodeEnv === "production"`, en `createPollBronRuntime`
+   (`apps/worker/src/poll-bron-run.ts`) bij
+   `process.env.NODE_ENV === "production"`, zodra de resolved store
+   `filesystem` is. De productiebackfill heeft daarnaast een onafhankelijke,
+   expliciete gate: `resolveBackfillObjectStore`
+   (`packages/db/src/backfill-runner.ts`) weigert in execution mode
+   `production` alles wat niet `kind: "s3"` is. En zou de serverguard ooit
+   omzeild raken, dan rapporteert `/readyz` de component `rawObjectStore` als
+   `failed` met reason `filesystem_backend_in_production` → overall
    `unavailable`, HTTP 503 (`apps/server/src/readiness.ts`,
    `evaluateRawObjectStore`). Een S3-compatible store móest er komen; open
    was alleen de provider.
@@ -135,16 +141,17 @@ uitsluitend in endpoint en credentials. De keuze is puur configuratie.
   filesystem-in-productie is `failed`). Een R2-storing haalt het product dus
   niet uit de lucht.
 
-- **De worker heeft geen eigen runtime-guard.** Het
-  raw-object-storage-runbook stelt dit expliciet: de server-side boot-guard
-  is vandaag het enige afdwingpunt; een Trigger.dev-worker zonder `RAW_S3_*`
-  schrijft stil naar zijn eigen filesystem. Envs op de worker zetten is dus
-  geen optioneel-met-vangnet maar een harde deploy-verantwoordelijkheid
-  ([hetzner-deploy.md](../runbooks/hetzner-deploy.md) § 2, workertabel). Voor
-  het backfill-pad is dit inmiddels wél afgedwongen (PR #118,
-  `resolveBackfillObjectStore` weigert in productie alles wat niet
-  `kind: "s3"` is) — en omdat R2 via de S3-tak wordt geselecteerd, voldoet
-  het aan die guard zonder aanpassing.
+- **Poll-worker en productiebackfill falen gesloten.** De gewone
+  Trigger.dev-poll-worker weigert zijn runtime op te bouwen wanneer
+  `NODE_ENV=production` en de store naar `filesystem` resolveert
+  (`createPollBronRuntime`). De productiebackfill gebruikt niet die
+  `NODE_ENV`-gate, maar de strengere expliciete execution-mode-gate in
+  `resolveBackfillObjectStore`: alleen `kind: "s3"` wordt geaccepteerd. Deze
+  guards bewijzen nog niet dat server en worker exact dezelfde bucket,
+  endpoint, regio en credentials kregen, of dat een live R2-write plus
+  readback werkt. Die env-pariteit en live verificatie blijven daarom harde
+  deploygates ([hetzner-deploy.md](../runbooks/hetzner-deploy.md) § 2 en stap
+  6).
 
 ## Open punten — eerlijk
 
