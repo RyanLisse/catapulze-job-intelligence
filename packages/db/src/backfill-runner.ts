@@ -1,14 +1,19 @@
 import {
   MOTIAN_V1_BRON_BINDINGS,
   MOTIAN_V1_BRON_SEEDS,
-  assertReadOnlyMotianAccess,
   createFixtureNeonV1Source,
   createMotianNeonV1Source,
   loadNeonV1Fixture,
   resolveMotianDatabaseUrl,
   runNeonV1Backfill,
 } from "@ji/application/backfill";
-import type { BackfillRunResult, NeonV1Source } from "@ji/application/backfill";
+import type {
+  BackfillExecution,
+  BackfillExecutionMode,
+  BackfillRunResult,
+  BackfillScope,
+  NeonV1Source,
+} from "@ji/application/backfill";
 import { FilesystemObjectStore, InMemoryObjectStore } from "@ji/connectors";
 import type { ObjectStore } from "@ji/connectors";
 import { drizzle } from "drizzle-orm/postgres-js";
@@ -25,10 +30,14 @@ import * as schema from "./schema";
 export interface RunMotianV1BackfillOptions {
   readonly batchSize?: number;
   readonly databaseUrl?: string;
+  /** Explicitly selects durable production semantics; never inferred from NODE_ENV. */
+  readonly executionMode?: BackfillExecutionMode;
   readonly fixturePath?: string;
+  /** @deprecated Use `scope: "full"` for a complete production migration. */
   readonly includeClosed?: boolean;
   readonly motianDatabaseUrl?: string;
   readonly rawObjectStore?: BackfillRawObjectStore;
+  readonly scope?: BackfillScope;
 }
 
 export interface BackfillRawObjectStore {
@@ -38,9 +47,9 @@ export interface BackfillRawObjectStore {
 
 export const resolveBackfillObjectStore = (
   rawObjectStore: BackfillRawObjectStore | undefined,
-  nodeEnv = process.env.NODE_ENV
+  executionMode: BackfillExecutionMode | "development" | "test" = "fixture"
 ): ObjectStore => {
-  if (nodeEnv === "production" && rawObjectStore?.kind !== "s3") {
+  if (executionMode === "production" && rawObjectStore?.kind !== "s3") {
     throw new Error(
       "Production backfill refused: RAW_S3_BUCKET is required so copied Motian payloads remain available after the one-shot process exits."
     );
@@ -54,19 +63,31 @@ export const resolveBackfillObjectStore = (
   );
 };
 
+const resolveBackfillExecution = (
+  options: RunMotianV1BackfillOptions
+): BackfillExecution => {
+  const mode = options.executionMode ?? "fixture";
+  const scope = options.scope ?? (mode === "production" ? "full" : "active");
+  if (mode === "production" && scope !== "full") {
+    throw new Error("Production Motian v1 backfills require scope: full");
+  }
+  return { mode, scope };
+};
+
 export const resolveNeonV1BackfillSource = async (input: {
   readonly batchSize?: number;
   readonly fixturePath?: string;
   readonly includeClosed?: boolean;
   readonly motianDatabaseUrl?: string;
+  readonly scope?: BackfillScope;
 }): Promise<NeonV1Source> => {
   const motianUrl = input.motianDatabaseUrl ?? resolveMotianDatabaseUrl();
   if (motianUrl) {
-    assertReadOnlyMotianAccess();
     return createMotianNeonV1Source({
       batchSize: input.batchSize,
       databaseUrl: motianUrl,
       includeClosed: input.includeClosed,
+      scope: input.scope,
     });
   }
 
@@ -79,6 +100,32 @@ export const resolveNeonV1BackfillSource = async (input: {
 export const runMotianV1Backfill = async (
   options: RunMotianV1BackfillOptions = {}
 ): Promise<BackfillRunResult> => {
+  const execution = resolveBackfillExecution(options);
+  const motianDatabaseUrl =
+    options.motianDatabaseUrl ?? resolveMotianDatabaseUrl();
+  if (execution.mode === "production" && !motianDatabaseUrl) {
+    throw new Error(
+      "Production Motian v1 backfills require MOTIAN_DATABASE_URL"
+    );
+  }
+  if (motianDatabaseUrl && execution.mode !== "production") {
+    throw new Error(
+      "Live Motian-Neon imports require executionMode: production and scope: full"
+    );
+  }
+
+  const objectStore = resolveBackfillObjectStore(
+    options.rawObjectStore,
+    execution.mode
+  );
+  const source = await resolveNeonV1BackfillSource({
+    batchSize: options.batchSize,
+    fixturePath: options.fixturePath,
+    includeClosed: options.includeClosed,
+    motianDatabaseUrl,
+    scope: execution.scope,
+  });
+
   const databaseUrl = options.databaseUrl ?? process.env.DATABASE_URL?.trim();
   if (!databaseUrl) {
     throw new Error(
@@ -90,20 +137,12 @@ export const runMotianV1Backfill = async (
   const database = drizzle(sql, { schema });
   await seedMotianV1Bronnen(database, MOTIAN_V1_BRON_SEEDS);
 
-  const objectStore = resolveBackfillObjectStore(options.rawObjectStore);
-
-  const source = await resolveNeonV1BackfillSource({
-    batchSize: options.batchSize,
-    fixturePath: options.fixturePath,
-    includeClosed: options.includeClosed,
-    motianDatabaseUrl: options.motianDatabaseUrl,
-  });
-
   try {
     return await runNeonV1Backfill({
       batchSize: options.batchSize,
       bindings: MOTIAN_V1_BRON_BINDINGS,
       curateStore: new PostgresCurateStore(database),
+      execution,
       objectStore,
       provenanceStore: new PostgresBackfillProvenanceStore(database),
       runStore: new PostgresBackfillRunStore(database),
@@ -127,6 +166,7 @@ export const runMotianV1BackfillInMemory = async (input: {
   return runNeonV1Backfill({
     bindings: MOTIAN_V1_BRON_BINDINGS,
     curateStore: new InMemoryCurateStore(),
+    execution: { mode: "fixture", scope: "active" },
     objectStore: new InMemoryObjectStore(),
     provenanceStore: new InMemoryBackfillProvenanceStore(),
     runStore: new InMemoryBackfillRunStore(),

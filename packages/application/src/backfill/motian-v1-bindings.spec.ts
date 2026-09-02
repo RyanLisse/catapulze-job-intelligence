@@ -3,8 +3,10 @@ import { describe, expect, it } from "bun:test";
 import {
   MOTIAN_V1_BRON_BINDINGS,
   MOTIAN_V1_PLATFORMS,
+  MOTIAN_V1_SOURCE_PLATFORMS,
   normalizeMotianPlatform,
   resolveMotianV1Binding,
+  sourcePlatformsForMotianV1,
 } from "./motian-v1-bindings";
 
 describe("Motian v1 platform bindings", () => {
@@ -38,5 +40,14 @@ describe("Motian v1 platform bindings", () => {
       "starapple"
     );
     expect(binding?.platform).toBe("starapple-nl");
+  });
+
+  it("selects both canonical and legacy Starapple source slugs", () => {
+    expect(MOTIAN_V1_SOURCE_PLATFORMS).toContain("starapple-nl");
+    expect(MOTIAN_V1_SOURCE_PLATFORMS).toContain("starapple");
+    expect(sourcePlatformsForMotianV1(["starapple-nl"])).toEqual([
+      "starapple-nl",
+      "starapple",
+    ]);
   });
 });

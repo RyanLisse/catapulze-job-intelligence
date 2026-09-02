@@ -1,7 +1,7 @@
 /* oxlint-disable max-classes-per-file -- cohesive Postgres adapters share schema mapping */
 import type {
   BackfillProvenanceStore,
-  BackfillRunMetrics,
+  BackfillRunEvidence,
   BackfillRunStore,
 } from "@ji/application/backfill";
 import { eq } from "drizzle-orm";
@@ -19,6 +19,13 @@ const requireRow = <Row>(rows: Row[], description: string): Row => {
   }
   return row;
 };
+
+const backfillCheckpoint = (evidence: BackfillRunEvidence) => ({
+  backfill: {
+    execution: evidence.execution,
+    metrics: evidence.metrics,
+  },
+});
 
 export class PostgresBackfillProvenanceStore implements BackfillProvenanceStore {
   private readonly database: BackfillDatabase;
@@ -68,12 +75,14 @@ export class PostgresBackfillRunStore implements BackfillRunStore {
 
   async completeRun(
     scrapeRunId: string,
-    metrics: BackfillRunMetrics
+    evidence: BackfillRunEvidence
   ): Promise<void> {
+    const { metrics } = evidence;
     const rows = await this.database
       .update(scrapeRun)
       .set({
         aantalGevonden: metrics.found,
+        checkpoint: backfillCheckpoint(evidence),
         fouten: metrics.errors,
         geindigd: new Date(),
         nieuw: metrics.imported,
@@ -85,15 +94,28 @@ export class PostgresBackfillRunStore implements BackfillRunStore {
     requireRow(rows, "complete backfill scrape_run");
   }
 
-  async failRun(scrapeRunId: string, reason: string): Promise<void> {
+  async failRun(
+    scrapeRunId: string,
+    _reason: string,
+    evidence: BackfillRunEvidence
+  ): Promise<void> {
+    const { metrics } = evidence;
     const rows = await this.database
       .update(scrapeRun)
       .set({
+        aantalGevonden: metrics.found,
+        checkpoint: backfillCheckpoint(evidence),
         failureClass: "internal",
         failureCode: "UNEXPECTED_FAILURE",
-        failureMessage: reason,
+        // The schema accepts a fixed failure envelope. Per-platform evidence
+        // stays in `checkpoint`; source exceptions are never persisted because
+        // they could contain raw data or connection details.
+        failureMessage: "Connector run failed",
         failurePhase: "unknown",
+        fouten: metrics.errors,
         geindigd: new Date(),
+        nieuw: metrics.imported,
+        rejected: metrics.rejected,
         status: "failed",
       })
       .where(eq(scrapeRun.id, scrapeRunId))

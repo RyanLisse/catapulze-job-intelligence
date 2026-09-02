@@ -12,6 +12,9 @@ import type { NormalisedAanvraagDraft } from "../normalise";
 import { resolveMotianV1Binding } from "./motian-v1-bindings";
 import type {
   BackfillBronBinding,
+  BackfillExecution,
+  BackfillPlatformMetrics,
+  BackfillRunEvidence,
   BackfillRunResult,
   NeonV1Fixture,
   NeonV1JobRow,
@@ -28,10 +31,15 @@ export {
   NEON_V1_FORBIDDEN_TABLES,
   NEON_V1_PARSER_VERSION,
   type BackfillBronBinding,
+  type BackfillExecution,
+  type BackfillExecutionMode,
+  type BackfillPlatformMetrics,
   type BackfillProvenanceStore,
+  type BackfillRunEvidence,
   type BackfillRunMetrics,
   type BackfillRunResult,
   type BackfillRunStore,
+  type BackfillScope,
   type NeonV1Fixture,
   type NeonV1ForbiddenTable,
   type NeonV1JobRow,
@@ -71,10 +79,18 @@ export const createFixtureNeonV1Source = (
 export const resolveMotianDatabaseUrl = (): string | undefined =>
   process.env.MOTIAN_DATABASE_URL?.trim() || undefined;
 
+const serialiseRawSource = (job: NeonV1JobRow): string => {
+  const serialised = JSON.stringify(job.sourceRow ?? job);
+  if (serialised === undefined) {
+    throw new Error("Motian v1 source row is not JSON serialisable");
+  }
+  return serialised;
+};
+
 const contentHashForJob = async (job: NeonV1JobRow): Promise<string> => {
   const digest = await crypto.subtle.digest(
     "SHA-256",
-    new TextEncoder().encode(JSON.stringify(job))
+    new TextEncoder().encode(serialiseRawSource(job))
   );
   return [...new Uint8Array(digest)]
     .map((byte) => byte.toString(16).padStart(2, "0"))
@@ -86,26 +102,57 @@ const tariefValue = (
 ): string | typeof UNKNOWN =>
   value === null || value === undefined ? UNKNOWN : String(value);
 
+const sourceStatusForJob = (job: NeonV1JobRow): string | null =>
+  job.status?.trim() || null;
+
+const lifecycleForJob = (
+  job: NeonV1JobRow,
+  sourceStatus: string | null
+): "active" | "closed" => {
+  const sourceHasArchiveSignal =
+    (job.archived_at !== null && job.archived_at !== undefined) ||
+    (job.deleted_at !== null && job.deleted_at !== undefined);
+  const sourceIsClosed =
+    sourceHasArchiveSignal ||
+    (sourceStatus !== null && sourceStatus.toLowerCase() !== "open");
+  return sourceIsClosed ? "closed" : "active";
+};
+
+const descriptionForJob = (job: NeonV1JobRow): string =>
+  job.description?.trim() ||
+  `${job.title} (${job.platform}/${job.external_id})`;
+
+const opdrachtgeverForJob = (job: NeonV1JobRow): string | typeof UNKNOWN =>
+  job.end_client?.trim() || job.company?.trim() || UNKNOWN;
+
+const v1SpecificFieldsForJob = (
+  job: NeonV1JobRow,
+  sourceStatus: string | null
+) => ({
+  // Kept for compatibility with the original backfill preview fields;
+  // the exact source spelling remains in the durable raw source row.
+  platform: job.platform,
+  v1_archived_at: job.archived_at ?? null,
+  v1_contract_type: job.contract_type ?? null,
+  v1_created_at: job.created_at ?? null,
+  v1_deleted_at: job.deleted_at ?? null,
+  v1_location: job.location ?? null,
+  v1_platform: job.platform,
+  v1_province: job.province ?? null,
+  v1_status: sourceStatus,
+  v1_updated_at: job.updated_at ?? null,
+});
+
 export const mapV1JobToDraft = (job: NeonV1JobRow): NormalisedAanvraagDraft => {
   const parserVersion = NEON_V1_PARSER_VERSION;
-  const beschrijving =
-    job.description?.trim() ||
-    `${job.title} (${job.platform}/${job.external_id})`;
-  const opdrachtgever =
-    job.end_client?.trim() || job.company?.trim() || UNKNOWN;
+  const sourceStatus = sourceStatusForJob(job);
+  const lifecycle = lifecycleForJob(job, sourceStatus);
 
   return {
-    beschrijving: field(beschrijving, parserVersion, "description"),
+    beschrijving: field(descriptionForJob(job), parserVersion, "description"),
     bronReferentie: field(job.external_id, parserVersion, "external_id"),
     bronSpecifiek: field(
-      {
-        contract_type: job.contract_type ?? null,
-        location: job.location ?? null,
-        platform: job.platform,
-        province: job.province ?? null,
-        v1_created_at: job.created_at ?? null,
-        v1_updated_at: job.updated_at ?? null,
-      },
+      v1SpecificFieldsForJob(job, sourceStatus),
       parserVersion,
       "bron_specifiek"
     ),
@@ -116,17 +163,21 @@ export const mapV1JobToDraft = (job: NeonV1JobRow): NormalisedAanvraagDraft => {
     ),
     contentHash: "",
     extractieMethode: "api",
-    lifecycle: "active",
+    lifecycle,
     locatieLand: field("NL", parserVersion, "location"),
     locatieTekst: field(
       job.location?.trim() || UNKNOWN,
       parserVersion,
       "location"
     ),
-    opdrachtgeverNaam: field(opdrachtgever, parserVersion, "company"),
+    opdrachtgeverNaam: field(
+      opdrachtgeverForJob(job),
+      parserVersion,
+      "company"
+    ),
     parserVersion,
     startDatum: field(UNKNOWN, parserVersion, "start_date"),
-    status: "active",
+    status: lifecycle,
     tarief: {
       eenheid: UNKNOWN,
       max: tariefValue(job.rate_max),
@@ -142,7 +193,16 @@ const resolveBinding = (
   platform: string
 ): BackfillBronBinding | null => resolveMotianV1Binding(bindings, platform);
 
-interface MutableBackfillRunMetrics {
+const DEFAULT_BACKFILL_EXECUTION: BackfillExecution = {
+  mode: "fixture",
+  scope: "active",
+};
+
+const SOURCE_FAILURE_PLATFORM = "__source__";
+
+type BackfillMetricKey = keyof BackfillPlatformMetrics;
+
+interface MutableBackfillPlatformMetrics {
   errors: number;
   found: number;
   imported: number;
@@ -150,7 +210,11 @@ interface MutableBackfillRunMetrics {
   skipped: number;
 }
 
-const emptyMetrics = (): MutableBackfillRunMetrics => ({
+interface MutableBackfillRunMetrics extends MutableBackfillPlatformMetrics {
+  platforms: Record<string, MutableBackfillPlatformMetrics>;
+}
+
+const emptyPlatformMetrics = (): MutableBackfillPlatformMetrics => ({
   errors: 0,
   found: 0,
   imported: 0,
@@ -158,34 +222,87 @@ const emptyMetrics = (): MutableBackfillRunMetrics => ({
   skipped: 0,
 });
 
-const bindingsForJobs = (
-  jobs: readonly NeonV1JobRow[],
+const emptyMetrics = (
   bindings: readonly BackfillBronBinding[]
-): { bronId: string; ok: true } | { ok: false; reason: string } => {
-  const platforms = [...new Set(jobs.map((job) => job.platform))];
-  if (platforms.length === 0) {
-    const [fallbackBinding] = bindings;
-    return {
-      bronId: fallbackBinding?.bronId ?? "00000000-0000-4000-8000-000000000099",
-      ok: true,
-    };
-  }
+): MutableBackfillRunMetrics => ({
+  ...emptyPlatformMetrics(),
+  platforms: Object.fromEntries(
+    bindings.map((binding) => [binding.platform, emptyPlatformMetrics()])
+  ),
+});
 
-  const [primaryPlatform] = platforms;
-  if (!primaryPlatform) {
-    return { ok: false, reason: "Neon v1 fixture contains no platform values" };
-  }
-
-  const binding = resolveBinding(bindings, primaryPlatform);
-  if (!binding) {
-    return {
-      ok: false,
-      reason: `No bron binding configured for platform ${primaryPlatform}`,
-    };
-  }
-
-  return { bronId: binding.bronId, ok: true };
+const incrementMetric = (
+  metrics: MutableBackfillRunMetrics,
+  platform: string,
+  key: BackfillMetricKey
+): void => {
+  metrics[key] += 1;
+  const platformMetrics = metrics.platforms[platform] ?? emptyPlatformMetrics();
+  metrics.platforms[platform] = platformMetrics;
+  platformMetrics[key] += 1;
 };
+
+const platformForJob = (
+  bindings: readonly BackfillBronBinding[],
+  job: NeonV1JobRow
+): string =>
+  resolveBinding(bindings, job.platform)?.platform ||
+  job.platform ||
+  "__unbound__";
+
+const snapshotMetrics = (
+  metrics: MutableBackfillRunMetrics
+): BackfillRunEvidence["metrics"] => ({
+  errors: metrics.errors,
+  found: metrics.found,
+  imported: metrics.imported,
+  platforms: Object.fromEntries(
+    Object.entries(metrics.platforms).map(([platform, platformMetrics]) => [
+      platform,
+      { ...platformMetrics },
+    ])
+  ),
+  rejected: metrics.rejected,
+  skipped: metrics.skipped,
+});
+
+const backfillEvidence = (
+  execution: BackfillExecution,
+  metrics: MutableBackfillRunMetrics
+): BackfillRunEvidence => ({
+  execution: { ...execution },
+  metrics: snapshotMetrics(metrics),
+});
+
+const backfillResult = (
+  execution: BackfillExecution,
+  metrics: MutableBackfillRunMetrics,
+  status: BackfillRunResult["status"]
+): BackfillRunResult => {
+  const evidence = backfillEvidence(execution, metrics);
+  return { evidence, metrics: evidence.metrics, status };
+};
+
+type BackfillFailureKind = "incomplete" | "recorded";
+
+class BackfillFailureError extends Error {
+  readonly kind: BackfillFailureKind;
+
+  constructor(kind: BackfillFailureKind) {
+    super(
+      kind === "recorded"
+        ? "A Motian v1 row could not be imported"
+        : "Motian v1 backfill has rejected or errored rows"
+    );
+    this.name = "BackfillFailureError";
+    this.kind = kind;
+  }
+}
+
+const isBackfillFailure = (
+  cause: unknown,
+  kind: BackfillFailureKind
+): boolean => cause instanceof BackfillFailureError && cause.kind === kind;
 
 const importNeonV1Job = async (input: {
   curateStore: CurateStore;
@@ -198,57 +315,65 @@ const importNeonV1Job = async (input: {
   startedAt: Date;
 }): Promise<void> => {
   const platformBinding = resolveBinding(input.bindings, input.job.platform);
+  const platform =
+    platformBinding?.platform ?? platformForJob(input.bindings, input.job);
+  incrementMetric(input.metrics, platform, "found");
   if (!platformBinding) {
-    input.metrics.rejected += 1;
+    incrementMetric(input.metrics, platform, "rejected");
     return;
   }
 
-  const existing = await input.provenanceStore.findByV1Id(input.job.id);
-  if (existing) {
-    input.metrics.skipped += 1;
-    return;
-  }
+  try {
+    const existing = await input.provenanceStore.findByV1Id(input.job.id);
+    if (existing) {
+      incrementMetric(input.metrics, platform, "skipped");
+      return;
+    }
 
-  const draftBase = mapV1JobToDraft(input.job);
-  const contentHash = await contentHashForJob(input.job);
-  const draft: NormalisedAanvraagDraft = {
-    ...draftBase,
-    contentHash,
-  };
+    const draftBase = mapV1JobToDraft(input.job);
+    const contentHash = await contentHashForJob(input.job);
+    const draft: NormalisedAanvraagDraft = {
+      ...draftBase,
+      contentHash,
+    };
 
-  const rawBody = new TextEncoder().encode(JSON.stringify(input.job));
-  const rawPayloadRef = buildRawObjectPath({
-    bronSlug: input.job.platform,
-    contentType: "json",
-    recordId: `${input.job.external_id}-${contentHash.slice(0, 12)}`,
-    runId: input.scrapeRunId,
-    startedAt: input.startedAt,
-  });
-  await input.objectStore.put({
-    body: rawBody,
-    contentType: "json",
-    expiresAt: new Date(input.startedAt.getTime() + 90 * 86_400_000),
-    path: rawPayloadRef,
-  });
+    const rawBody = new TextEncoder().encode(serialiseRawSource(input.job));
+    const rawPayloadRef = buildRawObjectPath({
+      bronSlug: input.job.platform,
+      contentType: "json",
+      recordId: `${input.job.external_id}-${contentHash.slice(0, 12)}`,
+      runId: input.scrapeRunId,
+      startedAt: input.startedAt,
+    });
+    await input.objectStore.put({
+      body: rawBody,
+      contentType: "json",
+      expiresAt: new Date(input.startedAt.getTime() + 90 * 86_400_000),
+      path: rawPayloadRef,
+    });
 
-  const curated = await curateObservation(input.curateStore, {
-    bronId: platformBinding.bronId,
-    draft,
-    observedAt: input.startedAt,
-    rawPayloadRef,
-    scrapeRunId: input.scrapeRunId,
-  });
+    const curated = await curateObservation(input.curateStore, {
+      bronId: platformBinding.bronId,
+      draft,
+      observedAt: input.startedAt,
+      rawPayloadRef,
+      scrapeRunId: input.scrapeRunId,
+    });
 
-  if (curated.status === "quarantined" || !curated.aanvraagId) {
-    input.metrics.errors += 1;
-    return;
-  }
+    if (curated.status === "quarantined" || !curated.aanvraagId) {
+      incrementMetric(input.metrics, platform, "errors");
+      return;
+    }
 
-  await input.provenanceStore.registerV1Id(input.job.id, curated.aanvraagId);
-  if (curated.status === "curated") {
-    input.metrics.imported += 1;
-  } else {
-    input.metrics.skipped += 1;
+    await input.provenanceStore.registerV1Id(input.job.id, curated.aanvraagId);
+    if (curated.status === "curated") {
+      incrementMetric(input.metrics, platform, "imported");
+    } else {
+      incrementMetric(input.metrics, platform, "skipped");
+    }
+  } catch {
+    incrementMetric(input.metrics, platform, "errors");
+    throw new BackfillFailureError("recorded");
   }
 };
 
@@ -262,7 +387,6 @@ const importNeonV1Jobs = async (input: {
   scrapeRunId: string;
   startedAt: Date;
 }): Promise<void> => {
-  input.metrics.found += input.jobs.length;
   /* oxlint-disable no-await-in-loop -- backfill imports must stay ordered for deterministic metrics */
   for (const job of input.jobs) {
     await importNeonV1Job({
@@ -279,11 +403,82 @@ const importNeonV1Jobs = async (input: {
   /* oxlint-enable no-await-in-loop */
 };
 
+const importFromSource = async (input: {
+  batchSize: number;
+  bindings: readonly BackfillBronBinding[];
+  curateStore: RunNeonV1BackfillInput["curateStore"];
+  metrics: MutableBackfillRunMetrics;
+  objectStore: RunNeonV1BackfillInput["objectStore"];
+  provenanceStore: RunNeonV1BackfillInput["provenanceStore"];
+  scrapeRunId: string;
+  source: NeonV1Source;
+  startedAt: Date;
+}): Promise<void> => {
+  if (input.source.streamBatches) {
+    for await (const batch of input.source.streamBatches(input.batchSize)) {
+      await importNeonV1Jobs({
+        bindings: input.bindings,
+        curateStore: input.curateStore,
+        jobs: batch,
+        metrics: input.metrics,
+        objectStore: input.objectStore,
+        provenanceStore: input.provenanceStore,
+        scrapeRunId: input.scrapeRunId,
+        startedAt: input.startedAt,
+      });
+    }
+    return;
+  }
+
+  const jobs = await input.source.loadJobs();
+  await importNeonV1Jobs({
+    bindings: input.bindings,
+    curateStore: input.curateStore,
+    jobs,
+    metrics: input.metrics,
+    objectStore: input.objectStore,
+    provenanceStore: input.provenanceStore,
+    scrapeRunId: input.scrapeRunId,
+    startedAt: input.startedAt,
+  });
+};
+
+const assertNoImportFailures = (metrics: MutableBackfillRunMetrics): void => {
+  if (metrics.errors > 0 || metrics.rejected > 0) {
+    throw new BackfillFailureError("incomplete");
+  }
+};
+
+const recordBackfillFailure = async (input: {
+  cause: unknown;
+  execution: BackfillExecution;
+  metrics: MutableBackfillRunMetrics;
+  runStore: RunNeonV1BackfillInput["runStore"];
+  scrapeRunId: string;
+}): Promise<BackfillRunResult> => {
+  if (
+    !isBackfillFailure(input.cause, "recorded") &&
+    !isBackfillFailure(input.cause, "incomplete")
+  ) {
+    incrementMetric(input.metrics, SOURCE_FAILURE_PLATFORM, "errors");
+  }
+  const result = backfillResult(input.execution, input.metrics, "failed");
+  const reason = isBackfillFailure(input.cause, "incomplete")
+    ? "Backfill has rejected or errored records"
+    : "Backfill execution failed";
+  await input.runStore.failRun(input.scrapeRunId, reason, result.evidence);
+  return result;
+};
+
 export const runNeonV1Backfill = async (
   input: RunNeonV1BackfillInput
 ): Promise<BackfillRunResult> => {
+  const execution = input.execution ?? DEFAULT_BACKFILL_EXECUTION;
+  if (execution.mode === "production" && execution.scope !== "full") {
+    throw new Error("Production Motian v1 backfills require scope: full");
+  }
   const startedAt = input.startedAt ?? new Date();
-  const metrics = emptyMetrics();
+  const metrics = emptyMetrics(input.bindings);
   const [primaryBinding] = input.bindings;
   const primaryBronId =
     primaryBinding?.bronId ?? "00000000-0000-4000-8000-000000000099";
@@ -291,70 +486,29 @@ export const runNeonV1Backfill = async (
   const batchSize = input.batchSize ?? 1000;
 
   try {
-    if (input.source.streamBatches) {
-      let validatedBindings = false;
-      for await (const batch of input.source.streamBatches(batchSize)) {
-        if (batch.length > 0 && !validatedBindings) {
-          const binding = bindingsForJobs(batch, input.bindings);
-          if (!binding.ok) {
-            throw new Error(binding.reason);
-          }
-          validatedBindings = true;
-        }
-        await importNeonV1Jobs({
-          bindings: input.bindings,
-          curateStore: input.curateStore,
-          jobs: batch,
-          metrics,
-          objectStore: input.objectStore,
-          provenanceStore: input.provenanceStore,
-          scrapeRunId,
-          startedAt,
-        });
-      }
-    } else {
-      const jobs = await input.source.loadJobs();
-      if (jobs.length > 0) {
-        const binding = bindingsForJobs(jobs, input.bindings);
-        if (!binding.ok) {
-          throw new Error(binding.reason);
-        }
-      }
-      await importNeonV1Jobs({
-        bindings: input.bindings,
-        curateStore: input.curateStore,
-        jobs,
-        metrics,
-        objectStore: input.objectStore,
-        provenanceStore: input.provenanceStore,
-        scrapeRunId,
-        startedAt,
-      });
-    }
-
-    await input.runStore.completeRun(scrapeRunId, metrics);
-    return { metrics, status: "succeeded" };
-  } catch (error) {
-    await input.runStore.failRun(
+    await importFromSource({
+      batchSize,
+      bindings: input.bindings,
+      curateStore: input.curateStore,
+      metrics,
+      objectStore: input.objectStore,
+      provenanceStore: input.provenanceStore,
       scrapeRunId,
-      error instanceof Error ? error.message : "Neon v1 backfill failed"
-    );
-    return {
-      metrics: {
-        ...metrics,
-        errors: metrics.errors + 1,
-      },
-      status: "failed",
-    };
-  }
-};
+      source: input.source,
+      startedAt,
+    });
+    assertNoImportFailures(metrics);
 
-export const assertReadOnlyMotianAccess = (): void => {
-  const url = resolveMotianDatabaseUrl();
-  if (!url) {
-    return;
-  }
-  if (/write|admin|owner/iu.test(url)) {
-    throw new Error("MOTIAN_DATABASE_URL must use a read-only role");
+    const result = backfillResult(execution, metrics, "succeeded");
+    await input.runStore.completeRun(scrapeRunId, result.evidence);
+    return result;
+  } catch (error) {
+    return recordBackfillFailure({
+      cause: error,
+      execution,
+      metrics,
+      runStore: input.runStore,
+      scrapeRunId,
+    });
   }
 };

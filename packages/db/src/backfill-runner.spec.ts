@@ -14,6 +14,7 @@ import { InMemoryObjectStore } from "@ji/connectors";
 
 import {
   resolveBackfillObjectStore,
+  runMotianV1Backfill,
   runMotianV1BackfillInMemory,
 } from "./backfill-runner";
 
@@ -42,6 +43,23 @@ describe("Motian v1 backfill raw payload persistence", () => {
     expect(
       resolveBackfillObjectStore({ kind: "s3", store }, "production")
     ).toBe(store);
+  });
+
+  it("requires an explicit production mode for a live Motian source", async () => {
+    await expect(
+      runMotianV1Backfill({
+        motianDatabaseUrl: "postgresql://readonly@motian.example/v1",
+      })
+    ).rejects.toThrow(/executionMode: production/u);
+  });
+
+  it("requires a live Motian URL before a production run can start", async () => {
+    await expect(
+      runMotianV1Backfill({
+        executionMode: "production",
+        rawObjectStore: { kind: "s3", store: new InMemoryObjectStore() },
+      })
+    ).rejects.toThrow(/MOTIAN_DATABASE_URL/u);
   });
 });
 

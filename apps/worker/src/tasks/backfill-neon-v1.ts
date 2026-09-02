@@ -5,7 +5,6 @@ import { z } from "zod";
 
 const backfillNeonV1Payload = z.object({
   batchSize: z.number().int().min(1).max(5000).optional(),
-  includeClosed: z.boolean().optional(),
 });
 
 export type BackfillNeonV1Payload = z.infer<typeof backfillNeonV1Payload>;
@@ -30,9 +29,13 @@ export const backfillNeonV1Task = schemaTask({
     });
     const result = await runMotianV1Backfill({
       batchSize: payload.batchSize,
-      includeClosed: payload.includeClosed,
+      executionMode: "production",
       rawObjectStore,
+      scope: "full",
     });
+    if (result.status === "failed") {
+      throw new Error("Motian Neon v1 backfill failed");
+    }
     return {
       metrics: result.metrics,
       status: result.status,

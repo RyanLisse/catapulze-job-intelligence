@@ -1,6 +1,7 @@
 import type { ObjectStore } from "@ji/connectors";
 
 import type { CurateStore } from "../identity/curate";
+import type { JsonValue } from "../normalise";
 
 export const NEON_V1_BACKFILL_CONTRACT_VERSION = "neon-v1-backfill/v1" as const;
 
@@ -20,9 +21,11 @@ export const NEON_V1_FORBIDDEN_TABLES = [
 export type NeonV1ForbiddenTable = (typeof NEON_V1_FORBIDDEN_TABLES)[number];
 
 export interface NeonV1JobRow {
+  readonly archived_at?: string | null;
   readonly company?: string | null;
   readonly contract_type?: string | null;
   readonly created_at?: string | null;
+  readonly deleted_at?: string | null;
   readonly description?: string | null;
   readonly end_client?: string | null;
   readonly external_id: string;
@@ -33,6 +36,11 @@ export interface NeonV1JobRow {
   readonly province?: string | null;
   readonly rate_max?: number | null;
   readonly rate_min?: number | null;
+  /** Complete `jobs` row as returned by Motian-Neon, including `raw_payload`.
+   * It is written unchanged in shape to object storage; the typed fields above
+   * are only the curated mapping surface. */
+  readonly sourceRow?: Readonly<Record<string, JsonValue>>;
+  readonly status?: string | null;
   readonly title: string;
   readonly updated_at?: string | null;
 }
@@ -43,7 +51,18 @@ export interface NeonV1Fixture {
   readonly jobs: readonly NeonV1JobRow[];
 }
 
-export interface BackfillRunMetrics {
+export type BackfillExecutionMode = "fixture" | "production";
+
+/** `active` retains the historical fixture/dev query behaviour; `full` is the
+ * production migration contract and includes closed, deleted and archived rows. */
+export type BackfillScope = "active" | "full";
+
+export interface BackfillExecution {
+  readonly mode: BackfillExecutionMode;
+  readonly scope: BackfillScope;
+}
+
+export interface BackfillPlatformMetrics {
   readonly errors: number;
   readonly found: number;
   readonly imported: number;
@@ -51,7 +70,20 @@ export interface BackfillRunMetrics {
   readonly skipped: number;
 }
 
+export interface BackfillRunMetrics extends BackfillPlatformMetrics {
+  /** Canonical Motian platform slug to its complete outcome counters.
+   * `__source__` is reserved for failures that happen before a row can be
+   * attributed to a platform (for example, a source connection failure). */
+  readonly platforms: Readonly<Record<string, BackfillPlatformMetrics>>;
+}
+
+export interface BackfillRunEvidence {
+  readonly execution: BackfillExecution;
+  readonly metrics: BackfillRunMetrics;
+}
+
 export interface BackfillRunResult {
+  readonly evidence: BackfillRunEvidence;
   readonly metrics: BackfillRunMetrics;
   readonly status: "failed" | "succeeded";
 }
@@ -72,9 +104,13 @@ export interface BackfillBronBinding {
 export interface BackfillRunStore {
   completeRun: (
     scrapeRunId: string,
-    metrics: BackfillRunMetrics
+    evidence: BackfillRunEvidence
   ) => Promise<void>;
-  failRun: (scrapeRunId: string, reason: string) => Promise<void>;
+  failRun: (
+    scrapeRunId: string,
+    reason: string,
+    evidence: BackfillRunEvidence
+  ) => Promise<void>;
   startRun: (bronId: string) => Promise<{ scrapeRunId: string }>;
 }
 
@@ -87,6 +123,9 @@ export interface RunNeonV1BackfillInput {
   readonly batchSize?: number;
   readonly bindings: readonly BackfillBronBinding[];
   readonly curateStore: CurateStore;
+  /** The execution intent is persisted as durable run evidence. Production
+   * callers must provide `scope: "full"`; runner adapters enforce storage. */
+  readonly execution?: BackfillExecution;
   readonly objectStore: ObjectStore;
   readonly provenanceStore: BackfillProvenanceStore;
   readonly runStore: BackfillRunStore;
