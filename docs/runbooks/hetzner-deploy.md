@@ -401,7 +401,9 @@ toegepast: 13 overeenkomende journalentries én een nullable `text`-kolom
 code, geen live- of rehearsalbewijs. Is Neon al current, leg dat bewijs vast
 en migreer niet opnieuw. Alleen bij een bewezen achterstand volgt de catch-up
 uit [neon-migration-catchup.md](neon-migration-catchup.md), met een verse
-Neon-branch als rollback. Daarna, en bij elke latere release, draait de
+Neon-branch als rollback source; herstel vereist de gecontroleerde
+restore/switchoverprocedure uit dat runbook. Daarna, en bij elke latere
+release, draait de
 one-shot migrator-job (`apps/server/Dockerfile.migrate`, alleen
 `MIGRATION_DATABASE_URL`) vóór de server-uitrol
 ([coolify-local.md](coolify-local.md)).
@@ -597,7 +599,7 @@ Wat `degraded` blijft — HTTP 200, serveert door, wel opvolgen:
 |---|---|---|
 | 1 Manticore | Container stoppen/verwijderen; volume weggooien mag — de index is een afgeleide, volledig rebuildbare index uit Neon en de outbox (rebuild = stap 8; [ADR-0006](../adr/ADR-0006-neon-as-system-of-record.md)). | Niets. |
 | 2 Neon-rollen | Rollen droppen/credential intrekken in Neon + 1Password. | Een eenmaal gelekte credential — dan roteren (les van RJC-371). |
-| 3 Migraties | **Geen automatisch pad.** Drizzle-migraties hier hebben geen down-scripts; herstel op Neon loopt via PITR/branch-restore, die [neon-restore.md](neon-restore.md) beschrijft; voor de catch-up zelf is een Neon-branch vooraf de rollback ([neon-migration-catchup.md](neon-migration-catchup.md) §4). Daarom is de catch-up een gate met eigen runbook, geen inline stap. | Toegepaste migraties + alle writes erna, behoudens Neon-PITR/branch-venster. |
+| 3 Migraties | **Geen automatisch pad.** Drizzle-migraties hier hebben geen down-scripts; herstel op Neon loopt via PITR/branch-restore, die [neon-restore.md](neon-restore.md) beschrijft. Voor de catch-up is de vooraf gemaakte Neon-branch alleen de rollback source; herstel vereist de gecontroleerde restore/switchoverprocedure uit [neon-migration-catchup.md](neon-migration-catchup.md) §4. Daarom is de catch-up een gate met eigen runbook, geen inline stap. | Toegepaste migraties + alle writes erna, behoudens Neon-PITR/branch-venster. |
 | 4–5 Server/web | Vorige image/release in Coolify uitrollen; stateless. | Niets. |
 | 6 Redis / raw store | `REDIS_URL` weghalen (server degradeert naar in-process cache — behalve bij boot in productie, dan is Redis-onbereikbaarheid een startweigering); raw store: eenmaal geschreven objects laten staan. | Reeds geschreven raw payloads verwijderen = observaties onherhaalbaar maken — niet doen. |
 | 7 Projector/onbox | Worker terug naar `SEARCH_PROJECTOR=worker` **mét** `MANTICORE_URL` en projector stoppen — beide tegelijk, zelfde contract als heenweg. Let op: in de cloud kán de worker Manticore niet bereiken, dus deze rollback werkt alleen zolang de worker niet cloud-deployed is. | Niets aan data. |

@@ -376,14 +376,38 @@ strings:
 #    Record both non-secret IDs; never infer "production" from a branch name.
 neonctl branches list --project-id <verified-project-id>
 
-# 2. Branch explicitly from the verified production parent. Record the
-#    command output, especially created branch ID, parent ID and created_at.
-neonctl branches create --project-id <verified-project-id> \
-  --parent <verified-production-branch-id> \
-  --name pre-migration-current-main-$(date +%Y%m%d-%H%M%S)
+# 2. Branch explicitly from the verified production parent. `--no-secrets`
+#    is mandatory because branch creation otherwise includes connection
+#    credentials in JSON output. Keep only the non-secret branch metadata.
+verified_project_id='<verified-project-id>'
+verified_production_branch_id='<verified-production-branch-id>'
+rollback_create_json="$(
+  neonctl branches create --project-id "$verified_project_id" \
+    --parent "$verified_production_branch_id" \
+    --name pre-migration-current-main-$(date +%Y%m%d-%H%M%S) \
+    --no-secrets \
+    --output json
+)"
+rollback_branch_id="$(
+  printf '%s' "$rollback_create_json" | jq -er '.branch.id // .id'
+)"
 
-# 3. Read the branch back and prove its parent before any production write.
-neonctl branches list --project-id <verified-project-id>
+# 3. Read that exact branch back and prove its parent before any production
+#    write. The equality test MUST exit 0. Record only id, parent_id and
+#    created_at from this readback; never retain secret-bearing CLI output.
+rollback_branch_readback="$(
+  neonctl branches get "$rollback_branch_id" \
+    --project-id "$verified_project_id" \
+    --output json
+)"
+rollback_parent_id="$(
+  printf '%s' "$rollback_branch_readback" | jq -er '.parent_id'
+)"
+test "$rollback_parent_id" = "$verified_production_branch_id"
+printf '%s' "$rollback_branch_readback" \
+  | jq -e '{id, parent_id, created_at}'
+unset rollback_create_json rollback_branch_readback
+
 # Obtain this branch's connection string through Console/neonctl without
 # echoing it, then prove it is queryable and record the first-success time:
 psql "$ROLLBACK_BRANCH_READONLY_DATABASE_URL" -XAtqc \
