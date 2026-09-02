@@ -9,6 +9,7 @@ import { createMcpHandler } from "./mcp";
 import { createRestCapabilityHandler, restRoutesFromRegistry } from "./rest";
 
 const currentTime = new Date("2026-09-02T12:00:00.000Z");
+const allowedOrigin = "https://app.catapulze.test";
 const validBearer = "Bearer valid.signed-session";
 const expiredBearer = "Bearer expired.signed-session";
 
@@ -40,6 +41,7 @@ const createRestContext = (
   options: {
     readonly body?: object;
     readonly method?: string;
+    readonly onBodyRead?: () => void;
     readonly path?: string;
   } = {}
 ): Context => {
@@ -47,7 +49,10 @@ const createRestContext = (
   const path = options.path ?? "/v1/aanvragen/search";
   const context = {
     req: {
-      json: () => Promise.resolve(options.body ?? { query: "Azure" }),
+      json: () => {
+        options.onBodyRead?.();
+        return Promise.resolve(options.body ?? { query: "Azure" });
+      },
       method,
       path,
       raw: { headers },
@@ -96,7 +101,8 @@ describe("REST and MCP authentication boundary", () => {
   const rest = createRestCapabilityHandler(
     bundle.registry,
     restRoutesFromRegistry(bundle.registry),
-    resolvePrincipal
+    resolvePrincipal,
+    { allowedCookieOrigin: allowedOrigin }
   );
   const mcp = createMcpHandler(bundle.registry, resolvePrincipal);
 
@@ -127,15 +133,54 @@ describe("REST and MCP authentication boundary", () => {
       createRestContext(
         new Headers({
           Cookie: "better-auth.session_token=valid-session",
+          Origin: allowedOrigin,
         })
       )
+    );
+    const bearerRestResponse = await rest(
+      createRestContext(new Headers({ Authorization: validBearer }))
     );
     const mcpResponse = await mcp(
       createMcpContext(new Headers({ Authorization: validBearer }))
     );
 
     expect(restResponse.status).toBe(200);
+    expect(bearerRestResponse.status).toBe(200);
     expect(await readMcpError(mcpResponse)).toBe(false);
+  });
+
+  it("rejects untrusted or missing origins before cookie-authenticated write effects", async () => {
+    let bodyReads = 0;
+    let resolverCalls = 0;
+    const countedResolver = (headers: Headers) => {
+      resolverCalls += 1;
+      return resolvePrincipal(headers);
+    };
+    const csrfProtectedRest = createRestCapabilityHandler(
+      bundle.registry,
+      restRoutesFromRegistry(bundle.registry),
+      countedResolver,
+      { allowedCookieOrigin: allowedOrigin }
+    );
+    const onBodyRead = () => {
+      bodyReads += 1;
+    };
+    const cookie = "better-auth.session_token=valid-session";
+
+    const untrusted = await csrfProtectedRest(
+      createRestContext(
+        new Headers({ Cookie: cookie, Origin: "https://evil.example" }),
+        { onBodyRead }
+      )
+    );
+    const missing = await csrfProtectedRest(
+      createRestContext(new Headers({ Cookie: cookie }), { onBodyRead })
+    );
+
+    expect(untrusted.status).toBe(403);
+    expect(missing.status).toBe(403);
+    expect(resolverCalls).toBe(0);
+    expect(bodyReads).toBe(0);
   });
 
   it("rejects expired and invalid sessions on both transports", async () => {

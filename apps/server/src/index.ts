@@ -22,6 +22,7 @@ const DEFAULT_PORT = 3000;
 const SHUTDOWN_DRAIN_TIMEOUT_MS = 10_000;
 
 const app = new Hono();
+const allowedWebOrigin = new URL(env.CORS_ORIGIN).origin;
 
 app.use(logger());
 app.use(
@@ -30,7 +31,7 @@ app.use(
     allowHeaders: ["Content-Type", "Authorization"],
     allowMethods: ["GET", "POST", "OPTIONS"],
     credentials: true,
-    origin: env.CORS_ORIGIN,
+    origin: allowedWebOrigin,
   })
 );
 
@@ -89,7 +90,8 @@ const resolvePrincipal = createSessionPrincipalResolver((headers) =>
 const restHandler = createRestCapabilityHandler(
   sliceA.registry,
   restRoutes,
-  resolvePrincipal
+  resolvePrincipal,
+  { allowedCookieOrigin: allowedWebOrigin }
 );
 const mcpHandler = createMcpHandler(sliceA.registry, resolvePrincipal);
 

@@ -7,6 +7,13 @@ import {
 
 import { createRestCapabilityHandler, restRoutesFromRegistry } from "./rest";
 
+const allowedOrigin = "https://app.catapulze.test";
+const browserSessionHeaders = (): Headers =>
+  new Headers({
+    Cookie: "better-auth.session_token=valid-session",
+    Origin: allowedOrigin,
+  });
+
 const resolveRecruiter = () =>
   Promise.resolve({
     kind: "user" as const,
@@ -20,14 +27,15 @@ describe("REST search contract", () => {
     const handler = createRestCapabilityHandler(
       bundle.registry,
       restRoutesFromRegistry(bundle.registry),
-      resolveRecruiter
+      resolveRecruiter,
+      { allowedCookieOrigin: allowedOrigin }
     );
     const mockContext = {
       req: {
         json: () => Promise.resolve({ query: "(Azure" }),
         method: "POST",
         path: "/v1/aanvragen/search",
-        raw: { headers: new Headers() },
+        raw: { headers: browserSessionHeaders() },
         url: "http://localhost/v1/aanvragen/search",
       },
     };
@@ -56,14 +64,15 @@ describe("REST search contract", () => {
     const handler = createRestCapabilityHandler(
       bundle.registry,
       restRoutesFromRegistry(bundle.registry),
-      resolveRecruiter
+      resolveRecruiter,
+      { allowedCookieOrigin: allowedOrigin }
     );
     const mockContext = {
       req: {
         json: () => Promise.resolve({ query: "Azure" }),
         method: "POST",
         path: "/v1/aanvragen/search",
-        raw: { headers: new Headers() },
+        raw: { headers: browserSessionHeaders() },
         url: "http://localhost/v1/aanvragen/search",
       },
     };

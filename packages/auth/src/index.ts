@@ -22,12 +22,13 @@ export {
 
 export const createAuth = () => {
   const isProduction = env.NODE_ENV === "production";
+  const trustedOrigin = new URL(env.CORS_ORIGIN).origin;
 
   return betterAuth({
     advanced: {
       defaultCookieAttributes: {
         httpOnly: true,
-        sameSite: isProduction ? "none" : "lax",
+        sameSite: "lax",
         secure: isProduction,
       },
     },
@@ -40,7 +41,7 @@ export const createAuth = () => {
     emailAndPassword: AUTH_EMAIL_PASSWORD_OPTIONS,
     plugins: [bearer(AUTH_BEARER_OPTIONS)],
     secret: env.BETTER_AUTH_SECRET,
-    trustedOrigins: [env.CORS_ORIGIN],
+    trustedOrigins: [trustedOrigin],
     user: {
       additionalFields: {
         role: AUTH_USER_ROLE_FIELD,

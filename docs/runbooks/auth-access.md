@@ -7,7 +7,13 @@ session boundary. A caller cannot choose its own subject or role.
 
 - Browser requests use the Better Auth session cookie with
   `credentials: "include"`. The web client never sends an `Authorization`
-  role header.
+  role header. Session cookies are `HttpOnly` and `SameSite=Lax` (plus `Secure`
+  in production).
+- An unsafe REST request that carries a session cookie must send an `Origin`
+  header that exactly equals `CORS_ORIGIN`. A foreign or missing origin is
+  rejected with `403 CSRF_REJECTED` before the session lookup, body read, or
+  capability invocation. Non-browser automation must use a signed Better Auth
+  bearer; a cookie plus no origin is intentionally unsupported for writes.
 - REST and MCP resolve every request with `auth.api.getSession` and force a
   database-backed check. Expired, revoked, unknown, or malformed sessions fail
   closed.
@@ -63,8 +69,19 @@ prints only non-secret JSON evidence:
 {"created":true,"role":"recruiter","roleVerified":true,"status":"provisioned"}
 ```
 
-An existing email returns `already_exists` and exit code 2. Any invalid gate,
-role, readback, or create failure returns a fixed error code without echoing the
-email, name, password, database error, or token. Remove the bootstrap variables
-from the process environment immediately after the command; normal server
-startup never reads or needs them.
+Email is trimmed and lowercased before both the existence lookup and Better Auth
+signup. An existing or concurrently created email returns `already_exists` and
+exit code 2.
+
+If Better Auth created the account but the stored role cannot be verified, the
+command exits 3 and prints explicit reconciliation evidence:
+
+```json
+{"code":"ROLE_READBACK_FAILED","created":true,"roleVerified":false,"status":"reconciliation_required"}
+```
+
+Inspect and reconcile that existing account before retrying; do not assume the
+create was rolled back. Invalid gates, roles, or create failures exit 1 with a
+fixed error code. No output includes the email, name, password, database error,
+or token. Remove the bootstrap variables from the process environment
+immediately after the command; normal server startup never reads or needs them.

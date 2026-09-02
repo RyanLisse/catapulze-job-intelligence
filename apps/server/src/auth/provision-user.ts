@@ -101,7 +101,13 @@ const main = async (): Promise<void> => {
       },
     });
     writeOutput(formatProvisioningOutput(evidence));
-    process.exitCode = evidence.status === "already_exists" ? 2 : 0;
+    if (evidence.status === "provisioned") {
+      process.exitCode = 0;
+    } else if (evidence.status === "already_exists") {
+      process.exitCode = 2;
+    } else {
+      process.exitCode = 3;
+    }
   } catch (error) {
     const code =
       error instanceof ProvisioningFailureError ? error.code : "CREATE_FAILED";

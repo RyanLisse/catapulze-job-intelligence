@@ -39,6 +39,60 @@ describe("auth user provisioning", () => {
     ).toEqual({ code: "INVALID_BOOTSTRAP_INPUT", ok: false });
   });
 
+  it("normalizes email before existence lookup and account creation", async () => {
+    const parsed = parseProvisioningEnvironment({
+      ...validEnvironment,
+      AUTH_BOOTSTRAP_EMAIL: "  Operator@Example.Invalid ",
+    });
+    if (!parsed.ok) {
+      throw new Error("Expected a valid provisioning fixture");
+    }
+    const observedEmails: string[] = [];
+
+    const result = await provisionAuthUser(parsed.input, {
+      createUser: (credentials) => {
+        observedEmails.push(credentials.email);
+        return Promise.resolve({ id: "created-user" });
+      },
+      hasExistingUser: (email) => {
+        observedEmails.push(email);
+        return Promise.resolve(false);
+      },
+      readUserRole: () => Promise.resolve("operator"),
+    });
+
+    expect(parsed.input.email).toBe("operator@example.invalid");
+    expect(observedEmails).toEqual([
+      "operator@example.invalid",
+      "operator@example.invalid",
+    ]);
+    expect(result.status).toBe("provisioned");
+  });
+
+  it("treats a mixed-case retry as the same existing email", async () => {
+    const parsed = parseProvisioningEnvironment({
+      ...validEnvironment,
+      AUTH_BOOTSTRAP_EMAIL: "OPERATOR@EXAMPLE.INVALID",
+    });
+    if (!parsed.ok) {
+      throw new Error("Expected a valid provisioning fixture");
+    }
+    let createCalls = 0;
+
+    const result = await provisionAuthUser(parsed.input, {
+      createUser: () => {
+        createCalls += 1;
+        return Promise.resolve({ id: "not-created" });
+      },
+      hasExistingUser: (email) =>
+        Promise.resolve(email === "operator@example.invalid"),
+      readUserRole: () => Promise.resolve("operator"),
+    });
+
+    expect(result).toEqual({ created: false, status: "already_exists" });
+    expect(createCalls).toBe(0);
+  });
+
   it("refuses an existing email without creating or changing the user", async () => {
     let createCalls = 0;
     const parsed = parseProvisioningEnvironment(validEnvironment);
@@ -85,6 +139,70 @@ describe("auth user provisioning", () => {
       role: "operator",
       roleVerified: true,
       status: "provisioned",
+    });
+  });
+
+  it("treats a concurrent duplicate as already existing", async () => {
+    const parsed = parseProvisioningEnvironment(validEnvironment);
+    if (!parsed.ok) {
+      throw new Error("Expected a valid provisioning fixture");
+    }
+    let lookupCalls = 0;
+
+    const result = await provisionAuthUser(parsed.input, {
+      createUser: () => Promise.reject(new Error("duplicate")),
+      hasExistingUser: () => {
+        lookupCalls += 1;
+        return Promise.resolve(lookupCalls > 1);
+      },
+      readUserRole: () => Promise.resolve("operator"),
+    });
+
+    expect(result).toEqual({ created: false, status: "already_exists" });
+    expect(lookupCalls).toBe(2);
+  });
+
+  it("reports created-but-unverified evidence when role readback fails", async () => {
+    const parsed = parseProvisioningEnvironment(validEnvironment);
+    if (!parsed.ok) {
+      throw new Error("Expected a valid provisioning fixture");
+    }
+
+    const result = await provisionAuthUser(parsed.input, {
+      createUser: () => Promise.resolve({ id: "created-user" }),
+      hasExistingUser: () => Promise.resolve(false),
+      readUserRole: () =>
+        Promise.reject(new Error("sensitive database detail")),
+    });
+
+    expect(result).toEqual({
+      code: "ROLE_READBACK_FAILED",
+      created: true,
+      roleVerified: false,
+      status: "reconciliation_required",
+    });
+    expect(formatProvisioningOutput(result)).toBe(
+      '{"code":"ROLE_READBACK_FAILED","created":true,"roleVerified":false,"status":"reconciliation_required"}'
+    );
+  });
+
+  it("requires reconciliation when the stored role differs", async () => {
+    const parsed = parseProvisioningEnvironment(validEnvironment);
+    if (!parsed.ok) {
+      throw new Error("Expected a valid provisioning fixture");
+    }
+
+    const result = await provisionAuthUser(parsed.input, {
+      createUser: () => Promise.resolve({ id: "created-user" }),
+      hasExistingUser: () => Promise.resolve(false),
+      readUserRole: () => Promise.resolve("recruiter"),
+    });
+
+    expect(result).toEqual({
+      code: "ROLE_READBACK_FAILED",
+      created: true,
+      roleVerified: false,
+      status: "reconciliation_required",
     });
   });
 

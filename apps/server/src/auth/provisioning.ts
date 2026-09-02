@@ -5,7 +5,7 @@ import { z } from "zod";
 const confirmationPhrase = "PROVISION_AUTH_USER";
 
 const provisioningInputSchema = z.object({
-  email: z.email(),
+  email: z.string().trim().toLowerCase().pipe(z.email()),
   name: z.string().trim().min(1).max(200),
   password: z.string().min(12).max(128),
   role: z.enum(AUTH_USER_ROLES),
@@ -82,10 +82,16 @@ export type ProvisioningEvidence =
       readonly role: AuthUserRole;
       readonly roleVerified: true;
       readonly status: "provisioned";
+    }
+  | {
+      readonly code: "ROLE_READBACK_FAILED";
+      readonly created: true;
+      readonly roleVerified: false;
+      readonly status: "reconciliation_required";
     };
 
 export class ProvisioningFailureError extends Error {
-  readonly code: "CREATE_FAILED" | "ROLE_READBACK_FAILED";
+  readonly code: "CREATE_FAILED";
 
   constructor(code: ProvisioningFailureError["code"]) {
     super("Auth user provisioning failed");
@@ -93,6 +99,24 @@ export class ProvisioningFailureError extends Error {
     this.name = "ProvisioningFailureError";
   }
 }
+
+const existingUserAppeared = async (
+  email: string,
+  dependencies: ProvisioningDependencies
+): Promise<boolean> => {
+  try {
+    return await dependencies.hasExistingUser(email);
+  } catch {
+    return false;
+  }
+};
+
+const roleReconciliationRequired = (): ProvisioningEvidence => ({
+  code: "ROLE_READBACK_FAILED",
+  created: true,
+  roleVerified: false,
+  status: "reconciliation_required",
+});
 
 export const provisionAuthUser = async (
   input: ProvisioningInput,
@@ -107,12 +131,20 @@ export const provisionAuthUser = async (
     const { role, ...credentials } = input;
     created = await dependencies.createUser(credentials, role);
   } catch {
+    if (await existingUserAppeared(input.email, dependencies)) {
+      return { created: false, status: "already_exists" };
+    }
     throw new ProvisioningFailureError("CREATE_FAILED");
   }
 
-  const storedRole = await dependencies.readUserRole(created.id);
+  let storedRole: string | undefined;
+  try {
+    storedRole = await dependencies.readUserRole(created.id);
+  } catch {
+    return roleReconciliationRequired();
+  }
   if (storedRole !== input.role) {
-    throw new ProvisioningFailureError("ROLE_READBACK_FAILED");
+    return roleReconciliationRequired();
   }
 
   return {

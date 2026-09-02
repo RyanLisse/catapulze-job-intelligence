@@ -82,6 +82,25 @@ export interface RestRouteSpec {
   readonly pathPattern: string;
 }
 
+export interface RestSecurityPolicy {
+  readonly allowedCookieOrigin: string;
+}
+
+const requiresCookieOrigin = (method: string, headers: Headers): boolean =>
+  method !== "GET" &&
+  method !== "HEAD" &&
+  method !== "OPTIONS" &&
+  headers.has("Cookie") &&
+  !headers.has("Authorization");
+
+const hasAllowedCookieOrigin = (
+  method: string,
+  headers: Headers,
+  allowedOrigin: string
+): boolean =>
+  !requiresCookieOrigin(method, headers) ||
+  headers.get("Origin") === allowedOrigin;
+
 const pathParamNames = (pattern: string): readonly string[] => {
   const names: string[] = [];
   for (const segment of pattern.split("/")) {
@@ -242,7 +261,8 @@ export const createRestCapabilityHandler =
   (
     registry: SliceARegistry,
     routes: readonly RestRouteSpec[],
-    resolvePrincipal: PrincipalResolver
+    resolvePrincipal: PrincipalResolver,
+    security: RestSecurityPolicy
   ) =>
   async (context: Context): Promise<Response> => {
     const requestId = createRequestId();
@@ -255,7 +275,22 @@ export const createRestCapabilityHandler =
     if (!matched) {
       return jsonResponse(404, { error: "Route not found" });
     }
-    const principal = await resolvePrincipal(context.req.raw.headers);
+    const requestHeaders = context.req.raw.headers;
+    if (
+      !hasAllowedCookieOrigin(
+        context.req.method,
+        requestHeaders,
+        security.allowedCookieOrigin
+      )
+    ) {
+      return jsonResponse(403, {
+        error: {
+          code: "CSRF_REJECTED",
+          message: "Cookie-authenticated writes require the allowed Origin",
+        },
+      });
+    }
+    const principal = await resolvePrincipal(requestHeaders);
     const params = matchPath(matched.pathPattern, pathname) ?? {};
     let body: RestJsonBody = {};
     if (context.req.method === "POST" || context.req.method === "PUT") {
