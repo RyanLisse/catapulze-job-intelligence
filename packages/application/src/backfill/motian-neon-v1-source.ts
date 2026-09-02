@@ -19,13 +19,20 @@ const INITIAL_CURSOR = "00000000-0000-0000-0000-000000000000";
 interface MotianReadOnlyPrivileges {
   can_delete_jobs: boolean | null;
   can_insert_jobs: boolean | null;
+  can_insert_jobs_columns: boolean | null;
   can_select_jobs: boolean | null;
   can_truncate_jobs: boolean | null;
   can_update_jobs: boolean | null;
+  can_update_jobs_columns: boolean | null;
 }
 
 interface MotianTransactionState {
   transaction_read_only: string | null;
+}
+
+interface MotianSnapshotClock {
+  snapshot_completed_at?: Date | string;
+  snapshot_started_at?: Date | string;
 }
 
 export interface MotianNeonV1SourceOptions {
@@ -118,7 +125,9 @@ export const assertReadOnlyMotianAccess = async (
     SELECT
       has_table_privilege(current_user, 'jobs', 'SELECT') AS can_select_jobs,
       has_table_privilege(current_user, 'jobs', 'INSERT') AS can_insert_jobs,
+      has_any_column_privilege(current_user, 'jobs', 'INSERT') AS can_insert_jobs_columns,
       has_table_privilege(current_user, 'jobs', 'UPDATE') AS can_update_jobs,
+      has_any_column_privilege(current_user, 'jobs', 'UPDATE') AS can_update_jobs_columns,
       has_table_privilege(current_user, 'jobs', 'DELETE') AS can_delete_jobs,
       has_table_privilege(current_user, 'jobs', 'TRUNCATE') AS can_truncate_jobs
   `;
@@ -129,7 +138,9 @@ export const assertReadOnlyMotianAccess = async (
 
   const writePrivileges = [
     ["INSERT", privileges.can_insert_jobs],
+    ["column INSERT", privileges.can_insert_jobs_columns],
     ["UPDATE", privileges.can_update_jobs],
+    ["column UPDATE", privileges.can_update_jobs_columns],
     ["DELETE", privileges.can_delete_jobs],
     ["TRUNCATE", privileges.can_truncate_jobs],
   ] as const;
@@ -157,8 +168,11 @@ const assertReadOnlyMotianTransaction = async (
 const createMotianSqlClient = (databaseUrl: string): postgres.Sql =>
   postgres(databaseUrl, {
     connect_timeout: 10,
-    idle_timeout: 20,
+    // The destination write/readback for one source batch can take longer
+    // than a normal query idle window while the source snapshot stays open.
+    idle_timeout: 0,
     max: 1,
+    max_lifetime: null,
   });
 
 export const createMotianNeonV1Source = (
@@ -284,57 +298,67 @@ export const createMotianNeonV1Source = (
     return rows;
   };
 
-  const loadBatch = (
-    afterId: string,
-    size: number
-  ): Promise<readonly NeonV1JobRow[]> =>
-    // postgres.js may use a different pool session for every query. A `BEGIN
-    // READ ONLY` transaction reserves the exact session used below, unlike a
-    // one-time connection-level SET.
-    sql.begin("read only", async (readOnlySql) => {
-      await assertReadOnlyMotianTransaction(readOnlySql);
-      const rows = await loadRows(readOnlySql, afterId, size);
-      return rows.map(mapMotianRow);
-    });
-
-  const streamMotianJobBatches = async function* streamMotianJobBatches(
-    size: number
-  ): AsyncGenerator<readonly NeonV1JobRow[], void> {
-    let afterId = INITIAL_CURSOR;
+  const consumeSnapshot = async (
+    size: number,
+    consume: (batch: readonly NeonV1JobRow[]) => Promise<void>
+  ) => {
     try {
-      for (;;) {
-        /* oxlint-disable no-await-in-loop -- keyset pagination requires sequential Motian reads */
-        const batch = await loadBatch(afterId, size);
-        /* oxlint-enable no-await-in-loop */
-        if (batch.length === 0) {
-          return;
+      // One transaction spans the complete keyset walk. REPEATABLE READ
+      // prevents inserts/deletes during a long migration from changing the
+      // selected source ID-set between batches while memory stays bounded.
+      return await sql.begin(
+        "isolation level repeatable read read only",
+        async (readOnlySql) => {
+          await assertReadOnlyMotianTransaction(readOnlySql);
+          const [startClock] = await readOnlySql<MotianSnapshotClock[]>`
+            SELECT transaction_timestamp() AS snapshot_started_at
+          `;
+          if (!startClock?.snapshot_started_at) {
+            throw new Error("Motian source snapshot start heartbeat failed");
+          }
+          let afterId = INITIAL_CURSOR;
+          for (;;) {
+            /* oxlint-disable no-await-in-loop -- keyset pagination and the consumer are deliberately sequential inside one snapshot */
+            const rows = await loadRows(readOnlySql, afterId, size);
+            const batch = rows.map(mapMotianRow);
+            if (batch.length === 0) {
+              break;
+            }
+            await consume(batch);
+            /* oxlint-enable no-await-in-loop */
+            const lastId = batch.at(-1)?.id;
+            if (!lastId || batch.length < size) {
+              break;
+            }
+            afterId = lastId;
+          }
+          const [endClock] = await readOnlySql<MotianSnapshotClock[]>`
+            SELECT clock_timestamp() AS snapshot_completed_at
+          `;
+          if (!endClock?.snapshot_completed_at) {
+            throw new Error("Motian source snapshot end heartbeat failed");
+          }
+          return {
+            completedAt: new Date(endClock.snapshot_completed_at).toISOString(),
+            startedAt: new Date(startClock.snapshot_started_at).toISOString(),
+          };
         }
-        yield batch;
-        const lastId = batch.at(-1)?.id;
-        if (!lastId) {
-          return;
-        }
-        afterId = lastId;
-        if (batch.length < size) {
-          return;
-        }
-      }
+      );
     } finally {
       await sql.end({ timeout: 5 });
     }
   };
 
   return {
+    consumeSnapshot,
     label: "motian-neon",
     loadJobs: async () => {
       const jobs: NeonV1JobRow[] = [];
-      /* oxlint-disable no-await-in-loop -- Motian Neon reads must stay ordered for keyset pagination */
-      for await (const batch of streamMotianJobBatches(batchSize)) {
+      await consumeSnapshot(batchSize, (batch) => {
         jobs.push(...batch);
-      }
-      /* oxlint-enable no-await-in-loop */
+        return Promise.resolve();
+      });
       return jobs;
     },
-    streamBatches: streamMotianJobBatches,
   };
 };

@@ -5,11 +5,13 @@ import type postgres from "postgres";
 import { createMotianNeonV1Source } from "./motian-neon-v1-source";
 
 interface MotianPrivileges {
-  can_delete_jobs: boolean;
-  can_insert_jobs: boolean;
-  can_select_jobs: boolean;
-  can_truncate_jobs: boolean;
-  can_update_jobs: boolean;
+  can_delete_jobs: boolean | null;
+  can_insert_jobs: boolean | null;
+  can_insert_jobs_columns: boolean | null;
+  can_select_jobs: boolean | null;
+  can_truncate_jobs: boolean | null;
+  can_update_jobs: boolean | null;
+  can_update_jobs_columns: boolean | null;
 }
 
 interface FakeMotianSqlClient {
@@ -36,9 +38,33 @@ interface FakeSql {
 const readOnlyPrivileges = (): MotianPrivileges => ({
   can_delete_jobs: false,
   can_insert_jobs: false,
+  can_insert_jobs_columns: false,
   can_select_jobs: true,
   can_truncate_jobs: false,
   can_update_jobs: false,
+  can_update_jobs_columns: false,
+});
+
+const motianJobRow = (id: string) => ({
+  archived_at: null,
+  company: null,
+  contract_type: null,
+  created_at: null,
+  deleted_at: null,
+  description: null,
+  end_client: null,
+  external_id: `external-${id}`,
+  external_url: null,
+  id,
+  location: null,
+  platform: "werkzoeken",
+  province: null,
+  rate_max: null,
+  rate_min: null,
+  source_row: { id },
+  status: "open",
+  title: `Job ${id}`,
+  updated_at: null,
 });
 
 const asTransactionSql = (value: FakeTransactionSql): postgres.TransactionSql =>
@@ -51,6 +77,8 @@ const asSql = (value: FakeSql | postgres.Sql): postgres.Sql =>
 
 const createFakeMotianSqlClient = (
   input: {
+    readonly endHeartbeatFails?: boolean;
+    readonly jobBatches?: readonly (readonly object[])[];
     readonly privileges?: Partial<MotianPrivileges>;
     readonly transactionReadOnly?: string;
   } = {}
@@ -59,6 +87,7 @@ const createFakeMotianSqlClient = (
   const events: string[] = [];
   let endCalls = 0;
   let rootQueryCalls = 0;
+  let jobBatchIndex = 0;
   const privileges = { ...readOnlyPrivileges(), ...input.privileges };
   const transactionReadOnly = input.transactionReadOnly ?? "on";
 
@@ -74,9 +103,25 @@ const createFakeMotianSqlClient = (
       events.push("privileges");
       return Promise.resolve([privileges]);
     }
+    if (statement.startsWith("SELECT transaction_timestamp()")) {
+      events.push("snapshot-start");
+      return Promise.resolve([
+        { snapshot_started_at: "2026-09-02T10:00:00.000Z" },
+      ]);
+    }
+    if (statement.startsWith("SELECT clock_timestamp()")) {
+      events.push("snapshot-end");
+      return input.endHeartbeatFails
+        ? Promise.reject(new Error("source snapshot connection lost"))
+        : Promise.resolve([
+            { snapshot_completed_at: "2026-09-02T10:05:00.000Z" },
+          ]);
+    }
     if (statement.includes("FROM jobs")) {
       events.push("jobs");
-      return Promise.resolve([]);
+      const batch = input.jobBatches?.[jobBatchIndex] ?? [];
+      jobBatchIndex += 1;
+      return Promise.resolve(batch);
     }
     return Promise.reject(new Error(`Unexpected Motian query: ${statement}`));
   };
@@ -150,8 +195,16 @@ describe("Motian Neon v1 source access", () => {
     }
 
     expect(factoryUrls).toEqual([explicitUrl]);
-    expect(client.beginOptions).toEqual(["read only"]);
-    expect(client.events).toEqual(["transaction-state", "privileges", "jobs"]);
+    expect(client.beginOptions).toEqual([
+      "isolation level repeatable read read only",
+    ]);
+    expect(client.events).toEqual([
+      "transaction-state",
+      "privileges",
+      "snapshot-start",
+      "jobs",
+      "snapshot-end",
+    ]);
     expect(client.rootQueryCalls()).toBe(0);
     expect(client.endCalls()).toBe(1);
   });
@@ -192,7 +245,9 @@ describe("Motian Neon v1 source access", () => {
 
   for (const [key, privilege] of [
     ["can_insert_jobs", "INSERT"],
+    ["can_insert_jobs_columns", "column INSERT"],
     ["can_update_jobs", "UPDATE"],
+    ["can_update_jobs_columns", "column UPDATE"],
     ["can_delete_jobs", "DELETE"],
     ["can_truncate_jobs", "TRUNCATE"],
   ] as const) {
@@ -214,4 +269,77 @@ describe("Motian Neon v1 source access", () => {
       expect(client.endCalls()).toBe(1);
     });
   }
+
+  it("fails closed when a write privilege check returns null", async () => {
+    const client = createFakeMotianSqlClient({
+      privileges: { can_update_jobs_columns: null },
+    });
+    const source = sourceWithClient(
+      client,
+      "postgresql://readonly@motian.example/v1",
+      []
+    );
+
+    await expect(source.loadJobs()).rejects.toThrow(
+      "Motian source role must not have column UPDATE privilege on jobs"
+    );
+  });
+
+  it("walks every keyset batch inside one repeatable-read snapshot", async () => {
+    const client = createFakeMotianSqlClient({
+      jobBatches: [
+        [motianJobRow("00000000-0000-0000-0000-000000000001")],
+        [motianJobRow("00000000-0000-0000-0000-000000000002")],
+        [],
+      ],
+    });
+    const source = createMotianNeonV1Source(
+      {
+        batchSize: 1,
+        databaseUrl: "postgresql://readonly@motian.example/v1",
+      },
+      { createSqlClient: () => client.sql }
+    );
+
+    const jobs = await source.loadJobs();
+
+    expect(jobs.map((job) => job.id)).toEqual([
+      "00000000-0000-0000-0000-000000000001",
+      "00000000-0000-0000-0000-000000000002",
+    ]);
+    expect(client.beginOptions).toEqual([
+      "isolation level repeatable read read only",
+    ]);
+    expect(client.events).toEqual([
+      "transaction-state",
+      "privileges",
+      "snapshot-start",
+      "jobs",
+      "jobs",
+      "jobs",
+      "snapshot-end",
+    ]);
+  });
+
+  it("fails closed when the source snapshot end heartbeat is lost", async () => {
+    const client = createFakeMotianSqlClient({ endHeartbeatFails: true });
+    const source = sourceWithClient(
+      client,
+      "postgresql://readonly@motian.example/v1",
+      []
+    );
+
+    await expect(source.loadJobs()).rejects.toThrow(
+      "source snapshot connection lost"
+    );
+
+    expect(client.events).toEqual([
+      "transaction-state",
+      "privileges",
+      "snapshot-start",
+      "jobs",
+      "snapshot-end",
+    ]);
+    expect(client.endCalls()).toBe(1);
+  });
 });

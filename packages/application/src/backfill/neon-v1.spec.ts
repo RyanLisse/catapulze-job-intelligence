@@ -1,6 +1,7 @@
 import { describe, expect, it } from "bun:test";
 
 import { InMemoryObjectStore } from "@ji/connectors";
+import type { ObjectStore } from "@ji/connectors";
 
 import { InMemoryCurateStore } from "../identity/store";
 import { MOTIAN_V1_BRON_BINDINGS } from "./motian-v1-bindings";
@@ -10,6 +11,7 @@ import {
   InMemoryBackfillProvenanceStore,
   InMemoryBackfillRunStore,
   UnreachableNeonV1Source,
+  backfillFailureEvidenceSchema,
   createFixtureNeonV1Source,
   loadNeonV1Fixture,
   mapV1JobToDraft,
@@ -33,6 +35,18 @@ const sampleJob = () => ({
 const bindings = MOTIAN_V1_BRON_BINDINGS.filter((binding) =>
   ["nationalevacaturebank", "werkzoeken"].includes(binding.platform)
 );
+
+const reconciliationMetrics = (input: {
+  readonly matched: number;
+  readonly missing?: number;
+  readonly selected: number;
+}) => ({
+  duplicates: 0,
+  extra: 0,
+  matched: input.matched,
+  missing: input.missing ?? 0,
+  selected: input.selected,
+});
 
 describe("Neon v1 backfill mapping", () => {
   it("maps platform and external_id to canonical identity fields", () => {
@@ -92,7 +106,31 @@ describe("Neon v1 backfill run", () => {
 
     expect(first.status).toBe("succeeded");
     expect(first.metrics.imported).toBe(1);
+    expect(first.evidence.scopeManifest).toMatchObject({
+      contractVersion: "motian-v1-scope-manifest/v1",
+      digestAlgorithm: "sha256",
+      platformCounts: { nationalevacaturebank: 1 },
+      selected: 1,
+      snapshot: {
+        completedAt: fixture.capturedAt,
+        startedAt: fixture.capturedAt,
+      },
+    });
+    expect(first.evidence.scopeManifest?.orderedDigest).toMatch(
+      /^[0-9a-f]{64}$/u
+    );
+    expect(first.evidence.targetReconciliation).toMatchObject({
+      contractVersion: "motian-v1-target-reconciliation/v1",
+      distinctV1Ids: 1,
+      matchesScope: true,
+      platformCounts: { nationalevacaturebank: 1 },
+      records: 1,
+    });
+    expect(first.evidence.targetReconciliation?.orderedDigest).toBe(
+      first.evidence.scopeManifest?.orderedDigest
+    );
     expect(first.evidence.metrics.platforms.nationalevacaturebank).toEqual({
+      ...reconciliationMetrics({ matched: 1, selected: 1 }),
       errors: 0,
       found: 1,
       imported: 1,
@@ -102,6 +140,7 @@ describe("Neon v1 backfill run", () => {
     expect(second.status).toBe("succeeded");
     expect(second.metrics.skipped).toBe(1);
     expect(second.evidence.metrics.platforms.nationalevacaturebank).toEqual({
+      ...reconciliationMetrics({ matched: 1, selected: 1 }),
       errors: 0,
       found: 1,
       imported: 0,
@@ -109,9 +148,16 @@ describe("Neon v1 backfill run", () => {
       skipped: 1,
     });
     expect(runStore.runs.at(-1)?.evidence).toEqual(second.evidence);
+    expect(second.evidence.scopeManifest?.orderedDigest).toBe(
+      first.evidence.scopeManifest?.orderedDigest
+    );
+    expect(second.evidence.targetReconciliation?.matchesScope).toBe(true);
     expect(curateStore.aanvragen).toHaveLength(1);
     expect(objectStore.has(curateStore.aanvragen[0]?.rawPayloadRef ?? "")).toBe(
       true
+    );
+    expect(curateStore.aanvragen[0]?.rawPayloadRef).toMatch(
+      /^raw\/nationalevacaturebank\/\d{4}\/\d{2}\/[0-9a-f]{64}\.json$/u
     );
   });
 
@@ -161,6 +207,235 @@ describe("Neon v1 backfill run", () => {
     );
   });
 
+  it("fails when the object store cannot read back an exact raw write", async () => {
+    const backingStore = new InMemoryObjectStore();
+    const missingReadbackStore: ObjectStore = {
+      deleteExpired: (before) => backingStore.deleteExpired(before),
+      get: () => Promise.resolve(null),
+      put: (object) => backingStore.put(object),
+    };
+    const runStore = new InMemoryBackfillRunStore();
+
+    const result = await runNeonV1Backfill({
+      bindings,
+      curateStore: new InMemoryCurateStore(),
+      objectStore: missingReadbackStore,
+      provenanceStore: new InMemoryBackfillProvenanceStore(),
+      runStore,
+      source: createFixtureNeonV1Source({
+        capturedAt: "2026-08-29T10:00:00.000Z",
+        contractVersion: NEON_V1_BACKFILL_CONTRACT_VERSION,
+        jobs: [sampleJob()],
+      }),
+    });
+
+    expect(result.status).toBe("failed");
+    expect(result.evidence.failure).toEqual({
+      code: "RAW_READBACK_FAILED",
+      phase: "raw-write",
+    });
+    expect(runStore.runs.at(-1)?.failure).toEqual(result.evidence.failure);
+  });
+
+  it("verifies existing raw bytes before counting a v1_id as skipped", async () => {
+    const fixture = {
+      capturedAt: "2026-08-29T10:00:00.000Z",
+      contractVersion: NEON_V1_BACKFILL_CONTRACT_VERSION,
+      jobs: [sampleJob()],
+    };
+    const curateStore = new InMemoryCurateStore();
+    const provenanceStore = new InMemoryBackfillProvenanceStore();
+    const objectStore = new InMemoryObjectStore();
+    const sharedInput = {
+      bindings,
+      curateStore,
+      objectStore,
+      provenanceStore,
+      runStore: new InMemoryBackfillRunStore(),
+      source: createFixtureNeonV1Source(fixture),
+      startedAt: new Date("2026-08-29T10:00:00.000Z"),
+    };
+    const first = await runNeonV1Backfill(sharedInput);
+    const rawPayloadRef = curateStore.aanvragen[0]?.rawPayloadRef;
+    if (!rawPayloadRef) {
+      throw new Error("Expected raw payload reference after first import");
+    }
+    const stored = await objectStore.get(rawPayloadRef);
+    if (!stored) {
+      throw new Error("Expected stored raw payload after first import");
+    }
+    await objectStore.put({
+      ...stored,
+      body: new TextEncoder().encode('{"tampered":true}'),
+    });
+
+    const second = await runNeonV1Backfill(sharedInput);
+
+    expect(first.status).toBe("succeeded");
+    expect(second.status).toBe("failed");
+    expect(second.metrics.skipped).toBe(0);
+    expect(second.evidence.failure).toEqual({
+      code: "RAW_READBACK_FAILED",
+      phase: "raw-write",
+    });
+  });
+
+  it("fails instead of blindly skipping mismatched existing provenance", async () => {
+    const fixture = {
+      capturedAt: "2026-08-29T10:00:00.000Z",
+      contractVersion: NEON_V1_BACKFILL_CONTRACT_VERSION,
+      jobs: [sampleJob()],
+    };
+    const curateStore = new InMemoryCurateStore();
+    const provenanceStore = new InMemoryBackfillProvenanceStore();
+    const objectStore = new InMemoryObjectStore();
+    const sharedInput = {
+      bindings,
+      curateStore,
+      objectStore,
+      provenanceStore,
+      runStore: new InMemoryBackfillRunStore(),
+      source: createFixtureNeonV1Source(fixture),
+      startedAt: new Date("2026-08-29T10:00:00.000Z"),
+    };
+    await runNeonV1Backfill(sharedInput);
+    const existing = await provenanceStore.findByV1Id(sampleJob().id);
+    if (!existing) {
+      throw new Error("Expected provenance after first import");
+    }
+    await provenanceStore.registerV1Id({
+      ...existing,
+      bronReferentie: "wrong-external-id",
+    });
+
+    const second = await runNeonV1Backfill(sharedInput);
+
+    expect(second.status).toBe("failed");
+    expect(second.metrics.skipped).toBe(0);
+    expect(second.evidence.failure).toEqual({
+      code: "PROVENANCE_MISMATCH",
+      phase: "provenance",
+    });
+  });
+
+  it("fails exact reconciliation on extra or duplicate target provenance", async () => {
+    const [binding] = bindings;
+    if (!binding) {
+      throw new Error("Expected a Motian binding");
+    }
+    const provenanceStore = new InMemoryBackfillProvenanceStore();
+    await provenanceStore.registerV1Id({
+      aanvraagId: crypto.randomUUID(),
+      bronId: binding.bronId,
+      bronReferentie: "extra-target-row",
+      contentHash: "0".repeat(64),
+      rawPayloadRef: `raw/${binding.platform}/2026/08/${"0".repeat(64)}.json`,
+      v1Id: "extra-v1-id",
+    });
+    const consumeSnapshot =
+      provenanceStore.consumeReconciliationSnapshot.bind(provenanceStore);
+    provenanceStore.consumeReconciliationSnapshot = (
+      bronIds,
+      batchSize,
+      consume
+    ) =>
+      consumeSnapshot(bronIds, batchSize, (batch) => {
+        const [first, ...rest] = batch;
+        return consume(first ? [first, first, ...rest] : batch);
+      });
+
+    const result = await runNeonV1Backfill({
+      bindings,
+      curateStore: new InMemoryCurateStore(),
+      objectStore: new InMemoryObjectStore(),
+      provenanceStore,
+      runStore: new InMemoryBackfillRunStore(),
+      source: createFixtureNeonV1Source({
+        capturedAt: "2026-08-29T10:00:00.000Z",
+        contractVersion: NEON_V1_BACKFILL_CONTRACT_VERSION,
+        jobs: [sampleJob()],
+      }),
+    });
+
+    expect(result.status).toBe("failed");
+    expect(result.evidence.failure).toEqual({
+      code: "RECONCILIATION_DRIFT",
+      phase: "reconcile",
+    });
+    expect(result.metrics.platforms.nationalevacaturebank?.extra).toBe(1);
+    expect(result.metrics.platforms.nationalevacaturebank?.duplicates).toBe(1);
+  });
+
+  it("fails on a swapped target ID even when source and target counts match", async () => {
+    const provenanceStore = new InMemoryBackfillProvenanceStore();
+    const consumeSnapshot =
+      provenanceStore.consumeReconciliationSnapshot.bind(provenanceStore);
+    provenanceStore.consumeReconciliationSnapshot = (
+      bronIds,
+      batchSize,
+      consume
+    ) =>
+      consumeSnapshot(bronIds, batchSize, (batch) =>
+        consume(
+          batch.map((record) => ({
+            ...record,
+            v1Id: "v1-job-swapped-with-same-count",
+          }))
+        )
+      );
+
+    const result = await runNeonV1Backfill({
+      bindings,
+      curateStore: new InMemoryCurateStore(),
+      objectStore: new InMemoryObjectStore(),
+      provenanceStore,
+      runStore: new InMemoryBackfillRunStore(),
+      source: createFixtureNeonV1Source({
+        capturedAt: "2026-08-29T10:00:00.000Z",
+        contractVersion: NEON_V1_BACKFILL_CONTRACT_VERSION,
+        jobs: [sampleJob()],
+      }),
+    });
+
+    expect(result.status).toBe("failed");
+    expect(result.metrics.missing).toBe(0);
+    expect(result.metrics.extra).toBe(0);
+    expect(result.evidence.targetReconciliation?.records).toBe(1);
+    expect(result.evidence.targetReconciliation?.matchesScope).toBe(false);
+    expect(result.evidence.failure).toEqual({
+      code: "RECONCILIATION_DRIFT",
+      phase: "reconcile",
+    });
+  });
+
+  it("fails closed when the source snapshot disappears after its rows were consumed", async () => {
+    const runStore = new InMemoryBackfillRunStore();
+    const result = await runNeonV1Backfill({
+      bindings,
+      curateStore: new InMemoryCurateStore(),
+      objectStore: new InMemoryObjectStore(),
+      provenanceStore: new InMemoryBackfillProvenanceStore(),
+      runStore,
+      source: {
+        consumeSnapshot: async (_batchSize, consume) => {
+          await consume([sampleJob()]);
+          throw new Error("snapshot connection dropped before commit");
+        },
+        label: "lost-snapshot-test",
+        loadJobs: () => Promise.resolve([]),
+      },
+    });
+
+    expect(result.status).toBe("failed");
+    expect(result.evidence.failure).toEqual({
+      code: "SOURCE_READ_FAILED",
+      phase: "source-read",
+    });
+    expect(result.evidence.scopeManifest).toBeUndefined();
+    expect(result.evidence.targetReconciliation).toBeUndefined();
+    expect(runStore.runs.at(-1)?.status).toBe("failed");
+  });
+
   it("fails a production run when a platform is rejected and persists its evidence", async () => {
     const runStore = new InMemoryBackfillRunStore();
     const result = await runNeonV1Backfill({
@@ -179,7 +454,12 @@ describe("Neon v1 backfill run", () => {
 
     expect(result.status).toBe("failed");
     expect(result.metrics.rejected).toBe(1);
+    expect(result.evidence.failure).toEqual({
+      code: "RECONCILIATION_DRIFT",
+      phase: "reconcile",
+    });
     expect(result.evidence.metrics.platforms["unsupported-platform"]).toEqual({
+      ...reconciliationMetrics({ matched: 0, missing: 1, selected: 1 }),
       errors: 0,
       found: 1,
       imported: 0,
@@ -187,6 +467,26 @@ describe("Neon v1 backfill run", () => {
       skipped: 0,
     });
     expect(runStore.runs.at(-1)?.evidence).toEqual(result.evidence);
+    expect(runStore.runs.at(-1)?.failure).toEqual(result.evidence.failure);
+  });
+
+  it("refuses production when the source cannot hold one consistent snapshot", async () => {
+    await expect(
+      runNeonV1Backfill({
+        bindings,
+        curateStore: new InMemoryCurateStore(),
+        execution: { mode: "production", scope: "full" },
+        objectStore: new InMemoryObjectStore(),
+        provenanceStore: new InMemoryBackfillProvenanceStore(),
+        runStore: new InMemoryBackfillRunStore(),
+        source: {
+          label: "non-snapshot-source",
+          loadJobs: () => Promise.resolve([sampleJob()]),
+        },
+      })
+    ).rejects.toThrow(
+      "Production Motian v1 backfills require a consistent source snapshot"
+    );
   });
 
   it("marks the run failed and writes no curated rows when the source is unreachable", async () => {
@@ -203,7 +503,12 @@ describe("Neon v1 backfill run", () => {
 
     expect(result.status).toBe("failed");
     expect(result.metrics.errors).toBe(1);
+    expect(result.evidence.failure).toEqual({
+      code: "SOURCE_READ_FAILED",
+      phase: "source-read",
+    });
     expect(result.evidence.metrics.platforms.__source__).toEqual({
+      ...reconciliationMetrics({ matched: 0, selected: 0 }),
       errors: 1,
       found: 0,
       imported: 0,
@@ -213,6 +518,20 @@ describe("Neon v1 backfill run", () => {
     expect(curateStore.aanvragen).toHaveLength(0);
     expect(runStore.runs.at(-1)?.status).toBe("failed");
     expect(runStore.runs.at(-1)?.evidence).toEqual(result.evidence);
+    expect(runStore.runs.at(-1)?.failure).toEqual(result.evidence.failure);
+    expect(runStore.runs.at(-1)?.reason).toBe(
+      "Backfill failed during source-read"
+    );
+    expect(JSON.stringify(runStore.runs.at(-1))).not.toContain("unreachable");
+  });
+
+  it("rejects invalid failure phase/code pairs at the evidence boundary", () => {
+    expect(() =>
+      backfillFailureEvidenceSchema.parse({
+        code: "SOURCE_READ_FAILED",
+        phase: "raw-write",
+      })
+    ).toThrow();
   });
 
   it("loads the checked-in ~200-record CI fixture", async () => {

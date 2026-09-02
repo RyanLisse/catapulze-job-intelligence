@@ -1,4 +1,5 @@
 import type { ObjectStore } from "@ji/connectors";
+import { z } from "zod";
 
 import type { CurateStore } from "../identity/curate";
 import type { JsonValue } from "../normalise";
@@ -6,6 +7,12 @@ import type { JsonValue } from "../normalise";
 export const NEON_V1_BACKFILL_CONTRACT_VERSION = "neon-v1-backfill/v1" as const;
 
 export const NEON_V1_PARSER_VERSION = "neon-v1/2026-08-29";
+
+export const BACKFILL_SCOPE_MANIFEST_VERSION =
+  "motian-v1-scope-manifest/v1" as const;
+
+export const BACKFILL_TARGET_RECONCILIATION_VERSION =
+  "motian-v1-target-reconciliation/v1" as const;
 
 export const NEON_V1_FORBIDDEN_TABLES = [
   "applications",
@@ -63,10 +70,15 @@ export interface BackfillExecution {
 }
 
 export interface BackfillPlatformMetrics {
+  readonly duplicates: number;
   readonly errors: number;
+  readonly extra: number;
   readonly found: number;
   readonly imported: number;
+  readonly matched: number;
+  readonly missing: number;
   readonly rejected: number;
+  readonly selected: number;
   readonly skipped: number;
 }
 
@@ -77,9 +89,101 @@ export interface BackfillRunMetrics extends BackfillPlatformMetrics {
   readonly platforms: Readonly<Record<string, BackfillPlatformMetrics>>;
 }
 
+export interface BackfillSnapshotWindow {
+  readonly completedAt: string;
+  readonly startedAt: string;
+}
+
+export interface BackfillScopeManifest {
+  readonly contractVersion: typeof BACKFILL_SCOPE_MANIFEST_VERSION;
+  readonly digestAlgorithm: "sha256";
+  readonly itemEncoding: "json-array-line/v1";
+  readonly order: "source-id-ascending";
+  readonly orderedDigest: string;
+  readonly platformCounts: Readonly<Record<string, number>>;
+  readonly selected: number;
+  readonly snapshot: BackfillSnapshotWindow;
+}
+
+export interface BackfillTargetReconciliation {
+  readonly contractVersion: typeof BACKFILL_TARGET_RECONCILIATION_VERSION;
+  readonly digestAlgorithm: "sha256";
+  readonly distinctV1Ids: number;
+  readonly itemEncoding: "json-array-line/v1";
+  readonly matchesScope: boolean;
+  readonly order: "source-id-ascending";
+  readonly orderedDigest: string;
+  readonly platformCounts: Readonly<Record<string, number>>;
+  readonly records: number;
+  readonly snapshot: BackfillSnapshotWindow;
+}
+
+export const BACKFILL_FAILURE_PHASES = [
+  "source-read",
+  "raw-write",
+  "curate",
+  "provenance",
+  "reconcile",
+] as const;
+
+export const BACKFILL_FAILURE_CODES = [
+  "SOURCE_READ_FAILED",
+  "RAW_WRITE_FAILED",
+  "RAW_READBACK_FAILED",
+  "CURATE_FAILED",
+  "CURATE_REJECTED",
+  "PROVENANCE_READ_FAILED",
+  "PROVENANCE_WRITE_FAILED",
+  "PROVENANCE_MISMATCH",
+  "RECONCILIATION_READ_FAILED",
+  "RECONCILIATION_DRIFT",
+] as const;
+
+export const backfillFailureEvidenceSchema = z.discriminatedUnion("phase", [
+  z.object({
+    code: z.literal("SOURCE_READ_FAILED"),
+    phase: z.literal("source-read"),
+  }),
+  z.object({
+    code: z.enum(["RAW_WRITE_FAILED", "RAW_READBACK_FAILED"]),
+    phase: z.literal("raw-write"),
+  }),
+  z.object({
+    code: z.enum(["CURATE_FAILED", "CURATE_REJECTED"]),
+    phase: z.literal("curate"),
+  }),
+  z.object({
+    code: z.enum([
+      "PROVENANCE_READ_FAILED",
+      "PROVENANCE_WRITE_FAILED",
+      "PROVENANCE_MISMATCH",
+    ]),
+    phase: z.literal("provenance"),
+  }),
+  z.object({
+    code: z.enum(["RECONCILIATION_READ_FAILED", "RECONCILIATION_DRIFT"]),
+    phase: z.literal("reconcile"),
+  }),
+]);
+
+export type BackfillFailureEvidence = z.infer<
+  typeof backfillFailureEvidenceSchema
+>;
+
 export interface BackfillRunEvidence {
   readonly execution: BackfillExecution;
+  /** Safe, schema-validated terminal failure. It never contains a source URL,
+   * raw payload, or exception text. */
+  readonly failure?: BackfillFailureEvidence;
   readonly metrics: BackfillRunMetrics;
+  /** Complete source scope selected inside one snapshot. The rolling digest is
+   * computed over ordered `[source id, canonical platform]` JSONL items and
+   * therefore does not retain the source ID set in memory. */
+  readonly scopeManifest?: BackfillScopeManifest;
+  /** Target inventory read from one repeatable-read snapshot after import.
+   * Equality with `scopeManifest.orderedDigest` proves exact ID/platform scope,
+   * not merely equal row counts. */
+  readonly targetReconciliation?: BackfillTargetReconciliation;
 }
 
 export interface BackfillRunResult {
@@ -90,6 +194,13 @@ export interface BackfillRunResult {
 
 export interface NeonV1Source {
   readonly label: string;
+  /** Consume every selected source row from one consistent snapshot. Live
+   * adapters use a single REPEATABLE READ, READ ONLY transaction and invoke
+   * the consumer one bounded batch at a time. */
+  consumeSnapshot?: (
+    batchSize: number,
+    consume: (batch: readonly NeonV1JobRow[]) => Promise<void>
+  ) => Promise<BackfillSnapshotWindow>;
   loadJobs: () => Promise<readonly NeonV1JobRow[]>;
   streamBatches?: (
     batchSize: number
@@ -108,15 +219,37 @@ export interface BackfillRunStore {
   ) => Promise<void>;
   failRun: (
     scrapeRunId: string,
-    reason: string,
+    failure: BackfillFailureEvidence,
     evidence: BackfillRunEvidence
   ) => Promise<void>;
   startRun: (bronId: string) => Promise<{ scrapeRunId: string }>;
 }
 
+export interface BackfillProvenanceRecord {
+  readonly aanvraagId: string;
+  readonly bronId: string;
+  readonly bronReferentie: string;
+  readonly contentHash: string;
+  readonly rawPayloadRef: string;
+  readonly v1Id: string;
+}
+
+export interface BackfillTargetProvenanceRecord {
+  readonly bronId: string;
+  readonly v1Id: string;
+}
+
 export interface BackfillProvenanceStore {
-  findByV1Id: (v1Id: string) => Promise<{ aanvraagId: string } | null>;
-  registerV1Id: (v1Id: string, aanvraagId: string) => Promise<void>;
+  /** Consume target provenance in `(v1_id, aanvraag_id)` keyset order from one
+   * consistent snapshot. Implementations must reject if that snapshot or its
+   * final heartbeat/commit is lost. */
+  consumeReconciliationSnapshot: (
+    bronIds: readonly string[],
+    batchSize: number,
+    consume: (batch: readonly BackfillTargetProvenanceRecord[]) => Promise<void>
+  ) => Promise<BackfillSnapshotWindow>;
+  findByV1Id: (v1Id: string) => Promise<BackfillProvenanceRecord | null>;
+  registerV1Id: (record: BackfillProvenanceRecord) => Promise<void>;
 }
 
 export interface RunNeonV1BackfillInput {

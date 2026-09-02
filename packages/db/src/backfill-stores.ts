@@ -1,10 +1,15 @@
 /* oxlint-disable max-classes-per-file -- cohesive Postgres adapters share schema mapping */
 import type {
+  BackfillFailureEvidence,
+  BackfillProvenanceRecord,
   BackfillProvenanceStore,
   BackfillRunEvidence,
   BackfillRunStore,
+  BackfillSnapshotWindow,
+  BackfillTargetProvenanceRecord,
 } from "@ji/application/backfill";
-import { eq } from "drizzle-orm";
+import { backfillFailureEvidenceSchema } from "@ji/application/backfill";
+import { and, asc, eq, gt, inArray, isNotNull, or, sql } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 
 import type * as schema from "./schema";
@@ -21,10 +26,7 @@ const requireRow = <Row>(rows: Row[], description: string): Row => {
 };
 
 const backfillCheckpoint = (evidence: BackfillRunEvidence) => ({
-  backfill: {
-    execution: evidence.execution,
-    metrics: evidence.metrics,
-  },
+  backfill: evidence,
 });
 
 export class PostgresBackfillProvenanceStore implements BackfillProvenanceStore {
@@ -34,20 +36,106 @@ export class PostgresBackfillProvenanceStore implements BackfillProvenanceStore 
     this.database = database;
   }
 
-  async findByV1Id(v1Id: string): Promise<{ aanvraagId: string } | null> {
+  consumeReconciliationSnapshot(
+    bronIds: readonly string[],
+    batchSize: number,
+    consume: (batch: readonly BackfillTargetProvenanceRecord[]) => Promise<void>
+  ): Promise<BackfillSnapshotWindow> {
+    const size = Math.max(1, batchSize);
+    return this.database.transaction(
+      async (transaction) => {
+        const [startClock] = await transaction.execute<{
+          snapshot_started_at: Date | string;
+        }>(sql`SELECT transaction_timestamp() AS snapshot_started_at`);
+        if (!startClock) {
+          throw new Error("Unable to establish target reconciliation snapshot");
+        }
+        let cursor: { aanvraagId: string; v1Id: string } | null = null;
+        for (;;) {
+          /* oxlint-disable no-await-in-loop -- bounded keyset pages must share one target snapshot */
+          const rows = await transaction
+            .select({
+              aanvraagId: aanvraag.id,
+              bronId: aanvraag.bronId,
+              v1Id: aanvraag.v1Id,
+            })
+            .from(aanvraag)
+            .where(
+              and(
+                inArray(aanvraag.bronId, [...bronIds]),
+                isNotNull(aanvraag.v1Id),
+                cursor
+                  ? or(
+                      gt(aanvraag.v1Id, cursor.v1Id),
+                      and(
+                        eq(aanvraag.v1Id, cursor.v1Id),
+                        gt(aanvraag.id, cursor.aanvraagId)
+                      )
+                    )
+                  : undefined
+              )
+            )
+            .orderBy(asc(aanvraag.v1Id), asc(aanvraag.id))
+            .limit(size);
+          const batch = rows.map((row) => {
+            if (!row.v1Id) {
+              throw new Error("Target reconciliation returned null v1_id");
+            }
+            return { bronId: row.bronId, v1Id: row.v1Id };
+          });
+          if (batch.length === 0) {
+            break;
+          }
+          await consume(batch);
+          const last = rows.at(-1);
+          if (!last?.v1Id) {
+            throw new Error("Target reconciliation cursor is incomplete");
+          }
+          cursor = { aanvraagId: last.aanvraagId, v1Id: last.v1Id };
+          if (batch.length < size) {
+            break;
+          }
+          /* oxlint-enable no-await-in-loop */
+        }
+        const [endClock] = await transaction.execute<{
+          snapshot_completed_at: Date | string;
+        }>(sql`SELECT clock_timestamp() AS snapshot_completed_at`);
+        if (!endClock) {
+          throw new Error("Target reconciliation snapshot heartbeat failed");
+        }
+        const startedAt = new Date(
+          startClock.snapshot_started_at
+        ).toISOString();
+        const completedAt = new Date(
+          endClock.snapshot_completed_at
+        ).toISOString();
+        return { completedAt, startedAt };
+      },
+      { accessMode: "read only", isolationLevel: "repeatable read" }
+    );
+  }
+
+  async findByV1Id(v1Id: string): Promise<BackfillProvenanceRecord | null> {
     const [row] = await this.database
-      .select({ id: aanvraag.id })
+      .select({
+        aanvraagId: aanvraag.id,
+        bronId: aanvraag.bronId,
+        bronReferentie: aanvraag.bronReferentie,
+        contentHash: aanvraag.contentHash,
+        rawPayloadRef: aanvraag.rawPayloadRef,
+        v1Id: aanvraag.v1Id,
+      })
       .from(aanvraag)
       .where(eq(aanvraag.v1Id, v1Id))
       .limit(1);
-    return row ? { aanvraagId: row.id } : null;
+    return row?.v1Id ? { ...row, v1Id: row.v1Id } : null;
   }
 
-  async registerV1Id(v1Id: string, aanvraagId: string): Promise<void> {
+  async registerV1Id(record: BackfillProvenanceRecord): Promise<void> {
     await this.database
       .update(aanvraag)
-      .set({ v1Id })
-      .where(eq(aanvraag.id, aanvraagId));
+      .set({ v1Id: record.v1Id })
+      .where(eq(aanvraag.id, record.aanvraagId));
   }
 }
 
@@ -58,19 +146,40 @@ export class PostgresBackfillRunStore implements BackfillRunStore {
     this.database = database;
   }
 
-  async startRun(bronId: string): Promise<{ scrapeRunId: string }> {
+  startRun(bronId: string): Promise<{ scrapeRunId: string }> {
     const scrapeRunId = crypto.randomUUID();
-    const rows = await this.database
-      .insert(scrapeRun)
-      .values({
-        bronId,
-        id: scrapeRunId,
-        runKind: "backfill",
-        status: "running",
-      })
-      .returning({ id: scrapeRun.id });
-    requireRow(rows, "start backfill scrape_run");
-    return { scrapeRunId };
+    return this.database.transaction(async (transaction) => {
+      // Serializes every launch path (Trigger.dev, Coolify shell and manual
+      // runner) around the running-row check. The lock is only needed during
+      // start; the durable `running` row fences later launch attempts.
+      await transaction.execute(
+        sql`SELECT pg_advisory_xact_lock(hashtext('motian_v1_backfill_start'))`
+      );
+      const [running] = await transaction
+        .select({ id: scrapeRun.id })
+        .from(scrapeRun)
+        .where(
+          and(
+            eq(scrapeRun.runKind, "backfill"),
+            eq(scrapeRun.status, "running")
+          )
+        )
+        .limit(1);
+      if (running) {
+        throw new Error("A Motian v1 backfill is already running");
+      }
+      const rows = await transaction
+        .insert(scrapeRun)
+        .values({
+          bronId,
+          id: scrapeRunId,
+          runKind: "backfill",
+          status: "running",
+        })
+        .returning({ id: scrapeRun.id });
+      requireRow(rows, "start backfill scrape_run");
+      return { scrapeRunId };
+    });
   }
 
   async completeRun(
@@ -96,9 +205,21 @@ export class PostgresBackfillRunStore implements BackfillRunStore {
 
   async failRun(
     scrapeRunId: string,
-    _reason: string,
+    failure: BackfillFailureEvidence,
     evidence: BackfillRunEvidence
   ): Promise<void> {
+    const validatedFailure = backfillFailureEvidenceSchema.parse(failure);
+    const persistedFailure = backfillFailureEvidenceSchema.parse(
+      evidence.failure
+    );
+    if (
+      persistedFailure.phase !== validatedFailure.phase ||
+      persistedFailure.code !== validatedFailure.code
+    ) {
+      throw new Error(
+        "Backfill failure evidence does not match terminal state"
+      );
+    }
     const { metrics } = evidence;
     const rows = await this.database
       .update(scrapeRun)
