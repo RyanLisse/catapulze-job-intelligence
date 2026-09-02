@@ -1,109 +1,135 @@
 # Live `/jobs` browser verification
 
-This is an opt-in Playwright harness for the deployed `/jobs` path. It drives
-the real web app and the REST calls the browser makes; it does not start a
-server, replace network responses, or accept fixture mode as live evidence.
+This opt-in Playwright harness verifies the deployed `/jobs` path without
+starting a server, replacing network responses, accepting fixture mode, or
+recording production business payloads. It is deliberately a canary-only
+release proof, not a completeness proof for ordinary production data.
 
-The authenticated lane is read-only and requires explicit non-PII canary data.
-It uses a genuine pre-authenticated Playwright storage state, proves a supplied
-Boolean canary query has a visible result, opens that result, verifies
-provenance and raw-preview UI, and observes the browser's actual REST calls:
+Every run requires `E2E_EXPECTED_RELEASE_SHA`, an exact 40-character Git SHA.
+The API exposes only its configured `APP_RELEASE_SHA` at `GET /version`:
 
-- `GET /v1/bronnen`
-- `POST /v1/aanvragen/search`
-- `POST /v1/aanvragen/batch`
-- `GET /v1/aanvragen/:id`
-- `GET /v1/aanvragen/:id/versies`
-- `GET /v1/raw/:ref`
+```json
+{ "releaseSha": "0123456789abcdef0123456789abcdef01234567" }
+```
 
-The test fails on a browser console error, page error, failed request (including
-CORS), or any tracked 4xx/5xx response. It stores a screenshot, Playwright
-trace/video, and redacted network-event list under
-`.artifacts/e2e/live-jobs/`, which is ignored by git.
+The runner refuses any redirect, non-200 response, malformed identity, or SHA
+mismatch before it starts Playwright. Configure `APP_RELEASE_SHA` in the
+deployment environment; it is public metadata, not a secret. An absent server
+value returns HTTP 503 rather than pretending to identify a release.
 
-## Read-only run
+## Data and artifact boundaries
 
-Install Chromium separately on the machine that will drive the target; this
-repository deliberately does not install browser binaries during dependency
-install. Choose a known, non-sensitive canary Boolean query that is expected to
-return at least one result. Its record and raw-preview payload must contain no
-production business data or PII.
+The authenticated read lane requires all of the following:
+
+- `E2E_DATA_MODE=canary`;
+- one immutable UUID in `E2E_CANARY_ID`;
+- a Boolean `E2E_QUERY` whose search and batch responses each contain
+  **exactly that one ID**;
+- optionally, `E2E_CANARY_DIGEST`, the SHA-256 of canonical JSON for the
+  direct-detail response's `aanvraag` object (never the raw preview);
+- `E2E_EXPECTED_SUBJECT_ID`, the exact Better Auth user ID expected from the
+  dedicated account.
+
+The browser deep-links directly to `/jobs?q=…&job=<E2E_CANARY_ID>`; it never
+clicks the first search result. A wrong ID, no ID, duplicate IDs, or a
+production record listed first fails before any harness attachment is written.
+The test reads only opaque IDs from search/batch payloads and never retains
+their fields. It validates the direct-detail canary ID (and optional digest) in
+memory. Raw-preview response bodies are never read by the harness.
+
+Remote runs turn trace, video, and Playwright's automatic screenshots off.
+After every assertion succeeds, the authenticated lane emits only:
+
+- a sanitized JSON route/status list with no headers, origins, query strings,
+  payloads, cookies, IDs, or subjects;
+- a canary screenshot with the entire result list and raw-preview region
+  masked;
+- a sanitized pass manifest.
+
+Failed runs intentionally receive no harness attachment or pass manifest.
+Only an explicit `E2E_LOCAL_MODE=1 E2E_TEST_ENV=isolated` run may retain a
+Playwright failure trace under ignored `.artifacts/`; it must use seeded or
+explicit non-PII canary data. Never attach or share a storage state, cookie,
+cleanup token, raw preview, ordinary vacancy, or aanvraag payload.
+
+RJC-403 production proof remains split: canary browser/network/release-SHA
+proof is separate from real-data completeness, which uses aggregate counts,
+ID-set digests, and sanitized text-free readbacks.
+
+## Authenticated read-only run
+
+Install Chromium separately on the driver machine; this repository does not
+install browser binaries during dependency install. Use only a known non-PII
+canary record.
 
 ```bash
 E2E_LIVE=1 \
 E2E_AUTH_MODE=session \
 E2E_DATA_MODE=canary \
-E2E_BASE_URL=https://jobs.example.example \
-E2E_API_URL=https://api.jobs.example.example \
-E2E_QUERY='canary job intelligence record' \
+E2E_BASE_URL=https://jobs.example \
+E2E_API_URL=https://api.jobs.example \
+E2E_EXPECTED_RELEASE_SHA=0000000000000000000000000000000000000000 \
+E2E_QUERY='"canary job intelligence record"' \
+E2E_CANARY_ID=00000000-0000-4000-8000-000000000001 \
+E2E_EXPECTED_SUBJECT_ID='<dedicated-test-account-id>' \
 E2E_STORAGE_STATE='/absolute/untracked/authenticated-state.json' \
 bun run e2e:live:jobs
 ```
 
-Both URLs must be HTTPS origins with no path, query, embedded credential, or
-fragment. The runner refuses `NEXT_PUBLIC_USE_FIXTURES=true|1`, and the page
-itself must visibly identify as `Live · U7 REST`, never `Previewdata · fixtures`.
-It also refuses `localhost`, `.test`, `.local`, and `.invalid` hosts unless
-`E2E_LOCAL_MODE=1` is explicit. Local mode permits only local URLs and still
-requires the real REST adapter; it does not make fixture evidence acceptable.
+Both URLs must be HTTPS origins without a path, query, credentials, or
+fragment. Use `.example` placeholders exactly as above; do not copy
+`example.example`. The runner refuses fixture mode, test-host targets, and
+non-local HTTP. Local mode permits only localhost URLs and never permits
+fixture evidence.
 
-The storage state must be captured from a real, dedicated account login outside
-the repository. The harness never accepts credentials, invents an authorization
-header, or signs a user in itself. `E2E_STORAGE_STATE` must be an absolute path
-outside the working tree. `E2E_DATA_MODE=canary` is mandatory for every
-authenticated run, including a local isolated target.
+The storage state must be captured from a real dedicated-account login outside
+the repository. The settled Better Auth contract is a host-only API cookie:
+`better-auth.session_token` over local HTTP or
+`__Secure-better-auth.session_token` over HTTPS, with the API at
+`/api/auth/get-session`. A future approved verifier must prove that endpoint
+returns a non-expired session and exactly `E2E_EXPECTED_SUBJECT_ID`, without
+logging/attaching a cookie or response body. Until Ryan explicitly authorizes
+that narrow cookie-to-configured-API preflight, the authenticated and mutation
+commands fail safely before a browser starts; this harness does not invent
+credentials or fall back to role headers.
 
-Open each capture before sharing it. A production result may contain business
-data, so this harness must never be pointed at ordinary production vacancies or
-raw payloads. It may prove a deployed release only with a deliberately
-non-sensitive canary record. Never put a browser storage state, session cookie,
-cleanup token, or other credential in this repository.
-
-RJC-403 production proof is intentionally split: browser/network/release-SHA
-proof uses only canary data; actual-data completeness is a separate operation
-using aggregate counts, ID-set digests, and sanitized text-free readbacks. Do
-not substitute screenshots, traces, or raw previews for that aggregate proof.
+The browser client must use Better Auth cookies with
+`credentials: "include"`. A `Bearer recruiter:`/role bearer or a
+caller-role header is a recorded boolean violation and fails the run; no header
+value is retained.
 
 ## Anonymous protected-state run
 
-The anonymous proof deliberately uses no storage state. It verifies that
-`/jobs` shows `Log in om opdrachten te bekijken`, exposes a `/login` link, and
-does not make any `/v1/*` capability request. Run it separately from the
-authenticated read path:
+The anonymous lane has no storage state. It verifies the protected `/jobs`
+heading and login link, sees no capability REST call, and requires the same
+release SHA proof:
 
 ```bash
 E2E_LIVE=1 \
 E2E_AUTH_MODE=anonymous \
-E2E_BASE_URL=https://jobs.example.example \
-E2E_API_URL=https://api.jobs.example.example \
+E2E_BASE_URL=https://jobs.example \
+E2E_API_URL=https://api.jobs.example \
+E2E_EXPECTED_RELEASE_SHA=0000000000000000000000000000000000000000 \
 bun run e2e:live:jobs:anonymous
 ```
 
 ## Isolated mutation run
 
-Saved searches, snapshots, and markeringen have no public delete APIs. The
-mutation spec is therefore intentionally stricter than the read-only lane:
+Saved searches, snapshots, and markeringen have no public delete APIs. Mutation
+verification is therefore local and isolated only:
 
-- it only accepts an isolated **local** environment;
-- `E2E_LIVE=1`, `E2E_LOCAL_MODE=1`, and `E2E_ALLOW_WRITES=1` must all be exact;
-- `E2E_AUTH_MODE=session` and a real pre-authenticated browser storage state
-  are mandatory; no role header is manufactured by the test;
-- `E2E_DATA_MODE=canary` is mandatory, and the isolated target must contain
-  only seeded or explicit non-PII canary records used by this test;
-- `E2E_TEST_ENV=isolated`, a dedicated `E2E_TEST_ACCOUNT_ID`, an absolute
-  untracked `E2E_STORAGE_STATE`, and a lowercase `E2E_TEST_NAMESPACE` beginning
-  with `e2e-` are required;
-- it writes a namespace into the saved-search and snapshot query;
-- it requires a same-origin `E2E_CLEANUP_URL` ending in `/e2e/cleanup` and an
-  environment-only `E2E_CLEANUP_TOKEN` before the browser starts.
-
-The cleanup endpoint is not currently implemented by this product. A dedicated
-test environment must provide an idempotent endpoint that accepts the account,
-namespace, and resource ids; it must accept an empty resource list as an
-idempotent no-op preflight and remove or tombstone the saved search, snapshot,
-and markering without logging secret headers or raw payloads. Until that
-endpoint exists, the mutation command fails safely before Playwright starts or
-the browser can write.
+- `E2E_LIVE=1`, `E2E_LOCAL_MODE=1`, `E2E_TEST_ENV=isolated`, and
+  `E2E_ALLOW_WRITES=1` are exact;
+- it has the same session, release SHA, canary, and artifact requirements as
+  the read-only lane;
+- `E2E_TEST_ACCOUNT_ID` must equal `E2E_EXPECTED_SUBJECT_ID` in config and
+  the Better Auth-derived subject before any cleanup or browser write;
+- the cleanup URL is same-origin `/e2e/cleanup`, requires an environment-only
+  token, and must return exactly HTTP 204 to an idempotent empty-resource
+  preflight before Playwright launches;
+- the normal cleanup call must also return exact HTTP 204. Its receipt contains
+  only status, namespace, and resource kinds, and is attached only after the
+  full flow passes.
 
 ```bash
 E2E_LIVE=1 \
@@ -114,7 +140,10 @@ E2E_AUTH_MODE=session \
 E2E_DATA_MODE=canary \
 E2E_BASE_URL=http://localhost:3001 \
 E2E_API_URL=http://localhost:3000 \
-E2E_QUERY='canary job intelligence record' \
+E2E_EXPECTED_RELEASE_SHA=0000000000000000000000000000000000000000 \
+E2E_QUERY='"canary job intelligence record"' \
+E2E_CANARY_ID=00000000-0000-4000-8000-000000000001 \
+E2E_EXPECTED_SUBJECT_ID='<dedicated-test-account-id>' \
 E2E_TEST_ACCOUNT_ID='<dedicated-test-account-id>' \
 E2E_STORAGE_STATE='/absolute/untracked/state.json' \
 E2E_TEST_NAMESPACE='e2e-20260902-local' \
@@ -123,13 +152,12 @@ E2E_CLEANUP_TOKEN='<environment-only-token>' \
 bun run e2e:live:jobs:writes
 ```
 
-The mutation flow clicks the real UI controls for mark relevant, save search,
-and create snapshot. It emits only a cleanup receipt with status, namespace,
-and resource kinds; it never records the cleanup token or storage state.
+Until a dedicated cleanup endpoint and the approved session verifier exist,
+the mutation command fails before a browser can mutate anything.
 
 ## Offline checks
 
-These checks never launch a browser or contact a configured target:
+These commands never start a browser or contact a configured target:
 
 ```bash
 bun run test:e2e-live-jobs:config

@@ -5,11 +5,9 @@ import { z } from "zod";
 import { assertMutationLiveRun, buildNamespacedQuery } from "./config";
 import { LiveJobsEvidence } from "./evidence";
 import { openLiveJobDetail } from "./job-flow";
-import {
-  cleanupLiveJobsMutations,
-  preflightLiveJobsCleanup,
-} from "./mutation-cleanup";
+import { cleanupLiveJobsMutations } from "./mutation-cleanup";
 import type { MutationResource } from "./mutation-cleanup";
+import { preflightLiveJobsRun } from "./run-preflight";
 
 const isApiResponse = (
   response: {
@@ -43,16 +41,17 @@ const readId = async (
 
 test.describe("isolated live /jobs mutation verification", () => {
   test.beforeAll(async () => {
-    await preflightLiveJobsCleanup(assertMutationLiveRun());
+    await preflightLiveJobsRun("writes");
   });
 
-  test("marks a job, saves a namespaced search, snapshots it, and cleans up", async ({
+  test("marks one canary, saves a namespaced search, snapshots it, and cleans up", async ({
     page,
     request,
   }, testInfo) => {
     const config = assertMutationLiveRun();
     const evidence = new LiveJobsEvidence(page, config.baseUrl, config.apiUrl);
     const resources: MutationResource[] = [];
+    let assertionsPassed = false;
 
     try {
       const { jobId } = await openLiveJobDetail({
@@ -111,15 +110,42 @@ test.describe("isolated live /jobs mutation verification", () => {
         timeout: config.timeoutMs,
       });
 
+      evidence.assertObservedRoutes([
+        {
+          label: "canary markering",
+          method: "POST",
+          path: "/v1/aanvragen/:id/markering",
+          status: 200,
+        },
+        {
+          label: "saved search",
+          method: "POST",
+          path: "/v1/saved-searches",
+          status: 200,
+        },
+        {
+          label: "snapshot",
+          method: "POST",
+          path: "/v1/snapshots",
+          status: 200,
+        },
+      ]);
       evidence.assertNoBrowserFailures();
+      assertionsPassed = true;
     } finally {
       await cleanupLiveJobsMutations({
+        attachReceipt: assertionsPassed,
         config,
         request,
         resources,
         testInfo,
       });
-      await evidence.attach(testInfo, page);
     }
+
+    await evidence.attachPassed(testInfo, page, {
+      canaryId: config.canaryId,
+      canaryScreenshot: true,
+      releaseSha: config.expectedReleaseSha,
+    });
   });
 });

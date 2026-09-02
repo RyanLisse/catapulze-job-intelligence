@@ -15,6 +15,7 @@ import {
   restRoutesFromRegistry,
 } from "./capabilities/rest";
 import { createHealthRoutes } from "./http/health";
+import { createReleaseHandler } from "./http/release";
 import { createReadinessDeps, createReadinessHandler } from "./readiness";
 import { createProductionSliceARegistry } from "./slice-a-registry";
 
@@ -46,6 +47,7 @@ app.use(
 );
 
 app.get("/", (c) => c.text("OK"));
+app.get("/version", createReleaseHandler(env.APP_RELEASE_SHA));
 
 const sliceA = await createProductionSliceARegistry({
   databaseUrl: env.DATABASE_URL,

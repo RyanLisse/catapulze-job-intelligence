@@ -1,37 +1,32 @@
-import {
-  assertAnonymousLiveRun,
-  assertAuthenticatedLiveRun,
-  assertMutationLiveRun,
-} from "./config";
-import { preflightLiveJobsCleanup } from "./mutation-cleanup";
+import { preflightLiveJobsRun } from "./run-preflight";
+import type { LiveJobsRunMode } from "./run-preflight";
 
-const [mode] = process.argv.slice(2);
+const [requestedMode] = process.argv.slice(2);
 
-let configPath: string | null = null;
-if (mode === "session") {
-  configPath = "playwright.live.config.ts";
-} else if (mode === "anonymous") {
-  configPath = "playwright.live-anonymous.config.ts";
-} else if (mode === "writes") {
-  configPath = "playwright.live-writes.config.ts";
-}
+const configPathByMode = {
+  anonymous: "playwright.live-anonymous.config.ts",
+  session: "playwright.live.config.ts",
+  writes: "playwright.live-writes.config.ts",
+} as const;
 
-if (!configPath) {
+const isLiveJobsRunMode = (
+  value: string | undefined
+): value is LiveJobsRunMode =>
+  value === "anonymous" || value === "session" || value === "writes";
+
+if (!isLiveJobsRunMode(requestedMode)) {
   throw new Error("Usage: bun e2e/live-jobs/run.ts <session|anonymous|writes>");
 }
 
 const run = async (): Promise<number> => {
-  if (mode === "writes") {
-    const config = assertMutationLiveRun();
-    await preflightLiveJobsCleanup(config);
-  } else if (mode === "anonymous") {
-    assertAnonymousLiveRun();
-  } else {
-    assertAuthenticatedLiveRun();
-  }
+  await preflightLiveJobsRun(requestedMode);
 
   const result = Bun.spawnSync({
-    cmd: ["./node_modules/.bin/playwright", "test", `--config=${configPath}`],
+    cmd: [
+      "./node_modules/.bin/playwright",
+      "test",
+      `--config=${configPathByMode[requestedMode]}`,
+    ],
     stderr: "inherit",
     stdout: "inherit",
   });

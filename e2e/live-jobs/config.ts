@@ -12,26 +12,33 @@ const LOCAL_HOSTNAMES = new Set([
 
 const TEST_HOST_SUFFIXES = [".invalid", ".local", ".test"] as const;
 const FIXTURE_VALUES = new Set(["1", "true"]);
+const SHA256_PATTERN = /^[a-f0-9]{64}$/u;
+const SHA_PATTERN = /^[a-f0-9]{40}$/u;
 const TEST_NAMESPACE_PATTERN = /^e2e-[a-z0-9][a-z0-9-]{2,60}$/u;
+const UUID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
 
 export interface LiveJobsConfig {
   readonly apiUrl: string;
   readonly baseUrl: string;
+  readonly expectedReleaseSha: string;
   readonly localMode: boolean;
   readonly query: string;
   readonly timeoutMs: number;
 }
 
-export interface MutationLiveJobsConfig extends LiveJobsConfig {
-  readonly cleanupToken: string;
-  readonly cleanupUrl: string;
+export interface AuthenticatedLiveJobsConfig extends LiveJobsConfig {
+  readonly canaryDigest: string | undefined;
+  readonly canaryId: string;
+  readonly expectedSubjectId: string;
   readonly storageStatePath: string;
-  readonly testAccountId: string;
-  readonly testNamespace: string;
 }
 
-export interface AuthenticatedLiveJobsConfig extends LiveJobsConfig {
-  readonly storageStatePath: string;
+export interface MutationLiveJobsConfig extends AuthenticatedLiveJobsConfig {
+  readonly cleanupToken: string;
+  readonly cleanupUrl: string;
+  readonly testAccountId: string;
+  readonly testNamespace: string;
 }
 
 const value = (
@@ -107,6 +114,54 @@ const parseTimeout = (configured: string | undefined): number => {
   return parsed;
 };
 
+const readExpectedReleaseSha = (environment: LiveJobsEnvironment): string => {
+  const expectedReleaseSha = requireValue(
+    environment,
+    "E2E_EXPECTED_RELEASE_SHA"
+  ).toLowerCase();
+  if (!SHA_PATTERN.test(expectedReleaseSha)) {
+    throw new Error(
+      "E2E_EXPECTED_RELEASE_SHA must be an exact 40-character lowercase Git SHA."
+    );
+  }
+  return expectedReleaseSha;
+};
+
+const readCanaryId = (environment: LiveJobsEnvironment): string => {
+  const canaryId = requireValue(environment, "E2E_CANARY_ID");
+  if (!UUID_PATTERN.test(canaryId)) {
+    throw new Error("E2E_CANARY_ID must be an immutable UUID.");
+  }
+  return canaryId.toLowerCase();
+};
+
+const readCanaryDigest = (
+  environment: LiveJobsEnvironment
+): string | undefined => {
+  const digest = value(environment, "E2E_CANARY_DIGEST");
+  if (!digest) {
+    return undefined;
+  }
+  const normalized = digest.toLowerCase();
+  if (!SHA256_PATTERN.test(normalized)) {
+    throw new Error(
+      "E2E_CANARY_DIGEST must be a lowercase SHA-256 digest when configured."
+    );
+  }
+  return normalized;
+};
+
+const readExpectedSubjectId = (environment: LiveJobsEnvironment): string => {
+  const expectedSubjectId = requireValue(
+    environment,
+    "E2E_EXPECTED_SUBJECT_ID"
+  );
+  if (expectedSubjectId.length > 200) {
+    throw new Error("E2E_EXPECTED_SUBJECT_ID must be at most 200 characters.");
+  }
+  return expectedSubjectId;
+};
+
 const validateEndpointSafety = (
   baseUrl: URL,
   apiUrl: URL,
@@ -166,6 +221,7 @@ export const readLiveJobsConfig = (
   return {
     apiUrl: apiUrl.origin,
     baseUrl: baseUrl.origin,
+    expectedReleaseSha: readExpectedReleaseSha(environment),
     localMode,
     query,
     timeoutMs: parseTimeout(value(environment, "E2E_TIMEOUT_MS")),
@@ -208,13 +264,19 @@ export const assertAuthenticatedLiveRun = (
   if (!config.query) {
     throw new Error("Authenticated live jobs E2E requires E2E_QUERY.");
   }
-  const storageStatePath = requireStorageState(environment);
   if (value(environment, "E2E_DATA_MODE") !== "canary") {
     throw new Error(
       "Authenticated live jobs E2E requires E2E_DATA_MODE=canary so artifacts never contain production business data."
     );
   }
-  return { ...config, storageStatePath };
+
+  return {
+    ...config,
+    canaryDigest: readCanaryDigest(environment),
+    canaryId: readCanaryId(environment),
+    expectedSubjectId: readExpectedSubjectId(environment),
+    storageStatePath: requireStorageState(environment),
+  };
 };
 
 export const assertAnonymousLiveRun = (
@@ -280,6 +342,11 @@ export const assertMutationLiveRun = (
   if (testAccountId === "web-recruiter") {
     throw new Error("E2E_TEST_ACCOUNT_ID must be a dedicated test account.");
   }
+  if (testAccountId !== config.expectedSubjectId) {
+    throw new Error(
+      "E2E_TEST_ACCOUNT_ID must exactly equal E2E_EXPECTED_SUBJECT_ID before mutation E2E can start."
+    );
+  }
 
   const testNamespace = requireValue(environment, "E2E_TEST_NAMESPACE");
   if (!TEST_NAMESPACE_PATTERN.test(testNamespace)) {
@@ -292,7 +359,6 @@ export const assertMutationLiveRun = (
     ...config,
     cleanupToken: requireValue(environment, "E2E_CLEANUP_TOKEN"),
     cleanupUrl: parseCleanupUrl(environment, config.apiUrl),
-    storageStatePath: config.storageStatePath,
     testAccountId,
     testNamespace,
   };
@@ -300,6 +366,17 @@ export const assertMutationLiveRun = (
 
 export const buildJobsUrl = (baseUrl: string): string =>
   new URL("/jobs", baseUrl).toString();
+
+export const buildCanaryJobsUrl = (
+  baseUrl: string,
+  query: string,
+  canaryId: string
+): string => {
+  const url = new URL("/jobs", baseUrl);
+  url.searchParams.set("job", canaryId);
+  url.searchParams.set("q", query);
+  return url.toString();
+};
 
 export const buildNamespacedQuery = (
   namespace: string,

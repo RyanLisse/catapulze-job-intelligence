@@ -1,9 +1,9 @@
 import { defineConfig } from "@playwright/test";
 
+import { readLiveJobsArtifactPolicy } from "./e2e/live-jobs/artifact-policy";
+
 const baseUse = {
-  screenshot: "on" as const,
-  trace: "on" as const,
-  video: "on" as const,
+  ...readLiveJobsArtifactPolicy(),
   viewport: { height: 960, width: 1440 },
 };
 

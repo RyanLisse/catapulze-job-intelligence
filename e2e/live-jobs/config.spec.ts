@@ -12,14 +12,20 @@ import type { LiveJobsEnvironment } from "./config";
 import { preflightLiveJobsCleanup } from "./mutation-cleanup";
 
 const remoteEnvironment = {
-  E2E_API_URL: "https://api.jobs.example.com",
-  E2E_BASE_URL: "https://jobs.example.com",
+  E2E_API_URL: "https://api.jobs.example",
+  E2E_BASE_URL: "https://jobs.example",
+  E2E_CANARY_ID: "00000000-0000-4000-8000-000000000001",
+  E2E_EXPECTED_RELEASE_SHA: "0123456789abcdef0123456789abcdef01234567",
+  E2E_EXPECTED_SUBJECT_ID: "dedicated-test-account",
   E2E_QUERY: "platform engineer",
 } satisfies LiveJobsEnvironment;
 
 const localEnvironment = {
   E2E_API_URL: "http://localhost:3000",
   E2E_BASE_URL: "http://localhost:3001",
+  E2E_CANARY_ID: "00000000-0000-4000-8000-000000000001",
+  E2E_EXPECTED_RELEASE_SHA: "0123456789abcdef0123456789abcdef01234567",
+  E2E_EXPECTED_SUBJECT_ID: "dedicated-test-account",
   E2E_LOCAL_MODE: "1",
   E2E_QUERY: "platform engineer",
 } satisfies LiveJobsEnvironment;
@@ -31,11 +37,22 @@ describe("live jobs E2E guardrails", () => {
     );
   });
 
+  it("requires an exact 40-character expected release SHA", () => {
+    expect(() =>
+      assertReadOnlyLiveRun({
+        ...remoteEnvironment,
+        E2E_EXPECTED_RELEASE_SHA: "not-a-sha",
+        E2E_LIVE: "1",
+      })
+    ).toThrow(/E2E_EXPECTED_RELEASE_SHA/u);
+  });
+
   it("requires a real storage state for authenticated read verification", () => {
     expect(() =>
       assertAuthenticatedLiveRun({
         ...remoteEnvironment,
         E2E_AUTH_MODE: "session",
+        E2E_DATA_MODE: "canary",
         E2E_LIVE: "1",
       })
     ).toThrow(/E2E_STORAGE_STATE/u);
@@ -50,6 +67,32 @@ describe("live jobs E2E guardrails", () => {
         E2E_STORAGE_STATE: "/private/tmp/e2e-storage-state.json",
       })
     ).toThrow(/E2E_DATA_MODE=canary/u);
+  });
+
+  it("requires an immutable canary UUID even when a query is present", () => {
+    expect(() =>
+      assertAuthenticatedLiveRun({
+        ...remoteEnvironment,
+        E2E_AUTH_MODE: "session",
+        E2E_CANARY_ID: "listed-first-but-not-a-canary",
+        E2E_DATA_MODE: "canary",
+        E2E_LIVE: "1",
+        E2E_STORAGE_STATE: "/private/tmp/e2e-storage-state.json",
+      })
+    ).toThrow(/E2E_CANARY_ID/u);
+  });
+
+  it("refuses an authenticated run with no immutable canary ID", () => {
+    expect(() =>
+      assertAuthenticatedLiveRun({
+        ...remoteEnvironment,
+        E2E_AUTH_MODE: "session",
+        E2E_CANARY_ID: undefined,
+        E2E_DATA_MODE: "canary",
+        E2E_LIVE: "1",
+        E2E_STORAGE_STATE: "/private/tmp/e2e-storage-state.json",
+      })
+    ).toThrow(/E2E_CANARY_ID/u);
   });
 
   it("keeps storage state outside the working tree", () => {
@@ -149,6 +192,24 @@ describe("live jobs E2E guardrails", () => {
 
     expect(config.cleanupUrl).toBe("http://localhost:3000/e2e/cleanup");
     expect(config.testNamespace).toBe("e2e-20260902-write");
+  });
+
+  it("rejects a mutation account that differs from the expected session subject", () => {
+    expect(() =>
+      assertMutationLiveRun({
+        ...localEnvironment,
+        E2E_ALLOW_WRITES: "1",
+        E2E_AUTH_MODE: "session",
+        E2E_CLEANUP_TOKEN: "test-token-from-environment",
+        E2E_CLEANUP_URL: "http://localhost:3000/e2e/cleanup",
+        E2E_DATA_MODE: "canary",
+        E2E_LIVE: "1",
+        E2E_STORAGE_STATE: "/private/tmp/e2e-storage-state.json",
+        E2E_TEST_ACCOUNT_ID: "other-test-account",
+        E2E_TEST_ENV: "isolated",
+        E2E_TEST_NAMESPACE: "e2e-20260902-write",
+      })
+    ).toThrow(/E2E_EXPECTED_SUBJECT_ID/u);
   });
 
   it("preflights an idempotent empty cleanup before browser writes", async () => {

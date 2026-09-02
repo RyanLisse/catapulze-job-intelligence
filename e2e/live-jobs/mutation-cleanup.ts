@@ -8,6 +8,7 @@ export interface MutationResource {
 }
 
 interface CleanupLiveJobsInput {
+  readonly attachReceipt: boolean;
   readonly config: MutationLiveJobsConfig;
   readonly request: APIRequestContext;
   readonly resources: readonly MutationResource[];
@@ -55,9 +56,9 @@ export const preflightLiveJobsCleanup = async (
     );
   }
 
-  if (!response.ok) {
+  if (response.status !== 204) {
     throw new Error(
-      `Isolated live-jobs cleanup preflight failed with HTTP ${response.status}; no browser writes were attempted.`
+      `Isolated live-jobs cleanup preflight did not receive exact HTTP 204 (got ${response.status}); no browser writes were attempted.`
     );
   }
 };
@@ -68,6 +69,7 @@ export const preflightLiveJobsCleanup = async (
  * isolated-environment endpoint that makes this cleanup idempotent.
  */
 export const cleanupLiveJobsMutations = async ({
+  attachReceipt,
   config,
   request,
   resources,
@@ -78,6 +80,16 @@ export const cleanupLiveJobsMutations = async ({
     headers: cleanupHeaders(config.cleanupToken),
     maxRedirects: 0,
   });
+
+  if (response.status() !== 204) {
+    throw new Error(
+      `Isolated live-jobs cleanup did not receive exact HTTP 204 (got ${response.status()}).`
+    );
+  }
+
+  if (!attachReceipt) {
+    return;
+  }
 
   await testInfo.attach("cleanup-receipt.json", {
     body: JSON.stringify(
@@ -91,10 +103,4 @@ export const cleanupLiveJobsMutations = async ({
     ),
     contentType: "application/json",
   });
-
-  if (!response.ok()) {
-    throw new Error(
-      `Isolated live-jobs cleanup failed with HTTP ${response.status()}.`
-    );
-  }
 };
