@@ -137,6 +137,19 @@ describe("Manticore benchmark hygiene", () => {
     expect(first.documents[0]?.title).toBe("A");
   });
 
+  it("fails closed without exposing an unknown foreign hit id", () => {
+    const scoped = scopeBenchmarkDocuments([{ id: "corpus-a" }]);
+    const foreignId = "foreign-secret-document-id";
+    expect(() => scoped.toCorpusId(foreignId)).toThrow(
+      "Manticore returned an unknown benchmark document id"
+    );
+    try {
+      scoped.toCorpusId(foreignId);
+    } catch (error) {
+      expect(String(error)).not.toContain(foreignId);
+    }
+  });
+
   it("attempts both engine cleanups and aggregates sanitized labels", async () => {
     const attempted: string[] = [];
     await expect(

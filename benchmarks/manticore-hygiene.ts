@@ -120,7 +120,13 @@ export const scopeBenchmarkDocuments = <T extends { id: string }>(
   return {
     documentIds: scopedDocuments.map((document) => document.id),
     documents: scopedDocuments,
-    toCorpusId: (id) => corpusIdsByScopedId.get(id) ?? id,
+    toCorpusId: (id) => {
+      const corpusId = corpusIdsByScopedId.get(id);
+      if (!corpusId) {
+        throw new Error("Manticore returned an unknown benchmark document id");
+      }
+      return corpusId;
+    },
   };
 };
 

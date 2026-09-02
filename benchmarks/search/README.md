@@ -33,4 +33,4 @@ Set `LATENCY_GOLDEN_QUERIES=1` to run the 43 real queries from `benchmarks/relev
 
 ## Corpus ids and concurrent runs
 
-Generated corpus ids remain stable in the input and report. For Manticore, the runner prefixes every indexed id with a fresh UUID so concurrent invocations cannot overwrite or delete each other's documents. Cleanup is limited to the exact scoped ids owned by that invocation.
+Generated corpus ids remain stable in the input and report. For Manticore, the runner adds a fresh run-scoped UUID suffix to every indexed id so concurrent invocations cannot overwrite or delete each other's documents. Cleanup is limited to the exact scoped ids owned by that invocation.

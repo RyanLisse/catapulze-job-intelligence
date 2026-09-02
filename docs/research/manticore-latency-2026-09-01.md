@@ -270,16 +270,14 @@ needs, gathered across both rounds, unweighted:
   same 40-45ms p95 band for the boolean queries) plus once contaminated.
   The golden query set only got one clean-admissible run (6.3.8) and one
   mixed run (29-infix) — see Gaps.
-- **Cleanup on the shared 6.3.8 instance:** baseline count 505 confirmed
-  before every insert pass this round (twice); 20,505 after each 20k
-  insert (exact match, no drift from concurrent lanes); cleanup via a
-  single range delete,
-  `DELETE FROM aanvragen WHERE document_id>='latency-rjc382-' AND document_id<'latency-rjc382.'`,
-  confirmed back to exactly 505 after each pass. Per-id batched deletes
-  (200-concurrent) were tried first and timed out under load — the range
-  delete on the `document_id` string attribute was more reliable and is
-  now the documented cleanup method for future lanes reusing this
-  `slug`-prefixed-id convention against the shared table.
+- **Historical cleanup on the shared 6.3.8 instance:** baseline count 505
+  was confirmed before every insert pass this round (twice), 20,505 after
+  each 20k insert, and 505 again after cleanup. That shared-production-table
+  procedure is retired and intentionally not reproduced here. Future runs
+  must use only `aanvragen_bench_active` / `aanvragen_bench_archive`, with
+  UUID-scoped ids and the benchmark runner's exact-id cleanup plus strict
+  pre/post `SELECT COUNT(*)` proof. Never run benchmark cleanup against the
+  production `aanvragen_active` / `aanvragen_archive` tables.
 - **manticore29 lifecycle:** brought up and torn down fully (`docker
   compose stop manticore29` + `docker rm` + `docker volume rm
   catapulze-job-intelligence_manticore29_data`) between every distinct
