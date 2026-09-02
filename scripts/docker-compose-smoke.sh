@@ -47,5 +47,5 @@ echo "docker-compose smoke: postgres, server and web are healthy"
 # the real published address instead of assuming the default.
 manticore_address="$("${compose_command[@]}" port manticore 9308)"
 MANTICORE_URL="http://${manticore_address}" \
-  bun test packages/search/src/manticore/live.spec.ts
+  MANTICORE_REQUIRE_LIVE=1 bun test packages/search/src/manticore/live.spec.ts
 echo "docker-compose smoke: Manticore document-id live test passed"

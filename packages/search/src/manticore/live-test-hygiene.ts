@@ -2,6 +2,19 @@ interface DocumentCleanupEngine {
   deleteDocument: (id: string) => Promise<void>;
 }
 
+export const requireLiveManticoreUrl = (
+  url: string | undefined,
+  required: boolean
+): string | undefined => {
+  const configured = url?.trim();
+  if (!configured && required) {
+    throw new Error(
+      "MANTICORE_REQUIRE_LIVE=1 requires a non-empty MANTICORE_URL"
+    );
+  }
+  return configured || undefined;
+};
+
 /** Best-effort cleanup for live specs: every run-owned id is attempted. */
 export const cleanupLiveDocuments = async (
   engine: DocumentCleanupEngine,

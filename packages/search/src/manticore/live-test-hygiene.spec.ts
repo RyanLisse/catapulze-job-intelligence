@@ -1,8 +1,19 @@
 import { describe, expect, it } from "bun:test";
 
-import { cleanupLiveDocuments } from "./live-test-hygiene";
+import {
+  cleanupLiveDocuments,
+  requireLiveManticoreUrl,
+} from "./live-test-hygiene";
 
 describe("Manticore live fixture cleanup", () => {
+  it("fails when a required live lane has no URL", () => {
+    expect(() => requireLiveManticoreUrl(undefined, true)).toThrow(
+      "requires a non-empty MANTICORE_URL"
+    );
+    expect(requireLiveManticoreUrl(" http://manticore.test ", true)).toBe(
+      "http://manticore.test"
+    );
+  });
   it("attempts every run-owned id when one deletion fails", async () => {
     const deleted: string[] = [];
     const engine = {

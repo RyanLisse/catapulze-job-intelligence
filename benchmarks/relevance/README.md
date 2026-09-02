@@ -62,7 +62,7 @@ When a second annotator joins, disagreements resolve by discussion and the resol
 The runner talks only to the `SearchEngine` seam (`packages/search`):
 
 - **in-memory** — always runs; the floor. Its "ranking" is lexicographic id order with substring matching, so treat its nDCG as a baseline artifact.
-- **manticore** — runs when `MANTICORE_URL` is set. **Writes into the app's live tables** (`aanvragen_active` / `aanvragen_archive` since RJC-383; `aanvragen` before): benchmark documents use `slug:referentie` ids (which cannot collide with the app's UUID ids) and are deleted again after scoring — nothing else in those tables is touched. **Clean-table requirement:** numbers are only comparable when the target tables are empty (`SELECT count(*) FROM aanvragen_active` = 0, same for `_archive`) at the start of the run. Pre-existing rows can never be counted as relevant, but they take result slots and skew BM25 statistics: the RJC-382 6.3.8 baseline (0.477 / 0.425) was measured with 505 fixture rows present and is 0.523 / 0.529 on an empty table (`docs/research/manticore-relevance-baseline-correction-2026-09-01.md`). Use a fresh volume or a throwaway 6.3.8 container for baselines.
+- **manticore** — runs when `MANTICORE_URL` is set and always targets the dedicated `aanvragen_bench_active` / `aanvragen_bench_archive` tables. Every invocation assigns UUID-scoped document ids, maps results back to stable corpus ids before scoring, deletes only those scoped ids, and requires both dedicated tables to be empty before and after the run. The runner never writes to or cleans production search tables.
 
   Scoring runs twice per engine: `scope: "all"` (both partitions, the number comparable with pre-split history — printed first and stored under `engines`) and `scope: "active"` (the default search space; stored under `enginesActiveScope`).
 
@@ -79,7 +79,7 @@ MANTICORE_29_LABEL=manticore29-infix \
 bun run relevance
 ```
 
-Run once against `tools/manticore/manticore29.conf` (infix enabled) and once against `tools/manticore/manticore29-noinfix.conf` (identical minus `min_infix_len`) to isolate the infix config change from the version upgrade itself — swap the conf file mounted at `/etc/manticoresearch/manticore.conf` and restart `manticore29` between runs, on a fresh volume each time (`docker volume rm catapulze-job-intelligence_manticore29_data`) so the schema actually reloads. The runner uses the dedicated `aanvragen_bench_active` / `aanvragen_bench_archive` tables and verifies both are empty with `SELECT COUNT(*)` over `/sql?mode=raw` before and after each run — never with a `/search … "limit": 0`, whose `hits.total` is not a row count (it reported 0 on a 505-row table). This cleanliness gate is mandatory and has no dirty-table override.
+Run once against `tools/manticore/manticore29.conf` (infix enabled) and once against `tools/manticore/manticore29-noinfix.conf` (identical minus `min_infix_len`) to isolate the infix config change from the version upgrade itself. Use a separately provisioned benchmark instance for each configuration. The runner verifies the dedicated benchmark tables are empty with `SELECT COUNT(*)` over `/sql?mode=raw` before and after each run; this cleanliness gate is mandatory and has no dirty-table override.
 
 ## Judgments: extending the golden set with real recruiter judgments
 

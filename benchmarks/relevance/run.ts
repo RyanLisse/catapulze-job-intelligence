@@ -12,8 +12,10 @@ import { z } from "zod";
 
 import {
   assertCleanManticoreTables,
+  cleanupBenchmarkRuns,
   cleanupAndAssertManticoreTables,
   MANTICORE_BENCH_INDEX_NAME,
+  scopeBenchmarkDocuments,
 } from "../manticore-hygiene";
 import { loadRelevanceCorpus } from "./corpus";
 import type { RelevanceCorpusSummary } from "./corpus";
@@ -207,9 +209,9 @@ const macroAverage = (scores: readonly QueryScore[]): MetricPair => {
 const scoreEngine = async (
   name: string,
   engine: SearchEngine,
-  corpus: RelevanceCorpusSummary,
   queries: readonly RelevanceQuery[],
-  scope: SearchScope
+  scope: SearchScope,
+  toCorpusId: (id: string) => string
 ): Promise<EngineReport> => {
   const perQuery: QueryScore[] = [];
   for (const query of queries) {
@@ -230,7 +232,7 @@ const scoreEngine = async (
       offset: 0,
       scope,
     });
-    const rankedIds = result.hits.map((hit) => hit.id);
+    const rankedIds = result.hits.map((hit) => toCorpusId(hit.id));
     const relevant = new Set(query.relevant);
     perQuery.push({
       category: query.category,
@@ -258,10 +260,12 @@ const scoreEngine = async (
 
 interface EngineRun {
   cleanup: (() => Promise<void>) | null;
+  documents: RelevanceCorpusSummary["documents"][number]["document"][];
   engine: SearchEngine;
   name: string;
   /** Manticore only: refuse dirty tables before indexing, prove them clean after (RJC-383). */
   preflight: ((phase: "after" | "before") => Promise<void>) | null;
+  toCorpusId: (id: string) => string;
 }
 
 /** Builds one Manticore EngineRun. Shared by both the default MANTICORE_URL
@@ -271,6 +275,9 @@ const buildManticoreRun = (
   url: string,
   corpus: RelevanceCorpusSummary
 ): EngineRun => {
+  const scoped = scopeBenchmarkDocuments(
+    corpus.documents.map((item) => item.document)
+  );
   const manticore = ManticoreSearchEngine.fromUrl(
     url,
     new InMemorySearchVersionStore(),
@@ -283,14 +290,16 @@ const buildManticoreRun = (
         name,
         url,
         manticore,
-        corpus.documents.map((item) => item.id)
+        scoped.documentIds
       );
     },
+    documents: scoped.documents,
     engine: manticore,
     name,
     preflight: async (phase) => {
       await assertCleanManticoreTables(name, url, phase);
     },
+    toCorpusId: scoped.toCorpusId,
   };
 };
 
@@ -307,9 +316,11 @@ const buildEngineRuns = (corpus: RelevanceCorpusSummary): EngineRun[] => {
   const runs: EngineRun[] = [
     {
       cleanup: null,
+      documents: corpus.documents.map((item) => item.document),
       engine: new InMemorySearchEngine(undefined, benchClock),
       name: "in-memory",
       preflight: null,
+      toCorpusId: (id) => id,
     },
   ];
   const manticoreUrl = process.env.MANTICORE_URL?.trim();
@@ -369,15 +380,16 @@ const main = async (): Promise<void> => {
 
   const reports: EngineReport[] = [];
   const activeScopeReports: EngineReport[] = [];
-  for (const run of buildEngineRuns(corpus)) {
-    if (run.preflight) {
-      // oxlint-disable-next-line no-await-in-loop -- must refuse before anything is indexed
-      await run.preflight("before");
-    }
-    try {
-      for (const item of corpus.documents) {
+  const runs = buildEngineRuns(corpus);
+  try {
+    for (const run of runs) {
+      if (run.preflight) {
+        // oxlint-disable-next-line no-await-in-loop -- must refuse before anything is indexed
+        await run.preflight("before");
+      }
+      for (const document of run.documents) {
         // oxlint-disable-next-line no-await-in-loop -- upserts are ordered so both engines index identically
-        await run.engine.upsertDocument(item.document);
+        await run.engine.upsertDocument(document);
       }
       // oxlint-disable-next-line no-await-in-loop -- the index must be complete before it is scored
       await run.engine.applyBatch({ appliedSequence: 1n, mutations: [] });
@@ -385,28 +397,25 @@ const main = async (): Promise<void> => {
       const allScope = await scoreEngine(
         run.name,
         run.engine,
-        corpus,
         queries,
-        "all"
+        "all",
+        run.toCorpusId
       );
       reports.push(allScope);
       // oxlint-disable-next-line no-await-in-loop -- same engine, same index, second scope
       const activeScope = await scoreEngine(
         run.name,
         run.engine,
-        corpus,
         queries,
-        "active"
+        "active",
+        run.toCorpusId
       );
       activeScopeReports.push(activeScope);
-    } finally {
-      if (run.cleanup) {
-        // oxlint-disable-next-line no-await-in-loop -- cleanup must finish before the next engine runs
-        await run.cleanup();
-      }
-      // Manticore cleanup includes the mandatory post-run SELECT COUNT(*)
-      // proof even when one or more document deletes fail.
     }
+  } finally {
+    await cleanupBenchmarkRuns(runs);
+    // Manticore cleanup includes the mandatory post-run SELECT COUNT(*)
+    // proof even when one or more document deletes fail.
   }
 
   printReport(reports);

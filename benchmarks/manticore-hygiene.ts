@@ -32,6 +32,14 @@ const countResponseSchema = z.array(
   z.object({ data: z.array(z.record(z.string(), z.unknown())) })
 );
 
+const canonicalCountSchema = z
+  .union([
+    z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
+    z.string().regex(/^(?:0|[1-9]\d*)$/u),
+  ])
+  .transform(Number)
+  .refine(Number.isSafeInteger);
+
 export const countManticoreRows = async (
   url: string,
   request: CountRequest = fetch
@@ -48,16 +56,72 @@ export const countManticoreRows = async (
       );
     }
     const parsed = countResponseSchema.parse(await response.json());
-    const count = Number(parsed[0]?.data[0]?.["count(*)"] ?? Number.NaN);
-    if (!Number.isSafeInteger(count) || count < 0) {
+    const countResult = canonicalCountSchema.safeParse(
+      parsed[0]?.data[0]?.["count(*)"]
+    );
+    if (!countResult.success) {
       throw new Error(`Invalid row count for ${table} on ${url}`);
     }
+    const count = countResult.data;
     return [table, count];
   };
 
   return Object.fromEntries(
     await Promise.all(MANTICORE_BENCH_TABLES.map((table) => countTable(table)))
   );
+};
+
+interface NamedCleanup {
+  cleanup: (() => Promise<void>) | null;
+  name: string;
+}
+
+/** Attempts every engine cleanup and reports only engine labels, never URLs or raw errors. */
+export const cleanupBenchmarkRuns = async (
+  runs: readonly NamedCleanup[]
+): Promise<void> => {
+  const cleanups = runs.filter(
+    (run): run is NamedCleanup & { cleanup: () => Promise<void> } =>
+      run.cleanup !== null
+  );
+  const results = await Promise.allSettled(
+    cleanups.map(async (run) => {
+      await run.cleanup();
+    })
+  );
+  const failedNames = results.flatMap((result, index) =>
+    result.status === "rejected" ? [cleanups[index]?.name ?? "unknown"] : []
+  );
+  if (failedNames.length > 0) {
+    throw new AggregateError(
+      failedNames.map((name) => new Error(`${name} cleanup failed`)),
+      `Benchmark cleanup failed for ${failedNames.join(", ")}`
+    );
+  }
+};
+
+export interface ScopedBenchmarkDocuments<T extends { id: string }> {
+  documentIds: string[];
+  documents: T[];
+  toCorpusId: (id: string) => string;
+}
+
+/** Gives each engine invocation collision-safe IDs while retaining score/export IDs. */
+export const scopeBenchmarkDocuments = <T extends { id: string }>(
+  documents: readonly T[]
+): ScopedBenchmarkDocuments<T> => {
+  const runId = crypto.randomUUID();
+  const corpusIdsByScopedId = new Map<string, string>();
+  const scopedDocuments = documents.map((document) => {
+    const id = `${runId}:${document.id}`;
+    corpusIdsByScopedId.set(id, document.id);
+    return { ...document, id };
+  });
+  return {
+    documentIds: scopedDocuments.map((document) => document.id),
+    documents: scopedDocuments,
+    toCorpusId: (id) => corpusIdsByScopedId.get(id) ?? id,
+  };
 };
 
 export const assertCleanManticoreTables = async (
