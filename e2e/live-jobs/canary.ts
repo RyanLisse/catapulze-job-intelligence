@@ -43,6 +43,7 @@ const screenshotAttestations = new WeakSet<object>();
 export interface CanaryScreenshotAttestation {
   readonly canaryId: string;
   readonly digest: string;
+  readonly rawPayloadRef: string;
 }
 
 const compareJsonKeys = (left: string, right: string): number => {
@@ -174,7 +175,19 @@ export const assertCanaryDetailResponse = async (
       "Canary detail digest does not match E2E_CANARY_DIGEST; no artifact was written."
     );
   }
-  const attestation = { canaryId, digest: expectedDigest };
+  const parsedRawPayloadRef = jsonStringSchema.safeParse(
+    parsed.data.aanvraag.rawPayloadRef
+  );
+  if (!parsedRawPayloadRef.success || parsedRawPayloadRef.data.length === 0) {
+    throw new Error(
+      "Canary detail response has no immutable raw payload reference; no artifact was written."
+    );
+  }
+  const attestation = Object.freeze({
+    canaryId,
+    digest: expectedDigest,
+    rawPayloadRef: parsedRawPayloadRef.data,
+  });
   screenshotAttestations.add(attestation);
   return attestation;
 };

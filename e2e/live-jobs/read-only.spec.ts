@@ -14,7 +14,7 @@ test.describe("live /jobs read-only verification", () => {
     page,
   }, testInfo) => {
     const config = assertAuthenticatedLiveRun();
-    const evidence = new LiveJobsEvidence(page, config.baseUrl);
+    const evidence = new LiveJobsEvidence(page, config.baseUrl, config.apiUrl);
 
     const { screenshotAttestation } = await openLiveJobDetail({
       config,
@@ -22,44 +22,47 @@ test.describe("live /jobs read-only verification", () => {
       query: config.query,
     });
 
-    evidence.assertObservedRoutes([
-      {
-        label: "source catalog",
-        method: "GET",
-        path: "/v1/bronnen",
-        status: 200,
-      },
-      {
-        label: "Boolean search",
-        method: "POST",
-        path: "/v1/aanvragen/search",
-        status: 200,
-      },
-      {
-        label: "search result hydration",
-        method: "POST",
-        path: "/v1/aanvragen/batch",
-        status: 200,
-      },
-      {
-        label: "job detail",
-        method: "GET",
-        path: "/v1/aanvragen/:id",
-        status: 200,
-      },
-      {
-        label: "provenance versions",
-        method: "GET",
-        path: "/v1/aanvragen/:id/versies",
-        status: 200,
-      },
-      {
-        label: "raw preview",
-        method: "GET",
-        path: "/v1/raw/:ref",
-        status: 200,
-      },
-    ]);
+    evidence.assertObservedRoutes(
+      [
+        {
+          label: "source catalog",
+          method: "GET",
+          path: "/v1/bronnen",
+          status: 200,
+        },
+        {
+          label: "Boolean search",
+          method: "POST",
+          path: "/v1/aanvragen/search",
+          status: 200,
+        },
+        {
+          label: "search result hydration",
+          method: "POST",
+          path: "/v1/aanvragen/batch",
+          status: 200,
+        },
+        {
+          label: "job detail",
+          method: "GET",
+          path: "/v1/aanvragen/:id",
+          status: 200,
+        },
+        {
+          label: "provenance versions",
+          method: "GET",
+          path: "/v1/aanvragen/:id/versies",
+          status: 200,
+        },
+        {
+          label: "raw preview",
+          method: "GET",
+          path: "/v1/raw/:ref",
+          status: 200,
+        },
+      ],
+      screenshotAttestation
+    );
     evidence.assertNoBrowserFailures();
     await evidence.attachPassed(testInfo, page, {
       releaseSha: config.expectedReleaseSha,

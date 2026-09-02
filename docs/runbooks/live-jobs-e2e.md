@@ -40,11 +40,18 @@ cannot self-declare that a screenshot is safe. Raw-preview response bodies are
 never read by the harness.
 
 Every run, including local isolated runs, turns trace, video, and Playwright's
-automatic screenshots off. Each lane also installs an exact method/path
-allowlist for every `/v1` request. Any unexpected capability request fails the
-evidence, including a successful mutation outside the mutation lane's explicit
-allowlist.
-After every assertion succeeds, the authenticated lane emits only:
+automatic screenshots off. Each lane retains request URLs only in memory until
+it has proved the exact configured API origin, exact canary ID on every dynamic
+aanvraag route, exact attested raw reference, and exact method/path allowlist.
+Only then are origins, IDs, references, and query strings discarded. An
+off-origin `/v1` request or a dynamic route for another ID/reference fails the
+evidence even when its sanitized route shape would otherwise look allowed.
+
+After every assertion succeeds, the harness captures the fully masked
+screenshot, closes the page, proves that no network request remains pending,
+detaches its listeners, and validates one immutable final event snapshot. It
+then performs one attachment operation for a single JSON evidence bundle
+containing only:
 
 - a sanitized JSON route/status list with no headers, origins, query strings,
   payloads, cookies, IDs, or subjects;
@@ -52,9 +59,12 @@ After every assertion succeeds, the authenticated lane emits only:
   masked (including the global header/account area, application content,
   overlays, and toasts), so no response-derived field or real payload can be
   retained;
-- a sanitized pass manifest.
+- a sanitized pass manifest;
+- for the mutation lane, the sanitized cleanup receipt.
 
-Failed runs intentionally receive no harness attachment or pass manifest.
+The screenshot is base64-encoded inside that final bundle; it is never emitted
+before the network evidence is frozen and validated. Failed runs intentionally
+receive no harness attachment, cleanup receipt, or pass manifest.
 No run retains a Playwright trace. Local isolated runs must still use seeded or
 explicit non-PII canary data. Never attach or share a storage state, cookie,
 cleanup token, raw preview, ordinary vacancy, or aanvraag payload.

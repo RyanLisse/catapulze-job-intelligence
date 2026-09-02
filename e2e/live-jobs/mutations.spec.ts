@@ -5,6 +5,7 @@ import { z } from "zod";
 import type { CanaryScreenshotAttestation } from "./canary";
 import { assertMutationLiveRun, buildNamespacedQuery } from "./config";
 import { LiveJobsEvidence } from "./evidence";
+import type { SanitizedCleanupReceipt } from "./evidence";
 import { openLiveJobDetail } from "./job-flow";
 import { cleanupLiveJobsMutations } from "./mutation-cleanup";
 import type { MutationResource } from "./mutation-cleanup";
@@ -51,12 +52,12 @@ test.describe("isolated live /jobs mutation verification", () => {
     request,
   }, testInfo) => {
     const config = assertMutationLiveRun();
-    const evidence = new LiveJobsEvidence(page, config.baseUrl);
+    const evidence = new LiveJobsEvidence(page, config.baseUrl, config.apiUrl);
     const resources: MutationResource[] = [];
-    let assertionsPassed = false;
     let cleanupFailed = false;
     let primaryFailed = false;
     let screenshotAttestation: CanaryScreenshotAttestation | undefined;
+    let cleanupReceipt: SanitizedCleanupReceipt | undefined;
 
     try {
       const openedJob = await openLiveJobDetail({
@@ -117,75 +118,75 @@ test.describe("isolated live /jobs mutation verification", () => {
         timeout: config.timeoutMs,
       });
 
-      evidence.assertObservedRoutes([
-        {
-          label: "source catalog",
-          method: "GET",
-          path: "/v1/bronnen",
-          status: 200,
-        },
-        {
-          label: "Boolean search",
-          method: "POST",
-          path: "/v1/aanvragen/search",
-          status: 200,
-        },
-        {
-          label: "search result hydration",
-          method: "POST",
-          path: "/v1/aanvragen/batch",
-          status: 200,
-        },
-        {
-          label: "job detail",
-          method: "GET",
-          path: "/v1/aanvragen/:id",
-          status: 200,
-        },
-        {
-          label: "provenance versions",
-          method: "GET",
-          path: "/v1/aanvragen/:id/versies",
-          status: 200,
-        },
-        {
-          label: "raw preview",
-          method: "GET",
-          path: "/v1/raw/:ref",
-          status: 200,
-        },
-        {
-          label: "canary markering",
-          method: "POST",
-          path: "/v1/aanvragen/:id/markering",
-          status: 200,
-        },
-        {
-          label: "saved search",
-          method: "POST",
-          path: "/v1/saved-searches",
-          status: 200,
-        },
-        {
-          label: "snapshot",
-          method: "POST",
-          path: "/v1/snapshots",
-          status: 200,
-        },
-      ]);
+      evidence.assertObservedRoutes(
+        [
+          {
+            label: "source catalog",
+            method: "GET",
+            path: "/v1/bronnen",
+            status: 200,
+          },
+          {
+            label: "Boolean search",
+            method: "POST",
+            path: "/v1/aanvragen/search",
+            status: 200,
+          },
+          {
+            label: "search result hydration",
+            method: "POST",
+            path: "/v1/aanvragen/batch",
+            status: 200,
+          },
+          {
+            label: "job detail",
+            method: "GET",
+            path: "/v1/aanvragen/:id",
+            status: 200,
+          },
+          {
+            label: "provenance versions",
+            method: "GET",
+            path: "/v1/aanvragen/:id/versies",
+            status: 200,
+          },
+          {
+            label: "raw preview",
+            method: "GET",
+            path: "/v1/raw/:ref",
+            status: 200,
+          },
+          {
+            label: "canary markering",
+            method: "POST",
+            path: "/v1/aanvragen/:id/markering",
+            status: 200,
+          },
+          {
+            label: "saved search",
+            method: "POST",
+            path: "/v1/saved-searches",
+            status: 200,
+          },
+          {
+            label: "snapshot",
+            method: "POST",
+            path: "/v1/snapshots",
+            status: 200,
+          },
+        ],
+        screenshotAttestation
+      );
       evidence.assertNoBrowserFailures();
-      assertionsPassed = true;
     } catch {
       primaryFailed = true;
     }
 
     try {
-      await cleanupLiveJobsMutations({
-        attachReceipt: assertionsPassed,
+      cleanupReceipt = await cleanupLiveJobsMutations({
         config,
         request,
         resources,
-        testInfo,
       });
     } catch {
       cleanupFailed = true;
@@ -198,9 +199,11 @@ test.describe("isolated live /jobs mutation verification", () => {
       );
     }
 
-    await evidence.attachPassed(testInfo, page, {
+    const passedEvidence = {
+      cleanupReceipt,
       releaseSha: config.expectedReleaseSha,
       screenshotAttestation,
-    });
+    };
+    await evidence.attachPassed(testInfo, page, passedEvidence);
   });
 });

@@ -1,6 +1,7 @@
-import type { APIRequestContext, TestInfo } from "@playwright/test";
+import type { APIRequestContext } from "@playwright/test";
 
 import type { MutationLiveJobsConfig } from "./config";
+import type { SanitizedCleanupReceipt } from "./evidence";
 
 export interface MutationResource {
   readonly id: string;
@@ -8,11 +9,9 @@ export interface MutationResource {
 }
 
 interface CleanupLiveJobsInput {
-  readonly attachReceipt: boolean;
   readonly config: MutationLiveJobsConfig;
   readonly request: APIRequestContext;
   readonly resources: readonly MutationResource[];
-  readonly testInfo: TestInfo;
 }
 
 type CleanupFetcher = (
@@ -69,12 +68,10 @@ export const preflightLiveJobsCleanup = async (
  * isolated-environment endpoint that makes this cleanup idempotent.
  */
 export const cleanupLiveJobsMutations = async ({
-  attachReceipt,
   config,
   request,
   resources,
-  testInfo,
-}: CleanupLiveJobsInput): Promise<void> => {
+}: CleanupLiveJobsInput): Promise<SanitizedCleanupReceipt> => {
   const response = await request.post(config.cleanupUrl, {
     data: cleanupPayload(config, resources),
     headers: cleanupHeaders(config.cleanupToken),
@@ -87,20 +84,9 @@ export const cleanupLiveJobsMutations = async ({
     );
   }
 
-  if (!attachReceipt) {
-    return;
-  }
-
-  await testInfo.attach("cleanup-receipt.json", {
-    body: JSON.stringify(
-      {
-        namespace: config.testNamespace,
-        resourceKinds: resources.map((resource) => resource.kind),
-        status: response.status(),
-      },
-      null,
-      2
-    ),
-    contentType: "application/json",
-  });
+  return {
+    namespace: config.testNamespace,
+    resourceKinds: resources.map((resource) => resource.kind),
+    status: response.status(),
+  };
 };

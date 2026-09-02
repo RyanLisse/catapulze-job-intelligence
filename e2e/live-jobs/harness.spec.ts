@@ -1,5 +1,7 @@
 import { describe, expect, it } from "bun:test";
 
+import type { Page, TestInfo } from "@playwright/test";
+
 import { readLiveJobsArtifactPolicy } from "./artifact-policy";
 import {
   assertCanaryBatchResponse,
@@ -13,6 +15,7 @@ import type { LiveJobsEnvironment } from "./config";
 import {
   assertAllowedCapabilityRequests,
   hasForbiddenBrowserAuthHeader,
+  LiveJobsEvidence,
 } from "./evidence";
 import { throwSanitizedMutationFailures } from "./mutation-errors";
 import { preflightReleaseIdentity } from "./release-preflight";
@@ -20,6 +23,89 @@ import { preflightLiveJobsRun } from "./run-preflight";
 
 const canaryId = "00000000-0000-4000-8000-000000000001";
 const releaseSha = "0123456789abcdef0123456789abcdef01234567";
+
+interface FakeRequest {
+  readonly headers: () => Record<string, string>;
+  readonly method: () => string;
+  readonly url: () => string;
+}
+
+type EvidenceListener = (value: FakeRequest) => void;
+
+const fakeRequest = (targetUrl: string): FakeRequest => ({
+  headers: () => ({}),
+  method: () => "GET",
+  url: () => targetUrl,
+});
+
+class FakeEvidencePage {
+  attachedRequest: FakeRequest | null = null;
+  closed = false;
+  private readonly jobUrl = `https://jobs.example/jobs?job=${canaryId}`;
+  private readonly listeners = new Map<string, Set<EvidenceListener>>();
+  screenshotCalled = false;
+
+  readonly close = (): Promise<void> => {
+    this.closed = true;
+    if (this.attachedRequest) {
+      this.emit("requestfinished", this.attachedRequest);
+    }
+    return Promise.resolve();
+  };
+
+  emit(event: string, value: FakeRequest): void {
+    for (const listener of this.listeners.get(event) ?? []) {
+      listener(value);
+    }
+  }
+
+  readonly getByLabel = () => ({
+    count: () => Promise.resolve(this.closed ? 0 : 1),
+  });
+
+  readonly isClosed = (): boolean => this.closed;
+
+  readonly locator = (selector: string) => ({
+    count: () => Promise.resolve(!this.closed && selector === "pre" ? 1 : 0),
+  });
+
+  off(event: string, listener: EvidenceListener): void {
+    this.listeners.get(event)?.delete(listener);
+  }
+
+  on(event: string, listener: EvidenceListener): void {
+    const listeners = this.listeners.get(event) ?? new Set<EvidenceListener>();
+    listeners.add(listener);
+    this.listeners.set(event, listeners);
+  }
+
+  readonly screenshot = (): Promise<Buffer> => {
+    this.screenshotCalled = true;
+    if (this.attachedRequest) {
+      this.emit("request", this.attachedRequest);
+    }
+    return Promise.resolve(Buffer.from("fully-masked"));
+  };
+
+  readonly url = (): string => this.jobUrl;
+}
+
+// SAFETY: this fake implements every Page member exercised by LiveJobsEvidence.
+// oxlint-disable-next-line anti-slop/no-chained-type-assertions
+const asPage = (page: FakeEvidencePage): Page => page as unknown as Page;
+
+const issueCanaryAttestation = async () => {
+  const aanvraag = {
+    id: canaryId,
+    rawPayloadRef: "safe-canary-ref",
+    titel: "Safe canary",
+  };
+  return await assertCanaryDetailResponse(
+    { aanvraag },
+    canaryId,
+    await canonicalCanaryDigest(aanvraag)
+  );
+};
 
 const remoteEnvironment = {
   E2E_API_URL: "https://api.jobs.example",
@@ -105,7 +191,13 @@ describe("live jobs E2E canary and artifact boundaries", () => {
       digest
     );
     expect(isCanaryScreenshotAttestation(attestation)).toBe(true);
-    expect(isCanaryScreenshotAttestation({ canaryId, digest })).toBe(false);
+    expect(
+      isCanaryScreenshotAttestation({
+        canaryId,
+        digest,
+        rawPayloadRef: aanvraag.rawPayloadRef,
+      })
+    ).toBe(false);
     await expect(
       assertCanaryDetailResponse(
         { aanvraag },
@@ -172,6 +264,116 @@ describe("live jobs E2E canary and artifact boundaries", () => {
         allowlist
       )
     ).toThrow(/outside its exact allowlist/u);
+  });
+
+  it("rejects off-origin capability traffic before route sanitization", async () => {
+    const attestation = await issueCanaryAttestation();
+    const fakePage = new FakeEvidencePage();
+    const page = asPage(fakePage);
+    const evidence = new LiveJobsEvidence(
+      page,
+      "https://jobs.example",
+      "https://api.jobs.example"
+    );
+    const request = fakeRequest("https://attacker.example/v1/aanvragen/search");
+    fakePage.emit("request", request);
+    fakePage.emit("requestfinished", request);
+
+    expect(() => evidence.assertObservedRoutes([], attestation)).toThrow(
+      /outside the configured API origin/u
+    );
+  });
+
+  it("rejects wrong dynamic canary ids and raw references", async () => {
+    const attestation = await issueCanaryAttestation();
+    for (const targetUrl of [
+      "https://api.jobs.example/v1/aanvragen/11111111-1111-4111-8111-111111111111",
+      "https://api.jobs.example/v1/raw/wrong-ref",
+    ]) {
+      const fakePage = new FakeEvidencePage();
+      const page = asPage(fakePage);
+      const evidence = new LiveJobsEvidence(
+        page,
+        "https://jobs.example",
+        "https://api.jobs.example"
+      );
+      const request = fakeRequest(targetUrl);
+      fakePage.emit("request", request);
+      fakePage.emit("requestfinished", request);
+
+      expect(() => evidence.assertObservedRoutes([], attestation)).toThrow(
+        /different canary identity/u
+      );
+    }
+  });
+
+  it("publishes nothing when forbidden traffic starts during screenshot capture", async () => {
+    const attestation = await issueCanaryAttestation();
+    const fakePage = new FakeEvidencePage();
+    fakePage.attachedRequest = fakeRequest(
+      "https://attacker.example/v1/aanvragen/search"
+    );
+    const page = asPage(fakePage);
+    const evidence = new LiveJobsEvidence(
+      page,
+      "https://jobs.example",
+      "https://api.jobs.example"
+    );
+    evidence.assertObservedRoutes([], attestation);
+    let attachmentCount = 0;
+    const recordingTestInfo = {
+      attach: () => {
+        attachmentCount += 1;
+        return Promise.resolve();
+      },
+    };
+    // SAFETY: LiveJobsEvidence uses only TestInfo.attach in this regression.
+    // oxlint-disable-next-line anti-slop/no-chained-type-assertions
+    const testInfo = recordingTestInfo as unknown as TestInfo;
+
+    await expect(
+      evidence.attachPassed(testInfo, page, {
+        releaseSha,
+        screenshotAttestation: attestation,
+      })
+    ).rejects.toThrow(/outside the configured API origin/u);
+    expect(fakePage.screenshotCalled).toBe(true);
+    expect(fakePage.closed).toBe(true);
+    expect(attachmentCount).toBe(0);
+  });
+
+  it("publishes one final sanitized bundle after closing the page", async () => {
+    const attestation = await issueCanaryAttestation();
+    const fakePage = new FakeEvidencePage();
+    const page = asPage(fakePage);
+    const evidence = new LiveJobsEvidence(
+      page,
+      "https://jobs.example",
+      "https://api.jobs.example"
+    );
+    evidence.assertObservedRoutes([], attestation);
+    const attachments: string[] = [];
+    const recordingTestInfo = {
+      attach: (_name: string, options: { readonly body?: Buffer | string }) => {
+        attachments.push(String(options.body));
+        return Promise.resolve();
+      },
+    };
+    // SAFETY: LiveJobsEvidence uses only TestInfo.attach in this regression.
+    // oxlint-disable-next-line anti-slop/no-chained-type-assertions
+    const testInfo = recordingTestInfo as unknown as TestInfo;
+
+    await evidence.attachPassed(testInfo, page, {
+      releaseSha,
+      screenshotAttestation: attestation,
+    });
+
+    expect(fakePage.closed).toBe(true);
+    expect(attachments).toHaveLength(1);
+    expect(attachments[0]).toContain("pass-manifest.json");
+    expect(attachments[0]).not.toContain(canaryId);
+    expect(attachments[0]).not.toContain(attestation.rawPayloadRef);
+    expect(attachments[0]).not.toContain("api.jobs.example");
   });
 
   it("preserves primary and cleanup failure classes without unsafe details", () => {

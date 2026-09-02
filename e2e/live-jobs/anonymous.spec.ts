@@ -13,7 +13,7 @@ test.describe("anonymous live /jobs verification", () => {
     page,
   }, testInfo) => {
     const config = assertAnonymousLiveRun();
-    const evidence = new LiveJobsEvidence(page, config.baseUrl);
+    const evidence = new LiveJobsEvidence(page, config.baseUrl, config.apiUrl);
 
     const navigation = await page.goto(buildJobsUrl(config.baseUrl), {
       waitUntil: "domcontentloaded",
