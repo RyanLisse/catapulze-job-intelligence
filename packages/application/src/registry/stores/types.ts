@@ -131,7 +131,11 @@ export interface SavedSearchStore {
   create: (
     record: Omit<SavedSearchRecord, "createdAt" | "id" | "updatedAt">
   ) => Promise<SavedSearchRecord>;
-  getById: (id: string) => Promise<SavedSearchRecord | null>;
+  /**
+   * Owner-scoped lookup. Returning null for another user's record prevents a
+   * caller from discovering or binding another tenant's saved search by id.
+   */
+  getById: (id: string, userId: string) => Promise<SavedSearchRecord | null>;
 }
 
 export interface QuerySnapshotStore {
@@ -177,16 +181,22 @@ export interface MarkeringStore {
     aanvraagId: string,
     userId: string
   ) => Promise<AanvraagMarkering | null>;
-  set: (
-    markering: Omit<AanvraagMarkering, "createdAt">
-  ) => Promise<AanvraagMarkering>;
+  /**
+   * The only markering write boundary. Implementations must persist the
+   * markering and its audit event atomically, or persist neither.
+   */
+  setWithAudit: (markering: Omit<AanvraagMarkering, "createdAt">) => Promise<{
+    readonly auditEvent: AuditEventRecord;
+    readonly markering: AanvraagMarkering;
+  }>;
 }
 
 export interface AuditStore {
   append: (
     event: Omit<AuditEventRecord, "createdAt" | "id">
   ) => Promise<AuditEventRecord>;
-  list: () => readonly AuditEventRecord[];
+  /** Internal owner-scoped read used for verification and future audit UI. */
+  listByActorId: (actorId: string) => Promise<readonly AuditEventRecord[]>;
 }
 
 export interface AlertStore {

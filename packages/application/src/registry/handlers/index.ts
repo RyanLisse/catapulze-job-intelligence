@@ -604,6 +604,18 @@ export const createSnapshotHandler =
       );
     }
 
+    if (input.savedSearchId) {
+      const savedSearch = await deps.stores.savedSearches.getById(
+        input.savedSearchId,
+        context.principal.subjectId
+      );
+      if (!savedSearch) {
+        return domainFailure("NOT_FOUND", "Saved search not found", {
+          id: input.savedSearchId,
+        });
+      }
+    }
+
     const searchVersion = await deps.searchAdapter.getAppliedVersion();
     const snapshot = await deps.stores.snapshots.create({
       filters: input.filters ?? {},
@@ -844,28 +856,18 @@ export const createMarkeerAanvraagHandler =
         id: input.aanvraagId,
       });
     }
-    const markering = await deps.stores.markeringen.set({
-      aanvraagId: input.aanvraagId,
-      reden: input.reden ?? null,
-      status: input.status,
-      userId: context.principal.subjectId,
-    });
-    const audit = await deps.stores.audit.append({
-      action: "markeer_aanvraag",
-      actorId: context.principal.subjectId,
-      auditClass: "effect",
-      entityId: input.aanvraagId,
-      entityType: "aanvraag",
-      metadata: {
-        reden: markering.reden,
-        status: markering.status,
-      },
-    });
+    const { auditEvent, markering } =
+      await deps.stores.markeringen.setWithAudit({
+        aanvraagId: input.aanvraagId,
+        reden: input.reden ?? null,
+        status: input.status,
+        userId: context.principal.subjectId,
+      });
     return {
       ok: true as const,
       value: {
         aanvraagId: markering.aanvraagId,
-        auditEventId: audit.id,
+        auditEventId: auditEvent.id,
         reden: markering.reden,
         status: markering.status,
       },

@@ -69,7 +69,10 @@ describe("approve_snapshot", () => {
   it("creates an approval bound to an existing snapshot and writes audit", async () => {
     const bundle = createTestSliceARegistry();
     const snapshot = await createSnapshot(bundle, snapshotSelection(3));
-    const beforeAudit = bundle.deps.stores.audit.list().length;
+    const auditBeforeApproval = await bundle.deps.stores.audit.listByActorId(
+      approverPrincipal.subjectId
+    );
+    const beforeAudit = auditBeforeApproval.length;
 
     const approve = bundle.registry.createInvoker({
       capabilityId: "approve_snapshot",
@@ -91,7 +94,9 @@ describe("approve_snapshot", () => {
     }
     expect(result.value.snapshotId).toBe(snapshot.id);
     expect(result.value.resultIds).toEqual(snapshot.resultIds);
-    expect(bundle.deps.stores.audit.list()).toHaveLength(beforeAudit + 1);
+    expect(
+      await bundle.deps.stores.audit.listByActorId(approverPrincipal.subjectId)
+    ).toHaveLength(beforeAudit + 1);
   });
 
   it("rejects approval when the snapshot does not exist", async () => {

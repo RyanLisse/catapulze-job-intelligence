@@ -13,11 +13,14 @@ import { createRawObjectStore } from "@ji/connectors/s3-object-client";
 import {
   PostgresAanvraagStore,
   PostgresApprovalStore,
+  PostgresAuditStore,
   PostgresExportAttemptStore,
   PostgresExternalIdCrosswalkStore,
   PostgresExternalReceiptStore,
+  PostgresMarkeringStore,
   PostgresQuerySnapshotStore,
   PostgresRawPayloadStore,
+  PostgresSavedSearchStore,
   PostgresSearchVersionStore,
   createBronRuntimeClient,
 } from "@ji/db";
@@ -92,10 +95,13 @@ export const createProductionSliceADeps = async (
     ...memoryStores,
     aanvragen: new PostgresAanvraagStore(runtime.database),
     approvals: new PostgresApprovalStore(runtime.database),
+    audit: new PostgresAuditStore(runtime.database),
     exportAttempts: new PostgresExportAttemptStore(runtime.database),
     externalCrosswalk: new PostgresExternalIdCrosswalkStore(runtime.database),
     externalReceipts: new PostgresExternalReceiptStore(runtime.database),
+    markeringen: new PostgresMarkeringStore(runtime.database),
     rawPayloads: new PostgresRawPayloadStore(objectStore),
+    savedSearches: new PostgresSavedSearchStore(runtime.database),
     snapshots: new PostgresQuerySnapshotStore(runtime.database),
   };
 

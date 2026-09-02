@@ -44,7 +44,7 @@ describe("batch_get_aanvragen (RJC-379)", () => {
     const bundle = createTestSliceARegistry();
     bundle.deps.stores.aanvragen.seed(seedRecord(idA, "a"));
     bundle.deps.stores.aanvragen.seed(seedRecord(idB, "b"));
-    await bundle.deps.stores.markeringen.set({
+    await bundle.deps.stores.markeringen.setWithAudit({
       aanvraagId: idA,
       reden: null,
       status: "relevant",

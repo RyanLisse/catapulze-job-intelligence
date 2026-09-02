@@ -324,6 +324,38 @@ export const savedSearch = curatedSchema.table(
   (table) => [index("saved_search_user_id_idx").on(table.userId)]
 );
 
+export const aanvraagMarkering = curatedSchema.table(
+  "aanvraag_markering",
+  {
+    aanvraagId: uuid("aanvraag_id")
+      .notNull()
+      .references(() => aanvraag.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    id: uuid("id").defaultRandom().primaryKey(),
+    reden: text("reden"),
+    status: text("status").notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .$onUpdate(() => new Date())
+      .notNull(),
+    userId: text("user_id").notNull(),
+  },
+  (table) => [
+    uniqueIndex("aanvraag_markering_user_aanvraag_uidx").on(
+      table.userId,
+      table.aanvraagId
+    ),
+    index("aanvraag_markering_aanvraag_id_idx").on(table.aanvraagId),
+    index("aanvraag_markering_user_id_idx").on(table.userId),
+    check(
+      "aanvraag_markering_status_check",
+      sql`${table.status} IN ('relevant', 'niet_relevant', 'gevolgd')`
+    ),
+  ]
+);
+
 export const querySnapshot = curatedSchema.table(
   "query_snapshot",
   {
@@ -386,6 +418,7 @@ export const auditEvent = curatedSchema.table(
       .notNull(),
   },
   (table) => [
+    index("audit_event_actor_id_idx").on(table.actorId),
     index("audit_event_entity_idx").on(table.entityType, table.entityId),
     index("audit_event_occurred_at_idx").on(table.occurredAt),
   ]
@@ -566,6 +599,16 @@ export const aanvraagBronLinkRelations = relations(
 export const savedSearchRelations = relations(savedSearch, ({ many }) => ({
   snapshots: many(querySnapshot),
 }));
+
+export const aanvraagMarkeringRelations = relations(
+  aanvraagMarkering,
+  ({ one }) => ({
+    aanvraag: one(aanvraag, {
+      fields: [aanvraagMarkering.aanvraagId],
+      references: [aanvraag.id],
+    }),
+  })
+);
 
 export const approvalRecord = curatedSchema.table(
   "approval_record",

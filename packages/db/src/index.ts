@@ -31,6 +31,12 @@ export {
   type ReadPathDatabase,
 } from "./read-path-stores";
 export {
+  PostgresAuditStore,
+  PostgresMarkeringStore,
+  PostgresSavedSearchStore,
+  type UserWriteDatabase,
+} from "./user-write-stores";
+export {
   PostgresBackfillProvenanceStore,
   PostgresBackfillRunStore,
   seedMotianV1Bronnen,

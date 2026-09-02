@@ -14,6 +14,8 @@ export {
   aanvraag,
   aanvraagBronLink,
   aanvraagBronLinkRelations,
+  aanvraagMarkering,
+  aanvraagMarkeringRelations,
   aanvraagRelations,
   aanvraagVersie,
   aanvraagVersieRelations,
