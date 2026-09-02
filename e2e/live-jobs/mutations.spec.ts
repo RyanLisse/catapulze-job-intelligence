@@ -7,9 +7,19 @@ import { assertMutationLiveRun, buildNamespacedQuery } from "./config";
 import { LiveJobsEvidence } from "./evidence";
 import type { SanitizedCleanupReceipt } from "./evidence";
 import { openLiveJobDetail } from "./job-flow";
-import { cleanupLiveJobsMutations } from "./mutation-cleanup";
-import type { MutationResource } from "./mutation-cleanup";
-import { throwSanitizedMutationFailures } from "./mutation-errors";
+import {
+  cleanupLiveJobsMutations,
+  createMutationAttemptLedger,
+} from "./mutation-cleanup";
+import type {
+  MutationCleanupBaseline,
+  MutationResource,
+} from "./mutation-cleanup";
+import {
+  safeMutationFailure,
+  throwSanitizedMutationFailures,
+} from "./mutation-errors";
+import type { MutationFailure, MutationFailurePhase } from "./mutation-errors";
 import { preflightLiveJobsRun } from "./run-preflight";
 
 const isApiResponse = (
@@ -43,8 +53,12 @@ const readId = async (
 };
 
 test.describe("isolated live /jobs mutation verification", () => {
+  let cleanupBaseline: MutationCleanupBaseline | undefined;
+
   test.beforeAll(async () => {
-    await preflightLiveJobsRun("writes");
+    const { cleanupBaseline: capturedBaseline } =
+      await preflightLiveJobsRun("writes");
+    cleanupBaseline = capturedBaseline;
   });
 
   test("marks one canary, saves a namespaced search, snapshots it, and cleans up", async ({
@@ -52,10 +66,17 @@ test.describe("isolated live /jobs mutation verification", () => {
     request,
   }, testInfo) => {
     const config = assertMutationLiveRun();
+    if (!cleanupBaseline) {
+      throw new Error(
+        "Live jobs mutation cleanup baseline was not captured before browser writes."
+      );
+    }
     const evidence = new LiveJobsEvidence(page, config.baseUrl, config.apiUrl);
-    const resources: MutationResource[] = [];
-    let cleanupFailed = false;
-    let primaryFailed = false;
+    const attemptedWrites = createMutationAttemptLedger();
+    const observedResources: MutationResource[] = [];
+    let failurePhase: MutationFailurePhase = "open-canary";
+    let cleanupFailure: MutationFailure | undefined;
+    let primaryFailure: MutationFailure | undefined;
     let screenshotAttestation: CanaryScreenshotAttestation | undefined;
     let cleanupReceipt: SanitizedCleanupReceipt | undefined;
 
@@ -68,7 +89,7 @@ test.describe("isolated live /jobs mutation verification", () => {
       const { jobId, screenshotAttestation: verifiedAttestation } = openedJob;
       screenshotAttestation = verifiedAttestation;
 
-      resources.push({ id: jobId, kind: "markering" });
+      failurePhase = "mark-canary";
       const markResponse = page.waitForResponse((response) =>
         isApiResponse(
           response,
@@ -77,6 +98,7 @@ test.describe("isolated live /jobs mutation verification", () => {
           `/v1/aanvragen/${jobId}/markering`
         )
       );
+      attemptedWrites.markering = true;
       await page
         .getByRole("button", { name: /markeren als relevant/iu })
         .click();
@@ -86,15 +108,17 @@ test.describe("isolated live /jobs mutation verification", () => {
         timeout: config.timeoutMs,
       });
 
+      failurePhase = "save-search";
       const savedSearchResponse = page.waitForResponse((response) =>
         isApiResponse(response, config.apiUrl, "POST", "/v1/saved-searches")
       );
+      attemptedWrites.savedSearch = true;
       await page
         .getByRole("button", { exact: true, name: "Zoekopdracht opslaan" })
         .click();
       const savedSearch = await savedSearchResponse;
       expect(savedSearch.status()).toBe(200);
-      resources.push({
+      observedResources.push({
         id: await readId(savedSearch, "Saved search"),
         kind: "saved-search",
       });
@@ -102,15 +126,17 @@ test.describe("isolated live /jobs mutation verification", () => {
         timeout: config.timeoutMs,
       });
 
+      failurePhase = "create-snapshot";
       const snapshotResponse = page.waitForResponse((response) =>
         isApiResponse(response, config.apiUrl, "POST", "/v1/snapshots")
       );
+      attemptedWrites.snapshot = true;
       await page
         .getByRole("button", { exact: true, name: "Snapshot maken" })
         .click();
       const snapshot = await snapshotResponse;
       expect(snapshot.status()).toBe(200);
-      resources.push({
+      observedResources.push({
         id: await readId(snapshot, "Snapshot"),
         kind: "snapshot",
       });
@@ -118,6 +144,7 @@ test.describe("isolated live /jobs mutation verification", () => {
         timeout: config.timeoutMs,
       });
 
+      failurePhase = "route-assertion";
       evidence.assertObservedRoutes(
         [
           {
@@ -179,19 +206,30 @@ test.describe("isolated live /jobs mutation verification", () => {
       );
       evidence.assertNoBrowserFailures();
     } catch {
-      primaryFailed = true;
+      primaryFailure = {
+        code: "mutation-assertion-failed",
+        phase: failurePhase,
+      };
     }
 
     try {
       cleanupReceipt = await cleanupLiveJobsMutations({
+        attemptedWrites,
+        baseline: cleanupBaseline,
         config,
+        observedResources,
         request,
-        resources,
       });
-    } catch {
-      cleanupFailed = true;
+    } catch (error) {
+      cleanupFailure =
+        error instanceof Error
+          ? safeMutationFailure(error, {
+              code: "cleanup-request-failed",
+              phase: "cleanup",
+            })
+          : { code: "cleanup-request-failed", phase: "cleanup" };
     }
-    throwSanitizedMutationFailures({ cleanupFailed, primaryFailed });
+    throwSanitizedMutationFailures({ cleanupFailure, primaryFailure });
 
     if (!screenshotAttestation) {
       throw new Error(

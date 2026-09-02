@@ -10,14 +10,23 @@ import {
   canonicalCanaryDigest,
   isCanaryScreenshotAttestation,
 } from "./canary";
-import { assertAnonymousLiveRun } from "./config";
+import type { CanaryJsonValue } from "./canary";
+import { assertAnonymousLiveRun, assertMutationLiveRun } from "./config";
 import type { LiveJobsEnvironment } from "./config";
 import {
   assertAllowedCapabilityRequests,
   hasForbiddenBrowserAuthHeader,
   LiveJobsEvidence,
 } from "./evidence";
-import { throwSanitizedMutationFailures } from "./mutation-errors";
+import {
+  cleanupLiveJobsMutations,
+  createMutationAttemptLedger,
+} from "./mutation-cleanup";
+import type { SanitizedMutationError } from "./mutation-errors";
+import {
+  safeMutationFailure,
+  throwSanitizedMutationFailures,
+} from "./mutation-errors";
 import { preflightReleaseIdentity } from "./release-preflight";
 import { preflightLiveJobsRun } from "./run-preflight";
 
@@ -41,6 +50,7 @@ const fakeRequest = (targetUrl: string): FakeRequest => ({
 class FakeEvidencePage {
   attachedRequest: FakeRequest | null = null;
   closed = false;
+  finishRequestDuringScreenshot = false;
   private readonly jobUrl = `https://jobs.example/jobs?job=${canaryId}`;
   private readonly listeners = new Map<string, Set<EvidenceListener>>();
   screenshotCalled = false;
@@ -83,11 +93,19 @@ class FakeEvidencePage {
     this.screenshotCalled = true;
     if (this.attachedRequest) {
       this.emit("request", this.attachedRequest);
+      if (this.finishRequestDuringScreenshot) {
+        this.emit("requestfinished", this.attachedRequest);
+      }
     }
     return Promise.resolve(Buffer.from("fully-masked"));
   };
 
   readonly url = (): string => this.jobUrl;
+
+  readonly waitForLoadState = (): Promise<void> =>
+    this.closed
+      ? Promise.reject(new Error("fake page already closed"))
+      : Promise.resolve();
 }
 
 // SAFETY: this fake implements every Page member exercised by LiveJobsEvidence.
@@ -307,12 +325,11 @@ describe("live jobs E2E canary and artifact boundaries", () => {
     }
   });
 
-  it("publishes nothing when forbidden traffic starts during screenshot capture", async () => {
+  it("publishes nothing when an otherwise allowed request starts during screenshot capture", async () => {
     const attestation = await issueCanaryAttestation();
     const fakePage = new FakeEvidencePage();
-    fakePage.attachedRequest = fakeRequest(
-      "https://attacker.example/v1/aanvragen/search"
-    );
+    fakePage.attachedRequest = fakeRequest("https://jobs.example/favicon.ico");
+    fakePage.finishRequestDuringScreenshot = true;
     const page = asPage(fakePage);
     const evidence = new LiveJobsEvidence(
       page,
@@ -336,8 +353,44 @@ describe("live jobs E2E canary and artifact boundaries", () => {
         releaseSha,
         screenshotAttestation: attestation,
       })
-    ).rejects.toThrow(/outside the configured API origin/u);
+    ).rejects.toThrow(/request start during screenshot capture/u);
     expect(fakePage.screenshotCalled).toBe(true);
+    expect(fakePage.closed).toBe(true);
+    expect(attachmentCount).toBe(0);
+  });
+
+  it("refuses screenshot capture until the network has zero pending requests", async () => {
+    const attestation = await issueCanaryAttestation();
+    const fakePage = new FakeEvidencePage();
+    const page = asPage(fakePage);
+    const evidence = new LiveJobsEvidence(
+      page,
+      "https://jobs.example",
+      "https://api.jobs.example"
+    );
+    fakePage.emit(
+      "request",
+      fakeRequest("https://jobs.example/still-loading.css")
+    );
+    evidence.assertObservedRoutes([], attestation);
+    let attachmentCount = 0;
+    const recordingTestInfo = {
+      attach: () => {
+        attachmentCount += 1;
+        return Promise.resolve();
+      },
+    };
+    // SAFETY: LiveJobsEvidence uses only TestInfo.attach in this regression.
+    // oxlint-disable-next-line anti-slop/no-chained-type-assertions
+    const testInfo = recordingTestInfo as unknown as TestInfo;
+
+    await expect(
+      evidence.attachPassed(testInfo, page, {
+        releaseSha,
+        screenshotAttestation: attestation,
+      })
+    ).rejects.toThrow(/network requests were pending/u);
+    expect(fakePage.screenshotCalled).toBe(false);
     expect(fakePage.closed).toBe(true);
     expect(attachmentCount).toBe(0);
   });
@@ -376,12 +429,130 @@ describe("live jobs E2E canary and artifact boundaries", () => {
     expect(attachments[0]).not.toContain("api.jobs.example");
   });
 
+  it("restores the full attempted-write scope despite a lost resource response", async () => {
+    const config = assertMutationLiveRun(mutationEnvironment);
+    const attemptedWrites = createMutationAttemptLedger();
+    attemptedWrites.markering = true;
+    attemptedWrites.savedSearch = true;
+    attemptedWrites.snapshot = true;
+    let cleanupCalls = 0;
+
+    const receipt = await cleanupLiveJobsMutations({
+      attemptedWrites,
+      baseline: { token: "safe-baseline-token" },
+      config,
+      observedResources: [{ id: "observed-search-id", kind: "saved-search" }],
+      request: {
+        post: (url, options) => {
+          cleanupCalls += 1;
+          expect(url).toBe(config.cleanupUrl);
+          expect(options.maxRedirects).toBe(0);
+          expect(options.data).toEqual({
+            action: "restore-baseline-and-verify",
+            attemptedWrites: {
+              markering: true,
+              savedSearch: true,
+              snapshot: true,
+            },
+            baselineToken: "safe-baseline-token",
+            observedResources: [
+              { id: "observed-search-id", kind: "saved-search" },
+            ],
+            scope: {
+              accountId: config.testAccountId,
+              canaryId: config.canaryId,
+              namespace: config.testNamespace,
+            },
+          });
+          return Promise.resolve({
+            json: () =>
+              Promise.resolve({
+                baselineRestored: true,
+                residualRunWrites: {
+                  markering: 0,
+                  savedSearch: 0,
+                  snapshot: 0,
+                },
+                status: "clean",
+              }),
+            status: () => 200,
+            url: () => config.cleanupUrl,
+          });
+        },
+      },
+    });
+
+    expect(cleanupCalls).toBe(1);
+    expect(receipt).toEqual({
+      attemptedKinds: ["markering", "saved-search", "snapshot"],
+      baselineRestored: true,
+      residueCount: 0,
+      status: 200,
+    });
+  });
+
+  it("fails cleanup on residue or a malformed receipt with safe typed metadata", async () => {
+    const config = assertMutationLiveRun(mutationEnvironment);
+    const attemptedWrites = createMutationAttemptLedger();
+    attemptedWrites.snapshot = true;
+    const cleanup = (payload: CanaryJsonValue) =>
+      cleanupLiveJobsMutations({
+        attemptedWrites,
+        baseline: { token: "safe-baseline-token" },
+        config,
+        observedResources: [],
+        request: {
+          post: () =>
+            Promise.resolve({
+              json: () => Promise.resolve(payload),
+              status: () => 200,
+              url: () => config.cleanupUrl,
+            }),
+        },
+      });
+
+    await expect(
+      cleanup({
+        baselineRestored: true,
+        residualRunWrites: {
+          markering: 0,
+          savedSearch: 0,
+          snapshot: 1,
+        },
+        status: "residue",
+      })
+    ).rejects.toMatchObject({ code: "cleanup-residue", phase: "cleanup" });
+    await expect(
+      cleanup({ unexpected: "unsafe response omitted" })
+    ).rejects.toMatchObject({
+      code: "cleanup-invalid-response",
+      phase: "cleanup",
+    });
+  });
+
   it("preserves primary and cleanup failure classes without unsafe details", () => {
+    const sanitizedFallback = safeMutationFailure(
+      new Error(
+        "POST https://api.secret.example/v1/snapshots body=private selector=#identity token=credential"
+      ),
+      { code: "mutation-assertion-failed", phase: "create-snapshot" }
+    );
+    expect(sanitizedFallback).toEqual({
+      code: "mutation-assertion-failed",
+      phase: "create-snapshot",
+    });
+
     let caught: unknown;
     try {
       throwSanitizedMutationFailures({
-        cleanupFailed: true,
-        primaryFailed: true,
+        cleanupFailure: {
+          code: "cleanup-residue",
+          phase: "cleanup",
+        },
+        primaryFailure: {
+          code: "mutation-assertion-failed",
+          phase: "save-search",
+        },
       });
     } catch (error) {
       caught = error;
@@ -394,12 +565,18 @@ describe("live jobs E2E canary and artifact boundaries", () => {
     const aggregate = caught;
     expect(aggregate.errors).toHaveLength(2);
     expect(aggregate.message).toBe(
-      "Live jobs mutation and cleanup both failed."
+      "Live jobs mutation and cleanup both failed with sanitized typed metadata."
     );
-    expect(aggregate.errors.map((error: Error) => error.message)).toEqual([
-      "Live jobs mutation assertions failed; no unsafe error detail was retained.",
-      "Live jobs mutation cleanup failed; no unsafe error detail was retained.",
+    expect(
+      aggregate.errors.map((error: SanitizedMutationError) => ({
+        code: error.code,
+        phase: error.phase,
+      }))
+    ).toEqual([
+      { code: "mutation-assertion-failed", phase: "save-search" },
+      { code: "cleanup-residue", phase: "cleanup" },
     ]);
+    expect(JSON.stringify(aggregate)).not.toContain("https://");
   });
 
   it("flags legacy role-bearing browser headers without retaining values", () => {
@@ -458,6 +635,17 @@ describe("live jobs E2E canary and artifact boundaries", () => {
     ).rejects.toThrow(/does not exactly match/u);
   });
 
+  it("returns the captured cleanup baseline from write preflight", async () => {
+    const result = await preflightLiveJobsRun("writes", mutationEnvironment, {
+      cleanupPreflight: () => Promise.resolve({ token: "safe-baseline-token" }),
+      releasePreflight: () => Promise.resolve(),
+      sessionVerifier: () =>
+        Promise.resolve({ subjectId: "dedicated-test-account" }),
+    });
+
+    expect(result.cleanupBaseline).toEqual({ token: "safe-baseline-token" });
+  });
+
   it("never reaches cleanup when the derived session subject mismatches", async () => {
     let cleanupCalls = 0;
 
@@ -465,7 +653,7 @@ describe("live jobs E2E canary and artifact boundaries", () => {
       preflightLiveJobsRun("writes", mutationEnvironment, {
         cleanupPreflight: () => {
           cleanupCalls += 1;
-          return Promise.resolve();
+          return Promise.resolve({ token: "safe-baseline-token" });
         },
         releasePreflight: () => Promise.resolve(),
         sessionVerifier: () =>

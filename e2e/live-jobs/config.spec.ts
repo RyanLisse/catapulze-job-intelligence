@@ -240,7 +240,7 @@ describe("live jobs E2E guardrails", () => {
     ).toThrow(/E2E_EXPECTED_SUBJECT_ID/u);
   });
 
-  it("preflights an idempotent empty cleanup before browser writes", async () => {
+  it("captures a baseline-preserving cleanup scope before browser writes", async () => {
     const config = assertMutationLiveRun({
       ...localEnvironment,
       E2E_ALLOW_WRITES: "1",
@@ -255,19 +255,31 @@ describe("live jobs E2E guardrails", () => {
       E2E_TEST_NAMESPACE: "e2e-20260902-write",
     });
 
-    await preflightLiveJobsCleanup(config, (input, init) => {
+    const baseline = await preflightLiveJobsCleanup(config, (input, init) => {
       expect(input).toBe(config.cleanupUrl);
       expect(init?.method).toBe("POST");
       expect(init?.redirect).toBe("error");
       expect(init?.body).toBe(
         JSON.stringify({
-          accountId: config.testAccountId,
-          namespace: config.testNamespace,
-          resources: [],
+          action: "capture-baseline",
+          scope: {
+            accountId: config.testAccountId,
+            canaryId: config.canaryId,
+            namespace: config.testNamespace,
+          },
         })
       );
-      return Promise.resolve(new Response(null, { status: 204 }));
+      return Promise.resolve({
+        json: () =>
+          Promise.resolve({
+            baselineToken: "safe-baseline-token",
+            preservedExistingState: true,
+          }),
+        status: 200,
+        url: config.cleanupUrl,
+      });
     });
+    expect(baseline).toEqual({ token: "safe-baseline-token" });
   });
 
   it("blocks the mutation runner when cleanup preflight fails", async () => {
@@ -287,7 +299,11 @@ describe("live jobs E2E guardrails", () => {
 
     await expect(
       preflightLiveJobsCleanup(config, () =>
-        Promise.resolve(new Response(null, { status: 503 }))
+        Promise.resolve({
+          json: () => Promise.resolve(null),
+          status: 503,
+          url: config.cleanupUrl,
+        })
       )
     ).rejects.toThrow(/no browser writes were attempted/u);
   });

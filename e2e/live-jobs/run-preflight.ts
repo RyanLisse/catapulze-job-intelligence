@@ -9,6 +9,7 @@ import type {
   MutationLiveJobsConfig,
 } from "./config";
 import { preflightLiveJobsCleanup } from "./mutation-cleanup";
+import type { MutationCleanupBaseline } from "./mutation-cleanup";
 import { preflightReleaseIdentity } from "./release-preflight";
 import {
   assertExpectedSessionSubject,
@@ -23,19 +24,22 @@ import type {
 export type LiveJobsRunMode = "anonymous" | "session" | "writes";
 
 export interface LiveJobsRunPreflightDependencies {
-  readonly cleanupPreflight?: (config: MutationLiveJobsConfig) => Promise<void>;
+  readonly cleanupPreflight?: (
+    config: MutationLiveJobsConfig
+  ) => Promise<MutationCleanupBaseline>;
   readonly releasePreflight?: (config: LiveJobsConfig) => Promise<void>;
   readonly sessionVerifier?: AuthenticatedSessionVerifier;
 }
 
 export interface LiveJobsRunPreflightResult {
+  readonly cleanupBaseline?: MutationCleanupBaseline;
   readonly config: LiveJobsConfig;
   readonly session?: AuthenticatedSession;
 }
 
 /**
  * The browser is launched only after release identity, session subject, and
- * (for writes) idempotent cleanup gates succeed. Unit tests inject safe fake
+ * (for writes) baseline-preserving cleanup gates succeed. Unit tests inject safe fake
  * gates; the production session verifier intentionally remains unavailable
  * until credential-use authorization is granted.
  */
@@ -67,6 +71,8 @@ export const preflightLiveJobsRun = async (
   await releasePreflight(config);
   const session = await sessionVerifier(config);
   assertMutationSessionSubject(config, session);
-  await (dependencies.cleanupPreflight ?? preflightLiveJobsCleanup)(config);
-  return { config, session };
+  const cleanupBaseline = await (
+    dependencies.cleanupPreflight ?? preflightLiveJobsCleanup
+  )(config);
+  return { cleanupBaseline, config, session };
 };

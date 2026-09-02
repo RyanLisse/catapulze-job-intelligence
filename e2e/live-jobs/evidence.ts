@@ -56,8 +56,9 @@ interface BrowserFailure {
 }
 
 export interface SanitizedCleanupReceipt {
-  readonly namespace: string;
-  readonly resourceKinds: readonly string[];
+  readonly attemptedKinds: readonly string[];
+  readonly baselineRestored: true;
+  readonly residueCount: 0;
   readonly status: number;
 }
 
@@ -258,6 +259,7 @@ export class LiveJobsEvidence {
   private readonly networkEvents: RawNetworkEvent[] = [];
   private readonly page: Page;
   private readonly pendingRequests = new Set<Request>();
+  private requestSequence = 0;
   private routePolicy: EvidenceRoutePolicy | null = null;
   private readonly webOrigin: string;
 
@@ -285,6 +287,7 @@ export class LiveJobsEvidence {
   };
 
   private readonly onRequest = (request: Request): void => {
+    this.requestSequence += 1;
     this.pendingRequests.add(request);
     const target = parseTrackedUrl(request.url(), this.webOrigin);
     if (!target) {
@@ -463,6 +466,7 @@ export class LiveJobsEvidence {
     }
 
     let screenshot: Buffer | null = null;
+    let screenshotRequestSequence: number | null = null;
     if (options.screenshotAttestation) {
       if (
         !isCanaryScreenshotAttestation(options.screenshotAttestation) ||
@@ -485,6 +489,16 @@ export class LiveJobsEvidence {
           "Live jobs E2E refused to create a screenshot that is not an exact canary detail."
         );
       }
+      await page.waitForLoadState("networkidle");
+      if (this.pendingRequests.size > 0) {
+        await page.close({ runBeforeUnload: false });
+        this.detachListeners();
+        this.frozen = true;
+        throw new Error(
+          "Live jobs E2E refused screenshot capture while network requests were pending; no artifact was written."
+        );
+      }
+      screenshotRequestSequence = this.requestSequence;
       screenshot = await page.screenshot({
         fullPage: true,
         mask: [page.locator("body")],
@@ -499,6 +513,15 @@ export class LiveJobsEvidence {
     }
     this.detachListeners();
     this.frozen = true;
+
+    if (
+      screenshotRequestSequence !== null &&
+      this.requestSequence !== screenshotRequestSequence
+    ) {
+      throw new Error(
+        "Live jobs E2E observed a request start during screenshot capture; no artifact was written."
+      );
+    }
 
     const frozenEvents = Object.freeze(
       this.networkEvents.map((event) => Object.freeze({ ...event }))

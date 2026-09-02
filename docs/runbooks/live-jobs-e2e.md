@@ -47,11 +47,13 @@ Only then are origins, IDs, references, and query strings discarded. An
 off-origin `/v1` request or a dynamic route for another ID/reference fails the
 evidence even when its sanitized route shape would otherwise look allowed.
 
-After every assertion succeeds, the harness captures the fully masked
-screenshot, closes the page, proves that no network request remains pending,
-detaches its listeners, and validates one immutable final event snapshot. It
-then performs one attachment operation for a single JSON evidence bundle
-containing only:
+After every assertion succeeds, the harness waits for network idle and requires
+zero pending requests before it captures the fully masked screenshot. It then
+closes the page and fails if any request started during the capture/close
+window, even when that request was otherwise allowlisted and completed
+successfully. Only after proving zero pending requests does it detach its
+listeners and validate one immutable final event snapshot. It then performs
+one attachment operation for a single JSON evidence bundle containing only:
 
 - a sanitized JSON route/status list with no headers, origins, query strings,
   payloads, cookies, IDs, or subjects;
@@ -142,12 +144,21 @@ verification is therefore local and isolated only:
   the read-only lane;
 - `E2E_TEST_ACCOUNT_ID` must equal `E2E_EXPECTED_SUBJECT_ID` in config and
   the Better Auth-derived subject before any cleanup or browser write;
-- the cleanup URL is same-origin `/e2e/cleanup`, requires an environment-only
-  token, and must return exactly HTTP 204 to an idempotent empty-resource
-  preflight before Playwright launches;
-- the normal cleanup call must also return exact HTTP 204. Its receipt contains
-  only status, namespace, and resource kinds, and is attached only after the
-  full flow passes.
+- the cleanup URL is same-origin `/e2e/cleanup` and requires an
+  environment-only token;
+- before Playwright launches, the cleanup service captures an opaque baseline
+  for the exact isolated account/namespace and deterministic canary marker. It
+  must attest that pre-existing state will be preserved;
+- the browser records each write as attempted before the click that can commit
+  it. Server-returned resource IDs are optional cleanup hints, never the cleanup
+  boundary, so a committed write with a lost or malformed response is still
+  covered;
+- cleanup restores the captured baseline for the full scope and reports
+  separate zero residue counts for marker, saved-search, and snapshot writes.
+  A 200/204 alone is never success, and untouched or pre-existing state must
+  not be deleted;
+- the attached cleanup receipt contains only attempted resource kinds,
+  baseline-restored status, and total residue zero.
 
 ```bash
 E2E_LIVE=1 \
@@ -174,9 +185,10 @@ bun run e2e:live:jobs:writes
 Until a dedicated cleanup endpoint and the approved session verifier exist,
 the mutation command fails before a browser can mutate anything.
 
-If both the primary mutation flow and cleanup fail, the runner reports a
-sanitized `AggregateError` that preserves both failure classes without
-retaining raw Playwright, payload, account, or credential details.
+If either the primary mutation flow or cleanup fails, the runner retains only a
+safe typed code and phase. If both fail, a sanitized `AggregateError` preserves
+both typed failures without retaining URLs, response bodies, selectors,
+identities, or credential details.
 
 ## Offline checks
 
