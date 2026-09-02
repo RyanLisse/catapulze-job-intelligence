@@ -162,11 +162,11 @@ const descriptionForJob = (job: NeonV1JobRow): string =>
 const opdrachtgeverForJob = (job: NeonV1JobRow): string | typeof UNKNOWN =>
   job.end_client?.trim() || job.company?.trim() || UNKNOWN;
 
-/** Motian publishes no creation timestamp. `posted_at` is the honest source
- * for the publication/first-seen instant; only when it is null do we fall back
- * to the source scrape instant. A true creation instant remains absent. */
+/** Motian publishes no creation timestamp. `posted_at` is the only honest
+ * source for the publication/first-seen instant. When it is absent, first seen
+ * remains unknown; `scraped_at` is retained separately as scrape provenance. */
 const firstSeenAtForJob = (job: NeonV1JobRow): string | null =>
-  job.posted_at ?? job.scraped_at ?? null;
+  job.posted_at ?? null;
 
 const v1SpecificFieldsForJob = (
   job: NeonV1JobRow,

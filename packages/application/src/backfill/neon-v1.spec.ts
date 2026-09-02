@@ -58,7 +58,7 @@ describe("Neon v1 backfill mapping", () => {
     });
   });
 
-  it("uses posted_at as first seen with an honest scraped_at fallback", () => {
+  it("uses only posted_at as first seen and keeps scraped_at separate", () => {
     const postedAt = "2026-08-31T08:00:00.000Z";
     const scrapedAt = "2026-09-03T09:00:00.000Z";
     const postedDraft = mapV1JobToDraft({
@@ -66,7 +66,7 @@ describe("Neon v1 backfill mapping", () => {
       posted_at: postedAt,
       scraped_at: scrapedAt,
     });
-    const fallbackDraft = mapV1JobToDraft({
+    const missingPostedAtDraft = mapV1JobToDraft({
       ...sampleJob(),
       posted_at: null,
       scraped_at: scrapedAt,
@@ -77,8 +77,8 @@ describe("Neon v1 backfill mapping", () => {
       v1_posted_at: postedAt,
       v1_scraped_at: scrapedAt,
     });
-    expect(fallbackDraft.bronSpecifiek.value).toMatchObject({
-      v1_first_seen_at: scrapedAt,
+    expect(missingPostedAtDraft.bronSpecifiek.value).toMatchObject({
+      v1_first_seen_at: null,
       v1_posted_at: null,
       v1_scraped_at: scrapedAt,
     });
