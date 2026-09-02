@@ -15,6 +15,10 @@ import {
   outboxEvent,
   searchProjectionCheckpoint,
 } from "./schema/curated";
+import {
+  lockSearchIndexCoordination,
+  readSearchIndexCheckpoint,
+} from "./search-index-coordination";
 
 /** A generic aanvraag upsert intent; the projector reloads the current row. */
 export const SEARCH_REINDEX_EVENT_TYPE = "aanvraag.search_reindex";
@@ -196,32 +200,12 @@ export const searchReindexEventId = (
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 };
 
-const lockReindex = async (
-  database: BronRuntimeDatabase,
-  indexName: string
-): Promise<void> => {
-  await database.execute(
-    sql`SELECT pg_advisory_xact_lock(hashtext(${`search_reindex:${indexName}`}))`
-  );
-};
-
-const readCheckpoint = async (
+const readCheckpoint = (
   database: BronRuntimeDatabase,
   indexName: string,
   lock = false
-): Promise<Checkpoint | null> => {
-  const query = database
-    .select({
-      appliedSequence: searchProjectionCheckpoint.appliedSequence,
-      generation: searchProjectionCheckpoint.generation,
-      schemaHash: searchProjectionCheckpoint.schemaHash,
-    })
-    .from(searchProjectionCheckpoint)
-    .where(eq(searchProjectionCheckpoint.indexName, indexName))
-    .limit(1);
-  const [checkpoint] = lock ? await query.for("update") : await query;
-  return checkpoint ?? null;
-};
+): Promise<Checkpoint | null> =>
+  readSearchIndexCheckpoint(database, indexName, lock);
 
 const readHighWaterId = async (
   database: BronRuntimeDatabase
@@ -310,7 +294,7 @@ const beginGeneration = (
   force: boolean
 ): Promise<ReindexGeneration> =>
   database.transaction(async (transaction) => {
-    await lockReindex(transaction, indexName);
+    await lockSearchIndexCoordination(transaction, indexName);
     let checkpoint = await readCheckpoint(transaction, indexName, true);
 
     if (checkpoint === null) {
@@ -439,7 +423,7 @@ const enqueuePage = (
   pageSize: number
 ): Promise<AppliedPage> =>
   database.transaction(async (transaction) => {
-    await lockReindex(transaction, indexName);
+    await lockSearchIndexCoordination(transaction, indexName);
     assertPendingGeneration(
       await readCheckpoint(transaction, indexName, true),
       indexName,
@@ -496,7 +480,7 @@ const finalizeGeneration = (
   expectedSchemaHash: string
 ): Promise<number> =>
   database.transaction(async (transaction) => {
-    await lockReindex(transaction, indexName);
+    await lockSearchIndexCoordination(transaction, indexName);
     assertPendingGeneration(
       await readCheckpoint(transaction, indexName, true),
       indexName,

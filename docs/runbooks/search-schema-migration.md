@@ -43,6 +43,18 @@ started; Manticore cannot fence that late engine write.
    DESCRIBE aanvragen_archive;
    ```
 
+   For the v4 projection fingerprint migration, add the attribute to each
+   existing RT table before starting a new generation (new installations get
+   it from `tools/manticore/manticore.conf`):
+
+   ```sql
+   ALTER TABLE aanvragen_active ADD COLUMN projection_hash string;
+   ALTER TABLE aanvragen_archive ADD COLUMN projection_hash string;
+   ```
+
+   Run `DESCRIBE` again and prove `projection_hash` exists in both tables.
+   Do not stamp the v4 checkpoint while either table still has the v3 shape.
+
 3. Quiesce the singleton projector. Stop its Coolify/worker process and wait
    for any current drain request to finish. Keep it stopped until the replay
    command has reported `finalized: true`; do not merely rely on a lease
@@ -52,6 +64,10 @@ started; Manticore cannot fence that late engine write.
    place it in shell history or this repository.
 
 ## Replay protocol
+
+The required order is: **add the RT attribute -> start a new generation ->
+replay every current aanvraag -> drain -> reconcile physical contents**. A
+configuration-file edit or a checkpoint update alone skips required state.
 
 First inspect the plan. This is read-only and does not create a checkpoint or
 outbox events:
@@ -138,7 +154,10 @@ scoped operator cleanup decision.
    active producer), and no replay event is dead-lettered.
 
 3. Use the reconciliation dry run above with the real `MANTICORE_URL`.
-   Postgres-only state agreement is not a Manticore convergence verdict.
+   Postgres-only state agreement is not a Manticore convergence verdict. The
+   report must also show zero physical corruption, zero stored
+   `projection_hash` drift, and exact initial/scanned/final counts per
+   partition.
 
 4. Exercise the production search path, including `scope: "active"` and
    `scope: "all"` for the partitioned layout. Verify `/readyz` separately

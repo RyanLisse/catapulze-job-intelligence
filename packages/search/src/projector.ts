@@ -260,6 +260,7 @@ export const planOutboxBatch = async (
       kind: "upsert",
       partition: documentPartition(document, now),
       previousPartition: knownPartition(aggregate.aggregateId),
+      projectionHash: hash,
       sequenceNumber: aggregate.maxSequence,
     });
   }

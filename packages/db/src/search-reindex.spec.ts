@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, it } from "bun:test";
+import { afterAll, afterEach, beforeAll, describe, expect, it } from "bun:test";
 import path from "node:path";
 
 import { and, eq, inArray, sql } from "drizzle-orm";
@@ -48,8 +48,13 @@ const isPostgresAvailable = async (): Promise<boolean> => {
 
 type Database = ReturnType<typeof drizzle<typeof schema>>;
 
+const seededAggregateIds: string[] = [];
+const seededBronIds: string[] = [];
+const seededIndexNames: string[] = [];
+
 const newStore = (db: Database) => {
   const indexName = `reindex-spec-${crypto.randomUUID()}`;
+  seededIndexNames.push(indexName);
   return {
     indexName,
     store: new PostgresSearchVersionStore(db, { indexName }),
@@ -61,6 +66,7 @@ const seedAanvragen = async (
   count: number
 ): Promise<string[]> => {
   const bronId = crypto.randomUUID();
+  seededBronIds.push(bronId);
   const runId = crypto.randomUUID();
   await database.insert(bron).values({
     actief: true,
@@ -94,7 +100,9 @@ const seedAanvragen = async (
       }))
     )
     .returning({ id: aanvraag.id });
-  return rows.map((row) => row.id);
+  const aggregateIds = rows.map((row) => row.id);
+  seededAggregateIds.push(...aggregateIds);
+  return aggregateIds;
 };
 
 describe("runSearchReindex", () => {
@@ -120,6 +128,41 @@ describe("runSearchReindex", () => {
   afterAll(async () => {
     await client?.end({ timeout: 5 });
     await migratorClient?.end({ timeout: 5 });
+  });
+
+  afterEach(async () => {
+    if (!database) {
+      return;
+    }
+    if (seededAggregateIds.length > 0) {
+      await database
+        .delete(outboxEvent)
+        .where(inArray(outboxEvent.aggregateId, [...seededAggregateIds]));
+      await database
+        .delete(searchProjectionState)
+        .where(
+          inArray(searchProjectionState.aggregateId, [...seededAggregateIds])
+        );
+      await database
+        .delete(aanvraag)
+        .where(inArray(aanvraag.id, [...seededAggregateIds]));
+    }
+    if (seededBronIds.length > 0) {
+      await database
+        .delete(scrapeRun)
+        .where(inArray(scrapeRun.bronId, [...seededBronIds]));
+      await database.delete(bron).where(inArray(bron.id, [...seededBronIds]));
+    }
+    if (seededIndexNames.length > 0) {
+      await database
+        .delete(searchProjectionCheckpoint)
+        .where(
+          inArray(searchProjectionCheckpoint.indexName, [...seededIndexNames])
+        );
+    }
+    seededAggregateIds.length = 0;
+    seededBronIds.length = 0;
+    seededIndexNames.length = 0;
   });
 
   const requireDatabase = (): Database => {

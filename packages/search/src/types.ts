@@ -144,6 +144,12 @@ export type SearchIndexMutation =
        * so the engine also deletes from the other table to be safe.
        */
       readonly previousPartition?: SearchPartition;
+      /**
+       * Canonical hash computed by the planner's captured clock. When
+       * present, Manticore stores this exact value in `projection_hash` so
+       * the physical row and durable projection state are comparable.
+       */
+      readonly projectionHash?: string;
       readonly sequenceNumber: bigint;
     }
   | {

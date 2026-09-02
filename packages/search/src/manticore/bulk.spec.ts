@@ -114,6 +114,7 @@ const mutations: SearchIndexMutation[] = [
     kind: "upsert",
     partition: "active",
     previousPartition: "active",
+    projectionHash: "planner-captured-hash",
     sequenceNumber: 10n,
   },
   {
@@ -146,6 +147,7 @@ describe("ManticoreSearchEngine.applyBatch over /bulk (RJC-389)", () => {
     expect(lines[0].replace.doc).toMatchObject({
       document_id: "a",
       index_version: 13,
+      projection_hash: "planner-captured-hash",
     });
     expect(lines[2]).toEqual({
       delete: { id: hashDocumentId("c"), index: "aanvragen_active" },

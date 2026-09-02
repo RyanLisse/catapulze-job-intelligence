@@ -69,6 +69,7 @@ describe("SEARCH_SCHEMA_HASH (RJC-378)", () => {
     expect(SEARCH_SCHEMA_HASH).not.toBe(SEARCH_SCHEMA_HASH_V1);
     expect(SEARCH_SCHEMA_HASH).toContain("locatie,");
     expect(SEARCH_SCHEMA_HASH).toContain("sluitingsdatum");
+    expect(SEARCH_SCHEMA_HASH).toContain("projection_hash");
   });
 
   it("a checkpoint written by the v1 mapping no longer matches the code", async () => {

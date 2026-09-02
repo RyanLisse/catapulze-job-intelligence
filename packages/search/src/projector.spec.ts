@@ -167,6 +167,7 @@ describe("outbox projector", () => {
         kind: "upsert",
         partition: "active",
         previousPartition: "archive",
+        projectionHash: projectionHash({ ...document, status: "active" }, now),
         sequenceNumber: 3n,
       },
     ]);
@@ -225,6 +226,7 @@ describe("outbox projector", () => {
         kind: "upsert",
         partition: "archive",
         previousPartition: "active",
+        projectionHash: projectionHash({ ...document, status: "closed" }, now),
         sequenceNumber: 5n,
       },
     ]);

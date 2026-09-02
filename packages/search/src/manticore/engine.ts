@@ -76,10 +76,15 @@ export const SLUITINGSDATUM_MISSING_SENTINEL = 4_102_444_800;
 const epochSeconds = (value: Date): number =>
   Math.floor(value.getTime() / 1000);
 
-const documentToManticore = (
+/**
+ * The content-bearing projection, deliberately excluding the derived
+ * `projection_hash`. Keeping this object in the old field order preserves
+ * the canonical hash bytes across the v3 -> v4 schema transition.
+ */
+const documentToManticoreFields = (
   document: SearchDocument,
   indexVersion: number
-): ManticoreIndexedDocument => ({
+): Omit<ManticoreIndexedDocument, "projection_hash"> => ({
   beschrijving: document.beschrijving,
   bron_id: document.bronId,
   contracttype: document.contracttype ?? "",
@@ -98,9 +103,20 @@ const documentToManticore = (
   titel: document.titel,
 });
 
+const documentToManticore = (
+  document: SearchDocument,
+  indexVersion: number,
+  hash: string
+): ManticoreIndexedDocument => ({
+  ...documentToManticoreFields(document, indexVersion),
+  // This is an operator-verifiable copy of the canonical source projection,
+  // not another input to it. See projectionHash below.
+  projection_hash: hash,
+});
+
 /**
  * Hash of the search-relevant projection of a document (RJC-389): exactly
- * the attributes documentToManticore indexes, minus index_version (a
+ * the content attributes documentToManticore indexes, minus index_version (a
  * per-batch watermark, not document content), prefixed with the partition
  * the document belongs in at `now` (RJC-383) — so a status transition that
  * moves a document between tables can never be skipped as "unchanged", and
@@ -115,7 +131,7 @@ export const projectionHash = (
   document: SearchDocument,
   now: Date = new Date()
 ): string => {
-  const indexed = documentToManticore(document, 0);
+  const indexed = documentToManticoreFields(document, 0);
   const fields = Object.fromEntries(
     Object.entries(indexed).filter(([key]) => key !== "index_version")
   );
@@ -372,12 +388,18 @@ export class ManticoreSearchEngine implements SearchEngine {
           : [mutation.partition];
       return partitions.map((partition) => deleteFrom(mutation.id, partition));
     }
+    // Capture one clock value for both partition and the fallback hash. The
+    // normal projector supplies its precomputed hash so the physical row is
+    // byte-for-byte aligned with the state it persists after this write.
+    const now = this.clock();
     const partition =
-      mutation.partition ?? documentPartition(mutation.document, this.clock());
+      mutation.partition ?? documentPartition(mutation.document, now);
+    const hash =
+      mutation.projectionHash ?? projectionHash(mutation.document, now);
     const lines: ManticoreBulkLine[] = [
       {
         replace: {
-          doc: documentToManticore(mutation.document, indexVersion),
+          doc: documentToManticore(mutation.document, indexVersion, hash),
           id: hashDocumentId(mutation.document.id),
           index: this.table(partition),
         },
@@ -506,11 +528,16 @@ export class ManticoreSearchEngine implements SearchEngine {
   /** Replace into the document's partition, then evict it from the other table (previous partition unknown here). */
   async upsertDocument(document: SearchDocument): Promise<void> {
     const version = await this.getAppliedVersion();
-    const partition = documentPartition(document, this.clock());
+    const now = this.clock();
+    const partition = documentPartition(document, now);
     await replaceManticoreDocument(
       this.client,
       this.table(partition),
-      documentToManticore(document, Number(version.appliedSequence))
+      documentToManticore(
+        document,
+        Number(version.appliedSequence),
+        projectionHash(document, now)
+      )
     );
     await deleteManticoreDocument(
       this.client,

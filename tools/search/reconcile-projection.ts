@@ -5,8 +5,8 @@
  *   MANTICORE_URL=http://127.0.0.1:9308 bun run search:reconcile-projection [--apply]
  *
  * The default is report-only. `--apply` invalidates only proven bad current
- * projection state and emits durable repair/delete events; it never writes
- * directly to Manticore.
+ * projection state and emits durable repair/delete events. Exact physical ids
+ * that cannot be reached by normal projector deletes are removed separately.
  */
 import {
   closeDb,
@@ -14,6 +14,7 @@ import {
   PostgresSearchDocumentLoader,
   PostgresSearchVersionStore,
   ProjectionRepairGenerationChangedError,
+  ProjectionRepairInventorySafetyError,
   ProjectionRepairSchemaMismatchError,
   reconcileProjection,
 } from "@ji/db";
@@ -21,16 +22,21 @@ import type {
   SearchProjectionInventoryPort,
   SearchProjectionInventoryRecord,
 } from "@ji/db";
-import { partitionTable, SEARCH_INDEX_NAME } from "@ji/search";
+import { hashDocumentId, partitionTable, SEARCH_INDEX_NAME } from "@ji/search";
 import type { SearchPartition } from "@ji/search";
 import { z } from "zod";
 
 const apply = process.argv.includes("--apply");
 const MANTICORE_TIMEOUT_MS = 10_000;
 
-const manticoreIntegerSchema = z
-  .union([z.number(), z.string().regex(/^\d+$/u)])
-  .pipe(z.coerce.number().int().nonnegative().safe());
+const manticoreIntegerSchema = z.union([
+  z.number().int().nonnegative().safe(),
+  z
+    .string()
+    .regex(/^\d+$/u)
+    .transform(Number)
+    .pipe(z.number().int().nonnegative().safe()),
+]);
 
 const manticoreCountRowSchema = z.object({
   count: manticoreIntegerSchema.optional(),
@@ -40,6 +46,7 @@ const manticoreCountRowSchema = z.object({
 const manticoreDocumentRowSchema = z.object({
   document_id: z.string(),
   id: manticoreIntegerSchema,
+  projection_hash: z.string(),
 });
 
 const manticoreSqlEnvelopeSchema = z.object({
@@ -50,7 +57,10 @@ const manticoreSqlEnvelopeSchema = z.object({
 const manticoreSqlResponseSchema = z.array(manticoreSqlEnvelopeSchema).min(1);
 const manticoreUrlSchema = z.url();
 
-const parseManticoreSqlResponse = (raw: string): readonly unknown[] => {
+const parseManticoreSqlResponse = (
+  raw: string,
+  requireData = true
+): readonly unknown[] => {
   const parsed: unknown = JSON.parse(raw);
   const response = manticoreSqlResponseSchema.safeParse(parsed);
   if (!response.success) {
@@ -63,15 +73,13 @@ const parseManticoreSqlResponse = (raw: string): readonly unknown[] => {
   if (envelope.error?.length) {
     throw new Error(`Manticore SQL error: ${envelope.error}`);
   }
-  if (!envelope.data) {
+  if (requireData && !envelope.data) {
     throw new Error("Manticore SQL response did not contain row data");
   }
-  return envelope.data;
+  return envelope.data ?? [];
 };
 
-const sqlString = (value: string): string => `'${value.replaceAll("'", "''")}'`;
-
-/** Minimal raw-SQL reader; @ji/db receives only the bounded inventory port. */
+/** Minimal bounded raw-SQL inventory and exact-id cleanup adapter. */
 class ManticoreInventory implements SearchProjectionInventoryPort {
   private readonly baseUrl: string;
 
@@ -98,16 +106,17 @@ class ManticoreInventory implements SearchProjectionInventoryPort {
 
   async findByDocumentIds(
     partition: SearchPartition,
-    documentIds: readonly string[]
+    documentIds: readonly string[],
+    limit: number
   ): Promise<readonly SearchProjectionInventoryRecord[]> {
     if (documentIds.length === 0) {
       return [];
     }
     const table = partitionTable(SEARCH_INDEX_NAME, partition);
-    const values = documentIds.map(sqlString).join(", ");
+    const values = documentIds.map(hashDocumentId).join(", ");
     return ManticoreInventory.toInventoryRows(
       await this.query(
-        `SELECT id, document_id FROM ${table} WHERE document_id IN (${values}) ORDER BY id ASC LIMIT ${documentIds.length}`
+        `SELECT id, document_id, projection_hash FROM ${table} WHERE id IN (${values}) ORDER BY id ASC LIMIT ${limit}`
       ),
       table
     );
@@ -123,13 +132,34 @@ class ManticoreInventory implements SearchProjectionInventoryPort {
       afterManticoreId === null ? "" : ` WHERE id > ${afterManticoreId}`;
     return ManticoreInventory.toInventoryRows(
       await this.query(
-        `SELECT id, document_id FROM ${table}${after} ORDER BY id ASC LIMIT ${limit}`
+        `SELECT id, document_id, projection_hash FROM ${table}${after} ORDER BY id ASC LIMIT ${limit}`
       ),
       table
     );
   }
 
+  async deleteByManticoreIds(
+    partition: SearchPartition,
+    manticoreIds: readonly number[]
+  ): Promise<number> {
+    if (manticoreIds.length === 0) {
+      return 0;
+    }
+    const table = partitionTable(SEARCH_INDEX_NAME, partition);
+    const ids = [...new Set(manticoreIds)];
+    await this.execute(`DELETE FROM ${table} WHERE id IN (${ids.join(", ")})`);
+    return ids.length;
+  }
+
   private async query(query: string): Promise<readonly unknown[]> {
+    return parseManticoreSqlResponse(await this.request(query), true);
+  }
+
+  private async execute(query: string): Promise<void> {
+    parseManticoreSqlResponse(await this.request(query), false);
+  }
+
+  private async request(query: string): Promise<string> {
     let response: Response;
     try {
       response = await fetch(`${this.baseUrl}/sql?mode=raw`, {
@@ -154,7 +184,7 @@ class ManticoreInventory implements SearchProjectionInventoryPort {
         `Manticore SQL request failed (${response.status}): ${response.statusText}`
       );
     }
-    return parseManticoreSqlResponse(await response.text());
+    return response.text();
   }
 
   private static toInventoryRows(
@@ -169,6 +199,7 @@ class ManticoreInventory implements SearchProjectionInventoryPort {
       return {
         documentId: parsed.data.document_id,
         manticoreId: parsed.data.id,
+        projectionHash: parsed.data.projection_hash,
       };
     });
   }
@@ -196,7 +227,9 @@ try {
       `${result.checked} curated aanvragen checked; Manticore active=${activeInventoryCount}, ` +
       `archive=${archiveInventoryCount}; ${result.divergentCount} divergent, ` +
       `${result.orphanManticoreCount} valid orphan(s), ${result.invalidDocumentIdCount} invalid engine id(s), ` +
-      `${result.skippedPending} already covered by a pending outbox event, ${result.applied} durable event(s) inserted.`
+      `${result.physicalCorruptionCount} corrupt physical row(s), ${result.physicalCleanupCount} physically deleted, ` +
+      `${result.staleManticoreHashCount} stale physical hash(es), ${result.skippedPending} already covered by a pending outbox event, ` +
+      `${result.applied} durable event(s) inserted.`
   );
   for (const entry of result.divergent) {
     console.log(
@@ -213,9 +246,11 @@ try {
       `  Orphan Manticore UUID samples: ${result.orphanManticore.join(", ")}`
     );
   }
-  if (result.invalidDocumentId.length > 0) {
+  if (result.physicalCorruption.length > 0) {
     console.error(
-      `  Invalid Manticore document_id samples (report-only): ${result.invalidDocumentId.join(", ")}`
+      `  Physical corruption samples: ${result.physicalCorruption
+        .map((row) => `${row.partition}/${row.manticoreId}/${row.documentId}`)
+        .join(", ")}`
     );
   }
   if (
@@ -227,7 +262,8 @@ try {
 } catch (error) {
   if (
     error instanceof ProjectionRepairSchemaMismatchError ||
-    error instanceof ProjectionRepairGenerationChangedError
+    error instanceof ProjectionRepairGenerationChangedError ||
+    error instanceof ProjectionRepairInventorySafetyError
   ) {
     console.error(error.message);
     process.exitCode = 1;

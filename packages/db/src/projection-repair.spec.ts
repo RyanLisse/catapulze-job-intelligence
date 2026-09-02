@@ -1,7 +1,7 @@
-import { afterAll, beforeAll, describe, expect, it } from "bun:test";
+import { afterAll, afterEach, beforeAll, describe, expect, it } from "bun:test";
 import path from "node:path";
 
-import { projectionHash } from "@ji/search";
+import { hashDocumentId, projectionHash } from "@ji/search";
 import type { SearchPartition } from "@ji/search";
 import { and, eq, inArray } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/postgres-js";
@@ -24,6 +24,7 @@ import {
   bron,
   outboxEvent,
   scrapeRun,
+  searchProjectionCheckpoint,
   searchProjectionState,
 } from "./schema";
 import { PostgresSearchVersionStore } from "./search-version-store";
@@ -54,6 +55,10 @@ const isPostgresAvailable = async (): Promise<boolean> => {
 
 type TestDatabase = ReturnType<typeof drizzle<typeof schema>>;
 
+const seededAggregateIds: string[] = [];
+const seededBronIds: string[] = [];
+const seededIndexNames: string[] = [];
+
 type InventoryRows = Record<
   SearchPartition,
   readonly SearchProjectionInventoryRecord[]
@@ -65,10 +70,20 @@ class FakeManticoreInventory implements SearchProjectionInventoryPort {
     limit: number;
     partition: SearchPartition;
   }[] = [];
-  private readonly rows: InventoryRows;
+  private readonly rows: Record<
+    SearchPartition,
+    SearchProjectionInventoryRecord[]
+  >;
 
   constructor(rows: InventoryRows) {
-    this.rows = rows;
+    this.rows = {
+      active: [...rows.active].toSorted(
+        (left, right) => left.manticoreId - right.manticoreId
+      ),
+      archive: [...rows.archive].toSorted(
+        (left, right) => left.manticoreId - right.manticoreId
+      ),
+    };
   }
 
   count(partition: SearchPartition): Promise<number> {
@@ -77,12 +92,31 @@ class FakeManticoreInventory implements SearchProjectionInventoryPort {
 
   findByDocumentIds(
     partition: SearchPartition,
-    documentIds: readonly string[]
+    documentIds: readonly string[],
+    limit: number
   ): Promise<readonly SearchProjectionInventoryRecord[]> {
     const ids = new Set(documentIds);
     return Promise.resolve(
-      this.rows[partition].filter((row) => ids.has(row.documentId))
+      this.rows[partition]
+        .filter(
+          (row) =>
+            ids.has(row.documentId) &&
+            row.manticoreId === hashDocumentId(row.documentId)
+        )
+        .slice(0, limit)
     );
+  }
+
+  deleteByManticoreIds(
+    partition: SearchPartition,
+    manticoreIds: readonly number[]
+  ): Promise<number> {
+    const ids = new Set(manticoreIds);
+    const before = this.rows[partition].length;
+    this.rows[partition] = this.rows[partition].filter(
+      (row) => !ids.has(row.manticoreId)
+    );
+    return Promise.resolve(before - this.rows[partition].length);
   }
 
   listPage(
@@ -113,6 +147,7 @@ const seedAanvraag = async (
   id: string = crypto.randomUUID()
 ): Promise<string> => {
   const bronId = crypto.randomUUID();
+  seededBronIds.push(bronId);
   const runId = crypto.randomUUID();
   await db.insert(bron).values({
     actief: true,
@@ -149,6 +184,7 @@ const seedAanvraag = async (
   if (!row) {
     throw new Error("Failed to seed aanvraag");
   }
+  seededAggregateIds.push(row.id);
   return row.id;
 };
 
@@ -159,6 +195,7 @@ const seedAanvraag = async (
  */
 const isolatedVersionStore = async (db: TestDatabase) => {
   const indexName = `repair-spec-${crypto.randomUUID()}`;
+  seededIndexNames.push(indexName);
   const store = new PostgresSearchVersionStore(db, { indexName });
   await store.read();
   const generation = 1_000_000 + Math.floor(Math.random() * 1_000_000_000);
@@ -166,7 +203,7 @@ const isolatedVersionStore = async (db: TestDatabase) => {
     .update(schema.searchProjectionCheckpoint)
     .set({ generation })
     .where(eq(schema.searchProjectionCheckpoint.indexName, indexName));
-  return { generation, store };
+  return { generation, indexName, store };
 };
 
 describe("reconcileProjection (RJC-399 repair tool)", () => {
@@ -194,6 +231,41 @@ describe("reconcileProjection (RJC-399 repair tool)", () => {
     await migratorClient?.end({ timeout: 5 });
   });
 
+  afterEach(async () => {
+    if (!database) {
+      return;
+    }
+    if (seededAggregateIds.length > 0) {
+      await database
+        .delete(outboxEvent)
+        .where(inArray(outboxEvent.aggregateId, [...seededAggregateIds]));
+      await database
+        .delete(searchProjectionState)
+        .where(
+          inArray(searchProjectionState.aggregateId, [...seededAggregateIds])
+        );
+      await database
+        .delete(aanvraag)
+        .where(inArray(aanvraag.id, [...seededAggregateIds]));
+    }
+    if (seededBronIds.length > 0) {
+      await database
+        .delete(scrapeRun)
+        .where(inArray(scrapeRun.bronId, [...seededBronIds]));
+      await database.delete(bron).where(inArray(bron.id, [...seededBronIds]));
+    }
+    if (seededIndexNames.length > 0) {
+      await database
+        .delete(searchProjectionCheckpoint)
+        .where(
+          inArray(searchProjectionCheckpoint.indexName, [...seededIndexNames])
+        );
+    }
+    seededAggregateIds.length = 0;
+    seededBronIds.length = 0;
+    seededIndexNames.length = 0;
+  });
+
   it("finds a hand-crafted divergence, repairs it once, and is idempotent", async () => {
     if (!available || !database) {
       expect(available).toBe(false);
@@ -202,7 +274,7 @@ describe("reconcileProjection (RJC-399 repair tool)", () => {
     const db = database;
     const aggregateId = await seedAanvraag(db);
     const loader = new PostgresSearchDocumentLoader(db);
-    const { generation, store } = await isolatedVersionStore(db);
+    const { generation, indexName, store } = await isolatedVersionStore(db);
 
     // The projector applied the row as it was, then the status changed
     // without an outbox event — the pre-RJC-399 crash window.
@@ -223,6 +295,7 @@ describe("reconcileProjection (RJC-399 repair tool)", () => {
 
     const base = {
       database: db,
+      indexName,
       loader,
       now: NOW,
       versionStore: store,
@@ -305,7 +378,7 @@ describe("reconcileProjection (RJC-399 repair tool)", () => {
       throw new Error("Expected five seeded aanvragen");
     }
     const loader = new PostgresSearchDocumentLoader(db);
-    const { generation, store } = await isolatedVersionStore(db);
+    const { generation, indexName, store } = await isolatedVersionStore(db);
     const persistCurrentState = async (aggregateId: string): Promise<void> => {
       const document = await loader.loadByAggregateId(aggregateId);
       if (!document) {
@@ -328,21 +401,49 @@ describe("reconcileProjection (RJC-399 repair tool)", () => {
     // UUIDv4. Its orphan must receive a delete just like a v4 orphan.
     const orphanId = lowUuid("7");
     const invalidDocumentId = "broken-manticore-document-id";
+    const physicalRow = async (
+      documentId: string
+    ): Promise<SearchProjectionInventoryRecord> => {
+      const document = await loader.loadByAggregateId(documentId);
+      if (!document) {
+        throw new Error(`Expected seeded document ${documentId}`);
+      }
+      return {
+        documentId,
+        manticoreId: hashDocumentId(documentId),
+        projectionHash: projectionHash(document, NOW),
+      };
+    };
+    const healthyRow = await physicalRow(healthyId);
+    const wrongPartitionRow = await physicalRow(wrongPartitionId);
+    const duplicateRow = await physicalRow(duplicateId);
+    const missingStateRow = await physicalRow(missingStateId);
+    const nonCanonicalDuplicate = {
+      ...healthyRow,
+      manticoreId: healthyRow.manticoreId + 1,
+    };
     const inventory = new FakeManticoreInventory({
       active: [
-        { documentId: healthyId, manticoreId: 100 },
-        { documentId: duplicateId, manticoreId: 300 },
-        { documentId: missingStateId, manticoreId: 400 },
-        { documentId: orphanId, manticoreId: 500 },
-        { documentId: invalidDocumentId, manticoreId: 600 },
+        healthyRow,
+        nonCanonicalDuplicate,
+        duplicateRow,
+        { ...missingStateRow, projectionHash: "stale-physical-hash" },
+        {
+          documentId: orphanId,
+          manticoreId: hashDocumentId(orphanId),
+          projectionHash: "orphan",
+        },
+        {
+          documentId: invalidDocumentId,
+          manticoreId: 600,
+          projectionHash: "invalid",
+        },
       ],
-      archive: [
-        { documentId: wrongPartitionId, manticoreId: 200 },
-        { documentId: duplicateId, manticoreId: 300 },
-      ],
+      archive: [wrongPartitionRow, duplicateRow],
     });
     const base = {
       database: db,
+      indexName,
       inventory,
       loader,
       now: NOW,
@@ -363,12 +464,16 @@ describe("reconcileProjection (RJC-399 repair tool)", () => {
       sampleLimit: 20,
     });
     expect(report.checked).toBeGreaterThanOrEqual(5);
-    expect(report.inventoryCounts).toEqual({ active: 5, archive: 2 });
-    expect(report.manticoreChecked).toBe(7);
+    expect(report.inventoryCounts).toEqual({ active: 6, archive: 2 });
+    expect(report.inventoryScannedCounts).toEqual({ active: 6, archive: 2 });
+    expect(report.inventoryFinalCounts).toEqual({ active: 6, archive: 2 });
+    expect(report.manticoreChecked).toBe(8);
     expect(report.orphanManticore).toContain(orphanId);
     expect(report.orphanManticoreCount).toBe(1);
     expect(report.invalidDocumentId).toContain(invalidDocumentId);
     expect(report.invalidDocumentIdCount).toBe(1);
+    expect(report.physicalCorruptionCount).toBe(2);
+    expect(report.staleManticoreHashCount).toBe(1);
     expect(report.missingProjectionStateCount).toBeGreaterThanOrEqual(1);
 
     const reasonsFor = (aggregateId: string) =>
@@ -377,7 +482,10 @@ describe("reconcileProjection (RJC-399 repair tool)", () => {
     expect(reasonsFor(missingEngineId)).toEqual(["missing_manticore_document"]);
     expect(reasonsFor(wrongPartitionId)).toEqual(["wrong_manticore_partition"]);
     expect(reasonsFor(duplicateId)).toEqual(["duplicate_manticore_document"]);
-    expect(reasonsFor(missingStateId)).toEqual(["missing_projection_state"]);
+    expect(reasonsFor(missingStateId)).toEqual([
+      "manticore_projection_hash_mismatch",
+      "missing_projection_state",
+    ]);
 
     const capped = await reconcileProjection({
       apply: false,
@@ -396,6 +504,7 @@ describe("reconcileProjection (RJC-399 repair tool)", () => {
       sampleLimit: 2,
     });
     expect(applied.applied).toBeGreaterThanOrEqual(5);
+    expect(applied.physicalCleanupCount).toBe(2);
     const eventRows = await db
       .select({
         aggregateId: outboxEvent.aggregateId,
@@ -457,7 +566,7 @@ describe("reconcileProjection (RJC-399 repair tool)", () => {
       expect(available).toBe(false);
       return;
     }
-    const { store } = await isolatedVersionStore(database);
+    const { indexName, store } = await isolatedVersionStore(database);
     const malformedInventory: SearchProjectionInventoryPort = {
       count: () => Promise.resolve(2),
       findByDocumentIds: () => Promise.resolve([]),
@@ -465,8 +574,16 @@ describe("reconcileProjection (RJC-399 repair tool)", () => {
         Promise.resolve(
           partition === "active"
             ? [
-                { documentId: "bad-first", manticoreId: 2 },
-                { documentId: "bad-second", manticoreId: 1 },
+                {
+                  documentId: "bad-first",
+                  manticoreId: 2,
+                  projectionHash: "bad-first",
+                },
+                {
+                  documentId: "bad-second",
+                  manticoreId: 1,
+                  projectionHash: "bad-second",
+                },
               ]
             : []
         ),
@@ -475,6 +592,7 @@ describe("reconcileProjection (RJC-399 repair tool)", () => {
       reconcileProjection({
         apply: false,
         database,
+        indexName,
         inventory: malformedInventory,
         loader: new PostgresSearchDocumentLoader(database),
         pageSize: 2,
@@ -488,12 +606,13 @@ describe("reconcileProjection (RJC-399 repair tool)", () => {
       expect(available).toBe(false);
       return;
     }
-    const { store } = await isolatedVersionStore(database);
+    const { indexName, store } = await isolatedVersionStore(database);
     await expect(
       reconcileProjection({
         apply: false,
         database,
         expectedSchemaHash: "some-newer-schema-hash",
+        indexName,
         loader: new PostgresSearchDocumentLoader(database),
         versionStore: store,
       })
