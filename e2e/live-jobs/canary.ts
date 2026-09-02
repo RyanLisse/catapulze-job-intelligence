@@ -38,6 +38,12 @@ const jsonBooleanSchema = z.boolean();
 const jsonNullSchema = z.null();
 const jsonRecordSchema = z.record(z.string(), canaryJsonValueSchema);
 const jsonStringSchema = z.string();
+const screenshotAttestations = new WeakSet<object>();
+
+export interface CanaryScreenshotAttestation {
+  readonly canaryId: string;
+  readonly digest: string;
+}
 
 const compareJsonKeys = (left: string, right: string): number => {
   if (left < right) {
@@ -144,14 +150,16 @@ const sha256 = async (value: string): Promise<string> => {
 };
 
 /**
- * The optional digest covers the canonical JSON `aanvraag` object returned
- * by the direct detail endpoint, never its raw-preview body.
+ * The required pinned digest covers the canonical JSON `aanvraag` object
+ * returned by the direct detail endpoint, never its raw-preview body. The
+ * returned runtime attestation can only be created after that server response
+ * has passed both the exact-id and digest checks.
  */
 export const assertCanaryDetailResponse = async (
   payload: CanaryJsonValue,
   canaryId: string,
-  expectedDigest: string | undefined
-): Promise<void> => {
+  expectedDigest: string
+): Promise<CanaryScreenshotAttestation> => {
   const parsed = canaryDetailResponseSchema.safeParse(payload);
   const parsedId = parsed.success
     ? canaryIdSchema.safeParse(parsed.data.aanvraag.id)
@@ -161,15 +169,19 @@ export const assertCanaryDetailResponse = async (
       "Canary detail response does not belong to the configured record; no artifact was written."
     );
   }
-  if (
-    expectedDigest &&
-    (await sha256(stableJson(parsed.data.aanvraag))) !== expectedDigest
-  ) {
+  if ((await sha256(stableJson(parsed.data.aanvraag))) !== expectedDigest) {
     throw new Error(
       "Canary detail digest does not match E2E_CANARY_DIGEST; no artifact was written."
     );
   }
+  const attestation = { canaryId, digest: expectedDigest };
+  screenshotAttestations.add(attestation);
+  return attestation;
 };
+
+export const isCanaryScreenshotAttestation = (
+  value: CanaryScreenshotAttestation
+): boolean => screenshotAttestations.has(value);
 
 export const canonicalCanaryDigest = (
   value: CanaryJsonValue

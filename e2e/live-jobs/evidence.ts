@@ -2,6 +2,9 @@ import type { Buffer } from "node:buffer";
 
 import type { Page, TestInfo } from "@playwright/test";
 
+import { isCanaryScreenshotAttestation } from "./canary";
+import type { CanaryScreenshotAttestation } from "./canary";
+
 export interface RouteExpectation {
   readonly label: string;
   readonly method: string;
@@ -10,11 +13,20 @@ export interface RouteExpectation {
 }
 
 interface NetworkEvent {
-  readonly kind: "request-auth-violation" | "request-failed" | "response";
+  readonly kind:
+    | "request"
+    | "request-auth-violation"
+    | "request-failed"
+    | "response";
   readonly method: string;
   readonly path: string;
   readonly redirected?: boolean;
   readonly status?: number;
+}
+
+export interface CapabilityRequestObservation {
+  readonly method: string;
+  readonly path: string;
 }
 
 interface BrowserFailure {
@@ -36,17 +48,45 @@ interface TrackedUrl {
 
 type PassedEvidenceOptions =
   | {
-      readonly canaryId: string;
-      readonly canaryScreenshot: true;
       readonly releaseSha: string;
+      readonly screenshotAttestation: CanaryScreenshotAttestation;
     }
   | {
-      readonly canaryScreenshot: false;
       readonly releaseSha: string;
+      readonly screenshotAttestation?: never;
     };
 
+const SAFE_CAPABILITY_PATHS = new Set([
+  "/v1/aanvragen/batch",
+  "/v1/aanvragen/search",
+  "/v1/bronnen",
+  "/v1/saved-searches",
+  "/v1/snapshots",
+]);
+
+export const assertAllowedCapabilityRequests = (
+  requests: readonly CapabilityRequestObservation[],
+  allowlist: readonly RouteExpectation[]
+): void => {
+  const unexpected = requests.filter(
+    (request) =>
+      request.path.startsWith("/v1/") &&
+      !allowlist.some(
+        (allowed) =>
+          allowed.method === request.method && allowed.path === request.path
+      )
+  );
+  if (unexpected.length > 0) {
+    throw new Error(
+      `Live jobs E2E observed capability requests outside its exact allowlist: ${unexpected
+        .map((request) => `${request.method} ${request.path}`)
+        .join(", ")}.`
+    );
+  }
+};
+
 const sanitizePath = (pathname: string): string => {
-  if (pathname.startsWith("/v1/raw/")) {
+  if (/^\/v1\/raw\/[^/]+$/u.test(pathname)) {
     return "/v1/raw/:ref";
   }
   if (/^\/v1\/aanvragen\/[^/]+\/versies$/u.test(pathname)) {
@@ -58,18 +98,20 @@ const sanitizePath = (pathname: string): string => {
   if (/^\/v1\/aanvragen\/[^/]+$/u.test(pathname)) {
     return "/v1/aanvragen/:id";
   }
+  if (SAFE_CAPABILITY_PATHS.has(pathname)) {
+    return pathname;
+  }
+  if (pathname.startsWith("/v1/")) {
+    return "/v1/:unexpected";
+  }
   return pathname;
 };
 
-const parseTrackedUrl = (
-  value: string,
-  apiOrigin: string,
-  webOrigin: string
-): TrackedUrl => {
+const parseTrackedUrl = (value: string, webOrigin: string): TrackedUrl => {
   try {
     const parsed = new URL(value);
     const tracked =
-      (parsed.origin === apiOrigin && parsed.pathname.startsWith("/v1/")) ||
+      parsed.pathname.startsWith("/v1/") ||
       (parsed.origin === webOrigin && parsed.pathname === "/jobs");
     return { path: sanitizePath(parsed.pathname), tracked };
   } catch {
@@ -106,13 +148,12 @@ export const hasForbiddenBrowserAuthHeader = (
   );
 
 export class LiveJobsEvidence {
-  private readonly apiOrigin: string;
   private readonly browserFailures: BrowserFailure[] = [];
   private readonly networkEvents: NetworkEvent[] = [];
+  private routeAllowlist: readonly RouteExpectation[] | null = null;
   private readonly webOrigin: string;
 
-  constructor(page: Page, baseUrl: string, apiUrl: string) {
-    this.apiOrigin = new URL(apiUrl).origin;
+  constructor(page: Page, baseUrl: string) {
     this.webOrigin = new URL(baseUrl).origin;
 
     page.on("console", (message) => {
@@ -124,15 +165,16 @@ export class LiveJobsEvidence {
       this.browserFailures.push({ kind: "page" });
     });
     page.on("request", (request) => {
-      const target = parseTrackedUrl(
-        request.url(),
-        this.apiOrigin,
-        this.webOrigin
-      );
-      if (
-        !target.tracked ||
-        !hasForbiddenBrowserAuthHeader(request.headers())
-      ) {
+      const target = parseTrackedUrl(request.url(), this.webOrigin);
+      if (!target.tracked) {
+        return;
+      }
+      this.networkEvents.push({
+        kind: "request",
+        method: request.method(),
+        path: target.path,
+      });
+      if (!hasForbiddenBrowserAuthHeader(request.headers())) {
         return;
       }
       this.networkEvents.push({
@@ -143,11 +185,7 @@ export class LiveJobsEvidence {
       this.browserFailures.push({ kind: "auth-header", path: target.path });
     });
     page.on("requestfailed", (request) => {
-      const target = parseTrackedUrl(
-        request.url(),
-        this.apiOrigin,
-        this.webOrigin
-      );
+      const target = parseTrackedUrl(request.url(), this.webOrigin);
       if (!target.tracked) {
         return;
       }
@@ -159,11 +197,7 @@ export class LiveJobsEvidence {
       this.browserFailures.push({ kind: "request", path: target.path });
     });
     page.on("response", (response) => {
-      const target = parseTrackedUrl(
-        response.url(),
-        this.apiOrigin,
-        this.webOrigin
-      );
+      const target = parseTrackedUrl(response.url(), this.webOrigin);
       if (!target.tracked) {
         return;
       }
@@ -195,6 +229,8 @@ export class LiveJobsEvidence {
   }
 
   assertObservedRoutes(expectations: readonly RouteExpectation[]): void {
+    this.routeAllowlist = expectations;
+    this.assertOnlyAllowlistedCapabilityRequests();
     const missing = expectations.filter(
       (expectation) =>
         !this.networkEvents.some(
@@ -220,9 +256,25 @@ export class LiveJobsEvidence {
     }
   }
 
+  private assertOnlyAllowlistedCapabilityRequests(): void {
+    if (!this.routeAllowlist) {
+      throw new Error(
+        "Live jobs E2E cannot attach evidence before a capability route policy is asserted."
+      );
+    }
+    assertAllowedCapabilityRequests(
+      this.networkEvents.filter(
+        (event): event is NetworkEvent & CapabilityRequestObservation =>
+          event.kind === "request"
+      ),
+      this.routeAllowlist
+    );
+  }
+
   assertNoCapabilityRequests(): void {
-    const requests = this.networkEvents.filter((event) =>
-      event.path.startsWith("/v1/")
+    this.routeAllowlist = [];
+    const requests = this.networkEvents.filter(
+      (event) => event.kind === "request" && event.path.startsWith("/v1/")
     );
     if (requests.length > 0) {
       throw new Error(
@@ -252,9 +304,10 @@ export class LiveJobsEvidence {
   }
 
   /**
-   * Attach only after all behavior assertions passed. The screenshot masks the
-   * results list and raw preview, so it can contain only the already-verified
-   * canary detail. Failed runs deliberately write no harness attachment.
+   * Attach only after all behavior assertions passed. An authenticated
+   * screenshot additionally requires the runtime attestation produced from a
+   * pinned-digest server response. All application content is masked so the
+   * image cannot retain an account identity or any response-derived field.
    */
   async attachPassed(
     testInfo: TestInfo,
@@ -262,6 +315,7 @@ export class LiveJobsEvidence {
     options: PassedEvidenceOptions
   ): Promise<void> {
     this.assertNoBrowserFailures();
+    this.assertOnlyAllowlistedCapabilityRequests();
     if (page.isClosed()) {
       throw new Error(
         "Live jobs E2E cannot write a pass manifest from a closed browser page."
@@ -277,7 +331,7 @@ export class LiveJobsEvidence {
       {
         artifactPolicy: {
           automatedScreenshots: "off",
-          traces: "see Playwright config",
+          traces: "off",
           video: "off",
         },
         releaseSha: options.releaseSha,
@@ -287,11 +341,17 @@ export class LiveJobsEvidence {
       2
     );
     let screenshot: Buffer | null = null;
-    if (options.canaryScreenshot) {
+    if (options.screenshotAttestation) {
+      if (!isCanaryScreenshotAttestation(options.screenshotAttestation)) {
+        throw new Error(
+          "Live jobs E2E refused a screenshot without a server-response canary attestation."
+        );
+      }
       const url = new URL(page.url());
       if (
         url.pathname !== "/jobs" ||
-        url.searchParams.get("job") !== options.canaryId ||
+        url.searchParams.get("job") !==
+          options.screenshotAttestation.canaryId ||
         (await page.getByLabel("Zoekresultaten").count()) !== 1 ||
         (await page.locator("pre").count()) === 0
       ) {
@@ -301,7 +361,7 @@ export class LiveJobsEvidence {
       }
       screenshot = await page.screenshot({
         fullPage: true,
-        mask: [page.getByLabel("Zoekresultaten"), page.locator("pre")],
+        mask: [page.locator("body")],
       });
     }
 
@@ -310,7 +370,7 @@ export class LiveJobsEvidence {
       contentType: "application/json",
     });
     if (screenshot) {
-      await testInfo.attach("canary-verified.png", {
+      await testInfo.attach("canary-sanitized.png", {
         body: screenshot,
         contentType: "image/png",
       });

@@ -6,10 +6,15 @@ import {
   assertCanaryDetailResponse,
   assertCanarySearchResponse,
   canonicalCanaryDigest,
+  isCanaryScreenshotAttestation,
 } from "./canary";
 import { assertAnonymousLiveRun } from "./config";
 import type { LiveJobsEnvironment } from "./config";
-import { hasForbiddenBrowserAuthHeader } from "./evidence";
+import {
+  assertAllowedCapabilityRequests,
+  hasForbiddenBrowserAuthHeader,
+} from "./evidence";
+import { throwSanitizedMutationFailures } from "./mutation-errors";
 import { preflightReleaseIdentity } from "./release-preflight";
 import { preflightLiveJobsRun } from "./run-preflight";
 
@@ -28,6 +33,8 @@ const mutationEnvironment = {
   E2E_API_URL: "http://localhost:3000",
   E2E_AUTH_MODE: "session",
   E2E_BASE_URL: "http://localhost:3001",
+  E2E_CANARY_DIGEST:
+    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
   E2E_CANARY_ID: canaryId,
   E2E_CLEANUP_TOKEN: "test-token-from-environment",
   E2E_CLEANUP_URL: "http://localhost:3000/e2e/cleanup",
@@ -78,7 +85,7 @@ describe("live jobs E2E canary and artifact boundaries", () => {
     ).toThrow(/exactly the configured record/u);
   });
 
-  it("compares an optional digest only against the direct canary detail", async () => {
+  it("issues screenshot attestation only after the pinned detail digest matches", async () => {
     const aanvraag = {
       id: canaryId,
       rawPayloadRef: "safe-canary-ref",
@@ -92,9 +99,13 @@ describe("live jobs E2E canary and artifact boundaries", () => {
     });
 
     expect(reorderedDigest).toBe(digest);
-    await expect(
-      assertCanaryDetailResponse({ aanvraag }, canaryId, digest)
-    ).resolves.toBeUndefined();
+    const attestation = await assertCanaryDetailResponse(
+      { aanvraag },
+      canaryId,
+      digest
+    );
+    expect(isCanaryScreenshotAttestation(attestation)).toBe(true);
+    expect(isCanaryScreenshotAttestation({ canaryId, digest })).toBe(false);
     await expect(
       assertCanaryDetailResponse(
         { aanvraag },
@@ -104,7 +115,7 @@ describe("live jobs E2E canary and artifact boundaries", () => {
     ).rejects.toThrow(/E2E_CANARY_DIGEST/u);
   });
 
-  it("keeps remote artifacts to explicit safe attachments", () => {
+  it("keeps traces off for remote and local isolated runs", () => {
     expect(readLiveJobsArtifactPolicy(remoteEnvironment)).toEqual({
       screenshot: "off",
       trace: "off",
@@ -117,7 +128,7 @@ describe("live jobs E2E canary and artifact boundaries", () => {
       })
     ).toEqual({
       screenshot: "off",
-      trace: "retain-on-failure",
+      trace: "off",
       video: "off",
     });
     expect(readLiveJobsArtifactPolicy({ E2E_LOCAL_MODE: "1" })).toEqual({
@@ -125,6 +136,68 @@ describe("live jobs E2E canary and artifact boundaries", () => {
       trace: "off",
       video: "off",
     });
+  });
+
+  it("fails closed on every unexpected capability method and path", () => {
+    const allowlist = [
+      {
+        label: "search",
+        method: "POST",
+        path: "/v1/aanvragen/search",
+        status: 200,
+      },
+    ];
+
+    expect(() =>
+      assertAllowedCapabilityRequests(
+        [{ method: "POST", path: "/v1/aanvragen/search" }],
+        allowlist
+      )
+    ).not.toThrow();
+    expect(() =>
+      assertAllowedCapabilityRequests(
+        [{ method: "DELETE", path: "/v1/aanvragen/search" }],
+        allowlist
+      )
+    ).toThrow(/outside its exact allowlist/u);
+    expect(() =>
+      assertAllowedCapabilityRequests(
+        [{ method: "POST", path: "/v1/:unexpected" }],
+        allowlist
+      )
+    ).toThrow(/outside its exact allowlist/u);
+    expect(() =>
+      assertAllowedCapabilityRequests(
+        [{ method: "POST", path: "/v1/snapshots" }],
+        allowlist
+      )
+    ).toThrow(/outside its exact allowlist/u);
+  });
+
+  it("preserves primary and cleanup failure classes without unsafe details", () => {
+    let caught: unknown;
+    try {
+      throwSanitizedMutationFailures({
+        cleanupFailed: true,
+        primaryFailed: true,
+      });
+    } catch (error) {
+      caught = error;
+    }
+
+    expect(caught).toBeInstanceOf(AggregateError);
+    if (!(caught instanceof AggregateError)) {
+      throw new Error("Expected sanitized AggregateError.");
+    }
+    const aggregate = caught;
+    expect(aggregate.errors).toHaveLength(2);
+    expect(aggregate.message).toBe(
+      "Live jobs mutation and cleanup both failed."
+    );
+    expect(aggregate.errors.map((error: Error) => error.message)).toEqual([
+      "Live jobs mutation assertions failed; no unsafe error detail was retained.",
+      "Live jobs mutation cleanup failed; no unsafe error detail was retained.",
+    ]);
   });
 
   it("flags legacy role-bearing browser headers without retaining values", () => {

@@ -14,6 +14,8 @@ import { preflightLiveJobsCleanup } from "./mutation-cleanup";
 const remoteEnvironment = {
   E2E_API_URL: "https://api.jobs.example",
   E2E_BASE_URL: "https://jobs.example",
+  E2E_CANARY_DIGEST:
+    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
   E2E_CANARY_ID: "00000000-0000-4000-8000-000000000001",
   E2E_EXPECTED_RELEASE_SHA: "0123456789abcdef0123456789abcdef01234567",
   E2E_EXPECTED_SUBJECT_ID: "dedicated-test-account",
@@ -23,6 +25,8 @@ const remoteEnvironment = {
 const localEnvironment = {
   E2E_API_URL: "http://localhost:3000",
   E2E_BASE_URL: "http://localhost:3001",
+  E2E_CANARY_DIGEST:
+    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
   E2E_CANARY_ID: "00000000-0000-4000-8000-000000000001",
   E2E_EXPECTED_RELEASE_SHA: "0123456789abcdef0123456789abcdef01234567",
   E2E_EXPECTED_SUBJECT_ID: "dedicated-test-account",
@@ -93,6 +97,30 @@ describe("live jobs E2E guardrails", () => {
         E2E_STORAGE_STATE: "/private/tmp/e2e-storage-state.json",
       })
     ).toThrow(/E2E_CANARY_ID/u);
+  });
+
+  it("requires a pinned canonical canary digest for authenticated evidence", () => {
+    expect(() =>
+      assertAuthenticatedLiveRun({
+        ...remoteEnvironment,
+        E2E_AUTH_MODE: "session",
+        E2E_CANARY_DIGEST: undefined,
+        E2E_DATA_MODE: "canary",
+        E2E_LIVE: "1",
+        E2E_STORAGE_STATE: "/private/tmp/e2e-storage-state.json",
+      })
+    ).toThrow(/E2E_CANARY_DIGEST/u);
+    expect(() =>
+      assertAuthenticatedLiveRun({
+        ...remoteEnvironment,
+        E2E_AUTH_MODE: "session",
+        E2E_CANARY_DIGEST:
+          "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        E2E_DATA_MODE: "canary",
+        E2E_LIVE: "1",
+        E2E_STORAGE_STATE: "/private/tmp/e2e-storage-state.json",
+      })
+    ).toThrow(/lowercase SHA-256/u);
   });
 
   it("keeps storage state outside the working tree", () => {

@@ -2,11 +2,13 @@ import { expect, test } from "@playwright/test";
 import type { Response as PlaywrightResponse } from "@playwright/test";
 import { z } from "zod";
 
+import type { CanaryScreenshotAttestation } from "./canary";
 import { assertMutationLiveRun, buildNamespacedQuery } from "./config";
 import { LiveJobsEvidence } from "./evidence";
 import { openLiveJobDetail } from "./job-flow";
 import { cleanupLiveJobsMutations } from "./mutation-cleanup";
 import type { MutationResource } from "./mutation-cleanup";
+import { throwSanitizedMutationFailures } from "./mutation-errors";
 import { preflightLiveJobsRun } from "./run-preflight";
 
 const isApiResponse = (
@@ -49,16 +51,21 @@ test.describe("isolated live /jobs mutation verification", () => {
     request,
   }, testInfo) => {
     const config = assertMutationLiveRun();
-    const evidence = new LiveJobsEvidence(page, config.baseUrl, config.apiUrl);
+    const evidence = new LiveJobsEvidence(page, config.baseUrl);
     const resources: MutationResource[] = [];
     let assertionsPassed = false;
+    let cleanupFailed = false;
+    let primaryFailed = false;
+    let screenshotAttestation: CanaryScreenshotAttestation | undefined;
 
     try {
-      const { jobId } = await openLiveJobDetail({
+      const openedJob = await openLiveJobDetail({
         config,
         page,
         query: buildNamespacedQuery(config.testNamespace, config.query),
       });
+      const { jobId, screenshotAttestation: verifiedAttestation } = openedJob;
+      screenshotAttestation = verifiedAttestation;
 
       resources.push({ id: jobId, kind: "markering" });
       const markResponse = page.waitForResponse((response) =>
@@ -112,6 +119,42 @@ test.describe("isolated live /jobs mutation verification", () => {
 
       evidence.assertObservedRoutes([
         {
+          label: "source catalog",
+          method: "GET",
+          path: "/v1/bronnen",
+          status: 200,
+        },
+        {
+          label: "Boolean search",
+          method: "POST",
+          path: "/v1/aanvragen/search",
+          status: 200,
+        },
+        {
+          label: "search result hydration",
+          method: "POST",
+          path: "/v1/aanvragen/batch",
+          status: 200,
+        },
+        {
+          label: "job detail",
+          method: "GET",
+          path: "/v1/aanvragen/:id",
+          status: 200,
+        },
+        {
+          label: "provenance versions",
+          method: "GET",
+          path: "/v1/aanvragen/:id/versies",
+          status: 200,
+        },
+        {
+          label: "raw preview",
+          method: "GET",
+          path: "/v1/raw/:ref",
+          status: 200,
+        },
+        {
           label: "canary markering",
           method: "POST",
           path: "/v1/aanvragen/:id/markering",
@@ -132,7 +175,11 @@ test.describe("isolated live /jobs mutation verification", () => {
       ]);
       evidence.assertNoBrowserFailures();
       assertionsPassed = true;
-    } finally {
+    } catch {
+      primaryFailed = true;
+    }
+
+    try {
       await cleanupLiveJobsMutations({
         attachReceipt: assertionsPassed,
         config,
@@ -140,12 +187,20 @@ test.describe("isolated live /jobs mutation verification", () => {
         resources,
         testInfo,
       });
+    } catch {
+      cleanupFailed = true;
+    }
+    throwSanitizedMutationFailures({ cleanupFailed, primaryFailed });
+
+    if (!screenshotAttestation) {
+      throw new Error(
+        "Live jobs mutation passed without a canary screenshot attestation."
+      );
     }
 
     await evidence.attachPassed(testInfo, page, {
-      canaryId: config.canaryId,
-      canaryScreenshot: true,
       releaseSha: config.expectedReleaseSha,
+      screenshotAttestation,
     });
   });
 });

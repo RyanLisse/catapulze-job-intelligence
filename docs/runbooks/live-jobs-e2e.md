@@ -25,7 +25,7 @@ The authenticated read lane requires all of the following:
 - one immutable UUID in `E2E_CANARY_ID`;
 - a Boolean `E2E_QUERY` whose search and batch responses each contain
   **exactly that one ID**;
-- optionally, `E2E_CANARY_DIGEST`, the SHA-256 of canonical JSON for the
+- `E2E_CANARY_DIGEST`, the mandatory pinned SHA-256 of canonical JSON for the
   direct-detail response's `aanvraag` object (never the raw preview);
 - `E2E_EXPECTED_SUBJECT_ID`, the exact Better Auth user ID expected from the
   dedicated account.
@@ -34,21 +34,28 @@ The browser deep-links directly to `/jobs?q=…&job=<E2E_CANARY_ID>`; it never
 clicks the first search result. A wrong ID, no ID, duplicate IDs, or a
 production record listed first fails before any harness attachment is written.
 The test reads only opaque IDs from search/batch payloads and never retains
-their fields. It validates the direct-detail canary ID (and optional digest) in
-memory. Raw-preview response bodies are never read by the harness.
+their fields. It validates the direct-detail canary ID and required pinned
+digest in memory, then issues a runtime-only screenshot attestation. A caller
+cannot self-declare that a screenshot is safe. Raw-preview response bodies are
+never read by the harness.
 
-Remote runs turn trace, video, and Playwright's automatic screenshots off.
+Every run, including local isolated runs, turns trace, video, and Playwright's
+automatic screenshots off. Each lane also installs an exact method/path
+allowlist for every `/v1` request. Any unexpected capability request fails the
+evidence, including a successful mutation outside the mutation lane's explicit
+allowlist.
 After every assertion succeeds, the authenticated lane emits only:
 
 - a sanitized JSON route/status list with no headers, origins, query strings,
   payloads, cookies, IDs, or subjects;
-- a canary screenshot with the entire result list and raw-preview region
-  masked;
+- an explicitly sanitized canary screenshot whose entire rendered body is
+  masked (including the global header/account area, application content,
+  overlays, and toasts), so no response-derived field or real payload can be
+  retained;
 - a sanitized pass manifest.
 
 Failed runs intentionally receive no harness attachment or pass manifest.
-Only an explicit `E2E_LOCAL_MODE=1 E2E_TEST_ENV=isolated` run may retain a
-Playwright failure trace under ignored `.artifacts/`; it must use seeded or
+No run retains a Playwright trace. Local isolated runs must still use seeded or
 explicit non-PII canary data. Never attach or share a storage state, cookie,
 cleanup token, raw preview, ordinary vacancy, or aanvraag payload.
 
@@ -71,6 +78,7 @@ E2E_API_URL=https://api.jobs.example \
 E2E_EXPECTED_RELEASE_SHA=0000000000000000000000000000000000000000 \
 E2E_QUERY='"canary job intelligence record"' \
 E2E_CANARY_ID=00000000-0000-4000-8000-000000000001 \
+E2E_CANARY_DIGEST=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa \
 E2E_EXPECTED_SUBJECT_ID='<dedicated-test-account-id>' \
 E2E_STORAGE_STATE='/absolute/untracked/authenticated-state.json' \
 bun run e2e:live:jobs
@@ -143,6 +151,7 @@ E2E_API_URL=http://localhost:3000 \
 E2E_EXPECTED_RELEASE_SHA=0000000000000000000000000000000000000000 \
 E2E_QUERY='"canary job intelligence record"' \
 E2E_CANARY_ID=00000000-0000-4000-8000-000000000001 \
+E2E_CANARY_DIGEST=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa \
 E2E_EXPECTED_SUBJECT_ID='<dedicated-test-account-id>' \
 E2E_TEST_ACCOUNT_ID='<dedicated-test-account-id>' \
 E2E_STORAGE_STATE='/absolute/untracked/state.json' \
@@ -154,6 +163,10 @@ bun run e2e:live:jobs:writes
 
 Until a dedicated cleanup endpoint and the approved session verifier exist,
 the mutation command fails before a browser can mutate anything.
+
+If both the primary mutation flow and cleanup fail, the runner reports a
+sanitized `AggregateError` that preserves both failure classes without
+retaining raw Playwright, payload, account, or credential details.
 
 ## Offline checks
 

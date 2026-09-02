@@ -14,9 +14,9 @@ test.describe("live /jobs read-only verification", () => {
     page,
   }, testInfo) => {
     const config = assertAuthenticatedLiveRun();
-    const evidence = new LiveJobsEvidence(page, config.baseUrl, config.apiUrl);
+    const evidence = new LiveJobsEvidence(page, config.baseUrl);
 
-    await openLiveJobDetail({
+    const { screenshotAttestation } = await openLiveJobDetail({
       config,
       page,
       query: config.query,
@@ -62,9 +62,8 @@ test.describe("live /jobs read-only verification", () => {
     ]);
     evidence.assertNoBrowserFailures();
     await evidence.attachPassed(testInfo, page, {
-      canaryId: config.canaryId,
-      canaryScreenshot: true,
       releaseSha: config.expectedReleaseSha,
+      screenshotAttestation,
     });
   });
 });

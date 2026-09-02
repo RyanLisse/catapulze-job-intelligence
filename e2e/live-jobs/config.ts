@@ -28,7 +28,7 @@ export interface LiveJobsConfig {
 }
 
 export interface AuthenticatedLiveJobsConfig extends LiveJobsConfig {
-  readonly canaryDigest: string | undefined;
+  readonly canaryDigest: string;
   readonly canaryId: string;
   readonly expectedSubjectId: string;
   readonly storageStatePath: string;
@@ -135,20 +135,14 @@ const readCanaryId = (environment: LiveJobsEnvironment): string => {
   return canaryId.toLowerCase();
 };
 
-const readCanaryDigest = (
-  environment: LiveJobsEnvironment
-): string | undefined => {
-  const digest = value(environment, "E2E_CANARY_DIGEST");
-  if (!digest) {
-    return undefined;
-  }
-  const normalized = digest.toLowerCase();
-  if (!SHA256_PATTERN.test(normalized)) {
+const readCanaryDigest = (environment: LiveJobsEnvironment): string => {
+  const digest = requireValue(environment, "E2E_CANARY_DIGEST");
+  if (!SHA256_PATTERN.test(digest)) {
     throw new Error(
-      "E2E_CANARY_DIGEST must be a lowercase SHA-256 digest when configured."
+      "E2E_CANARY_DIGEST must be an exact lowercase SHA-256 digest."
     );
   }
-  return normalized;
+  return digest;
 };
 
 const readExpectedSubjectId = (environment: LiveJobsEnvironment): string => {

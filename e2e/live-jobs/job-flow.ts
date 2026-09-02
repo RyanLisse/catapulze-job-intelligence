@@ -7,7 +7,7 @@ import {
   assertCanarySearchResponse,
   canaryJsonValueSchema,
 } from "./canary";
-import type { CanaryJsonValue } from "./canary";
+import type { CanaryJsonValue, CanaryScreenshotAttestation } from "./canary";
 import { buildCanaryJobsUrl } from "./config";
 import type { AuthenticatedLiveJobsConfig } from "./config";
 
@@ -88,7 +88,10 @@ export const openLiveJobDetail = async ({
   config,
   page,
   query,
-}: OpenLiveJobDetailInput): Promise<{ readonly jobId: string }> => {
+}: OpenLiveJobDetailInput): Promise<{
+  readonly jobId: string;
+  readonly screenshotAttestation: CanaryScreenshotAttestation;
+}> => {
   const jobsUrl = buildCanaryJobsUrl(config.baseUrl, query, config.canaryId);
   const searchResponse = page.waitForResponse(
     (response) =>
@@ -139,7 +142,7 @@ export const openLiveJobDetail = async ({
     await readJson(batch, "Canary batch response"),
     config.canaryId
   );
-  await assertCanaryDetailResponse(
+  const screenshotAttestation = await assertCanaryDetailResponse(
     await readJson(detail, "Canary detail response"),
     config.canaryId,
     config.canaryDigest
@@ -166,5 +169,5 @@ export const openLiveJobDetail = async ({
     })
   ).toBeVisible({ timeout: config.timeoutMs });
 
-  return { jobId: config.canaryId };
+  return { jobId: config.canaryId, screenshotAttestation };
 };
