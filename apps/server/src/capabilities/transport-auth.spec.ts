@@ -255,7 +255,8 @@ describe("REST and MCP authentication boundary", () => {
     expect(
       await bundle.deps.stores.savedSearches.getById(
         allowedBody.result.structuredContent.id,
-        "recruiter-1"
+        "recruiter-1",
+        bundle.deps.scopeId
       )
     ).not.toBeNull();
   });
