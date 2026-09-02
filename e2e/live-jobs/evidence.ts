@@ -91,37 +91,85 @@ export interface EvidenceCanaryScope {
   readonly query: string;
 }
 
-const SANITIZED_VISUAL_ATTESTATION_HTML = `<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Sanitized live jobs evidence</title>
-  <style>
-    :root { color-scheme: dark; font-family: ui-sans-serif, system-ui, sans-serif; }
-    body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: #0b1020; color: #eef2ff; }
-    main { width: min(42rem, calc(100vw - 4rem)); padding: 2.5rem; border: 1px solid #334155; border-radius: 1.25rem; background: #111827; }
-    h1 { margin-top: 0; font-size: 1.75rem; }
-    p { color: #a5b4fc; }
-    ul { display: grid; gap: .75rem; padding: 0; list-style: none; }
-    li { padding: .8rem 1rem; border-radius: .75rem; background: #172554; }
-    li::before { content: "Verified"; margin-right: .75rem; color: #86efac; font-weight: 700; }
-  </style>
-</head>
-<body>
-  <main data-live-jobs-evidence="sanitized">
-    <h1>Live jobs sanitized visual attestation</h1>
-    <p>This surface contains fixed status labels only.</p>
-    <ul>
-      <li>Release identity matched</li>
-      <li>Search rendered</li>
-      <li>Exact canary detail rendered</li>
-      <li>Provenance rendered</li>
-      <li>Raw preview state rendered</li>
-    </ul>
-  </main>
-</body>
-</html>`;
+interface PreparedCanaryDom {
+  readonly canaryDetailCount: number;
+  readonly detailCount: number;
+  readonly maskedSurfaceCount: number;
+  readonly resultCount: number;
+}
+
+export const prepareCanaryDomForCapture = (
+  main: HTMLElement,
+  canaryId: string
+): PreparedCanaryDom => {
+  const resultRegion = main.querySelector<HTMLElement>(
+    '[aria-label="Zoekresultaten"]'
+  );
+  if (!resultRegion) {
+    throw new Error("live canary result region is missing");
+  }
+  const resultEntries = [
+    ...resultRegion.querySelectorAll<HTMLElement>("tbody > tr, article"),
+  ];
+  // Result rows do not expose an immutable aanvraag id in the product DOM.
+  // Mask every row instead of inferring identity from order or display text.
+  for (const result of resultEntries) {
+    result.dataset.liveJobsEvidenceMask = "unverified-result";
+  }
+
+  const detailTitles = [
+    ...main.querySelectorAll<HTMLElement>(
+      "#desktop-job-detail-title, #overlay-job-detail-title"
+    ),
+  ];
+  const visibleDetails = detailTitles.flatMap((title) => {
+    const detail = title.closest<HTMLElement>("aside, dialog");
+    return detail &&
+      title.getClientRects().length > 0 &&
+      title.textContent?.trim()
+      ? [{ detail, title }]
+      : [];
+  });
+  const [visibleCanary] = visibleDetails;
+  const canaryDetail = visibleCanary?.detail;
+  if (
+    visibleDetails.length !== 1 ||
+    !canaryDetail ||
+    !canaryDetail.querySelector("pre")
+  ) {
+    throw new Error("live canary detail is missing or ambiguous");
+  }
+
+  const detailSurfaces = [
+    ...main.querySelectorAll<HTMLElement>("aside, dialog"),
+  ].filter((detail) => detail.querySelector("pre"));
+  if (!detailSurfaces.includes(canaryDetail)) {
+    throw new Error("live canary detail is outside the capturable surface");
+  }
+  canaryDetail.dataset.liveJobsCanaryId = canaryId;
+
+  const nonCanaryDetails = detailSurfaces.filter(
+    (detail) => detail !== canaryDetail
+  );
+  for (const detail of nonCanaryDetails) {
+    detail.dataset.liveJobsEvidenceMask = "non-canary-detail";
+  }
+
+  main.dataset.liveJobsEvidence = "sanitized";
+  return {
+    canaryDetailCount: 1,
+    detailCount: detailSurfaces.length,
+    maskedSurfaceCount: resultEntries.length + nonCanaryDetails.length,
+    resultCount: resultEntries.length,
+  };
+};
+
+interface CapturedScreenshot {
+  readonly capturedAt: string;
+  readonly captureStartedAt: string;
+  readonly requestSequence: number;
+  readonly screenshot: Buffer;
+}
 
 const SAFE_CAPABILITY_PATHS = new Set([
   "/v1/aanvragen/batch",
@@ -549,10 +597,7 @@ export class LiveJobsEvidence {
     policy: EvidenceRoutePolicy,
     screenshotAttestation: CanaryScreenshotAttestation,
     visualAttestation?: CanaryVisualAttestation
-  ): Promise<{
-    readonly requestSequence: number;
-    readonly screenshot: Buffer;
-  }> {
+  ): Promise<CapturedScreenshot> {
     if (
       !isCanaryScreenshotAttestation(screenshotAttestation) ||
       policy.screenshotAttestation !== screenshotAttestation ||
@@ -591,30 +636,45 @@ export class LiveJobsEvidence {
     assertNoBrowserFailureEvents(this.browserFailures);
 
     try {
-      await page.setContent(SANITIZED_VISUAL_ATTESTATION_HTML, {
-        waitUntil: "domcontentloaded",
-      });
+      const prepared = await page
+        .locator("main#main-content")
+        .evaluate(prepareCanaryDomForCapture, screenshotAttestation.canaryId);
+      const mask = page.locator("[data-live-jobs-evidence-mask]");
+      const canaryDetail = page.locator(
+        `[data-live-jobs-canary-id="${screenshotAttestation.canaryId}"]`
+      );
       if (
         (await page
           .locator('[data-live-jobs-evidence="sanitized"]')
-          .count()) !== 1
+          .count()) !== 1 ||
+        prepared.canaryDetailCount !== 1 ||
+        prepared.detailCount < prepared.canaryDetailCount ||
+        prepared.resultCount === 0 ||
+        (await canaryDetail.count()) !== 1 ||
+        (await mask.count()) !== prepared.maskedSurfaceCount
       ) {
-        throw new Error("sanitized surface missing");
+        throw new Error("sanitized live page missing");
       }
-      await page.waitForLoadState("networkidle");
       if (this.pendingRequests.size > 0) {
         throw new Error("network activity remained");
       }
+      const captureStartedAt = new Date().toISOString();
       const { requestSequence } = this;
       const screenshot = await page.screenshot({
         animations: "disabled",
         fullPage: true,
+        mask: [mask],
       });
-      return { requestSequence, screenshot };
+      return {
+        captureStartedAt,
+        capturedAt: new Date().toISOString(),
+        requestSequence,
+        screenshot,
+      };
     } catch {
       return await this.abortFinalization(
         page,
-        "Live jobs E2E could not render and capture the sanitized visual attestation; no artifact was written."
+        "Live jobs E2E could not prepare and capture the sanitized live canary UI; no artifact was written."
       );
     }
   }
@@ -685,8 +745,8 @@ export class LiveJobsEvidence {
   }
 
   /**
-   * Replace the validated live DOM with a fixed, data-free attestation surface
-   * before capture, then close the page to force every request to finish or
+   * Capture the validated live canary UI with non-canary result and detail
+   * elements masked, then close the page to force every request to finish or
    * fail. Only a complete, frozen event snapshot is published.
    */
   async attachPassed(
@@ -707,16 +767,24 @@ export class LiveJobsEvidence {
     }
 
     let screenshot: Buffer | null = null;
+    let screenshotCapturedAt: string | null = null;
+    let screenshotCaptureStartedAt: string | null = null;
     let screenshotRequestSequence: number | null = null;
     if (options.screenshotAttestation) {
-      const { requestSequence, screenshot: capturedScreenshot } =
-        await this.captureSanitizedScreenshot(
-          page,
-          this.routePolicy,
-          options.screenshotAttestation,
-          options.visualAttestation
-        );
+      const {
+        capturedAt,
+        captureStartedAt,
+        requestSequence,
+        screenshot: capturedScreenshot,
+      } = await this.captureSanitizedScreenshot(
+        page,
+        this.routePolicy,
+        options.screenshotAttestation,
+        options.visualAttestation
+      );
       screenshot = capturedScreenshot;
+      screenshotCapturedAt = capturedAt;
+      screenshotCaptureStartedAt = captureStartedAt;
       screenshotRequestSequence = requestSequence;
     }
 
@@ -782,6 +850,17 @@ export class LiveJobsEvidence {
         },
         releaseSha: options.releaseSha,
         status: "passed",
+        visualEvidence:
+          options.screenshotAttestation &&
+          screenshotCapturedAt &&
+          screenshotCaptureStartedAt
+            ? {
+                canaryId: options.screenshotAttestation.canaryId,
+                captureStartedAt: screenshotCaptureStartedAt,
+                capturedAt: screenshotCapturedAt,
+                evidenceAttribute: "sanitized",
+              }
+            : undefined,
       },
       contentType: "application/json",
       name: "pass-manifest.json",

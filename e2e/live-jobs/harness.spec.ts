@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 
-import type { Page, TestInfo } from "@playwright/test";
+import type { Page, PageScreenshotOptions, TestInfo } from "@playwright/test";
 import { z } from "zod";
 
 import { readLiveJobsArtifactPolicy } from "./artifact-policy";
@@ -19,6 +19,7 @@ import {
   assertAllowedCapabilityRequests,
   hasForbiddenBrowserAuthHeader,
   LiveJobsEvidence,
+  prepareCanaryDomForCapture,
 } from "./evidence";
 import {
   cleanupLiveJobsMutations,
@@ -78,19 +79,28 @@ const fakeResponse = (
 
 const evidenceBundleSchema = z.object({
   attachments: z.array(
-    z.object({ bodyBase64: z.string().optional() }).passthrough()
+    z
+      .object({
+        body: z.unknown().optional(),
+        bodyBase64: z.string().optional(),
+        name: z.string(),
+      })
+      .passthrough()
   ),
 });
 
 class FakeEvidencePage {
   attachedRequest: FakeRequest | null = null;
   closed = false;
-  content = "account-name response-title secret-query";
-  failSetContent = false;
+  content = "verified live canary UI";
+  failPrepareLiveDom = false;
   finishRequestDuringScreenshot = false;
   private readonly jobUrl = `https://jobs.example/jobs?job=${canaryId}`;
   private readonly listeners = new Map<string, Set<EvidenceListener>>();
+  maskLocatorCount = 2;
+  sanitized = false;
   screenshotCalled = false;
+  screenshotOptions: PageScreenshotOptions | null = null;
 
   readonly close = (): Promise<void> => {
     this.closed = true;
@@ -113,16 +123,45 @@ class FakeEvidencePage {
   readonly isClosed = (): boolean => this.closed;
 
   readonly locator = (selector: string) => ({
-    count: () =>
-      Promise.resolve(
-        !this.closed &&
-          ((selector === "pre" && !this.content.includes("sanitized")) ||
-            (selector === '[data-live-jobs-evidence="sanitized"]' &&
-              this.content.includes('data-live-jobs-evidence="sanitized"')))
-          ? 1
-          : 0
-      ),
+    count: () => Promise.resolve(this.locatorCount(selector)),
+    evaluate: () => {
+      if (this.failPrepareLiveDom) {
+        return Promise.reject(new Error("unsafe live DOM detail"));
+      }
+      this.sanitized = true;
+      return Promise.resolve({
+        canaryDetailCount: 1,
+        detailCount: 1,
+        maskedSurfaceCount: 2,
+        resultCount: 2,
+      });
+    },
   });
+
+  private locatorCount(selector: string): number {
+    if (this.closed) {
+      return 0;
+    }
+    if (selector === "pre") {
+      return 1;
+    }
+    if (
+      selector === '[data-live-jobs-evidence="sanitized"]' &&
+      this.sanitized
+    ) {
+      return 1;
+    }
+    if (
+      selector === `[data-live-jobs-canary-id="${canaryId}"]` &&
+      this.sanitized
+    ) {
+      return 1;
+    }
+    if (selector === "[data-live-jobs-evidence-mask]") {
+      return this.maskLocatorCount;
+    }
+    return 0;
+  }
 
   off(event: string, listener: EvidenceListener): void {
     this.listeners.get(event)?.delete(listener);
@@ -134,8 +173,9 @@ class FakeEvidencePage {
     this.listeners.set(event, listeners);
   }
 
-  readonly screenshot = (): Promise<Buffer> => {
+  readonly screenshot = (options: PageScreenshotOptions): Promise<Buffer> => {
     this.screenshotCalled = true;
+    this.screenshotOptions = options;
     if (this.attachedRequest) {
       this.emit("request", this.attachedRequest);
       if (this.finishRequestDuringScreenshot) {
@@ -143,14 +183,6 @@ class FakeEvidencePage {
       }
     }
     return Promise.resolve(Buffer.from(this.content));
-  };
-
-  readonly setContent = (content: string): Promise<void> => {
-    if (this.failSetContent) {
-      return Promise.reject(new Error("unsafe renderer detail"));
-    }
-    this.content = content;
-    return Promise.resolve();
   };
 
   readonly url = (): string => this.jobUrl;
@@ -164,6 +196,49 @@ class FakeEvidencePage {
 // SAFETY: this fake implements every Page member exercised by LiveJobsEvidence.
 // oxlint-disable-next-line anti-slop/no-chained-type-assertions
 const asPage = (page: FakeEvidencePage): Page => page as unknown as Page;
+
+interface FakeDomElement {
+  readonly dataset: Record<string, string>;
+  readonly closest: (selector: string) => FakeDomElement | null;
+  readonly getClientRects: () => readonly unknown[];
+  readonly querySelector: (selector: string) => FakeDomElement | null;
+  readonly querySelectorAll: (selector: string) => readonly FakeDomElement[];
+  readonly setSelection: (selector: string, elements: FakeDomElement[]) => void;
+  readonly textContent: string | null;
+}
+
+const fakeDomElement = (
+  options: {
+    readonly hasPre?: boolean;
+    readonly parent?: FakeDomElement;
+    readonly textContent?: string;
+    readonly visible?: boolean;
+  } = {}
+): FakeDomElement => {
+  const selections = new Map<string, FakeDomElement[]>();
+  return {
+    closest: (selector) =>
+      selector === "aside, dialog" ? (options.parent ?? null) : null,
+    dataset: {},
+    getClientRects: () => (options.visible ? [{}] : []),
+    querySelector: (selector) => {
+      if (selector === "pre" && options.hasPre) {
+        return fakeDomElement();
+      }
+      return selections.get(selector)?.[0] ?? null;
+    },
+    querySelectorAll: (selector) => selections.get(selector) ?? [],
+    setSelection: (selector, elements) => {
+      selections.set(selector, elements);
+    },
+    textContent: options.textContent ?? null,
+  };
+};
+
+// SAFETY: the fake implements the HTMLElement members used by the pure DOM
+// preparation helper, allowing the masking algorithm itself to be tested.
+const asHtmlElement = (element: FakeDomElement): HTMLElement =>
+  element as never;
 
 const issueCanaryAttestation = async () => {
   const aanvraag = {
@@ -208,6 +283,83 @@ const mutationEnvironment = {
 } satisfies LiveJobsEnvironment;
 
 describe("live jobs E2E canary and artifact boundaries", () => {
+  it("masks every result and non-canary detail without trusting DOM order", () => {
+    const resultRegion = fakeDomElement();
+    const nonCanaryResult = fakeDomElement();
+    const renderedCanaryResult = fakeDomElement();
+    resultRegion.setSelection("tbody > tr, article", [
+      nonCanaryResult,
+      renderedCanaryResult,
+    ]);
+
+    const nonCanaryDetail = fakeDomElement({ hasPre: true });
+    const canaryDetail = fakeDomElement({ hasPre: true });
+    const hiddenNonCanaryTitle = fakeDomElement({
+      parent: nonCanaryDetail,
+      textContent: "Wrong detail",
+    });
+    const visibleCanaryTitle = fakeDomElement({
+      parent: canaryDetail,
+      textContent: "Verified canary",
+      visible: true,
+    });
+    const main = fakeDomElement();
+    main.setSelection('[aria-label="Zoekresultaten"]', [resultRegion]);
+    main.setSelection("#desktop-job-detail-title, #overlay-job-detail-title", [
+      hiddenNonCanaryTitle,
+      visibleCanaryTitle,
+    ]);
+    main.setSelection("aside, dialog", [nonCanaryDetail, canaryDetail]);
+
+    const prepared = prepareCanaryDomForCapture(asHtmlElement(main), canaryId);
+
+    expect(prepared).toEqual({
+      canaryDetailCount: 1,
+      detailCount: 2,
+      maskedSurfaceCount: 3,
+      resultCount: 2,
+    });
+    expect(nonCanaryResult.dataset.liveJobsEvidenceMask).toBe(
+      "unverified-result"
+    );
+    expect(renderedCanaryResult.dataset.liveJobsEvidenceMask).toBe(
+      "unverified-result"
+    );
+    expect(nonCanaryDetail.dataset.liveJobsEvidenceMask).toBe(
+      "non-canary-detail"
+    );
+    expect(canaryDetail.dataset.liveJobsEvidenceMask).toBeUndefined();
+    expect(canaryDetail.dataset.liveJobsCanaryId).toBe(canaryId);
+    expect(main.dataset.liveJobsEvidence).toBe("sanitized");
+  });
+
+  it("fails closed when more than one canary detail is visible", () => {
+    const resultRegion = fakeDomElement();
+    resultRegion.setSelection("tbody > tr, article", [fakeDomElement()]);
+    const firstDetail = fakeDomElement({ hasPre: true });
+    const secondDetail = fakeDomElement({ hasPre: true });
+    const main = fakeDomElement();
+    main.setSelection('[aria-label="Zoekresultaten"]', [resultRegion]);
+    main.setSelection("#desktop-job-detail-title, #overlay-job-detail-title", [
+      fakeDomElement({
+        parent: firstDetail,
+        textContent: "First",
+        visible: true,
+      }),
+      fakeDomElement({
+        parent: secondDetail,
+        textContent: "Second",
+        visible: true,
+      }),
+    ]);
+    main.setSelection("aside, dialog", [firstDetail, secondDetail]);
+
+    expect(() =>
+      prepareCanaryDomForCapture(asHtmlElement(main), canaryId)
+    ).toThrow(/missing or ambiguous/u);
+    expect(main.dataset.liveJobsEvidence).toBeUndefined();
+  });
+
   it("rejects a response where a production record is listed first", () => {
     expect(() =>
       assertCanarySearchResponse(
@@ -653,9 +805,18 @@ describe("live jobs E2E canary and artifact boundaries", () => {
     });
 
     expect(fakePage.closed).toBe(true);
+    expect(fakePage.sanitized).toBe(true);
+    expect(fakePage.screenshotOptions).toMatchObject({
+      animations: "disabled",
+      fullPage: true,
+      mask: expect.any(Array),
+    });
     expect(attachments).toHaveLength(1);
     expect(attachments[0]).toContain("pass-manifest.json");
-    expect(attachments[0]).not.toContain(canaryId);
+    expect(attachments[0]).toContain(canaryId);
+    expect(attachments[0]).toContain(releaseSha);
+    expect(attachments[0]).toContain("captureStartedAt");
+    expect(attachments[0]).toContain("capturedAt");
     expect(attachments[0]).not.toContain(attestation.rawPayloadRef);
     expect(attachments[0]).not.toContain("api.jobs.example");
     expect(attachments[0]).not.toContain("account-name");
@@ -672,16 +833,24 @@ describe("live jobs E2E canary and artifact boundaries", () => {
       screenshotBody ?? "",
       "base64"
     ).toString();
-    expect(decodedScreenshot).toContain("fixed status labels only");
-    expect(decodedScreenshot).not.toContain("account-name");
-    expect(decodedScreenshot).not.toContain("response-title");
-    expect(decodedScreenshot).not.toContain("secret-query");
+    expect(decodedScreenshot).toContain("verified live canary UI");
+    const manifest = bundle.attachments.find(
+      (attachment) => attachment.name === "pass-manifest.json"
+    );
+    expect(manifest?.body).toMatchObject({
+      releaseSha,
+      status: "passed",
+      visualEvidence: {
+        canaryId,
+        evidenceAttribute: "sanitized",
+      },
+    });
   });
 
-  it("publishes nothing when the data-free visual surface cannot be rendered", async () => {
+  it("publishes nothing when the live canary DOM cannot be prepared", async () => {
     const attestation = await issueCanaryAttestation();
     const fakePage = new FakeEvidencePage();
-    fakePage.failSetContent = true;
+    fakePage.failPrepareLiveDom = true;
     const page = asPage(fakePage);
     const evidence = new LiveJobsEvidence(
       page,
@@ -706,7 +875,41 @@ describe("live jobs E2E canary and artifact boundaries", () => {
         screenshotAttestation: attestation,
         visualAttestation: issueCanaryVisualAttestation(attestation),
       })
-    ).rejects.toThrow(/could not render and capture/u);
+    ).rejects.toThrow(/could not prepare and capture/u);
+    expect(fakePage.closed).toBe(true);
+    expect(attachmentCount).toBe(0);
+  });
+
+  it("publishes nothing when the mask locator misses a prepared surface", async () => {
+    const attestation = await issueCanaryAttestation();
+    const fakePage = new FakeEvidencePage();
+    fakePage.maskLocatorCount = 1;
+    const page = asPage(fakePage);
+    const evidence = new LiveJobsEvidence(
+      page,
+      "https://jobs.example",
+      "https://api.jobs.example"
+    );
+    await evidence.assertObservedRoutes([], attestation);
+    let attachmentCount = 0;
+    const recordingTestInfo = {
+      attach: () => {
+        attachmentCount += 1;
+        return Promise.resolve();
+      },
+    };
+    // SAFETY: LiveJobsEvidence uses only TestInfo.attach in this regression.
+    // oxlint-disable-next-line anti-slop/no-chained-type-assertions
+    const testInfo = recordingTestInfo as unknown as TestInfo;
+
+    await expect(
+      evidence.attachPassed(testInfo, page, {
+        releaseSha,
+        screenshotAttestation: attestation,
+        visualAttestation: issueCanaryVisualAttestation(attestation),
+      })
+    ).rejects.toThrow(/could not prepare and capture/u);
+    expect(fakePage.screenshotCalled).toBe(false);
     expect(fakePage.closed).toBe(true);
     expect(attachmentCount).toBe(0);
   });
