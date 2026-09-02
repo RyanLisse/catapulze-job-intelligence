@@ -13,6 +13,7 @@
 import {
   closeDb,
   db,
+  manticoreIdsForBoundedLookup,
   PostgresSearchDocumentLoader,
   PostgresSearchVersionStore,
   ProjectionRepairGenerationChangedError,
@@ -24,7 +25,7 @@ import type {
   SearchProjectionInventoryPort,
   SearchProjectionInventoryRecord,
 } from "@ji/db";
-import { hashDocumentId, partitionTable, SEARCH_INDEX_NAME } from "@ji/search";
+import { partitionTable, SEARCH_INDEX_NAME } from "@ji/search";
 import type { SearchPartition } from "@ji/search";
 import { z } from "zod";
 
@@ -120,7 +121,7 @@ class ManticoreInventory implements SearchProjectionInventoryPort {
       return [];
     }
     const table = partitionTable(SEARCH_INDEX_NAME, partition);
-    const values = documentIds.map(hashDocumentId).join(", ");
+    const values = manticoreIdsForBoundedLookup(documentIds).join(", ");
     return ManticoreInventory.toInventoryRows(
       await this.query(
         `SELECT id, document_id, projection_hash FROM ${table} WHERE id IN (${values}) ORDER BY id ASC LIMIT ${limit}`

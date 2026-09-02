@@ -57,6 +57,7 @@ export {
   ProjectionRepairInventorySafetyError,
   ProjectionRepairPhysicalCorruptionError,
   ProjectionRepairSchemaMismatchError,
+  manticoreIdsForBoundedLookup,
   reconcileProjection,
   type ProjectionDivergence,
   type ProjectionDivergenceReason,

@@ -182,6 +182,30 @@ export class ProjectionRepairPhysicalCorruptionError extends ProjectionRepairInv
   }
 }
 
+/**
+ * Resolves the only physical ids a bounded document lookup may return.
+ * Duplicate numeric ids are ambiguous (including a hash collision) and must
+ * fail closed before querying or interpreting Manticore rows.
+ */
+export const manticoreIdsForBoundedLookup = (
+  documentIds: readonly string[]
+): number[] => {
+  const manticoreIds: number[] = [];
+  const seen = new Map<number, string>();
+  for (const documentId of documentIds) {
+    const manticoreId = hashDocumentId(documentId);
+    const existing = seen.get(manticoreId);
+    if (existing !== undefined) {
+      throw new ProjectionRepairInventorySafetyError(
+        `Manticore bounded lookup request has duplicate numeric id ${manticoreId} for ${existing} and ${documentId}`
+      );
+    }
+    seen.set(manticoreId, documentId);
+    manticoreIds.push(manticoreId);
+  }
+  return manticoreIds;
+};
+
 export type ProjectionDivergenceReason =
   | "duplicate_manticore_document"
   | "manticore_projection_hash_mismatch"
@@ -777,15 +801,22 @@ const assertBoundedLookup = (
       } canonical lookup returned more than one row per requested document`
     );
   }
-  const requested = new Set(documentIds);
+  const requested = new Set(manticoreIdsForBoundedLookup(documentIds));
+  const returned = new Set<number>();
   for (const row of rows) {
-    if (!requested.has(row.documentId)) {
+    if (!requested.has(row.manticoreId)) {
       throw new ProjectionRepairInventorySafetyError(
         `Manticore ${
           partition
-        } lookup returned a document outside its requested bounded page`
+        } lookup returned numeric id outside its requested bounded page`
       );
     }
+    if (returned.has(row.manticoreId)) {
+      throw new ProjectionRepairInventorySafetyError(
+        `Manticore ${partition} lookup returned duplicate numeric id ${row.manticoreId}`
+      );
+    }
+    returned.add(row.manticoreId);
   }
 };
 

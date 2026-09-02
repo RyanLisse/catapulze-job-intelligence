@@ -40,7 +40,11 @@ The command uses bounded pages in two directions.
    projector's loader, compared with current-generation projection state, and
    looked up in both Manticore partitions. Its stored `projection_hash` is
    compared with the canonical hash calculated from the source document using
-   one captured clock value for the entire run.
+   one captured clock value for the entire run. The lookup is bounded by the
+   requested numeric `hashDocumentId(document_id)` values, so a corrupt row
+   occupying a canonical numeric id is returned and classified even when its
+   stored `document_id` is wrong. Duplicate requested hashes, duplicate returned
+   numeric ids, and rows outside the requested hash set fail closed.
 
 2. **Manticore-led:** numeric Manticore `id` keyset pages are scanned in both
    partitions. A canonical UUID that has no current aanvraag is an orphan;

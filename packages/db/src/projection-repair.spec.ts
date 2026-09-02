@@ -20,6 +20,7 @@ import { PostgresSearchDocumentLoader } from "./aanvraag-stores";
 import type { BronRuntimeDatabase } from "./bron-runtime";
 import {
   PROJECTION_REPAIR_EVENT_TYPE,
+  manticoreIdsForBoundedLookup,
   ProjectionRepairSchemaMismatchError,
   reconcileProjection,
 } from "./projection-repair";
@@ -115,14 +116,10 @@ class FakeManticoreInventory implements SearchProjectionInventoryPort {
     documentIds: readonly string[],
     limit: number
   ): Promise<readonly SearchProjectionInventoryRecord[]> {
-    const ids = new Set(documentIds);
+    const ids = new Set(manticoreIdsForBoundedLookup(documentIds));
     return Promise.resolve(
       this.rows[partition]
-        .filter(
-          (row) =>
-            ids.has(row.documentId) &&
-            row.manticoreId === hashDocumentId(row.documentId)
-        )
+        .filter((row) => ids.has(row.manticoreId))
         .slice(0, limit)
     );
   }
@@ -327,6 +324,40 @@ describe("reconcileProjection (RJC-399 repair tool)", () => {
     }
     return isolatedDatabase;
   };
+
+  it("fails closed before a bounded lookup can use duplicate numeric ids", () => {
+    const documentId = crypto.randomUUID();
+    expect(() =>
+      manticoreIdsForBoundedLookup([documentId, documentId])
+    ).toThrow("duplicate numeric id");
+  });
+
+  it("models production numeric-id lookup and preserves a replacement during compare-delete", async () => {
+    const requestedDocumentId = crypto.randomUUID();
+    const canonicalRow: SearchProjectionInventoryRecord = {
+      documentId: requestedDocumentId,
+      manticoreId: hashDocumentId(requestedDocumentId),
+      projectionHash: "canonical-hash",
+    };
+    const corruptOccupant: SearchProjectionInventoryRecord = {
+      ...canonicalRow,
+      documentId: "wrong-document-id-at-canonical-numeric-id",
+      projectionHash: "corrupt-hash",
+    };
+    const inventory = new FakeManticoreInventory(
+      { active: [corruptOccupant], archive: [] },
+      () => inventory.replaceRows("active", [canonicalRow])
+    );
+
+    const lookupRows = await inventory.findByDocumentIds(
+      "active",
+      [requestedDocumentId],
+      2
+    );
+    expect(lookupRows).toEqual([corruptOccupant]);
+    expect(await inventory.deleteObservedRows("active", lookupRows)).toBe(0);
+    expect(inventory.rowsFor("active")).toEqual([canonicalRow]);
+  });
 
   it("finds a hand-crafted divergence, repairs it once, and is idempotent", async () => {
     if (!available || !database) {
@@ -726,6 +757,14 @@ describe("reconcileProjection (RJC-399 repair tool)", () => {
     });
 
     expect(replaced).toBe(true);
+    expect(result.applied).toBe(1);
+    expect(result.divergent).toEqual([
+      expect.objectContaining({
+        aggregateId,
+        reasons: ["missing_manticore_document"],
+      }),
+    ]);
+    expect(result.physicalCorruptionCount).toBe(1);
     expect(result.physicalCleanupCount).toBe(0);
     expect(result.inventoryFinalCounts).toEqual({ active: 1, archive: 0 });
     expect(inventory.rowsFor("active")).toEqual([canonicalRow]);
