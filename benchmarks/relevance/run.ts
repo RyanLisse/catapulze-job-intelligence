@@ -10,6 +10,11 @@ import {
 } from "@ji/search";
 import { z } from "zod";
 
+import {
+  assertCleanManticoreTables,
+  cleanupAndAssertManticoreTables,
+  MANTICORE_BENCH_INDEX_NAME,
+} from "../manticore-hygiene";
 import { loadRelevanceCorpus } from "./corpus";
 import type { RelevanceCorpusSummary } from "./corpus";
 
@@ -259,69 +264,6 @@ interface EngineRun {
   preflight: ((phase: "after" | "before") => Promise<void>) | null;
 }
 
-/** Tables `bun run relevance` writes into on a Manticore target (RJC-383). */
-const MANTICORE_BENCH_TABLES = [
-  "aanvragen_active",
-  "aanvragen_archive",
-] as const;
-
-/**
- * Row count per table via `SELECT COUNT(*)` over `/sql?mode=raw`. Never use a
- * `/search` with `limit: 0` for this: its `hits.total` reflects the returned
- * window, not the table, and reported 0 on a 505-row table — the probe
- * behind the polluted RJC-382 baseline
- * (docs/research/manticore-relevance-baseline-correction-2026-09-01.md).
- */
-const countManticoreRows = async (
-  url: string
-): Promise<Record<string, number>> => {
-  const countTable = async (table: string): Promise<[string, number]> => {
-    const response = await fetch(`${url}/sql?mode=raw`, {
-      body: `query=${encodeURIComponent(`SELECT COUNT(*) FROM ${table}`)}`,
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      method: "POST",
-    });
-    if (!response.ok) {
-      throw new Error(
-        `SELECT COUNT(*) FROM ${table} failed (${response.status}) on ${url}`
-      );
-    }
-    const parsed = z
-      .array(z.object({ data: z.array(z.record(z.string(), z.unknown())) }))
-      .parse(await response.json());
-    return [table, Number(parsed[0]?.data[0]?.["count(*)"] ?? Number.NaN)];
-  };
-  return Object.fromEntries(
-    await Promise.all(MANTICORE_BENCH_TABLES.map((table) => countTable(table)))
-  );
-};
-
-/**
- * Relevance numbers are only comparable on empty tables: foreign rows take
- * result slots and skew BM25 statistics (0.477 vs 0.523 on the same corpus,
- * see the correction doc above). Refuses unless RELEVANCE_ALLOW_DIRTY_TABLE=1.
- */
-const assertCleanManticore = async (
-  name: string,
-  url: string,
-  phase: "after" | "before"
-): Promise<void> => {
-  const counts = await countManticoreRows(url);
-  console.log(`${name}: rows ${phase} run ${JSON.stringify(counts)}`);
-  const dirty = Object.entries(counts).filter(([, count]) => count !== 0);
-  if (dirty.length === 0 || process.env.RELEVANCE_ALLOW_DIRTY_TABLE === "1") {
-    return;
-  }
-  console.error(
-    `${name}: refusing to score against non-empty tables ${dirty
-      .map(([table, count]) => `${table}=${count}`)
-      .join(", ")} on ${url}.\n` +
-      "  Pre-existing rows skew ranking and BM25 statistics, so the numbers would not be comparable.\n" +
-      "  Use an empty volume or a throwaway Manticore for baselines, or set RELEVANCE_ALLOW_DIRTY_TABLE=1 to override knowingly."
-  );
-  process.exit(1);
-};
-
 /** Builds one Manticore EngineRun. Shared by both the default MANTICORE_URL
  * engine and the optional RJC-382 comparison engine below. */
 const buildManticoreRun = (
@@ -332,23 +274,22 @@ const buildManticoreRun = (
   const manticore = ManticoreSearchEngine.fromUrl(
     url,
     new InMemorySearchVersionStore(),
-    undefined,
+    MANTICORE_BENCH_INDEX_NAME,
     benchClock
   );
   return {
-    // The local Manticore table is shared with the app; benchmark ids are
-    // `slug:referentie` strings that cannot collide with the app's UUID
-    // ids, and every inserted document is removed again after scoring.
     cleanup: async () => {
-      for (const item of corpus.documents) {
-        // oxlint-disable-next-line no-await-in-loop -- sequential deletes keep cleanup simple and bounded (tens of docs)
-        await manticore.deleteDocument(item.id);
-      }
+      await cleanupAndAssertManticoreTables(
+        name,
+        url,
+        manticore,
+        corpus.documents.map((item) => item.id)
+      );
     },
     engine: manticore,
     name,
     preflight: async (phase) => {
-      await assertCleanManticore(name, url, phase);
+      await assertCleanManticoreTables(name, url, phase);
     },
   };
 };
@@ -463,10 +404,8 @@ const main = async (): Promise<void> => {
         // oxlint-disable-next-line no-await-in-loop -- cleanup must finish before the next engine runs
         await run.cleanup();
       }
-      if (run.preflight) {
-        // oxlint-disable-next-line no-await-in-loop -- prove the run left the tables as it found them
-        await run.preflight("after");
-      }
+      // Manticore cleanup includes the mandatory post-run SELECT COUNT(*)
+      // proof even when one or more document deletes fail.
     }
   }
 

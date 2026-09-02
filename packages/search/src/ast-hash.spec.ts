@@ -10,6 +10,7 @@ import {
   compareCodepoints,
   hashAst,
 } from "./ast-hash";
+import { cleanupLiveDocuments } from "./manticore/live-test-hygiene";
 import { InMemorySearchVersionStore } from "./version";
 
 const parseOk = (query: string) => {
@@ -247,36 +248,40 @@ describe("Manticore query_string case-insensitivity (live, RJC-388)", () => {
     );
     const runToken = `casecheck${crypto.randomUUID().replaceAll("-", "")}`;
     const documentId = `case-doc-${crypto.randomUUID()}`;
-    await engine.upsertDocument({
-      beschrijving: `Mixed CaSe token ${runToken}`,
-      bronId: "bron-live",
-      contracttype: "detachering",
-      id: documentId,
-      laatstGezienOp: new Date("2026-08-01T00:00:00.000Z"),
-      locatieLand: "NL",
-      status: "active",
-      tariefMax: 120,
-      tariefMin: 80,
-      titel: "Case sensitivity check",
-    });
-    await engine.applyBatch({ appliedSequence: 1n, mutations: [] });
+    try {
+      await engine.upsertDocument({
+        beschrijving: `Mixed CaSe token ${runToken}`,
+        bronId: "bron-live",
+        contracttype: "detachering",
+        id: documentId,
+        laatstGezienOp: new Date("2026-08-01T00:00:00.000Z"),
+        locatieLand: "NL",
+        status: "active",
+        tariefMax: 120,
+        tariefMin: 80,
+        titel: "Case sensitivity check",
+      });
+      await engine.applyBatch({ appliedSequence: 1n, mutations: [] });
 
-    const lowerAst = parseOk(runToken.toLowerCase());
-    const upperAst = parseOk(runToken.toUpperCase());
-    const lowerResult = await engine.search({
-      ast: lowerAst,
-      filters: {},
-      limit: 10,
-      offset: 0,
-    });
-    const upperResult = await engine.search({
-      ast: upperAst,
-      filters: {},
-      limit: 10,
-      offset: 0,
-    });
+      const lowerAst = parseOk(runToken.toLowerCase());
+      const upperAst = parseOk(runToken.toUpperCase());
+      const lowerResult = await engine.search({
+        ast: lowerAst,
+        filters: {},
+        limit: 10,
+        offset: 0,
+      });
+      const upperResult = await engine.search({
+        ast: upperAst,
+        filters: {},
+        limit: 10,
+        offset: 0,
+      });
 
-    expect(lowerResult.total).toBeGreaterThanOrEqual(1);
-    expect(upperResult.total).toBeGreaterThanOrEqual(1);
+      expect(lowerResult.total).toBeGreaterThanOrEqual(1);
+      expect(upperResult.total).toBeGreaterThanOrEqual(1);
+    } finally {
+      await cleanupLiveDocuments(engine, [documentId]);
+    }
   });
 });

@@ -4,6 +4,7 @@ import { InMemorySearchEngine } from "../in-memory-engine";
 import type { SearchDocument, SearchFilters, SearchSort } from "../types";
 import { InMemorySearchVersionStore } from "../version";
 import { ManticoreSearchEngine } from "./engine";
+import { cleanupLiveDocuments } from "./live-test-hygiene";
 
 // Live check of the RJC-378 ordering contract against a real Manticore
 // (needs the locatie + sluitingsdatum attributes, see tools/manticore/
@@ -122,10 +123,10 @@ describe("Manticore sort/filter live integration (RJC-378)", () => {
         value: "Amsterdam",
       });
     } finally {
-      for (const item of documents) {
-        // oxlint-disable-next-line no-await-in-loop -- bounded cleanup of nine fixtures
-        await engine.deleteDocument(item.id);
-      }
+      await cleanupLiveDocuments(
+        engine,
+        documents.map((item) => item.id)
+      );
     }
   });
 });

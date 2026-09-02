@@ -15,6 +15,12 @@ import {
 } from "@ji/search";
 import { z } from "zod";
 
+import {
+  assertCleanManticoreTables,
+  cleanupAndAssertManticoreTables,
+  MANTICORE_BENCH_INDEX_NAME,
+  requireManticoreUrl,
+} from "../manticore-hygiene";
 import { sha256Digest } from "./digest";
 
 export interface BenchmarkProfile {
@@ -156,6 +162,16 @@ const upsertAll = async (
   }
 };
 
+const scopeManticoreDocuments = (
+  documents: readonly SearchDocument[]
+): SearchDocument[] => {
+  const runId = crypto.randomUUID();
+  return documents.map((document) => ({
+    ...document,
+    id: `${document.id}--bench-${runId}`,
+  }));
+};
+
 interface ResolvedCorpus {
   corpusDigest: string;
   documents: SearchDocument[];
@@ -197,26 +213,6 @@ const resolveCorpusDocuments = (profile: BenchmarkProfile): ResolvedCorpus => {
   };
 };
 
-const createEngine = async (
-  profile: BenchmarkProfile
-): Promise<{
-  corpusDigest: string;
-  documentCount: number;
-  engine: SearchEngine;
-}> => {
-  const manticoreUrl = process.env.MANTICORE_URL;
-  const { corpusDigest, documents } = resolveCorpusDocuments(profile);
-  const engine = manticoreUrl
-    ? ManticoreSearchEngine.fromUrl(
-        manticoreUrl,
-        new InMemorySearchVersionStore()
-      )
-    : new InMemorySearchEngine();
-  await upsertAll(engine, documents);
-  await engine.applyBatch({ appliedSequence: 1n, mutations: [] });
-  return { corpusDigest, documentCount: documents.length, engine };
-};
-
 // RJC-382 latency round: builds a named engine against an explicit URL
 // (rather than always reading MANTICORE_URL), so the same corpus can be
 // indexed into a second Manticore instance (the 29.x shadow) in the same
@@ -224,6 +220,7 @@ const createEngine = async (
 // benchmarks/relevance/run.ts. Reports indexing throughput (docs/s) since
 // that also matters for the RJC-389 1M-backfill design.
 interface NamedEngineRun {
+  cleanup: (() => Promise<void>) | null;
   documentCount: number;
   engine: SearchEngine;
   indexingDocsPerSecond: number;
@@ -231,19 +228,66 @@ interface NamedEngineRun {
   label: string;
 }
 
+const finishManticoreRun = async (
+  label: string,
+  url: string,
+  engine: ManticoreSearchEngine,
+  documentIds: readonly string[]
+): Promise<void> => {
+  await cleanupAndAssertManticoreTables(label, url, engine, documentIds);
+};
+
 const buildNamedEngineRun = async (
   label: string,
   url: string | undefined,
   documents: SearchDocument[]
 ): Promise<NamedEngineRun> => {
-  const engine = url
-    ? ManticoreSearchEngine.fromUrl(url, new InMemorySearchVersionStore())
-    : new InMemorySearchEngine();
+  if (!url) {
+    const engine = new InMemorySearchEngine();
+    const startedAt = performance.now();
+    await upsertAll(engine, documents);
+    await engine.applyBatch({ appliedSequence: 1n, mutations: [] });
+    const indexingMs = performance.now() - startedAt;
+    return {
+      cleanup: null,
+      documentCount: documents.length,
+      engine,
+      indexingDocsPerSecond:
+        indexingMs > 0
+          ? Number((documents.length / (indexingMs / 1000)).toFixed(1))
+          : 0,
+      indexingMs: Number(indexingMs.toFixed(1)),
+      label,
+    };
+  }
+
+  await assertCleanManticoreTables(label, url, "before");
+  const engine = ManticoreSearchEngine.fromUrl(
+    url,
+    new InMemorySearchVersionStore(),
+    MANTICORE_BENCH_INDEX_NAME
+  );
+  const runDocuments = scopeManticoreDocuments(documents);
+  const documentIds = runDocuments.map((document) => document.id);
   const startedAt = performance.now();
-  await upsertAll(engine, documents);
-  await engine.applyBatch({ appliedSequence: 1n, mutations: [] });
+  try {
+    await upsertAll(engine, runDocuments);
+    await engine.applyBatch({ appliedSequence: 1n, mutations: [] });
+  } catch (error) {
+    try {
+      await finishManticoreRun(label, url, engine, documentIds);
+    } catch (cleanupError) {
+      throw new AggregateError(
+        [error, cleanupError],
+        `${label} indexing and cleanup failed`,
+        { cause: cleanupError }
+      );
+    }
+    throw error;
+  }
   const indexingMs = performance.now() - startedAt;
   return {
+    cleanup: () => finishManticoreRun(label, url, engine, documentIds),
     documentCount: documents.length,
     engine,
     indexingDocsPerSecond:
@@ -253,6 +297,22 @@ const buildNamedEngineRun = async (
     indexingMs: Number(indexingMs.toFixed(1)),
     label,
   };
+};
+
+const createEngine = async (
+  profile: BenchmarkProfile
+): Promise<NamedEngineRun & { corpusDigest: string }> => {
+  const manticoreUrl = requireManticoreUrl(
+    process.env.MANTICORE_URL,
+    process.env.BENCH_REQUIRE_MANTICORE === "1"
+  );
+  const { corpusDigest, documents } = resolveCorpusDocuments(profile);
+  const run = await buildNamedEngineRun(
+    manticoreUrl ? "manticore" : "in-memory",
+    manticoreUrl,
+    documents
+  );
+  return { ...run, corpusDigest };
 };
 
 interface LatencyQuery {
@@ -425,8 +485,8 @@ export const runMeasured = async (
 // 29.x shadow) in one invocation, printing an extended per-engine report
 // (adds maxMs/errorCount/indexing throughput to the base report shape).
 // Only engaged when MANTICORE_29_URL or LATENCY_GOLDEN_QUERIES is set, so
-// the default `bun run bench:search` invocation is entirely unaffected —
-// see runLatencyRound's caller in main() below.
+// the default `bun run bench:search` invocation keeps its single-report
+// shape — see runLatencyRound's caller in main() below.
 interface LatencyEngineReport {
   boundary: string;
   documentCount: number;
@@ -450,6 +510,10 @@ const runLatencyRound = async (
   profile: BenchmarkProfile,
   profilePath: string
 ): Promise<void> => {
+  const manticoreUrl = requireManticoreUrl(
+    process.env.MANTICORE_URL,
+    process.env.BENCH_REQUIRE_MANTICORE === "1"
+  );
   const useGolden = process.env.LATENCY_GOLDEN_QUERIES === "1";
   const queries: LatencyQuery[] = useGolden
     ? loadGoldenQueries()
@@ -458,8 +522,8 @@ const runLatencyRound = async (
 
   const engineSpecs: { label: string; url: string | undefined }[] = [
     {
-      label: process.env.MANTICORE_URL ? "manticore-6.3.8" : "in-memory",
-      url: process.env.MANTICORE_URL,
+      label: manticoreUrl ? "manticore-6.3.8" : "in-memory",
+      url: manticoreUrl,
     },
   ];
   const manticore29Url = process.env.MANTICORE_29_URL?.trim();
@@ -474,33 +538,40 @@ const runLatencyRound = async (
   for (const spec of engineSpecs) {
     // oxlint-disable-next-line no-await-in-loop -- engines are indexed and measured sequentially so each series is isolated and comparable
     const run = await buildNamedEngineRun(spec.label, spec.url, documents);
-    const adapter = new SearchAdapter({ engine: run.engine });
-    // oxlint-disable-next-line no-await-in-loop -- sequential series, see above
-    const stats = await runSeries(
-      adapter,
-      queries,
-      profile.concurrency,
-      profile.warmupIterations,
-      profile.measuredIterations
-    );
-    reports.push({
-      boundary: profile.slo.boundary,
-      documentCount: run.documentCount,
-      engine: run.label,
-      errorCount: stats.errorCount,
-      indexingDocsPerSecond: run.indexingDocsPerSecond,
-      indexingMs: run.indexingMs,
-      maxMs: stats.maxMs,
-      p50Ms: stats.p50Ms,
-      p95Ms: stats.p95Ms,
-      p99Ms: stats.p99Ms,
-      passed: stats.p95Ms <= profile.slo.maxMs,
-      perQuery: stats.perQuery,
-      profile: profilePath,
-      queryMode: useGolden ? "golden" : "profile",
-      queryset: useGolden ? GOLDEN_QUERIES_PATH : profile.corpus.pointer,
-      sloMaxMs: profile.slo.maxMs,
-    });
+    try {
+      const adapter = new SearchAdapter({ engine: run.engine });
+      // oxlint-disable-next-line no-await-in-loop -- sequential series, see above
+      const stats = await runSeries(
+        adapter,
+        queries,
+        profile.concurrency,
+        profile.warmupIterations,
+        profile.measuredIterations
+      );
+      reports.push({
+        boundary: profile.slo.boundary,
+        documentCount: run.documentCount,
+        engine: run.label,
+        errorCount: stats.errorCount,
+        indexingDocsPerSecond: run.indexingDocsPerSecond,
+        indexingMs: run.indexingMs,
+        maxMs: stats.maxMs,
+        p50Ms: stats.p50Ms,
+        p95Ms: stats.p95Ms,
+        p99Ms: stats.p99Ms,
+        passed: stats.p95Ms <= profile.slo.maxMs,
+        perQuery: stats.perQuery,
+        profile: profilePath,
+        queryMode: useGolden ? "golden" : "profile",
+        queryset: useGolden ? GOLDEN_QUERIES_PATH : profile.corpus.pointer,
+        sloMaxMs: profile.slo.maxMs,
+      });
+    } finally {
+      if (run.cleanup) {
+        // oxlint-disable-next-line no-await-in-loop -- each engine must prove its dedicated tables clean before the next series
+        await run.cleanup();
+      }
+    }
   }
 
   console.log(JSON.stringify(reports, null, 2));
@@ -516,8 +587,8 @@ const main = async (): Promise<void> => {
   const profile = loadProfile(profilePath);
 
   // Extended RJC-382 latency-round mode is opt-in only; the default path
-  // below (none of these three set) is completely untouched, keeping
-  // `bun run bench:search` output byte-identical. LATENCY_EXTENDED_REPORT
+  // below (none of these three set) keeps the single-report JSON shape.
+  // LATENCY_EXTENDED_REPORT
   // forces the extended (array, per-query breakdown) report shape for a
   // single engine without requiring a second Manticore target — useful for
   // running one engine's series in isolation (e.g. to avoid one engine's
@@ -531,8 +602,8 @@ const main = async (): Promise<void> => {
     return;
   }
 
-  const { corpusDigest, documentCount, engine } = await createEngine(profile);
-  const adapter = new SearchAdapter({ engine });
+  const run = await createEngine(profile);
+  const adapter = new SearchAdapter({ engine: run.engine });
 
   // SearchAdapter.search() checks isCriticalPathEnabled() (true whenever
   // PERF_METRICS_DIR is set) and, if true, creates + flushes a session
@@ -547,8 +618,15 @@ const main = async (): Promise<void> => {
   const metricsDir = process.env.PERF_METRICS_DIR;
   delete process.env.PERF_METRICS_DIR;
 
-  await runWarmup(adapter, profile);
-  const durationsMs = await runMeasured(adapter, profile);
+  let durationsMs: number[];
+  try {
+    await runWarmup(adapter, profile);
+    durationsMs = await runMeasured(adapter, profile);
+  } finally {
+    if (run.cleanup) {
+      await run.cleanup();
+    }
+  }
 
   const p50 = percentile(durationsMs, 50);
   const p95 = percentile(durationsMs, 95);
@@ -559,7 +637,7 @@ const main = async (): Promise<void> => {
     boundary: profile.slo.boundary,
     corpusExpectedDocuments: profile.corpus.expectedDocuments,
     corpusPointer: profile.corpus.pointer,
-    engine: process.env.MANTICORE_URL ? "manticore" : "in-memory",
+    engine: run.label,
     measuredSamples: durationsMs.length,
     p50Ms: Number(p50.toFixed(2)),
     p95Ms: Number(p95.toFixed(2)),
@@ -578,8 +656,8 @@ const main = async (): Promise<void> => {
     // (buildWorkloadMetadata / CriticalPathMetadata) — set here so two runs
     // with a different corpus, document count, or concurrency are never
     // folded into the same cohort fingerprint.
-    process.env.PERF_ITEM_COUNT = String(documentCount);
-    process.env.PERF_DATASET_DIGEST = corpusDigest;
+    process.env.PERF_ITEM_COUNT = String(run.documentCount);
+    process.env.PERF_DATASET_DIGEST = run.corpusDigest;
     process.env.PERF_CONCURRENCY = String(profile.concurrency);
     await buildSearchSummaryRecord({
       durationsMs,

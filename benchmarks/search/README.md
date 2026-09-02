@@ -25,6 +25,8 @@ bun run bench:search
 
 This switches to an extended report (a JSON array, one object per engine) that adds `documentCount`, `errorCount`, `indexingDocsPerSecond`, `indexingMs`, and `maxMs` alongside the usual latency fields. The default single-engine invocation (neither `MANTICORE_29_URL` nor `LATENCY_GOLDEN_QUERIES` set) is untouched — same report shape as before.
 
+Manticore runs use dedicated `aanvragen_bench_active` / `aanvragen_bench_archive` tables. The runner requires a real `SELECT COUNT(*)` result of zero before indexing, deletes only its run-scoped document IDs in `finally`, and requires both tables to count zero afterward. CI also sets `BENCH_REQUIRE_MANTICORE=1`, so a missing URL cannot silently turn the Manticore lane into an in-memory run.
+
 ## RJC-382: golden-query mode
 
 Set `LATENCY_GOLDEN_QUERIES=1` to run the 43 real queries from `benchmarks/relevance/queries.jsonl` through the same timing loop instead of `profile.json`'s 5 synthetic queries — `SearchAdapter`'s own defaults (facets on, `sort=relevance`, `limit=20`) already match the production request shape (post RJC-378), so this only swaps the query set, not the call parameters. Combine with `MANTICORE_29_URL` to golden-query both engines in one run. See `docs/research/manticore-latency-2026-09-01.md` for a worked comparison round.

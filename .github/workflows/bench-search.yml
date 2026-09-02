@@ -82,6 +82,7 @@ jobs:
       - name: Run search benchmark against Manticore
         env:
           BENCH_ALLOW_FAIL: "1"
+          BENCH_REQUIRE_MANTICORE: "1"
           MANTICORE_URL: http://127.0.0.1:9308
           PERF_METRICS_DIR: artifacts/perf
         run: bun run bench:search

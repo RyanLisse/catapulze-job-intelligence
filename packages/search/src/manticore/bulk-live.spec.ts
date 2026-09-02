@@ -5,6 +5,7 @@ import { parseBooleanQuery } from "@ji/domain";
 import type { SearchDocument } from "../types";
 import { InMemorySearchVersionStore } from "../version";
 import { ManticoreSearchEngine } from "./engine";
+import { cleanupLiveDocuments } from "./live-test-hygiene";
 
 // Live /bulk round-trip against a real Manticore (RJC-389). Skipped unless
 // MANTICORE_URL is set, like live.spec.ts and sort-live.spec.ts.
@@ -62,10 +63,7 @@ describe("Manticore /bulk live integration (RJC-389)", () => {
       const foundIds = found.hits.map((hit) => hit.id).toSorted();
       expect(foundIds).toEqual(ids.slice(0, 3).toSorted());
     } finally {
-      for (const id of ids) {
-        // oxlint-disable-next-line no-await-in-loop -- sequential cleanup
-        await engine.deleteDocument(id);
-      }
+      await cleanupLiveDocuments(engine, ids);
     }
   });
 
@@ -136,7 +134,7 @@ describe("Manticore /bulk live integration (RJC-389)", () => {
       expect(all.total).toBe(1);
       expect(all.facets.status).toEqual([{ count: 1, value: "closed" }]);
     } finally {
-      await engine.deleteDocument(id);
+      await cleanupLiveDocuments(engine, [id]);
     }
   });
 });

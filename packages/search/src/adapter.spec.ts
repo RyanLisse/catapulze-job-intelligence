@@ -6,6 +6,7 @@ import { SearchAdapter } from "./adapter";
 import { MemoryResultCache } from "./cache/result-cache";
 import { InMemorySearchEngine } from "./in-memory-engine";
 import { hashDocumentId } from "./manticore/id-hash";
+import { cleanupLiveDocuments } from "./manticore/live-test-hygiene";
 import type { SearchDocument, SearchEngine } from "./types";
 
 const sampleDocument = (
@@ -497,10 +498,7 @@ describe("SearchAdapter canonical execution (live, RJC-388)", () => {
         coldForward.hits.map((hit) => hit.id)
       );
     } finally {
-      for (const id of ids) {
-        // oxlint-disable-next-line no-await-in-loop -- sequential cleanup of exactly the ids this run wrote
-        await engine.deleteDocument(id);
-      }
+      await cleanupLiveDocuments(engine, ids);
     }
   });
 
@@ -576,10 +574,7 @@ describe("SearchAdapter canonical execution (live, RJC-388)", () => {
       expect(adapterOriginal.hits.map((hit) => hit.id)).toEqual(rawIds);
       expect(adapterNotFirst.hits.map((hit) => hit.id)).toEqual(rawIds);
     } finally {
-      for (const id of ids) {
-        // oxlint-disable-next-line no-await-in-loop -- sequential cleanup of exactly the ids this run wrote
-        await engine.deleteDocument(id);
-      }
+      await cleanupLiveDocuments(engine, ids);
     }
   });
 });

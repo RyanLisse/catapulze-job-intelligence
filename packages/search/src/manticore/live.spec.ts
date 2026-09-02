@@ -4,6 +4,7 @@ import { parseBooleanQuery } from "@ji/domain";
 
 import { InMemorySearchVersionStore } from "../version";
 import { ManticoreSearchEngine } from "./engine";
+import { cleanupLiveDocuments } from "./live-test-hygiene";
 
 // Live integration test against a real Manticore instance (see
 // docker-compose.yml's `manticore` service, or scripts/docker-compose-smoke.sh).
@@ -35,42 +36,46 @@ describe("Manticore document-id live integration (RJC-356)", () => {
     }
 
     const documentId = `live-doc-${crypto.randomUUID()}`;
-    await engine.upsertDocument({
-      beschrijving: `Azure platform engineer senior ${runToken}`,
-      bronId: "bron-live",
-      contracttype: "detachering",
-      id: documentId,
-      laatstGezienOp: new Date("2026-08-01T00:00:00.000Z"),
-      locatieLand: "NL",
-      status: "active",
-      tariefMax: 120,
-      tariefMin: 80,
-      titel: "Platform engineer Azure",
-    });
-    await engine.applyBatch({ appliedSequence: 1n, mutations: [] });
+    try {
+      await engine.upsertDocument({
+        beschrijving: `Azure platform engineer senior ${runToken}`,
+        bronId: "bron-live",
+        contracttype: "detachering",
+        id: documentId,
+        laatstGezienOp: new Date("2026-08-01T00:00:00.000Z"),
+        locatieLand: "NL",
+        status: "active",
+        tariefMax: 120,
+        tariefMin: 80,
+        titel: "Platform engineer Azure",
+      });
+      await engine.applyBatch({ appliedSequence: 1n, mutations: [] });
 
-    const found = await engine.search({
-      ast: parsed.ast,
-      filters: {},
-      limit: 10,
-      offset: 0,
-    });
+      const found = await engine.search({
+        ast: parsed.ast,
+        filters: {},
+        limit: 10,
+        offset: 0,
+      });
 
-    expect(found.total).toBeGreaterThanOrEqual(1);
-    // The hit id must be the ORIGINAL string id (read back via
-    // _source.document_id in client.ts), not Manticore's internal numeric
-    // hash — this is the RJC-356 fix under test.
-    expect(found.hits.some((hit) => hit.id === documentId)).toBe(true);
+      expect(found.total).toBeGreaterThanOrEqual(1);
+      // The hit id must be the ORIGINAL string id (read back via
+      // _source.document_id in client.ts), not Manticore's internal numeric
+      // hash — this is the RJC-356 fix under test.
+      expect(found.hits.some((hit) => hit.id === documentId)).toBe(true);
 
-    await engine.deleteDocument(documentId);
+      await engine.deleteDocument(documentId);
 
-    const afterDelete = await engine.search({
-      ast: parsed.ast,
-      filters: {},
-      limit: 10,
-      offset: 0,
-    });
+      const afterDelete = await engine.search({
+        ast: parsed.ast,
+        filters: {},
+        limit: 10,
+        offset: 0,
+      });
 
-    expect(afterDelete.hits.some((hit) => hit.id === documentId)).toBe(false);
+      expect(afterDelete.hits.some((hit) => hit.id === documentId)).toBe(false);
+    } finally {
+      await cleanupLiveDocuments(engine, [documentId]);
+    }
   });
 });

@@ -10,6 +10,11 @@ import {
 } from "@ji/search";
 import { z } from "zod";
 
+import {
+  assertCleanManticoreTables,
+  cleanupAndAssertManticoreTables,
+  MANTICORE_BENCH_INDEX_NAME,
+} from "../manticore-hygiene";
 import type { RelevanceCorpusDocument } from "./corpus";
 import { loadRelevanceCorpus } from "./corpus";
 
@@ -86,6 +91,7 @@ interface EngineRun {
   cleanup: (() => Promise<void>) | null;
   engine: SearchEngine;
   name: string;
+  preflight: (() => Promise<void>) | null;
 }
 
 /** Duplicated from run.ts's buildEngineRuns (not exported there) — same
@@ -93,23 +99,33 @@ interface EngineRun {
  * pool always matches what `bun run relevance` actually scores. */
 const buildEngineRuns = (corpus: RelevanceCorpusDocument[]): EngineRun[] => {
   const runs: EngineRun[] = [
-    { cleanup: null, engine: new InMemorySearchEngine(), name: "in-memory" },
+    {
+      cleanup: null,
+      engine: new InMemorySearchEngine(),
+      name: "in-memory",
+      preflight: null,
+    },
   ];
   const manticoreUrl = process.env.MANTICORE_URL?.trim();
   if (manticoreUrl) {
     const manticore = ManticoreSearchEngine.fromUrl(
       manticoreUrl,
-      new InMemorySearchVersionStore()
+      new InMemorySearchVersionStore(),
+      MANTICORE_BENCH_INDEX_NAME
     );
     runs.push({
       cleanup: async () => {
-        for (const item of corpus) {
-          // oxlint-disable-next-line no-await-in-loop -- sequential deletes keep cleanup simple and bounded
-          await manticore.deleteDocument(item.id);
-        }
+        await cleanupAndAssertManticoreTables(
+          "manticore",
+          manticoreUrl,
+          manticore,
+          corpus.map((item) => item.id)
+        );
       },
       engine: manticore,
       name: "manticore",
+      preflight: () =>
+        assertCleanManticoreTables("manticore", manticoreUrl, "before"),
     });
   }
   const manticore29Url = process.env.MANTICORE_29_URL?.trim();
@@ -117,17 +133,22 @@ const buildEngineRuns = (corpus: RelevanceCorpusDocument[]): EngineRun[] => {
     const label = process.env.MANTICORE_29_LABEL?.trim() || "manticore-29";
     const manticore29 = ManticoreSearchEngine.fromUrl(
       manticore29Url,
-      new InMemorySearchVersionStore()
+      new InMemorySearchVersionStore(),
+      MANTICORE_BENCH_INDEX_NAME
     );
     runs.push({
       cleanup: async () => {
-        for (const item of corpus) {
-          // oxlint-disable-next-line no-await-in-loop -- sequential deletes keep cleanup simple and bounded
-          await manticore29.deleteDocument(item.id);
-        }
+        await cleanupAndAssertManticoreTables(
+          label,
+          manticore29Url,
+          manticore29,
+          corpus.map((item) => item.id)
+        );
       },
       engine: manticore29,
       name: label,
+      preflight: () =>
+        assertCleanManticoreTables(label, manticore29Url, "before"),
     });
   }
   return runs;
@@ -347,6 +368,12 @@ const main = async (): Promise<void> => {
   );
 
   const runs = buildEngineRuns(corpus.documents);
+  for (const run of runs) {
+    if (run.preflight) {
+      // oxlint-disable-next-line no-await-in-loop -- every target must prove its dedicated tables empty before any writes
+      await run.preflight();
+    }
+  }
   try {
     for (const item of corpus.documents) {
       for (const run of runs) {
