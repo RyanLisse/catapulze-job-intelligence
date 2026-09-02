@@ -2,7 +2,8 @@ import type { InvocationPrincipal } from "@ji/application/registry";
 import type { Context } from "hono";
 import { z } from "zod";
 
-import { createRequestId, parseAuthHeader } from "./auth";
+import { createRequestId } from "./auth";
+import type { PrincipalResolver } from "./auth";
 import type {
   RegistryInvocationResult,
   SliceARegistry,
@@ -238,10 +239,13 @@ const invokeRest = (
   })(input, { principal, requestId });
 
 export const createRestCapabilityHandler =
-  (registry: SliceARegistry, routes: readonly RestRouteSpec[]) =>
+  (
+    registry: SliceARegistry,
+    routes: readonly RestRouteSpec[],
+    resolvePrincipal: PrincipalResolver
+  ) =>
   async (context: Context): Promise<Response> => {
     const requestId = createRequestId();
-    const principal = parseAuthHeader(context.req.header("Authorization"));
     const pathname = context.req.path.replace(/^\/v1/u, "/v1");
     const matched = routes.find(
       (route) =>
@@ -251,6 +255,7 @@ export const createRestCapabilityHandler =
     if (!matched) {
       return jsonResponse(404, { error: "Route not found" });
     }
+    const principal = await resolvePrincipal(context.req.raw.headers);
     const params = matchPath(matched.pathPattern, pathname) ?? {};
     let body: RestJsonBody = {};
     if (context.req.method === "POST" || context.req.method === "PUT") {

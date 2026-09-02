@@ -99,6 +99,13 @@
       "when": 1789027200000,
       "tag": "0013_durable_user_writes",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1789113600000,
+      "tag": "0014_auth_user_role",
+      "breakpoints": true
     }
   ]
 }

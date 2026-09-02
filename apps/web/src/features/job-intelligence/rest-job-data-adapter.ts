@@ -12,7 +12,6 @@ import type { BronCatalogEntry } from "./rest/bron-catalog";
 import {
   createCapabilityClient,
   CapabilityRequestError,
-  recruiterAuthHeader,
 } from "./rest/capability-client";
 import {
   buildSavedSearchBody,
@@ -147,17 +146,12 @@ const resolveSearchStatus = (
 
 export interface RestJobIntelligenceOptions {
   readonly baseUrl?: string;
-  readonly subjectId: string;
 }
 
 export const createRestJobIntelligence = ({
   baseUrl = env.NEXT_PUBLIC_SERVER_URL,
-  subjectId,
-}: RestJobIntelligenceOptions): RestJobIntelligenceBundle => {
-  const client = createCapabilityClient({
-    baseUrl,
-    getAuthHeader: () => recruiterAuthHeader(subjectId),
-  });
+}: RestJobIntelligenceOptions = {}): RestJobIntelligenceBundle => {
+  const client = createCapabilityClient({ baseUrl });
   let bronCatalogPromise: Promise<
     ReadonlyMap<string, BronCatalogEntry>
   > | null = null;

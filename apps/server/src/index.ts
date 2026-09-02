@@ -8,6 +8,7 @@ import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { logger } from "hono/logger";
 
+import { createSessionPrincipalResolver } from "./capabilities/auth";
 import { createMcpHandler } from "./capabilities/mcp";
 import {
   createRestCapabilityHandler,
@@ -79,8 +80,18 @@ app.get("/livez", healthRoutes.live);
 app.get("/readyz", healthRoutes.ready);
 
 const restRoutes = restRoutesFromRegistry(sliceA.registry);
-const restHandler = createRestCapabilityHandler(sliceA.registry, restRoutes);
-const mcpHandler = createMcpHandler(sliceA.registry);
+const resolvePrincipal = createSessionPrincipalResolver((headers) =>
+  auth.api.getSession({
+    headers,
+    query: { disableCookieCache: true },
+  })
+);
+const restHandler = createRestCapabilityHandler(
+  sliceA.registry,
+  restRoutes,
+  resolvePrincipal
+);
+const mcpHandler = createMcpHandler(sliceA.registry, resolvePrincipal);
 
 app.all("/v1/*", (context) => restHandler(context));
 app.post("/mcp", (context) => mcpHandler(context));

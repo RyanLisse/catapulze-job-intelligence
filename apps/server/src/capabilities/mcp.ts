@@ -1,6 +1,7 @@
 import type { Context } from "hono";
 
-import { createRequestId, parseAuthHeader } from "./auth";
+import { createRequestId } from "./auth";
+import type { PrincipalResolver } from "./auth";
 import type { SliceARegistry } from "./registry-types";
 import { invokeMcpTool, mcpToolsFromRegistry } from "./rest";
 import {
@@ -20,7 +21,10 @@ const jsonRpcError = (
   message: string
 ): Response => Response.json({ error: { code, message }, id, jsonrpc: "2.0" });
 
-export const createMcpHandler = (registry: SliceARegistry) => {
+export const createMcpHandler = (
+  registry: SliceARegistry,
+  resolvePrincipal: PrincipalResolver
+) => {
   const tools = mcpToolsFromRegistry(registry);
   return async (context: Context): Promise<Response> => {
     let rawBody: unknown;
@@ -35,7 +39,7 @@ export const createMcpHandler = (registry: SliceARegistry) => {
     }
     const request = parsedRequest.data;
     const requestId = createRequestId();
-    const principal = parseAuthHeader(context.req.header("Authorization"));
+    const principal = await resolvePrincipal(context.req.raw.headers);
 
     if (request.method === "tools/list") {
       const visibleTools = principal

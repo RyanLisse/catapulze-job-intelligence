@@ -24,7 +24,6 @@ export class CapabilityRequestError extends Error {
 
 export interface CapabilityClientOptions {
   readonly baseUrl: string;
-  readonly getAuthHeader: () => string;
 }
 
 export interface CapabilityJsonObject {
@@ -63,9 +62,9 @@ export const createCapabilityClient = (options: CapabilityClientOptions) => {
   return {
     get: async <T>(path: string): Promise<T> => {
       const response = await fetch(`${baseUrl}${path}`, {
+        credentials: "include",
         headers: {
           Accept: "application/json",
-          Authorization: options.getAuthHeader(),
         },
         method: "GET",
       });
@@ -75,9 +74,9 @@ export const createCapabilityClient = (options: CapabilityClientOptions) => {
     post: async <T>(path: string, body: CapabilityJsonObject): Promise<T> => {
       const response = await fetch(`${baseUrl}${path}`, {
         body: JSON.stringify(body),
+        credentials: "include",
         headers: {
           Accept: "application/json",
-          Authorization: options.getAuthHeader(),
           "Content-Type": "application/json",
         },
         method: "POST",
@@ -88,6 +87,3 @@ export const createCapabilityClient = (options: CapabilityClientOptions) => {
 };
 
 export type CapabilityClient = ReturnType<typeof createCapabilityClient>;
-
-export const recruiterAuthHeader = (subjectId: string): string =>
-  `Bearer recruiter:${subjectId}`;
