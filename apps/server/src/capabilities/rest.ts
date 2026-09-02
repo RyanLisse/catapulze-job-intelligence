@@ -2,8 +2,8 @@ import type { InvocationPrincipal } from "@ji/application/registry";
 import type { Context } from "hono";
 import { z } from "zod";
 
-import { createRequestId } from "./auth";
-import type { PrincipalResolver } from "./auth";
+import { createRequestId, hasAllowedCookieOrigin } from "./auth";
+import type { CookieAuthOriginPolicy, PrincipalResolver } from "./auth";
 import type {
   RegistryInvocationResult,
   SliceARegistry,
@@ -81,25 +81,6 @@ export interface RestRouteSpec {
   readonly operation: string;
   readonly pathPattern: string;
 }
-
-export interface RestSecurityPolicy {
-  readonly allowedCookieOrigin: string;
-}
-
-const requiresCookieOrigin = (method: string, headers: Headers): boolean =>
-  method !== "GET" &&
-  method !== "HEAD" &&
-  method !== "OPTIONS" &&
-  headers.has("Cookie") &&
-  !headers.has("Authorization");
-
-const hasAllowedCookieOrigin = (
-  method: string,
-  headers: Headers,
-  allowedOrigin: string
-): boolean =>
-  !requiresCookieOrigin(method, headers) ||
-  headers.get("Origin") === allowedOrigin;
 
 const pathParamNames = (pattern: string): readonly string[] => {
   const names: string[] = [];
@@ -262,7 +243,7 @@ export const createRestCapabilityHandler =
     registry: SliceARegistry,
     routes: readonly RestRouteSpec[],
     resolvePrincipal: PrincipalResolver,
-    security: RestSecurityPolicy
+    security: CookieAuthOriginPolicy
   ) =>
   async (context: Context): Promise<Response> => {
     const requestId = createRequestId();
@@ -290,7 +271,14 @@ export const createRestCapabilityHandler =
         },
       });
     }
-    const principal = await resolvePrincipal(requestHeaders);
+    const principalResolution = await resolvePrincipal(
+      requestHeaders,
+      requestId
+    );
+    if (!principalResolution.ok) {
+      return jsonResponse(503, { error: principalResolution.error });
+    }
+    const { principal } = principalResolution;
     const params = matchPath(matched.pathPattern, pathname) ?? {};
     let body: RestJsonBody = {};
     if (context.req.method === "POST" || context.req.method === "PUT") {

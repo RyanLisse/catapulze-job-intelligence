@@ -81,11 +81,18 @@ app.get("/livez", healthRoutes.live);
 app.get("/readyz", healthRoutes.ready);
 
 const restRoutes = restRoutesFromRegistry(sliceA.registry);
-const resolvePrincipal = createSessionPrincipalResolver((headers) =>
-  auth.api.getSession({
-    headers,
-    query: { disableCookieCache: true },
-  })
+const resolvePrincipal = createSessionPrincipalResolver(
+  (headers) =>
+    auth.api.getSession({
+      headers,
+      query: { disableCookieCache: true },
+    }),
+  () => new Date(),
+  (event) => {
+    process.stderr.write(
+      `${JSON.stringify({ event: "auth_session_lookup_failed", ...event })}\n`
+    );
+  }
 );
 const restHandler = createRestCapabilityHandler(
   sliceA.registry,
@@ -93,7 +100,9 @@ const restHandler = createRestCapabilityHandler(
   resolvePrincipal,
   { allowedCookieOrigin: allowedWebOrigin }
 );
-const mcpHandler = createMcpHandler(sliceA.registry, resolvePrincipal);
+const mcpHandler = createMcpHandler(sliceA.registry, resolvePrincipal, {
+  allowedCookieOrigin: allowedWebOrigin,
+});
 
 app.all("/v1/*", (context) => restHandler(context));
 app.post("/mcp", (context) => mcpHandler(context));

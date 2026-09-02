@@ -16,9 +16,12 @@ const browserSessionHeaders = (): Headers =>
 
 const resolveRecruiter = () =>
   Promise.resolve({
-    kind: "user" as const,
-    permissions: permissionsForRole("recruiter"),
-    subjectId: "user-1",
+    ok: true as const,
+    principal: {
+      kind: "user" as const,
+      permissions: permissionsForRole("recruiter"),
+      subjectId: "user-1",
+    },
   });
 
 describe("REST search contract", () => {

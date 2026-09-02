@@ -65,17 +65,26 @@ const createRestContext = (
 
 const createMcpContext = (
   headers: Headers,
-  name = "search_aanvragen"
+  name = "search_aanvragen",
+  options: {
+    readonly arguments?: object;
+    readonly onBodyRead?: () => void;
+  } = {}
 ): Context => {
   const context = {
     req: {
-      json: () =>
-        Promise.resolve({
+      json: () => {
+        options.onBodyRead?.();
+        return Promise.resolve({
           id: "request-1",
           jsonrpc: "2.0",
           method: "tools/call",
-          params: { arguments: { query: "Azure" }, name },
-        }),
+          params: {
+            arguments: options.arguments ?? { query: "Azure" },
+            name,
+          },
+        });
+      },
       raw: { headers },
     },
   };
@@ -104,7 +113,9 @@ describe("REST and MCP authentication boundary", () => {
     resolvePrincipal,
     { allowedCookieOrigin: allowedOrigin }
   );
-  const mcp = createMcpHandler(bundle.registry, resolvePrincipal);
+  const mcp = createMcpHandler(bundle.registry, resolvePrincipal, {
+    allowedCookieOrigin: allowedOrigin,
+  });
 
   it("rejects anonymous REST and MCP calls", async () => {
     const restResponse = await rest(createRestContext(new Headers()));
@@ -152,9 +163,9 @@ describe("REST and MCP authentication boundary", () => {
   it("rejects untrusted or missing origins before cookie-authenticated write effects", async () => {
     let bodyReads = 0;
     let resolverCalls = 0;
-    const countedResolver = (headers: Headers) => {
+    const countedResolver = (headers: Headers, requestId: string) => {
       resolverCalls += 1;
-      return resolvePrincipal(headers);
+      return resolvePrincipal(headers, requestId);
     };
     const csrfProtectedRest = createRestCapabilityHandler(
       bundle.registry,
@@ -181,6 +192,116 @@ describe("REST and MCP authentication boundary", () => {
     expect(missing.status).toBe(403);
     expect(resolverCalls).toBe(0);
     expect(bodyReads).toBe(0);
+  });
+
+  it("applies the canonical Origin check before a direct MCP write probe", async () => {
+    let bodyReads = 0;
+    let resolverCalls = 0;
+    const countedResolver = (headers: Headers, requestId: string) => {
+      resolverCalls += 1;
+      return resolvePrincipal(headers, requestId);
+    };
+    const csrfProtectedMcp = createMcpHandler(
+      bundle.registry,
+      countedResolver,
+      { allowedCookieOrigin: allowedOrigin }
+    );
+    const cookie = "better-auth.session_token=valid-session";
+    const options = {
+      arguments: { naam: "MCP write probe", query: "Azure" },
+      onBodyRead: () => {
+        bodyReads += 1;
+      },
+    };
+
+    const untrusted = await csrfProtectedMcp(
+      createMcpContext(
+        new Headers({ Cookie: cookie, Origin: "https://evil.example" }),
+        "create_saved_search",
+        options
+      )
+    );
+    const missing = await csrfProtectedMcp(
+      createMcpContext(
+        new Headers({ Cookie: cookie }),
+        "create_saved_search",
+        options
+      )
+    );
+
+    expect(untrusted.status).toBe(403);
+    expect(missing.status).toBe(403);
+    expect(bodyReads).toBe(0);
+    expect(resolverCalls).toBe(0);
+
+    const allowed = await csrfProtectedMcp(
+      createMcpContext(
+        new Headers({ Cookie: cookie, Origin: allowedOrigin }),
+        "create_saved_search",
+        options
+      )
+    );
+    const allowedBody = z
+      .object({
+        result: z.object({
+          structuredContent: z.object({ id: z.string() }),
+        }),
+      })
+      .parse(await allowed.json());
+
+    expect(allowed.status).toBe(200);
+    expect(bodyReads).toBe(1);
+    expect(resolverCalls).toBe(1);
+    expect(
+      await bundle.deps.stores.savedSearches.getById(
+        allowedBody.result.structuredContent.id,
+        "recruiter-1"
+      )
+    ).not.toBeNull();
+  });
+
+  it("maps session lookup outages to sanitized REST and MCP unavailable responses", async () => {
+    const events: object[] = [];
+    const unavailableResolver = createSessionPrincipalResolver(
+      () => Promise.reject(new Error("DO_NOT_EXPOSE_LOOKUP_DETAIL")),
+      () => currentTime,
+      (event) => events.push(event)
+    );
+    const unavailableRest = createRestCapabilityHandler(
+      bundle.registry,
+      restRoutesFromRegistry(bundle.registry),
+      unavailableResolver,
+      { allowedCookieOrigin: allowedOrigin }
+    );
+    const unavailableMcp = createMcpHandler(
+      bundle.registry,
+      unavailableResolver,
+      { allowedCookieOrigin: allowedOrigin }
+    );
+    let restBodyReads = 0;
+
+    const restResponse = await unavailableRest(
+      createRestContext(new Headers({ Authorization: validBearer }), {
+        onBodyRead: () => {
+          restBodyReads += 1;
+        },
+      })
+    );
+    const mcpResponse = await unavailableMcp(
+      createMcpContext(new Headers({ Authorization: validBearer }))
+    );
+    const restText = await restResponse.text();
+    const mcpText = await mcpResponse.text();
+
+    expect(restResponse.status).toBe(503);
+    expect(mcpResponse.status).toBe(503);
+    expect(restBodyReads).toBe(0);
+    expect(restText).toContain('"code":"AUTH_SESSION_UNAVAILABLE"');
+    expect(mcpText).toContain('"code":-32603');
+    expect(`${restText}${mcpText}${JSON.stringify(events)}`).not.toContain(
+      "DO_NOT_EXPOSE_LOOKUP_DETAIL"
+    );
+    expect(events).toHaveLength(2);
   });
 
   it("rejects expired and invalid sessions on both transports", async () => {

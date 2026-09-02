@@ -16,7 +16,10 @@ describe("capability principal resolution", () => {
       () => now
     );
 
-    expect(await resolve(new Headers())).toBeNull();
+    expect(await resolve(new Headers(), "req-anonymous")).toEqual({
+      ok: true,
+      principal: null,
+    });
   });
 
   it("does not parse a caller-declared admin role", async () => {
@@ -28,11 +31,12 @@ describe("capability principal resolution", () => {
       () => now
     );
 
-    const principal = await resolve(
-      new Headers({ Authorization: "Bearer admin:attacker" })
+    const resolution = await resolve(
+      new Headers({ Authorization: "Bearer admin:attacker" }),
+      "req-forged"
     );
 
-    expect(principal).toBeNull();
+    expect(resolution).toEqual({ ok: true, principal: null });
   });
 
   it("maps a validated cookie session to its server-owned role", async () => {
@@ -41,10 +45,16 @@ describe("capability principal resolution", () => {
       () => now
     );
 
-    const principal = await resolve(
-      new Headers({ Cookie: "better-auth.session_token=signed-cookie" })
+    const resolution = await resolve(
+      new Headers({ Cookie: "better-auth.session_token=signed-cookie" }),
+      "req-cookie"
     );
 
+    expect(resolution.ok).toBe(true);
+    if (!resolution.ok) {
+      return;
+    }
+    const { principal } = resolution;
     expect(principal?.kind).toBe("user");
     expect(principal?.subjectId).toBe("user-1");
     expect(principal?.permissions.has("recruiter")).toBe(true);
@@ -57,10 +67,16 @@ describe("capability principal resolution", () => {
       () => now
     );
 
-    const principal = await resolve(
-      new Headers({ Authorization: "Bearer opaque.signed-session" })
+    const resolution = await resolve(
+      new Headers({ Authorization: "Bearer opaque.signed-session" }),
+      "req-bearer"
     );
 
+    expect(resolution.ok).toBe(true);
+    if (!resolution.ok) {
+      return;
+    }
+    const { principal } = resolution;
     expect(principal?.kind).toBe("agent");
     expect(principal?.subjectId).toBe("admin-1");
     expect(principal?.permissions.has("admin")).toBe(true);
@@ -77,17 +93,18 @@ describe("capability principal resolution", () => {
       () => now
     );
 
-    const principal = await resolve(
+    const resolution = await resolve(
       new Headers({
         Authorization: "Bearer forged.token",
         Cookie: "better-auth.session_token=otherwise-valid",
-      })
+      }),
+      "req-no-fallback"
     );
 
-    expect(principal).toBeNull();
+    expect(resolution).toEqual({ ok: true, principal: null });
   });
 
-  it("fails closed for expired, malformed-role, and failed lookups", async () => {
+  it("treats expired and malformed-role sessions as unauthenticated", async () => {
     const expired = createSessionPrincipalResolver(
       () =>
         Promise.resolve({
@@ -100,12 +117,42 @@ describe("capability principal resolution", () => {
       () => Promise.resolve(activeSession("root")),
       () => now
     );
-    const failed = createSessionPrincipalResolver(() =>
-      Promise.reject(new Error("session store unavailable"))
+    expect(await expired(new Headers(), "req-expired")).toEqual({
+      ok: true,
+      principal: null,
+    });
+    expect(await invalidRole(new Headers(), "req-role")).toEqual({
+      ok: true,
+      principal: null,
+    });
+  });
+
+  it("returns a typed unavailable result and logs only sanitized evidence", async () => {
+    const events: object[] = [];
+    const failed = createSessionPrincipalResolver(
+      () => Promise.reject(new Error("DO_NOT_EXPOSE_LOOKUP_DETAIL")),
+      () => now,
+      (event) => events.push(event)
     );
 
-    expect(await expired(new Headers())).toBeNull();
-    expect(await invalidRole(new Headers())).toBeNull();
-    expect(await failed(new Headers())).toBeNull();
+    const resolution = await failed(new Headers(), "req-unavailable");
+
+    expect(resolution).toEqual({
+      error: {
+        code: "AUTH_SESSION_UNAVAILABLE",
+        message: "Authentication service unavailable",
+        requestId: "req-unavailable",
+      },
+      ok: false,
+    });
+    expect(events).toEqual([
+      {
+        code: "AUTH_SESSION_LOOKUP_UNAVAILABLE",
+        requestId: "req-unavailable",
+      },
+    ]);
+    expect(JSON.stringify({ events, resolution })).not.toContain(
+      "DO_NOT_EXPOSE_LOOKUP_DETAIL"
+    );
   });
 });

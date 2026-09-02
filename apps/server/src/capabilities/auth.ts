@@ -21,9 +21,49 @@ export type SessionLookup = (
   headers: Headers
 ) => Promise<AuthenticatedSession | null>;
 
+export interface AuthOperationalEvent {
+  readonly code: "AUTH_SESSION_LOOKUP_UNAVAILABLE";
+  readonly requestId: string;
+}
+
+export type AuthOperationalLogger = (event: AuthOperationalEvent) => void;
+
+export type PrincipalResolution =
+  | {
+      readonly ok: true;
+      readonly principal: InvocationPrincipal | null;
+    }
+  | {
+      readonly error: {
+        readonly code: "AUTH_SESSION_UNAVAILABLE";
+        readonly message: "Authentication service unavailable";
+        readonly requestId: string;
+      };
+      readonly ok: false;
+    };
+
 export type PrincipalResolver = (
-  headers: Headers
-) => Promise<InvocationPrincipal | null>;
+  headers: Headers,
+  requestId: string
+) => Promise<PrincipalResolution>;
+
+export interface CookieAuthOriginPolicy {
+  readonly allowedCookieOrigin: string;
+}
+
+export const hasAllowedCookieOrigin = (
+  method: string,
+  headers: Headers,
+  allowedOrigin: string
+): boolean => {
+  const requiresOrigin =
+    method !== "GET" &&
+    method !== "HEAD" &&
+    method !== "OPTIONS" &&
+    headers.has("Cookie") &&
+    !headers.has("Authorization");
+  return !requiresOrigin || headers.get("Origin") === allowedOrigin;
+};
 
 const isSliceARole = (value: string | null | undefined): value is SliceARole =>
   value === ROLE_RECRUITER ||
@@ -67,9 +107,10 @@ const principalFromSession = (
 export const createSessionPrincipalResolver =
   (
     lookupSession: SessionLookup,
-    now: () => Date = () => new Date()
+    now: () => Date = () => new Date(),
+    onOperationalEvent?: AuthOperationalLogger
   ): PrincipalResolver =>
-  async (headers): Promise<InvocationPrincipal | null> => {
+  async (headers, requestId): Promise<PrincipalResolution> => {
     try {
       const hasAuthorization = headers.has("Authorization");
       const lookupHeaders = new Headers(headers);
@@ -79,13 +120,27 @@ export const createSessionPrincipalResolver =
         lookupHeaders.delete("Cookie");
       }
       const session = await lookupSession(lookupHeaders);
-      return principalFromSession(
-        session,
-        hasAuthorization ? "agent" : "user",
-        now()
-      );
+      return {
+        ok: true,
+        principal: principalFromSession(
+          session,
+          hasAuthorization ? "agent" : "user",
+          now()
+        ),
+      };
     } catch {
-      return null;
+      onOperationalEvent?.({
+        code: "AUTH_SESSION_LOOKUP_UNAVAILABLE",
+        requestId,
+      });
+      return {
+        error: {
+          code: "AUTH_SESSION_UNAVAILABLE",
+          message: "Authentication service unavailable",
+          requestId,
+        },
+        ok: false,
+      };
     }
   };
 
