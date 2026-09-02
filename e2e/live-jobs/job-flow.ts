@@ -1,5 +1,7 @@
+/// <reference lib="dom" />
+
 import { expect } from "@playwright/test";
-import type { Page, Response } from "@playwright/test";
+import type { Locator, Page, Response } from "@playwright/test";
 
 import {
   assertCanaryBatchResponse,
@@ -21,6 +23,11 @@ interface OpenLiveJobDetailInput {
   readonly page: Page;
   readonly query: string;
 }
+
+export const getLiveJobDetailRegion = (page: Page): Locator =>
+  page
+    .locator("main#main-content aside")
+    .filter({ has: page.locator("#desktop-job-detail-title") });
 
 const matchesApiResponse = (
   response: Response,
@@ -153,24 +160,33 @@ export const openLiveJobDetail = async ({
     config.canaryId,
     config.canaryDigest
   );
+  const detailRegion = getLiveJobDetailRegion(page);
+  const mainRegion = page.locator("main#main-content");
+  const provenanceRegion = detailRegion.getByRole("article");
+  const resultRegion = mainRegion.getByLabel("Zoekresultaten");
+  const toolbarSummaryRegion = mainRegion
+    .getByRole("heading", { exact: true, name: "Opdrachten" })
+    .locator("..");
 
-  await expect(page.getByText("Live · U7 REST", { exact: true })).toBeVisible({
-    timeout: config.timeoutMs,
-  });
   await expect(
-    page.getByText("Previewdata · fixtures", { exact: true })
-  ).toHaveCount(0);
-  await expect(
-    page.getByRole("heading", { exact: true, name: "Herkomst" })
+    toolbarSummaryRegion.getByText("Live · U7 REST", { exact: true })
   ).toBeVisible({ timeout: config.timeoutMs });
-  await expect(page.getByText("bron_referentie", { exact: true })).toBeVisible({
-    timeout: config.timeoutMs,
-  });
-  await expect(page.getByText("Raw preview", { exact: true })).toBeVisible({
-    timeout: config.timeoutMs,
-  });
   await expect(
-    page.getByText("Immutable bronpayload via read_raw (preview).", {
+    toolbarSummaryRegion.getByText("Previewdata · fixtures", { exact: true })
+  ).toHaveCount(0);
+  await expect(resultRegion).toBeVisible({ timeout: config.timeoutMs });
+  await expect(
+    detailRegion.getByRole("heading", { exact: true, name: "Herkomst" })
+  ).toBeVisible({ timeout: config.timeoutMs });
+  await expect(provenanceRegion).toHaveCount(1);
+  await expect(
+    provenanceRegion.getByText("bron_referentie", { exact: true })
+  ).toBeVisible({ timeout: config.timeoutMs });
+  await expect(
+    detailRegion.getByText("Raw preview", { exact: true })
+  ).toBeVisible({ timeout: config.timeoutMs });
+  await expect(
+    detailRegion.getByText("Immutable bronpayload via read_raw (preview).", {
       exact: true,
     })
   ).toBeVisible({ timeout: config.timeoutMs });

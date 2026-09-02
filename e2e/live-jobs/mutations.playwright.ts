@@ -9,7 +9,7 @@ import type {
 import { assertMutationLiveRun, buildNamespacedQuery } from "./config";
 import { LiveJobsEvidence } from "./evidence";
 import type { SanitizedCleanupReceipt } from "./evidence";
-import { openLiveJobDetail } from "./job-flow";
+import { getLiveJobDetailRegion, openLiveJobDetail } from "./job-flow";
 import {
   cleanupLiveJobsMutations,
   createMutationAttemptLedger,
@@ -104,6 +104,8 @@ test.describe("isolated live /jobs mutation verification", () => {
       } = openedJob;
       screenshotAttestation = verifiedAttestation;
       visualAttestation = verifiedVisualAttestation;
+      const detailRegion = getLiveJobDetailRegion(page);
+      const mainRegion = page.locator("main#main-content");
 
       failurePhase = "mark-canary";
       const markResponse = page.waitForResponse((response) =>
@@ -115,12 +117,12 @@ test.describe("isolated live /jobs mutation verification", () => {
         )
       );
       attemptedWrites.markering = true;
-      await page
+      await detailRegion
         .getByRole("button", { name: /markeren als relevant/iu })
         .click();
       const markering = await markResponse;
       expect(markering.status()).toBe(200);
-      await expect(page.getByText(/Markering:/u)).toBeVisible({
+      await expect(detailRegion.getByText(/Markering:/u)).toBeVisible({
         timeout: config.timeoutMs,
       });
 
@@ -129,7 +131,7 @@ test.describe("isolated live /jobs mutation verification", () => {
         isApiResponse(response, config.apiUrl, "POST", "/v1/saved-searches")
       );
       attemptedWrites.savedSearch = true;
-      await page
+      await mainRegion
         .getByRole("button", { exact: true, name: "Zoekopdracht opslaan" })
         .click();
       const savedSearch = await savedSearchResponse;
@@ -138,7 +140,7 @@ test.describe("isolated live /jobs mutation verification", () => {
         id: await readId(savedSearch, "Saved search"),
         kind: "saved-search",
       });
-      await expect(page.getByText(/Opgeslagen als/u)).toBeVisible({
+      await expect(mainRegion.getByText(/Opgeslagen als/u)).toBeVisible({
         timeout: config.timeoutMs,
       });
 
@@ -147,7 +149,7 @@ test.describe("isolated live /jobs mutation verification", () => {
         isApiResponse(response, config.apiUrl, "POST", "/v1/snapshots")
       );
       attemptedWrites.snapshot = true;
-      await page
+      await mainRegion
         .getByRole("button", { exact: true, name: "Snapshot maken" })
         .click();
       const snapshot = await snapshotResponse;
@@ -156,7 +158,7 @@ test.describe("isolated live /jobs mutation verification", () => {
         id: await readId(snapshot, "Snapshot"),
         kind: "snapshot",
       });
-      await expect(page.getByText(/Snapshot aangemaakt/u)).toBeVisible({
+      await expect(mainRegion.getByText(/Snapshot aangemaakt/u)).toBeVisible({
         timeout: config.timeoutMs,
       });
 
