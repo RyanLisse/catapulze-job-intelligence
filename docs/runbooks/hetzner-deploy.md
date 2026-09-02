@@ -31,7 +31,7 @@ service, met bron:
 | `redis` | **Ja.** | Zoekresultaat-cache (RJC-388). `REDIS_URL` is optioneel in `packages/env/src/server.ts` — zonder Redis draait de in-process cache — maar in productie weigert de server te starten wanneer een geconfigureerde Redis bij boot onbereikbaar is (`createResultCache`, [ADR-0007](../adr/ADR-0007-search-platform-state-2026-09-01.md), "Invarianten"). |
 | `manticore` | **Ja.** | Manticore 6.3.8 (tag-/versiegepind, niet digest-gepind), privaat op de box, index `aanvragen_active`/`aanvragen_archive` (RJC-383). Blijft privé per ADR-0006 ("Voor diensten die wél op de box blijven … blijft de private-poortregel gelden"). |
 | `manticore29` | **Nee — shadow, geen productieservice.** | RJC-382-vergelijkingsinstance achter het `shadow`-profile; het compose-commentaar zegt letterlijk dat de productieservice de gepinde 6.3.8 hierboven is. De engine-beslissing zelf is open — zie [§ Open blockers](#open-blockers). |
-| `projector` | **Ja — als proces op de box.** | On-box search-projector (RJC-387): leest de Neon-outbox over TLS, schrijft lokaal naar Manticore. De compose-service (profile `projector`) is de lokale stand-in; op de box draait hetzelfde `bun run projector` onder een supervisor per [search-projector.md](search-projector.md) § Supervision. |
+| `projector` | **Ja — als aparte Coolify-application op de box.** | On-box search-projector (RJC-387): leest de Neon-outbox over TLS en schrijft via het private Coolify-netwerk naar Manticore. Dockerfile `apps/server/Dockerfile.projector` hergebruikt de server-imagebuild met `CMD ["bun","run","projector"]`; de compose-service achter profile `projector` gebruikt dezelfde image-role. |
 | `raw-storage-minio` + `raw-storage-minio-init` | **Nee — lokale S3-target.** | Het compose-commentaar (RJC-386) noemt dit expliciet een "local S3-compatible target". Productie draait op een S3-compatible store: server en gewone poll-worker weigeren de filesystem-backend in productie, en de productiebackfill accepteert alleen `kind: "s3"` ([raw-object-storage.md](raw-object-storage.md) § Production guard). De provider is **beslist: Cloudflare R2** ([ADR-0008](../adr/ADR-0008-cloudflare-r2-for-raw-payloads.md)) — bestaan en configuratie van bucket en keys moeten live worden geverifieerd en zo nodig ingericht. |
 
 Niet in compose, wél onderdeel van productie:
@@ -78,7 +78,7 @@ git of in chat.**
 | `BETTER_AUTH_SECRET` | ja (min. 32 tekens) | boot faalt | operator/1Password |
 | `BETTER_AUTH_URL` | ja (URL) | boot faalt | operator: publieke API-URL |
 | `CORS_ORIGIN` | ja (URL) | boot faalt | operator: publieke web-URL |
-| `MANTICORE_URL` | nee, default `http://127.0.0.1:9308` | zoekopdrachten en `/readyz`-manticore-check falen als de default niet klopt | Coolify-API: `http://manticore-<service-uuid>:9308` via **Connect to Predefined Network**; on-host projector: `http://127.0.0.1:9308`; lokaal compose: `http://manticore:9308` |
+| `MANTICORE_URL` | nee, default `http://127.0.0.1:9308` | zoekopdrachten en `/readyz`-manticore-check falen als de default niet klopt | Coolify-API en -projector: `http://manticore-<service-uuid>:9308` via **Connect to Predefined Network**; handmatige host-run: `http://127.0.0.1:9308`; lokaal compose: `http://manticore:9308` |
 | `REDIS_URL` | nee | in-process cache; `/readyz` meldt `redis: not-configured` | operator; on-box Redis |
 | `RAW_S3_BUCKET` (+ `RAW_S3_ENDPOINT`, `RAW_S3_REGION`, `RAW_S3_ACCESS_KEY_ID`, `RAW_S3_SECRET_ACCESS_KEY`) | in productie effectief ja | zonder `RAW_S3_BUCKET` valt de store terug op filesystem en **weigert de server in productie te starten** (`apps/server/src/slice-a-registry.ts`, RJC-386) | operator; provider beslist: Cloudflare R2 ([ADR-0008](../adr/ADR-0008-cloudflare-r2-for-raw-payloads.md)); bestaan/configuratie live verifiëren en zo nodig inrichten |
 | `RAW_OBJECT_STORE_PATH` | nee | alleen relevant voor de filesystem-fallback (niet-productie) | — |
@@ -104,7 +104,9 @@ git of in chat.**
 - `DATABASE_URL`: Neon pooled TLS-URL voor gewone dataqueries;
 - `PROJECTOR_DATABASE_URL`: directe Neon-URL (zelfde branch/database en
   app-rol, geen `-pooler`) voor de session-level advisory lock;
-- `MANTICORE_URL=http://127.0.0.1:9308`.
+- `MANTICORE_URL=http://manticore-<service-uuid>:9308` via hetzelfde
+  predefined Coolify-network als Manticore. Alleen een handmatige host-run
+  gebruikt `http://127.0.0.1:9308`.
 
 De getypeerde projector-env weigert te starten als een variabele ontbreekt of
 als `PROJECTOR_DATABASE_URL` een bekende Neon-poolerhost is
@@ -367,9 +369,10 @@ Herhaalbare Coolify-inrichting:
 4. Start of herstart eerst Manticore en daarna de API. Controleer vanuit de
    API-container dat de naam resolveert en dat poort 9308 antwoordt. Dit is
    de Coolify-containerroute; gebruik hier niet `127.0.0.1`.
-5. De projector draait als proces op de host en gebruikt juist
-   `MANTICORE_URL=http://127.0.0.1:9308`. Bind daarvoor 9306 en 9308 alleen op
-   host-loopback; maak geen van beide publiek bereikbaar.
+5. Verbind de aparte projector-application ook met het predefined network en
+   gebruik daar dezelfde interne Manticore-service-URL. Alleen voor handmatige
+   host-tools mag 9306/9308 op host-loopback zijn gebonden; maak geen van beide
+   publiek bereikbaar.
 
 Verificatie:
 
@@ -455,8 +458,8 @@ servervariabelen uit § 2 (`NODE_ENV=production`, Neon-`DATABASE_URL`,
 `MANTICORE_URL=http://manticore-<service-uuid>:9308` via het predefined
 network naar de on-box Manticore-service, `RAW_S3_*`, `REDIS_URL`, auth/CORS).
 Lees de service-UUID live uit Coolify. De server-runtime krijgt geen admin-
-of migrator-credential. De los op de host draaiende projector blijft
-`http://127.0.0.1:9308` gebruiken; die route is niet de API-containerroute.
+of migrator-credential. De aparte projector-application gebruikt via hetzelfde
+predefined network ook de interne Manticore-service-URL.
 
 Verificatie:
 
@@ -505,11 +508,19 @@ Beide kanten van het contract tegelijk omzetten
 ([search-projector.md](search-projector.md) § Deploy contract — "not one
 without the other"):
 
-1. Projector op de box starten (`bun run projector`) onder een supervisor
-   (systemd `Restart=on-failure`, of de compose-service achter
-   `--profile projector`). Env: pooled Neon-`DATABASE_URL` voor dataqueries +
-   directe Neon-`PROJECTOR_DATABASE_URL` voor de lock +
-   `MANTICORE_URL=http://127.0.0.1:9308`.
+1. Maak een aparte Coolify Dockerfile-application op
+   `apps/server/Dockerfile.projector`, zonder publieke poort of domain. De
+   Dockerfile is byte-identiek aan de server-Dockerfile op de role-`CMD` na en
+   erft daardoor diens API-healthcheck; schakel die in Coolify uit. Coolify's
+   Dockerfile-buildpack negeert een geconfigureerd
+   `start_command`; deze role-Dockerfile zet daarom zelf exact
+   `CMD ["bun","run","projector"]`. Verbind de application met hetzelfde
+   predefined network als Manticore. Env: pooled Neon-`DATABASE_URL` voor
+   dataqueries + directe Neon-`PROJECTOR_DATABASE_URL` voor de lock +
+   `MANTICORE_URL=http://manticore-<service-uuid>:9308`, met de UUID live uit
+   Coolify gelezen. Alleen een handmatige host-run gebruikt in plaats daarvan
+   de loopbackroute `http://127.0.0.1:9308`; Compose gebruikt
+   `http://manticore:9308`.
 2. Worker (Trigger.dev) op `SEARCH_PROJECTOR=onbox`, zonder `MANTICORE_URL`.
 
 Een handmatige Trigger.dev-run van `drain-outbox` draineert in deze modus

@@ -238,7 +238,7 @@ services:
   projector:
     build:
       context: .
-      dockerfile: apps/server/Dockerfile
+      dockerfile: apps/server/Dockerfile.projector
     profiles: ["projector"]
     init: true
     command: ["bun", "run", "projector"]
