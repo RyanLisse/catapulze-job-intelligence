@@ -162,6 +162,12 @@ const descriptionForJob = (job: NeonV1JobRow): string =>
 const opdrachtgeverForJob = (job: NeonV1JobRow): string | typeof UNKNOWN =>
   job.end_client?.trim() || job.company?.trim() || UNKNOWN;
 
+/** Motian publishes no creation timestamp. `posted_at` is the honest source
+ * for the publication/first-seen instant; only when it is null do we fall back
+ * to the source scrape instant. A true creation instant remains absent. */
+const firstSeenAtForJob = (job: NeonV1JobRow): string | null =>
+  job.posted_at ?? job.scraped_at ?? null;
+
 const v1SpecificFieldsForJob = (
   job: NeonV1JobRow,
   sourceStatus: string | null
@@ -171,13 +177,14 @@ const v1SpecificFieldsForJob = (
   platform: job.platform,
   v1_archived_at: job.archived_at ?? null,
   v1_contract_type: job.contract_type ?? null,
-  v1_created_at: job.created_at ?? null,
   v1_deleted_at: job.deleted_at ?? null,
+  v1_first_seen_at: firstSeenAtForJob(job),
   v1_location: job.location ?? null,
   v1_platform: job.platform,
+  v1_posted_at: job.posted_at ?? null,
   v1_province: job.province ?? null,
+  v1_scraped_at: job.scraped_at ?? null,
   v1_status: sourceStatus,
-  v1_updated_at: job.updated_at ?? null,
 });
 
 export const mapV1JobToDraft = (job: NeonV1JobRow): NormalisedAanvraagDraft => {
@@ -213,7 +220,14 @@ export const mapV1JobToDraft = (job: NeonV1JobRow): NormalisedAanvraagDraft => {
       "company"
     ),
     parserVersion,
-    startDatum: field(UNKNOWN, parserVersion, "start_date"),
+    sluitingsdatum: job.application_deadline
+      ? new Date(job.application_deadline)
+      : undefined,
+    startDatum: field(
+      job.start_date?.slice(0, 10) || UNKNOWN,
+      parserVersion,
+      "start_date"
+    ),
     status: lifecycle,
     tarief: {
       eenheid: UNKNOWN,

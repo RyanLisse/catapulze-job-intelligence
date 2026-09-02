@@ -31,6 +31,14 @@ The production migration uses the explicit **`production + full`** contract. It 
 
 ## Production contract and raw fidelity
 
+The typed source projection mirrors the live Motian timestamp column names read
+back on 2026-09-03: `posted_at`, `scraped_at`, `application_deadline`, and
+`start_date`; the checked-in fixtures use those exact source names for the
+timestamp fields they carry. The `jobs` table has no `created_at` or
+`updated_at`; a true creation timestamp therefore remains absent. These legacy
+timezone-naive values and the fixtures use a UTC wall-clock convention; the
+reader applies UTC explicitly so the runtime timezone cannot shift a date.
+
 `JI-MIG-01`, `JI-MIG-02`, and `JI-ING-07` make the one-shot production import a completeness operation, not an open-jobs refresh:
 
 | Requirement | Backfill behaviour |

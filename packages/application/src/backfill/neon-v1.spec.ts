@@ -58,6 +58,46 @@ describe("Neon v1 backfill mapping", () => {
     });
   });
 
+  it("uses posted_at as first seen with an honest scraped_at fallback", () => {
+    const postedAt = "2026-08-31T08:00:00.000Z";
+    const scrapedAt = "2026-09-03T09:00:00.000Z";
+    const postedDraft = mapV1JobToDraft({
+      ...sampleJob(),
+      posted_at: postedAt,
+      scraped_at: scrapedAt,
+    });
+    const fallbackDraft = mapV1JobToDraft({
+      ...sampleJob(),
+      posted_at: null,
+      scraped_at: scrapedAt,
+    });
+
+    expect(postedDraft.bronSpecifiek.value).toMatchObject({
+      v1_first_seen_at: postedAt,
+      v1_posted_at: postedAt,
+      v1_scraped_at: scrapedAt,
+    });
+    expect(fallbackDraft.bronSpecifiek.value).toMatchObject({
+      v1_first_seen_at: scrapedAt,
+      v1_posted_at: null,
+      v1_scraped_at: scrapedAt,
+    });
+  });
+
+  it("maps source start and application deadline into existing curated fields", () => {
+    const draft = mapV1JobToDraft({
+      ...sampleJob(),
+      application_deadline: "2026-09-10T12:00:00.000Z",
+      start_date: "2026-10-01T00:00:00.000Z",
+    });
+
+    expect(draft.startDatum.value).toBe("2026-10-01");
+    expect(draft.startDatum.provenance.sourcePath).toBe("start_date");
+    expect(draft.sluitingsdatum?.toISOString()).toBe(
+      "2026-09-10T12:00:00.000Z"
+    );
+  });
+
   it("retains a closed or deleted v1 row as closed in the curated lifecycle", () => {
     const draft = mapV1JobToDraft({
       ...sampleJob(),
@@ -575,9 +615,28 @@ describe("Neon v1 backfill run", () => {
     ).toThrow();
   });
 
-  it("loads the checked-in ~200-record CI fixture", async () => {
+  it("imports all 200 rows from the checked-in CI fixture", async () => {
     const fixture = await loadNeonV1Fixture("neon-v1-sample.json");
+    const result = await runNeonV1Backfill({
+      bindings: MOTIAN_V1_BRON_BINDINGS,
+      curateStore: new InMemoryCurateStore(),
+      objectStore: new InMemoryObjectStore(),
+      provenanceStore: new InMemoryBackfillProvenanceStore(),
+      runStore: new InMemoryBackfillRunStore(),
+      source: createFixtureNeonV1Source(fixture),
+      startedAt: new Date(fixture.capturedAt),
+    });
+
     expect(fixture.contractVersion).toBe(NEON_V1_BACKFILL_CONTRACT_VERSION);
-    expect(fixture.jobs.length).toBeGreaterThanOrEqual(200);
+    expect(fixture.jobs).toHaveLength(200);
+    expect(result.status).toBe("succeeded");
+    expect(result.metrics).toMatchObject({
+      errors: 0,
+      imported: 200,
+      matched: 200,
+      rejected: 0,
+      selected: 200,
+    });
+    expect(Object.keys(result.metrics.platforms)).toHaveLength(7);
   });
 });

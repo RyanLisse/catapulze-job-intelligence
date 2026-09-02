@@ -27,11 +27,13 @@ export const NEON_V1_FORBIDDEN_TABLES = [
 
 export type NeonV1ForbiddenTable = (typeof NEON_V1_FORBIDDEN_TABLES)[number];
 
+/** Typed Motian `jobs` projection. Its timestamp field names match the live
+ * column readback from 2026-09-03; that table has no creation/update columns. */
 export interface NeonV1JobRow {
+  readonly application_deadline?: string | null;
   readonly archived_at?: string | null;
   readonly company?: string | null;
   readonly contract_type?: string | null;
-  readonly created_at?: string | null;
   readonly deleted_at?: string | null;
   readonly description?: string | null;
   readonly end_client?: string | null;
@@ -43,13 +45,15 @@ export interface NeonV1JobRow {
   readonly province?: string | null;
   readonly rate_max?: number | null;
   readonly rate_min?: number | null;
+  readonly posted_at?: string | null;
+  readonly scraped_at?: string | null;
+  readonly start_date?: string | null;
   /** Complete `jobs` row as returned by Motian-Neon, including `raw_payload`.
    * It is written unchanged in shape to object storage; the typed fields above
    * are only the curated mapping surface. */
   readonly sourceRow?: Readonly<Record<string, JsonValue>>;
   readonly status?: string | null;
   readonly title: string;
-  readonly updated_at?: string | null;
 }
 
 export interface NeonV1Fixture {

@@ -14,7 +14,6 @@ import type {
 } from "./neon-v1-types";
 
 const DEFAULT_BATCH_SIZE = 1000;
-const INITIAL_CURSOR = "00000000-0000-0000-0000-000000000000";
 
 interface MotianReadOnlyPrivileges {
   can_delete_jobs: boolean | null;
@@ -53,11 +52,11 @@ export interface MotianNeonV1SourceDependencies {
 }
 
 interface MotianJobRow {
-  archived_at: Date | string | null;
+  application_deadline: string | null;
+  archived_at: string | null;
   company: string | null;
   contract_type: string | null;
-  created_at: Date | string | null;
-  deleted_at: Date | string | null;
+  deleted_at: string | null;
   description: string | null;
   end_client: string | null;
   external_id: string;
@@ -68,17 +67,27 @@ interface MotianJobRow {
   province: string | null;
   rate_max: number | string | null;
   rate_min: number | string | null;
+  posted_at: string | null;
+  scraped_at: string | null;
   source_row: Record<string, JsonValue>;
+  start_date: string | null;
   status: string | null;
   title: string;
-  updated_at: Date | string | null;
 }
 
-const toIsoString = (value: Date | string | null): string | null => {
+/** Motian stores legacy timestamps without a timezone. The historical data and
+ * checked fixtures use UTC wall-clock values, so SQL returns text and this
+ * adapter applies UTC explicitly instead of letting the process timezone move
+ * dates while postgres.js parses OID 1114. */
+const toIsoString = (value: string | null): string | null => {
   if (value === null) {
     return null;
   }
-  return value instanceof Date ? value.toISOString() : value;
+  const isoValue = value.includes("T") ? value : value.replace(" ", "T");
+  const zonedValue = /(?:Z|[+-]\d{2}(?::?\d{2})?)$/u.test(isoValue)
+    ? isoValue
+    : `${isoValue}Z`;
+  return new Date(zonedValue).toISOString();
 };
 
 const toNumberOrNull = (
@@ -92,10 +101,10 @@ const toNumberOrNull = (
 };
 
 const mapMotianRow = (row: MotianJobRow): NeonV1JobRow => ({
+  application_deadline: toIsoString(row.application_deadline),
   archived_at: toIsoString(row.archived_at),
   company: row.company,
   contract_type: row.contract_type,
-  created_at: toIsoString(row.created_at),
   deleted_at: toIsoString(row.deleted_at),
   description: row.description,
   end_client: row.end_client,
@@ -104,13 +113,15 @@ const mapMotianRow = (row: MotianJobRow): NeonV1JobRow => ({
   id: row.id,
   location: row.location,
   platform: normalizeMotianPlatform(row.platform),
+  posted_at: toIsoString(row.posted_at),
   province: row.province,
   rate_max: toNumberOrNull(row.rate_max),
   rate_min: toNumberOrNull(row.rate_min),
+  scraped_at: toIsoString(row.scraped_at),
   sourceRow: row.source_row,
+  start_date: toIsoString(row.start_date),
   status: row.status,
   title: row.title,
-  updated_at: toIsoString(row.updated_at),
 });
 
 /**
@@ -198,7 +209,7 @@ export const createMotianNeonV1Source = (
 
   const loadRows = async (
     readOnlySql: postgres.TransactionSql,
-    afterId: string,
+    afterId: string | null,
     size: number
   ): Promise<MotianJobRow[]> => {
     if (scope === "full") {
@@ -219,13 +230,15 @@ export const createMotianNeonV1Source = (
             rate_min,
             rate_max,
             status,
-            archived_at,
-            deleted_at,
-            created_at,
-            updated_at
+            archived_at::text AS archived_at,
+            deleted_at::text AS deleted_at,
+            application_deadline::text AS application_deadline,
+            start_date::text AS start_date,
+            posted_at::text AS posted_at,
+            scraped_at::text AS scraped_at
           FROM jobs
           WHERE platform = ANY(${platforms})
-            AND id > ${afterId}::uuid
+            AND (${afterId === null} OR id > ${afterId ?? ""})
           ORDER BY id ASC
           LIMIT ${size}
         `;
@@ -250,15 +263,17 @@ export const createMotianNeonV1Source = (
             rate_min,
             rate_max,
             status,
-            archived_at,
-            deleted_at,
-            created_at,
-            updated_at
+            archived_at::text AS archived_at,
+            deleted_at::text AS deleted_at,
+            application_deadline::text AS application_deadline,
+            start_date::text AS start_date,
+            posted_at::text AS posted_at,
+            scraped_at::text AS scraped_at
           FROM jobs
           WHERE platform = ANY(${platforms})
             AND deleted_at IS NULL
             AND archived_at IS NULL
-            AND id > ${afterId}::uuid
+            AND (${afterId === null} OR id > ${afterId ?? ""})
           ORDER BY id ASC
           LIMIT ${size}
         `;
@@ -282,16 +297,18 @@ export const createMotianNeonV1Source = (
             rate_min,
             rate_max,
             status,
-            archived_at,
-            deleted_at,
-            created_at,
-            updated_at
+            archived_at::text AS archived_at,
+            deleted_at::text AS deleted_at,
+            application_deadline::text AS application_deadline,
+            start_date::text AS start_date,
+            posted_at::text AS posted_at,
+            scraped_at::text AS scraped_at
           FROM jobs
           WHERE platform = ANY(${platforms})
             AND deleted_at IS NULL
             AND archived_at IS NULL
             AND status = 'open'
-            AND id > ${afterId}::uuid
+            AND (${afterId === null} OR id > ${afterId ?? ""})
           ORDER BY id ASC
           LIMIT ${size}
         `;
@@ -316,7 +333,7 @@ export const createMotianNeonV1Source = (
           if (!startClock?.snapshot_started_at) {
             throw new Error("Motian source snapshot start heartbeat failed");
           }
-          let afterId = INITIAL_CURSOR;
+          let afterId: string | null = null;
           for (;;) {
             /* oxlint-disable no-await-in-loop -- keyset pagination and the consumer are deliberately sequential inside one snapshot */
             const rows = await loadRows(readOnlySql, afterId, size);

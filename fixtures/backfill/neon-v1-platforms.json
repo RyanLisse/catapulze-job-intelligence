@@ -15,8 +15,8 @@
       "contract_type": "detachering",
       "rate_min": 80,
       "rate_max": 100,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
       "id": "v1-platform-oo",
@@ -32,8 +32,8 @@
       "contract_type": "opdracht",
       "rate_min": 90,
       "rate_max": 110,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
       "id": "v1-platform-mip",
@@ -48,8 +48,8 @@
       "contract_type": "opdracht",
       "rate_min": 85,
       "rate_max": 105,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
       "id": "v1-platform-flex",
@@ -64,8 +64,8 @@
       "contract_type": "detachering",
       "rate_min": 75,
       "rate_max": 95,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
       "id": "v1-platform-striive",
@@ -80,8 +80,8 @@
       "contract_type": "detachering",
       "rate_min": 95,
       "rate_max": 115,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
       "id": "v1-platform-wz",
@@ -96,8 +96,8 @@
       "contract_type": "vast",
       "rate_min": 70,
       "rate_max": 90,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
       "id": "v1-platform-starapple",
@@ -112,8 +112,8 @@
       "contract_type": "detachering",
       "rate_min": 88,
       "rate_max": 108,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     }
   ]
 }

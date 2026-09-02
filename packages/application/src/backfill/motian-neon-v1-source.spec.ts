@@ -17,13 +17,16 @@ interface MotianPrivileges {
 interface FakeMotianSqlClient {
   readonly beginOptions: string[];
   readonly events: string[];
+  readonly jobParameters: readonly (readonly unknown[])[];
+  readonly jobStatements: string[];
   readonly sql: postgres.Sql;
   endCalls: () => number;
   rootQueryCalls: () => number;
 }
 
 type FakeTransactionSql = (
-  strings: TemplateStringsArray
+  strings: TemplateStringsArray,
+  ...values: readonly unknown[]
 ) => Promise<readonly object[]>;
 
 interface FakeSql {
@@ -46,10 +49,10 @@ const readOnlyPrivileges = (): MotianPrivileges => ({
 });
 
 const motianJobRow = (id: string) => ({
+  application_deadline: null,
   archived_at: null,
   company: null,
   contract_type: null,
-  created_at: null,
   deleted_at: null,
   description: null,
   end_client: null,
@@ -58,13 +61,15 @@ const motianJobRow = (id: string) => ({
   id,
   location: null,
   platform: "werkzoeken",
+  posted_at: null,
   province: null,
   rate_max: null,
   rate_min: null,
+  scraped_at: null,
   source_row: { id },
+  start_date: null,
   status: "open",
   title: `Job ${id}`,
-  updated_at: null,
 });
 
 const asTransactionSql = (value: FakeTransactionSql): postgres.TransactionSql =>
@@ -85,6 +90,8 @@ const createFakeMotianSqlClient = (
 ): FakeMotianSqlClient => {
   const beginOptions: string[] = [];
   const events: string[] = [];
+  const jobParameters: (readonly unknown[])[] = [];
+  const jobStatements: string[] = [];
   let endCalls = 0;
   let rootQueryCalls = 0;
   let jobBatchIndex = 0;
@@ -92,7 +99,8 @@ const createFakeMotianSqlClient = (
   const transactionReadOnly = input.transactionReadOnly ?? "on";
 
   const transactionQuery = (
-    strings: TemplateStringsArray
+    strings: TemplateStringsArray,
+    ...values: readonly unknown[]
   ): Promise<readonly object[]> => {
     const statement = strings.join("?").replaceAll(/\s+/gu, " ").trim();
     if (statement.startsWith("SHOW transaction_read_only")) {
@@ -119,6 +127,8 @@ const createFakeMotianSqlClient = (
     }
     if (statement.includes("FROM jobs")) {
       events.push("jobs");
+      jobParameters.push(values);
+      jobStatements.push(statement);
       const batch = input.jobBatches?.[jobBatchIndex] ?? [];
       jobBatchIndex += 1;
       return Promise.resolve(batch);
@@ -153,6 +163,8 @@ const createFakeMotianSqlClient = (
     beginOptions,
     endCalls: () => endCalls,
     events,
+    jobParameters,
+    jobStatements,
     rootQueryCalls: () => rootQueryCalls,
     sql,
   };
@@ -288,8 +300,8 @@ describe("Motian Neon v1 source access", () => {
   it("walks every keyset batch inside one repeatable-read snapshot", async () => {
     const client = createFakeMotianSqlClient({
       jobBatches: [
-        [motianJobRow("00000000-0000-0000-0000-000000000001")],
-        [motianJobRow("00000000-0000-0000-0000-000000000002")],
+        [motianJobRow("-source-id-before-zero")],
+        [motianJobRow("source-id-after-zero")],
         [],
       ],
     });
@@ -304,8 +316,15 @@ describe("Motian Neon v1 source access", () => {
     const jobs = await source.loadJobs();
 
     expect(jobs.map((job) => job.id)).toEqual([
-      "00000000-0000-0000-0000-000000000001",
-      "00000000-0000-0000-0000-000000000002",
+      "-source-id-before-zero",
+      "source-id-after-zero",
+    ]);
+    expect(
+      client.jobParameters.map((parameters) => parameters.slice(1, 3))
+    ).toEqual([
+      [true, ""],
+      [false, "-source-id-before-zero"],
+      [false, "source-id-after-zero"],
     ]);
     expect(client.beginOptions).toEqual([
       "isolation level repeatable read read only",
@@ -319,6 +338,54 @@ describe("Motian Neon v1 source access", () => {
       "jobs",
       "snapshot-end",
     ]);
+  });
+
+  it("selects and maps the real Motian timestamp columns in every scope", async () => {
+    const scopes = [
+      { scope: "full" as const },
+      { includeClosed: true, scope: "active" as const },
+      { scope: "active" as const },
+    ];
+
+    await Promise.all(
+      scopes.map(async (options) => {
+        const row = {
+          ...motianJobRow("00000000-0000-0000-0000-000000000003"),
+          application_deadline: "2026-09-10 12:00:00",
+          posted_at: "2026-08-31 08:00:00",
+          scraped_at: "2026-09-03 09:00:00",
+          start_date: "2026-10-01 00:00:00",
+        };
+        const client = createFakeMotianSqlClient({ jobBatches: [[row]] });
+        const source = createMotianNeonV1Source(
+          {
+            ...options,
+            databaseUrl: "postgresql://readonly@motian.example/v1",
+          },
+          { createSqlClient: () => client.sql }
+        );
+
+        const jobs = await source.loadJobs();
+        const [statement] = client.jobStatements;
+
+        expect(jobs[0]).toMatchObject({
+          application_deadline: "2026-09-10T12:00:00.000Z",
+          posted_at: "2026-08-31T08:00:00.000Z",
+          scraped_at: "2026-09-03T09:00:00.000Z",
+          start_date: "2026-10-01T00:00:00.000Z",
+        });
+        expect(statement).toContain(
+          "application_deadline::text AS application_deadline"
+        );
+        expect(statement).toContain("start_date::text AS start_date");
+        expect(statement).toContain("posted_at::text AS posted_at");
+        expect(statement).toContain("scraped_at::text AS scraped_at");
+        expect(statement).toContain("(? OR id > ?)");
+        expect(statement).not.toContain("created_at");
+        expect(statement).not.toContain("::uuid");
+        expect(statement).not.toContain("updated_at");
+      })
+    );
   });
 
   it("fails closed when the source snapshot end heartbeat is lost", async () => {
