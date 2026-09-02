@@ -9,11 +9,12 @@ iets nog niet besloten of nog niet bewezen is, staat dat er expliciet bij —
 een `<TBD: …>` is een echte open beslissing, geen placeholder om in te
 vullen.
 
-> **Status:** er is nog geen Hetzner-host, geen hostkeuze en geen
-> productie-deploy uitgevoerd. Dit document beschrijft de procedure zodra de
-> blockers in [§ Open blockers](#open-blockers) zijn opgelost. Het vervangt
-> de openingszin van [coolify-local.md](coolify-local.md) ("terwijl de
-> Hetzner-host nog niet beschikbaar is") door een concreet vervolg.
+> **Status:** `catapulze-prod` (CX43, Ubuntu 24.04, Helsinki) en Coolify zijn
+> eerder ingericht. De actuele bootstatus, SSH-bereikbaarheid, Coolify-status
+> en applicatie-health zijn nu **niet bewezen**; er is dus ook geen bewijs dat
+> de productie-deploy of productiedata gezond is. Dit document beschrijft het
+> herstel- en deploypad zodra de blockers in [§ Open blockers](#open-blockers)
+> zijn opgelost.
 
 ## 1. Service-topologie
 
@@ -28,10 +29,10 @@ service, met bron:
 | `web` | **Ja.** | Next.js-frontend, poort 3001, Dockerfile `apps/web/Dockerfile`; als Coolify-application per [coolify-local.md](coolify-local.md) § Coolify-proef. |
 | `server` | **Ja.** | Hono/tRPC-API, poort 3000, Dockerfile `apps/server/Dockerfile`, healthcheck `/readyz`. |
 | `redis` | **Ja.** | Zoekresultaat-cache (RJC-388). `REDIS_URL` is optioneel in `packages/env/src/server.ts` — zonder Redis draait de in-process cache — maar in productie weigert de server te starten wanneer een geconfigureerde Redis bij boot onbereikbaar is (`createResultCache`, [ADR-0007](../adr/ADR-0007-search-platform-state-2026-09-01.md), "Invarianten"). |
-| `manticore` | **Ja.** | Manticore 6.3.8 (digest-gepind), privaat op de box, index `aanvragen_active`/`aanvragen_archive` (RJC-383). Blijft privé per ADR-0006 ("Voor diensten die wél op de box blijven … blijft de private-poortregel gelden"). |
+| `manticore` | **Ja.** | Manticore 6.3.8 (tag-/versiegepind, niet digest-gepind), privaat op de box, index `aanvragen_active`/`aanvragen_archive` (RJC-383). Blijft privé per ADR-0006 ("Voor diensten die wél op de box blijven … blijft de private-poortregel gelden"). |
 | `manticore29` | **Nee — shadow, geen productieservice.** | RJC-382-vergelijkingsinstance achter het `shadow`-profile; het compose-commentaar zegt letterlijk dat de productieservice de gepinde 6.3.8 hierboven is. De engine-beslissing zelf is open — zie [§ Open blockers](#open-blockers). |
 | `projector` | **Ja — als proces op de box.** | On-box search-projector (RJC-387): leest de Neon-outbox over TLS, schrijft lokaal naar Manticore. De compose-service (profile `projector`) is de lokale stand-in; op de box draait hetzelfde `bun run projector` onder een supervisor per [search-projector.md](search-projector.md) § Supervision. |
-| `raw-storage-minio` + `raw-storage-minio-init` | **Nee — lokale S3-target.** | Het compose-commentaar (RJC-386) noemt dit expliciet een "local S3-compatible target". Productie draait op een S3-compatible store (de server weigert de filesystem-backend in productie, [raw-object-storage.md](raw-object-storage.md) § Production guard); de provider is **beslist: Cloudflare R2** ([ADR-0008](../adr/ADR-0008-cloudflare-r2-for-raw-payloads.md)) — bucket en keys moeten nog worden aangemaakt. |
+| `raw-storage-minio` + `raw-storage-minio-init` | **Nee — lokale S3-target.** | Het compose-commentaar (RJC-386) noemt dit expliciet een "local S3-compatible target". Productie draait op een S3-compatible store (de server weigert de filesystem-backend in productie, [raw-object-storage.md](raw-object-storage.md) § Production guard); de provider is **beslist: Cloudflare R2** ([ADR-0008](../adr/ADR-0008-cloudflare-r2-for-raw-payloads.md)) — bestaan en configuratie van bucket en keys moeten live worden geverifieerd en zo nodig ingericht. |
 
 Niet in compose, wél onderdeel van productie:
 
@@ -77,9 +78,9 @@ git of in chat.**
 | `BETTER_AUTH_SECRET` | ja (min. 32 tekens) | boot faalt | operator/1Password |
 | `BETTER_AUTH_URL` | ja (URL) | boot faalt | operator: publieke API-URL |
 | `CORS_ORIGIN` | ja (URL) | boot faalt | operator: publieke web-URL |
-| `MANTICORE_URL` | nee, default `http://127.0.0.1:9308` | zoekopdrachten en `/readyz`-manticore-check falen als de default niet klopt | on-box: default volstaat als server en Manticore dezelfde host delen; in compose `http://manticore:9308` |
+| `MANTICORE_URL` | nee, default `http://127.0.0.1:9308` | zoekopdrachten en `/readyz`-manticore-check falen als de default niet klopt | Coolify-API: `http://manticore-<service-uuid>:9308` via **Connect to Predefined Network**; on-host projector: `http://127.0.0.1:9308`; lokaal compose: `http://manticore:9308` |
 | `REDIS_URL` | nee | in-process cache; `/readyz` meldt `redis: not-configured` | operator; on-box Redis |
-| `RAW_S3_BUCKET` (+ `RAW_S3_ENDPOINT`, `RAW_S3_REGION`, `RAW_S3_ACCESS_KEY_ID`, `RAW_S3_SECRET_ACCESS_KEY`) | in productie effectief ja | zonder `RAW_S3_BUCKET` valt de store terug op filesystem en **weigert de server in productie te starten** (`apps/server/src/slice-a-registry.ts`, RJC-386) | operator; provider beslist: Cloudflare R2 ([ADR-0008](../adr/ADR-0008-cloudflare-r2-for-raw-payloads.md)); bucket/keys `<TBD: Ryan>` |
+| `RAW_S3_BUCKET` (+ `RAW_S3_ENDPOINT`, `RAW_S3_REGION`, `RAW_S3_ACCESS_KEY_ID`, `RAW_S3_SECRET_ACCESS_KEY`) | in productie effectief ja | zonder `RAW_S3_BUCKET` valt de store terug op filesystem en **weigert de server in productie te starten** (`apps/server/src/slice-a-registry.ts`, RJC-386) | operator; provider beslist: Cloudflare R2 ([ADR-0008](../adr/ADR-0008-cloudflare-r2-for-raw-payloads.md)); bestaan/configuratie live verifiëren en zo nodig inrichten |
 | `RAW_OBJECT_STORE_PATH` | nee | alleen relevant voor de filesystem-fallback (niet-productie) | — |
 | `NODE_ENV` | nee (default `development`) | productie-guards (filesystem-weigering, Redis-boot-weigering) staan dan uit — zet hem in productie dus expliciet op `production` | deploy-configuratie |
 | `PORT` | nee (default 3000) | — | deploy-configuratie |
@@ -95,7 +96,7 @@ git of in chat.**
 | `TENDER_NED_TEST_IMPORT_DAYS` | nee (default 14, bereik 1–90) | — | operator, alleen voor test-imports |
 | Per-bron live-vlaggen (`TENDER_NED_LIVE`, `INHUURDESK_LIVE`, …) | per bron | bron draait op fixtures i.p.v. live HTTP (`process.env[source.liveEnv] === "1"` in `apps/worker/src/poll-bron-run.ts`; namen in `packages/application/src/sources/*.ts`) | operator, per bron-activatiebesluit |
 | `TRIGGER_PROJECT_REF` | nee (default in `trigger.config.ts`) | — | Trigger.dev-project |
-| `TRIGGER_SECRET_KEY` | voor programmatisch triggeren/deployen | **bestaat nergens — RJC-373**; gedeployd bewijs is hierop geblokkeerd (ADR-0006, "Open punten") | `<TBD: Ryan/Trigger.dev-account>` |
+| `TRIGGER_SECRET_KEY` | voor programmatisch triggeren/deployen | productieconfiguratie is onbewezen/open (RJC-373); gedeployd bewijs ontbreekt | `<TBD: Ryan/Trigger.dev-account>` |
 
 ### Projector (on-box proces)
 
@@ -138,51 +139,59 @@ gebruik nooit `set -x`/`env`/`printenv` in deze route
 
 Elke stap eindigt met een verificatie. Ga niet door zolang die faalt.
 
-### Stap 0 — Precondities (allemaal hard)
+### Stap 0 — Hersteltoegang en releasegates
 
-1. Hetzner-host bestaat en is bereikbaar: `<TBD: Ryan — hostkeuze en
-   credentials>`. [COSTS.md](../COSTS.md) noemt CCX33 als kandidaat maar
-   markeert de totalen "opnieuw te herleiden"; er is geen ADR dat de host
-   kiest.
+Alleen punt 1 is de harde preconditie voor stap 0.5. Punten 2 en 3 blokkeren
+de daarbij genoemde releasestap, maar blokkeren het hostherstel zelf niet.
+
+1. Hersteltoegang is beschikbaar: de operator kan de Hetzner Console openen
+   en heeft de benodigde SSH- en Coolify-credentials via 1Password. Dit is de
+   preconditie om stap 0.5 te starten; verse boot-, SSH- en Coolify-evidence is
+   de uitkomst van die stap en de harde gate vóór stap 1.
 2. RJC-371 (gelekte Neon-credential) is geroteerd en de nieuwe credential
    bestaat alleen in 1Password (ADR-0006, "Open punten").
-3. **RJC-402: Neons migratiejournal loopt achter op `main`.** De analyse is
-   afgerond en het verdict is **GO, zonder maintenance window** — echt
-   gerehearsed (pg_dump van live Neon hersteld in een wegwerpcluster, elke
-   migratie afzonderlijk getimed, nul writes tegen Neon); cijfers en
-   rollback (Neon-branch vooraf) in
-   [neon-migration-catchup.md](neon-migration-catchup.md). Het uitvoeren
-   tegen productie-Neon blijft Ryans besluit en deze gate blijft hard: dit
-   runbook voert die migraties **niet** inline uit — zonder afgeronde
-   catch-up antwoordt `/readyz` op stap 4
-   `postgres: {"status":"failed","reason":"migration_mismatch"}` en is de
-   hele deploy een no-go.
-4. Deploymethode op de box: de enige in de repo beproefde route is de
-   Coolify-inrichting uit [coolify-local.md](coolify-local.md), maar die is
-   uitsluitend lokaal bewezen ("Nog geen productie-bewijs"). De
-   host-installatie zelf staat in stap 0.5 hieronder — gedocumenteerd uit
-   officiële bronnen, maar **ongerehearsed** (zie de waarschuwing daar).
+3. **RJC-402: lees eerst de actuele Neon-journal en het bijbehorende schema.**
+   Current `main` bevat 13 migraties (`0000`–`0012`), inclusief
+   `0012_source_record_listing_hash.sql`; de historische rehearsal in
+   [neon-migration-catchup.md](neon-migration-catchup.md) dekt alleen
+   `0006`–`0011` en verwachtte 12 journalentries.
+   Een lokale, nog niet gepubliceerde operatorrecord van 2026-09-01 claimt
+   dat de journal van 6 naar 13 entries is gegaan, maar een actuele live
+   Neon-readback ontbreekt. Die record en de oudere evidence in
+   [neon-migration-catchup.md](neon-migration-catchup.md) bewijzen de huidige
+   productiestaat niet. Draai de catch-up **niet opnieuw** voordat journal én
+   betrokken schema-objecten live read-only zijn gelezen en met de te
+   deployen commit zijn vergeleken. Alleen een bewezen achterstand activeert
+   het migratiepad; tot die readback blijft deze gate open.
+4. Deploymethode op de box: Coolify is eerder op `catapulze-prod` ingericht,
+   maar de huidige installatie en een volledige gezonde applicatie-deploy zijn
+   niet opnieuw bewezen. Gebruik [coolify-local.md](coolify-local.md) en stap
+   0.5 hieronder als herstel- en validatiepad; voer provisioningstappen niet
+   blind opnieuw uit.
 
-### Stap 0.5 — Host-provisioning: van niets naar de host die stap 1 aanneemt
+### Stap 0.5 — Host-provisioning en herstelpad voor de host die stap 1 aanneemt
 
-> ⚠️ **ONGEREHEARSED.** Anders dan de rest van dit runbook heeft niemand deze
-> stappen uitgevoerd — er bestaat nog geen Hetzner-host. Elke opdracht komt
-> uit officiële documentatie (bron en checkdatum per stap), maar de eerste
-> echte uitvoering is tegelijk de eerste test. Voer uit met de Console
-> ernaast, en bij twijfel over een firewallregel: eerst de Console-route,
-> die je nooit buitensluit.
+> ⚠️ **ACTUELE STAAT ONBEWEZEN.** `catapulze-prod` en Coolify zijn eerder
+> ingericht, maar boot, SSH, Coolify en applicatie-health zijn nu niet
+> gevalideerd. De opdrachten hieronder vormen daarom een herstel- of
+> rebuildpad, geen instructie om bestaande infrastructuur zonder inspectie
+> opnieuw aan te maken. Console- en credentialtoegang uit stap 0 zijn vereist
+> vóór dit herstel begint. Deze stap moet boot, een verse SSH-login en de
+> Coolify-status bewijzen; ga zonder die evidence niet door naar stap 1. Voer
+> herstel uit met de Console ernaast en kies bij twijfel over een firewallregel
+> eerst de Console-route, die je nooit buitensluit.
 
-#### 0.5.1 Server bestellen
+#### 0.5.1 Bestaande server controleren of vervanging bestellen
 
-Kandidaat uit [COSTS.md](../COSTS.md): **CCX33** (8 dedicated vCPU / 32 GB /
-240 GB NVMe, €138,99/mnd) — maar de keuze is `<TBD: Ryan>` en de
-COSTS.md-totalen zijn gemarkeerd "opnieuw te herleiden". Verifieer specs en
-prijs vóór het bestellen met `hcloud server-type list`, nooit uit dit
-document of uit het hoofd.
+De eerder ingerichte host is `catapulze-prod`: **CX43**, Ubuntu 24.04, in
+Helsinki. Dat is historische provisioning-evidence, geen bewijs van de
+actuele hoststatus. Verifieer bij vervanging of resize altijd type,
+beschikbaarheid en prijs met `hcloud server-type list`; de totalen in
+[COSTS.md](../COSTS.md) zijn gemarkeerd "opnieuw te herleiden".
 
-Via `hcloud` (bron: hcloud CLI, `--help`-gedreven; volgorde is verplicht —
-key en firewall moeten bestaan vóór `server create` ze refereert; gecheckt
-2026-09-01):
+Alleen bij vervanging, via `hcloud` (bron: hcloud CLI, `--help`-gedreven;
+volgorde is verplicht — key en firewall moeten bestaan vóór `server create`
+ze refereert; gecheckt 2026-09-01):
 
 ```bash
 hcloud context create catapulze          # token uit Console → project → Security → API Tokens
@@ -190,28 +199,29 @@ hcloud location list                     # kies bewust; <TBD: Ryan — locatie>
 hcloud server-type list                  # verifieer type + actuele prijs
 hcloud ssh-key  create --name <TBD-keynaam> --public-key-from-file ~/.ssh/<TBD>.pub
 hcloud firewall create --name <TBD-fw-naam> --rules-file rules.json   # zie 0.5.2
-hcloud server   create --name <TBD-servernaam> --type ccx33 --image ubuntu-24.04 \
-                --location <TBD> --ssh-key <TBD-keynaam> --firewall <TBD-fw-naam>
+hcloud server   create --name <TBD-servernaam> --type <TBD-servertype> --image ubuntu-24.04 \
+                --location <TBD-locatie> --ssh-key <TBD-keynaam> --firewall <TBD-fw-naam>
 ```
 
-Via de Console (voor wie geen `hcloud` heeft): console.hetzner.cloud →
-project → "Add Server" → locatie → image **Ubuntu 24.04** (Coolify
-ondersteunt Debian-based; bron: coolify.io/docs installatiepagina, gecheckt
-2026-09-01) → type (dedicated vCPU-tab voor CCX) → SSH-key uploaden →
-firewall koppelen → Create.
+Bij vervanging via de Console (voor wie geen `hcloud` heeft):
+console.hetzner.cloud → project → "Add Server" → locatie →
+image **Ubuntu 24.04** (Coolify ondersteunt Debian-based; bron:
+coolify.io/docs installatiepagina, gecheckt 2026-09-01) → passend type →
+SSH-key uploaden → firewall koppelen → Create.
 
 Let op (hcloud-skill gotcha's): publieke IP's worden hergebruikt — na een
 eerdere serververwijdering kan `ssh` weigeren met "REMOTE HOST
 IDENTIFICATION HAS CHANGED"; dat is dan het oude host-key-record, niet een
 aanval (`ssh-keygen -R <ip>` en opnieuw verifiëren).
 
-#### 0.5.2 Firewall — alleen 22/80/443 publiek, en waarom dit vóór alles komt
+#### 0.5.2 Firewall — 80/443 publiek; 22 tijdelijk bron-IP-beperkt
 
 **De compose-file publiceert host-poorten; een naïeve deploy zet Manticore
-(9308/9306) zonder enige auth aan het internet.** Postgres 5432, Manticore
-9308/9306, MinIO, server 3000, web 3001 en het Coolify-dashboard (8000)
-zijn NOOIT publiek bereikbaar — verkeer loopt via het Docker-netwerk of een
-SSH-tunnel. Nuance uit `docker-compose.yml` zelf: postgres, redis en
+(9308/9306) zonder enige auth aan het internet.** De lokale/CI-Postgres op
+5432, Manticore 9308/9306, MinIO, server 3000, web 3001 en het
+Coolify-dashboard (8000) zijn NOOIT publiek bereikbaar — verkeer loopt via
+het Docker-netwerk of een SSH-tunnel. Nuance uit `docker-compose.yml` zelf:
+postgres, redis en
 manticore binden op `127.0.0.1` (`host_ip`), maar **`server` (3000) en
 `web` (3001) publiceren zónder `host_ip` en binden dus op alle
 interfaces** — zonder host-firewall staan die twee direct aan het
@@ -221,25 +231,33 @@ tweede laag maar de enige laag voor die poorten.
 Primair de **Hetzner Cloud Firewall** (buiten de host, altijd corrigeerbaar
 via de Console — een foute regel sluit je dus niet definitief buiten, het
 lockout-risico van een verkeerde `ufw`-regel op de host zelf vervalt).
-Inbound allow: TCP 22, TCP 80, TCP 443; al het overige inbound dicht.
-Aanmaken via Console → Firewalls, of `hcloud firewall create --rules-file
-rules.json` (JSON-formaat: `hcloud firewall create --help`; gecheckt
-2026-09-01). Een extra `ufw` op de host is optioneel en ongerehearsed —
-niet doen zonder Console-vangnet.
+Inbound allow: TCP 80 en TCP 443 algemeen publiek. Sta TCP 22 tijdens herstel
+alleen toe vanaf het exacte publieke source-IP van de operator; gebruik geen
+any-source-regel. Al het overige inbound blijft dicht. Aanmaken via Console →
+Firewalls, of `hcloud firewall create --rules-file rules.json` (JSON-formaat:
+`hcloud firewall create --help`; gecheckt 2026-09-01). Een extra `ufw` op de
+host is optioneel en niet geverifieerd op de huidige host — niet doen zonder
+Console-vangnet.
 
 Coolify-dashboard (poort 8000; bron: coolify.io/docs, gecheckt 2026-09-01)
-bereik je via een SSH-tunnel in plaats van een open poort:
+blijft publiek dicht. Nadat stap 0.5 een verse SSH-login heeft bewezen, is een
+SSH-tunnel het bedoelde beheerpad:
 
 ```bash
 ssh -L 8000:localhost:8000 <TBD-user>@<TBD-server-ip>
 # daarna in de browser: http://localhost:8000
 ```
 
+Voeg na herstel en validatie gewone Tailscale-netwerktoegang toe als geplande
+hardening en bewijs de beheer- en SSH-route daarover. Verwijder of sluit pas
+daarna de publieke TCP-22-regel. De SSH-tunnel kan vervolgens via Tailscale
+blijven lopen; poort 8000 wordt niet publiek geopend.
+
 #### 0.5.3 Basis-hardening
 
-Standaard Ubuntu/OpenSSH-configuratie (geen exotische bron, wél
-ongerehearsed op deze host): maak een non-root gebruiker met sudo, zet
-SSH op key-only en schakel wachtwoordlogin uit.
+Standaard Ubuntu/OpenSSH-configuratie (geen exotische bron; actuele staat op
+deze host niet geverifieerd): maak een non-root gebruiker met sudo, zet SSH op
+key-only en schakel wachtwoordlogin uit.
 
 ```bash
 adduser <TBD-user> && usermod -aG sudo <TBD-user>
@@ -254,8 +272,10 @@ nooit aan in je enige werkende sessie.
 
 #### 0.5.4 Docker + Coolify
 
-Coolify's officiële installer (bron: coolify.io/docs/get-started/installation,
-gecheckt 2026-09-01; geen versienummer gepind in de docs zelf):
+Coolify was eerder op `catapulze-prod` ingericht. Gebruik de officiële
+installer alleen als inspectie uitwijst dat herstel of herinstallatie nodig is
+(bron: coolify.io/docs/get-started/installation, gecheckt 2026-09-01; geen
+versienummer gepind in de docs zelf):
 
 ```bash
 curl -fsSL https://cdn.coollabs.io/coolify/install.sh | sudo bash
@@ -266,7 +286,7 @@ curl -fsSL https://cdn.coollabs.io/coolify/install.sh | sudo bash
 documentatie doet: basistools (curl, wget, git, jq, openssl) installeren,
 **Docker Engine 24+** installeren en configureren (logging, daemon),
 `/data/coolify` aanmaken, SSH-keys voor serverbeheer configureren en
-Coolify starten. Minimumeisen (2 cores / 2 GB / 30 GB) zijn op een CCX33
+Coolify starten. Minimumeisen (2 cores / 2 GB / 30 GB) zijn op een CX43
 ruimschoots gedekt. Dashboard daarna via de SSH-tunnel uit 0.5.2.
 
 #### 0.5.5 DNS en TLS
@@ -284,19 +304,20 @@ Coolify-docs bij uitvoering in plaats van een hier verzonnen click-path.
 
 #### 0.5.6 Cloudflare R2-bucket (ADR-0008)
 
-Maak de raw-payload-bucket uit
-[ADR-0008](../adr/ADR-0008-cloudflare-r2-for-raw-payloads.md) aan. R2 staat
-los van de Hetzner-box en kan dus **vooruitlopend op de host** worden
-aangemaakt:
+Verifieer eerst of de raw-payload-bucket en beperkte credentials uit
+[ADR-0008](../adr/ADR-0008-cloudflare-r2-for-raw-payloads.md) bestaan en
+correct zijn geconfigureerd. Maak ontbrekende onderdelen pas daarna aan. R2
+staat los van de Hetzner-box en kan dus onafhankelijk worden gecontroleerd:
 
-1. Cloudflare-dashboard → R2 → bucket aanmaken. Naam en locatie zijn
-   `<TBD: Ryan>` — dit document verzint er geen.
-2. R2 → Manage API Tokens → een token met lees/schrijfrechten op die bucket.
-   Dat levert de S3 access key id en secret.
+1. Cloudflare-dashboard → R2 → controleer bucketnaam en locatie; maak de
+   bucket alleen aan als hij ontbreekt. Dit document verzint geen naam.
+2. R2 → Manage API Tokens → verifieer een token met lees/schrijfrechten op
+   alleen die bucket; maak het alleen aan als het ontbreekt. Dat levert de S3
+   access key id en secret.
 3. Noteer het account-id: het S3-endpoint is
    `https://<ACCOUNT_ID>.r2.cloudflarestorage.com`.
 
-De vier `RAW_S3_*`-waarden (namen in § 2) gaan naar 1Password en vandaar naar
+De vijf `RAW_S3_*`-waarden (namen in § 2) gaan naar 1Password en vandaar naar
 de Coolify-secrets van server én worker — nooit in git. `RAW_S3_REGION` mag
 leeg blijven: R2 verwacht `auto`, en `us-east-1` (onze code-default) aliast
 daarnaartoe. Rotatiepad voor deze keys bestaat nog niet — zie ADR-0008
@@ -304,19 +325,45 @@ daarnaartoe. Rotatiepad voor deze keys bestaat nog niet — zie ADR-0008
 
 #### Hand-off
 
-Hier eindigt provisioning: er draait een geharde Ubuntu-host met Docker en
-Coolify, alleen 22/80/443 publiek, DNS wijst, en de Object Storage-bucket
-bestaat. **Stap 1 (Manticore op de box) neemt exact deze staat aan.** De
+Provisioning of herstel is pas afgerond wanneer verse evidence aantoont dat
+de Ubuntu-host is geboot, een SSH-login slaagt en Docker en Coolify draaien.
+TCP 80/443 zijn algemeen publiek; TCP 22 is tijdens herstel hoogstens vanaf
+het exacte operator-source-IP bereikbaar en wordt na bewezen Tailscale
+publiek gesloten. Alle overige inbound poorten, inclusief 8000, blijven
+dicht. DNS wijst correct en de Cloudflare R2-bucket bestaat. **Dit is de harde
+gate vóór stap 1; stap 1 (Manticore op de box) neemt exact deze staat aan.** De
 bestaande stapnummers hieronder zijn ongewijzigd gelaten zodat alle
 kruisverwijzingen (blockers-tabel, § 2) blijven kloppen.
 
 ### Stap 1 — Manticore op de box
 
-Draai de gepinde `manticoresearch/manticore:6.3.8` met
+Draai de tag-/versiegepinde (niet digest-gepinde)
+`manticoresearch/manticore:6.3.8` met
 `tools/manticore/manticore.conf` (writable bind mount — `:ro` crasht de
 entrypoint-chown, zie het compose-commentaar) en een persistent volume.
-Poorten 9306/9308 alleen op loopback/privaat netwerk. Een vers volume krijgt
-de RT-tabellen uit de conf.
+Een vers volume krijgt de RT-tabellen uit de conf.
+
+Herhaalbare Coolify-inrichting:
+
+1. Maak een aparte Manticore-service met image
+   `manticoresearch/manticore:6.3.8`, mount de checked-in conf writable en
+   mount een persistent volume op `/var/lib/manticore`.
+2. Publiceer geen domein en geen publiek gebonden host-poort voor 9306 of
+   9308. Bind beide desgewenst voor host-tools/projector uitsluitend als
+   `127.0.0.1:9306:9306` en `127.0.0.1:9308:9308`; binnen Coolify blijven ze
+   bereikbaar via het private Docker-netwerk. Controleer ook de
+   Hetzner-firewall uit stap 0.5.2.
+3. Zet voor zowel deze service als de Coolify API-application **Connect to
+   Predefined Network** aan. Lees daarna de echte service-UUID uit Coolify en
+   configureer de API met
+   `MANTICORE_URL=http://manticore-<service-uuid>:9308`. Vul de geverifieerde
+   UUID in; verzin of kopieer geen oude service-ID.
+4. Start of herstart eerst Manticore en daarna de API. Controleer vanuit de
+   API-container dat de naam resolveert en dat poort 9308 antwoordt. Dit is
+   de Coolify-containerroute; gebruik hier niet `127.0.0.1`.
+5. De projector draait als proces op de host en gebruikt juist
+   `MANTICORE_URL=http://127.0.0.1:9308`. Bind daarvoor 9306 en 9308 alleen op
+   host-loopback; maak geen van beide publiek bereikbaar.
 
 Verificatie:
 
@@ -343,29 +390,48 @@ git (`git grep` op de hostnaam levert niets op).
 
 ### Stap 3 — Migraties (gate, geen inline stap)
 
-Preconditie 0.3. De catch-up zelf volgt
-[neon-migration-catchup.md](neon-migration-catchup.md). Daarna, en bij elke
-latere release, draait de one-shot migrator-job
-(`apps/server/Dockerfile.migrate`, alleen `MIGRATION_DATABASE_URL`) vóór de
-server-uitrol ([coolify-local.md](coolify-local.md)).
+Preconditie 0.3 begint met een verse read-only live-readback van de volledige
+Neon-journal en de betrokken schema-objecten. De oudere runbook-evidence
+meldt 6 journalentries; de lokale, ongepubliceerde operatorrecord van
+2026-09-01 claimt 13. Geen van beide vervangt de actuele readback. Vergelijk
+het live resultaat met `packages/db/src/migrations/meta/_journal.json` en de
+schema-eisen van de te deployen commit. Voor current `main` betekent volledig
+toegepast: 13 overeenkomende journalentries én een nullable `text`-kolom
+`staging.source_record.listing_hash` uit `0012`; dit is een verwachting uit de
+code, geen live- of rehearsalbewijs. Is Neon al current, leg dat bewijs vast
+en migreer niet opnieuw. Alleen bij een bewezen achterstand volgt de catch-up
+uit [neon-migration-catchup.md](neon-migration-catchup.md), met een verse
+Neon-branch als rollback. Daarna, en bij elke latere release, draait de
+one-shot migrator-job (`apps/server/Dockerfile.migrate`, alleen
+`MIGRATION_DATABASE_URL`) vóór de server-uitrol
+([coolify-local.md](coolify-local.md)).
 
 Verificatie (met de read-only rol, URL gescrubd):
 
 ```sql
-SELECT created_at::text FROM drizzle.__drizzle_migrations ORDER BY created_at DESC LIMIT 1;
+SELECT id, hash, created_at::text
+FROM drizzle.__drizzle_migrations
+ORDER BY created_at;
 ```
 
-Verwacht: de timestamp van de laatste entry in
-`packages/db/src/migrations/meta/_journal.json` van de gedeployde commit —
-exact de vergelijking die `/readyz` uitvoert
-(`packages/db/src/readiness.ts`, `resolveExpectedMigrationTimestamp`).
+Gebruik daarnaast de object-voor-object read-only schemaqueries uit
+[neon-migration-catchup.md](neon-migration-catchup.md). Verwacht: de hele
+journal én het live schema komen overeen met
+`packages/db/src/migrations/meta/_journal.json` en de migraties van de te
+deployen commit. De laatste journal-timestamp is de vergelijking die
+`/readyz` uitvoert (`packages/db/src/readiness.ts`,
+`resolveExpectedMigrationTimestamp`), maar die ene waarde vervangt de
+volledige readback vóór een eventuele migratie niet.
 
 ### Stap 4 — Server (API)
 
 Coolify-application op `apps/server/Dockerfile`, poort 3000, met de
 servervariabelen uit § 2 (`NODE_ENV=production`, Neon-`DATABASE_URL`,
-`MANTICORE_URL` naar de on-box Manticore, `RAW_S3_*`, `REDIS_URL`,
-auth/CORS). De server-runtime krijgt geen admin- of migrator-credential.
+`MANTICORE_URL=http://manticore-<service-uuid>:9308` via het predefined
+network naar de on-box Manticore-service, `RAW_S3_*`, `REDIS_URL`, auth/CORS).
+Lees de service-UUID live uit Coolify. De server-runtime krijgt geen admin-
+of migrator-credential. De los op de host draaiende projector blijft
+`http://127.0.0.1:9308` gebruiken; die route is niet de API-containerroute.
 
 Verificatie:
 
@@ -391,10 +457,11 @@ naar `server:3000`.
 
 ### Stap 6 — Redis en raw object store
 
-Redis on-box (privaat), `REDIS_URL` op de server. Raw store: een Hetzner
-Object Storage-bucket ([ADR-0008](../adr/ADR-0008-cloudflare-r2-for-raw-payloads.md));
-bucket, endpoint en keys `<TBD: Ryan — aanmaken bij Hetzner>`. `RAW_S3_*`
-op server én worker met exact dezelfde waarden — de worker heeft geen eigen
+Redis on-box (privaat), `REDIS_URL` op de server. Raw store: een Cloudflare
+R2-bucket ([ADR-0008](../adr/ADR-0008-cloudflare-r2-for-raw-payloads.md));
+bestaan en configuratie van bucket, endpoint en keys eerst verifiëren en zo
+nodig in Cloudflare R2 inrichten. `RAW_S3_*` op server én worker met exact
+dezelfde waarden — de worker heeft geen eigen
 runtime-guard, dus een vergeten worker-env schrijft stil naar zijn lokale
 filesystem (raw-object-storage.md § Production guard).
 
@@ -465,8 +532,8 @@ SELECT generation, schema_hash, applied_sequence FROM curated.search_projection_
 
 ### Stap 9 — Worker-deploy (Trigger.dev Cloud)
 
-Geblokkeerd op RJC-373 (`TRIGGER_SECRET_KEY` bestaat nergens) en expliciet
-onbewezen: al het Neon-bewijs is lokaal; "een gedeployde Trigger.dev-worker
+Productieconfiguratie voor RJC-373 (`TRIGGER_SECRET_KEY`) is open en
+onbewezen; ook geldt: "een gedeployde Trigger.dev-worker
 is niet getest" (ADR-0006, "Open punten"). Zodra gedeblokkeerd: env uit § 2,
 per-bron live-vlaggen pas ná het voorwaarden-besluit per bron
 (`voorwaardenStatus` in `packages/application/src/sources/*.ts`).
@@ -528,7 +595,7 @@ Wat `degraded` blijft — HTTP 200, serveert door, wel opvolgen:
 
 | Stap | Rollback | Niet omkeerbaar |
 |---|---|---|
-| 1 Manticore | Container stoppen/verwijderen; volume weggooien mag — de index is per [postgres-on-box.md](postgres-on-box.md) "een afgeleide, volledig rebuildbare index uit Postgres en outbox" (rebuild = stap 8). | Niets. |
+| 1 Manticore | Container stoppen/verwijderen; volume weggooien mag — de index is een afgeleide, volledig rebuildbare index uit Neon en de outbox (rebuild = stap 8; [ADR-0006](../adr/ADR-0006-neon-as-system-of-record.md)). | Niets. |
 | 2 Neon-rollen | Rollen droppen/credential intrekken in Neon + 1Password. | Een eenmaal gelekte credential — dan roteren (les van RJC-371). |
 | 3 Migraties | **Geen automatisch pad.** Drizzle-migraties hier hebben geen down-scripts; herstel op Neon loopt via PITR/branch-restore, die [neon-restore.md](neon-restore.md) beschrijft; voor de catch-up zelf is een Neon-branch vooraf de rollback ([neon-migration-catchup.md](neon-migration-catchup.md) §4). Daarom is de catch-up een gate met eigen runbook, geen inline stap. | Toegepaste migraties + alle writes erna, behoudens Neon-PITR/branch-venster. |
 | 4–5 Server/web | Vorige image/release in Coolify uitrollen; stateless. | Niets. |
@@ -539,20 +606,23 @@ Wat `degraded` blijft — HTTP 200, serveert door, wel opvolgen:
 
 ## Open blockers
 
-Zonder deze punten kan de sequentie hierboven niet starten of niet afmaken.
-Allemaal buiten het mandaat van dit runbook:
+Zonder deze punten kan de sequentie niet veilig verder naar de aangeduide
+stap. Ze blokkeren herstel alleen waar dat expliciet in de tabel staat en
+vallen allemaal buiten het mandaat van dit runbook:
 
 | Blocker | Blokkeert | Wie |
 |---|---|---|
-| Hetzner-host: keuze (CCX33-kandidaat, totalen "opnieuw te herleiden" in [COSTS.md](../COSTS.md)), provisioning, SSH/Coolify-credentials | Stap 0.1 en alles daarna | Ryan |
-| RJC-402: Neon-migratie-catch-up — besluit + uitvoering per [neon-migration-catchup.md](neon-migration-catchup.md) (verdict GO; rollback = Neon-branch vooraf) | Stap 3; `/readyz` blijft `migration_mismatch` geven | Ryan |
+| Hersteltoegang: Hetzner Console en benodigde SSH-/Coolify-credentials via 1Password beschikbaar maken | Stap 0.5 | Ryan |
+| `catapulze-prod`: via stap 0.5 actuele bootstatus, SSH-bereikbaarheid en Coolify-status opnieuw bewijzen | Stap 1 en alles daarna; stap 0.5 is juist het herstelpad | Ryan |
+| RJC-402: actuele Neon-journal en betrokken schema-objecten live read-only uitlezen en vergelijken met de te deployen commit; niet opnieuw migreren op basis van de lokale 2026-09-01-record | Stap 3 en de server-go/no-go totdat de actuele status bekend is | Ryan |
 | RJC-371: rotatie gelekte Neon-credential | Stap 2/4 — ADR-0006 is "pas operationeel gedekt als de rotatie is afgerond" | Ryan |
-| RJC-373: `TRIGGER_SECRET_KEY` bestaat nergens | Stap 9 (worker-deploy en gedeployd bewijs) | Ryan / Trigger.dev-account |
+| RJC-373: productieconfiguratie van `TRIGGER_SECRET_KEY` verifiëren of zo nodig inrichten | Stap 9 (worker-deploy en gedeployd bewijs) | Ryan / Trigger.dev-account |
 | RJC-382: engine-beslissing 6.3.8 vs 29.x | Niet blokkerend voor de sequentie (6.3.8 ís productie), wel voor het al dan niet meenemen van een 29.x-migratie in stap 1 | Ryan |
-| ~~Raw-store-provider~~ — beslist: Cloudflare R2 ([ADR-0008](../adr/ADR-0008-cloudflare-r2-for-raw-payloads.md)); rest: bucket + keys aanmaken | Stap 6 (alleen nog de aanmaak-actie) | Ryan |
+| ~~Raw-store-provider~~ — beslist: Cloudflare R2 ([ADR-0008](../adr/ADR-0008-cloudflare-r2-for-raw-payloads.md)); bestaan/configuratie van bucket + keys verifiëren en zo nodig inrichten | Stap 6 | Ryan |
 | Branch protection op `main` | Geen deploystap, wel de release-hygiëne eromheen | Ryan |
 
-Daarnaast: de host-provisioning (stap 0.5) is nu wél gespecificeerd, maar
-integraal **ongerehearsed** — de eerste uitvoering is de eerste test. (Het
+Daarnaast: host en Coolify zijn eerder ingericht, maar de actuele toestand en
+de volledige herstel- en deploysequentie zijn niet end-to-end gevalideerd.
+Behandel herstelstappen zonder verse evidence als ongerehearsed. Het
 Neon-rollen-script bestaat inmiddels — `tools/postgres/neon-roles.sql`,
-RJC-381 — maar is nog niet tegen Neon uitgevoerd; zie stap 2.)
+RJC-381 — maar is nog niet tegen Neon uitgevoerd; zie stap 2.
