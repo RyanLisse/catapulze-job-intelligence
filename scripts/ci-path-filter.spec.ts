@@ -51,6 +51,14 @@ describe("CI code path filter", () => {
     expect(isCodeChange(["standalone/contract.spec.ts"])).toBe(true);
   });
 
+  it("classifies Playwright-only E2E changes as code", () => {
+    expect(isCodeChange(["e2e/live-jobs/read-only.playwright.ts"])).toBe(true);
+  });
+
+  it("classifies live Playwright config changes as code", () => {
+    expect(isCodeChange(["playwright.live.config.ts"])).toBe(true);
+  });
+
   it("keeps documentation-only changes out of the full suite", () => {
     expect(isCodeChange(["docs/ci-path-filter.md"])).toBe(false);
   });

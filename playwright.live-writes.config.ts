@@ -22,7 +22,7 @@ export default defineConfig({
   reporter: "line",
   retries: 0,
   testDir: "./e2e/live-jobs",
-  testMatch: /mutations\.spec\.ts/u,
+  testMatch: /mutations\.playwright\.ts$/u,
   timeout: 60_000,
   use,
   workers: 1,
