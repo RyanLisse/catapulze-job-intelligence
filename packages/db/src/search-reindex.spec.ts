@@ -1,4 +1,12 @@
-import { afterAll, afterEach, beforeAll, describe, expect, it } from "bun:test";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+} from "bun:test";
 import path from "node:path";
 
 import { and, eq, inArray, sql } from "drizzle-orm";
@@ -6,6 +14,7 @@ import { drizzle } from "drizzle-orm/postgres-js";
 import { migrate } from "drizzle-orm/postgres-js/migrator";
 import postgres from "postgres";
 
+import type { BronRuntimeDatabase } from "./bron-runtime";
 import * as schema from "./schema";
 import {
   aanvraag,
@@ -46,7 +55,7 @@ const isPostgresAvailable = async (): Promise<boolean> => {
   }
 };
 
-type Database = ReturnType<typeof drizzle<typeof schema>>;
+type Database = BronRuntimeDatabase;
 
 const seededAggregateIds: string[] = [];
 const seededBronIds: string[] = [];
@@ -110,6 +119,9 @@ describe("runSearchReindex", () => {
   let migratorClient: ReturnType<typeof postgres> | undefined;
   let client: ReturnType<typeof postgres> | undefined;
   let database: Database | undefined;
+  let isolatedDatabase: Database | undefined;
+  let releaseIsolation: (() => void) | undefined;
+  let isolation: Promise<void> | undefined;
 
   beforeAll(async () => {
     available = await isPostgresAvailable();
@@ -130,46 +142,56 @@ describe("runSearchReindex", () => {
     await migratorClient?.end({ timeout: 5 });
   });
 
-  afterEach(async () => {
+  beforeEach(async () => {
     if (!database) {
       return;
     }
-    if (seededAggregateIds.length > 0) {
-      await database
-        .delete(outboxEvent)
-        .where(inArray(outboxEvent.aggregateId, [...seededAggregateIds]));
-      await database
-        .delete(searchProjectionState)
-        .where(
-          inArray(searchProjectionState.aggregateId, [...seededAggregateIds])
+    const ready = Promise.withResolvers<null>();
+    const release = Promise.withResolvers<null>();
+    releaseIsolation = () => release.resolve(null);
+    isolation = (async () => {
+      try {
+        await database.transaction(
+          async (transaction) => {
+            await transaction.delete(outboxEvent);
+            await transaction.delete(searchProjectionState);
+            await transaction.delete(aanvraag);
+            await transaction.delete(searchProjectionCheckpoint);
+            isolatedDatabase = transaction;
+            ready.resolve(null);
+            await release.promise;
+            throw new Error("rollback isolated search-reindex spec corpus");
+          },
+          { isolationLevel: "repeatable read" }
         );
-      await database
-        .delete(aanvraag)
-        .where(inArray(aanvraag.id, [...seededAggregateIds]));
-    }
-    if (seededBronIds.length > 0) {
-      await database
-        .delete(scrapeRun)
-        .where(inArray(scrapeRun.bronId, [...seededBronIds]));
-      await database.delete(bron).where(inArray(bron.id, [...seededBronIds]));
-    }
-    if (seededIndexNames.length > 0) {
-      await database
-        .delete(searchProjectionCheckpoint)
-        .where(
-          inArray(searchProjectionCheckpoint.indexName, [...seededIndexNames])
-        );
-    }
+      } catch (error) {
+        if (
+          !(error instanceof Error) ||
+          error.message !== "rollback isolated search-reindex spec corpus"
+        ) {
+          throw error;
+        }
+      }
+    })();
+    await ready.promise;
+  });
+
+  afterEach(async () => {
+    releaseIsolation?.();
+    await isolation;
+    isolatedDatabase = undefined;
+    releaseIsolation = undefined;
+    isolation = undefined;
     seededAggregateIds.length = 0;
     seededBronIds.length = 0;
     seededIndexNames.length = 0;
   });
 
   const requireDatabase = (): Database => {
-    if (!database) {
-      throw new Error("database unavailable");
+    if (!isolatedDatabase) {
+      throw new Error("isolated database unavailable");
     }
-    return database;
+    return isolatedDatabase;
   };
 
   it("replays every current aanvraag despite processed history and current projection state", async () => {
@@ -270,8 +292,13 @@ describe("runSearchReindex", () => {
     const afterPage = await db
       .select({ id: outboxEvent.id })
       .from(outboxEvent)
-      .where(eq(outboxEvent.eventType, SEARCH_REINDEX_EVENT_TYPE));
-    expect(afterPage.length).toBeGreaterThanOrEqual(1);
+      .where(
+        and(
+          eq(outboxEvent.eventType, SEARCH_REINDEX_EVENT_TYPE),
+          inArray(outboxEvent.aggregateId, aggregateIds)
+        )
+      );
+    expect(afterPage).toHaveLength(1);
 
     const resumed = await runSearchReindex({
       apply: true,
@@ -280,7 +307,7 @@ describe("runSearchReindex", () => {
       pageSize: 1,
     });
     expect(resumed.finalized).toBe(true);
-    expect(resumed.existing).toBeGreaterThanOrEqual(1);
+    expect(resumed.existing).toBe(1);
     const replayRows = await db
       .select({ aggregateId: outboxEvent.aggregateId })
       .from(outboxEvent)

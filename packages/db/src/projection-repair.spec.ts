@@ -1,4 +1,12 @@
-import { afterAll, afterEach, beforeAll, describe, expect, it } from "bun:test";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+} from "bun:test";
 import path from "node:path";
 
 import { hashDocumentId, projectionHash } from "@ji/search";
@@ -9,6 +17,7 @@ import { migrate } from "drizzle-orm/postgres-js/migrator";
 import postgres from "postgres";
 
 import { PostgresSearchDocumentLoader } from "./aanvraag-stores";
+import type { BronRuntimeDatabase } from "./bron-runtime";
 import {
   PROJECTION_REPAIR_EVENT_TYPE,
   ProjectionRepairSchemaMismatchError,
@@ -53,7 +62,7 @@ const isPostgresAvailable = async (): Promise<boolean> => {
   }
 };
 
-type TestDatabase = ReturnType<typeof drizzle<typeof schema>>;
+type TestDatabase = BronRuntimeDatabase;
 
 const seededAggregateIds: string[] = [];
 const seededBronIds: string[] = [];
@@ -74,8 +83,18 @@ class FakeManticoreInventory implements SearchProjectionInventoryPort {
     SearchPartition,
     SearchProjectionInventoryRecord[]
   >;
+  private readonly beforeDelete?: (
+    partition: SearchPartition,
+    rows: readonly SearchProjectionInventoryRecord[]
+  ) => void;
 
-  constructor(rows: InventoryRows) {
+  constructor(
+    rows: InventoryRows,
+    beforeDelete?: (
+      partition: SearchPartition,
+      rows: readonly SearchProjectionInventoryRecord[]
+    ) => void
+  ) {
     this.rows = {
       active: [...rows.active].toSorted(
         (left, right) => left.manticoreId - right.manticoreId
@@ -84,6 +103,7 @@ class FakeManticoreInventory implements SearchProjectionInventoryPort {
         (left, right) => left.manticoreId - right.manticoreId
       ),
     };
+    this.beforeDelete = beforeDelete;
   }
 
   count(partition: SearchPartition): Promise<number> {
@@ -107,16 +127,38 @@ class FakeManticoreInventory implements SearchProjectionInventoryPort {
     );
   }
 
-  deleteByManticoreIds(
+  deleteObservedRows(
     partition: SearchPartition,
-    manticoreIds: readonly number[]
+    rows: readonly SearchProjectionInventoryRecord[]
   ): Promise<number> {
-    const ids = new Set(manticoreIds);
+    this.beforeDelete?.(partition, rows);
+    const observations = new Set(
+      rows.map(
+        (row) =>
+          `${row.manticoreId}\u0000${row.documentId}\u0000${row.projectionHash}`
+      )
+    );
     const before = this.rows[partition].length;
     this.rows[partition] = this.rows[partition].filter(
-      (row) => !ids.has(row.manticoreId)
+      (row) =>
+        !observations.has(
+          `${row.manticoreId}\u0000${row.documentId}\u0000${row.projectionHash}`
+        )
     );
     return Promise.resolve(before - this.rows[partition].length);
+  }
+
+  replaceRows(
+    partition: SearchPartition,
+    rows: readonly SearchProjectionInventoryRecord[]
+  ): void {
+    this.rows[partition] = [...rows];
+  }
+
+  rowsFor(
+    partition: SearchPartition
+  ): readonly SearchProjectionInventoryRecord[] {
+    return this.rows[partition];
   }
 
   listPage(
@@ -211,6 +253,9 @@ describe("reconcileProjection (RJC-399 repair tool)", () => {
   let migratorClient: ReturnType<typeof postgres> | undefined;
   let client: ReturnType<typeof postgres> | undefined;
   let database: TestDatabase | undefined;
+  let isolatedDatabase: TestDatabase | undefined;
+  let releaseIsolation: (() => void) | undefined;
+  let isolation: Promise<void> | undefined;
 
   beforeAll(async () => {
     available = await isPostgresAvailable();
@@ -231,47 +276,64 @@ describe("reconcileProjection (RJC-399 repair tool)", () => {
     await migratorClient?.end({ timeout: 5 });
   });
 
-  afterEach(async () => {
+  beforeEach(async () => {
     if (!database) {
       return;
     }
-    if (seededAggregateIds.length > 0) {
-      await database
-        .delete(outboxEvent)
-        .where(inArray(outboxEvent.aggregateId, [...seededAggregateIds]));
-      await database
-        .delete(searchProjectionState)
-        .where(
-          inArray(searchProjectionState.aggregateId, [...seededAggregateIds])
+    const ready = Promise.withResolvers<null>();
+    const release = Promise.withResolvers<null>();
+    releaseIsolation = () => release.resolve(null);
+    isolation = (async () => {
+      try {
+        await database.transaction(
+          async (transaction) => {
+            await transaction.delete(outboxEvent);
+            await transaction.delete(searchProjectionState);
+            await transaction.delete(aanvraag);
+            await transaction.delete(searchProjectionCheckpoint);
+            isolatedDatabase = transaction;
+            ready.resolve(null);
+            await release.promise;
+            throw new Error("rollback isolated projection-repair spec corpus");
+          },
+          { isolationLevel: "repeatable read" }
         );
-      await database
-        .delete(aanvraag)
-        .where(inArray(aanvraag.id, [...seededAggregateIds]));
-    }
-    if (seededBronIds.length > 0) {
-      await database
-        .delete(scrapeRun)
-        .where(inArray(scrapeRun.bronId, [...seededBronIds]));
-      await database.delete(bron).where(inArray(bron.id, [...seededBronIds]));
-    }
-    if (seededIndexNames.length > 0) {
-      await database
-        .delete(searchProjectionCheckpoint)
-        .where(
-          inArray(searchProjectionCheckpoint.indexName, [...seededIndexNames])
-        );
-    }
+      } catch (error) {
+        if (
+          !(error instanceof Error) ||
+          error.message !== "rollback isolated projection-repair spec corpus"
+        ) {
+          throw error;
+        }
+      }
+    })();
+    await ready.promise;
+  });
+
+  afterEach(async () => {
+    releaseIsolation?.();
+    await isolation;
+    isolatedDatabase = undefined;
+    releaseIsolation = undefined;
+    isolation = undefined;
     seededAggregateIds.length = 0;
     seededBronIds.length = 0;
     seededIndexNames.length = 0;
   });
+
+  const requireDatabase = (): TestDatabase => {
+    if (!isolatedDatabase) {
+      throw new Error("isolated database unavailable");
+    }
+    return isolatedDatabase;
+  };
 
   it("finds a hand-crafted divergence, repairs it once, and is idempotent", async () => {
     if (!available || !database) {
       expect(available).toBe(false);
       return;
     }
-    const db = database;
+    const db = requireDatabase();
     const aggregateId = await seedAanvraag(db);
     const loader = new PostgresSearchDocumentLoader(db);
     const { generation, indexName, store } = await isolatedVersionStore(db);
@@ -354,7 +416,7 @@ describe("reconcileProjection (RJC-399 repair tool)", () => {
       expect(available).toBe(false);
       return;
     }
-    const db = database;
+    const db = requireDatabase();
     const [
       healthyId,
       missingEngineId,
@@ -463,7 +525,7 @@ describe("reconcileProjection (RJC-399 repair tool)", () => {
       ...base,
       sampleLimit: 20,
     });
-    expect(report.checked).toBeGreaterThanOrEqual(5);
+    expect(report.checked).toBe(5);
     expect(report.inventoryCounts).toEqual({ active: 6, archive: 2 });
     expect(report.inventoryScannedCounts).toEqual({ active: 6, archive: 2 });
     expect(report.inventoryFinalCounts).toEqual({ active: 6, archive: 2 });
@@ -474,7 +536,7 @@ describe("reconcileProjection (RJC-399 repair tool)", () => {
     expect(report.invalidDocumentIdCount).toBe(1);
     expect(report.physicalCorruptionCount).toBe(2);
     expect(report.staleManticoreHashCount).toBe(1);
-    expect(report.missingProjectionStateCount).toBeGreaterThanOrEqual(1);
+    expect(report.missingProjectionStateCount).toBe(1);
 
     const reasonsFor = (aggregateId: string) =>
       report.divergent.find((entry) => entry.aggregateId === aggregateId)
@@ -493,7 +555,7 @@ describe("reconcileProjection (RJC-399 repair tool)", () => {
       sampleLimit: 2,
     });
     expect(capped.divergent).toHaveLength(2);
-    expect(capped.divergentCount).toBeGreaterThanOrEqual(4);
+    expect(capped.divergentCount).toBe(4);
     expect(inventory.pageRequests.every((request) => request.limit === 2)).toBe(
       true
     );
@@ -503,7 +565,7 @@ describe("reconcileProjection (RJC-399 repair tool)", () => {
       ...base,
       sampleLimit: 2,
     });
-    expect(applied.applied).toBeGreaterThanOrEqual(5);
+    expect(applied.applied).toBe(5);
     expect(applied.physicalCleanupCount).toBe(2);
     const eventRows = await db
       .select({
@@ -558,7 +620,7 @@ describe("reconcileProjection (RJC-399 repair tool)", () => {
       sampleLimit: 2,
     });
     expect(repeated.applied).toBe(0);
-    expect(repeated.skippedPending).toBeGreaterThanOrEqual(5);
+    expect(repeated.skippedPending).toBe(5);
   });
 
   it("rejects an inventory page whose numeric-id cursor is not ordered", async () => {
@@ -566,7 +628,7 @@ describe("reconcileProjection (RJC-399 repair tool)", () => {
       expect(available).toBe(false);
       return;
     }
-    const { indexName, store } = await isolatedVersionStore(database);
+    const { indexName, store } = await isolatedVersionStore(requireDatabase());
     const malformedInventory: SearchProjectionInventoryPort = {
       count: () => Promise.resolve(2),
       findByDocumentIds: () => Promise.resolve([]),
@@ -591,10 +653,10 @@ describe("reconcileProjection (RJC-399 repair tool)", () => {
     await expect(
       reconcileProjection({
         apply: false,
-        database,
+        database: requireDatabase(),
         indexName,
         inventory: malformedInventory,
-        loader: new PostgresSearchDocumentLoader(database),
+        loader: new PostgresSearchDocumentLoader(requireDatabase()),
         pageSize: 2,
         versionStore: store,
       })
@@ -606,16 +668,66 @@ describe("reconcileProjection (RJC-399 repair tool)", () => {
       expect(available).toBe(false);
       return;
     }
-    const { indexName, store } = await isolatedVersionStore(database);
+    const db = requireDatabase();
+    const { indexName, store } = await isolatedVersionStore(db);
     await expect(
       reconcileProjection({
         apply: false,
-        database,
+        database: db,
         expectedSchemaHash: "some-newer-schema-hash",
         indexName,
-        loader: new PostgresSearchDocumentLoader(database),
+        loader: new PostgresSearchDocumentLoader(db),
         versionStore: store,
       })
     ).rejects.toThrow(ProjectionRepairSchemaMismatchError);
+  });
+
+  it("does not delete a canonical row that replaces an observed corrupt row before cleanup", async () => {
+    if (!available || !database) {
+      expect(available).toBe(false);
+      return;
+    }
+    const db = requireDatabase();
+    const aggregateId = await seedAanvraag(db, lowUuid());
+    const loader = new PostgresSearchDocumentLoader(db);
+    const { indexName, store } = await isolatedVersionStore(db);
+    const document = await loader.loadByAggregateId(aggregateId);
+    if (!document) {
+      throw new Error("Expected seeded document to load");
+    }
+    const canonicalRow: SearchProjectionInventoryRecord = {
+      documentId: aggregateId,
+      manticoreId: hashDocumentId(aggregateId),
+      projectionHash: projectionHash(document, NOW),
+    };
+    const observedCorruptRow: SearchProjectionInventoryRecord = {
+      ...canonicalRow,
+      documentId: "corrupt-before-concurrent-repair",
+    };
+    let replaced = false;
+    const inventory = new FakeManticoreInventory(
+      { active: [observedCorruptRow], archive: [] },
+      (partition) => {
+        if (!replaced && partition === "active") {
+          replaced = true;
+          inventory.replaceRows("active", [canonicalRow]);
+        }
+      }
+    );
+
+    const result = await reconcileProjection({
+      apply: true,
+      database: db,
+      indexName,
+      inventory,
+      loader,
+      now: NOW,
+      versionStore: store,
+    });
+
+    expect(replaced).toBe(true);
+    expect(result.physicalCleanupCount).toBe(0);
+    expect(result.inventoryFinalCounts).toEqual({ active: 1, archive: 0 });
+    expect(inventory.rowsFor("active")).toEqual([canonicalRow]);
   });
 });

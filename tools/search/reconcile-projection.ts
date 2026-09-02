@@ -2,11 +2,13 @@
  * Operator reconciliation for Postgres projection state versus real Manticore
  * contents (docs/runbooks/projection-repair.md).
  *
- *   MANTICORE_URL=http://127.0.0.1:9308 bun run search:reconcile-projection [--apply]
+ *   MANTICORE_URL=http://127.0.0.1:9308 bun run search:reconcile-projection
+ *   MANTICORE_URL=http://127.0.0.1:9308 bun run search:reconcile-projection --apply --projector-quiesced
  *
  * The default is report-only. `--apply` invalidates only proven bad current
- * projection state and emits durable repair/delete events. Exact physical ids
- * that cannot be reached by normal projector deletes are removed separately.
+ * projection state and emits durable repair/delete events. Physical rows that
+ * cannot be reached by normal projector deletes are compare-and-deleted by
+ * their complete observed fingerprint.
  */
 import {
   closeDb,
@@ -27,6 +29,7 @@ import type { SearchPartition } from "@ji/search";
 import { z } from "zod";
 
 const apply = process.argv.includes("--apply");
+const projectorQuiesced = process.argv.includes("--projector-quiesced");
 const MANTICORE_TIMEOUT_MS = 10_000;
 
 const manticoreIntegerSchema = z.union([
@@ -52,10 +55,14 @@ const manticoreDocumentRowSchema = z.object({
 const manticoreSqlEnvelopeSchema = z.object({
   data: z.array(z.unknown()).optional(),
   error: z.string().optional(),
+  total: manticoreIntegerSchema.optional(),
 });
 
 const manticoreSqlResponseSchema = z.array(manticoreSqlEnvelopeSchema).min(1);
 const manticoreUrlSchema = z.url();
+
+const quoteManticoreString = (value: string): string =>
+  `'${value.replaceAll("\\", "\\\\").replaceAll("'", "\\'")}'`;
 
 const parseManticoreSqlResponse = (
   raw: string,
@@ -79,7 +86,7 @@ const parseManticoreSqlResponse = (
   return envelope.data ?? [];
 };
 
-/** Minimal bounded raw-SQL inventory and exact-id cleanup adapter. */
+/** Minimal bounded raw-SQL inventory and observed-fingerprint cleanup adapter. */
 class ManticoreInventory implements SearchProjectionInventoryPort {
   private readonly baseUrl: string;
 
@@ -138,25 +145,39 @@ class ManticoreInventory implements SearchProjectionInventoryPort {
     );
   }
 
-  async deleteByManticoreIds(
+  async deleteObservedRows(
     partition: SearchPartition,
-    manticoreIds: readonly number[]
+    rows: readonly SearchProjectionInventoryRecord[]
   ): Promise<number> {
-    if (manticoreIds.length === 0) {
+    if (rows.length === 0) {
       return 0;
     }
     const table = partitionTable(SEARCH_INDEX_NAME, partition);
-    const ids = [...new Set(manticoreIds)];
-    await this.execute(`DELETE FROM ${table} WHERE id IN (${ids.join(", ")})`);
-    return ids.length;
+    let deleted = 0;
+    /* oxlint-disable no-await-in-loop -- each compare-and-delete keeps its own affected-row count */
+    for (const row of rows) {
+      deleted += await this.execute(
+        `DELETE FROM ${table} WHERE id = ${row.manticoreId} AND document_id = ${quoteManticoreString(row.documentId)} AND projection_hash = ${quoteManticoreString(row.projectionHash)}`
+      );
+    }
+    /* oxlint-enable no-await-in-loop */
+    return deleted;
   }
 
   private async query(query: string): Promise<readonly unknown[]> {
     return parseManticoreSqlResponse(await this.request(query), true);
   }
 
-  private async execute(query: string): Promise<void> {
-    parseManticoreSqlResponse(await this.request(query), false);
+  private async execute(query: string): Promise<number> {
+    const parsed: unknown = JSON.parse(await this.request(query));
+    const response = manticoreSqlResponseSchema.safeParse(parsed);
+    const envelope = response.success ? response.data[0] : undefined;
+    if (!envelope || envelope.error?.length || envelope.total === undefined) {
+      throw new Error(
+        "Manticore SQL delete did not return an affected-row count"
+      );
+    }
+    return envelope.total;
   }
 
   private async request(query: string): Promise<string> {
@@ -206,6 +227,11 @@ class ManticoreInventory implements SearchProjectionInventoryPort {
 }
 
 try {
+  if (apply && !projectorQuiesced) {
+    throw new Error(
+      "--apply requires --projector-quiesced after stopping the projector and waiting for any in-flight drain to finish."
+    );
+  }
   const manticoreUrl = manticoreUrlSchema.safeParse(process.env.MANTICORE_URL);
   if (!manticoreUrl.success) {
     throw new Error(
@@ -255,9 +281,13 @@ try {
   }
   if (
     !apply &&
-    (result.divergentCount > 0 || result.orphanManticoreCount > 0)
+    (result.divergentCount > 0 ||
+      result.orphanManticoreCount > 0 ||
+      result.physicalCorruptionCount > 0)
   ) {
-    console.log("Re-run with --apply to enqueue durable repair/delete events.");
+    console.log(
+      "Stop the projector, wait for any in-flight drain, then re-run with --apply --projector-quiesced."
+    );
   }
 } catch (error) {
   if (

@@ -6,9 +6,11 @@ full replay and the safe repair path for search-index drift.
 
 Normal repairs use durable Postgres outbox events. The one exception is
 physical corruption that a document-id-derived projector delete cannot reach:
-`--apply` deletes the exact inspected numeric Manticore id while holding the
-shared search-index generation fence, then enqueues the normal durable repair
-for the canonical document.
+`--apply` compare-and-deletes the exact inspected Manticore row (numeric id,
+`document_id`, and `projection_hash`) while holding the shared search-index
+generation fence, then enqueues the normal durable repair for the canonical
+document. If another writer replaced that row after observation, the delete
+matches nothing and the replacement survives.
 
 ## Usage
 
@@ -20,13 +22,15 @@ MANTICORE_URL=http://manticore-<service-uuid>:9308 \
   bun run search:reconcile-projection
 
 MANTICORE_URL=http://manticore-<service-uuid>:9308 \
-  bun run search:reconcile-projection --apply
+  bun run search:reconcile-projection --apply --projector-quiesced
 ```
 
 The default is report-only. Run it after the normal projector has drained the
-outbox. For a definitive snapshot, prevent concurrent ingestion/projector
-writes while it runs; otherwise treat a nonzero result as a point-in-time
-finding and rerun after the queue settles.
+outbox. Before any `--apply`, stop the projector and wait for every in-flight
+drain to finish; keep it stopped until the command exits. The mandatory
+`--projector-quiesced` flag is the operator's explicit acknowledgement of that
+condition. The command rejects `--apply` without it. For a definitive dry-run
+snapshot, quiesce ingestion as well.
 
 ## What is compared
 
@@ -71,7 +75,7 @@ operator output into an unbounded data dump.
 | Current aanvraag has missing/wrong/duplicate engine rows | Transactionally invalidates its current-generation state and enqueues `aanvraag.projection_repair`. State invalidation forces the next projector drain to write even if the source hash itself is unchanged. |
 | Missing state or source-hash mismatch | Enqueues `aanvraag.projection_repair`; a pending normal outbox event already covering that aanvraag is respected. |
 | Valid UUID orphan in Manticore | Enqueues `aanvraag.verwijderd` and removes its current-generation state, so the projector clears both partitions. |
-| Malformed, duplicate, or non-canonical physical row | Deletes only the exact numeric id returned by the fenced inventory scan. Canonical current documents are then covered by the normal repair event. |
+| Malformed, duplicate, or non-canonical physical row | Compare-and-deletes only when numeric id, `document_id`, and `projection_hash` still equal the fenced observation. A concurrently replaced canonical row is preserved. Canonical current documents are then covered by the normal repair event. |
 
 After applying, drain the outbox with one projector and rerun the dry run.
 Only a report with zero current divergences, zero valid UUID orphans, zero
@@ -98,10 +102,14 @@ Manticore rows.
 1. Finish `search:new-generation --apply` so the checkpoint has its final
    schema hash.
 2. Start one projector and let the replay and normal outbox events drain.
-3. Run this command without `--apply` against the actual Manticore URL.
-4. If it reports repairable drift, run with `--apply`, drain the new events,
-   and return to step 3.
-5. Verify `/readyz`, outbox/dead-letter health, and the real search API
+3. Stop the projector and wait for any in-flight drain to finish.
+4. Run this command without `--apply` against the actual Manticore URL.
+5. If it reports repairable drift, keep the projector stopped and run with
+   `--apply --projector-quiesced`.
+6. Start one projector, drain the new events, stop it cleanly again, and return
+   to step 4. Resume normal projector operation only after the final clean
+   report.
+7. Verify `/readyz`, outbox/dead-letter health, and the real search API
    separately from container health.
 
 ## Limitations and interpretation
@@ -113,6 +121,7 @@ Manticore rows.
   uses. A throwaway or local engine is useful for rehearsals, not a production
   convergence claim.
 - Reindex, repair events, and physical cleanup use the same advisory-lock
-  namespace and lock the named checkpoint row. The generation/schema fence is
-  rechecked after every dry-run page, but this is still not a substitute for
-  quiescing producers and the projector for authoritative convergence proof.
+  namespace and lock the named checkpoint row. That Postgres fence cannot
+  serialize a Manticore write already in flight, so projector quiescence is
+  mandatory for apply and producer quiescence remains required for an
+  authoritative convergence snapshot.

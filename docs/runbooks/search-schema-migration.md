@@ -116,27 +116,34 @@ these cases. That would allow a partial generation to drain.
 ## Drain and reconcile
 
 After a successful finalize, restart exactly one projector and wait for its
-outbox lag and dead-letter queue to settle. A replay replaces every current
-document, but it cannot remove an old Manticore row that no longer has a
-curated aanvraag. Reconciliation is therefore a required post-drain step:
+outbox lag and dead-letter queue to settle. Then stop it again and wait for any
+in-flight drain to finish before reconciliation. A replay replaces every
+current document, but it cannot remove an old Manticore row that no longer has
+a curated aanvraag. Reconciliation is therefore a required post-drain step:
 
 ```bash
 MANTICORE_URL=http://manticore-<service-uuid>:9308 \
   bun run search:reconcile-projection
 ```
 
-The default is report-only. If it reports current-document drift or valid
-UUID orphans, emit durable repair/delete events and drain them:
+The default is the mandatory report-only preflight. If it reports
+current-document drift, valid UUID orphans, or malformed/non-canonical physical
+rows, keep the projector stopped and apply the exact observed-row cleanup plus
+durable repair/delete events. The acknowledgement flag is required:
 
 ```bash
 MANTICORE_URL=http://manticore-<service-uuid>:9308 \
-  bun run search:reconcile-projection --apply
+  bun run search:reconcile-projection --apply --projector-quiesced
 ```
 
-Run the report-only command again after that drain. A convergence claim needs
-zero current divergences and zero valid UUID orphans; malformed Manticore
-`document_id` values are deliberately report-only and need an explicit,
-scoped operator cleanup decision.
+Apply internally repeats the complete counted preflight before mutating. Its
+physical delete matches the full observed fingerprint: numeric id,
+`document_id`, and `projection_hash`. It therefore cannot delete a canonical
+row that replaced a corrupt row between listing and cleanup. Start one
+projector to drain the emitted events, stop it cleanly again, and run the
+report-only command once more. A convergence claim needs zero current
+divergences, zero valid UUID orphans, zero physical corruption, and exact
+initial/scanned/final counts.
 
 ## Verification
 
@@ -150,8 +157,9 @@ scoped operator cleanup decision.
    `schema_hash` must equal the deployed `SEARCH_SCHEMA_HASH`, not the
    pending marker.
 
-2. Confirm the projector is healthy, its outbox lag is zero (or has a known
-   active producer), and no replay event is dead-lettered.
+2. Confirm the projector drained successfully, its outbox lag is zero (or has
+   a known active producer), no replay event is dead-lettered, and the
+   projector is stopped with no drain in flight during reconciliation apply.
 
 3. Use the reconciliation dry run above with the real `MANTICORE_URL`.
    Postgres-only state agreement is not a Manticore convergence verdict. The

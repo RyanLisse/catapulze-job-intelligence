@@ -65,13 +65,15 @@ export interface SearchProjectionInventoryPort {
     limit: number
   ) => Promise<readonly SearchProjectionInventoryRecord[]>;
   /**
-   * Removes exact physical RT ids that cannot be reached by the normal
-   * document-id-derived projector delete. Required only for `apply` when a
-   * complete preflight found malformed, duplicate, or non-canonical rows.
+   * Compare-and-deletes physical RT rows that cannot be reached by the normal
+   * document-id-derived projector delete. Implementations must match the full
+   * observed fingerprint so a concurrent replacement at the same numeric id
+   * survives. Required only for `apply` when a complete preflight found
+   * malformed, duplicate, or non-canonical rows.
    */
-  deleteByManticoreIds?: (
+  deleteObservedRows?: (
     partition: SearchPartition,
-    manticoreIds: readonly number[]
+    rows: readonly SearchProjectionInventoryRecord[]
   ) => Promise<number>;
 }
 
@@ -1387,7 +1389,7 @@ const createApplyActions = (
       if (rows.length === 0) {
         return Promise.resolve(0);
       }
-      const cleanup = input.inventory?.deleteByManticoreIds;
+      const cleanup = input.inventory?.deleteObservedRows;
       if (!cleanup) {
         throw new ProjectionRepairPhysicalCorruptionError(
           rows.map((row) => ({
@@ -1400,9 +1402,7 @@ const createApplyActions = (
           }))
         );
       }
-      return withinFence(() =>
-        cleanup(partition, [...new Set(rows.map((row) => row.manticoreId))])
-      );
+      return withinFence(() => cleanup(partition, rows));
     },
   };
 };
@@ -1453,7 +1453,7 @@ export const reconcileProjection = async (
   }
   if (
     preflight.physicalCorruptionCount > 0 &&
-    !input.inventory?.deleteByManticoreIds
+    !input.inventory?.deleteObservedRows
   ) {
     throw new ProjectionRepairPhysicalCorruptionError(
       preflight.physicalCorruption
