@@ -415,7 +415,7 @@ main() {
   COMPOSE_COMMAND=(docker compose --env-file "$COMPOSE_ENV_FILE")
   resolve_postgres_fingerprint
   prepare_database_integration
-  run_phase "database-integration" "REQUIRE_DATABASE_TESTS=1 bun test packages/db/src/core.spec.ts --reporter=junit" run_database_integration
+  run_phase "database-integration" "REQUIRE_DATABASE_TESTS=1 bun test packages/db/src/core.spec.ts packages/db/src/user-write-stores.spec.ts --reporter=junit" run_database_integration
   cleanup_database
   run_phase "integration" "COMPOSE_ENV_FILE=<generated> bun run docker:smoke" env COMPOSE_ENV_FILE="$COMPOSE_ENV_FILE" bun run docker:smoke
   run_phase "build" "bun run build -- --concurrency=2" bun run build -- --concurrency=2

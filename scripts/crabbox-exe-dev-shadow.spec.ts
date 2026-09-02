@@ -626,6 +626,9 @@ printf '%s\\n' "\${DATABASE_URL-unset}" "\${DATABASE_TEST_URL-unset}" "\${DATABA
     expect(script).toContain("packages/db/src/user-write-stores.spec.ts");
     expect(script).toContain("REQUIRE_DATABASE_TESTS=1");
     expect(script).toContain("--max-concurrency 1");
+    expect(script).toContain(
+      'run_phase "database-integration" "REQUIRE_DATABASE_TESTS=1 bun test packages/db/src/core.spec.ts packages/db/src/user-write-stores.spec.ts --reporter=junit"'
+    );
   });
 
   test(
