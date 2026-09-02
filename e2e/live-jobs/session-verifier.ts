@@ -61,7 +61,13 @@ const sessionVerifierJsonValueSchema: z.ZodType<SessionVerifierJsonValue> =
 const isSafeCookieValue = (value: string): boolean =>
   [...value].every((character) => {
     const codePoint = character.codePointAt(0) ?? 0;
-    return codePoint > 31 && codePoint !== 127 && character !== ";";
+    return (
+      codePoint === 0x21 ||
+      (codePoint >= 0x23 && codePoint <= 0x2b) ||
+      (codePoint >= 0x2d && codePoint <= 0x3a) ||
+      (codePoint >= 0x3c && codePoint <= 0x5b) ||
+      (codePoint >= 0x5d && codePoint <= 0x7e)
+    );
   });
 
 const storageCookieSchema = z.object({

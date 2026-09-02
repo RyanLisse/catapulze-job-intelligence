@@ -164,24 +164,35 @@ describe("live jobs Better Auth session verifier", () => {
     );
   });
 
-  it("rejects ambiguous or unsafe cookie values before making a request", async () => {
-    const invalidCases = [
-      {
-        cookies: [sessionCookie, { ...sessionCookie }],
-        message: /session cookie/u,
-      },
-      {
-        cookies: [{ ...sessionCookie, value: "unsafe;injected=value" }],
-        message: /storage state/u,
-      },
-      {
-        cookies: [{ ...sessionCookie, value: "unsafe\nheader" }],
-        message: /storage state/u,
-      },
+  it("rejects ambiguous cookies before making a request", async () => {
+    let fetchCalls = 0;
+    await expect(
+      verifyAuthenticatedSession(config, {
+        fetcher: () => {
+          fetchCalls += 1;
+          return Promise.resolve(response(validSessionPayload()));
+        },
+        now: () => fixedNow,
+        readStorageState: () =>
+          Promise.resolve({ cookies: [sessionCookie, { ...sessionCookie }] }),
+      })
+    ).rejects.toThrow(/session cookie/u);
+    expect(fetchCalls).toBe(0);
+  });
+
+  it("rejects every non-cookie-octet value before making a request", async () => {
+    const invalidCookieValues = [
+      "contains space",
+      'contains"quote',
+      "contains,comma",
+      "contains\\backslash",
+      "contains-é",
+      "unsafe;injected=value",
+      "unsafe\nheader",
     ];
 
     await Promise.all(
-      invalidCases.map(async ({ cookies, message }) => {
+      invalidCookieValues.map(async (cookieValue) => {
         let fetchCalls = 0;
         await expect(
           verifyAuthenticatedSession(config, {
@@ -190,9 +201,12 @@ describe("live jobs Better Auth session verifier", () => {
               return Promise.resolve(response(validSessionPayload()));
             },
             now: () => fixedNow,
-            readStorageState: () => Promise.resolve({ cookies }),
+            readStorageState: () =>
+              Promise.resolve({
+                cookies: [{ ...sessionCookie, value: cookieValue }],
+              }),
           })
-        ).rejects.toThrow(message);
+        ).rejects.toThrow(/storage state/u);
         expect(fetchCalls).toBe(0);
       })
     );
