@@ -17,7 +17,13 @@ export class InMemoryBackfillProvenanceStore implements BackfillProvenanceStore 
     const requested = new Set(bronIds);
     const records = [...this.byV1Id.values()]
       .filter((record) => requested.has(record.bronId))
-      .map(({ bronId, v1Id }) => ({ bronId, v1Id }))
+      .map(({ bronId, bronReferentie, contentHash, rawPayloadRef, v1Id }) => ({
+        bronId,
+        bronReferentie,
+        contentHash,
+        rawPayloadRef,
+        v1Id,
+      }))
       .toSorted(
         (left, right) =>
           left.v1Id.localeCompare(right.v1Id) ||

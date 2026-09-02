@@ -25,6 +25,7 @@ import type {
   BackfillRunResult,
   BackfillScopeManifest,
   BackfillSnapshotWindow,
+  BackfillTargetProvenanceRecord,
   BackfillTargetReconciliation,
   NeonV1Fixture,
   NeonV1JobRow,
@@ -260,32 +261,41 @@ interface BackfillEvidenceArtifacts {
   targetReconciliation?: BackfillTargetReconciliation;
 }
 
-interface OrderedScopeDigest {
+interface OrderedMappingDigest {
   readonly hash: ReturnType<typeof createHash>;
   readonly platformCounts: Record<string, number>;
   lastId: string | null;
   records: number;
 }
 
-const createOrderedScopeDigest = (): OrderedScopeDigest => ({
+const createOrderedMappingDigest = (): OrderedMappingDigest => ({
   hash: createHash("sha256"),
   lastId: null,
   platformCounts: {},
   records: 0,
 });
 
-const appendOrderedScopeItem = (
-  digest: OrderedScopeDigest,
-  v1Id: string,
+const appendOrderedMapping = (
+  digest: OrderedMappingDigest,
+  mapping: BackfillTargetProvenanceRecord,
   platform: string
 ): void => {
-  digest.hash.update(`${JSON.stringify([v1Id, platform])}\n`, "utf-8");
-  digest.lastId = v1Id;
+  digest.hash.update(
+    `${JSON.stringify([
+      mapping.v1Id,
+      mapping.bronId,
+      mapping.bronReferentie,
+      mapping.contentHash,
+      mapping.rawPayloadRef,
+    ])}\n`,
+    "utf-8"
+  );
+  digest.lastId = mapping.v1Id;
   digest.platformCounts[platform] = (digest.platformCounts[platform] ?? 0) + 1;
   digest.records += 1;
 };
 
-const orderedScopeHash = (digest: OrderedScopeDigest): string =>
+const orderedMappingHash = (digest: OrderedMappingDigest): string =>
   digest.hash.digest("hex");
 
 const isValidSnapshotWindow = (snapshot: BackfillSnapshotWindow): boolean => {
@@ -529,7 +539,7 @@ const importNeonV1Job = async (input: {
   provenanceStore: RunNeonV1BackfillInput["provenanceStore"];
   scrapeRunId: string;
   startedAt: Date;
-}): Promise<void> => {
+}): Promise<BackfillProvenanceRecord | null> => {
   const platformBinding = resolveBinding(input.bindings, input.job.platform);
   const platform =
     platformBinding?.platform ?? platformForJob(input.bindings, input.job);
@@ -537,7 +547,7 @@ const importNeonV1Job = async (input: {
   incrementMetric(input.metrics, platform, "selected");
   if (!platformBinding) {
     incrementMetric(input.metrics, platform, "rejected");
-    return;
+    return null;
   }
 
   try {
@@ -575,7 +585,7 @@ const importNeonV1Job = async (input: {
       });
       incrementMetric(input.metrics, platform, "matched");
       incrementMetric(input.metrics, platform, "skipped");
-      return;
+      return existing;
     }
 
     const draftBase = mapV1JobToDraft(input.job);
@@ -647,6 +657,7 @@ const importNeonV1Job = async (input: {
     } else {
       incrementMetric(input.metrics, platform, "skipped");
     }
+    return registered;
   } catch (error) {
     incrementMetric(input.metrics, platform, "errors");
     if (isBackfillFailure(error)) {
@@ -668,10 +679,11 @@ const importNeonV1Jobs = async (input: {
   provenanceStore: RunNeonV1BackfillInput["provenanceStore"];
   scrapeRunId: string;
   startedAt: Date;
-}): Promise<void> => {
+}): Promise<readonly BackfillProvenanceRecord[]> => {
+  const provenanceRecords: BackfillProvenanceRecord[] = [];
   /* oxlint-disable no-await-in-loop -- backfill imports must stay ordered for deterministic metrics */
   for (const job of input.jobs) {
-    await importNeonV1Job({
+    const provenance = await importNeonV1Job({
       bindings: input.bindings,
       curateStore: input.curateStore,
       job,
@@ -681,8 +693,12 @@ const importNeonV1Jobs = async (input: {
       scrapeRunId: input.scrapeRunId,
       startedAt: input.startedAt,
     });
+    if (provenance) {
+      provenanceRecords.push(provenance);
+    }
   }
   /* oxlint-enable no-await-in-loop */
+  return provenanceRecords;
 };
 
 const importFromSource = async (input: {
@@ -696,25 +712,21 @@ const importFromSource = async (input: {
   source: NeonV1Source;
   startedAt: Date;
 }): Promise<BackfillScopeManifest> => {
-  const scopeDigest = createOrderedScopeDigest();
+  const mappingDigest = createOrderedMappingDigest();
+  let lastSourceId: string | null = null;
+  let selected = 0;
   const consume = async (jobs: readonly NeonV1JobRow[]): Promise<void> => {
     for (const job of jobs) {
-      if (
-        scopeDigest.lastId !== null &&
-        job.id.localeCompare(scopeDigest.lastId) <= 0
-      ) {
+      if (lastSourceId !== null && job.id.localeCompare(lastSourceId) <= 0) {
         throw new BackfillFailureError({
           code: "SOURCE_READ_FAILED",
           phase: "source-read",
         });
       }
-      appendOrderedScopeItem(
-        scopeDigest,
-        job.id,
-        platformForJob(input.bindings, job)
-      );
+      lastSourceId = job.id;
+      selected += 1;
     }
-    await importNeonV1Jobs({
+    const provenanceRecords = await importNeonV1Jobs({
       bindings: input.bindings,
       curateStore: input.curateStore,
       jobs,
@@ -724,6 +736,18 @@ const importFromSource = async (input: {
       scrapeRunId: input.scrapeRunId,
       startedAt: input.startedAt,
     });
+    for (const provenance of provenanceRecords) {
+      const platform = input.bindings.find(
+        (binding) => binding.bronId === provenance.bronId
+      )?.platform;
+      if (!platform) {
+        throw new BackfillFailureError({
+          code: "SOURCE_READ_FAILED",
+          phase: "source-read",
+        });
+      }
+      appendOrderedMapping(mappingDigest, provenance, platform);
+    }
   };
 
   try {
@@ -753,9 +777,9 @@ const importFromSource = async (input: {
       digestAlgorithm: "sha256",
       itemEncoding: "json-array-line/v1",
       order: "source-id-ascending",
-      orderedDigest: orderedScopeHash(scopeDigest),
-      platformCounts: { ...scopeDigest.platformCounts },
-      selected: scopeDigest.records,
+      orderedDigest: orderedMappingHash(mappingDigest),
+      platformCounts: { ...mappingDigest.platformCounts },
+      selected,
       snapshot: { ...snapshot },
     };
   } catch (error) {
@@ -798,7 +822,7 @@ const reconcileProvenance = async (input: {
   const platformByBronId = new Map(
     input.bindings.map((binding) => [binding.bronId, binding.platform])
   );
-  const digest = createOrderedScopeDigest();
+  const digest = createOrderedMappingDigest();
   const summaries: Record<string, { distinctV1Ids: number; records: number }> =
     {};
   const lastV1IdByBronId = new Map<string, string>();
@@ -825,7 +849,7 @@ const reconcileProvenance = async (input: {
               phase: "reconcile",
             });
           }
-          appendOrderedScopeItem(digest, record.v1Id, platform);
+          appendOrderedMapping(digest, record, platform);
           const summary = summaries[record.bronId] ?? {
             distinctV1Ids: 0,
             records: 0,
@@ -890,7 +914,7 @@ const reconcileProvenance = async (input: {
     }
   }
   syncAggregateReconciliation(input.metrics);
-  const orderedDigest = orderedScopeHash(digest);
+  const orderedDigest = orderedMappingHash(digest);
   return {
     contractVersion: BACKFILL_TARGET_RECONCILIATION_VERSION,
     digestAlgorithm: "sha256",

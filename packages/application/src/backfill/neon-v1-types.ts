@@ -177,12 +177,13 @@ export interface BackfillRunEvidence {
   readonly failure?: BackfillFailureEvidence;
   readonly metrics: BackfillRunMetrics;
   /** Complete source scope selected inside one snapshot. The rolling digest is
-   * computed over ordered `[source id, canonical platform]` JSONL items and
-   * therefore does not retain the source ID set in memory. */
+   * computed over ordered canonical
+   * `[v1Id, bronId, bronReferentie, contentHash, rawPayloadRef]` JSONL mappings
+   * and therefore does not retain the source mapping set in memory. */
   readonly scopeManifest?: BackfillScopeManifest;
   /** Target inventory read from one repeatable-read snapshot after import.
-   * Equality with `scopeManifest.orderedDigest` proves exact ID/platform scope,
-   * not merely equal row counts. */
+   * Equality with `scopeManifest.orderedDigest` proves exact provenance
+   * mappings, not merely equal IDs or row counts. */
   readonly targetReconciliation?: BackfillTargetReconciliation;
 }
 
@@ -236,6 +237,9 @@ export interface BackfillProvenanceRecord {
 
 export interface BackfillTargetProvenanceRecord {
   readonly bronId: string;
+  readonly bronReferentie: string;
+  readonly contentHash: string;
+  readonly rawPayloadRef: string;
   readonly v1Id: string;
 }
 

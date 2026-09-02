@@ -216,10 +216,33 @@ describe("Postgres backfill target reconciliation snapshot", () => {
   it("streams ordered keyset pages from one repeatable-read read-only transaction", async () => {
     const pages = [
       [
-        { aanvraagId: "aanvraag-1", bronId: "bron-1", v1Id: "v1-1" },
-        { aanvraagId: "aanvraag-2", bronId: "bron-1", v1Id: "v1-2" },
+        {
+          aanvraagId: "aanvraag-1",
+          bronId: "bron-1",
+          bronReferentie: "ref-1",
+          contentHash: "hash-1",
+          rawPayloadRef: "raw/ref-1.json",
+          v1Id: "v1-1",
+        },
+        {
+          aanvraagId: "aanvraag-2",
+          bronId: "bron-1",
+          bronReferentie: "ref-2",
+          contentHash: "hash-2",
+          rawPayloadRef: "raw/ref-2.json",
+          v1Id: "v1-2",
+        },
       ],
-      [{ aanvraagId: "aanvraag-3", bronId: "bron-2", v1Id: "v1-3" }],
+      [
+        {
+          aanvraagId: "aanvraag-3",
+          bronId: "bron-2",
+          bronReferentie: "ref-3",
+          contentHash: "hash-3",
+          rawPayloadRef: "raw/ref-3.json",
+          v1Id: "v1-3",
+        },
+      ],
     ];
     let page = 0;
     let clock = 0;
@@ -261,7 +284,13 @@ describe("Postgres backfill target reconciliation snapshot", () => {
     const store = new PostgresBackfillProvenanceStore(
       asBackfillDatabase(database)
     );
-    const records: { bronId: string; v1Id: string }[] = [];
+    const records: {
+      bronId: string;
+      bronReferentie: string;
+      contentHash: string;
+      rawPayloadRef: string;
+      v1Id: string;
+    }[] = [];
 
     const snapshot = await store.consumeReconciliationSnapshot(
       ["bron-1", "bron-2"],
@@ -277,9 +306,27 @@ describe("Postgres backfill target reconciliation snapshot", () => {
       isolationLevel: "repeatable read",
     });
     expect(records).toEqual([
-      { bronId: "bron-1", v1Id: "v1-1" },
-      { bronId: "bron-1", v1Id: "v1-2" },
-      { bronId: "bron-2", v1Id: "v1-3" },
+      {
+        bronId: "bron-1",
+        bronReferentie: "ref-1",
+        contentHash: "hash-1",
+        rawPayloadRef: "raw/ref-1.json",
+        v1Id: "v1-1",
+      },
+      {
+        bronId: "bron-1",
+        bronReferentie: "ref-2",
+        contentHash: "hash-2",
+        rawPayloadRef: "raw/ref-2.json",
+        v1Id: "v1-2",
+      },
+      {
+        bronId: "bron-2",
+        bronReferentie: "ref-3",
+        contentHash: "hash-3",
+        rawPayloadRef: "raw/ref-3.json",
+        v1Id: "v1-3",
+      },
     ]);
     expect(snapshot).toEqual({
       completedAt: "2026-09-02T10:05:00.000Z",

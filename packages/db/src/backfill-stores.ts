@@ -57,6 +57,9 @@ export class PostgresBackfillProvenanceStore implements BackfillProvenanceStore 
             .select({
               aanvraagId: aanvraag.id,
               bronId: aanvraag.bronId,
+              bronReferentie: aanvraag.bronReferentie,
+              contentHash: aanvraag.contentHash,
+              rawPayloadRef: aanvraag.rawPayloadRef,
               v1Id: aanvraag.v1Id,
             })
             .from(aanvraag)
@@ -81,7 +84,13 @@ export class PostgresBackfillProvenanceStore implements BackfillProvenanceStore 
             if (!row.v1Id) {
               throw new Error("Target reconciliation returned null v1_id");
             }
-            return { bronId: row.bronId, v1Id: row.v1Id };
+            return {
+              bronId: row.bronId,
+              bronReferentie: row.bronReferentie,
+              contentHash: row.contentHash,
+              rawPayloadRef: row.rawPayloadRef,
+              v1Id: row.v1Id,
+            };
           });
           if (batch.length === 0) {
             break;

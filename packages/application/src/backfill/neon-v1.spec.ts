@@ -408,6 +408,47 @@ describe("Neon v1 backfill run", () => {
     });
   });
 
+  it("fails reconciliation when target provenance changes after the row check", async () => {
+    const provenanceStore = new InMemoryBackfillProvenanceStore();
+    const consumeSnapshot =
+      provenanceStore.consumeReconciliationSnapshot.bind(provenanceStore);
+    provenanceStore.consumeReconciliationSnapshot = (
+      bronIds,
+      batchSize,
+      consume
+    ) =>
+      consumeSnapshot(bronIds, batchSize, (batch) =>
+        consume(
+          batch.map((record) => ({
+            ...record,
+            bronReferentie: "mutated-after-row-check",
+          }))
+        )
+      );
+
+    const result = await runNeonV1Backfill({
+      bindings,
+      curateStore: new InMemoryCurateStore(),
+      objectStore: new InMemoryObjectStore(),
+      provenanceStore,
+      runStore: new InMemoryBackfillRunStore(),
+      source: createFixtureNeonV1Source({
+        capturedAt: "2026-08-29T10:00:00.000Z",
+        contractVersion: NEON_V1_BACKFILL_CONTRACT_VERSION,
+        jobs: [sampleJob()],
+      }),
+    });
+
+    expect(result.status).toBe("failed");
+    expect(result.metrics.missing).toBe(0);
+    expect(result.metrics.extra).toBe(0);
+    expect(result.evidence.targetReconciliation?.matchesScope).toBe(false);
+    expect(result.evidence.failure).toEqual({
+      code: "RECONCILIATION_DRIFT",
+      phase: "reconcile",
+    });
+  });
+
   it("fails closed when the source snapshot disappears after its rows were consumed", async () => {
     const runStore = new InMemoryBackfillRunStore();
     const result = await runNeonV1Backfill({
