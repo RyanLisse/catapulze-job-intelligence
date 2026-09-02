@@ -254,6 +254,10 @@ services:
         condition: service_healthy
       manticore:
         condition: service_healthy
+    # The projector is a long-running worker and does not serve the API
+    # image's inherited /readyz endpoint on port 3000.
+    healthcheck:
+      disable: true
     restart: unless-stopped
 
   # One-shot bucket bootstrap: creates `ji-raw-local` and exits. Re-running
