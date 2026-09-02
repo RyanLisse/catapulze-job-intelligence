@@ -29,16 +29,6 @@ test.describe("anonymous live /jobs verification", () => {
         "Anonymous live jobs E2E did not reach the exact /jobs path with an unredirected HTTP 200 response."
       );
     }
-    await expect(
-      page.getByRole("heading", {
-        exact: true,
-        name: "Log in om opdrachten te bekijken",
-      })
-    ).toBeVisible({ timeout: config.timeoutMs });
-    await expect(page.locator('a[href="/login"]')).toBeVisible({
-      timeout: config.timeoutMs,
-    });
-    await page.waitForLoadState("networkidle", { timeout: config.timeoutMs });
     await evidence.assertObservedRoutes([
       {
         label: "protected jobs page",
@@ -47,6 +37,23 @@ test.describe("anonymous live /jobs verification", () => {
         status: 200,
       },
     ]);
+    await expect(
+      page.getByRole("heading", {
+        exact: true,
+        name: "Log in om opdrachten te bekijken",
+      })
+    ).toBeVisible({ timeout: config.timeoutMs });
+    await expect(
+      page
+        .locator("#main-content")
+        .getByRole("button", { exact: true, name: "Inloggen" })
+    ).toBeVisible({ timeout: config.timeoutMs });
+    await expect(
+      page
+        .getByRole("banner")
+        .getByRole("button", { exact: true, name: "Inloggen" })
+    ).toBeVisible({ timeout: config.timeoutMs });
+    await page.waitForLoadState("networkidle", { timeout: config.timeoutMs });
     await evidence.assertNoCapabilityRequests();
     evidence.assertNoBrowserFailures();
     await evidence.attachPassed(testInfo, page, {
