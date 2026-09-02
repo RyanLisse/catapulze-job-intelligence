@@ -2,7 +2,10 @@ import { expect, test } from "@playwright/test";
 import type { Response as PlaywrightResponse } from "@playwright/test";
 import { z } from "zod";
 
-import type { CanaryScreenshotAttestation } from "./canary";
+import type {
+  CanaryScreenshotAttestation,
+  CanaryVisualAttestation,
+} from "./canary";
 import { assertMutationLiveRun, buildNamespacedQuery } from "./config";
 import { LiveJobsEvidence } from "./evidence";
 import type { SanitizedCleanupReceipt } from "./evidence";
@@ -71,23 +74,36 @@ test.describe("isolated live /jobs mutation verification", () => {
         "Live jobs mutation cleanup baseline was not captured before browser writes."
       );
     }
-    const evidence = new LiveJobsEvidence(page, config.baseUrl, config.apiUrl);
+    const namespacedQuery = buildNamespacedQuery(
+      config.testNamespace,
+      config.query
+    );
+    const evidence = new LiveJobsEvidence(page, config.baseUrl, config.apiUrl, {
+      canaryId: config.canaryId,
+      query: namespacedQuery,
+    });
     const attemptedWrites = createMutationAttemptLedger();
     const observedResources: MutationResource[] = [];
     let failurePhase: MutationFailurePhase = "open-canary";
     let cleanupFailure: MutationFailure | undefined;
     let primaryFailure: MutationFailure | undefined;
     let screenshotAttestation: CanaryScreenshotAttestation | undefined;
+    let visualAttestation: CanaryVisualAttestation | undefined;
     let cleanupReceipt: SanitizedCleanupReceipt | undefined;
 
     try {
       const openedJob = await openLiveJobDetail({
         config,
         page,
-        query: buildNamespacedQuery(config.testNamespace, config.query),
+        query: namespacedQuery,
       });
-      const { jobId, screenshotAttestation: verifiedAttestation } = openedJob;
+      const {
+        jobId,
+        screenshotAttestation: verifiedAttestation,
+        visualAttestation: verifiedVisualAttestation,
+      } = openedJob;
       screenshotAttestation = verifiedAttestation;
+      visualAttestation = verifiedVisualAttestation;
 
       failurePhase = "mark-canary";
       const markResponse = page.waitForResponse((response) =>
@@ -145,7 +161,7 @@ test.describe("isolated live /jobs mutation verification", () => {
       });
 
       failurePhase = "route-assertion";
-      evidence.assertObservedRoutes(
+      await evidence.assertObservedRoutes(
         [
           {
             label: "source catalog",
@@ -231,7 +247,7 @@ test.describe("isolated live /jobs mutation verification", () => {
     }
     throwSanitizedMutationFailures({ cleanupFailure, primaryFailure });
 
-    if (!screenshotAttestation) {
+    if (!screenshotAttestation || !visualAttestation) {
       throw new Error(
         "Live jobs mutation passed without a canary screenshot attestation."
       );
@@ -241,6 +257,7 @@ test.describe("isolated live /jobs mutation verification", () => {
       cleanupReceipt,
       releaseSha: config.expectedReleaseSha,
       screenshotAttestation,
+      visualAttestation,
     };
     await evidence.attachPassed(testInfo, page, passedEvidence);
   });

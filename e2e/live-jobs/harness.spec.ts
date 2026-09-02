@@ -1,6 +1,7 @@
 import { describe, expect, it } from "bun:test";
 
 import type { Page, TestInfo } from "@playwright/test";
+import { z } from "zod";
 
 import { readLiveJobsArtifactPolicy } from "./artifact-policy";
 import {
@@ -8,6 +9,7 @@ import {
   assertCanaryDetailResponse,
   assertCanarySearchResponse,
   canonicalCanaryDigest,
+  issueCanaryVisualAttestation,
   isCanaryScreenshotAttestation,
 } from "./canary";
 import type { CanaryJsonValue } from "./canary";
@@ -36,20 +38,55 @@ const releaseSha = "0123456789abcdef0123456789abcdef01234567";
 interface FakeRequest {
   readonly headers: () => Record<string, string>;
   readonly method: () => string;
+  readonly postDataJSON: () => CanaryJsonValue;
   readonly url: () => string;
 }
 
-type EvidenceListener = (value: FakeRequest) => void;
+interface FakeResponse {
+  readonly json: () => Promise<CanaryJsonValue>;
+  readonly request: () => FakeRequest & { readonly redirectedFrom: () => null };
+  readonly status: () => number;
+  readonly url: () => string;
+}
 
-const fakeRequest = (targetUrl: string): FakeRequest => ({
+type EvidenceListener = (value: FakeRequest | FakeResponse) => void;
+
+const fakeRequest = (
+  targetUrl: string,
+  method = "GET",
+  body: CanaryJsonValue = null
+): FakeRequest => ({
   headers: () => ({}),
-  method: () => "GET",
+  method: () => method,
+  postDataJSON: () => body,
   url: () => targetUrl,
+});
+
+const fakeResponse = (
+  targetUrl: string,
+  method: string,
+  body: CanaryJsonValue
+): FakeResponse => ({
+  json: () => Promise.resolve(body),
+  request: () => ({
+    ...fakeRequest(targetUrl, method),
+    redirectedFrom: () => null,
+  }),
+  status: () => 200,
+  url: () => targetUrl,
+});
+
+const evidenceBundleSchema = z.object({
+  attachments: z.array(
+    z.object({ bodyBase64: z.string().optional() }).passthrough()
+  ),
 });
 
 class FakeEvidencePage {
   attachedRequest: FakeRequest | null = null;
   closed = false;
+  content = "account-name response-title secret-query";
+  failSetContent = false;
   finishRequestDuringScreenshot = false;
   private readonly jobUrl = `https://jobs.example/jobs?job=${canaryId}`;
   private readonly listeners = new Map<string, Set<EvidenceListener>>();
@@ -63,7 +100,7 @@ class FakeEvidencePage {
     return Promise.resolve();
   };
 
-  emit(event: string, value: FakeRequest): void {
+  emit(event: string, value: FakeRequest | FakeResponse): void {
     for (const listener of this.listeners.get(event) ?? []) {
       listener(value);
     }
@@ -76,7 +113,15 @@ class FakeEvidencePage {
   readonly isClosed = (): boolean => this.closed;
 
   readonly locator = (selector: string) => ({
-    count: () => Promise.resolve(!this.closed && selector === "pre" ? 1 : 0),
+    count: () =>
+      Promise.resolve(
+        !this.closed &&
+          ((selector === "pre" && !this.content.includes("sanitized")) ||
+            (selector === '[data-live-jobs-evidence="sanitized"]' &&
+              this.content.includes('data-live-jobs-evidence="sanitized"')))
+          ? 1
+          : 0
+      ),
   });
 
   off(event: string, listener: EvidenceListener): void {
@@ -97,7 +142,15 @@ class FakeEvidencePage {
         this.emit("requestfinished", this.attachedRequest);
       }
     }
-    return Promise.resolve(Buffer.from("fully-masked"));
+    return Promise.resolve(Buffer.from(this.content));
+  };
+
+  readonly setContent = (content: string): Promise<void> => {
+    if (this.failSetContent) {
+      return Promise.reject(new Error("unsafe renderer detail"));
+    }
+    this.content = content;
+    return Promise.resolve();
   };
 
   readonly url = (): string => this.jobUrl;
@@ -297,32 +350,207 @@ describe("live jobs E2E canary and artifact boundaries", () => {
     fakePage.emit("request", request);
     fakePage.emit("requestfinished", request);
 
-    expect(() => evidence.assertObservedRoutes([], attestation)).toThrow(
-      /outside the configured API origin/u
-    );
+    await expect(
+      evidence.assertObservedRoutes([], attestation)
+    ).rejects.toThrow(/outside the configured API origin/u);
   });
 
   it("rejects wrong dynamic canary ids and raw references", async () => {
     const attestation = await issueCanaryAttestation();
-    for (const targetUrl of [
-      "https://api.jobs.example/v1/aanvragen/11111111-1111-4111-8111-111111111111",
-      "https://api.jobs.example/v1/raw/wrong-ref",
-    ]) {
-      const fakePage = new FakeEvidencePage();
-      const page = asPage(fakePage);
-      const evidence = new LiveJobsEvidence(
-        page,
-        "https://jobs.example",
-        "https://api.jobs.example"
-      );
-      const request = fakeRequest(targetUrl);
-      fakePage.emit("request", request);
-      fakePage.emit("requestfinished", request);
+    await Promise.all(
+      [
+        "https://api.jobs.example/v1/aanvragen/11111111-1111-4111-8111-111111111111",
+        "https://api.jobs.example/v1/raw/wrong-ref",
+      ].map(async (targetUrl) => {
+        const fakePage = new FakeEvidencePage();
+        const page = asPage(fakePage);
+        const evidence = new LiveJobsEvidence(
+          page,
+          "https://jobs.example",
+          "https://api.jobs.example"
+        );
+        const request = fakeRequest(targetUrl);
+        fakePage.emit("request", request);
+        fakePage.emit("requestfinished", request);
 
-      expect(() => evidence.assertObservedRoutes([], attestation)).toThrow(
-        /different canary identity/u
-      );
+        await expect(
+          evidence.assertObservedRoutes([], attestation)
+        ).rejects.toThrow(/different canary identity/u);
+      })
+    );
+  });
+
+  it("rejects duplicate allowed requests and every out-of-scope request payload", async () => {
+    const attestation = await issueCanaryAttestation();
+    const scope = { canaryId, query: "exact canary query" };
+    const searchUrl = "https://api.jobs.example/v1/aanvragen/search";
+    const duplicatePage = new FakeEvidencePage();
+    const duplicateEvidence = new LiveJobsEvidence(
+      asPage(duplicatePage),
+      "https://jobs.example",
+      "https://api.jobs.example",
+      scope
+    );
+    for (const request of [
+      fakeRequest(searchUrl, "POST", { query: scope.query }),
+      fakeRequest(searchUrl, "POST", { query: scope.query }),
+    ]) {
+      duplicatePage.emit("request", request);
+      duplicatePage.emit("requestfinished", request);
     }
+    await expect(
+      duplicateEvidence.assertObservedRoutes(
+        [
+          {
+            label: "search",
+            method: "POST",
+            path: "/v1/aanvragen/search",
+            status: 200,
+          },
+        ],
+        attestation
+      )
+    ).rejects.toThrow(/exactly one request/u);
+
+    const invalidRequests: readonly {
+      readonly body: CanaryJsonValue;
+      readonly targetUrl: string;
+    }[] = [
+      { body: { query: "different query" }, targetUrl: searchUrl },
+      {
+        body: { ids: ["11111111-1111-4111-8111-111111111111"] },
+        targetUrl: "https://api.jobs.example/v1/aanvragen/batch",
+      },
+    ];
+    await Promise.all(
+      invalidRequests.map(async ({ body, targetUrl }) => {
+        const fakePage = new FakeEvidencePage();
+        const evidence = new LiveJobsEvidence(
+          asPage(fakePage),
+          "https://jobs.example",
+          "https://api.jobs.example",
+          scope
+        );
+        const request = fakeRequest(targetUrl, "POST", body);
+        fakePage.emit("request", request);
+        fakePage.emit("requestfinished", request);
+        await expect(
+          evidence.assertObservedRoutes([], attestation)
+        ).rejects.toThrow(/outside the configured canary scope/u);
+      })
+    );
+  });
+
+  it("validates every search and batch response rather than only the first match", async () => {
+    const attestation = await issueCanaryAttestation();
+    const scope = { canaryId, query: "exact canary query" };
+    const wrongId = "11111111-1111-4111-8111-111111111111";
+    const cases: readonly {
+      readonly path: string;
+      readonly requestBody: CanaryJsonValue;
+      readonly validResponse: CanaryJsonValue;
+      readonly wrongResponse: CanaryJsonValue;
+    }[] = [
+      {
+        path: "/v1/aanvragen/search",
+        requestBody: { query: scope.query },
+        validResponse: { ids: [canaryId] },
+        wrongResponse: { ids: [wrongId] },
+      },
+      {
+        path: "/v1/aanvragen/batch",
+        requestBody: { ids: [canaryId] },
+        validResponse: {
+          items: [{ aanvraag: { id: canaryId }, id: canaryId }],
+        },
+        wrongResponse: {
+          items: [{ aanvraag: { id: wrongId }, id: wrongId }],
+        },
+      },
+    ];
+
+    await Promise.all(
+      cases.map(async (testCase) => {
+        const targetUrl = `https://api.jobs.example${testCase.path}`;
+        const fakePage = new FakeEvidencePage();
+        const evidence = new LiveJobsEvidence(
+          asPage(fakePage),
+          "https://jobs.example",
+          "https://api.jobs.example",
+          scope
+        );
+        const request = fakeRequest(targetUrl, "POST", testCase.requestBody);
+        fakePage.emit("request", request);
+        fakePage.emit(
+          "response",
+          fakeResponse(targetUrl, "POST", testCase.validResponse)
+        );
+        fakePage.emit(
+          "response",
+          fakeResponse(targetUrl, "POST", testCase.wrongResponse)
+        );
+        fakePage.emit("requestfinished", request);
+
+        await expect(
+          evidence.assertObservedRoutes(
+            [
+              {
+                label: "canary route",
+                method: "POST",
+                path: testCase.path,
+                status: 200,
+              },
+            ],
+            attestation
+          )
+        ).rejects.toThrow(/outside the configured canary scope/u);
+      })
+    );
+  });
+
+  it("retains only boolean payload proof for validated canary requests", async () => {
+    const scope = { canaryId, query: "private exact query" };
+    const searchUrl = "https://api.jobs.example/v1/aanvragen/search";
+    const fakePage = new FakeEvidencePage();
+    const page = asPage(fakePage);
+    const evidence = new LiveJobsEvidence(
+      page,
+      "https://jobs.example",
+      "https://api.jobs.example",
+      scope
+    );
+    const request = fakeRequest(searchUrl, "POST", { query: scope.query });
+    fakePage.emit("request", request);
+    fakePage.emit(
+      "response",
+      fakeResponse(searchUrl, "POST", { ids: [canaryId] })
+    );
+    fakePage.emit("requestfinished", request);
+    await evidence.assertObservedRoutes([
+      {
+        label: "search",
+        method: "POST",
+        path: "/v1/aanvragen/search",
+        status: 200,
+      },
+    ]);
+    const attachments: string[] = [];
+    const recordingTestInfo = {
+      attach: (_name: string, options: { readonly body?: Buffer | string }) => {
+        attachments.push(String(options.body));
+        return Promise.resolve();
+      },
+    };
+    // SAFETY: LiveJobsEvidence uses only TestInfo.attach in this regression.
+    // oxlint-disable-next-line anti-slop/no-chained-type-assertions
+    const testInfo = recordingTestInfo as unknown as TestInfo;
+
+    await evidence.attachPassed(testInfo, page, { releaseSha });
+
+    expect(attachments).toHaveLength(1);
+    expect(attachments[0]).toContain('"payloadValidated": true');
+    expect(attachments[0]).not.toContain(scope.query);
+    expect(attachments[0]).not.toContain(canaryId);
   });
 
   it("publishes nothing when an otherwise allowed request starts during screenshot capture", async () => {
@@ -336,7 +564,7 @@ describe("live jobs E2E canary and artifact boundaries", () => {
       "https://jobs.example",
       "https://api.jobs.example"
     );
-    evidence.assertObservedRoutes([], attestation);
+    await evidence.assertObservedRoutes([], attestation);
     let attachmentCount = 0;
     const recordingTestInfo = {
       attach: () => {
@@ -352,6 +580,7 @@ describe("live jobs E2E canary and artifact boundaries", () => {
       evidence.attachPassed(testInfo, page, {
         releaseSha,
         screenshotAttestation: attestation,
+        visualAttestation: issueCanaryVisualAttestation(attestation),
       })
     ).rejects.toThrow(/request start during screenshot capture/u);
     expect(fakePage.screenshotCalled).toBe(true);
@@ -372,7 +601,7 @@ describe("live jobs E2E canary and artifact boundaries", () => {
       "request",
       fakeRequest("https://jobs.example/still-loading.css")
     );
-    evidence.assertObservedRoutes([], attestation);
+    await evidence.assertObservedRoutes([], attestation);
     let attachmentCount = 0;
     const recordingTestInfo = {
       attach: () => {
@@ -388,6 +617,7 @@ describe("live jobs E2E canary and artifact boundaries", () => {
       evidence.attachPassed(testInfo, page, {
         releaseSha,
         screenshotAttestation: attestation,
+        visualAttestation: issueCanaryVisualAttestation(attestation),
       })
     ).rejects.toThrow(/network requests were pending/u);
     expect(fakePage.screenshotCalled).toBe(false);
@@ -404,7 +634,7 @@ describe("live jobs E2E canary and artifact boundaries", () => {
       "https://jobs.example",
       "https://api.jobs.example"
     );
-    evidence.assertObservedRoutes([], attestation);
+    await evidence.assertObservedRoutes([], attestation);
     const attachments: string[] = [];
     const recordingTestInfo = {
       attach: (_name: string, options: { readonly body?: Buffer | string }) => {
@@ -419,6 +649,7 @@ describe("live jobs E2E canary and artifact boundaries", () => {
     await evidence.attachPassed(testInfo, page, {
       releaseSha,
       screenshotAttestation: attestation,
+      visualAttestation: issueCanaryVisualAttestation(attestation),
     });
 
     expect(fakePage.closed).toBe(true);
@@ -427,6 +658,57 @@ describe("live jobs E2E canary and artifact boundaries", () => {
     expect(attachments[0]).not.toContain(canaryId);
     expect(attachments[0]).not.toContain(attestation.rawPayloadRef);
     expect(attachments[0]).not.toContain("api.jobs.example");
+    expect(attachments[0]).not.toContain("account-name");
+    expect(attachments[0]).not.toContain("response-title");
+    expect(attachments[0]).not.toContain("secret-query");
+    const bundle = evidenceBundleSchema.parse(
+      JSON.parse(attachments[0] ?? "{}")
+    );
+    const screenshotBody = bundle.attachments?.find(
+      (attachment) => attachment.bodyBase64
+    )?.bodyBase64;
+    expect(screenshotBody).toBeTruthy();
+    const decodedScreenshot = Buffer.from(
+      screenshotBody ?? "",
+      "base64"
+    ).toString();
+    expect(decodedScreenshot).toContain("fixed status labels only");
+    expect(decodedScreenshot).not.toContain("account-name");
+    expect(decodedScreenshot).not.toContain("response-title");
+    expect(decodedScreenshot).not.toContain("secret-query");
+  });
+
+  it("publishes nothing when the data-free visual surface cannot be rendered", async () => {
+    const attestation = await issueCanaryAttestation();
+    const fakePage = new FakeEvidencePage();
+    fakePage.failSetContent = true;
+    const page = asPage(fakePage);
+    const evidence = new LiveJobsEvidence(
+      page,
+      "https://jobs.example",
+      "https://api.jobs.example"
+    );
+    await evidence.assertObservedRoutes([], attestation);
+    let attachmentCount = 0;
+    const recordingTestInfo = {
+      attach: () => {
+        attachmentCount += 1;
+        return Promise.resolve();
+      },
+    };
+    // SAFETY: LiveJobsEvidence uses only TestInfo.attach in this regression.
+    // oxlint-disable-next-line anti-slop/no-chained-type-assertions
+    const testInfo = recordingTestInfo as unknown as TestInfo;
+
+    await expect(
+      evidence.attachPassed(testInfo, page, {
+        releaseSha,
+        screenshotAttestation: attestation,
+        visualAttestation: issueCanaryVisualAttestation(attestation),
+      })
+    ).rejects.toThrow(/could not render and capture/u);
+    expect(fakePage.closed).toBe(true);
+    expect(attachmentCount).toBe(0);
   });
 
   it("restores the full attempted-write scope despite a lost resource response", async () => {

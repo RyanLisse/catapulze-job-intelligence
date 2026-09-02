@@ -42,25 +42,31 @@ never read by the harness.
 Every run, including local isolated runs, turns trace, video, and Playwright's
 automatic screenshots off. Each lane retains request URLs only in memory until
 it has proved the exact configured API origin, exact canary ID on every dynamic
-aanvraag route, exact attested raw reference, and exact method/path allowlist.
-Only then are origins, IDs, references, and query strings discarded. An
-off-origin `/v1` request or a dynamic route for another ID/reference fails the
-evidence even when its sanitized route shape would otherwise look allowed.
+aanvraag route, exact attested raw reference, exact method/path allowlist, and
+exactly one request for every declared route. Every search request must carry
+the configured query and every batch request must carry only the configured
+canary ID. Every search and batch response is validated, including duplicates;
+the recorder retains only boolean payload proofs and sanitized event counts,
+never bodies or IDs. Only then are origins, IDs, references, and query strings
+discarded. Duplicate calls, an off-origin `/v1` request, or a dynamic route for
+another ID/reference fails before publication.
 
-After every assertion succeeds, the harness waits for network idle and requires
-zero pending requests before it captures the fully masked screenshot. It then
-closes the page and fails if any request started during the capture/close
-window, even when that request was otherwise allowlisted and completed
-successfully. Only after proving zero pending requests does it detach its
-listeners and validate one immutable final event snapshot. It then performs
-one attachment operation for a single JSON evidence bundle containing only:
+After the real DOM and network assertions succeed, the harness waits for
+network idle and requires zero pending requests. It then replaces the entire
+live document with an inline-only, data-free visual attestation surface. The
+surface contains fixed status labels for the validated release, search,
+canary-detail, provenance, and raw-preview states; it contains no account,
+query, ID, URL, SHA, response field, or other data-derived text. The screenshot
+is unmasked so those static visual indicators remain useful. The page is then
+closed, and the run fails if any request started during the capture/close
+window, even when that request was otherwise allowlisted and completed. Only
+after proving zero pending requests does it detach its listeners and validate
+one immutable final event snapshot. It performs one attachment operation for a
+single JSON evidence bundle containing only:
 
 - a sanitized JSON route/status list with no headers, origins, query strings,
   payloads, cookies, IDs, or subjects;
-- an explicitly sanitized canary screenshot whose entire rendered body is
-  masked (including the global header/account area, application content,
-  overlays, and toasts), so no response-derived field or real payload can be
-  retained;
+- an unmasked screenshot of the fixed sanitized visual-attestation surface;
 - a sanitized pass manifest;
 - for the mutation lane, the sanitized cleanup receipt.
 

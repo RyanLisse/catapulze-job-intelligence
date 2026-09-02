@@ -6,8 +6,13 @@ import {
   assertCanaryDetailResponse,
   assertCanarySearchResponse,
   canaryJsonValueSchema,
+  issueCanaryVisualAttestation,
 } from "./canary";
-import type { CanaryJsonValue, CanaryScreenshotAttestation } from "./canary";
+import type {
+  CanaryJsonValue,
+  CanaryScreenshotAttestation,
+  CanaryVisualAttestation,
+} from "./canary";
 import { buildCanaryJobsUrl } from "./config";
 import type { AuthenticatedLiveJobsConfig } from "./config";
 
@@ -91,6 +96,7 @@ export const openLiveJobDetail = async ({
 }: OpenLiveJobDetailInput): Promise<{
   readonly jobId: string;
   readonly screenshotAttestation: CanaryScreenshotAttestation;
+  readonly visualAttestation: CanaryVisualAttestation;
 }> => {
   const jobsUrl = buildCanaryJobsUrl(config.baseUrl, query, config.canaryId);
   const searchResponse = page.waitForResponse(
@@ -169,5 +175,9 @@ export const openLiveJobDetail = async ({
     })
   ).toBeVisible({ timeout: config.timeoutMs });
 
-  return { jobId: config.canaryId, screenshotAttestation };
+  return {
+    jobId: config.canaryId,
+    screenshotAttestation,
+    visualAttestation: issueCanaryVisualAttestation(screenshotAttestation),
+  };
 };

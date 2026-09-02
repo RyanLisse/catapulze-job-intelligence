@@ -14,15 +14,15 @@ test.describe("live /jobs read-only verification", () => {
     page,
   }, testInfo) => {
     const config = assertAuthenticatedLiveRun();
-    const evidence = new LiveJobsEvidence(page, config.baseUrl, config.apiUrl);
-
-    const { screenshotAttestation } = await openLiveJobDetail({
-      config,
-      page,
+    const evidence = new LiveJobsEvidence(page, config.baseUrl, config.apiUrl, {
+      canaryId: config.canaryId,
       query: config.query,
     });
 
-    evidence.assertObservedRoutes(
+    const { screenshotAttestation, visualAttestation } =
+      await openLiveJobDetail({ config, page, query: config.query });
+
+    await evidence.assertObservedRoutes(
       [
         {
           label: "source catalog",
@@ -67,6 +67,7 @@ test.describe("live /jobs read-only verification", () => {
     await evidence.attachPassed(testInfo, page, {
       releaseSha: config.expectedReleaseSha,
       screenshotAttestation,
+      visualAttestation,
     });
   });
 });

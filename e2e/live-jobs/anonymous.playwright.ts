@@ -39,7 +39,7 @@ test.describe("anonymous live /jobs verification", () => {
       timeout: config.timeoutMs,
     });
     await page.waitForLoadState("networkidle", { timeout: config.timeoutMs });
-    evidence.assertObservedRoutes([
+    await evidence.assertObservedRoutes([
       {
         label: "protected jobs page",
         method: "GET",
@@ -47,7 +47,7 @@ test.describe("anonymous live /jobs verification", () => {
         status: 200,
       },
     ]);
-    evidence.assertNoCapabilityRequests();
+    await evidence.assertNoCapabilityRequests();
     evidence.assertNoBrowserFailures();
     await evidence.attachPassed(testInfo, page, {
       releaseSha: config.expectedReleaseSha,

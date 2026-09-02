@@ -7,9 +7,19 @@ import type {
   Response,
   TestInfo,
 } from "@playwright/test";
+import { z } from "zod";
 
-import { isCanaryScreenshotAttestation } from "./canary";
-import type { CanaryScreenshotAttestation } from "./canary";
+import {
+  assertCanaryBatchResponse,
+  assertCanarySearchResponse,
+  canaryJsonValueSchema,
+  isCanaryScreenshotAttestation,
+  isLinkedCanaryVisualAttestation,
+} from "./canary";
+import type {
+  CanaryScreenshotAttestation,
+  CanaryVisualAttestation,
+} from "./canary";
 
 export interface RouteExpectation {
   readonly label: string;
@@ -25,6 +35,7 @@ interface RawNetworkEvent {
     | "request-failed"
     | "response";
   readonly method: string;
+  readonly payloadProof?: boolean | Promise<boolean>;
   readonly redirected?: boolean;
   readonly status?: number;
   readonly url: string;
@@ -34,6 +45,7 @@ interface NetworkEvent {
   readonly kind: RawNetworkEvent["kind"];
   readonly method: string;
   readonly path: string;
+  readonly payloadValidated?: true;
   readonly redirected?: boolean;
   readonly status?: number;
 }
@@ -71,7 +83,45 @@ interface PassedEvidenceOptions {
   readonly cleanupReceipt?: SanitizedCleanupReceipt;
   readonly releaseSha: string;
   readonly screenshotAttestation?: CanaryScreenshotAttestation;
+  readonly visualAttestation?: CanaryVisualAttestation;
 }
+
+export interface EvidenceCanaryScope {
+  readonly canaryId: string;
+  readonly query: string;
+}
+
+const SANITIZED_VISUAL_ATTESTATION_HTML = `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Sanitized live jobs evidence</title>
+  <style>
+    :root { color-scheme: dark; font-family: ui-sans-serif, system-ui, sans-serif; }
+    body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: #0b1020; color: #eef2ff; }
+    main { width: min(42rem, calc(100vw - 4rem)); padding: 2.5rem; border: 1px solid #334155; border-radius: 1.25rem; background: #111827; }
+    h1 { margin-top: 0; font-size: 1.75rem; }
+    p { color: #a5b4fc; }
+    ul { display: grid; gap: .75rem; padding: 0; list-style: none; }
+    li { padding: .8rem 1rem; border-radius: .75rem; background: #172554; }
+    li::before { content: "Verified"; margin-right: .75rem; color: #86efac; font-weight: 700; }
+  </style>
+</head>
+<body>
+  <main data-live-jobs-evidence="sanitized">
+    <h1>Live jobs sanitized visual attestation</h1>
+    <p>This surface contains fixed status labels only.</p>
+    <ul>
+      <li>Release identity matched</li>
+      <li>Search rendered</li>
+      <li>Exact canary detail rendered</li>
+      <li>Provenance rendered</li>
+      <li>Raw preview state rendered</li>
+    </ul>
+  </main>
+</body>
+</html>`;
 
 const SAFE_CAPABILITY_PATHS = new Set([
   "/v1/aanvragen/batch",
@@ -103,6 +153,9 @@ export const assertAllowedCapabilityRequests = (
 };
 
 const sanitizePath = (pathname: string): string => {
+  if (SAFE_CAPABILITY_PATHS.has(pathname)) {
+    return pathname;
+  }
   if (/^\/v1\/raw\/[^/]+$/u.test(pathname)) {
     return "/v1/raw/:ref";
   }
@@ -114,9 +167,6 @@ const sanitizePath = (pathname: string): string => {
   }
   if (/^\/v1\/aanvragen\/[^/]+$/u.test(pathname)) {
     return "/v1/aanvragen/:id";
-  }
-  if (SAFE_CAPABILITY_PATHS.has(pathname)) {
-    return pathname;
   }
   if (pathname.startsWith("/v1/")) {
     return "/v1/:unexpected";
@@ -139,11 +189,63 @@ const parseTrackedUrl = (value: string, webOrigin: string): URL | null => {
   return null;
 };
 
+const searchRequestSchema = z.object({ query: z.string() }).passthrough();
+const batchRequestSchema = z.object({ ids: z.array(z.string()) }).passthrough();
+
+const validateRequestPayload = (
+  request: Request,
+  pathname: "/v1/aanvragen/batch" | "/v1/aanvragen/search",
+  scope?: EvidenceCanaryScope
+): boolean => {
+  if (!scope) {
+    return false;
+  }
+  try {
+    if (pathname === "/v1/aanvragen/search") {
+      const parsed = searchRequestSchema.safeParse(request.postDataJSON());
+      return parsed.success && parsed.data.query === scope.query;
+    }
+    const parsed = batchRequestSchema.safeParse(request.postDataJSON());
+    return (
+      parsed.success &&
+      parsed.data.ids.length === 1 &&
+      parsed.data.ids[0] === scope.canaryId
+    );
+  } catch {
+    return false;
+  }
+};
+
+const validateResponsePayload = async (
+  response: Response,
+  pathname: "/v1/aanvragen/batch" | "/v1/aanvragen/search",
+  scope?: EvidenceCanaryScope
+): Promise<boolean> => {
+  if (!scope) {
+    return false;
+  }
+  try {
+    const parsed = canaryJsonValueSchema.safeParse(await response.json());
+    if (!parsed.success) {
+      return false;
+    }
+    if (pathname === "/v1/aanvragen/search") {
+      assertCanarySearchResponse(parsed.data, scope.canaryId);
+    } else {
+      assertCanaryBatchResponse(parsed.data, scope.canaryId);
+    }
+    return true;
+  } catch {
+    return false;
+  }
+};
+
 const assertExactDynamicIdentity = (
   url: URL,
   screenshotAttestation?: CanaryScreenshotAttestation
 ): void => {
   const isDynamicCanaryPath =
+    !SAFE_CAPABILITY_PATHS.has(url.pathname) &&
     /^\/v1\/aanvragen\/[^/]+(?:\/versies|\/markering)?$/u.test(url.pathname);
   const isRawPath = /^\/v1\/raw\/[^/]+$/u.test(url.pathname);
   if (!(isDynamicCanaryPath || isRawPath)) {
@@ -171,34 +273,67 @@ const assertExactDynamicIdentity = (
   }
 };
 
-const sanitizeValidatedNetworkEvents = (
+const assertExactRequestCardinality = (
+  events: readonly NetworkEvent[],
+  expectations: readonly RouteExpectation[]
+): void => {
+  const invalid = expectations.filter((expectation) => {
+    const count = events.filter(
+      (event) =>
+        event.kind === "request" &&
+        event.method === expectation.method &&
+        event.path === expectation.path
+    ).length;
+    return count !== 1;
+  });
+  if (invalid.length > 0) {
+    throw new Error(
+      "Live jobs E2E did not observe exactly one request for every declared route; no artifact was written."
+    );
+  }
+};
+
+const sanitizeValidatedNetworkEvents = async (
   rawEvents: readonly RawNetworkEvent[],
   apiOrigin: string,
   webOrigin: string,
   policy: EvidenceRoutePolicy
-): readonly NetworkEvent[] => {
-  const sanitized = rawEvents.map((event): NetworkEvent => {
-    const url = new URL(event.url);
-    if (url.pathname.startsWith("/v1/")) {
-      if (url.origin !== apiOrigin) {
+): Promise<readonly NetworkEvent[]> => {
+  const sanitized = await Promise.all(
+    rawEvents.map(async (event): Promise<NetworkEvent> => {
+      const url = new URL(event.url);
+      if (url.pathname.startsWith("/v1/")) {
+        if (url.origin !== apiOrigin) {
+          throw new Error(
+            "Live jobs E2E observed a capability route outside the configured API origin."
+          );
+        }
+        assertExactDynamicIdentity(url, policy.screenshotAttestation);
+        const requiresPayloadProof =
+          (event.kind === "request" || event.kind === "response") &&
+          (url.pathname === "/v1/aanvragen/search" ||
+            url.pathname === "/v1/aanvragen/batch");
+        if (requiresPayloadProof && !(await event.payloadProof)) {
+          throw new Error(
+            "Live jobs E2E observed a search or batch payload outside the configured canary scope; no artifact was written."
+          );
+        }
+      } else if (url.origin !== webOrigin || url.pathname !== "/jobs") {
         throw new Error(
-          "Live jobs E2E observed a capability route outside the configured API origin."
+          "Live jobs E2E observed a tracked browser route outside the configured web origin."
         );
       }
-      assertExactDynamicIdentity(url, policy.screenshotAttestation);
-    } else if (url.origin !== webOrigin || url.pathname !== "/jobs") {
-      throw new Error(
-        "Live jobs E2E observed a tracked browser route outside the configured web origin."
-      );
-    }
-    return {
-      kind: event.kind,
-      method: event.method,
-      path: sanitizePath(url.pathname),
-      redirected: event.redirected,
-      status: event.status,
-    };
-  });
+      return {
+        kind: event.kind,
+        method: event.method,
+        path: sanitizePath(url.pathname),
+        payloadValidated:
+          event.payloadProof === undefined ? undefined : (true as const),
+        redirected: event.redirected,
+        status: event.status,
+      };
+    })
+  );
 
   assertAllowedCapabilityRequests(
     sanitized.filter(
@@ -207,6 +342,7 @@ const sanitizeValidatedNetworkEvents = (
     ),
     policy.expectations
   );
+  assertExactRequestCardinality(sanitized, policy.expectations);
   return sanitized;
 };
 
@@ -255,6 +391,7 @@ export const hasForbiddenBrowserAuthHeader = (
 export class LiveJobsEvidence {
   private readonly apiOrigin: string;
   private readonly browserFailures: BrowserFailure[] = [];
+  private readonly canaryScope?: EvidenceCanaryScope;
   private frozen = false;
   private readonly networkEvents: RawNetworkEvent[] = [];
   private readonly page: Page;
@@ -263,8 +400,14 @@ export class LiveJobsEvidence {
   private routePolicy: EvidenceRoutePolicy | null = null;
   private readonly webOrigin: string;
 
-  constructor(page: Page, baseUrl: string, apiUrl: string) {
+  constructor(
+    page: Page,
+    baseUrl: string,
+    apiUrl: string,
+    canaryScope?: EvidenceCanaryScope
+  ) {
     this.apiOrigin = new URL(apiUrl).origin;
+    this.canaryScope = canaryScope;
     this.page = page;
     this.webOrigin = new URL(baseUrl).origin;
 
@@ -296,6 +439,11 @@ export class LiveJobsEvidence {
     this.networkEvents.push({
       kind: "request",
       method: request.method(),
+      payloadProof:
+        target.pathname === "/v1/aanvragen/search" ||
+        target.pathname === "/v1/aanvragen/batch"
+          ? validateRequestPayload(request, target.pathname, this.canaryScope)
+          : undefined,
       url: target.href,
     });
     if (!hasForbiddenBrowserAuthHeader(request.headers())) {
@@ -344,6 +492,11 @@ export class LiveJobsEvidence {
     this.networkEvents.push({
       kind: "response",
       method: response.request().method(),
+      payloadProof:
+        target.pathname === "/v1/aanvragen/search" ||
+        target.pathname === "/v1/aanvragen/batch"
+          ? validateResponsePayload(response, target.pathname, this.canaryScope)
+          : undefined,
       redirected,
       status: response.status(),
       url: target.href,
@@ -378,10 +531,98 @@ export class LiveJobsEvidence {
     }
   }
 
-  assertObservedRoutes(
+  private async abortFinalization(page: Page, message: string): Promise<never> {
+    try {
+      if (!page.isClosed()) {
+        await page.close({ runBeforeUnload: false });
+      }
+    } catch {
+      // The page is abandoned either way; unsafe details are not retained.
+    }
+    this.detachListeners();
+    this.frozen = true;
+    throw new Error(message);
+  }
+
+  private async captureSanitizedScreenshot(
+    page: Page,
+    policy: EvidenceRoutePolicy,
+    screenshotAttestation: CanaryScreenshotAttestation,
+    visualAttestation?: CanaryVisualAttestation
+  ): Promise<{
+    readonly requestSequence: number;
+    readonly screenshot: Buffer;
+  }> {
+    if (
+      !isCanaryScreenshotAttestation(screenshotAttestation) ||
+      policy.screenshotAttestation !== screenshotAttestation ||
+      !visualAttestation ||
+      !isLinkedCanaryVisualAttestation(visualAttestation, screenshotAttestation)
+    ) {
+      throw new Error(
+        "Live jobs E2E refused a screenshot without linked response and DOM attestations."
+      );
+    }
+    const url = new URL(page.url());
+    if (
+      url.origin !== this.webOrigin ||
+      url.pathname !== "/jobs" ||
+      url.searchParams.get("job") !== screenshotAttestation.canaryId ||
+      (await page.getByLabel("Zoekresultaten").count()) !== 1 ||
+      (await page.locator("pre").count()) === 0
+    ) {
+      throw new Error(
+        "Live jobs E2E refused to create a screenshot that is not an exact canary detail."
+      );
+    }
+    await page.waitForLoadState("networkidle");
+    if (this.pendingRequests.size > 0) {
+      await this.abortFinalization(
+        page,
+        "Live jobs E2E refused screenshot capture while network requests were pending; no artifact was written."
+      );
+    }
+    await sanitizeValidatedNetworkEvents(
+      this.networkEvents,
+      this.apiOrigin,
+      this.webOrigin,
+      policy
+    );
+    assertNoBrowserFailureEvents(this.browserFailures);
+
+    try {
+      await page.setContent(SANITIZED_VISUAL_ATTESTATION_HTML, {
+        waitUntil: "domcontentloaded",
+      });
+      if (
+        (await page
+          .locator('[data-live-jobs-evidence="sanitized"]')
+          .count()) !== 1
+      ) {
+        throw new Error("sanitized surface missing");
+      }
+      await page.waitForLoadState("networkidle");
+      if (this.pendingRequests.size > 0) {
+        throw new Error("network activity remained");
+      }
+      const { requestSequence } = this;
+      const screenshot = await page.screenshot({
+        animations: "disabled",
+        fullPage: true,
+      });
+      return { requestSequence, screenshot };
+    } catch {
+      return await this.abortFinalization(
+        page,
+        "Live jobs E2E could not render and capture the sanitized visual attestation; no artifact was written."
+      );
+    }
+  }
+
+  async assertObservedRoutes(
     expectations: readonly RouteExpectation[],
     screenshotAttestation?: CanaryScreenshotAttestation
-  ): void {
+  ): Promise<void> {
     this.assertMutable();
     this.routePolicy = {
       expectations: Object.freeze(
@@ -389,7 +630,7 @@ export class LiveJobsEvidence {
       ),
       screenshotAttestation,
     };
-    const events = sanitizeValidatedNetworkEvents(
+    const events = await sanitizeValidatedNetworkEvents(
       this.networkEvents,
       this.apiOrigin,
       this.webOrigin,
@@ -418,10 +659,10 @@ export class LiveJobsEvidence {
     }
   }
 
-  assertNoCapabilityRequests(): void {
+  async assertNoCapabilityRequests(): Promise<void> {
     this.assertMutable();
     this.routePolicy = { expectations: [] };
-    const events = sanitizeValidatedNetworkEvents(
+    const events = await sanitizeValidatedNetworkEvents(
       this.networkEvents,
       this.apiOrigin,
       this.webOrigin,
@@ -444,9 +685,9 @@ export class LiveJobsEvidence {
   }
 
   /**
-   * Capture the fully masked screenshot first, then close the page to force
-   * every request to finish or fail. Only a complete, frozen event snapshot is
-   * validated and published through one final attachment operation.
+   * Replace the validated live DOM with a fixed, data-free attestation surface
+   * before capture, then close the page to force every request to finish or
+   * fail. Only a complete, frozen event snapshot is published.
    */
   async attachPassed(
     testInfo: TestInfo,
@@ -468,41 +709,15 @@ export class LiveJobsEvidence {
     let screenshot: Buffer | null = null;
     let screenshotRequestSequence: number | null = null;
     if (options.screenshotAttestation) {
-      if (
-        !isCanaryScreenshotAttestation(options.screenshotAttestation) ||
-        this.routePolicy.screenshotAttestation !== options.screenshotAttestation
-      ) {
-        throw new Error(
-          "Live jobs E2E refused a screenshot without its validated server-response canary attestation."
+      const { requestSequence, screenshot: capturedScreenshot } =
+        await this.captureSanitizedScreenshot(
+          page,
+          this.routePolicy,
+          options.screenshotAttestation,
+          options.visualAttestation
         );
-      }
-      const url = new URL(page.url());
-      if (
-        url.origin !== this.webOrigin ||
-        url.pathname !== "/jobs" ||
-        url.searchParams.get("job") !==
-          options.screenshotAttestation.canaryId ||
-        (await page.getByLabel("Zoekresultaten").count()) !== 1 ||
-        (await page.locator("pre").count()) === 0
-      ) {
-        throw new Error(
-          "Live jobs E2E refused to create a screenshot that is not an exact canary detail."
-        );
-      }
-      await page.waitForLoadState("networkidle");
-      if (this.pendingRequests.size > 0) {
-        await page.close({ runBeforeUnload: false });
-        this.detachListeners();
-        this.frozen = true;
-        throw new Error(
-          "Live jobs E2E refused screenshot capture while network requests were pending; no artifact was written."
-        );
-      }
-      screenshotRequestSequence = this.requestSequence;
-      screenshot = await page.screenshot({
-        fullPage: true,
-        mask: [page.locator("body")],
-      });
+      screenshot = capturedScreenshot;
+      screenshotRequestSequence = requestSequence;
     }
 
     await page.close({ runBeforeUnload: false });
@@ -529,7 +744,7 @@ export class LiveJobsEvidence {
     const frozenFailures = Object.freeze(
       this.browserFailures.map((failure) => Object.freeze({ ...failure }))
     );
-    const sanitizedEvents = sanitizeValidatedNetworkEvents(
+    const sanitizedEvents = await sanitizeValidatedNetworkEvents(
       frozenEvents,
       this.apiOrigin,
       this.webOrigin,

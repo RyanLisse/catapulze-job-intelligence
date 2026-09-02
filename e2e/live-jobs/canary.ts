@@ -39,11 +39,20 @@ const jsonNullSchema = z.null();
 const jsonRecordSchema = z.record(z.string(), canaryJsonValueSchema);
 const jsonStringSchema = z.string();
 const screenshotAttestations = new WeakSet<object>();
+const visualAttestations = new WeakMap<object, CanaryScreenshotAttestation>();
 
 export interface CanaryScreenshotAttestation {
   readonly canaryId: string;
   readonly digest: string;
   readonly rawPayloadRef: string;
+}
+
+export interface CanaryVisualAttestation {
+  readonly exactCanaryDetail: true;
+  readonly provenanceVisible: true;
+  readonly rawPreviewVisible: true;
+  readonly releaseMatched: true;
+  readonly searchRendered: true;
 }
 
 const compareJsonKeys = (left: string, right: string): number => {
@@ -195,6 +204,36 @@ export const assertCanaryDetailResponse = async (
 export const isCanaryScreenshotAttestation = (
   value: CanaryScreenshotAttestation
 ): boolean => screenshotAttestations.has(value);
+
+/**
+ * Minted only after job-flow has completed its real DOM assertions. The
+ * attestation carries fixed booleans and is linked by object identity to the
+ * already validated response attestation, so no business data is copied into
+ * the later visual artifact.
+ */
+export const issueCanaryVisualAttestation = (
+  screenshotAttestation: CanaryScreenshotAttestation
+): CanaryVisualAttestation => {
+  if (!isCanaryScreenshotAttestation(screenshotAttestation)) {
+    throw new Error(
+      "Live jobs E2E cannot attest visual state without a validated canary response."
+    );
+  }
+  const attestation = Object.freeze({
+    exactCanaryDetail: true as const,
+    provenanceVisible: true as const,
+    rawPreviewVisible: true as const,
+    releaseMatched: true as const,
+    searchRendered: true as const,
+  });
+  visualAttestations.set(attestation, screenshotAttestation);
+  return attestation;
+};
+
+export const isLinkedCanaryVisualAttestation = (
+  value: CanaryVisualAttestation,
+  screenshotAttestation: CanaryScreenshotAttestation
+): boolean => visualAttestations.get(value) === screenshotAttestation;
 
 export const canonicalCanaryDigest = (
   value: CanaryJsonValue
