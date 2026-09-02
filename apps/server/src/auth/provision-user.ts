@@ -85,19 +85,12 @@ const main = async (): Promise<void> => {
         });
         return { id: created.user.id };
       },
-      hasExistingUser: async (email) => {
-        const existing = await db.query.user.findFirst({
-          columns: { id: true },
+      findUserByEmail: async (email) => {
+        const stored = await db.query.user.findFirst({
+          columns: { id: true, role: true },
           where: (users, { eq }) => eq(users.email, email),
         });
-        return existing !== undefined;
-      },
-      readUserRole: async (id) => {
-        const stored = await db.query.user.findFirst({
-          columns: { role: true },
-          where: (users, { eq }) => eq(users.id, id),
-        });
-        return stored?.role;
+        return stored ?? null;
       },
     });
     writeOutput(formatProvisioningOutput(evidence));

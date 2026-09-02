@@ -63,13 +63,16 @@ interface ProvisionedUser {
   readonly id: string;
 }
 
+interface CanonicalUser extends ProvisionedUser {
+  readonly role: string | undefined;
+}
+
 export interface ProvisioningDependencies {
   readonly createUser: (
     credentials: Omit<ProvisioningInput, "role">,
     serverRole: AuthUserRole
   ) => Promise<ProvisionedUser>;
-  readonly hasExistingUser: (email: string) => Promise<boolean>;
-  readonly readUserRole: (id: string) => Promise<string | undefined>;
+  readonly findUserByEmail: (email: string) => Promise<CanonicalUser | null>;
 }
 
 export type ProvisioningEvidence =
@@ -100,14 +103,14 @@ export class ProvisioningFailureError extends Error {
   }
 }
 
-const existingUserAppeared = async (
+const findCanonicalUserSafely = async (
   email: string,
   dependencies: ProvisioningDependencies
-): Promise<boolean> => {
+): Promise<CanonicalUser | null> => {
   try {
-    return await dependencies.hasExistingUser(email);
+    return await dependencies.findUserByEmail(email);
   } catch {
-    return false;
+    return null;
   }
 };
 
@@ -122,7 +125,7 @@ export const provisionAuthUser = async (
   input: ProvisioningInput,
   dependencies: ProvisioningDependencies
 ): Promise<ProvisioningEvidence> => {
-  if (await dependencies.hasExistingUser(input.email)) {
+  if (await dependencies.findUserByEmail(input.email)) {
     return { created: false, status: "already_exists" };
   }
 
@@ -131,19 +134,23 @@ export const provisionAuthUser = async (
     const { role, ...credentials } = input;
     created = await dependencies.createUser(credentials, role);
   } catch {
-    if (await existingUserAppeared(input.email, dependencies)) {
+    if (await findCanonicalUserSafely(input.email, dependencies)) {
       return { created: false, status: "already_exists" };
     }
     throw new ProvisioningFailureError("CREATE_FAILED");
   }
 
-  let storedRole: string | undefined;
-  try {
-    storedRole = await dependencies.readUserRole(created.id);
-  } catch {
+  const canonicalUser = await findCanonicalUserSafely(
+    input.email,
+    dependencies
+  );
+  if (!canonicalUser) {
     return roleReconciliationRequired();
   }
-  if (storedRole !== input.role) {
+  if (canonicalUser.id !== created.id) {
+    return { created: false, status: "already_exists" };
+  }
+  if (canonicalUser.role !== input.role) {
     return roleReconciliationRequired();
   }
 
