@@ -574,6 +574,12 @@ describe("reconcileProjection (RJC-399 repair tool)", () => {
     expect(report.invalidDocumentId).toContain(invalidDocumentId);
     expect(report.invalidDocumentIdCount).toBe(1);
     expect(report.physicalCorruptionCount).toBe(2);
+    expect(report.physicalCorruption).not.toContainEqual(
+      expect.objectContaining({
+        documentId: healthyId,
+        manticoreId: healthyRow.manticoreId,
+      })
+    );
     expect(report.staleManticoreHashCount).toBe(1);
     expect(report.missingProjectionStateCount).toBe(1);
 
@@ -756,7 +762,7 @@ describe("reconcileProjection (RJC-399 repair tool)", () => {
     const db = requireDatabase();
     const aggregateId = await seedAanvraag(db, lowUuid());
     const loader = new PostgresSearchDocumentLoader(db);
-    const { indexName, store } = await isolatedVersionStore(db);
+    const { generation, indexName, store } = await isolatedVersionStore(db);
     const document = await loader.loadByAggregateId(aggregateId);
     if (!document) {
       throw new Error("Expected seeded document to load");
@@ -766,6 +772,12 @@ describe("reconcileProjection (RJC-399 repair tool)", () => {
       manticoreId: hashDocumentId(aggregateId),
       projectionHash: projectionHash(document, NOW),
     };
+    await db.insert(searchProjectionState).values({
+      aggregateId,
+      appliedSequence: 1n,
+      generation,
+      projectionHash: canonicalRow.projectionHash,
+    });
     const observedCorruptRow: SearchProjectionInventoryRecord = {
       ...canonicalRow,
       documentId: "corrupt-before-concurrent-repair",

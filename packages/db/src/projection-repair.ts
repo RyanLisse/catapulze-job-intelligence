@@ -393,6 +393,14 @@ const physicalRowKey = (
   row: SearchProjectionInventoryRecord
 ): string => [partition, String(row.manticoreId), row.documentId].join(":");
 
+const physicalRowCanUseNormalDelete = (
+  row: SearchProjectionInventoryRecord
+): boolean =>
+  isCanonicalUuid(row.documentId) &&
+  Number.isSafeInteger(row.manticoreId) &&
+  row.manticoreId >= 0 &&
+  row.manticoreId === hashDocumentId(row.documentId);
+
 class PhysicalObservationTracker {
   private readonly corruptions = new Map<string, MutablePhysicalCorruption>();
   private readonly invalidDocumentIds = new Set<string>();
@@ -427,7 +435,9 @@ class PhysicalObservationTracker {
     rows: readonly SearchProjectionInventoryRecord[]
   ): void {
     for (const row of rows) {
-      this.record(partition, row, "same_partition_duplicate");
+      if (!physicalRowCanUseNormalDelete(row)) {
+        this.record(partition, row, "same_partition_duplicate");
+      }
     }
   }
 
@@ -869,14 +879,6 @@ const allPhysicalRows = (
   ...activeRows.map((row) => ({ partition: "active" as const, row })),
   ...archiveRows.map((row) => ({ partition: "archive" as const, row })),
 ];
-
-const physicalRowCanUseNormalDelete = (
-  row: SearchProjectionInventoryRecord
-): boolean =>
-  isCanonicalUuid(row.documentId) &&
-  Number.isSafeInteger(row.manticoreId) &&
-  row.manticoreId >= 0 &&
-  row.manticoreId === hashDocumentId(row.documentId);
 
 const toScanResult = (input: {
   applied: number;
@@ -1429,8 +1431,8 @@ const createApplyActions = (
       if (rows.length === 0) {
         return Promise.resolve(0);
       }
-      const cleanup = input.inventory?.deleteObservedRows;
-      if (!cleanup) {
+      const { inventory } = input;
+      if (!inventory?.deleteObservedRows) {
         throw new ProjectionRepairPhysicalCorruptionError(
           rows.map((row) => ({
             documentId: row.documentId,
@@ -1442,6 +1444,7 @@ const createApplyActions = (
           }))
         );
       }
+      const cleanup = inventory.deleteObservedRows.bind(inventory);
       return withinFence(() => cleanup(partition, rows));
     },
   };
