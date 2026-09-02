@@ -1,149 +1,162 @@
-# Search schema migration (Manticore attributes + SEARCH_SCHEMA_HASH)
+# Search schema migration and durable full replay
 
-Applies whenever `SEARCH_SCHEMA_HASH` in `packages/search/src/version.ts`
-changes. Occurrences so far:
+Use this runbook whenever `SEARCH_SCHEMA_HASH` changes, when a full search
+replay is deliberately requested, or after a Manticore incident. Postgres is
+the system of record; Manticore is a rebuildable derived index.
 
-- RJC-378 added the `locatie` and `sluitingsdatum` attributes
-  (`aanvragen-v1` → `aanvragen-v2`) — an attribute change on one table.
-- RJC-383 split the index into two partitions, `aanvragen_active` and
-  `aanvragen_archive` (`aanvragen-v2` → `aanvragen-v3[active|archive]`) — a
-  table-layout change; see [Partition step](#partition-step-rjc-383).
+This applies to the existing attributes and to the active/archive partition
+layout (`aanvragen_active`, `aanvragen_archive`). It does not drop the legacy
+`aanvragen` table or clear a Manticore volume automatically.
 
-## What happens if you deploy without this
+## Why the order matters
 
-`drainPostgresOutbox` (`packages/db/src/outbox-drain.ts`) compares the
-checkpoint's `schema_hash` with the code's constant on every drain and throws
-`SearchIndexSchemaMismatchError` on mismatch. The projector stops advancing,
-search keeps serving the old index, nothing is corrupted — but nothing new is
-indexed until the steps below are done. `/readyz` reports `searchProjection`
-as `unavailable` for the same reason (`docs/runbooks/readiness.md`).
+`drainPostgresOutbox` refuses a checkpoint whose `schema_hash` differs from
+the code's `SEARCH_SCHEMA_HASH`. That normally makes `/readyz` report the
+search projection as unavailable instead of silently indexing with a wrong
+mapping.
 
-For the RJC-383 split specifically, deploying code without the new tables
-also fails the Manticore readiness component with `table_missing` (it now
-checks both partition tables) and makes every search return a Manticore
-error (`unknown index aanvragen_active`) — so do the conf step first.
+`bun run search:new-generation --apply` deliberately puts the checkpoint into
+the same mismatch state while it creates a complete replay. Its temporary
+schema hash looks like:
 
-## Steps (in this order)
+```text
+search-reindex-pending:v1:<encoded-schema-hash>:<high-water-uuid-or-empty>
+```
 
-1. **Add the attributes to the RT table.** An existing Manticore volume does
-   not pick up new `rt_attr_*` lines from `tools/manticore/manticore.conf`
-   (RT tables ignore conf schema changes on an existing `path`). On the live
-   instance, via the SQL endpoint (`:9306` mysql or `POST :9308/sql`):
+The projector must remain stopped while that marker exists. A running or
+in-flight projector can write an old batch after the new generation has
+started; Manticore cannot fence that late engine write.
 
-   ```sql
-   ALTER TABLE aanvragen ADD COLUMN locatie string;
-   ALTER TABLE aanvragen ADD COLUMN sluitingsdatum timestamp;
-   DESCRIBE aanvragen;  -- both columns must be listed
-   ```
+## Preconditions
 
-   A fresh volume gets them from the conf. Repeat on any shadow instance
-   (e.g. the 29.x comparison conf) before it is used.
+1. Deploy the code and ensure the target Manticore schema/tables exist first.
+   For a live RT table, `rt_attr_*` changes require an explicit SQL `ALTER
+   TABLE`; editing `manticore.conf` alone does not change an existing table
+   path. New active/archive tables are picked up from the config after a
+   `searchd` restart.
 
-2. **Start a new search generation.** With `DATABASE_URL` pointing at the
-   target database:
-
-   ```bash
-   bun run search:new-generation
-   ```
-
-   Prints `search generation N -> N+1` with the hash change and resets
-   `appliedSequence` to 0. It refuses (exit 1) when the checkpoint already has
-   the current hash; `--force` overrides for a deliberate full rebuild.
-
-3. **Reindex.** The drain now resumes from sequence 0 of the outbox, so every
-   aanvraag is re-projected with the new attributes on the next drain cycle.
-   Until reindexing completes, rows written under the old mapping have an
-   empty `locatie` and `sluitingsdatum = 0` (which the closing-soon sort would
-   list FIRST — that is why the reindex is not optional). If the outbox has
-   been pruned past sequence 0, replay the aanvragen (see
-   `docs/runbooks/replay-and-backfill.md`) so each one emits a fresh event.
-
-4. **Verify.**
-   - `SELECT generation, schema_hash, applied_sequence FROM curated.search_projection_checkpoint;`
-     shows the new generation and the drain advancing.
-   - `POST /v1/aanvragen/search` with `{"query":"","sort":"closing-soon","limit":5}`
-     returns real deadlines first once the reindex has passed those rows.
-   - Redis result cache needs no flush: keys are versioned (`search:v5:` +
-     generation, `search:facets:v2:` + generation), so old entries are simply
-     never read again.
-
-## Partition step (RJC-383)
-
-**Deploy ORDER (hard):** 1. Manticore conf reload (new tables exist) →
-2. `bun run db:migrate` (0010) → 3. `bun run search:new-generation` + reindex →
-4. server/worker deploy. Any other order 503s `/readyz`: the server's Manticore
-readiness check requires both partition tables, and the drain refuses a
-checkpoint whose schema hash does not match the code.
-
-The projector writes to `aanvragen_active` (open records: status `active` /
-`unknown` whose `sluitingsdatum` has not passed) and `aanvragen_archive`
-(`closed`, `stale`, or a passed deadline), routing every document through
-`resolveSearchPartition` in `packages/search/src/partition.ts` and MOVING it
-between the tables (replace in the new one, delete from the old one, in one
-`/bulk` request) when its lifecycle changes. Search reads `aanvragen_active`
-by default and `aanvragen_active,aanvragen_archive` for `scope: "all"`
-(multi-table search verified on 6.3.8: totals, facets, attribute sorts and
-offset paging merge correctly). One ranking consequence: BM25 statistics
-(IDF) are per table, so under `scope: "all"` a term's weight is computed
-against each partition separately and the merged order can differ slightly
-from a single-table index holding the same documents. Nothing here is
-destructive: the legacy single `aanvragen` table is left exactly as it is.
-
-1. **Conf → new tables.** The tables come from the conf (production runs in
-   plain mode, so there is no `CREATE TABLE`). Deploy the updated
-   `tools/manticore/manticore.conf` (and both `manticore29*.conf` for the
-   shadow instances) and restart `searchd` once. New tables ARE picked up on
-   an existing volume — only schema changes to an existing table's path are
-   ignored — so no volume reset is needed. Verify:
+2. Check the Manticore tables before touching the checkpoint:
 
    ```sql
-   SHOW TABLES;  -- must list aanvragen, aanvragen_active, aanvragen_archive
+   SHOW TABLES;
+   DESCRIBE aanvragen_active;
+   DESCRIBE aanvragen_archive;
    ```
 
-   Until this restart has happened, do not deploy the RJC-383 application
-   code (see "What happens if you deploy without this").
+3. Quiesce the singleton projector. Stop its Coolify/worker process and wait
+   for any current drain request to finish. Keep it stopped until the replay
+   command has reported `finalized: true`; do not merely rely on a lease
+   expiring.
 
-2. **New generation.** `bun run search:new-generation` as in step 2 above.
-   The hash change is `aanvragen-v2:…` → `aanvragen-v3[active|archive]:…`.
+4. Keep `DATABASE_URL` scoped to the intended Postgres environment. Do not
+   place it in shell history or this repository.
 
-3. **Migrate.** `bun run db:migrate` applies 0010 (`query_snapshot.search_scope`):
-   existing snapshots are backfilled as `'all'` (they were taken against the
-   single table holding the whole stock); the column default is `'active'`
-   for new rows. A row inserted between the migration's two statements also
-   gets `'all'` — the older, broader semantics, so it is safe.
+## Replay protocol
 
-4. **Reindex** as in step 3 above. Every re-projected document lands in the
-   partition its current lifecycle dictates; `curated.search_projection_state`
-   records that partition as the prefix of `projection_hash`
-   (`active:…` / `archive:…`) so later moves know which table to delete
-   from. The count of both tables together must converge on the number of
-   aanvragen the outbox re-emitted:
+First inspect the plan. This is read-only and does not create a checkpoint or
+outbox events:
+
+```bash
+bun run search:new-generation
+```
+
+With the projector still stopped, create or resume the durable replay:
+
+```bash
+bun run search:new-generation --apply
+```
+
+The command captures a high-water UUID, creates the pending marker, and pages
+through every current `curated.aanvraag`. Each row receives a deterministic,
+idempotent `aanvraag.search_reindex` outbox event. Existing projection state
+and processed historical events do not suppress this replay.
+
+When every page has committed, the command checks for dead-lettered replay
+events belonging to that exact index/generation, then atomically replaces the
+pending marker with `SEARCH_SCHEMA_HASH`. Only then may the projector start.
+
+`--force` is only for deliberately creating another generation when the
+checkpoint already has the current schema hash:
+
+```bash
+bun run search:new-generation --apply --force
+```
+
+It never replaces a pending generation. A matching pending marker is always
+resumed; a pending marker for a different schema hash is an operator stop.
+
+### Recovery and resume
+
+| Observation | Action |
+| --- | --- |
+| Process stopped after the marker or after a page | Keep the projector stopped and rerun the same `--apply`. Deterministic event IDs make committed pages conflict-safe. |
+| Command says replay events are dead-lettered | Resolve or requeue those replay events, then rerun `--apply`. The marker stays pending on purpose. |
+| Marker names a different schema hash | Do not force over it. Determine which deployment owns the marker and finish or recover that migration first. |
+| Command reports `finalized: true` | Start one projector, drain the durable replay, then reconcile the physical Manticore contents. |
+
+Do not hand-edit `search_projection_checkpoint.schema_hash` to bypass any of
+these cases. That would allow a partial generation to drain.
+
+## Drain and reconcile
+
+After a successful finalize, restart exactly one projector and wait for its
+outbox lag and dead-letter queue to settle. A replay replaces every current
+document, but it cannot remove an old Manticore row that no longer has a
+curated aanvraag. Reconciliation is therefore a required post-drain step:
+
+```bash
+MANTICORE_URL=http://manticore-<service-uuid>:9308 \
+  bun run search:reconcile-projection
+```
+
+The default is report-only. If it reports current-document drift or valid
+UUID orphans, emit durable repair/delete events and drain them:
+
+```bash
+MANTICORE_URL=http://manticore-<service-uuid>:9308 \
+  bun run search:reconcile-projection --apply
+```
+
+Run the report-only command again after that drain. A convergence claim needs
+zero current divergences and zero valid UUID orphans; malformed Manticore
+`document_id` values are deliberately report-only and need an explicit,
+scoped operator cleanup decision.
+
+## Verification
+
+1. Check the target checkpoint:
 
    ```sql
-   SELECT COUNT(*) FROM aanvragen_active;
-   SELECT COUNT(*) FROM aanvragen_archive;
+   SELECT index_name, generation, schema_hash, applied_sequence
+   FROM curated.search_projection_checkpoint;
    ```
 
-5. **Verify.**
-   - `POST /v1/aanvragen/search` with `{"query":""}` returns
-     `"scope":"active"` and an `archiveTotal`; with `{"query":"","scope":"all"}`
-     it returns `"scope":"all"` and `total` ≥ the active total.
-   - `/readyz` reports the Manticore component `ok` (both tables exist).
-   - The web toggle "Ook in archief zoeken" (URL `archief=1`) shows the
-     closed/stale records that the default view hides.
+   `schema_hash` must equal the deployed `SEARCH_SCHEMA_HASH`, not the
+   pending marker.
 
-6. **Drop the legacy table — operator decision, later.** Once the reindex
-   has converged and nothing reads `aanvragen` any more (grep the deployed
-   conf/env for the name; the application code no longer references it),
-   the operator may remove the `table aanvragen { … }` block from the conf,
-   restart, and delete `/var/lib/manticore/aanvragen_v2*` from the volume.
-   This runbook deliberately does not script that step.
+2. Confirm the projector is healthy, its outbox lag is zero (or has a known
+   active producer), and no replay event is dead-lettered.
 
-### Open product decision: the recency window
+3. Use the reconciliation dry run above with the real `MANTICORE_URL`.
+   Postgres-only state agreement is not a Manticore convergence verdict.
 
-`ACTIVE_RECENT_DAYS` (`packages/search/src/partition.ts`) is `null`: an
-open record stays in the active partition however long ago it was last
-seen; only its lifecycle (RJC-377 date closes, RJC-397 listing-disappearance
-`stale`) archives it. Enabling a window (e.g. 30 days) needs a periodic sweep
-that re-projects records crossing it — the partition is only re-evaluated
-when an outbox event arrives.
+4. Exercise the production search path, including `scope: "active"` and
+   `scope: "all"` for the partitioned layout. Verify `/readyz` separately
+   from container health.
+
+## Partition layout notes
+
+The projector writes open records to `aanvragen_active`; `closed`, `stale`,
+or passed-deadline records go to `aanvragen_archive`. Moves are replace-first
+in the target partition followed by deletion from the other partition. The
+projection hash records the partition prefix (`active:` / `archive:`).
+
+For a new installation, define both tables in `tools/manticore/manticore.conf`
+and restart `searchd`. On an existing volume, adding those *new* tables is
+safe; altering attributes of an existing path still needs explicit SQL. Keep
+the legacy `aanvragen` table until the reconciliation and live search evidence
+show no consumers. Its eventual removal is a separate operator decision.
+
+`ACTIVE_RECENT_DAYS` is currently `null`: an open record stays active until
+its lifecycle changes. Enabling a time window needs a periodic outbox sweep
+so records crossing the boundary are re-projected.

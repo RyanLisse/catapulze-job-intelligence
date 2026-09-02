@@ -50,12 +50,31 @@ export {
 } from "./postgres-curate-store";
 export {
   PROJECTION_REPAIR_EVENT_TYPE,
+  PROJECTION_REPAIR_DEFAULT_PAGE_SIZE,
+  PROJECTION_REPAIR_DEFAULT_SAMPLE_LIMIT,
+  ProjectionRepairGenerationChangedError,
   ProjectionRepairSchemaMismatchError,
   reconcileProjection,
   type ProjectionDivergence,
+  type ProjectionDivergenceReason,
   type ReconcileProjectionInput,
   type ReconcileProjectionResult,
+  type SearchProjectionInventoryPort,
+  type SearchProjectionInventoryRecord,
 } from "./projection-repair";
+export {
+  SEARCH_REINDEX_DEFAULT_PAGE_SIZE,
+  SEARCH_REINDEX_EVENT_TYPE,
+  SEARCH_REINDEX_PENDING_PREFIX,
+  SearchReindexDeadLetterError,
+  SearchReindexGenerationChangedError,
+  SearchReindexPendingGenerationError,
+  runSearchReindex,
+  searchReindexEventId,
+  type RunSearchReindexInput,
+  type RunSearchReindexResult,
+  type SearchReindexProgress,
+} from "./search-reindex";
 export {
   resolveNeonV1BackfillSource,
   runMotianV1Backfill,
