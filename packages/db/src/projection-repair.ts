@@ -188,12 +188,13 @@ export class ProjectionRepairPhysicalCorruptionError extends ProjectionRepairInv
  * fail closed before querying or interpreting Manticore rows.
  */
 export const manticoreIdsForBoundedLookup = (
-  documentIds: readonly string[]
+  documentIds: readonly string[],
+  seen: Map<number, string> = new Map<number, string>(),
+  hash: (documentId: string) => number = hashDocumentId
 ): number[] => {
   const manticoreIds: number[] = [];
-  const seen = new Map<number, string>();
   for (const documentId of documentIds) {
-    const manticoreId = hashDocumentId(documentId);
+    const manticoreId = hash(documentId);
     const existing = seen.get(manticoreId);
     if (existing !== undefined) {
       throw new ProjectionRepairInventorySafetyError(
@@ -241,6 +242,8 @@ export interface ReconcileProjectionInput {
   now?: Date;
   /** Bounded curated/Manticore page size. */
   pageSize?: number;
+  /** Deterministic test seam for cross-page numeric-id collision handling. */
+  lookupManticoreId?: (documentId: string) => number;
   /** Capped samples retained in the result. Exact totals are tracked separately. */
   sampleLimit?: number;
   /**
@@ -1105,6 +1108,7 @@ const scanInventoryProjection = async (
   let missingDocumentCount = 0;
   let missingProjectionStateCount = 0;
   let cursor: string | null = null;
+  const seenLookupManticoreIds = new Map<number, string>();
 
   /* oxlint-disable no-await-in-loop -- ordered bounded source pages are the consistency boundary */
   for (;;) {
@@ -1118,6 +1122,11 @@ const scanInventoryProjection = async (
     }
     cursor = sourceRows.at(-1)?.id ?? null;
     const aggregateIds = sourceRows.map((row) => row.id);
+    manticoreIdsForBoundedLookup(
+      aggregateIds,
+      seenLookupManticoreIds,
+      options.input.lookupManticoreId
+    );
     checked += aggregateIds.length;
     const [documents, states, activeRows, archiveRows] = await Promise.all([
       options.input.loader.loadManyByAggregateIds(aggregateIds),

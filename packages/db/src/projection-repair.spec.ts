@@ -50,6 +50,7 @@ const databaseRequired =
   process.env.DATABASE_TEST_URL !== undefined;
 const migrationsFolder = path.join(import.meta.dir, "migrations");
 const NOW = new Date("2026-09-01T06:00:00.000Z");
+const collidingHash = (): number => 42;
 
 const isPostgresAvailable = async (): Promise<boolean> => {
   const probe = postgres(migratorUrl, { connect_timeout: 2, max: 1 });
@@ -326,10 +327,17 @@ describe("reconcileProjection (RJC-399 repair tool)", () => {
   };
 
   it("fails closed before a bounded lookup can use duplicate numeric ids", () => {
-    const documentId = crypto.randomUUID();
+    const firstDocumentId = crypto.randomUUID();
+    const secondDocumentId = crypto.randomUUID();
+    const scanIds = new Map<number, string>();
+    expect(
+      manticoreIdsForBoundedLookup([firstDocumentId], scanIds, collidingHash)
+    ).toEqual([42]);
     expect(() =>
-      manticoreIdsForBoundedLookup([documentId, documentId])
-    ).toThrow("duplicate numeric id");
+      manticoreIdsForBoundedLookup([secondDocumentId], scanIds, collidingHash)
+    ).toThrow(
+      `duplicate numeric id 42 for ${firstDocumentId} and ${secondDocumentId}`
+    );
   });
 
   it("models production numeric-id lookup and preserves a replacement during compare-delete", async () => {
@@ -711,6 +719,33 @@ describe("reconcileProjection (RJC-399 repair tool)", () => {
         versionStore: store,
       })
     ).rejects.toThrow(ProjectionRepairSchemaMismatchError);
+  });
+
+  it("fails closed on a numeric-id collision across one-row source pages", async () => {
+    if (!available || !database) {
+      expect(available).toBe(false);
+      return;
+    }
+    const db = requireDatabase();
+    await Promise.all([
+      seedAanvraag(db, lowUuid()),
+      seedAanvraag(db, lowUuid()),
+    ]);
+    const { indexName, store } = await isolatedVersionStore(db);
+    const inventory = new FakeManticoreInventory({ active: [], archive: [] });
+
+    await expect(
+      reconcileProjection({
+        apply: false,
+        database: db,
+        indexName,
+        inventory,
+        loader: new PostgresSearchDocumentLoader(db),
+        lookupManticoreId: () => 42,
+        pageSize: 1,
+        versionStore: store,
+      })
+    ).rejects.toThrow("duplicate numeric id 42");
   });
 
   it("does not delete a canonical row that replaces an observed corrupt row before cleanup", async () => {
