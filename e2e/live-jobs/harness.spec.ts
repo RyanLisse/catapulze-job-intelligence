@@ -946,11 +946,17 @@ describe("live jobs E2E canary and artifact boundaries", () => {
     expect(cleanupCalls).toBe(0);
   });
 
-  it("fails authenticated mode before a browser starts while cookie verification is unapproved", async () => {
+  it("propagates a sanitized session-verifier failure before browser start", async () => {
     await expect(
       preflightLiveJobsRun("session", mutationEnvironment, {
         releasePreflight: () => Promise.resolve(),
+        sessionVerifier: () =>
+          Promise.reject(
+            new Error(
+              "Better Auth session verification failed; no browser evidence or writes were attempted."
+            )
+          ),
       })
-    ).rejects.toThrow(/approved Better Auth storage-state verifier/u);
+    ).rejects.toThrow(/session verification failed/u);
   });
 });

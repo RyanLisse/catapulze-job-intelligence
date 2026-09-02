@@ -112,12 +112,14 @@ The storage state must be captured from a real dedicated-account login outside
 the repository. The settled Better Auth contract is a host-only API cookie:
 `better-auth.session_token` over local HTTP or
 `__Secure-better-auth.session_token` over HTTPS, with the API at
-`/api/auth/get-session`. A future approved verifier must prove that endpoint
-returns a non-expired session and exactly `E2E_EXPECTED_SUBJECT_ID`, without
-logging/attaching a cookie or response body. Until Ryan explicitly authorizes
-that narrow cookie-to-configured-API preflight, the authenticated and mutation
-commands fail safely before a browser starts; this harness does not invent
-credentials or fall back to role headers.
+`/api/auth/get-session`. The verifier reads only the external storage-state
+file, selects exactly one unexpired cookie with the required name, exact API
+hostname, root path, and matching secure mode, and sends only that cookie to
+the exact configured endpoint with redirects disabled. It requires an exact
+unredirected HTTP 200, a non-expired session, and the exact
+`E2E_EXPECTED_SUBJECT_ID`. Cookies, session payloads, raw responses, and
+upstream error details are never logged, attached, or retained in errors. The
+harness does not invent credentials or fall back to role headers.
 
 The browser client must use Better Auth cookies with
 `credentials: "include"`. A `Bearer recruiter:`/role bearer or a

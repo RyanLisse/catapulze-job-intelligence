@@ -14,7 +14,7 @@ import { preflightReleaseIdentity } from "./release-preflight";
 import {
   assertExpectedSessionSubject,
   assertMutationSessionSubject,
-  unavailableSessionVerifier,
+  verifyAuthenticatedSession,
 } from "./session-verifier";
 import type {
   AuthenticatedSessionVerifier,
@@ -40,8 +40,8 @@ export interface LiveJobsRunPreflightResult {
 /**
  * The browser is launched only after release identity, session subject, and
  * (for writes) baseline-preserving cleanup gates succeed. Unit tests inject safe fake
- * gates; the production session verifier intentionally remains unavailable
- * until credential-use authorization is granted.
+ * gates. The default verifier uses only the narrowly authorized Better Auth
+ * cookie-to-configured-API preflight.
  */
 export const preflightLiveJobsRun = async (
   mode: LiveJobsRunMode,
@@ -51,7 +51,7 @@ export const preflightLiveJobsRun = async (
   const releasePreflight =
     dependencies.releasePreflight ?? preflightReleaseIdentity;
   const sessionVerifier =
-    dependencies.sessionVerifier ?? unavailableSessionVerifier;
+    dependencies.sessionVerifier ?? verifyAuthenticatedSession;
 
   if (mode === "anonymous") {
     const config = assertAnonymousLiveRun(environment);
