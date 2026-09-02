@@ -15,10 +15,11 @@
 >
 > `bun run db:migrate` applies every pending migration in the checked-out
 > commit. Do not run it until the immutable deployment SHA, exact live journal,
-> affected schema objects, current-snapshot rehearsal, rollback branch, and
-> explicit operator approval all agree on the same pending set.
+> affected schema objects, current-snapshot rehearsal, writer-free final
+> preflight, validated rollback branch, and definitive operator GO all agree on
+> the same pending set.
 
-Before any branch creation or write:
+Required execution order:
 
 1. Pin the full 40-character `DEPLOY_SHA` from the candidate Coolify release or
    release manifest. Never derive this gate from a moving `main` ref.
@@ -43,10 +44,15 @@ Before any branch creation or write:
    `0013` scope/markering objects, the `0014` role contract, and all 15 matching
    journal entries. These are expectations derived from committed code,
    **not** a claim that production has applied them.
-4. Record the exact pending tags. Rehearse that exact set against a fresh
-   branch of the current production snapshot, retain a separate pristine
-   rollback branch, and obtain explicit operator approval tied to
-   `DEPLOY_SHA`, pending tags, rehearsal evidence, and rollback branch ID.
+4. Record the exact pending tags and rehearse that exact set against a fresh
+   branch of the current production snapshot. A successful rehearsal is not
+   the definitive execution GO.
+5. Freeze every writer, repeat the final production preflight, and create and
+   validate a fresh rollback branch while that freeze remains in force.
+6. Only then obtain the definitive GO tied to `DEPLOY_SHA`, pending tags,
+   rehearsal verdict, rollback branch ID/parent/creation time, and successful
+   rollback-branch query evidence. With no intervening state change, run the
+   migration immediately.
 
 ## Historical rehearsal verdict: GO for `0006`–`0011` only
 
@@ -548,9 +554,11 @@ repair automatically.
 branches are copy-on-write and near-instant to create (see
 [neon-restore.md](neon-restore.md) §1). Never migrate the only pristine branch
 while rehearsing: use one branch as the rehearsal source and a child branch as
-the writable rehearsal target. After rehearsal and approval, create a new
-rollback branch immediately before the production apply. Recovery still
-requires the controlled restore/switchover procedure below.
+the writable rehearsal target. After rehearsal, freeze all writers, rerun the
+final production preflight, and create and validate a new rollback branch.
+Only that completed evidence can be included in the definitive GO immediately
+before the production apply. Recovery still requires the controlled
+restore/switchover procedure below.
 
 Create an execution record and fill every field from CLI/Console readback;
 record identifiers, timestamps, aggregate counts, and durations, never
@@ -566,7 +574,7 @@ connection strings or row contents:
 | Rehearsal duration, journal, objects, and row-count deltas | `<must all pass>` |
 | Writer quiescence started / last in-flight write finished | `<record timestamps>` |
 | Final rollback branch ID, parent ID, and `created_at` | `<record verified readback>` |
-| Explicit operator approval | `<approver, time, DEPLOY_SHA, pending tags, GO/NO-GO>` |
+| Definitive operator GO | `<approver, time, DEPLOY_SHA, pending tags, rehearsal verdict, rollback ID/parent/created_at, queryability evidence>` |
 
 ### Rehearse the exact pending set on a fresh production snapshot
 
@@ -642,21 +650,24 @@ blocks. Prove aggregate row counts did not change unexpectedly, record the
 duration/locks, and retain the untouched rehearsal source. A green CI test or
 the 2026-09-01 timing is not a substitute for this current-snapshot rehearsal.
 
-### Approval and production apply
+### Freeze, final rollback evidence, definitive GO, and production apply
 
-The operator must explicitly approve the exact tuple
-`DEPLOY_SHA + pending tags + rehearsal target + rehearsal verdict + rollback
-plan`. Silence, an old GO, a green build, or branch creation is not approval.
-Any SHA, pending-set, schema, or material row-count change invalidates the GO
-and requires a new assessment/rehearsal.
+A successful rehearsal may be used to schedule the maintenance window, but it
+is not the definitive execution GO. First stop every production database
+writer (API, Trigger.dev worker, projector, and operator jobs) and wait for
+in-flight transactions to finish. Rerun the deployed-SHA comparator and all
+preflight object/aggregate checks with the production read-only role. They
+must match the rehearsed pending set. Also prove the migration checkout is
+still clean and pinned to that exact SHA.
 
-After approval, stop every production database writer (API, Trigger.dev
-worker, projector, and operator jobs) and wait for in-flight transactions to
-finish. Rerun the deployed-SHA comparator and all preflight object/aggregate
-checks with the production read-only role. They must match the approved
-pending set. While writers remain stopped, create a fresh rollback branch
-directly from the verified production parent, read it back, prove its
-`parent_id`, and prove a read-only query succeeds:
+```bash
+test "$(git rev-parse HEAD)" = "$DEPLOY_SHA"
+test -z "$(git status --porcelain)"
+```
+
+While writers remain stopped, create a fresh rollback branch directly from the
+verified production parent, read it back, prove its `parent_id`, retain its
+`created_at`, and prove a read-only query succeeds:
 
 ```bash
 rollback_json="$(
@@ -670,22 +681,38 @@ rollback_readback="$(
   neonctl branches get "$rollback_branch_id" \
     --project-id "$verified_project_id" --output json
 )"
+test "$(printf '%s' "$rollback_readback" | jq -er '.id')" \
+  = "$rollback_branch_id"
 test "$(printf '%s' "$rollback_readback" | jq -er '.parent_id')" \
   = "$verified_production_branch_id"
-printf '%s' "$rollback_readback" | jq -e '{id, parent_id, created_at}'
+rollback_created_at="$(
+  printf '%s' "$rollback_readback" \
+    | jq -er '.created_at | select(type == "string" and length > 0)'
+)"
+printf '%s' "$rollback_readback" \
+  | jq -e 'select(.id and .parent_id and .created_at) | {id, parent_id, created_at}'
 unset rollback_json rollback_readback
 
 psql "$ROLLBACK_BRANCH_READONLY_DATABASE_URL" -XAtqc \
   'SELECT current_database(), pg_is_in_recovery(), now();'
 ```
 
-Keep writers stopped. Inject the production owner URL as
-`MIGRATION_DATABASE_URL`, recheck the clean exact-SHA checkout, and run the
-one-shot migrator once:
+Record the successful query timestamp alongside the rollback branch ID,
+verified parent ID, and `created_at`. Keep writers stopped and inject the
+production owner URL as `MIGRATION_DATABASE_URL` without echoing it.
+
+Only now may the operator issue the definitive GO. It must explicitly bind
+`DEPLOY_SHA + exact pending tags + rehearsal target and verdict + rollback
+branch ID + verified parent ID + created_at + successful queryability
+evidence`. Silence, an earlier rehearsal approval, an old GO, a green build,
+or branch creation by itself is not approval. Any SHA, pending-set, schema,
+row-count, writer, rollback-branch, or connection change invalidates the GO
+and returns the procedure to the appropriate preflight/rehearsal step.
+
+After that GO, perform no further preparation: with the freeze and validated
+state unchanged, immediately run the one-shot migrator exactly once:
 
 ```bash
-test "$(git rev-parse HEAD)" = "$DEPLOY_SHA"
-test -z "$(git status --porcelain)"
 bun run db:migrate
 ```
 

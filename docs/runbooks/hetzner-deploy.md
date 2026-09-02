@@ -165,8 +165,10 @@ de daarbij genoemde releasestap, maar blokkeren het hostherstel zelf niet.
    read-only Neon-readback ontbreekt en die claim bewijst `0013`/`0014` niet.
    Draai de catch-up niet voordat de live journal een exact voorvoegsel van
    de deployment-SHA-set is, alle betrokken schema-objecten zijn gelezen, de
-   exacte pending set op een verse productiesnapshot is gerehearsed, een
-   aparte rollbackbranch is gevalideerd en de operator expliciet GO geeft.
+   exacte pending set op een verse productiesnapshot is gerehearsed, alle
+   writers zijn gepauzeerd, de finale preflight gelijk blijft, een verse
+   rollbackbranch inclusief queryability is gevalideerd en de operator pas
+   daarna expliciet GO geeft voor exact die evidence.
 4. Deploymethode op de box: Coolify is eerder op `catapulze-prod` ingericht,
    maar de huidige installatie en een volledige gezonde applicatie-deploy zijn
    niet opnieuw bewezen. Gebruik [coolify-local.md](coolify-local.md) en stap
@@ -415,13 +417,18 @@ Is Neon al exact current en slagen alle objectchecks, leg die externe
 read-only evidence vast en migreer niet opnieuw. Alleen bij een bewezen
 achterstand volgt de catch-up uit het subsysteem-runbook. Rehearse de exacte
 pending set eerst op een verse child-branch van een onaangeraakte
-productiesnapshot, meet de uitvoering, controleer alle objecten en verkrijg
-expliciete operatorgoedkeuring. Pauzeer daarna alle DB-writers, herhaal de
-preflight, maak en valideer een nieuwe pristine rollbackbranch en draai pas
-dan de one-shot migrator-job (`apps/server/Dockerfile.migrate`, alleen
-`MIGRATION_DATABASE_URL`) vanaf de schone exacte `DEPLOY_SHA`. Herstel vereist
-de gecontroleerde restore/switchoverprocedure uit het runbook. Bij elke
-latere release geldt hetzelfde SHA-afgeleide contract
+productiesnapshot, meet de uitvoering en controleer alle objecten. Dat
+rehearsal-resultaat is nog geen uitvoering-GO. Pauzeer daarna alle DB-writers,
+wacht tot in-flight transacties klaar zijn, herhaal de finale preflight en
+bewijs de schone exacte `DEPLOY_SHA`. Maak en valideer onder diezelfde freeze
+een nieuwe pristine rollbackbranch: leg branch-ID, parent-ID, `created_at` en
+een succesvolle read-only query vast. Verkrijg pas daarna de definitieve GO,
+expliciet gebonden aan `DEPLOY_SHA`, pending tags, rehearsal verdict en al die
+rollbackevidence. Zonder tussenliggende state change draait dan onmiddellijk
+de one-shot migrator-job (`apps/server/Dockerfile.migrate`, alleen
+`MIGRATION_DATABASE_URL`). Herstel vereist de gecontroleerde
+restore/switchoverprocedure uit het runbook. Bij elke latere release geldt
+hetzelfde SHA-afgeleide contract
 ([coolify-local.md](coolify-local.md)).
 
 Verificatie (met de read-only rol, URL gescrubd):
@@ -686,7 +693,7 @@ vallen allemaal buiten het mandaat van dit runbook:
 |---|---|---|
 | Hersteltoegang: Hetzner Console en benodigde SSH-/Coolify-credentials via 1Password beschikbaar maken | Stap 0.5 | Ryan |
 | `catapulze-prod`: via stap 0.5 actuele bootstatus, SSH-bereikbaarheid en Coolify-status opnieuw bewijzen | Stap 1 en alles daarna; stap 0.5 is juist het herstelpad | Ryan |
-| RJC-402: actuele Neon-journal en `0012`–`0014`-objecten live read-only vergelijken met de exacte `DEPLOY_SHA`; een echte pending set eerst op een verse snapshot rehearsen, rollbackbranch valideren en expliciet goedkeuren; niet migreren op basis van de lokale 2026-09-01-record | Stap 3 en de server-go/no-go totdat de actuele status bekend is | Ryan |
+| RJC-402: actuele Neon-journal en `0012`–`0014`-objecten live read-only vergelijken met de exacte `DEPLOY_SHA`; de echte pending set op een verse snapshot rehearsen; daarna writers freezen, finale preflight herhalen en de verse rollbackbranch inclusief parent/`created_at`/queryability valideren; pas op die complete evidence definitief GO geven | Stap 3 en de server-go/no-go totdat de actuele status bekend is | Ryan |
 | RJC-371: rotatie gelekte Neon-credential | Stap 2/4 — ADR-0006 is "pas operationeel gedekt als de rotatie is afgerond" | Ryan |
 | RJC-373: productieconfiguratie van `TRIGGER_SECRET_KEY` verifiëren of zo nodig inrichten | Stap 9 (worker-deploy en gedeployd bewijs) | Ryan / Trigger.dev-account |
 | RJC-382: eventuele toekomstige engine-upgrade | Geen onderdeel van deze sequentie en niet blokkerend: productie blijft hier expliciet Manticore 6.3.8; een 29.x-besluit vereist een afzonderlijk gereviewd migratiepad | Ryan |
