@@ -619,6 +619,18 @@ printf '%s\\n' "\${DATABASE_URL-unset}" "\${DATABASE_TEST_URL-unset}" "\${DATABA
     }
   });
 
+  test("requires the durable user-write Postgres contract in the database phase", () => {
+    const script = readFileSync(shadowScript, "utf-8");
+
+    expect(script).toContain("packages/db/src/core.spec.ts");
+    expect(script).toContain("packages/db/src/user-write-stores.spec.ts");
+    expect(script).toContain("REQUIRE_DATABASE_TESTS=1");
+    expect(script).toContain("--max-concurrency 1");
+    expect(script).toContain(
+      'run_phase "database-integration" "REQUIRE_DATABASE_TESTS=1 bun test packages/db/src/core.spec.ts packages/db/src/user-write-stores.spec.ts --reporter=junit"'
+    );
+  });
+
   test(
     "forwards SIGTERM to the running Crabbox child and exits with the signal status",
     async () => {

@@ -24,7 +24,11 @@ const testBronnen: PublicBronView[] = [
   },
 ];
 
-export const createTestSliceADeps = (): SliceAHandlerDeps & {
+export const TEST_DEPLOYMENT_SCOPE_ID = "catapulze-test";
+
+export const createTestSliceADeps = (
+  scopeId = TEST_DEPLOYMENT_SCOPE_ID
+): SliceAHandlerDeps & {
   readonly engine: InMemorySearchEngine;
   readonly stores: ReturnType<typeof createMemorySliceAStores>;
 } => {
@@ -41,13 +45,16 @@ export const createTestSliceADeps = (): SliceAHandlerDeps & {
   return {
     bronnen,
     engine,
+    scopeId,
     searchAdapter,
     stores,
   };
 };
 
-export const createTestSliceARegistry = () => {
-  const deps = createTestSliceADeps();
+export const createTestSliceARegistry = (
+  scopeId = TEST_DEPLOYMENT_SCOPE_ID
+) => {
+  const deps = createTestSliceADeps(scopeId);
   return { deps, ...createSliceARegistry(deps) };
 };
 

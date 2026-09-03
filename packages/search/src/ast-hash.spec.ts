@@ -10,6 +10,10 @@ import {
   compareCodepoints,
   hashAst,
 } from "./ast-hash";
+import {
+  cleanupLiveDocuments,
+  requireLiveManticoreUrl,
+} from "./manticore/live-test-hygiene";
 import { InMemorySearchVersionStore } from "./version";
 
 const parseOk = (query: string) => {
@@ -233,50 +237,61 @@ describe("cache key prefixes (RJC-388)", () => {
 // Live check for the case-insensitivity claim canonicalizeAst relies on to
 // lowercase plain terms. Skipped unless MANTICORE_URL is set — same
 // convention as manticore/live.spec.ts — so `bun run gate` stays mock-only.
-describe("Manticore query_string case-insensitivity (live, RJC-388)", () => {
-  it("matches a mixed-case document with a lowercase term and vice versa", async () => {
-    const manticoreUrl = process.env.MANTICORE_URL;
-    if (!manticoreUrl) {
-      return;
-    }
+const manticoreLiveUrl = requireLiveManticoreUrl(
+  process.env.MANTICORE_URL,
+  process.env.MANTICORE_REQUIRE_LIVE === "1"
+);
 
-    const { ManticoreSearchEngine } = await import("./manticore");
-    const engine = ManticoreSearchEngine.fromUrl(
-      manticoreUrl,
-      new InMemorySearchVersionStore()
-    );
-    const runToken = `casecheck${crypto.randomUUID().replaceAll("-", "")}`;
-    const documentId = `case-doc-${crypto.randomUUID()}`;
-    await engine.upsertDocument({
-      beschrijving: `Mixed CaSe token ${runToken}`,
-      bronId: "bron-live",
-      contracttype: "detachering",
-      id: documentId,
-      laatstGezienOp: new Date("2026-08-01T00:00:00.000Z"),
-      locatieLand: "NL",
-      status: "active",
-      tariefMax: 120,
-      tariefMin: 80,
-      titel: "Case sensitivity check",
-    });
-    await engine.applyBatch({ appliedSequence: 1n, mutations: [] });
+describe.skipIf(!manticoreLiveUrl)(
+  "Manticore query_string case-insensitivity (live, RJC-388)",
+  () => {
+    it("matches a mixed-case document with a lowercase term and vice versa", async () => {
+      if (!manticoreLiveUrl) {
+        throw new Error("Live test was not skipped without MANTICORE_URL");
+      }
 
-    const lowerAst = parseOk(runToken.toLowerCase());
-    const upperAst = parseOk(runToken.toUpperCase());
-    const lowerResult = await engine.search({
-      ast: lowerAst,
-      filters: {},
-      limit: 10,
-      offset: 0,
-    });
-    const upperResult = await engine.search({
-      ast: upperAst,
-      filters: {},
-      limit: 10,
-      offset: 0,
-    });
+      const { ManticoreSearchEngine } = await import("./manticore");
+      const engine = ManticoreSearchEngine.fromUrl(
+        manticoreLiveUrl,
+        new InMemorySearchVersionStore()
+      );
+      const runToken = `casecheck${crypto.randomUUID().replaceAll("-", "")}`;
+      const documentId = `case-doc-${crypto.randomUUID()}`;
+      try {
+        await engine.upsertDocument({
+          beschrijving: `Mixed CaSe token ${runToken}`,
+          bronId: "bron-live",
+          contracttype: "detachering",
+          id: documentId,
+          laatstGezienOp: new Date("2026-08-01T00:00:00.000Z"),
+          locatieLand: "NL",
+          status: "active",
+          tariefMax: 120,
+          tariefMin: 80,
+          titel: "Case sensitivity check",
+        });
+        await engine.applyBatch({ appliedSequence: 1n, mutations: [] });
 
-    expect(lowerResult.total).toBeGreaterThanOrEqual(1);
-    expect(upperResult.total).toBeGreaterThanOrEqual(1);
-  });
-});
+        const lowerAst = parseOk(runToken.toLowerCase());
+        const upperAst = parseOk(runToken.toUpperCase());
+        const lowerResult = await engine.search({
+          ast: lowerAst,
+          filters: {},
+          limit: 10,
+          offset: 0,
+        });
+        const upperResult = await engine.search({
+          ast: upperAst,
+          filters: {},
+          limit: 10,
+          offset: 0,
+        });
+
+        expect(lowerResult.total).toBeGreaterThanOrEqual(1);
+        expect(upperResult.total).toBeGreaterThanOrEqual(1);
+      } finally {
+        await cleanupLiveDocuments(engine, [documentId]);
+      }
+    });
+  }
+);

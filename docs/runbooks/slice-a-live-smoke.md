@@ -57,7 +57,9 @@ After activation, scheduled polls (`run_kind=poll`) may run; Trigger.dev task `p
 
 - `schedule-slice-a-polls`: cron `*/15 * * * *` Europe/Amsterdam, fans out `poll-bron` per pollable bron (KTD6 isolation).
 - `poll-bron`: ingest pipeline for one bron.
-- `drain-outbox`: optional standalone drain if projector lag is suspected.
+- `drain-outbox`: optional standalone drain only in `SEARCH_PROJECTOR=worker`;
+  in `onbox` mode it returns `deferred: true` and the on-box projector owns the
+  drain.
 
 Deploy from `apps/worker` after `TRIGGER_SECRET_KEY` is set: `bun run deploy`.
 

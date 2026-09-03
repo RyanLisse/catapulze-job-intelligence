@@ -1,5 +1,9 @@
 import type { SearchFilters, SearchScope, SearchVersion } from "@ji/search";
 
+import type { AuditClass } from "../metadata";
+
+export type AuditActorType = "agent" | "service" | "system" | "user";
+
 export interface SavedSearchRecord {
   readonly createdAt: Date;
   readonly filters: SearchFilters;
@@ -8,6 +12,7 @@ export interface SavedSearchRecord {
   readonly parserVersion: string;
   readonly queryText: string;
   readonly schemaVersion: string;
+  readonly scopeId: string;
   readonly updatedAt: Date;
   readonly userId: string;
 }
@@ -22,6 +27,7 @@ export interface QuerySnapshotRecord {
   readonly resultIds: readonly string[];
   readonly savedSearchId: string | null;
   readonly schemaVersion: string;
+  readonly scopeId: string;
   /** Search scope the selection was made under (RJC-383): active stock or archive included. */
   readonly scope: SearchScope;
   /**
@@ -64,7 +70,10 @@ export interface AanvraagMarkering {
   readonly aanvraagId: string;
   readonly createdAt: Date;
   readonly reden: string | null;
+  readonly revision: number;
+  readonly scopeId: string;
   readonly status: "relevant" | "niet_relevant" | "gevolgd";
+  readonly updatedAt: Date;
   readonly userId: string;
 }
 
@@ -99,12 +108,14 @@ export type AlertEvidence = Readonly<Record<string, AlertEvidenceValue>>;
 export interface AuditEventRecord {
   readonly action: string;
   readonly actorId: string;
-  readonly auditClass: string;
+  readonly actorType: AuditActorType;
+  readonly auditClass: AuditClass;
   readonly createdAt: Date;
   readonly entityId: string;
   readonly entityType: string;
   readonly id: string;
   readonly metadata: AuditEventMetadata;
+  readonly scopeId: string;
 }
 
 export interface AlertRecord {
@@ -131,14 +142,22 @@ export interface SavedSearchStore {
   create: (
     record: Omit<SavedSearchRecord, "createdAt" | "id" | "updatedAt">
   ) => Promise<SavedSearchRecord>;
-  getById: (id: string) => Promise<SavedSearchRecord | null>;
+  /**
+   * Owner-scoped lookup. Returning null for another user's record prevents a
+   * caller from discovering or binding another tenant's saved search by id.
+   */
+  getById: (
+    id: string,
+    userId: string,
+    scopeId: string
+  ) => Promise<SavedSearchRecord | null>;
 }
 
 export interface QuerySnapshotStore {
   create: (
     record: Omit<QuerySnapshotRecord, "createdAt" | "id">
   ) => Promise<QuerySnapshotRecord>;
-  getById: (id: string) => Promise<QuerySnapshotRecord | null>;
+  getById: (id: string, scopeId: string) => Promise<QuerySnapshotRecord | null>;
 }
 
 export interface ApprovalRecord {
@@ -148,14 +167,32 @@ export interface ApprovalRecord {
   readonly id: string;
   readonly motivatie: string;
   readonly resultIds: readonly string[];
+  readonly scopeId: string;
   readonly snapshotId: string;
 }
 
+export type ApprovalWriteResult =
+  | {
+      readonly approval: ApprovalRecord;
+      readonly auditEvent: AuditEventRecord;
+      readonly created: boolean;
+      readonly ok: true;
+    }
+  | {
+      readonly ok: false;
+      readonly reason: "snapshot_already_approved";
+    };
+
 export interface ApprovalStore {
-  create: (
-    record: Omit<ApprovalRecord, "createdAt" | "id">
-  ) => Promise<ApprovalRecord>;
-  getBySnapshotId: (snapshotId: string) => Promise<ApprovalRecord | null>;
+  /** Atomically persists the approval and its audit event. Exact retries are idempotent. */
+  createWithAudit: (
+    record: Omit<ApprovalRecord, "createdAt" | "id">,
+    actorType: AuditActorType
+  ) => Promise<ApprovalWriteResult>;
+  getBySnapshotId: (
+    snapshotId: string,
+    scopeId: string
+  ) => Promise<ApprovalRecord | null>;
 }
 
 export interface AanvraagStore {
@@ -175,18 +212,31 @@ export interface RawPayloadStore {
 export interface MarkeringStore {
   get: (
     aanvraagId: string,
-    userId: string
+    userId: string,
+    scopeId: string
   ) => Promise<AanvraagMarkering | null>;
-  set: (
-    markering: Omit<AanvraagMarkering, "createdAt">
-  ) => Promise<AanvraagMarkering>;
+  /**
+   * The only markering write boundary. Implementations must persist the
+   * markering and its audit event atomically, or persist neither.
+   */
+  setWithAudit: (
+    markering: Omit<AanvraagMarkering, "createdAt" | "revision" | "updatedAt">,
+    actorType: AuditActorType
+  ) => Promise<{
+    readonly auditEvent: AuditEventRecord;
+    readonly markering: AanvraagMarkering;
+  }>;
 }
 
 export interface AuditStore {
   append: (
     event: Omit<AuditEventRecord, "createdAt" | "id">
   ) => Promise<AuditEventRecord>;
-  list: () => readonly AuditEventRecord[];
+  /** Internal owner-scoped read used for verification and future audit UI. */
+  listByActorId: (
+    actorId: string,
+    scopeId: string
+  ) => Promise<readonly AuditEventRecord[]>;
 }
 
 export interface AlertStore {
@@ -223,6 +273,7 @@ export interface ExternalIdCrosswalkRecord {
   readonly canonicalVacancyId: string;
   readonly createdAt: Date;
   readonly externalId: string;
+  readonly scopeId: string;
   readonly target: ExportTarget;
 }
 
@@ -233,6 +284,7 @@ export interface ExternalIdCrosswalkStore {
   get: (input: {
     actionType: ExportActionType;
     canonicalVacancyId: string;
+    scopeId: string;
     target: ExportTarget;
   }) => Promise<ExternalIdCrosswalkRecord | null>;
 }
@@ -247,6 +299,7 @@ export interface ExportAttemptRecord {
   readonly id: string;
   readonly idempotencyKey: string;
   readonly snapshotId: string;
+  readonly scopeId: string;
   readonly status: ExportAttemptStatus;
   readonly target: ExportTarget;
 }
@@ -264,6 +317,7 @@ export interface ExternalReceiptRecord {
   readonly exportAttemptId: string;
   readonly id: string;
   readonly responseHash: string;
+  readonly scopeId: string;
   readonly spottVacancyId: string | null;
 }
 
@@ -272,10 +326,12 @@ export interface ExternalReceiptStore {
     record: Omit<ExternalReceiptRecord, "createdAt" | "id">
   ) => Promise<ExternalReceiptRecord>;
   getByExportAttemptId: (
-    exportAttemptId: string
+    exportAttemptId: string,
+    scopeId: string
   ) => Promise<ExternalReceiptRecord | null>;
   listByCanonicalVacancyId: (
-    canonicalVacancyId: string
+    canonicalVacancyId: string,
+    scopeId: string
   ) => Promise<readonly ExternalReceiptRecord[]>;
 }
 

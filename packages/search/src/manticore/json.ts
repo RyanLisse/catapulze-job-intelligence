@@ -126,6 +126,8 @@ export interface ManticoreIndexedDocument {
   tarief_max: number;
   tarief_min: number;
   titel: string;
+  /** Canonical source projection hash; lets reconciliation inspect actual RT content. */
+  projection_hash: string;
 }
 
 export interface ManticoreQueryBody {

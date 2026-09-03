@@ -219,7 +219,8 @@ export const createGetAanvraagHandler =
     }
     const markering = await deps.stores.markeringen.get(
       input.id,
-      context.principal.subjectId
+      context.principal.subjectId,
+      deps.scopeId
     );
     return {
       ok: true as const,
@@ -332,7 +333,8 @@ export const createBatchGetAanvragenHandler =
       records.map(async (record) => {
         const markering = await deps.stores.markeringen.get(
           record.id,
-          context.principal.subjectId
+          context.principal.subjectId,
+          deps.scopeId
         );
         return {
           aanvraag:
@@ -486,6 +488,7 @@ export const createSavedSearchHandler =
       parserVersion: String(BOOLEAN_PARSER_VERSION),
       queryText: input.query,
       schemaVersion: SLICE_A_SCHEMA_VERSION,
+      scopeId: deps.scopeId,
       userId: context.principal.subjectId,
     });
     return { ok: true as const, value: toSavedSearchView(saved) };
@@ -604,6 +607,19 @@ export const createSnapshotHandler =
       );
     }
 
+    if (input.savedSearchId) {
+      const savedSearch = await deps.stores.savedSearches.getById(
+        input.savedSearchId,
+        context.principal.subjectId,
+        deps.scopeId
+      );
+      if (!savedSearch) {
+        return domainFailure("NOT_FOUND", "Saved search not found", {
+          id: input.savedSearchId,
+        });
+      }
+    }
+
     const searchVersion = await deps.searchAdapter.getAppliedVersion();
     const snapshot = await deps.stores.snapshots.create({
       filters: input.filters ?? {},
@@ -616,6 +632,7 @@ export const createSnapshotHandler =
       savedSearchId: input.savedSearchId ?? null,
       schemaVersion: SLICE_A_SCHEMA_VERSION,
       scope: input.scope ?? DEFAULT_SEARCH_SCOPE,
+      scopeId: deps.scopeId,
       searchVersion,
       userId: context.principal.subjectId,
     });
@@ -658,9 +675,17 @@ export const createApproveSnapshotHandler =
   (deps: SliceAHandlerDeps) =>
   async (
     input: z.output<typeof approveSnapshotInputSchema>,
-    context: { principal: { subjectId: string } }
+    context: {
+      principal: {
+        kind: "agent" | "service" | "user";
+        subjectId: string;
+      };
+    }
   ) => {
-    const snapshot = await deps.stores.snapshots.getById(input.id);
+    const snapshot = await deps.stores.snapshots.getById(
+      input.id,
+      deps.scopeId
+    );
     if (!snapshot) {
       return domainFailure("NOT_FOUND", "QuerySnapshot not found", {
         id: input.id,
@@ -681,8 +706,18 @@ export const createApproveSnapshotHandler =
       );
     }
 
-    const existing = await deps.stores.approvals.getBySnapshotId(input.id);
-    if (existing) {
+    const written = await deps.stores.approvals.createWithAudit(
+      {
+        actorId: context.principal.subjectId,
+        expiresAt,
+        motivatie: input.motivatie,
+        resultIds: [...snapshot.resultIds],
+        scopeId: deps.scopeId,
+        snapshotId: snapshot.id,
+      },
+      context.principal.kind
+    );
+    if (!written.ok) {
       return domainFailure(
         "ALREADY_APPROVED",
         "This snapshot already has an approval record",
@@ -690,30 +725,9 @@ export const createApproveSnapshotHandler =
       );
     }
 
-    const approval = await deps.stores.approvals.create({
-      actorId: context.principal.subjectId,
-      expiresAt,
-      motivatie: input.motivatie,
-      resultIds: [...snapshot.resultIds],
-      snapshotId: snapshot.id,
-    });
-
-    const audit = await deps.stores.audit.append({
-      action: "approve_snapshot",
-      actorId: context.principal.subjectId,
-      auditClass: "effect",
-      entityId: approval.id,
-      entityType: "approval_record",
-      metadata: {
-        expiresAt: approval.expiresAt.toISOString(),
-        motivatie: approval.motivatie,
-        snapshotId: approval.snapshotId,
-      },
-    });
-
     return {
       ok: true as const,
-      value: toApprovalView(approval, audit.id),
+      value: toApprovalView(written.approval, written.auditEvent.id),
     };
   };
 
@@ -732,14 +746,20 @@ export const getSnapshotApprovalOutputSchema = approvalViewSchema
 export const createGetSnapshotApprovalHandler =
   (deps: SliceAHandlerDeps) =>
   async (input: z.output<typeof getSnapshotApprovalInputSchema>) => {
-    const snapshot = await deps.stores.snapshots.getById(input.id);
+    const snapshot = await deps.stores.snapshots.getById(
+      input.id,
+      deps.scopeId
+    );
     if (!snapshot) {
       return domainFailure("NOT_FOUND", "QuerySnapshot not found", {
         id: input.id,
       });
     }
 
-    const approval = await deps.stores.approvals.getBySnapshotId(input.id);
+    const approval = await deps.stores.approvals.getBySnapshotId(
+      input.id,
+      deps.scopeId
+    );
     if (!approval) {
       return domainFailure(
         "APPROVAL_NOT_FOUND",
@@ -752,6 +772,7 @@ export const createGetSnapshotApprovalHandler =
 
     const validation = validateSnapshotApproval({
       approval,
+      scopeId: deps.scopeId,
       snapshot,
       snapshotId: input.id,
     });
@@ -788,13 +809,17 @@ export const validateSnapshotApprovalOutputSchema = z
 export const createValidateSnapshotApprovalHandler =
   (deps: SliceAHandlerDeps) =>
   async (input: z.output<typeof validateSnapshotApprovalInputSchema>) => {
-    const snapshot = await deps.stores.snapshots.getById(input.id);
+    const snapshot = await deps.stores.snapshots.getById(
+      input.id,
+      deps.scopeId
+    );
     const approval = snapshot
-      ? await deps.stores.approvals.getBySnapshotId(input.id)
+      ? await deps.stores.approvals.getBySnapshotId(input.id, deps.scopeId)
       : null;
 
     const validation = validateSnapshotApproval({
       approval,
+      scopeId: deps.scopeId,
       snapshot,
       snapshotId: input.id,
     });
@@ -836,7 +861,12 @@ export const createMarkeerAanvraagHandler =
   (deps: SliceAHandlerDeps) =>
   async (
     input: z.output<typeof markeerAanvraagInputSchema>,
-    context: { principal: { subjectId: string } }
+    context: {
+      principal: {
+        kind: "agent" | "service" | "user";
+        subjectId: string;
+      };
+    }
   ) => {
     const exists = await deps.stores.aanvragen.getById(input.aanvraagId);
     if (!exists) {
@@ -844,28 +874,22 @@ export const createMarkeerAanvraagHandler =
         id: input.aanvraagId,
       });
     }
-    const markering = await deps.stores.markeringen.set({
-      aanvraagId: input.aanvraagId,
-      reden: input.reden ?? null,
-      status: input.status,
-      userId: context.principal.subjectId,
-    });
-    const audit = await deps.stores.audit.append({
-      action: "markeer_aanvraag",
-      actorId: context.principal.subjectId,
-      auditClass: "effect",
-      entityId: input.aanvraagId,
-      entityType: "aanvraag",
-      metadata: {
-        reden: markering.reden,
-        status: markering.status,
-      },
-    });
+    const { auditEvent, markering } =
+      await deps.stores.markeringen.setWithAudit(
+        {
+          aanvraagId: input.aanvraagId,
+          reden: input.reden ?? null,
+          scopeId: deps.scopeId,
+          status: input.status,
+          userId: context.principal.subjectId,
+        },
+        context.principal.kind
+      );
     return {
       ok: true as const,
       value: {
         aanvraagId: markering.aanvraagId,
-        auditEventId: audit.id,
+        auditEventId: auditEvent.id,
         reden: markering.reden,
         status: markering.status,
       },

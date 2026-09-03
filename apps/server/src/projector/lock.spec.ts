@@ -1,5 +1,6 @@
 import { beforeAll, describe, expect, it } from "bun:test";
 
+import { PROJECTOR_DATABASE_URL_DIRECT_MESSAGE } from "@ji/env/projector-database-url";
 import postgres from "postgres";
 
 import { acquireAdvisoryLock } from "./lock";
@@ -31,6 +32,15 @@ describe("acquireAdvisoryLock (RJC-387)", () => {
     if (!postgresAvailable && testDatabaseRequired) {
       throw new Error("Required test database is unavailable");
     }
+  });
+
+  it("rejects a known Neon pooler URL before opening the lock connection", async () => {
+    await expect(
+      acquireAdvisoryLock(
+        "postgresql://ji_app:secret@ep-blue-tree-pooler.eu-central-1.aws.neon.tech/catapulze?sslmode=require",
+        900_000_001
+      )
+    ).rejects.toThrow(PROJECTOR_DATABASE_URL_DIRECT_MESSAGE);
   });
 
   it("refuses a second holder while the first holds the lock, then allows it after release", async () => {

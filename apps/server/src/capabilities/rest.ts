@@ -2,7 +2,8 @@ import type { InvocationPrincipal } from "@ji/application/registry";
 import type { Context } from "hono";
 import { z } from "zod";
 
-import { createRequestId, parseAuthHeader } from "./auth";
+import { createRequestId, hasAllowedCookieOrigin } from "./auth";
+import type { CookieAuthOriginPolicy, PrincipalResolver } from "./auth";
 import type {
   RegistryInvocationResult,
   SliceARegistry,
@@ -238,10 +239,14 @@ const invokeRest = (
   })(input, { principal, requestId });
 
 export const createRestCapabilityHandler =
-  (registry: SliceARegistry, routes: readonly RestRouteSpec[]) =>
+  (
+    registry: SliceARegistry,
+    routes: readonly RestRouteSpec[],
+    resolvePrincipal: PrincipalResolver,
+    security: CookieAuthOriginPolicy
+  ) =>
   async (context: Context): Promise<Response> => {
     const requestId = createRequestId();
-    const principal = parseAuthHeader(context.req.header("Authorization"));
     const pathname = context.req.path.replace(/^\/v1/u, "/v1");
     const matched = routes.find(
       (route) =>
@@ -251,6 +256,29 @@ export const createRestCapabilityHandler =
     if (!matched) {
       return jsonResponse(404, { error: "Route not found" });
     }
+    const requestHeaders = context.req.raw.headers;
+    if (
+      !hasAllowedCookieOrigin(
+        context.req.method,
+        requestHeaders,
+        security.allowedCookieOrigin
+      )
+    ) {
+      return jsonResponse(403, {
+        error: {
+          code: "CSRF_REJECTED",
+          message: "Cookie-authenticated writes require the allowed Origin",
+        },
+      });
+    }
+    const principalResolution = await resolvePrincipal(
+      requestHeaders,
+      requestId
+    );
+    if (!principalResolution.ok) {
+      return jsonResponse(503, { error: principalResolution.error });
+    }
+    const { principal } = principalResolution;
     const params = matchPath(matched.pathPattern, pathname) ?? {};
     let body: RestJsonBody = {};
     if (context.req.method === "POST" || context.req.method === "PUT") {

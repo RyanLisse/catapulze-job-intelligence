@@ -1,19 +1,17 @@
 /* oxlint-disable max-classes-per-file -- cohesive Postgres adapters share schema mapping */
 import type {
-  ApprovalRecord,
-  ApprovalStore,
   QuerySnapshotRecord,
   QuerySnapshotStore,
 } from "@ji/application/registry";
 import { searchFiltersSchema } from "@ji/application/registry";
 import type { SearchFilters, SearchScope } from "@ji/search";
 import { SEARCH_SCOPES } from "@ji/search";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import { z } from "zod";
 
 import type * as schema from "./schema";
-import { approvalRecord, querySnapshot } from "./schema";
+import { querySnapshot } from "./schema";
 
 export type ReadPathDatabase = PostgresJsDatabase<typeof schema>;
 
@@ -50,23 +48,12 @@ const toQuerySnapshotRecord = (
   savedSearchId: row.savedSearchId,
   schemaVersion: row.schemaVersion,
   scope: parseScope(row.searchScope),
+  scopeId: row.scopeId,
   searchVersion: {
     appliedSequence: row.searchAppliedSequence,
     generation: row.searchGeneration,
   },
   userId: row.userId,
-});
-
-const toApprovalRecord = (
-  row: typeof approvalRecord.$inferSelect
-): ApprovalRecord => ({
-  actorId: row.actorId,
-  createdAt: row.createdAt,
-  expiresAt: row.expiresAt,
-  id: row.id,
-  motivatie: row.motivatie,
-  resultIds: parseResultIds(row.resultIds),
-  snapshotId: row.snapshotId,
 });
 
 export class PostgresQuerySnapshotStore implements QuerySnapshotStore {
@@ -89,6 +76,7 @@ export class PostgresQuerySnapshotStore implements QuerySnapshotStore {
         resultIds: [...record.resultIds],
         savedSearchId: record.savedSearchId,
         schemaVersion: record.schemaVersion,
+        scopeId: record.scopeId,
         searchAppliedSequence: record.searchVersion.appliedSequence,
         searchGeneration: record.searchVersion.generation,
         searchScope: record.scope,
@@ -104,47 +92,13 @@ export class PostgresQuerySnapshotStore implements QuerySnapshotStore {
     return toQuerySnapshotRecord(row);
   }
 
-  async getById(id: string): Promise<QuerySnapshotRecord | null> {
+  async getById(
+    id: string,
+    scopeId: string
+  ): Promise<QuerySnapshotRecord | null> {
     const row = await this.database.query.querySnapshot.findFirst({
-      where: eq(querySnapshot.id, id),
+      where: and(eq(querySnapshot.id, id), eq(querySnapshot.scopeId, scopeId)),
     });
     return row ? toQuerySnapshotRecord(row) : null;
-  }
-}
-
-export class PostgresApprovalStore implements ApprovalStore {
-  private readonly database: ReadPathDatabase;
-
-  constructor(database: ReadPathDatabase) {
-    this.database = database;
-  }
-
-  async create(
-    record: Omit<ApprovalRecord, "createdAt" | "id">
-  ): Promise<ApprovalRecord> {
-    const rows = await this.database
-      .insert(approvalRecord)
-      .values({
-        actorId: record.actorId,
-        expiresAt: record.expiresAt,
-        motivatie: record.motivatie,
-        resultIds: [...record.resultIds],
-        snapshotId: record.snapshotId,
-      })
-      .returning();
-
-    const [row] = rows;
-    if (!row) {
-      throw new Error("Unable to create approval record");
-    }
-
-    return toApprovalRecord(row);
-  }
-
-  async getBySnapshotId(snapshotId: string): Promise<ApprovalRecord | null> {
-    const row = await this.database.query.approvalRecord.findFirst({
-      where: eq(approvalRecord.snapshotId, snapshotId),
-    });
-    return row ? toApprovalRecord(row) : null;
   }
 }

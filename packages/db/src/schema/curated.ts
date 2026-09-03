@@ -315,13 +315,62 @@ export const savedSearch = curatedSchema.table(
     parserVersion: text("parser_version").notNull(),
     queryText: text("query_text").notNull(),
     schemaVersion: text("schema_version").notNull(),
+    scopeId: text("scope_id").notNull(),
     updatedAt: timestamp("updated_at", { withTimezone: true })
       .defaultNow()
       .$onUpdate(() => new Date())
       .notNull(),
     userId: text("user_id").notNull(),
   },
-  (table) => [index("saved_search_user_id_idx").on(table.userId)]
+  (table) => [
+    index("saved_search_user_id_idx").on(table.userId),
+    index("saved_search_scope_user_idx").on(table.scopeId, table.userId),
+    check(
+      "saved_search_scope_id_check",
+      sql`length(trim(${table.scopeId})) > 0`
+    ),
+  ]
+);
+
+export const aanvraagMarkering = curatedSchema.table(
+  "aanvraag_markering",
+  {
+    aanvraagId: uuid("aanvraag_id")
+      .notNull()
+      .references(() => aanvraag.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    id: uuid("id").defaultRandom().primaryKey(),
+    reden: text("reden"),
+    revision: integer("revision").default(1).notNull(),
+    scopeId: text("scope_id").notNull(),
+    status: text("status").notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .$onUpdate(() => new Date())
+      .notNull(),
+    userId: text("user_id").notNull(),
+  },
+  (table) => [
+    uniqueIndex("aanvraag_markering_user_aanvraag_uidx").on(
+      table.scopeId,
+      table.userId,
+      table.aanvraagId
+    ),
+    index("aanvraag_markering_scope_user_idx").on(table.scopeId, table.userId),
+    index("aanvraag_markering_aanvraag_id_idx").on(table.aanvraagId),
+    index("aanvraag_markering_user_id_idx").on(table.userId),
+    check(
+      "aanvraag_markering_status_check",
+      sql`${table.status} IN ('relevant', 'niet_relevant', 'gevolgd')`
+    ),
+    check("aanvraag_markering_revision_check", sql`${table.revision} >= 1`),
+    check(
+      "aanvraag_markering_scope_id_check",
+      sql`length(trim(${table.scopeId})) > 0`
+    ),
+  ]
 );
 
 export const querySnapshot = curatedSchema.table(
@@ -342,6 +391,7 @@ export const querySnapshot = curatedSchema.table(
       onDelete: "set null",
     }),
     schemaVersion: text("schema_version").notNull(),
+    scopeId: text("scope_id").notNull(),
     searchAppliedSequence: bigint("search_applied_sequence", {
       mode: "bigint",
     }).notNull(),
@@ -351,6 +401,7 @@ export const querySnapshot = curatedSchema.table(
     userId: text("user_id").notNull(),
   },
   (table) => [
+    index("query_snapshot_scope_id_idx").on(table.scopeId),
     index("query_snapshot_user_id_idx").on(table.userId),
     check(
       "query_snapshot_search_scope_check",
@@ -364,6 +415,10 @@ export const querySnapshot = curatedSchema.table(
       "query_snapshot_search_applied_sequence_check",
       sql`${table.searchAppliedSequence} >= 0`
     ),
+    check(
+      "query_snapshot_scope_id_check",
+      sql`length(trim(${table.scopeId})) > 0`
+    ),
   ]
 );
 
@@ -373,7 +428,7 @@ export const auditEvent = curatedSchema.table(
     action: text("action").notNull(),
     actorId: text("actor_id"),
     actorType: text("actor_type").default("system").notNull(),
-    auditClass: text("audit_class"),
+    auditClass: text("audit_class").default("none").notNull(),
     createdAt: timestamp("created_at", { withTimezone: true })
       .defaultNow()
       .notNull(),
@@ -384,10 +439,24 @@ export const auditEvent = curatedSchema.table(
     occurredAt: timestamp("occurred_at", { withTimezone: true })
       .defaultNow()
       .notNull(),
+    scopeId: text("scope_id").notNull(),
   },
   (table) => [
+    index("audit_event_scope_actor_idx").on(table.scopeId, table.actorId),
     index("audit_event_entity_idx").on(table.entityType, table.entityId),
     index("audit_event_occurred_at_idx").on(table.occurredAt),
+    check(
+      "audit_event_actor_type_check",
+      sql`${table.actorType} IN ('user', 'agent', 'service', 'system')`
+    ),
+    check(
+      "audit_event_audit_class_check",
+      sql`${table.auditClass} IN ('access', 'effect', 'none')`
+    ),
+    check(
+      "audit_event_scope_id_check",
+      sql`length(trim(${table.scopeId})) > 0`
+    ),
   ]
 );
 
@@ -567,6 +636,16 @@ export const savedSearchRelations = relations(savedSearch, ({ many }) => ({
   snapshots: many(querySnapshot),
 }));
 
+export const aanvraagMarkeringRelations = relations(
+  aanvraagMarkering,
+  ({ one }) => ({
+    aanvraag: one(aanvraag, {
+      fields: [aanvraagMarkering.aanvraagId],
+      references: [aanvraag.id],
+    }),
+  })
+);
+
 export const approvalRecord = curatedSchema.table(
   "approval_record",
   {
@@ -578,11 +657,16 @@ export const approvalRecord = curatedSchema.table(
     id: uuid("id").defaultRandom().primaryKey(),
     motivatie: text("motivatie").notNull(),
     resultIds: jsonb("result_ids").default([]).notNull(),
+    scopeId: text("scope_id").notNull(),
     snapshotId: uuid("snapshot_id")
       .notNull()
       .references(() => querySnapshot.id, { onDelete: "restrict" }),
   },
   (table) => [
+    index("approval_record_scope_snapshot_idx").on(
+      table.scopeId,
+      table.snapshotId
+    ),
     index("approval_record_snapshot_id_idx").on(table.snapshotId),
     uniqueIndex("approval_record_snapshot_uidx").on(table.snapshotId),
     check(
@@ -592,6 +676,10 @@ export const approvalRecord = curatedSchema.table(
     check(
       "approval_record_expires_after_created_check",
       sql`${table.expiresAt} > ${table.createdAt}`
+    ),
+    check(
+      "approval_record_scope_id_check",
+      sql`length(trim(${table.scopeId})) > 0`
     ),
   ]
 );
@@ -624,10 +712,12 @@ export const externalIdCrosswalk = curatedSchema.table(
       .notNull(),
     externalId: text("external_id").notNull(),
     id: uuid("id").defaultRandom().primaryKey(),
+    scopeId: text("scope_id").notNull(),
     target: text("target").notNull(),
   },
   (table) => [
     uniqueIndex("external_id_crosswalk_idempotency_uidx").on(
+      table.scopeId,
       table.target,
       table.canonicalVacancyId,
       table.actionType
@@ -643,6 +733,10 @@ export const externalIdCrosswalk = curatedSchema.table(
     check(
       "external_id_crosswalk_external_id_check",
       sql`length(trim(${table.externalId})) > 0`
+    ),
+    check(
+      "external_id_crosswalk_scope_id_check",
+      sql`length(trim(${table.scopeId})) > 0`
     ),
   ]
 );
@@ -662,6 +756,7 @@ export const exportAttempt = curatedSchema.table(
     externalId: text("external_id"),
     id: uuid("id").defaultRandom().primaryKey(),
     idempotencyKey: text("idempotency_key").notNull(),
+    scopeId: text("scope_id").notNull(),
     snapshotId: uuid("snapshot_id")
       .notNull()
       .references(() => querySnapshot.id, { onDelete: "restrict" }),
@@ -680,6 +775,10 @@ export const exportAttempt = curatedSchema.table(
       sql`${table.actionType} IN ('create')`
     ),
     check("export_attempt_target_check", sql`${table.target} IN ('spott')`),
+    check(
+      "export_attempt_scope_id_check",
+      sql`length(trim(${table.scopeId})) > 0`
+    ),
   ]
 );
 
@@ -696,6 +795,7 @@ export const externalReceipt = curatedSchema.table(
       .references(() => exportAttempt.id, { onDelete: "restrict" }),
     id: uuid("id").defaultRandom().primaryKey(),
     responseHash: text("response_hash").notNull(),
+    scopeId: text("scope_id").notNull(),
     spottVacancyId: text("spott_vacancy_id"),
   },
   (table) => [
@@ -712,6 +812,10 @@ export const externalReceipt = curatedSchema.table(
     check(
       "external_receipt_confirmed_spott_id_check",
       sql`(${table.confirmedEffect} = false) OR (${table.spottVacancyId} IS NOT NULL AND length(trim(${table.spottVacancyId})) > 0)`
+    ),
+    check(
+      "external_receipt_scope_id_check",
+      sql`length(trim(${table.scopeId})) > 0`
     ),
   ]
 );

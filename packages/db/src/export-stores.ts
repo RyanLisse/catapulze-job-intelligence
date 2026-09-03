@@ -46,6 +46,7 @@ const toExternalIdCrosswalkRecord = (
   canonicalVacancyId: row.canonicalVacancyId,
   createdAt: row.createdAt,
   externalId: row.externalId,
+  scopeId: row.scopeId,
   target: parseExportTarget(row.target),
 });
 
@@ -60,6 +61,7 @@ const toExportAttemptRecord = (
   externalId: row.externalId,
   id: row.id,
   idempotencyKey: row.idempotencyKey,
+  scopeId: row.scopeId,
   snapshotId: row.snapshotId,
   status: parseExportAttemptStatus(row.status),
   target: parseExportTarget(row.target),
@@ -74,6 +76,7 @@ const toExternalReceiptRecord = (
   exportAttemptId: row.exportAttemptId,
   id: row.id,
   responseHash: row.responseHash,
+  scopeId: row.scopeId,
   spottVacancyId: row.spottVacancyId,
 });
 
@@ -87,13 +90,15 @@ export class PostgresExternalIdCrosswalkStore implements ExternalIdCrosswalkStor
   async get(input: {
     actionType: ExportActionType;
     canonicalVacancyId: string;
+    scopeId: string;
     target: ExportTarget;
   }): Promise<ExternalIdCrosswalkRecord | null> {
     const row = await this.database.query.externalIdCrosswalk.findFirst({
       where: and(
         eq(externalIdCrosswalk.target, input.target),
         eq(externalIdCrosswalk.canonicalVacancyId, input.canonicalVacancyId),
-        eq(externalIdCrosswalk.actionType, input.actionType)
+        eq(externalIdCrosswalk.actionType, input.actionType),
+        eq(externalIdCrosswalk.scopeId, input.scopeId)
       ),
     });
     return row ? toExternalIdCrosswalkRecord(row) : null;
@@ -108,6 +113,7 @@ export class PostgresExternalIdCrosswalkStore implements ExternalIdCrosswalkStor
         actionType: record.actionType,
         canonicalVacancyId: record.canonicalVacancyId,
         externalId: record.externalId,
+        scopeId: record.scopeId,
         target: record.target,
       })
       .returning();
@@ -140,6 +146,7 @@ export class PostgresExportAttemptStore implements ExportAttemptStore {
         errorMessage: record.errorMessage,
         externalId: record.externalId,
         idempotencyKey: record.idempotencyKey,
+        scopeId: record.scopeId,
         snapshotId: record.snapshotId,
         status: record.status,
         target: record.target,
@@ -172,6 +179,7 @@ export class PostgresExternalReceiptStore implements ExternalReceiptStore {
         confirmedEffect: record.confirmedEffect,
         exportAttemptId: record.exportAttemptId,
         responseHash: record.responseHash,
+        scopeId: record.scopeId,
         spottVacancyId: record.spottVacancyId,
       })
       .returning();
@@ -185,19 +193,27 @@ export class PostgresExternalReceiptStore implements ExternalReceiptStore {
   }
 
   async getByExportAttemptId(
-    exportAttemptId: string
+    exportAttemptId: string,
+    scopeId: string
   ): Promise<ExternalReceiptRecord | null> {
     const row = await this.database.query.externalReceipt.findFirst({
-      where: eq(externalReceipt.exportAttemptId, exportAttemptId),
+      where: and(
+        eq(externalReceipt.exportAttemptId, exportAttemptId),
+        eq(externalReceipt.scopeId, scopeId)
+      ),
     });
     return row ? toExternalReceiptRecord(row) : null;
   }
 
   async listByCanonicalVacancyId(
-    canonicalVacancyId: string
+    canonicalVacancyId: string,
+    scopeId: string
   ): Promise<readonly ExternalReceiptRecord[]> {
     const rows = await this.database.query.externalReceipt.findMany({
-      where: eq(externalReceipt.canonicalVacancyId, canonicalVacancyId),
+      where: and(
+        eq(externalReceipt.canonicalVacancyId, canonicalVacancyId),
+        eq(externalReceipt.scopeId, scopeId)
+      ),
     });
     return rows.map(toExternalReceiptRecord);
   }

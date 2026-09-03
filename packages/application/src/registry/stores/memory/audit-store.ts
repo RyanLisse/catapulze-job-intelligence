@@ -16,7 +16,16 @@ export class MemoryAuditStore implements AuditStore {
     return Promise.resolve(structuredClone(saved));
   }
 
-  list(): readonly AuditEventRecord[] {
-    return [...this.events];
+  listByActorId(
+    actorId: string,
+    scopeId: string
+  ): Promise<readonly AuditEventRecord[]> {
+    return Promise.resolve(
+      this.events
+        .filter(
+          (event) => event.actorId === actorId && event.scopeId === scopeId
+        )
+        .map((event) => structuredClone(event))
+    );
   }
 }

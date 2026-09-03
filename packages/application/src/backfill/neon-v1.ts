@@ -1,7 +1,12 @@
+import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 
-import { buildRawObjectPath } from "@ji/connectors";
+import {
+  buildContentAddressedRawObjectPath,
+  hashContent,
+  parseContentAddressedRawObjectPath,
+} from "@ji/connectors";
 import type { ObjectStore } from "@ji/connectors";
 import { UNKNOWN } from "@ji/domain";
 
@@ -12,7 +17,16 @@ import type { NormalisedAanvraagDraft } from "../normalise";
 import { resolveMotianV1Binding } from "./motian-v1-bindings";
 import type {
   BackfillBronBinding,
+  BackfillExecution,
+  BackfillFailureEvidence,
+  BackfillPlatformMetrics,
+  BackfillProvenanceRecord,
+  BackfillRunEvidence,
   BackfillRunResult,
+  BackfillScopeManifest,
+  BackfillSnapshotWindow,
+  BackfillTargetProvenanceRecord,
+  BackfillTargetReconciliation,
   NeonV1Fixture,
   NeonV1JobRow,
   NeonV1Source,
@@ -21,6 +35,9 @@ import type {
 import {
   NEON_V1_BACKFILL_CONTRACT_VERSION,
   NEON_V1_PARSER_VERSION,
+  BACKFILL_SCOPE_MANIFEST_VERSION,
+  BACKFILL_TARGET_RECONCILIATION_VERSION,
+  backfillFailureEvidenceSchema,
 } from "./neon-v1-types";
 
 export {
@@ -28,15 +45,31 @@ export {
   NEON_V1_FORBIDDEN_TABLES,
   NEON_V1_PARSER_VERSION,
   type BackfillBronBinding,
+  type BackfillExecution,
+  type BackfillExecutionMode,
+  type BackfillFailureEvidence,
+  type BackfillPlatformMetrics,
+  type BackfillProvenanceRecord,
   type BackfillProvenanceStore,
+  type BackfillRunEvidence,
   type BackfillRunMetrics,
   type BackfillRunResult,
   type BackfillRunStore,
+  type BackfillScopeManifest,
+  type BackfillScope,
+  type BackfillSnapshotWindow,
+  type BackfillTargetProvenanceRecord,
+  type BackfillTargetReconciliation,
   type NeonV1Fixture,
   type NeonV1ForbiddenTable,
   type NeonV1JobRow,
   type NeonV1Source,
   type RunNeonV1BackfillInput,
+  BACKFILL_FAILURE_CODES,
+  BACKFILL_FAILURE_PHASES,
+  BACKFILL_SCOPE_MANIFEST_VERSION,
+  BACKFILL_TARGET_RECONCILIATION_VERSION,
+  backfillFailureEvidenceSchema,
 } from "./neon-v1-types";
 export { InMemoryBackfillProvenanceStore } from "./in-memory-backfill-provenance-store";
 export { InMemoryBackfillRunStore } from "./in-memory-backfill-run-store";
@@ -61,24 +94,54 @@ export const loadNeonV1Fixture = async (
   return parsed;
 };
 
+const compareCodeUnits = (left: string, right: string): number => {
+  if (left < right) {
+    return -1;
+  }
+  if (left > right) {
+    return 1;
+  }
+  return 0;
+};
+
 export const createFixtureNeonV1Source = (
   fixture: NeonV1Fixture
-): NeonV1Source => ({
-  label: "fixture",
-  loadJobs: () => Promise.resolve([...fixture.jobs]),
-});
+): NeonV1Source => {
+  const orderedJobs = fixture.jobs.toSorted((left, right) =>
+    compareCodeUnits(left.id, right.id)
+  );
+  return {
+    consumeSnapshot: async (_batchSize, consume) => {
+      await consume(orderedJobs);
+      return {
+        completedAt: fixture.capturedAt,
+        startedAt: fixture.capturedAt,
+      };
+    },
+    label: "fixture",
+    loadJobs: () => Promise.resolve([...orderedJobs]),
+  };
+};
 
 export const resolveMotianDatabaseUrl = (): string | undefined =>
   process.env.MOTIAN_DATABASE_URL?.trim() || undefined;
 
-const contentHashForJob = async (job: NeonV1JobRow): Promise<string> => {
-  const digest = await crypto.subtle.digest(
-    "SHA-256",
-    new TextEncoder().encode(JSON.stringify(job))
-  );
-  return [...new Uint8Array(digest)]
-    .map((byte) => byte.toString(16).padStart(2, "0"))
-    .join("");
+const serialiseRawSource = (job: NeonV1JobRow): string => {
+  const serialised = JSON.stringify(job.sourceRow ?? job);
+  if (serialised === undefined) {
+    throw new Error("Motian v1 source row is not JSON serialisable");
+  }
+  return serialised;
+};
+
+const rawBodyForJob = (job: NeonV1JobRow): Uint8Array =>
+  new TextEncoder().encode(serialiseRawSource(job));
+
+const bytesEqual = (left: Uint8Array, right: Uint8Array): boolean => {
+  if (left.byteLength !== right.byteLength) {
+    return false;
+  }
+  return left.every((byte, index) => byte === right[index]);
 };
 
 const tariefValue = (
@@ -86,26 +149,64 @@ const tariefValue = (
 ): string | typeof UNKNOWN =>
   value === null || value === undefined ? UNKNOWN : String(value);
 
+const sourceStatusForJob = (job: NeonV1JobRow): string | null =>
+  job.status?.trim() || null;
+
+const lifecycleForJob = (
+  job: NeonV1JobRow,
+  sourceStatus: string | null
+): "active" | "closed" => {
+  const sourceHasArchiveSignal =
+    (job.archived_at !== null && job.archived_at !== undefined) ||
+    (job.deleted_at !== null && job.deleted_at !== undefined);
+  const sourceIsClosed =
+    sourceHasArchiveSignal ||
+    (sourceStatus !== null && sourceStatus.toLowerCase() !== "open");
+  return sourceIsClosed ? "closed" : "active";
+};
+
+const descriptionForJob = (job: NeonV1JobRow): string =>
+  job.description?.trim() ||
+  `${job.title} (${job.platform}/${job.external_id})`;
+
+const opdrachtgeverForJob = (job: NeonV1JobRow): string | typeof UNKNOWN =>
+  job.end_client?.trim() || job.company?.trim() || UNKNOWN;
+
+/** Motian publishes no creation timestamp. `posted_at` is the only honest
+ * source for the publication/first-seen instant. When it is absent, first seen
+ * remains unknown; `scraped_at` is retained separately as scrape provenance. */
+const firstSeenAtForJob = (job: NeonV1JobRow): string | null =>
+  job.posted_at ?? null;
+
+const v1SpecificFieldsForJob = (
+  job: NeonV1JobRow,
+  sourceStatus: string | null
+) => ({
+  // Kept for compatibility with the original backfill preview fields;
+  // the exact source spelling remains in the durable raw source row.
+  platform: job.platform,
+  v1_archived_at: job.archived_at ?? null,
+  v1_contract_type: job.contract_type ?? null,
+  v1_deleted_at: job.deleted_at ?? null,
+  v1_first_seen_at: firstSeenAtForJob(job),
+  v1_location: job.location ?? null,
+  v1_platform: job.platform,
+  v1_posted_at: job.posted_at ?? null,
+  v1_province: job.province ?? null,
+  v1_scraped_at: job.scraped_at ?? null,
+  v1_status: sourceStatus,
+});
+
 export const mapV1JobToDraft = (job: NeonV1JobRow): NormalisedAanvraagDraft => {
   const parserVersion = NEON_V1_PARSER_VERSION;
-  const beschrijving =
-    job.description?.trim() ||
-    `${job.title} (${job.platform}/${job.external_id})`;
-  const opdrachtgever =
-    job.end_client?.trim() || job.company?.trim() || UNKNOWN;
+  const sourceStatus = sourceStatusForJob(job);
+  const lifecycle = lifecycleForJob(job, sourceStatus);
 
   return {
-    beschrijving: field(beschrijving, parserVersion, "description"),
+    beschrijving: field(descriptionForJob(job), parserVersion, "description"),
     bronReferentie: field(job.external_id, parserVersion, "external_id"),
     bronSpecifiek: field(
-      {
-        contract_type: job.contract_type ?? null,
-        location: job.location ?? null,
-        platform: job.platform,
-        province: job.province ?? null,
-        v1_created_at: job.created_at ?? null,
-        v1_updated_at: job.updated_at ?? null,
-      },
+      v1SpecificFieldsForJob(job, sourceStatus),
       parserVersion,
       "bron_specifiek"
     ),
@@ -116,17 +217,28 @@ export const mapV1JobToDraft = (job: NeonV1JobRow): NormalisedAanvraagDraft => {
     ),
     contentHash: "",
     extractieMethode: "api",
-    lifecycle: "active",
+    lifecycle,
     locatieLand: field("NL", parserVersion, "location"),
     locatieTekst: field(
       job.location?.trim() || UNKNOWN,
       parserVersion,
       "location"
     ),
-    opdrachtgeverNaam: field(opdrachtgever, parserVersion, "company"),
+    opdrachtgeverNaam: field(
+      opdrachtgeverForJob(job),
+      parserVersion,
+      "company"
+    ),
     parserVersion,
-    startDatum: field(UNKNOWN, parserVersion, "start_date"),
-    status: "active",
+    sluitingsdatum: job.application_deadline
+      ? new Date(job.application_deadline)
+      : undefined,
+    startDatum: field(
+      job.start_date?.slice(0, 10) || UNKNOWN,
+      parserVersion,
+      "start_date"
+    ),
+    status: lifecycle,
     tarief: {
       eenheid: UNKNOWN,
       max: tariefValue(job.rate_max),
@@ -142,49 +254,382 @@ const resolveBinding = (
   platform: string
 ): BackfillBronBinding | null => resolveMotianV1Binding(bindings, platform);
 
-interface MutableBackfillRunMetrics {
+const DEFAULT_BACKFILL_EXECUTION: BackfillExecution = {
+  mode: "fixture",
+  scope: "active",
+};
+
+const SOURCE_FAILURE_PLATFORM = "__source__";
+const RECONCILIATION_FAILURE_PLATFORM = "__reconcile__";
+const UNKNOWN_SOURCE_JOB_ID = "unknown";
+
+type BackfillMetricKey = keyof BackfillPlatformMetrics;
+
+interface MutableBackfillPlatformMetrics {
+  duplicates: number;
   errors: number;
+  extra: number;
   found: number;
   imported: number;
+  matched: number;
+  missing: number;
   rejected: number;
+  selected: number;
   skipped: number;
 }
 
-const emptyMetrics = (): MutableBackfillRunMetrics => ({
+interface MutableBackfillRunMetrics extends MutableBackfillPlatformMetrics {
+  platforms: Record<string, MutableBackfillPlatformMetrics>;
+}
+
+interface BackfillEvidenceArtifacts {
+  scopeManifest?: BackfillScopeManifest;
+  targetReconciliation?: BackfillTargetReconciliation;
+}
+
+interface OrderedMappingDigest {
+  readonly hash: ReturnType<typeof createHash>;
+  readonly platformCounts: Record<string, number>;
+  lastId: string | null;
+  records: number;
+}
+
+const createOrderedMappingDigest = (): OrderedMappingDigest => ({
+  hash: createHash("sha256"),
+  lastId: null,
+  platformCounts: {},
+  records: 0,
+});
+
+const appendOrderedMapping = (
+  digest: OrderedMappingDigest,
+  mapping: BackfillTargetProvenanceRecord,
+  platform: string
+): void => {
+  digest.hash.update(
+    `${JSON.stringify([
+      mapping.v1Id,
+      mapping.bronId,
+      mapping.bronReferentie,
+      mapping.contentHash,
+      mapping.rawPayloadRef,
+    ])}\n`,
+    "utf-8"
+  );
+  digest.lastId = mapping.v1Id;
+  digest.platformCounts[platform] = (digest.platformCounts[platform] ?? 0) + 1;
+  digest.records += 1;
+};
+
+const orderedMappingHash = (digest: OrderedMappingDigest): string =>
+  digest.hash.digest("hex");
+
+const isValidSnapshotWindow = (snapshot: BackfillSnapshotWindow): boolean => {
+  const snapshotStart = Date.parse(snapshot.startedAt);
+  const snapshotEnd = Date.parse(snapshot.completedAt);
+  return (
+    Number.isFinite(snapshotStart) &&
+    Number.isFinite(snapshotEnd) &&
+    snapshotEnd >= snapshotStart
+  );
+};
+
+const emptyPlatformMetrics = (): MutableBackfillPlatformMetrics => ({
+  duplicates: 0,
   errors: 0,
+  extra: 0,
   found: 0,
   imported: 0,
+  matched: 0,
+  missing: 0,
   rejected: 0,
+  selected: 0,
   skipped: 0,
 });
 
-const bindingsForJobs = (
-  jobs: readonly NeonV1JobRow[],
+const emptyMetrics = (
   bindings: readonly BackfillBronBinding[]
-): { bronId: string; ok: true } | { ok: false; reason: string } => {
-  const platforms = [...new Set(jobs.map((job) => job.platform))];
-  if (platforms.length === 0) {
-    const [fallbackBinding] = bindings;
-    return {
-      bronId: fallbackBinding?.bronId ?? "00000000-0000-4000-8000-000000000099",
-      ok: true,
+): MutableBackfillRunMetrics => ({
+  ...emptyPlatformMetrics(),
+  platforms: Object.fromEntries(
+    bindings.map((binding) => [binding.platform, emptyPlatformMetrics()])
+  ),
+});
+
+const incrementMetric = (
+  metrics: MutableBackfillRunMetrics,
+  platform: string,
+  key: BackfillMetricKey
+): void => {
+  metrics[key] += 1;
+  const platformMetrics = metrics.platforms[platform] ?? emptyPlatformMetrics();
+  metrics.platforms[platform] = platformMetrics;
+  platformMetrics[key] += 1;
+};
+
+const platformForJob = (
+  bindings: readonly BackfillBronBinding[],
+  job: NeonV1JobRow
+): string =>
+  resolveBinding(bindings, job.platform)?.platform ||
+  job.platform ||
+  "__unbound__";
+
+const snapshotMetrics = (
+  metrics: MutableBackfillRunMetrics
+): BackfillRunEvidence["metrics"] => ({
+  duplicates: metrics.duplicates,
+  errors: metrics.errors,
+  extra: metrics.extra,
+  found: metrics.found,
+  imported: metrics.imported,
+  matched: metrics.matched,
+  missing: metrics.missing,
+  platforms: Object.fromEntries(
+    Object.entries(metrics.platforms).map(([platform, platformMetrics]) => [
+      platform,
+      { ...platformMetrics },
+    ])
+  ),
+  rejected: metrics.rejected,
+  selected: metrics.selected,
+  skipped: metrics.skipped,
+});
+
+const backfillEvidence = (
+  execution: BackfillExecution,
+  metrics: MutableBackfillRunMetrics,
+  artifacts: BackfillEvidenceArtifacts,
+  failure?: BackfillFailureEvidence
+): BackfillRunEvidence => {
+  let evidence: BackfillRunEvidence = {
+    execution: { ...execution },
+    metrics: snapshotMetrics(metrics),
+  };
+  if (artifacts.scopeManifest) {
+    evidence = {
+      ...evidence,
+      scopeManifest: structuredClone(artifacts.scopeManifest),
     };
   }
-
-  const [primaryPlatform] = platforms;
-  if (!primaryPlatform) {
-    return { ok: false, reason: "Neon v1 fixture contains no platform values" };
-  }
-
-  const binding = resolveBinding(bindings, primaryPlatform);
-  if (!binding) {
-    return {
-      ok: false,
-      reason: `No bron binding configured for platform ${primaryPlatform}`,
+  if (artifacts.targetReconciliation) {
+    evidence = {
+      ...evidence,
+      targetReconciliation: structuredClone(artifacts.targetReconciliation),
     };
   }
+  return failure ? { ...evidence, failure: { ...failure } } : evidence;
+};
 
-  return { bronId: binding.bronId, ok: true };
+const backfillResult = (
+  execution: BackfillExecution,
+  metrics: MutableBackfillRunMetrics,
+  artifacts: BackfillEvidenceArtifacts,
+  status: BackfillRunResult["status"],
+  failure?: BackfillFailureEvidence
+): BackfillRunResult => {
+  const evidence = backfillEvidence(execution, metrics, artifacts, failure);
+  return { evidence, metrics: evidence.metrics, status };
+};
+
+class BackfillFailureError extends Error {
+  readonly failure: BackfillFailureEvidence;
+  readonly metricRecorded: boolean;
+
+  constructor(
+    failure: BackfillFailureEvidence,
+    metricRecorded = false,
+    options: { cause?: unknown } = {}
+  ) {
+    const validated = backfillFailureEvidenceSchema.parse(failure);
+    super(`Motian v1 backfill failed during ${validated.phase}`, {
+      cause: options.cause,
+    });
+    this.name = "BackfillFailureError";
+    this.failure = validated;
+    this.metricRecorded = metricRecorded;
+  }
+}
+
+const CANONICAL_LOWERCASE_UUID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/u;
+
+/**
+ * Canonical lowercase UUIDs contain only ASCII hex digits with hyphens at
+ * fixed positions. Within that constrained shape, native database collation,
+ * byte order, and JavaScript code-unit order agree, so the database can use
+ * its ordinary primary-key index without forcing a different collation.
+ */
+const assertCanonicalOrderedId = (
+  id: string,
+  failure: BackfillFailureEvidence,
+  origin: "source" | "target"
+): void => {
+  if (!CANONICAL_LOWERCASE_UUID_PATTERN.test(id)) {
+    throw new BackfillFailureError(failure, false, {
+      cause: new Error(
+        `${origin} id has a non-canonical shape; expected lowercase UUID, received ${id}`
+      ),
+    });
+  }
+};
+
+interface BackfillFailureLocation {
+  readonly platform: string;
+  readonly sourceJobId: string;
+}
+
+export interface BackfillFailureDiagnostic extends BackfillFailureLocation {
+  /** In-process only. Callers must sanitize the cause before emitting it. */
+  readonly error: Error;
+}
+
+const failureLocations = new WeakMap<
+  BackfillFailureError,
+  BackfillFailureLocation
+>();
+const failureDiagnostics = new WeakMap<
+  BackfillRunResult,
+  BackfillFailureDiagnostic
+>();
+
+const withFailureLocation = (
+  error: BackfillFailureError,
+  location: BackfillFailureLocation
+): BackfillFailureError => {
+  failureLocations.set(error, location);
+  return error;
+};
+
+export const getBackfillFailureDiagnostic = (
+  result: BackfillRunResult
+): BackfillFailureDiagnostic | undefined => failureDiagnostics.get(result);
+
+const isBackfillFailure = (cause: unknown): cause is BackfillFailureError =>
+  cause instanceof BackfillFailureError;
+
+const provenanceMatches = (
+  actual: BackfillProvenanceRecord,
+  expected: Omit<BackfillProvenanceRecord, "aanvraagId">,
+  expectedRawPayloadRef?: string
+): boolean => {
+  const addressed = parseContentAddressedRawObjectPath(actual.rawPayloadRef);
+  return (
+    actual.v1Id === expected.v1Id &&
+    actual.bronId === expected.bronId &&
+    actual.bronReferentie === expected.bronReferentie &&
+    actual.contentHash === expected.contentHash &&
+    addressed?.contentHash === expected.contentHash &&
+    (expectedRawPayloadRef === undefined ||
+      actual.rawPayloadRef === expectedRawPayloadRef)
+  );
+};
+
+const readProvenance = async (
+  provenanceStore: RunNeonV1BackfillInput["provenanceStore"],
+  v1Id: string
+): Promise<BackfillProvenanceRecord | null> => {
+  try {
+    return await provenanceStore.findByV1Id(v1Id);
+  } catch (error) {
+    throw new BackfillFailureError(
+      {
+        code: "PROVENANCE_READ_FAILED",
+        phase: "provenance",
+      },
+      false,
+      { cause: error }
+    );
+  }
+};
+
+const requireRawReadback = async (input: {
+  body: Uint8Array;
+  contentHash: string;
+  objectStore: ObjectStore;
+  rawPayloadRef: string;
+}): Promise<void> => {
+  let stored;
+  try {
+    stored = await input.objectStore.get(input.rawPayloadRef);
+  } catch (error) {
+    throw new BackfillFailureError(
+      {
+        code: "RAW_READBACK_FAILED",
+        phase: "raw-write",
+      },
+      false,
+      { cause: error }
+    );
+  }
+  if (!stored || stored.contentType !== "json") {
+    throw new BackfillFailureError({
+      code: "RAW_READBACK_FAILED",
+      phase: "raw-write",
+    });
+  }
+
+  let readbackHash: string;
+  try {
+    readbackHash = await hashContent(stored.body);
+  } catch (error) {
+    throw new BackfillFailureError(
+      {
+        code: "RAW_READBACK_FAILED",
+        phase: "raw-write",
+      },
+      false,
+      { cause: error }
+    );
+  }
+  if (
+    readbackHash !== input.contentHash ||
+    !bytesEqual(stored.body, input.body)
+  ) {
+    throw new BackfillFailureError({
+      code: "RAW_READBACK_FAILED",
+      phase: "raw-write",
+    });
+  }
+};
+
+const persistAndVerifyRaw = async (input: {
+  body: Uint8Array;
+  contentHash: string;
+  job: NeonV1JobRow;
+  objectStore: ObjectStore;
+  startedAt: Date;
+}): Promise<string> => {
+  const rawPayloadRef = buildContentAddressedRawObjectPath({
+    bronSlug: input.job.platform,
+    contentHash: input.contentHash,
+    contentType: "json",
+    startedAt: input.startedAt,
+  });
+  try {
+    await input.objectStore.put({
+      body: input.body,
+      contentType: "json",
+      expiresAt: new Date(input.startedAt.getTime() + 90 * 86_400_000),
+      path: rawPayloadRef,
+    });
+  } catch (error) {
+    throw new BackfillFailureError(
+      {
+        code: "RAW_WRITE_FAILED",
+        phase: "raw-write",
+      },
+      false,
+      { cause: error }
+    );
+  }
+  await requireRawReadback({
+    body: input.body,
+    contentHash: input.contentHash,
+    objectStore: input.objectStore,
+    rawPayloadRef,
+  });
+  return rawPayloadRef;
 };
 
 const importNeonV1Job = async (input: {
@@ -196,59 +641,153 @@ const importNeonV1Job = async (input: {
   provenanceStore: RunNeonV1BackfillInput["provenanceStore"];
   scrapeRunId: string;
   startedAt: Date;
-}): Promise<void> => {
+}): Promise<BackfillProvenanceRecord | null> => {
   const platformBinding = resolveBinding(input.bindings, input.job.platform);
+  const platform =
+    platformBinding?.platform ?? platformForJob(input.bindings, input.job);
+  incrementMetric(input.metrics, platform, "found");
+  incrementMetric(input.metrics, platform, "selected");
   if (!platformBinding) {
-    input.metrics.rejected += 1;
-    return;
+    incrementMetric(input.metrics, platform, "rejected");
+    return null;
   }
 
-  const existing = await input.provenanceStore.findByV1Id(input.job.id);
-  if (existing) {
-    input.metrics.skipped += 1;
-    return;
-  }
+  try {
+    let rawBody: Uint8Array;
+    let contentHash: string;
+    try {
+      rawBody = rawBodyForJob(input.job);
+      contentHash = await hashContent(rawBody);
+    } catch (error) {
+      throw new BackfillFailureError(
+        {
+          code: "RAW_WRITE_FAILED",
+          phase: "raw-write",
+        },
+        false,
+        { cause: error }
+      );
+    }
+    const expectedProvenance = {
+      bronId: platformBinding.bronId,
+      bronReferentie: input.job.external_id,
+      contentHash,
+      rawPayloadRef: "",
+      v1Id: input.job.id,
+    };
+    const existing = await readProvenance(input.provenanceStore, input.job.id);
+    if (existing) {
+      if (!provenanceMatches(existing, expectedProvenance)) {
+        throw new BackfillFailureError({
+          code: "PROVENANCE_MISMATCH",
+          phase: "provenance",
+        });
+      }
+      await requireRawReadback({
+        body: rawBody,
+        contentHash,
+        objectStore: input.objectStore,
+        rawPayloadRef: existing.rawPayloadRef,
+      });
+      incrementMetric(input.metrics, platform, "matched");
+      incrementMetric(input.metrics, platform, "skipped");
+      return existing;
+    }
 
-  const draftBase = mapV1JobToDraft(input.job);
-  const contentHash = await contentHashForJob(input.job);
-  const draft: NormalisedAanvraagDraft = {
-    ...draftBase,
-    contentHash,
-  };
+    const draftBase = mapV1JobToDraft(input.job);
+    const draft: NormalisedAanvraagDraft = {
+      ...draftBase,
+      contentHash,
+    };
+    const rawPayloadRef = await persistAndVerifyRaw({
+      body: rawBody,
+      contentHash,
+      job: input.job,
+      objectStore: input.objectStore,
+      startedAt: input.startedAt,
+    });
 
-  const rawBody = new TextEncoder().encode(JSON.stringify(input.job));
-  const rawPayloadRef = buildRawObjectPath({
-    bronSlug: input.job.platform,
-    contentType: "json",
-    recordId: `${input.job.external_id}-${contentHash.slice(0, 12)}`,
-    runId: input.scrapeRunId,
-    startedAt: input.startedAt,
-  });
-  await input.objectStore.put({
-    body: rawBody,
-    contentType: "json",
-    expiresAt: new Date(input.startedAt.getTime() + 90 * 86_400_000),
-    path: rawPayloadRef,
-  });
+    let curated;
+    try {
+      curated = await curateObservation(input.curateStore, {
+        bronId: platformBinding.bronId,
+        draft,
+        observedAt: input.startedAt,
+        rawPayloadRef,
+        scrapeRunId: input.scrapeRunId,
+      });
+    } catch (error) {
+      throw new BackfillFailureError(
+        {
+          code: "CURATE_FAILED",
+          phase: "curate",
+        },
+        false,
+        { cause: error }
+      );
+    }
 
-  const curated = await curateObservation(input.curateStore, {
-    bronId: platformBinding.bronId,
-    draft,
-    observedAt: input.startedAt,
-    rawPayloadRef,
-    scrapeRunId: input.scrapeRunId,
-  });
+    if (curated.status === "quarantined" || !curated.aanvraagId) {
+      throw new BackfillFailureError({
+        code: "CURATE_REJECTED",
+        phase: "curate",
+      });
+    }
 
-  if (curated.status === "quarantined" || !curated.aanvraagId) {
-    input.metrics.errors += 1;
-    return;
-  }
-
-  await input.provenanceStore.registerV1Id(input.job.id, curated.aanvraagId);
-  if (curated.status === "curated") {
-    input.metrics.imported += 1;
-  } else {
-    input.metrics.skipped += 1;
+    const provenance: BackfillProvenanceRecord = {
+      ...expectedProvenance,
+      aanvraagId: curated.aanvraagId,
+      rawPayloadRef,
+    };
+    try {
+      await input.provenanceStore.registerV1Id(provenance);
+    } catch (error) {
+      throw new BackfillFailureError(
+        {
+          code: "PROVENANCE_WRITE_FAILED",
+          phase: "provenance",
+        },
+        false,
+        { cause: error }
+      );
+    }
+    const registered = await readProvenance(
+      input.provenanceStore,
+      input.job.id
+    );
+    if (
+      !registered ||
+      registered.aanvraagId !== curated.aanvraagId ||
+      !provenanceMatches(registered, expectedProvenance, rawPayloadRef)
+    ) {
+      throw new BackfillFailureError({
+        code: "PROVENANCE_MISMATCH",
+        phase: "provenance",
+      });
+    }
+    incrementMetric(input.metrics, platform, "matched");
+    if (curated.status === "curated") {
+      incrementMetric(input.metrics, platform, "imported");
+    } else {
+      incrementMetric(input.metrics, platform, "skipped");
+    }
+    return registered;
+  } catch (error) {
+    incrementMetric(input.metrics, platform, "errors");
+    if (isBackfillFailure(error)) {
+      throw withFailureLocation(
+        new BackfillFailureError(error.failure, true, { cause: error.cause }),
+        { platform, sourceJobId: input.job.id }
+      );
+    }
+    throw withFailureLocation(
+      new BackfillFailureError(
+        { code: "CURATE_FAILED", phase: "curate" },
+        true,
+        { cause: error }
+      ),
+      { platform, sourceJobId: input.job.id }
+    );
   }
 };
 
@@ -261,11 +800,11 @@ const importNeonV1Jobs = async (input: {
   provenanceStore: RunNeonV1BackfillInput["provenanceStore"];
   scrapeRunId: string;
   startedAt: Date;
-}): Promise<void> => {
-  input.metrics.found += input.jobs.length;
+}): Promise<readonly BackfillProvenanceRecord[]> => {
+  const provenanceRecords: BackfillProvenanceRecord[] = [];
   /* oxlint-disable no-await-in-loop -- backfill imports must stay ordered for deterministic metrics */
   for (const job of input.jobs) {
-    await importNeonV1Job({
+    const provenance = await importNeonV1Job({
       bindings: input.bindings,
       curateStore: input.curateStore,
       job,
@@ -275,15 +814,358 @@ const importNeonV1Jobs = async (input: {
       scrapeRunId: input.scrapeRunId,
       startedAt: input.startedAt,
     });
+    if (provenance) {
+      provenanceRecords.push(provenance);
+    }
   }
   /* oxlint-enable no-await-in-loop */
+  return provenanceRecords;
+};
+
+const importFromSource = async (input: {
+  batchSize: number;
+  bindings: readonly BackfillBronBinding[];
+  curateStore: RunNeonV1BackfillInput["curateStore"];
+  metrics: MutableBackfillRunMetrics;
+  objectStore: RunNeonV1BackfillInput["objectStore"];
+  provenanceStore: RunNeonV1BackfillInput["provenanceStore"];
+  scrapeRunId: string;
+  source: NeonV1Source;
+  startedAt: Date;
+}): Promise<BackfillScopeManifest> => {
+  const mappingDigest = createOrderedMappingDigest();
+  let lastSourceId: string | null = null;
+  let selected = 0;
+  const consume = async (jobs: readonly NeonV1JobRow[]): Promise<void> => {
+    for (const job of jobs) {
+      assertCanonicalOrderedId(
+        job.id,
+        { code: "SOURCE_READ_FAILED", phase: "source-read" },
+        "source"
+      );
+      if (lastSourceId !== null && job.id <= lastSourceId) {
+        throw withFailureLocation(
+          new BackfillFailureError({
+            code: "SOURCE_READ_FAILED",
+            phase: "source-read",
+          }),
+          {
+            platform: platformForJob(input.bindings, job),
+            sourceJobId: job.id,
+          }
+        );
+      }
+      lastSourceId = job.id;
+      selected += 1;
+    }
+    const provenanceRecords = await importNeonV1Jobs({
+      bindings: input.bindings,
+      curateStore: input.curateStore,
+      jobs,
+      metrics: input.metrics,
+      objectStore: input.objectStore,
+      provenanceStore: input.provenanceStore,
+      scrapeRunId: input.scrapeRunId,
+      startedAt: input.startedAt,
+    });
+    for (const provenance of provenanceRecords) {
+      const platform = input.bindings.find(
+        (binding) => binding.bronId === provenance.bronId
+      )?.platform;
+      if (!platform) {
+        throw withFailureLocation(
+          new BackfillFailureError({
+            code: "SOURCE_READ_FAILED",
+            phase: "source-read",
+          }),
+          {
+            platform: SOURCE_FAILURE_PLATFORM,
+            sourceJobId: provenance.v1Id,
+          }
+        );
+      }
+      appendOrderedMapping(mappingDigest, provenance, platform);
+    }
+  };
+
+  try {
+    let snapshot: BackfillSnapshotWindow;
+    if (input.source.consumeSnapshot) {
+      snapshot = await input.source.consumeSnapshot(input.batchSize, consume);
+    } else if (input.source.streamBatches) {
+      const startedAt = new Date().toISOString();
+      for await (const batch of input.source.streamBatches(input.batchSize)) {
+        await consume(batch);
+      }
+      snapshot = { completedAt: new Date().toISOString(), startedAt };
+    } else {
+      const startedAt = new Date().toISOString();
+      const jobs = await input.source.loadJobs();
+      await consume(jobs);
+      snapshot = { completedAt: new Date().toISOString(), startedAt };
+    }
+    if (!isValidSnapshotWindow(snapshot)) {
+      throw new BackfillFailureError({
+        code: "SOURCE_READ_FAILED",
+        phase: "source-read",
+      });
+    }
+    return {
+      contractVersion: BACKFILL_SCOPE_MANIFEST_VERSION,
+      digestAlgorithm: "sha256",
+      itemEncoding: "json-array-line/v1",
+      order: "source-id-ascending",
+      orderedDigest: orderedMappingHash(mappingDigest),
+      platformCounts: { ...mappingDigest.platformCounts },
+      selected,
+      snapshot: { ...snapshot },
+    };
+  } catch (error) {
+    if (isBackfillFailure(error)) {
+      throw error;
+    }
+    throw withFailureLocation(
+      new BackfillFailureError(
+        {
+          code: "SOURCE_READ_FAILED",
+          phase: "source-read",
+        },
+        false,
+        { cause: error }
+      ),
+      {
+        platform: SOURCE_FAILURE_PLATFORM,
+        sourceJobId: lastSourceId ?? UNKNOWN_SOURCE_JOB_ID,
+      }
+    );
+  }
+};
+
+const syncAggregateReconciliation = (
+  metrics: MutableBackfillRunMetrics
+): void => {
+  const platformMetrics = Object.values(metrics.platforms);
+  for (const key of [
+    "duplicates",
+    "extra",
+    "matched",
+    "missing",
+    "selected",
+  ] as const) {
+    metrics[key] = platformMetrics.reduce(
+      (sum, platform) => sum + platform[key],
+      0
+    );
+  }
+};
+
+const reconcileProvenance = async (input: {
+  batchSize: number;
+  bindings: readonly BackfillBronBinding[];
+  metrics: MutableBackfillRunMetrics;
+  provenanceStore: RunNeonV1BackfillInput["provenanceStore"];
+  scopeManifest: BackfillScopeManifest;
+}): Promise<BackfillTargetReconciliation> => {
+  const bronIds = [...new Set(input.bindings.map((binding) => binding.bronId))];
+  const platformByBronId = new Map(
+    input.bindings.map((binding) => [binding.bronId, binding.platform])
+  );
+  const digest = createOrderedMappingDigest();
+  const summaries: Record<string, { distinctV1Ids: number; records: number }> =
+    {};
+  const lastV1IdByBronId = new Map<string, string>();
+  let snapshot: BackfillSnapshotWindow;
+  try {
+    snapshot = await input.provenanceStore.consumeReconciliationSnapshot(
+      bronIds,
+      input.batchSize,
+      (batch) => {
+        for (const record of batch) {
+          const platform = platformByBronId.get(record.bronId);
+          if (!platform) {
+            throw new BackfillFailureError({
+              code: "RECONCILIATION_READ_FAILED",
+              phase: "reconcile",
+            });
+          }
+          assertCanonicalOrderedId(
+            record.v1Id,
+            { code: "RECONCILIATION_READ_FAILED", phase: "reconcile" },
+            "target"
+          );
+          if (digest.lastId !== null && record.v1Id < digest.lastId) {
+            throw new BackfillFailureError({
+              code: "RECONCILIATION_READ_FAILED",
+              phase: "reconcile",
+            });
+          }
+          appendOrderedMapping(digest, record, platform);
+          const summary = summaries[record.bronId] ?? {
+            distinctV1Ids: 0,
+            records: 0,
+          };
+          summary.records += 1;
+          if (lastV1IdByBronId.get(record.bronId) !== record.v1Id) {
+            summary.distinctV1Ids += 1;
+            lastV1IdByBronId.set(record.bronId, record.v1Id);
+          }
+          summaries[record.bronId] = summary;
+        }
+        return Promise.resolve();
+      }
+    );
+  } catch (error) {
+    if (isBackfillFailure(error)) {
+      throw error;
+    }
+    throw new BackfillFailureError(
+      {
+        code: "RECONCILIATION_READ_FAILED",
+        phase: "reconcile",
+      },
+      false,
+      { cause: error }
+    );
+  }
+
+  if (!isValidSnapshotWindow(snapshot)) {
+    throw new BackfillFailureError({
+      code: "RECONCILIATION_READ_FAILED",
+      phase: "reconcile",
+    });
+  }
+
+  const configuredPlatforms = new Set<string>();
+  for (const binding of input.bindings) {
+    configuredPlatforms.add(binding.platform);
+    const platformMetrics =
+      input.metrics.platforms[binding.platform] ?? emptyPlatformMetrics();
+    input.metrics.platforms[binding.platform] = platformMetrics;
+    const summary = summaries[binding.bronId] ?? {
+      distinctV1Ids: 0,
+      records: 0,
+    };
+    const sourceCount =
+      input.scopeManifest.platformCounts[binding.platform] ?? 0;
+    platformMetrics.matched = Math.min(
+      platformMetrics.matched,
+      summary.distinctV1Ids,
+      sourceCount
+    );
+    platformMetrics.missing = Math.max(sourceCount - summary.distinctV1Ids, 0);
+    platformMetrics.extra = Math.max(summary.distinctV1Ids - sourceCount, 0);
+    platformMetrics.duplicates = Math.max(
+      summary.records - summary.distinctV1Ids,
+      0
+    );
+  }
+
+  for (const [platform, platformMetrics] of Object.entries(
+    input.metrics.platforms
+  )) {
+    if (!configuredPlatforms.has(platform)) {
+      platformMetrics.missing = Math.max(
+        platformMetrics.selected - platformMetrics.matched,
+        0
+      );
+    }
+  }
+  syncAggregateReconciliation(input.metrics);
+  const orderedDigest = orderedMappingHash(digest);
+  return {
+    contractVersion: BACKFILL_TARGET_RECONCILIATION_VERSION,
+    digestAlgorithm: "sha256",
+    distinctV1Ids: Object.values(summaries).reduce(
+      (sum, summary) => sum + summary.distinctV1Ids,
+      0
+    ),
+    itemEncoding: "json-array-line/v1",
+    matchesScope:
+      digest.records === input.scopeManifest.selected &&
+      orderedDigest === input.scopeManifest.orderedDigest,
+    order: "source-id-ascending",
+    orderedDigest,
+    platformCounts: { ...digest.platformCounts },
+    records: digest.records,
+    snapshot: { ...snapshot },
+  };
+};
+
+const assertNoImportFailures = (
+  metrics: MutableBackfillRunMetrics,
+  targetReconciliation: BackfillTargetReconciliation
+): void => {
+  const hasDrift =
+    metrics.missing > 0 ||
+    metrics.extra > 0 ||
+    metrics.duplicates > 0 ||
+    !targetReconciliation.matchesScope;
+  if (metrics.errors > 0 || metrics.rejected > 0 || hasDrift) {
+    throw new BackfillFailureError(
+      { code: "RECONCILIATION_DRIFT", phase: "reconcile" },
+      true
+    );
+  }
+};
+
+const recordBackfillFailure = async (input: {
+  artifacts: BackfillEvidenceArtifacts;
+  cause: unknown;
+  execution: BackfillExecution;
+  metrics: MutableBackfillRunMetrics;
+  runStore: RunNeonV1BackfillInput["runStore"];
+  scrapeRunId: string;
+}): Promise<BackfillRunResult> => {
+  const failure = isBackfillFailure(input.cause)
+    ? input.cause.failure
+    : backfillFailureEvidenceSchema.parse({
+        code: "RECONCILIATION_READ_FAILED",
+        phase: "reconcile",
+      });
+  const failureError = isBackfillFailure(input.cause)
+    ? input.cause
+    : new BackfillFailureError(failure, false, { cause: input.cause });
+  if (!isBackfillFailure(input.cause) || !input.cause.metricRecorded) {
+    const failurePlatform =
+      failure.phase === "source-read"
+        ? SOURCE_FAILURE_PLATFORM
+        : "__reconcile__";
+    incrementMetric(input.metrics, failurePlatform, "errors");
+  }
+  const result = backfillResult(
+    input.execution,
+    input.metrics,
+    input.artifacts,
+    "failed",
+    failure
+  );
+  const location = failureLocations.get(failureError) ?? {
+    platform:
+      failure.phase === "source-read"
+        ? SOURCE_FAILURE_PLATFORM
+        : RECONCILIATION_FAILURE_PLATFORM,
+    sourceJobId: UNKNOWN_SOURCE_JOB_ID,
+  };
+  failureDiagnostics.set(result, { error: failureError, ...location });
+  await input.runStore.failRun(input.scrapeRunId, failure, result.evidence);
+  return result;
 };
 
 export const runNeonV1Backfill = async (
   input: RunNeonV1BackfillInput
 ): Promise<BackfillRunResult> => {
+  const execution = input.execution ?? DEFAULT_BACKFILL_EXECUTION;
+  if (execution.mode === "production" && execution.scope !== "full") {
+    throw new Error("Production Motian v1 backfills require scope: full");
+  }
+  if (execution.mode === "production" && !input.source.consumeSnapshot) {
+    throw new Error(
+      "Production Motian v1 backfills require a consistent source snapshot"
+    );
+  }
   const startedAt = input.startedAt ?? new Date();
-  const metrics = emptyMetrics();
+  const metrics = emptyMetrics(input.bindings);
+  const artifacts: BackfillEvidenceArtifacts = {};
   const [primaryBinding] = input.bindings;
   const primaryBronId =
     primaryBinding?.bronId ?? "00000000-0000-4000-8000-000000000099";
@@ -291,70 +1173,37 @@ export const runNeonV1Backfill = async (
   const batchSize = input.batchSize ?? 1000;
 
   try {
-    if (input.source.streamBatches) {
-      let validatedBindings = false;
-      for await (const batch of input.source.streamBatches(batchSize)) {
-        if (batch.length > 0 && !validatedBindings) {
-          const binding = bindingsForJobs(batch, input.bindings);
-          if (!binding.ok) {
-            throw new Error(binding.reason);
-          }
-          validatedBindings = true;
-        }
-        await importNeonV1Jobs({
-          bindings: input.bindings,
-          curateStore: input.curateStore,
-          jobs: batch,
-          metrics,
-          objectStore: input.objectStore,
-          provenanceStore: input.provenanceStore,
-          scrapeRunId,
-          startedAt,
-        });
-      }
-    } else {
-      const jobs = await input.source.loadJobs();
-      if (jobs.length > 0) {
-        const binding = bindingsForJobs(jobs, input.bindings);
-        if (!binding.ok) {
-          throw new Error(binding.reason);
-        }
-      }
-      await importNeonV1Jobs({
-        bindings: input.bindings,
-        curateStore: input.curateStore,
-        jobs,
-        metrics,
-        objectStore: input.objectStore,
-        provenanceStore: input.provenanceStore,
-        scrapeRunId,
-        startedAt,
-      });
-    }
-
-    await input.runStore.completeRun(scrapeRunId, metrics);
-    return { metrics, status: "succeeded" };
-  } catch (error) {
-    await input.runStore.failRun(
+    artifacts.scopeManifest = await importFromSource({
+      batchSize,
+      bindings: input.bindings,
+      curateStore: input.curateStore,
+      metrics,
+      objectStore: input.objectStore,
+      provenanceStore: input.provenanceStore,
       scrapeRunId,
-      error instanceof Error ? error.message : "Neon v1 backfill failed"
-    );
-    return {
-      metrics: {
-        ...metrics,
-        errors: metrics.errors + 1,
-      },
-      status: "failed",
-    };
-  }
-};
+      source: input.source,
+      startedAt,
+    });
+    artifacts.targetReconciliation = await reconcileProvenance({
+      batchSize,
+      bindings: input.bindings,
+      metrics,
+      provenanceStore: input.provenanceStore,
+      scopeManifest: artifacts.scopeManifest,
+    });
+    assertNoImportFailures(metrics, artifacts.targetReconciliation);
 
-export const assertReadOnlyMotianAccess = (): void => {
-  const url = resolveMotianDatabaseUrl();
-  if (!url) {
-    return;
-  }
-  if (/write|admin|owner/iu.test(url)) {
-    throw new Error("MOTIAN_DATABASE_URL must use a read-only role");
+    const result = backfillResult(execution, metrics, artifacts, "succeeded");
+    await input.runStore.completeRun(scrapeRunId, result.evidence);
+    return result;
+  } catch (error) {
+    return recordBackfillFailure({
+      artifacts,
+      cause: error,
+      execution,
+      metrics,
+      runStore: input.runStore,
+      scrapeRunId,
+    });
   }
 };

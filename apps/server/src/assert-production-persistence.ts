@@ -14,16 +14,10 @@ export const VOLATILE_STORE_ALLOWLIST: ReadonlySet<keyof SliceAStores> =
   new Set<keyof SliceAStores>([
     // 2026-08-31 RJC-390: no Postgres AlertStore yet
     "alerts",
-    // 2026-08-31 RJC-390: no Postgres AuditStore yet
-    "audit",
     // 2026-08-31 RJC-390: no Postgres BronHealthStore yet
     "bronHealth",
-    // 2026-08-31 RJC-390: no Postgres MarkeringStore yet
-    "markeringen",
     // 2026-08-31 RJC-390: no Postgres OperatorRunStore yet
     "operatorRuns",
-    // 2026-08-31 RJC-390: no Postgres SavedSearchStore yet
-    "savedSearches",
   ]);
 
 export interface AssertProductionPersistenceInput {

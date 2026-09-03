@@ -22,6 +22,30 @@ export const normalizeMotianPlatform = (platform: string): string => {
   return platform;
 };
 
+/**
+ * Source-side slugs are deliberately distinct from canonical platform names:
+ * old Motian rows still use `starapple`, while Catapulze stores both spellings
+ * under the single `starapple-nl` bron binding.
+ */
+export const MOTIAN_V1_SOURCE_PLATFORMS = [
+  ...MOTIAN_V1_PLATFORMS,
+  "starapple",
+] as const;
+
+export const sourcePlatformsForMotianV1 = (
+  platforms: readonly string[]
+): string[] => {
+  const sourcePlatforms = new Set<string>();
+  for (const platform of platforms) {
+    const normalized = normalizeMotianPlatform(platform);
+    sourcePlatforms.add(normalized);
+    if (normalized === "starapple-nl") {
+      sourcePlatforms.add("starapple");
+    }
+  }
+  return [...sourcePlatforms];
+};
+
 export const isMotianV1Platform = (
   platform: string
 ): platform is MotianV1Platform => {

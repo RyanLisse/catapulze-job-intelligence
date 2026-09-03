@@ -1,66 +1,132 @@
-# Search projection repair (RJC-399)
+# Search projection reconciliation and repair
 
-Repairs aanvragen whose Postgres status and search index diverged. Since
-RJC-399 the SCD2 status write and its `outbox_event` commit in one
-transaction, so new divergence of this kind should not occur; this tool
-exists for rows that split before the fix, and as a general "the index
-disagrees with the database" remedy.
+This runbook compares the Postgres source of truth with the physical
+Manticore active/archive tables. It is the required evidence step after a
+full replay and the safe repair path for search-index drift.
 
-Why it does not self-heal: the projector skips a write when the projection
-hash is unchanged, and the hash is computed from the aanvraag row — a later
-event carrying the same content is consumed as "unchanged" even though the
-index still holds the older state (documented in
-`packages/db/src/outbox-drain.ts`).
+Normal repairs use durable Postgres outbox events. The one exception is
+physical corruption that a document-id-derived projector delete cannot reach:
+`--apply` compare-and-deletes the exact inspected Manticore row (numeric id,
+`document_id`, and `projection_hash`) while holding the shared search-index
+generation fence, then enqueues the normal durable repair for the canonical
+document. If another writer replaced that row after observation, the delete
+matches nothing and the replacement survives.
 
 ## Usage
 
+The real Manticore HTTP endpoint is mandatory. A DB-only result is not an
+engine-convergence verdict.
+
 ```bash
-bun run search:reconcile-projection          # dry run: report only
-bun run search:reconcile-projection --apply  # also emit repair events
+MANTICORE_URL=http://manticore-<service-uuid>:9308 \
+  bun run search:reconcile-projection
+
+MANTICORE_URL=http://manticore-<service-uuid>:9308 \
+  bun run search:reconcile-projection --apply --projector-quiesced
 ```
 
-The tool reads `DATABASE_URL`, then for every
-`curated.search_projection_state` row of the current generation reloads the
-aanvraag through the projector's own loader and recomputes the projector's
-own hash. A mismatch means the last projected state predates the current
-row. Output is a count line plus one line per divergent aggregate
-(`projected <hash> -> current <hash>`).
+The default is report-only. Run it after the normal projector has drained the
+outbox. Before any `--apply`, stop the projector and wait for every in-flight
+drain to finish; keep it stopped until the command exits. The mandatory
+`--projector-quiesced` flag is the operator's explicit acknowledgement of that
+condition. The command rejects `--apply` without it. For a definitive dry-run
+snapshot, quiesce ingestion as well.
 
-With `--apply` it inserts one synthetic `aanvraag.projection_repair` outbox
-event per divergent aggregate; the next projector drain reloads and
-re-indexes them. Aggregates that already have an unprocessed outbox event
-are skipped (the pending event will re-project them anyway), which also
-makes a second `--apply` run a no-op.
+## What is compared
+
+The command uses bounded pages in two directions.
+
+1. **Postgres-led:** every current `curated.aanvraag` is loaded through the
+   projector's loader, compared with current-generation projection state, and
+   looked up in both Manticore partitions. Its stored `projection_hash` is
+   compared with the canonical hash calculated from the source document using
+   one captured clock value for the entire run. The lookup is bounded by the
+   requested numeric `hashDocumentId(document_id)` values, so a corrupt row
+   occupying a canonical numeric id is returned and classified even when its
+   stored `document_id` is wrong. Duplicate requested hashes across the entire
+   Postgres-led scan (including collisions on different pages), duplicate
+   returned numeric ids, and rows outside the requested hash set fail closed.
+
+2. **Manticore-led:** numeric Manticore `id` keyset pages are scanned in both
+   partitions. A canonical UUID that has no current aanvraag is an orphan;
+   malformed `document_id`, duplicate, and non-canonical numeric-id rows are
+   classified by their exact physical ids.
+
+The numeric-id scan proves completeness by requiring the initial count, exact
+number of scanned rows, and final count to agree. Apply mode first completes a
+full report-only preflight; no durable repair is queued from an incomplete or
+count-changing inventory.
+
+For a current aanvraag, the report can identify:
+
+- no Manticore document;
+- a document in the wrong partition;
+- a duplicate in active and archive;
+- no projection-state row for the current generation; or
+- a projection hash that no longer matches the source row.
+- a physical Manticore `projection_hash` that no longer matches that same
+  canonical source projection; or
+- a physical numeric id that is not `hashDocumentId(document_id)`.
+
+It prints exact totals and only capped samples, so a large index does not turn
+operator output into an unbounded data dump.
+
+## Applying repairs
+
+`--apply` handles each class as follows:
+
+| Finding | Durable action |
+| --- | --- |
+| Current aanvraag has missing/wrong/duplicate engine rows | Transactionally invalidates its current-generation state and enqueues `aanvraag.projection_repair`. State invalidation forces the next projector drain to write even if the source hash itself is unchanged. |
+| Missing state or source-hash mismatch | Enqueues `aanvraag.projection_repair`; a pending normal outbox event already covering that aanvraag is respected. |
+| Valid UUID orphan in Manticore | Enqueues `aanvraag.verwijderd` and removes its current-generation state, so the projector clears both partitions. |
+| Malformed, duplicate, or non-canonical physical row | Compare-and-deletes only when numeric id, `document_id`, and `projection_hash` still equal the fenced observation. A concurrently replaced canonical row is preserved. Canonical current documents are then covered by the normal repair event. |
+
+After applying, drain the outbox with one projector and rerun the dry run.
+Only a report with zero current divergences, zero valid UUID orphans, zero
+physical corruption, and matching initial/scanned/final partition counts is
+convergence evidence. A second `--apply` before the repair events drain is
+idempotent: the pending events cover the same aggregates and already-deleted
+physical ids no longer appear.
 
 ## What it refuses
 
-When the checkpoint's schema hash differs from the running code's
-`SEARCH_SCHEMA_HASH`, the tool exits 1 without scanning: the drain is halted
-on a schema migration, and queueing repair events behind it helps nothing.
-Follow [search-schema-migration.md](search-schema-migration.md) (new
-generation + full reindex) instead — a rebuild re-indexes every aggregate,
-divergent ones included.
+The command exits without scanning when the checkpoint schema hash differs
+from the deployed `SEARCH_SCHEMA_HASH`. That includes a
+`search-reindex-pending:v1:...` marker. Do not queue repair events behind a
+halted projector; follow [search-schema-migration.md](search-schema-migration.md)
+to finish or resume the full replay first.
 
-## Not covered by the transaction fix
+It also rejects malformed inventory pages (non-numeric, non-advancing, or
+over-sized numeric-id pages), bounded lookups that omit a scanned row, and
+partition counts that change during the scan rather than silently skipping
+Manticore rows.
 
-- **`curateObservation`'s unchanged-content branch still diverges.** When a
-  draft's status changes while its content hash stays equal, that branch
-  updates `aanvraag.status` with no outbox event at all — the index keeps
-  the old status, and the projection hash suppresses later same-content
-  events. `bun run search:reconcile-projection` is the remedy; the call
-  site in `packages/application/src/identity/curate.ts` carries a comment
-  pointing here.
+## Operational sequence after a replay
 
-## What it does not cover
+1. Finish `search:new-generation --apply` so the checkpoint has its final
+   schema hash.
+2. Start one projector and let the replay and normal outbox events drain.
+3. Stop the projector and wait for any in-flight drain to finish.
+4. Run this command without `--apply` against the actual Manticore URL.
+5. If it reports repairable drift, keep the projector stopped and run with
+   `--apply --projector-quiesced`.
+6. Start one projector, drain the new events, stop it cleanly again, and return
+   to step 4. Resume normal projector operation only after the final clean
+   report.
+7. Verify `/readyz`, outbox/dead-letter health, and the real search API
+   separately from container health.
 
-- **State rows whose aanvraag no longer loads.** Reported but not repaired:
-  an upsert event for a missing document is a projector no-op. If the
-  document should be gone from the index too, that is a delete
-  (`aanvraag.verwijderd`) concern, not a repair.
-- **Aggregates that were never projected** (no `search_projection_state`
-  row). Their original outbox event is still pending, dead-lettered, or was
-  lost before RJC-399; check `outbox_lag_events` and the dead-letter queue
-  (`docs/runbooks/search-projector.md`) first.
-- **Manticore rows that drifted without the state row drifting** (e.g. a
-  manual index edit). The comparison is Postgres-vs-Postgres; a full rebuild
-  is the remedy there.
+## Limitations and interpretation
+
+- Direct physical cleanup is limited to ids discovered by the same bounded,
+  fully counted inventory pass. Never substitute an ad-hoc broad Manticore
+  `DELETE` for this path.
+- `MANTICORE_URL` must point at the same active/archive tables the projector
+  uses. A throwaway or local engine is useful for rehearsals, not a production
+  convergence claim.
+- Reindex, repair events, and physical cleanup use the same advisory-lock
+  namespace and lock the named checkpoint row. That Postgres fence cannot
+  serialize a Manticore write already in flight, so projector quiescence is
+  mandatory for apply and producer quiescence remains required for an
+  authoritative convergence snapshot.

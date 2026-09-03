@@ -8,7 +8,12 @@ import { describe, expect, it } from "bun:test";
 process.env.DATABASE_URL ??= "postgres://user:pass@127.0.0.1:1/db";
 
 const { createProductionSliceADeps } = await import("./slice-a-registry");
-const { PostgresExternalReceiptStore } = await import("@ji/db");
+const {
+  PostgresAuditStore,
+  PostgresExternalReceiptStore,
+  PostgresMarkeringStore,
+  PostgresSavedSearchStore,
+} = await import("@ji/db");
 
 const baseInput = {
   databaseUrl: process.env.DATABASE_URL,
@@ -24,6 +29,22 @@ describe("createProductionSliceADeps", () => {
     try {
       expect(deps.stores.externalReceipts).toBeInstanceOf(
         PostgresExternalReceiptStore
+      );
+    } finally {
+      await deps.close();
+    }
+  });
+
+  it("wires durable stores for user-visible writes and their audit trail", async () => {
+    const deps = await createProductionSliceADeps({
+      ...baseInput,
+      nodeEnv: "test",
+    });
+    try {
+      expect(deps.stores.audit).toBeInstanceOf(PostgresAuditStore);
+      expect(deps.stores.markeringen).toBeInstanceOf(PostgresMarkeringStore);
+      expect(deps.stores.savedSearches).toBeInstanceOf(
+        PostgresSavedSearchStore
       );
     } finally {
       await deps.close();

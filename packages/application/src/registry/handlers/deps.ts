@@ -10,6 +10,12 @@ export interface SliceAHandlerDeps {
     list: () => Promise<readonly PublicBronView[]>;
   };
   readonly searchAdapter: SearchAdapter;
+  /**
+   * Trusted deployment boundary. Catapulze currently runs one tenant per
+   * deployment; this value is supplied by server composition and is never
+   * accepted from an HTTP/MCP request or derived from a user role.
+   */
+  readonly scopeId: string;
   readonly spottWriteClient?: SpottWriteClient;
   readonly stores: SliceAStores;
 }

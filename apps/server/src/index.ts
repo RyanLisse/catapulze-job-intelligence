@@ -8,12 +8,14 @@ import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { logger } from "hono/logger";
 
+import { createSessionPrincipalResolver } from "./capabilities/auth";
 import { createMcpHandler } from "./capabilities/mcp";
 import {
   createRestCapabilityHandler,
   restRoutesFromRegistry,
 } from "./capabilities/rest";
 import { createHealthRoutes } from "./http/health";
+import { createReleaseHandler } from "./http/release";
 import { createReadinessDeps, createReadinessHandler } from "./readiness";
 import { createProductionSliceARegistry } from "./slice-a-registry";
 
@@ -21,6 +23,7 @@ const DEFAULT_PORT = 3000;
 const SHUTDOWN_DRAIN_TIMEOUT_MS = 10_000;
 
 const app = new Hono();
+const allowedWebOrigin = new URL(env.CORS_ORIGIN).origin;
 
 app.use(logger());
 app.use(
@@ -29,7 +32,7 @@ app.use(
     allowHeaders: ["Content-Type", "Authorization"],
     allowMethods: ["GET", "POST", "OPTIONS"],
     credentials: true,
-    origin: env.CORS_ORIGIN,
+    origin: allowedWebOrigin,
   })
 );
 
@@ -44,6 +47,7 @@ app.use(
 );
 
 app.get("/", (c) => c.text("OK"));
+app.get("/version", createReleaseHandler(env.APP_RELEASE_SHA));
 
 const sliceA = await createProductionSliceARegistry({
   databaseUrl: env.DATABASE_URL,
@@ -79,8 +83,28 @@ app.get("/livez", healthRoutes.live);
 app.get("/readyz", healthRoutes.ready);
 
 const restRoutes = restRoutesFromRegistry(sliceA.registry);
-const restHandler = createRestCapabilityHandler(sliceA.registry, restRoutes);
-const mcpHandler = createMcpHandler(sliceA.registry);
+const resolvePrincipal = createSessionPrincipalResolver(
+  (headers) =>
+    auth.api.getSession({
+      headers,
+      query: { disableCookieCache: true },
+    }),
+  () => new Date(),
+  (event) => {
+    process.stderr.write(
+      `${JSON.stringify({ event: "auth_session_lookup_failed", ...event })}\n`
+    );
+  }
+);
+const restHandler = createRestCapabilityHandler(
+  sliceA.registry,
+  restRoutes,
+  resolvePrincipal,
+  { allowedCookieOrigin: allowedWebOrigin }
+);
+const mcpHandler = createMcpHandler(sliceA.registry, resolvePrincipal, {
+  allowedCookieOrigin: allowedWebOrigin,
+});
 
 app.all("/v1/*", (context) => restHandler(context));
 app.post("/mcp", (context) => mcpHandler(context));

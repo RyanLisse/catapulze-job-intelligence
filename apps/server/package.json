@@ -3,6 +3,7 @@
   "type": "module",
   "main": "src/index.ts",
   "scripts": {
+    "auth:provision": "bun src/auth/provision-user.ts",
     "build": "PATH=\"./node_modules/.bin:$PATH\" tsdown",
     "check-types": "PATH=\"./node_modules/.bin:$PATH\" tsc -b",
     "compile": "bun build --compile --minify --sourcemap --bytecode ./src/index.ts --outfile server",

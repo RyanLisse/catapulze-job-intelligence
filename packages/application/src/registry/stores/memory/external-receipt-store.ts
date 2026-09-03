@@ -17,20 +17,27 @@ export class MemoryExternalReceiptStore implements ExternalReceiptStore {
   }
 
   getByExportAttemptId(
-    exportAttemptId: string
+    exportAttemptId: string,
+    scopeId: string
   ): Promise<ExternalReceiptRecord | null> {
     const record = this.records.find(
-      (entry) => entry.exportAttemptId === exportAttemptId
+      (entry) =>
+        entry.exportAttemptId === exportAttemptId && entry.scopeId === scopeId
     );
     return Promise.resolve(record ? { ...record } : null);
   }
 
   listByCanonicalVacancyId(
-    canonicalVacancyId: string
+    canonicalVacancyId: string,
+    scopeId: string
   ): Promise<readonly ExternalReceiptRecord[]> {
     return Promise.resolve(
       this.records
-        .filter((entry) => entry.canonicalVacancyId === canonicalVacancyId)
+        .filter(
+          (entry) =>
+            entry.canonicalVacancyId === canonicalVacancyId &&
+            entry.scopeId === scopeId
+        )
         .map((entry) => ({ ...entry }))
     );
   }

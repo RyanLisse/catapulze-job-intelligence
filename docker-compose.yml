@@ -167,6 +167,7 @@ services:
       BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?BETTER_AUTH_SECRET is required}
       BETTER_AUTH_URL: ${BETTER_AUTH_URL:?BETTER_AUTH_URL is required}
       CORS_ORIGIN: ${CORS_ORIGIN:?CORS_ORIGIN is required}
+      APP_RELEASE_SHA: ${APP_RELEASE_SHA:-}
       DATABASE_URL: ${CATAPULZE_DATABASE_URL:?CATAPULZE_DATABASE_URL is required}
       MANTICORE_URL: ${MANTICORE_URL:-http://manticore:9308}
       REDIS_URL: ${REDIS_URL:-redis://redis:6379}
@@ -237,18 +238,26 @@ services:
   projector:
     build:
       context: .
-      dockerfile: apps/server/Dockerfile
+      dockerfile: apps/server/Dockerfile.projector
     profiles: ["projector"]
     init: true
     command: ["bun", "run", "projector"]
     environment:
       DATABASE_URL: ${CATAPULZE_DATABASE_URL:?CATAPULZE_DATABASE_URL is required}
       MANTICORE_URL: http://manticore:9308
+      # Local Compose uses the same direct Postgres service for data and lock.
+      # Production must override this when CATAPULZE_DATABASE_URL is pooled;
+      # the projector's typed env rejects a known Neon pooler host here.
+      PROJECTOR_DATABASE_URL: ${PROJECTOR_DATABASE_URL:-${CATAPULZE_DATABASE_URL:?CATAPULZE_DATABASE_URL is required}}
     depends_on:
       postgres:
         condition: service_healthy
       manticore:
         condition: service_healthy
+    # The projector is a long-running worker and does not serve the API
+    # image's inherited /readyz endpoint on port 3000.
+    healthcheck:
+      disable: true
     restart: unless-stopped
 
   # One-shot bucket bootstrap: creates `ji-raw-local` and exits. Re-running

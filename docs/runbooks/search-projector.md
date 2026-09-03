@@ -33,7 +33,7 @@ contract that changes:
 | Component | Setting |
 |---|---|
 | Worker (Trigger.dev) | `SEARCH_PROJECTOR=onbox`, no `MANTICORE_URL` |
-| Projector process | Runs on the Manticore host. `DATABASE_URL` (Neon, TLS) + `MANTICORE_URL=http://127.0.0.1:9308` |
+| Projector process | Runs on the Manticore host. Pooled `DATABASE_URL` for data queries + direct `PROJECTOR_DATABASE_URL` for the session lock (same Neon branch/database and app role) + `MANTICORE_URL=http://127.0.0.1:9308` |
 
 Nothing changes until `SEARCH_PROJECTOR=onbox` is set on the worker: the
 default mode is `"worker"`, which preserves today's behaviour exactly (the
@@ -50,8 +50,11 @@ Manticore route).
 bun run projector   # apps/server: bun src/projector/main.ts
 ```
 
-Reads `DATABASE_URL` (via `@ji/env/database`) and `MANTICORE_URL` from the
-environment. Requires both; refuses to start without `MANTICORE_URL`.
+Reads its typed environment via `@ji/env/projector`. `DATABASE_URL` may use
+Neon's pooled TLS endpoint for ordinary data queries. `PROJECTOR_DATABASE_URL`
+must use the direct endpoint for the same Neon branch/database and role; the
+process rejects known `*-pooler.*.neon.tech` and `*.pooler.*.neon.tech` hosts
+before opening the lock connection. `MANTICORE_URL` is also required.
 
 ### Supervision
 
@@ -82,6 +85,16 @@ The lock is re-asserted every cycle, not just taken once at startup: a lost
 lock (idle-connection reaping, Neon autosuspend) exits the process instead
 of silently draining without it — it never double-drains.
 
+Do not point `PROJECTOR_DATABASE_URL` at Neon's pooler. Session-level locks
+belong to one backend session, while a pooler may route later queries to a
+different session. The dedicated variable makes this constraint independent
+from `DATABASE_URL`: API/projector data traffic may stay pooled without
+weakening singleton ownership.
+
+The Trigger.dev `drain-outbox` task follows the same ownership contract. With
+`SEARCH_PROJECTOR=onbox` it returns an explicit `deferred: true` result without
+opening Postgres or requiring `MANTICORE_URL`; only the on-box process drains.
+
 The lock key is an arbitrary constant (`ADVISORY_LOCK_KEY` in
 `apps/server/src/projector/main.ts`) — see the comment there before adding
 a second advisory lock anywhere in this codebase, so the two never collide.
@@ -104,7 +117,8 @@ a second advisory lock anywhere in this codebase, so the two never collide.
 | Condition | What happens |
 |---|---|
 | Manticore down | Each drain cycle throws; the loop logs the error, backs off (starts at 1s, doubles, caps at 30s), and keeps retrying. Never exits on its own. |
-| Neon (DATABASE_URL) down | Same as Manticore down — the drain call fails, same backoff-and-retry. |
+| Neon data endpoint (`DATABASE_URL`) down | Same as Manticore down — the drain call fails, same backoff-and-retry. |
+| Neon direct lock endpoint (`PROJECTOR_DATABASE_URL`) missing or a known pooler URL | Typed env validation fails before startup; the process exits non-zero. Supply the direct endpoint for the same branch/database. |
 | Schema mismatch (`SearchIndexSchemaMismatchError`) | Not retried. This means the index was built for a different document mapping than the running code expects — an operator action (start a new generation via `tools/manticore/start-search-generation.ts` and reindex), not something a retry can fix. The loop rejects and `main.ts` exits 1. Fix the mismatch, then let the supervisor restart it (or restart manually). |
 | Second instance started | Fails to acquire the advisory lock, logs "another projector holds the lock", exits 0. Safe for a supervisor to have done this by mistake. |
 | Lock silently dropped (idle-connection reaping, Neon autosuspend) | Caught by the every-cycle heartbeat, not by luck: if the lock is still free, the same session retakes it and the cycle proceeds; if another session already grabbed it, the heartbeat throws `LockLostError`, which is not retried — the loop rejects and `main.ts` exits 1. Supervisor restarts it. |

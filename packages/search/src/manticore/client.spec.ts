@@ -10,6 +10,7 @@ import {
 import type { ManticoreHttpClient } from "./client";
 import {
   ManticoreSearchEngine,
+  projectionHash,
   SLUITINGSDATUM_MISSING_SENTINEL,
 } from "./engine";
 import type {
@@ -144,12 +145,15 @@ class RecordingClient implements ManticoreHttpClient {
 describe("ManticoreSearchEngine document mapping", () => {
   it("indexes locatie from locatieLand and the deadline sentinel when both are absent", async () => {
     const client = new RecordingClient();
+    const now = new Date("2026-09-01T00:00:00.000Z");
     const engine = new ManticoreSearchEngine(
       client,
-      new InMemorySearchVersionStore()
+      new InMemorySearchVersionStore(),
+      SEARCH_INDEX_NAME,
+      () => now
     );
 
-    await engine.upsertDocument({
+    const document = {
       beschrijving: "b",
       bronId: "bron-1",
       contracttype: null,
@@ -160,7 +164,8 @@ describe("ManticoreSearchEngine document mapping", () => {
       tariefMax: null,
       tariefMin: null,
       titel: "t",
-    });
+    } as const;
+    await engine.upsertDocument(document);
 
     const [replace] = client.bodies;
     if (!replace || !("doc" in replace)) {
@@ -169,6 +174,7 @@ describe("ManticoreSearchEngine document mapping", () => {
     expect(replace.doc.locatie).toBe("NL");
     expect(replace.doc.sluitingsdatum).toBe(SLUITINGSDATUM_MISSING_SENTINEL);
     expect(replace.doc.tarief_max).toBe(0);
+    expect(replace.doc.projection_hash).toBe(projectionHash(document, now));
   });
 
   it("indexes an explicit locatie and deadline as given", async () => {

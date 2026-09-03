@@ -20,21 +20,24 @@ export const createMemorySliceAStores = (): SliceAStores & {
   readonly exportAttempts: MemoryExportAttemptStore;
   readonly externalReceipts: MemoryExternalReceiptStore;
   readonly rawPayloads: MemoryRawPayloadStore;
-} => ({
-  aanvragen: new MemoryAanvraagStore(),
-  alerts: new MemoryAlertStore(),
-  approvals: new MemoryApprovalStore(),
-  audit: new MemoryAuditStore(),
-  bronHealth: new MemoryBronHealthStore(),
-  exportAttempts: new MemoryExportAttemptStore(),
-  externalCrosswalk: new MemoryExternalIdCrosswalkStore(),
-  externalReceipts: new MemoryExternalReceiptStore(),
-  markeringen: new MemoryMarkeringStore(),
-  operatorRuns: new MemoryOperatorRunStore(),
-  rawPayloads: new MemoryRawPayloadStore(),
-  savedSearches: new MemorySavedSearchStore(),
-  snapshots: new MemoryQuerySnapshotStore(),
-});
+} => {
+  const audit = new MemoryAuditStore();
+  return {
+    aanvragen: new MemoryAanvraagStore(),
+    alerts: new MemoryAlertStore(),
+    approvals: new MemoryApprovalStore(audit),
+    audit,
+    bronHealth: new MemoryBronHealthStore(),
+    exportAttempts: new MemoryExportAttemptStore(),
+    externalCrosswalk: new MemoryExternalIdCrosswalkStore(),
+    externalReceipts: new MemoryExternalReceiptStore(),
+    markeringen: new MemoryMarkeringStore(audit),
+    operatorRuns: new MemoryOperatorRunStore(),
+    rawPayloads: new MemoryRawPayloadStore(),
+    savedSearches: new MemorySavedSearchStore(),
+    snapshots: new MemoryQuerySnapshotStore(),
+  };
+};
 
 export { MemoryAanvraagStore } from "./aanvraag-store";
 export { MemoryAlertStore } from "./alert-store";

@@ -52,6 +52,7 @@ export interface CommitExportFailure {
 }
 
 export interface CommitExportDeps {
+  readonly scopeId: string;
   readonly spottWriteClient: SpottWriteClient;
   readonly stores: Pick<
     SliceAStores,
@@ -84,6 +85,7 @@ const recordReceipt = (
     confirmedEffect: input.confirmedEffect,
     exportAttemptId: input.attempt.id,
     responseHash: input.responseHash,
+    scopeId: input.attempt.scopeId,
     spottVacancyId: input.spottVacancyId,
   });
 
@@ -105,6 +107,7 @@ const processCanonicalVacancyExport = async (
   const existingCrosswalk = await deps.stores.externalCrosswalk.get({
     actionType: EXPORT_ACTION_CREATE,
     canonicalVacancyId,
+    scopeId: deps.scopeId,
     target: EXPORT_TARGET_SPOTT,
   });
 
@@ -122,6 +125,7 @@ const processCanonicalVacancyExport = async (
       errorMessage: null,
       externalId: existingCrosswalk.externalId,
       idempotencyKey,
+      scopeId: deps.scopeId,
       snapshotId: boundSnapshot.id,
       status: "skipped",
       target: EXPORT_TARGET_SPOTT,
@@ -172,6 +176,7 @@ const processCanonicalVacancyExport = async (
       errorMessage: message,
       externalId: null,
       idempotencyKey,
+      scopeId: deps.scopeId,
       snapshotId: boundSnapshot.id,
       status: "failed",
       target: EXPORT_TARGET_SPOTT,
@@ -210,6 +215,7 @@ const processCanonicalVacancyExport = async (
         "Spott vacancy could not be confirmed after create",
       externalId: confirmation.spottVacancyId,
       idempotencyKey,
+      scopeId: deps.scopeId,
       snapshotId: boundSnapshot.id,
       status: "failed",
       target: EXPORT_TARGET_SPOTT,
@@ -237,6 +243,7 @@ const processCanonicalVacancyExport = async (
     actionType: EXPORT_ACTION_CREATE,
     canonicalVacancyId,
     externalId: confirmation.spottVacancyId ?? createResponse.id,
+    scopeId: deps.scopeId,
     target: EXPORT_TARGET_SPOTT,
   });
 
@@ -247,6 +254,7 @@ const processCanonicalVacancyExport = async (
     errorMessage: null,
     externalId: confirmation.spottVacancyId,
     idempotencyKey,
+    scopeId: deps.scopeId,
     snapshotId: boundSnapshot.id,
     status: "created",
     target: EXPORT_TARGET_SPOTT,
@@ -278,13 +286,20 @@ export const commitExport = async (
   | { readonly ok: true; readonly value: CommitExportSuccess }
   | { readonly error: CommitExportFailure; readonly ok: false }
 > => {
-  const snapshot = await deps.stores.snapshots.getById(input.snapshotId);
+  const snapshot = await deps.stores.snapshots.getById(
+    input.snapshotId,
+    deps.scopeId
+  );
   const approval = snapshot
-    ? await deps.stores.approvals.getBySnapshotId(input.snapshotId)
+    ? await deps.stores.approvals.getBySnapshotId(
+        input.snapshotId,
+        deps.scopeId
+      )
     : null;
 
   const validation = validateSnapshotApproval({
     approval,
+    scopeId: deps.scopeId,
     snapshot,
     snapshotId: input.snapshotId,
   });

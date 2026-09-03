@@ -3,7 +3,7 @@
   "capturedAt": "2026-08-29T10:00:00.000Z",
   "jobs": [
     {
-      "id": "v1-job-000001",
+      "id": "00000000-0000-4000-8000-000000000001",
       "platform": "nationalevacaturebank",
       "external_id": "ext-000001",
       "external_url": "https://example.com/jobs/1",
@@ -15,11 +15,11 @@
       "contract_type": "detachering",
       "rate_min": 80,
       "rate_max": 100,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000002",
+      "id": "00000000-0000-4000-8000-000000000002",
       "platform": "mipublic",
       "external_id": "ext-000002",
       "external_url": "https://example.com/jobs/2",
@@ -31,11 +31,11 @@
       "contract_type": "detachering",
       "rate_min": 81,
       "rate_max": 101,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000003",
+      "id": "00000000-0000-4000-8000-000000000003",
       "platform": "flextender",
       "external_id": "ext-000003",
       "external_url": "https://example.com/jobs/3",
@@ -47,11 +47,11 @@
       "contract_type": "detachering",
       "rate_min": 82,
       "rate_max": 102,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000004",
+      "id": "00000000-0000-4000-8000-000000000004",
       "platform": "opdrachtoverheid",
       "external_id": "ext-000004",
       "external_url": "https://example.com/jobs/4",
@@ -63,11 +63,11 @@
       "contract_type": "detachering",
       "rate_min": 83,
       "rate_max": 103,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000005",
+      "id": "00000000-0000-4000-8000-000000000005",
       "platform": "starapple-nl",
       "external_id": "ext-000005",
       "external_url": "https://example.com/jobs/5",
@@ -79,11 +79,11 @@
       "contract_type": "detachering",
       "rate_min": 84,
       "rate_max": 104,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000006",
+      "id": "00000000-0000-4000-8000-000000000006",
       "platform": "nationalevacaturebank",
       "external_id": "ext-000006",
       "external_url": "https://example.com/jobs/6",
@@ -95,11 +95,11 @@
       "contract_type": "detachering",
       "rate_min": 85,
       "rate_max": 105,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000007",
+      "id": "00000000-0000-4000-8000-000000000007",
       "platform": "mipublic",
       "external_id": "ext-000007",
       "external_url": "https://example.com/jobs/7",
@@ -111,11 +111,11 @@
       "contract_type": "detachering",
       "rate_min": 86,
       "rate_max": 106,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000008",
+      "id": "00000000-0000-4000-8000-000000000008",
       "platform": "flextender",
       "external_id": "ext-000008",
       "external_url": "https://example.com/jobs/8",
@@ -127,11 +127,11 @@
       "contract_type": "detachering",
       "rate_min": 87,
       "rate_max": 107,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000009",
+      "id": "00000000-0000-4000-8000-000000000009",
       "platform": "opdrachtoverheid",
       "external_id": "ext-000009",
       "external_url": "https://example.com/jobs/9",
@@ -143,11 +143,11 @@
       "contract_type": "detachering",
       "rate_min": 88,
       "rate_max": 108,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000010",
+      "id": "00000000-0000-4000-8000-000000000010",
       "platform": "starapple-nl",
       "external_id": "ext-000010",
       "external_url": "https://example.com/jobs/10",
@@ -159,11 +159,11 @@
       "contract_type": "detachering",
       "rate_min": 89,
       "rate_max": 109,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000011",
+      "id": "00000000-0000-4000-8000-000000000011",
       "platform": "nationalevacaturebank",
       "external_id": "ext-000011",
       "external_url": "https://example.com/jobs/11",
@@ -175,11 +175,11 @@
       "contract_type": "detachering",
       "rate_min": 90,
       "rate_max": 110,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000012",
+      "id": "00000000-0000-4000-8000-000000000012",
       "platform": "mipublic",
       "external_id": "ext-000012",
       "external_url": "https://example.com/jobs/12",
@@ -191,11 +191,11 @@
       "contract_type": "detachering",
       "rate_min": 91,
       "rate_max": 111,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000013",
+      "id": "00000000-0000-4000-8000-000000000013",
       "platform": "flextender",
       "external_id": "ext-000013",
       "external_url": "https://example.com/jobs/13",
@@ -207,11 +207,11 @@
       "contract_type": "detachering",
       "rate_min": 92,
       "rate_max": 112,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000014",
+      "id": "00000000-0000-4000-8000-000000000014",
       "platform": "opdrachtoverheid",
       "external_id": "ext-000014",
       "external_url": "https://example.com/jobs/14",
@@ -223,11 +223,11 @@
       "contract_type": "detachering",
       "rate_min": 93,
       "rate_max": 113,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000015",
+      "id": "00000000-0000-4000-8000-000000000015",
       "platform": "starapple-nl",
       "external_id": "ext-000015",
       "external_url": "https://example.com/jobs/15",
@@ -239,11 +239,11 @@
       "contract_type": "detachering",
       "rate_min": 94,
       "rate_max": 114,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000016",
+      "id": "00000000-0000-4000-8000-000000000016",
       "platform": "nationalevacaturebank",
       "external_id": "ext-000016",
       "external_url": "https://example.com/jobs/16",
@@ -255,11 +255,11 @@
       "contract_type": "detachering",
       "rate_min": 95,
       "rate_max": 115,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000017",
+      "id": "00000000-0000-4000-8000-000000000017",
       "platform": "mipublic",
       "external_id": "ext-000017",
       "external_url": "https://example.com/jobs/17",
@@ -271,11 +271,11 @@
       "contract_type": "detachering",
       "rate_min": 96,
       "rate_max": 116,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000018",
+      "id": "00000000-0000-4000-8000-000000000018",
       "platform": "flextender",
       "external_id": "ext-000018",
       "external_url": "https://example.com/jobs/18",
@@ -287,11 +287,11 @@
       "contract_type": "detachering",
       "rate_min": 97,
       "rate_max": 117,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000019",
+      "id": "00000000-0000-4000-8000-000000000019",
       "platform": "opdrachtoverheid",
       "external_id": "ext-000019",
       "external_url": "https://example.com/jobs/19",
@@ -303,11 +303,11 @@
       "contract_type": "detachering",
       "rate_min": 98,
       "rate_max": 118,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000020",
+      "id": "00000000-0000-4000-8000-000000000020",
       "platform": "starapple-nl",
       "external_id": "ext-000020",
       "external_url": "https://example.com/jobs/20",
@@ -319,11 +319,11 @@
       "contract_type": "detachering",
       "rate_min": 99,
       "rate_max": 119,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000021",
+      "id": "00000000-0000-4000-8000-000000000021",
       "platform": "nationalevacaturebank",
       "external_id": "ext-000021",
       "external_url": "https://example.com/jobs/21",
@@ -335,11 +335,11 @@
       "contract_type": "detachering",
       "rate_min": 100,
       "rate_max": 120,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000022",
+      "id": "00000000-0000-4000-8000-000000000022",
       "platform": "mipublic",
       "external_id": "ext-000022",
       "external_url": "https://example.com/jobs/22",
@@ -351,11 +351,11 @@
       "contract_type": "detachering",
       "rate_min": 101,
       "rate_max": 121,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000023",
+      "id": "00000000-0000-4000-8000-000000000023",
       "platform": "flextender",
       "external_id": "ext-000023",
       "external_url": "https://example.com/jobs/23",
@@ -367,11 +367,11 @@
       "contract_type": "detachering",
       "rate_min": 102,
       "rate_max": 122,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000024",
+      "id": "00000000-0000-4000-8000-000000000024",
       "platform": "opdrachtoverheid",
       "external_id": "ext-000024",
       "external_url": "https://example.com/jobs/24",
@@ -383,11 +383,11 @@
       "contract_type": "detachering",
       "rate_min": 103,
       "rate_max": 123,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000025",
+      "id": "00000000-0000-4000-8000-000000000025",
       "platform": "starapple-nl",
       "external_id": "ext-000025",
       "external_url": "https://example.com/jobs/25",
@@ -399,11 +399,11 @@
       "contract_type": "detachering",
       "rate_min": 104,
       "rate_max": 124,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000026",
+      "id": "00000000-0000-4000-8000-000000000026",
       "platform": "nationalevacaturebank",
       "external_id": "ext-000026",
       "external_url": "https://example.com/jobs/26",
@@ -415,11 +415,11 @@
       "contract_type": "detachering",
       "rate_min": 105,
       "rate_max": 125,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000027",
+      "id": "00000000-0000-4000-8000-000000000027",
       "platform": "mipublic",
       "external_id": "ext-000027",
       "external_url": "https://example.com/jobs/27",
@@ -431,11 +431,11 @@
       "contract_type": "detachering",
       "rate_min": 106,
       "rate_max": 126,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000028",
+      "id": "00000000-0000-4000-8000-000000000028",
       "platform": "flextender",
       "external_id": "ext-000028",
       "external_url": "https://example.com/jobs/28",
@@ -447,11 +447,11 @@
       "contract_type": "detachering",
       "rate_min": 107,
       "rate_max": 127,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000029",
+      "id": "00000000-0000-4000-8000-000000000029",
       "platform": "opdrachtoverheid",
       "external_id": "ext-000029",
       "external_url": "https://example.com/jobs/29",
@@ -463,11 +463,11 @@
       "contract_type": "detachering",
       "rate_min": 108,
       "rate_max": 128,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000030",
+      "id": "00000000-0000-4000-8000-000000000030",
       "platform": "starapple-nl",
       "external_id": "ext-000030",
       "external_url": "https://example.com/jobs/30",
@@ -479,11 +479,11 @@
       "contract_type": "detachering",
       "rate_min": 109,
       "rate_max": 129,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000031",
+      "id": "00000000-0000-4000-8000-000000000031",
       "platform": "nationalevacaturebank",
       "external_id": "ext-000031",
       "external_url": "https://example.com/jobs/31",
@@ -495,11 +495,11 @@
       "contract_type": "detachering",
       "rate_min": 110,
       "rate_max": 130,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000032",
+      "id": "00000000-0000-4000-8000-000000000032",
       "platform": "mipublic",
       "external_id": "ext-000032",
       "external_url": "https://example.com/jobs/32",
@@ -511,11 +511,11 @@
       "contract_type": "detachering",
       "rate_min": 111,
       "rate_max": 131,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000033",
+      "id": "00000000-0000-4000-8000-000000000033",
       "platform": "flextender",
       "external_id": "ext-000033",
       "external_url": "https://example.com/jobs/33",
@@ -527,11 +527,11 @@
       "contract_type": "detachering",
       "rate_min": 112,
       "rate_max": 132,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000034",
+      "id": "00000000-0000-4000-8000-000000000034",
       "platform": "opdrachtoverheid",
       "external_id": "ext-000034",
       "external_url": "https://example.com/jobs/34",
@@ -543,11 +543,11 @@
       "contract_type": "detachering",
       "rate_min": 113,
       "rate_max": 133,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000035",
+      "id": "00000000-0000-4000-8000-000000000035",
       "platform": "starapple-nl",
       "external_id": "ext-000035",
       "external_url": "https://example.com/jobs/35",
@@ -559,11 +559,11 @@
       "contract_type": "detachering",
       "rate_min": 114,
       "rate_max": 134,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000036",
+      "id": "00000000-0000-4000-8000-000000000036",
       "platform": "nationalevacaturebank",
       "external_id": "ext-000036",
       "external_url": "https://example.com/jobs/36",
@@ -575,11 +575,11 @@
       "contract_type": "detachering",
       "rate_min": 115,
       "rate_max": 135,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000037",
+      "id": "00000000-0000-4000-8000-000000000037",
       "platform": "mipublic",
       "external_id": "ext-000037",
       "external_url": "https://example.com/jobs/37",
@@ -591,11 +591,11 @@
       "contract_type": "detachering",
       "rate_min": 116,
       "rate_max": 136,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000038",
+      "id": "00000000-0000-4000-8000-000000000038",
       "platform": "flextender",
       "external_id": "ext-000038",
       "external_url": "https://example.com/jobs/38",
@@ -607,11 +607,11 @@
       "contract_type": "detachering",
       "rate_min": 117,
       "rate_max": 137,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000039",
+      "id": "00000000-0000-4000-8000-000000000039",
       "platform": "opdrachtoverheid",
       "external_id": "ext-000039",
       "external_url": "https://example.com/jobs/39",
@@ -623,11 +623,11 @@
       "contract_type": "detachering",
       "rate_min": 118,
       "rate_max": 138,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000040",
+      "id": "00000000-0000-4000-8000-000000000040",
       "platform": "starapple-nl",
       "external_id": "ext-000040",
       "external_url": "https://example.com/jobs/40",
@@ -639,11 +639,11 @@
       "contract_type": "detachering",
       "rate_min": 119,
       "rate_max": 139,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000041",
+      "id": "00000000-0000-4000-8000-000000000041",
       "platform": "nationalevacaturebank",
       "external_id": "ext-000041",
       "external_url": "https://example.com/jobs/41",
@@ -655,11 +655,11 @@
       "contract_type": "detachering",
       "rate_min": 80,
       "rate_max": 100,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000042",
+      "id": "00000000-0000-4000-8000-000000000042",
       "platform": "mipublic",
       "external_id": "ext-000042",
       "external_url": "https://example.com/jobs/42",
@@ -671,11 +671,11 @@
       "contract_type": "detachering",
       "rate_min": 81,
       "rate_max": 101,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000043",
+      "id": "00000000-0000-4000-8000-000000000043",
       "platform": "flextender",
       "external_id": "ext-000043",
       "external_url": "https://example.com/jobs/43",
@@ -687,11 +687,11 @@
       "contract_type": "detachering",
       "rate_min": 82,
       "rate_max": 102,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000044",
+      "id": "00000000-0000-4000-8000-000000000044",
       "platform": "opdrachtoverheid",
       "external_id": "ext-000044",
       "external_url": "https://example.com/jobs/44",
@@ -703,11 +703,11 @@
       "contract_type": "detachering",
       "rate_min": 83,
       "rate_max": 103,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000045",
+      "id": "00000000-0000-4000-8000-000000000045",
       "platform": "starapple-nl",
       "external_id": "ext-000045",
       "external_url": "https://example.com/jobs/45",
@@ -719,11 +719,11 @@
       "contract_type": "detachering",
       "rate_min": 84,
       "rate_max": 104,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000046",
+      "id": "00000000-0000-4000-8000-000000000046",
       "platform": "nationalevacaturebank",
       "external_id": "ext-000046",
       "external_url": "https://example.com/jobs/46",
@@ -735,11 +735,11 @@
       "contract_type": "detachering",
       "rate_min": 85,
       "rate_max": 105,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000047",
+      "id": "00000000-0000-4000-8000-000000000047",
       "platform": "mipublic",
       "external_id": "ext-000047",
       "external_url": "https://example.com/jobs/47",
@@ -751,11 +751,11 @@
       "contract_type": "detachering",
       "rate_min": 86,
       "rate_max": 106,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000048",
+      "id": "00000000-0000-4000-8000-000000000048",
       "platform": "flextender",
       "external_id": "ext-000048",
       "external_url": "https://example.com/jobs/48",
@@ -767,11 +767,11 @@
       "contract_type": "detachering",
       "rate_min": 87,
       "rate_max": 107,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000049",
+      "id": "00000000-0000-4000-8000-000000000049",
       "platform": "opdrachtoverheid",
       "external_id": "ext-000049",
       "external_url": "https://example.com/jobs/49",
@@ -783,11 +783,11 @@
       "contract_type": "detachering",
       "rate_min": 88,
       "rate_max": 108,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000050",
+      "id": "00000000-0000-4000-8000-000000000050",
       "platform": "starapple-nl",
       "external_id": "ext-000050",
       "external_url": "https://example.com/jobs/50",
@@ -799,11 +799,11 @@
       "contract_type": "detachering",
       "rate_min": 89,
       "rate_max": 109,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000051",
+      "id": "00000000-0000-4000-8000-000000000051",
       "platform": "nationalevacaturebank",
       "external_id": "ext-000051",
       "external_url": "https://example.com/jobs/51",
@@ -815,11 +815,11 @@
       "contract_type": "detachering",
       "rate_min": 90,
       "rate_max": 110,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000052",
+      "id": "00000000-0000-4000-8000-000000000052",
       "platform": "mipublic",
       "external_id": "ext-000052",
       "external_url": "https://example.com/jobs/52",
@@ -831,11 +831,11 @@
       "contract_type": "detachering",
       "rate_min": 91,
       "rate_max": 111,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000053",
+      "id": "00000000-0000-4000-8000-000000000053",
       "platform": "flextender",
       "external_id": "ext-000053",
       "external_url": "https://example.com/jobs/53",
@@ -847,11 +847,11 @@
       "contract_type": "detachering",
       "rate_min": 92,
       "rate_max": 112,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000054",
+      "id": "00000000-0000-4000-8000-000000000054",
       "platform": "opdrachtoverheid",
       "external_id": "ext-000054",
       "external_url": "https://example.com/jobs/54",
@@ -863,11 +863,11 @@
       "contract_type": "detachering",
       "rate_min": 93,
       "rate_max": 113,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000055",
+      "id": "00000000-0000-4000-8000-000000000055",
       "platform": "starapple-nl",
       "external_id": "ext-000055",
       "external_url": "https://example.com/jobs/55",
@@ -879,11 +879,11 @@
       "contract_type": "detachering",
       "rate_min": 94,
       "rate_max": 114,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000056",
+      "id": "00000000-0000-4000-8000-000000000056",
       "platform": "nationalevacaturebank",
       "external_id": "ext-000056",
       "external_url": "https://example.com/jobs/56",
@@ -895,11 +895,11 @@
       "contract_type": "detachering",
       "rate_min": 95,
       "rate_max": 115,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000057",
+      "id": "00000000-0000-4000-8000-000000000057",
       "platform": "mipublic",
       "external_id": "ext-000057",
       "external_url": "https://example.com/jobs/57",
@@ -911,11 +911,11 @@
       "contract_type": "detachering",
       "rate_min": 96,
       "rate_max": 116,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000058",
+      "id": "00000000-0000-4000-8000-000000000058",
       "platform": "flextender",
       "external_id": "ext-000058",
       "external_url": "https://example.com/jobs/58",
@@ -927,11 +927,11 @@
       "contract_type": "detachering",
       "rate_min": 97,
       "rate_max": 117,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000059",
+      "id": "00000000-0000-4000-8000-000000000059",
       "platform": "opdrachtoverheid",
       "external_id": "ext-000059",
       "external_url": "https://example.com/jobs/59",
@@ -943,11 +943,11 @@
       "contract_type": "detachering",
       "rate_min": 98,
       "rate_max": 118,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000060",
+      "id": "00000000-0000-4000-8000-000000000060",
       "platform": "starapple-nl",
       "external_id": "ext-000060",
       "external_url": "https://example.com/jobs/60",
@@ -959,11 +959,11 @@
       "contract_type": "detachering",
       "rate_min": 99,
       "rate_max": 119,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000061",
+      "id": "00000000-0000-4000-8000-000000000061",
       "platform": "nationalevacaturebank",
       "external_id": "ext-000061",
       "external_url": "https://example.com/jobs/61",
@@ -975,11 +975,11 @@
       "contract_type": "detachering",
       "rate_min": 100,
       "rate_max": 120,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000062",
+      "id": "00000000-0000-4000-8000-000000000062",
       "platform": "mipublic",
       "external_id": "ext-000062",
       "external_url": "https://example.com/jobs/62",
@@ -991,11 +991,11 @@
       "contract_type": "detachering",
       "rate_min": 101,
       "rate_max": 121,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000063",
+      "id": "00000000-0000-4000-8000-000000000063",
       "platform": "flextender",
       "external_id": "ext-000063",
       "external_url": "https://example.com/jobs/63",
@@ -1007,11 +1007,11 @@
       "contract_type": "detachering",
       "rate_min": 102,
       "rate_max": 122,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000064",
+      "id": "00000000-0000-4000-8000-000000000064",
       "platform": "striive",
       "external_id": "ext-000064",
       "external_url": "https://example.com/jobs/64",
@@ -1023,11 +1023,11 @@
       "contract_type": "detachering",
       "rate_min": 103,
       "rate_max": 123,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000065",
+      "id": "00000000-0000-4000-8000-000000000065",
       "platform": "starapple-nl",
       "external_id": "ext-000065",
       "external_url": "https://example.com/jobs/65",
@@ -1039,11 +1039,11 @@
       "contract_type": "detachering",
       "rate_min": 104,
       "rate_max": 124,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000066",
+      "id": "00000000-0000-4000-8000-000000000066",
       "platform": "nationalevacaturebank",
       "external_id": "ext-000066",
       "external_url": "https://example.com/jobs/66",
@@ -1055,11 +1055,11 @@
       "contract_type": "detachering",
       "rate_min": 105,
       "rate_max": 125,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000067",
+      "id": "00000000-0000-4000-8000-000000000067",
       "platform": "mipublic",
       "external_id": "ext-000067",
       "external_url": "https://example.com/jobs/67",
@@ -1071,11 +1071,11 @@
       "contract_type": "detachering",
       "rate_min": 106,
       "rate_max": 126,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000068",
+      "id": "00000000-0000-4000-8000-000000000068",
       "platform": "flextender",
       "external_id": "ext-000068",
       "external_url": "https://example.com/jobs/68",
@@ -1087,11 +1087,11 @@
       "contract_type": "detachering",
       "rate_min": 107,
       "rate_max": 127,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000069",
+      "id": "00000000-0000-4000-8000-000000000069",
       "platform": "striive",
       "external_id": "ext-000069",
       "external_url": "https://example.com/jobs/69",
@@ -1103,11 +1103,11 @@
       "contract_type": "detachering",
       "rate_min": 108,
       "rate_max": 128,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000070",
+      "id": "00000000-0000-4000-8000-000000000070",
       "platform": "starapple-nl",
       "external_id": "ext-000070",
       "external_url": "https://example.com/jobs/70",
@@ -1119,11 +1119,11 @@
       "contract_type": "detachering",
       "rate_min": 109,
       "rate_max": 129,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000071",
+      "id": "00000000-0000-4000-8000-000000000071",
       "platform": "nationalevacaturebank",
       "external_id": "ext-000071",
       "external_url": "https://example.com/jobs/71",
@@ -1135,11 +1135,11 @@
       "contract_type": "detachering",
       "rate_min": 110,
       "rate_max": 130,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000072",
+      "id": "00000000-0000-4000-8000-000000000072",
       "platform": "mipublic",
       "external_id": "ext-000072",
       "external_url": "https://example.com/jobs/72",
@@ -1151,11 +1151,11 @@
       "contract_type": "detachering",
       "rate_min": 111,
       "rate_max": 131,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000073",
+      "id": "00000000-0000-4000-8000-000000000073",
       "platform": "flextender",
       "external_id": "ext-000073",
       "external_url": "https://example.com/jobs/73",
@@ -1167,11 +1167,11 @@
       "contract_type": "detachering",
       "rate_min": 112,
       "rate_max": 132,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000074",
+      "id": "00000000-0000-4000-8000-000000000074",
       "platform": "striive",
       "external_id": "ext-000074",
       "external_url": "https://example.com/jobs/74",
@@ -1183,11 +1183,11 @@
       "contract_type": "detachering",
       "rate_min": 113,
       "rate_max": 133,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000075",
+      "id": "00000000-0000-4000-8000-000000000075",
       "platform": "starapple-nl",
       "external_id": "ext-000075",
       "external_url": "https://example.com/jobs/75",
@@ -1199,11 +1199,11 @@
       "contract_type": "detachering",
       "rate_min": 114,
       "rate_max": 134,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000076",
+      "id": "00000000-0000-4000-8000-000000000076",
       "platform": "nationalevacaturebank",
       "external_id": "ext-000076",
       "external_url": "https://example.com/jobs/76",
@@ -1215,11 +1215,11 @@
       "contract_type": "detachering",
       "rate_min": 115,
       "rate_max": 135,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000077",
+      "id": "00000000-0000-4000-8000-000000000077",
       "platform": "mipublic",
       "external_id": "ext-000077",
       "external_url": "https://example.com/jobs/77",
@@ -1231,11 +1231,11 @@
       "contract_type": "detachering",
       "rate_min": 116,
       "rate_max": 136,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000078",
+      "id": "00000000-0000-4000-8000-000000000078",
       "platform": "flextender",
       "external_id": "ext-000078",
       "external_url": "https://example.com/jobs/78",
@@ -1247,11 +1247,11 @@
       "contract_type": "detachering",
       "rate_min": 117,
       "rate_max": 137,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000079",
+      "id": "00000000-0000-4000-8000-000000000079",
       "platform": "striive",
       "external_id": "ext-000079",
       "external_url": "https://example.com/jobs/79",
@@ -1263,11 +1263,11 @@
       "contract_type": "detachering",
       "rate_min": 118,
       "rate_max": 138,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000080",
+      "id": "00000000-0000-4000-8000-000000000080",
       "platform": "starapple-nl",
       "external_id": "ext-000080",
       "external_url": "https://example.com/jobs/80",
@@ -1279,11 +1279,11 @@
       "contract_type": "detachering",
       "rate_min": 119,
       "rate_max": 139,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000081",
+      "id": "00000000-0000-4000-8000-000000000081",
       "platform": "nationalevacaturebank",
       "external_id": "ext-000081",
       "external_url": "https://example.com/jobs/81",
@@ -1295,11 +1295,11 @@
       "contract_type": "detachering",
       "rate_min": 80,
       "rate_max": 100,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000082",
+      "id": "00000000-0000-4000-8000-000000000082",
       "platform": "mipublic",
       "external_id": "ext-000082",
       "external_url": "https://example.com/jobs/82",
@@ -1311,11 +1311,11 @@
       "contract_type": "detachering",
       "rate_min": 81,
       "rate_max": 101,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000083",
+      "id": "00000000-0000-4000-8000-000000000083",
       "platform": "flextender",
       "external_id": "ext-000083",
       "external_url": "https://example.com/jobs/83",
@@ -1327,11 +1327,11 @@
       "contract_type": "detachering",
       "rate_min": 82,
       "rate_max": 102,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000084",
+      "id": "00000000-0000-4000-8000-000000000084",
       "platform": "striive",
       "external_id": "ext-000084",
       "external_url": "https://example.com/jobs/84",
@@ -1343,11 +1343,11 @@
       "contract_type": "detachering",
       "rate_min": 83,
       "rate_max": 103,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000085",
+      "id": "00000000-0000-4000-8000-000000000085",
       "platform": "starapple-nl",
       "external_id": "ext-000085",
       "external_url": "https://example.com/jobs/85",
@@ -1359,11 +1359,11 @@
       "contract_type": "detachering",
       "rate_min": 84,
       "rate_max": 104,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000086",
+      "id": "00000000-0000-4000-8000-000000000086",
       "platform": "nationalevacaturebank",
       "external_id": "ext-000086",
       "external_url": "https://example.com/jobs/86",
@@ -1375,11 +1375,11 @@
       "contract_type": "detachering",
       "rate_min": 85,
       "rate_max": 105,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000087",
+      "id": "00000000-0000-4000-8000-000000000087",
       "platform": "mipublic",
       "external_id": "ext-000087",
       "external_url": "https://example.com/jobs/87",
@@ -1391,11 +1391,11 @@
       "contract_type": "detachering",
       "rate_min": 86,
       "rate_max": 106,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000088",
+      "id": "00000000-0000-4000-8000-000000000088",
       "platform": "flextender",
       "external_id": "ext-000088",
       "external_url": "https://example.com/jobs/88",
@@ -1407,11 +1407,11 @@
       "contract_type": "detachering",
       "rate_min": 87,
       "rate_max": 107,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000089",
+      "id": "00000000-0000-4000-8000-000000000089",
       "platform": "striive",
       "external_id": "ext-000089",
       "external_url": "https://example.com/jobs/89",
@@ -1423,11 +1423,11 @@
       "contract_type": "detachering",
       "rate_min": 88,
       "rate_max": 108,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000090",
+      "id": "00000000-0000-4000-8000-000000000090",
       "platform": "starapple-nl",
       "external_id": "ext-000090",
       "external_url": "https://example.com/jobs/90",
@@ -1439,11 +1439,11 @@
       "contract_type": "detachering",
       "rate_min": 89,
       "rate_max": 109,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000091",
+      "id": "00000000-0000-4000-8000-000000000091",
       "platform": "nationalevacaturebank",
       "external_id": "ext-000091",
       "external_url": "https://example.com/jobs/91",
@@ -1455,11 +1455,11 @@
       "contract_type": "detachering",
       "rate_min": 90,
       "rate_max": 110,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000092",
+      "id": "00000000-0000-4000-8000-000000000092",
       "platform": "mipublic",
       "external_id": "ext-000092",
       "external_url": "https://example.com/jobs/92",
@@ -1471,11 +1471,11 @@
       "contract_type": "detachering",
       "rate_min": 91,
       "rate_max": 111,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000093",
+      "id": "00000000-0000-4000-8000-000000000093",
       "platform": "flextender",
       "external_id": "ext-000093",
       "external_url": "https://example.com/jobs/93",
@@ -1487,11 +1487,11 @@
       "contract_type": "detachering",
       "rate_min": 92,
       "rate_max": 112,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000094",
+      "id": "00000000-0000-4000-8000-000000000094",
       "platform": "striive",
       "external_id": "ext-000094",
       "external_url": "https://example.com/jobs/94",
@@ -1503,11 +1503,11 @@
       "contract_type": "detachering",
       "rate_min": 93,
       "rate_max": 113,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000095",
+      "id": "00000000-0000-4000-8000-000000000095",
       "platform": "starapple-nl",
       "external_id": "ext-000095",
       "external_url": "https://example.com/jobs/95",
@@ -1519,11 +1519,11 @@
       "contract_type": "detachering",
       "rate_min": 94,
       "rate_max": 114,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000096",
+      "id": "00000000-0000-4000-8000-000000000096",
       "platform": "nationalevacaturebank",
       "external_id": "ext-000096",
       "external_url": "https://example.com/jobs/96",
@@ -1535,11 +1535,11 @@
       "contract_type": "detachering",
       "rate_min": 95,
       "rate_max": 115,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000097",
+      "id": "00000000-0000-4000-8000-000000000097",
       "platform": "mipublic",
       "external_id": "ext-000097",
       "external_url": "https://example.com/jobs/97",
@@ -1551,11 +1551,11 @@
       "contract_type": "detachering",
       "rate_min": 96,
       "rate_max": 116,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000098",
+      "id": "00000000-0000-4000-8000-000000000098",
       "platform": "flextender",
       "external_id": "ext-000098",
       "external_url": "https://example.com/jobs/98",
@@ -1567,11 +1567,11 @@
       "contract_type": "detachering",
       "rate_min": 97,
       "rate_max": 117,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000099",
+      "id": "00000000-0000-4000-8000-000000000099",
       "platform": "striive",
       "external_id": "ext-000099",
       "external_url": "https://example.com/jobs/99",
@@ -1583,11 +1583,11 @@
       "contract_type": "detachering",
       "rate_min": 98,
       "rate_max": 118,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000100",
+      "id": "00000000-0000-4000-8000-000000000100",
       "platform": "starapple-nl",
       "external_id": "ext-000100",
       "external_url": "https://example.com/jobs/100",
@@ -1599,11 +1599,11 @@
       "contract_type": "detachering",
       "rate_min": 99,
       "rate_max": 119,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000101",
+      "id": "00000000-0000-4000-8000-000000000101",
       "platform": "nationalevacaturebank",
       "external_id": "ext-000101",
       "external_url": "https://example.com/jobs/101",
@@ -1615,11 +1615,11 @@
       "contract_type": "detachering",
       "rate_min": 100,
       "rate_max": 120,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000102",
+      "id": "00000000-0000-4000-8000-000000000102",
       "platform": "werkzoeken",
       "external_id": "ext-000102",
       "external_url": "https://example.com/jobs/102",
@@ -1631,11 +1631,11 @@
       "contract_type": "detachering",
       "rate_min": 101,
       "rate_max": 121,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000103",
+      "id": "00000000-0000-4000-8000-000000000103",
       "platform": "flextender",
       "external_id": "ext-000103",
       "external_url": "https://example.com/jobs/103",
@@ -1647,11 +1647,11 @@
       "contract_type": "detachering",
       "rate_min": 102,
       "rate_max": 122,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000104",
+      "id": "00000000-0000-4000-8000-000000000104",
       "platform": "striive",
       "external_id": "ext-000104",
       "external_url": "https://example.com/jobs/104",
@@ -1663,11 +1663,11 @@
       "contract_type": "detachering",
       "rate_min": 103,
       "rate_max": 123,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000105",
+      "id": "00000000-0000-4000-8000-000000000105",
       "platform": "starapple-nl",
       "external_id": "ext-000105",
       "external_url": "https://example.com/jobs/105",
@@ -1679,11 +1679,11 @@
       "contract_type": "detachering",
       "rate_min": 104,
       "rate_max": 124,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000106",
+      "id": "00000000-0000-4000-8000-000000000106",
       "platform": "nationalevacaturebank",
       "external_id": "ext-000106",
       "external_url": "https://example.com/jobs/106",
@@ -1695,11 +1695,11 @@
       "contract_type": "detachering",
       "rate_min": 105,
       "rate_max": 125,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000107",
+      "id": "00000000-0000-4000-8000-000000000107",
       "platform": "werkzoeken",
       "external_id": "ext-000107",
       "external_url": "https://example.com/jobs/107",
@@ -1711,11 +1711,11 @@
       "contract_type": "detachering",
       "rate_min": 106,
       "rate_max": 126,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000108",
+      "id": "00000000-0000-4000-8000-000000000108",
       "platform": "flextender",
       "external_id": "ext-000108",
       "external_url": "https://example.com/jobs/108",
@@ -1727,11 +1727,11 @@
       "contract_type": "detachering",
       "rate_min": 107,
       "rate_max": 127,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000109",
+      "id": "00000000-0000-4000-8000-000000000109",
       "platform": "striive",
       "external_id": "ext-000109",
       "external_url": "https://example.com/jobs/109",
@@ -1743,11 +1743,11 @@
       "contract_type": "detachering",
       "rate_min": 108,
       "rate_max": 128,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000110",
+      "id": "00000000-0000-4000-8000-000000000110",
       "platform": "starapple-nl",
       "external_id": "ext-000110",
       "external_url": "https://example.com/jobs/110",
@@ -1759,11 +1759,11 @@
       "contract_type": "detachering",
       "rate_min": 109,
       "rate_max": 129,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000111",
+      "id": "00000000-0000-4000-8000-000000000111",
       "platform": "nationalevacaturebank",
       "external_id": "ext-000111",
       "external_url": "https://example.com/jobs/111",
@@ -1775,11 +1775,11 @@
       "contract_type": "detachering",
       "rate_min": 110,
       "rate_max": 130,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000112",
+      "id": "00000000-0000-4000-8000-000000000112",
       "platform": "werkzoeken",
       "external_id": "ext-000112",
       "external_url": "https://example.com/jobs/112",
@@ -1791,11 +1791,11 @@
       "contract_type": "detachering",
       "rate_min": 111,
       "rate_max": 131,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000113",
+      "id": "00000000-0000-4000-8000-000000000113",
       "platform": "flextender",
       "external_id": "ext-000113",
       "external_url": "https://example.com/jobs/113",
@@ -1807,11 +1807,11 @@
       "contract_type": "detachering",
       "rate_min": 112,
       "rate_max": 132,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000114",
+      "id": "00000000-0000-4000-8000-000000000114",
       "platform": "striive",
       "external_id": "ext-000114",
       "external_url": "https://example.com/jobs/114",
@@ -1823,11 +1823,11 @@
       "contract_type": "detachering",
       "rate_min": 113,
       "rate_max": 133,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000115",
+      "id": "00000000-0000-4000-8000-000000000115",
       "platform": "starapple-nl",
       "external_id": "ext-000115",
       "external_url": "https://example.com/jobs/115",
@@ -1839,11 +1839,11 @@
       "contract_type": "detachering",
       "rate_min": 114,
       "rate_max": 134,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000116",
+      "id": "00000000-0000-4000-8000-000000000116",
       "platform": "nationalevacaturebank",
       "external_id": "ext-000116",
       "external_url": "https://example.com/jobs/116",
@@ -1855,11 +1855,11 @@
       "contract_type": "detachering",
       "rate_min": 115,
       "rate_max": 135,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000117",
+      "id": "00000000-0000-4000-8000-000000000117",
       "platform": "werkzoeken",
       "external_id": "ext-000117",
       "external_url": "https://example.com/jobs/117",
@@ -1871,11 +1871,11 @@
       "contract_type": "detachering",
       "rate_min": 116,
       "rate_max": 136,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000118",
+      "id": "00000000-0000-4000-8000-000000000118",
       "platform": "flextender",
       "external_id": "ext-000118",
       "external_url": "https://example.com/jobs/118",
@@ -1887,11 +1887,11 @@
       "contract_type": "detachering",
       "rate_min": 117,
       "rate_max": 137,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000119",
+      "id": "00000000-0000-4000-8000-000000000119",
       "platform": "striive",
       "external_id": "ext-000119",
       "external_url": "https://example.com/jobs/119",
@@ -1903,11 +1903,11 @@
       "contract_type": "detachering",
       "rate_min": 118,
       "rate_max": 138,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000120",
+      "id": "00000000-0000-4000-8000-000000000120",
       "platform": "starapple-nl",
       "external_id": "ext-000120",
       "external_url": "https://example.com/jobs/120",
@@ -1919,11 +1919,11 @@
       "contract_type": "detachering",
       "rate_min": 119,
       "rate_max": 139,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000121",
+      "id": "00000000-0000-4000-8000-000000000121",
       "platform": "nationalevacaturebank",
       "external_id": "ext-000121",
       "external_url": "https://example.com/jobs/121",
@@ -1935,11 +1935,11 @@
       "contract_type": "detachering",
       "rate_min": 80,
       "rate_max": 100,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000122",
+      "id": "00000000-0000-4000-8000-000000000122",
       "platform": "werkzoeken",
       "external_id": "ext-000122",
       "external_url": "https://example.com/jobs/122",
@@ -1951,11 +1951,11 @@
       "contract_type": "detachering",
       "rate_min": 81,
       "rate_max": 101,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000123",
+      "id": "00000000-0000-4000-8000-000000000123",
       "platform": "flextender",
       "external_id": "ext-000123",
       "external_url": "https://example.com/jobs/123",
@@ -1967,11 +1967,11 @@
       "contract_type": "detachering",
       "rate_min": 82,
       "rate_max": 102,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000124",
+      "id": "00000000-0000-4000-8000-000000000124",
       "platform": "striive",
       "external_id": "ext-000124",
       "external_url": "https://example.com/jobs/124",
@@ -1983,11 +1983,11 @@
       "contract_type": "detachering",
       "rate_min": 83,
       "rate_max": 103,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000125",
+      "id": "00000000-0000-4000-8000-000000000125",
       "platform": "starapple-nl",
       "external_id": "ext-000125",
       "external_url": "https://example.com/jobs/125",
@@ -1999,11 +1999,11 @@
       "contract_type": "detachering",
       "rate_min": 84,
       "rate_max": 104,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000126",
+      "id": "00000000-0000-4000-8000-000000000126",
       "platform": "nationalevacaturebank",
       "external_id": "ext-000126",
       "external_url": "https://example.com/jobs/126",
@@ -2015,11 +2015,11 @@
       "contract_type": "detachering",
       "rate_min": 85,
       "rate_max": 105,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000127",
+      "id": "00000000-0000-4000-8000-000000000127",
       "platform": "werkzoeken",
       "external_id": "ext-000127",
       "external_url": "https://example.com/jobs/127",
@@ -2031,11 +2031,11 @@
       "contract_type": "detachering",
       "rate_min": 86,
       "rate_max": 106,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000128",
+      "id": "00000000-0000-4000-8000-000000000128",
       "platform": "flextender",
       "external_id": "ext-000128",
       "external_url": "https://example.com/jobs/128",
@@ -2047,11 +2047,11 @@
       "contract_type": "detachering",
       "rate_min": 87,
       "rate_max": 107,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000129",
+      "id": "00000000-0000-4000-8000-000000000129",
       "platform": "striive",
       "external_id": "ext-000129",
       "external_url": "https://example.com/jobs/129",
@@ -2063,11 +2063,11 @@
       "contract_type": "detachering",
       "rate_min": 88,
       "rate_max": 108,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000130",
+      "id": "00000000-0000-4000-8000-000000000130",
       "platform": "starapple-nl",
       "external_id": "ext-000130",
       "external_url": "https://example.com/jobs/130",
@@ -2079,11 +2079,11 @@
       "contract_type": "detachering",
       "rate_min": 89,
       "rate_max": 109,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000131",
+      "id": "00000000-0000-4000-8000-000000000131",
       "platform": "nationalevacaturebank",
       "external_id": "ext-000131",
       "external_url": "https://example.com/jobs/131",
@@ -2095,11 +2095,11 @@
       "contract_type": "detachering",
       "rate_min": 90,
       "rate_max": 110,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000132",
+      "id": "00000000-0000-4000-8000-000000000132",
       "platform": "werkzoeken",
       "external_id": "ext-000132",
       "external_url": "https://example.com/jobs/132",
@@ -2111,11 +2111,11 @@
       "contract_type": "detachering",
       "rate_min": 91,
       "rate_max": 111,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000133",
+      "id": "00000000-0000-4000-8000-000000000133",
       "platform": "flextender",
       "external_id": "ext-000133",
       "external_url": "https://example.com/jobs/133",
@@ -2127,11 +2127,11 @@
       "contract_type": "detachering",
       "rate_min": 92,
       "rate_max": 112,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000134",
+      "id": "00000000-0000-4000-8000-000000000134",
       "platform": "striive",
       "external_id": "ext-000134",
       "external_url": "https://example.com/jobs/134",
@@ -2143,11 +2143,11 @@
       "contract_type": "detachering",
       "rate_min": 93,
       "rate_max": 113,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000135",
+      "id": "00000000-0000-4000-8000-000000000135",
       "platform": "starapple-nl",
       "external_id": "ext-000135",
       "external_url": "https://example.com/jobs/135",
@@ -2159,11 +2159,11 @@
       "contract_type": "detachering",
       "rate_min": 94,
       "rate_max": 114,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000136",
+      "id": "00000000-0000-4000-8000-000000000136",
       "platform": "nationalevacaturebank",
       "external_id": "ext-000136",
       "external_url": "https://example.com/jobs/136",
@@ -2175,11 +2175,11 @@
       "contract_type": "detachering",
       "rate_min": 95,
       "rate_max": 115,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000137",
+      "id": "00000000-0000-4000-8000-000000000137",
       "platform": "werkzoeken",
       "external_id": "ext-000137",
       "external_url": "https://example.com/jobs/137",
@@ -2191,11 +2191,11 @@
       "contract_type": "detachering",
       "rate_min": 96,
       "rate_max": 116,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000138",
+      "id": "00000000-0000-4000-8000-000000000138",
       "platform": "flextender",
       "external_id": "ext-000138",
       "external_url": "https://example.com/jobs/138",
@@ -2207,11 +2207,11 @@
       "contract_type": "detachering",
       "rate_min": 97,
       "rate_max": 117,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000139",
+      "id": "00000000-0000-4000-8000-000000000139",
       "platform": "striive",
       "external_id": "ext-000139",
       "external_url": "https://example.com/jobs/139",
@@ -2223,11 +2223,11 @@
       "contract_type": "detachering",
       "rate_min": 98,
       "rate_max": 118,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000140",
+      "id": "00000000-0000-4000-8000-000000000140",
       "platform": "starapple-nl",
       "external_id": "ext-000140",
       "external_url": "https://example.com/jobs/140",
@@ -2239,11 +2239,11 @@
       "contract_type": "detachering",
       "rate_min": 99,
       "rate_max": 119,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000141",
+      "id": "00000000-0000-4000-8000-000000000141",
       "platform": "nationalevacaturebank",
       "external_id": "ext-000141",
       "external_url": "https://example.com/jobs/141",
@@ -2255,11 +2255,11 @@
       "contract_type": "detachering",
       "rate_min": 100,
       "rate_max": 120,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000142",
+      "id": "00000000-0000-4000-8000-000000000142",
       "platform": "werkzoeken",
       "external_id": "ext-000142",
       "external_url": "https://example.com/jobs/142",
@@ -2271,11 +2271,11 @@
       "contract_type": "detachering",
       "rate_min": 101,
       "rate_max": 121,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000143",
+      "id": "00000000-0000-4000-8000-000000000143",
       "platform": "flextender",
       "external_id": "ext-000143",
       "external_url": "https://example.com/jobs/143",
@@ -2287,11 +2287,11 @@
       "contract_type": "detachering",
       "rate_min": 102,
       "rate_max": 122,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000144",
+      "id": "00000000-0000-4000-8000-000000000144",
       "platform": "striive",
       "external_id": "ext-000144",
       "external_url": "https://example.com/jobs/144",
@@ -2303,11 +2303,11 @@
       "contract_type": "detachering",
       "rate_min": 103,
       "rate_max": 123,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000145",
+      "id": "00000000-0000-4000-8000-000000000145",
       "platform": "starapple-nl",
       "external_id": "ext-000145",
       "external_url": "https://example.com/jobs/145",
@@ -2319,11 +2319,11 @@
       "contract_type": "detachering",
       "rate_min": 104,
       "rate_max": 124,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000146",
+      "id": "00000000-0000-4000-8000-000000000146",
       "platform": "nationalevacaturebank",
       "external_id": "ext-000146",
       "external_url": "https://example.com/jobs/146",
@@ -2335,11 +2335,11 @@
       "contract_type": "detachering",
       "rate_min": 105,
       "rate_max": 125,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000147",
+      "id": "00000000-0000-4000-8000-000000000147",
       "platform": "werkzoeken",
       "external_id": "ext-000147",
       "external_url": "https://example.com/jobs/147",
@@ -2351,11 +2351,11 @@
       "contract_type": "detachering",
       "rate_min": 106,
       "rate_max": 126,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000148",
+      "id": "00000000-0000-4000-8000-000000000148",
       "platform": "flextender",
       "external_id": "ext-000148",
       "external_url": "https://example.com/jobs/148",
@@ -2367,11 +2367,11 @@
       "contract_type": "detachering",
       "rate_min": 107,
       "rate_max": 127,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000149",
+      "id": "00000000-0000-4000-8000-000000000149",
       "platform": "striive",
       "external_id": "ext-000149",
       "external_url": "https://example.com/jobs/149",
@@ -2383,11 +2383,11 @@
       "contract_type": "detachering",
       "rate_min": 108,
       "rate_max": 128,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000150",
+      "id": "00000000-0000-4000-8000-000000000150",
       "platform": "starapple-nl",
       "external_id": "ext-000150",
       "external_url": "https://example.com/jobs/150",
@@ -2399,11 +2399,11 @@
       "contract_type": "detachering",
       "rate_min": 109,
       "rate_max": 129,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000151",
+      "id": "00000000-0000-4000-8000-000000000151",
       "platform": "nationalevacaturebank",
       "external_id": "ext-000151",
       "external_url": "https://example.com/jobs/151",
@@ -2415,11 +2415,11 @@
       "contract_type": "detachering",
       "rate_min": 110,
       "rate_max": 130,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000152",
+      "id": "00000000-0000-4000-8000-000000000152",
       "platform": "werkzoeken",
       "external_id": "ext-000152",
       "external_url": "https://example.com/jobs/152",
@@ -2431,11 +2431,11 @@
       "contract_type": "detachering",
       "rate_min": 111,
       "rate_max": 131,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000153",
+      "id": "00000000-0000-4000-8000-000000000153",
       "platform": "flextender",
       "external_id": "ext-000153",
       "external_url": "https://example.com/jobs/153",
@@ -2447,11 +2447,11 @@
       "contract_type": "detachering",
       "rate_min": 112,
       "rate_max": 132,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000154",
+      "id": "00000000-0000-4000-8000-000000000154",
       "platform": "striive",
       "external_id": "ext-000154",
       "external_url": "https://example.com/jobs/154",
@@ -2463,11 +2463,11 @@
       "contract_type": "detachering",
       "rate_min": 113,
       "rate_max": 133,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000155",
+      "id": "00000000-0000-4000-8000-000000000155",
       "platform": "starapple-nl",
       "external_id": "ext-000155",
       "external_url": "https://example.com/jobs/155",
@@ -2479,11 +2479,11 @@
       "contract_type": "detachering",
       "rate_min": 114,
       "rate_max": 134,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000156",
+      "id": "00000000-0000-4000-8000-000000000156",
       "platform": "nationalevacaturebank",
       "external_id": "ext-000156",
       "external_url": "https://example.com/jobs/156",
@@ -2495,11 +2495,11 @@
       "contract_type": "detachering",
       "rate_min": 115,
       "rate_max": 135,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000157",
+      "id": "00000000-0000-4000-8000-000000000157",
       "platform": "werkzoeken",
       "external_id": "ext-000157",
       "external_url": "https://example.com/jobs/157",
@@ -2511,11 +2511,11 @@
       "contract_type": "detachering",
       "rate_min": 116,
       "rate_max": 136,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000158",
+      "id": "00000000-0000-4000-8000-000000000158",
       "platform": "flextender",
       "external_id": "ext-000158",
       "external_url": "https://example.com/jobs/158",
@@ -2527,11 +2527,11 @@
       "contract_type": "detachering",
       "rate_min": 117,
       "rate_max": 137,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000159",
+      "id": "00000000-0000-4000-8000-000000000159",
       "platform": "striive",
       "external_id": "ext-000159",
       "external_url": "https://example.com/jobs/159",
@@ -2543,11 +2543,11 @@
       "contract_type": "detachering",
       "rate_min": 118,
       "rate_max": 138,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000160",
+      "id": "00000000-0000-4000-8000-000000000160",
       "platform": "starapple-nl",
       "external_id": "ext-000160",
       "external_url": "https://example.com/jobs/160",
@@ -2559,11 +2559,11 @@
       "contract_type": "detachering",
       "rate_min": 119,
       "rate_max": 139,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000161",
+      "id": "00000000-0000-4000-8000-000000000161",
       "platform": "nationalevacaturebank",
       "external_id": "ext-000161",
       "external_url": "https://example.com/jobs/161",
@@ -2575,11 +2575,11 @@
       "contract_type": "detachering",
       "rate_min": 80,
       "rate_max": 100,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000162",
+      "id": "00000000-0000-4000-8000-000000000162",
       "platform": "werkzoeken",
       "external_id": "ext-000162",
       "external_url": "https://example.com/jobs/162",
@@ -2591,11 +2591,11 @@
       "contract_type": "detachering",
       "rate_min": 81,
       "rate_max": 101,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000163",
+      "id": "00000000-0000-4000-8000-000000000163",
       "platform": "flextender",
       "external_id": "ext-000163",
       "external_url": "https://example.com/jobs/163",
@@ -2607,11 +2607,11 @@
       "contract_type": "detachering",
       "rate_min": 82,
       "rate_max": 102,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000164",
+      "id": "00000000-0000-4000-8000-000000000164",
       "platform": "striive",
       "external_id": "ext-000164",
       "external_url": "https://example.com/jobs/164",
@@ -2623,11 +2623,11 @@
       "contract_type": "detachering",
       "rate_min": 83,
       "rate_max": 103,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000165",
+      "id": "00000000-0000-4000-8000-000000000165",
       "platform": "starapple-nl",
       "external_id": "ext-000165",
       "external_url": "https://example.com/jobs/165",
@@ -2639,11 +2639,11 @@
       "contract_type": "detachering",
       "rate_min": 84,
       "rate_max": 104,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000166",
+      "id": "00000000-0000-4000-8000-000000000166",
       "platform": "nationalevacaturebank",
       "external_id": "ext-000166",
       "external_url": "https://example.com/jobs/166",
@@ -2655,11 +2655,11 @@
       "contract_type": "detachering",
       "rate_min": 85,
       "rate_max": 105,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000167",
+      "id": "00000000-0000-4000-8000-000000000167",
       "platform": "werkzoeken",
       "external_id": "ext-000167",
       "external_url": "https://example.com/jobs/167",
@@ -2671,11 +2671,11 @@
       "contract_type": "detachering",
       "rate_min": 86,
       "rate_max": 106,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000168",
+      "id": "00000000-0000-4000-8000-000000000168",
       "platform": "flextender",
       "external_id": "ext-000168",
       "external_url": "https://example.com/jobs/168",
@@ -2687,11 +2687,11 @@
       "contract_type": "detachering",
       "rate_min": 87,
       "rate_max": 107,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000169",
+      "id": "00000000-0000-4000-8000-000000000169",
       "platform": "striive",
       "external_id": "ext-000169",
       "external_url": "https://example.com/jobs/169",
@@ -2703,11 +2703,11 @@
       "contract_type": "detachering",
       "rate_min": 88,
       "rate_max": 108,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000170",
+      "id": "00000000-0000-4000-8000-000000000170",
       "platform": "starapple-nl",
       "external_id": "ext-000170",
       "external_url": "https://example.com/jobs/170",
@@ -2719,11 +2719,11 @@
       "contract_type": "detachering",
       "rate_min": 89,
       "rate_max": 109,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000171",
+      "id": "00000000-0000-4000-8000-000000000171",
       "platform": "nationalevacaturebank",
       "external_id": "ext-000171",
       "external_url": "https://example.com/jobs/171",
@@ -2735,11 +2735,11 @@
       "contract_type": "detachering",
       "rate_min": 90,
       "rate_max": 110,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000172",
+      "id": "00000000-0000-4000-8000-000000000172",
       "platform": "werkzoeken",
       "external_id": "ext-000172",
       "external_url": "https://example.com/jobs/172",
@@ -2751,11 +2751,11 @@
       "contract_type": "detachering",
       "rate_min": 91,
       "rate_max": 111,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000173",
+      "id": "00000000-0000-4000-8000-000000000173",
       "platform": "flextender",
       "external_id": "ext-000173",
       "external_url": "https://example.com/jobs/173",
@@ -2767,11 +2767,11 @@
       "contract_type": "detachering",
       "rate_min": 92,
       "rate_max": 112,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000174",
+      "id": "00000000-0000-4000-8000-000000000174",
       "platform": "striive",
       "external_id": "ext-000174",
       "external_url": "https://example.com/jobs/174",
@@ -2783,11 +2783,11 @@
       "contract_type": "detachering",
       "rate_min": 93,
       "rate_max": 113,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000175",
+      "id": "00000000-0000-4000-8000-000000000175",
       "platform": "starapple-nl",
       "external_id": "ext-000175",
       "external_url": "https://example.com/jobs/175",
@@ -2799,11 +2799,11 @@
       "contract_type": "detachering",
       "rate_min": 94,
       "rate_max": 114,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000176",
+      "id": "00000000-0000-4000-8000-000000000176",
       "platform": "nationalevacaturebank",
       "external_id": "ext-000176",
       "external_url": "https://example.com/jobs/176",
@@ -2815,11 +2815,11 @@
       "contract_type": "detachering",
       "rate_min": 95,
       "rate_max": 115,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000177",
+      "id": "00000000-0000-4000-8000-000000000177",
       "platform": "werkzoeken",
       "external_id": "ext-000177",
       "external_url": "https://example.com/jobs/177",
@@ -2831,11 +2831,11 @@
       "contract_type": "detachering",
       "rate_min": 96,
       "rate_max": 116,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000178",
+      "id": "00000000-0000-4000-8000-000000000178",
       "platform": "flextender",
       "external_id": "ext-000178",
       "external_url": "https://example.com/jobs/178",
@@ -2847,11 +2847,11 @@
       "contract_type": "detachering",
       "rate_min": 97,
       "rate_max": 117,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000179",
+      "id": "00000000-0000-4000-8000-000000000179",
       "platform": "striive",
       "external_id": "ext-000179",
       "external_url": "https://example.com/jobs/179",
@@ -2863,11 +2863,11 @@
       "contract_type": "detachering",
       "rate_min": 98,
       "rate_max": 118,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000180",
+      "id": "00000000-0000-4000-8000-000000000180",
       "platform": "starapple-nl",
       "external_id": "ext-000180",
       "external_url": "https://example.com/jobs/180",
@@ -2879,11 +2879,11 @@
       "contract_type": "detachering",
       "rate_min": 99,
       "rate_max": 119,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000181",
+      "id": "00000000-0000-4000-8000-000000000181",
       "platform": "nationalevacaturebank",
       "external_id": "ext-000181",
       "external_url": "https://example.com/jobs/181",
@@ -2895,11 +2895,11 @@
       "contract_type": "detachering",
       "rate_min": 100,
       "rate_max": 120,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000182",
+      "id": "00000000-0000-4000-8000-000000000182",
       "platform": "werkzoeken",
       "external_id": "ext-000182",
       "external_url": "https://example.com/jobs/182",
@@ -2911,11 +2911,11 @@
       "contract_type": "detachering",
       "rate_min": 101,
       "rate_max": 121,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000183",
+      "id": "00000000-0000-4000-8000-000000000183",
       "platform": "flextender",
       "external_id": "ext-000183",
       "external_url": "https://example.com/jobs/183",
@@ -2927,11 +2927,11 @@
       "contract_type": "detachering",
       "rate_min": 102,
       "rate_max": 122,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000184",
+      "id": "00000000-0000-4000-8000-000000000184",
       "platform": "striive",
       "external_id": "ext-000184",
       "external_url": "https://example.com/jobs/184",
@@ -2943,11 +2943,11 @@
       "contract_type": "detachering",
       "rate_min": 103,
       "rate_max": 123,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000185",
+      "id": "00000000-0000-4000-8000-000000000185",
       "platform": "starapple-nl",
       "external_id": "ext-000185",
       "external_url": "https://example.com/jobs/185",
@@ -2959,11 +2959,11 @@
       "contract_type": "detachering",
       "rate_min": 104,
       "rate_max": 124,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000186",
+      "id": "00000000-0000-4000-8000-000000000186",
       "platform": "nationalevacaturebank",
       "external_id": "ext-000186",
       "external_url": "https://example.com/jobs/186",
@@ -2975,11 +2975,11 @@
       "contract_type": "detachering",
       "rate_min": 105,
       "rate_max": 125,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000187",
+      "id": "00000000-0000-4000-8000-000000000187",
       "platform": "werkzoeken",
       "external_id": "ext-000187",
       "external_url": "https://example.com/jobs/187",
@@ -2991,11 +2991,11 @@
       "contract_type": "detachering",
       "rate_min": 106,
       "rate_max": 126,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000188",
+      "id": "00000000-0000-4000-8000-000000000188",
       "platform": "flextender",
       "external_id": "ext-000188",
       "external_url": "https://example.com/jobs/188",
@@ -3007,11 +3007,11 @@
       "contract_type": "detachering",
       "rate_min": 107,
       "rate_max": 127,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000189",
+      "id": "00000000-0000-4000-8000-000000000189",
       "platform": "striive",
       "external_id": "ext-000189",
       "external_url": "https://example.com/jobs/189",
@@ -3023,11 +3023,11 @@
       "contract_type": "detachering",
       "rate_min": 108,
       "rate_max": 128,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000190",
+      "id": "00000000-0000-4000-8000-000000000190",
       "platform": "starapple-nl",
       "external_id": "ext-000190",
       "external_url": "https://example.com/jobs/190",
@@ -3039,11 +3039,11 @@
       "contract_type": "detachering",
       "rate_min": 109,
       "rate_max": 129,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000191",
+      "id": "00000000-0000-4000-8000-000000000191",
       "platform": "nationalevacaturebank",
       "external_id": "ext-000191",
       "external_url": "https://example.com/jobs/191",
@@ -3055,11 +3055,11 @@
       "contract_type": "detachering",
       "rate_min": 110,
       "rate_max": 130,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000192",
+      "id": "00000000-0000-4000-8000-000000000192",
       "platform": "werkzoeken",
       "external_id": "ext-000192",
       "external_url": "https://example.com/jobs/192",
@@ -3071,11 +3071,11 @@
       "contract_type": "detachering",
       "rate_min": 111,
       "rate_max": 131,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000193",
+      "id": "00000000-0000-4000-8000-000000000193",
       "platform": "flextender",
       "external_id": "ext-000193",
       "external_url": "https://example.com/jobs/193",
@@ -3087,11 +3087,11 @@
       "contract_type": "detachering",
       "rate_min": 112,
       "rate_max": 132,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000194",
+      "id": "00000000-0000-4000-8000-000000000194",
       "platform": "striive",
       "external_id": "ext-000194",
       "external_url": "https://example.com/jobs/194",
@@ -3103,11 +3103,11 @@
       "contract_type": "detachering",
       "rate_min": 113,
       "rate_max": 133,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000195",
+      "id": "00000000-0000-4000-8000-000000000195",
       "platform": "starapple-nl",
       "external_id": "ext-000195",
       "external_url": "https://example.com/jobs/195",
@@ -3119,11 +3119,11 @@
       "contract_type": "detachering",
       "rate_min": 114,
       "rate_max": 134,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000196",
+      "id": "00000000-0000-4000-8000-000000000196",
       "platform": "nationalevacaturebank",
       "external_id": "ext-000196",
       "external_url": "https://example.com/jobs/196",
@@ -3135,11 +3135,11 @@
       "contract_type": "detachering",
       "rate_min": 115,
       "rate_max": 135,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000197",
+      "id": "00000000-0000-4000-8000-000000000197",
       "platform": "werkzoeken",
       "external_id": "ext-000197",
       "external_url": "https://example.com/jobs/197",
@@ -3151,11 +3151,11 @@
       "contract_type": "detachering",
       "rate_min": 116,
       "rate_max": 136,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000198",
+      "id": "00000000-0000-4000-8000-000000000198",
       "platform": "flextender",
       "external_id": "ext-000198",
       "external_url": "https://example.com/jobs/198",
@@ -3167,11 +3167,11 @@
       "contract_type": "detachering",
       "rate_min": 117,
       "rate_max": 137,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000199",
+      "id": "00000000-0000-4000-8000-000000000199",
       "platform": "striive",
       "external_id": "ext-000199",
       "external_url": "https://example.com/jobs/199",
@@ -3183,11 +3183,11 @@
       "contract_type": "detachering",
       "rate_min": 118,
       "rate_max": 138,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     },
     {
-      "id": "v1-job-000200",
+      "id": "00000000-0000-4000-8000-000000000200",
       "platform": "starapple-nl",
       "external_id": "ext-000200",
       "external_url": "https://example.com/jobs/200",
@@ -3199,8 +3199,8 @@
       "contract_type": "detachering",
       "rate_min": 119,
       "rate_max": 139,
-      "created_at": "2026-01-15T10:00:00.000Z",
-      "updated_at": "2026-06-01T10:00:00.000Z"
+      "posted_at": "2026-01-15T10:00:00.000Z",
+      "scraped_at": "2026-06-01T10:00:00.000Z"
     }
   ]
 }

@@ -14,7 +14,7 @@ cp .env.example .env.1password
 git check-ignore .env.1password
 ```
 
-Vervang in het lokale, door Git genegeerde `.env.1password` iedere credential door een `op://`-referentie. Dat geldt minimaal voor de drie Postgres-wachtwoorden, `CATAPULZE_DATABASE_URL` en `BETTER_AUTH_SECRET`. Voeg ook `MIGRATION_DATABASE_URL` toe als referentie naar de volledige lokale migrator-URL. Niet-geheime instellingen, zoals poorten, databasenamen en resourcegrenzen, mogen gewone waarden blijven.
+Vervang in het lokale, door Git genegeerde `.env.1password` iedere credential door een `op://`-referentie. Dat geldt minimaal voor de drie Postgres-wachtwoorden, `CATAPULZE_DATABASE_URL`, `PROJECTOR_DATABASE_URL` en `BETTER_AUTH_SECRET`. Voeg ook `MIGRATION_DATABASE_URL` toe als referentie naar de volledige lokale migrator-URL. Niet-geheime instellingen, zoals poorten, databasenamen en resourcegrenzen, mogen gewone waarden blijven. Lokaal mogen `CATAPULZE_DATABASE_URL` en `PROJECTOR_DATABASE_URL` dezelfde directe Compose-Postgres-URL bevatten; productie gebruikt voor de projectorlock expliciet Neons directe endpoint terwijl gewone runtimequeries gepoold mogen blijven.
 
 Voer de smoke-test uit met hetzelfde referentiebestand voor zowel 1Password-injectie als alle Compose-aanroepen:
 
@@ -42,14 +42,17 @@ De smoke-test bouwt de images, wacht eerst alleen op Postgres, voert daarna de D
 
 ## Coolify-proef
 
-Maak in een lokale Linux-VM of lokale Coolify-installatie één project en importeer deze GitHub-repository. Configureer twee langlevende Docker-applications:
+Maak in een lokale Linux-VM of lokale Coolify-installatie één project en importeer deze GitHub-repository. Configureer drie langlevende Docker-applications:
 
 1. `server`: Dockerfile `apps/server/Dockerfile`, poort `3000`, healthcheck `/readyz`.
 2. `web`: Dockerfile `apps/web/Dockerfile`, poort `3001`, build argument `NEXT_PUBLIC_SERVER_URL` met de publieke API-URL.
+3. `projector`: Dockerfile `apps/server/Dockerfile.projector`, zonder publieke poort of domain. Schakel de van de byte-identieke server-image overgenomen API-HTTP-healthcheck in Coolify uit, want de projector luistert niet op poort 3000. Geef alleen `DATABASE_URL`, `PROJECTOR_DATABASE_URL` en `MANTICORE_URL` mee en verbind de application met hetzelfde predefined network als Manticore.
 
 Maak daarnaast een Postgres 16 service met een persistent volume. De database is uitsluitend intern bereikbaar op servicenaam `postgres`; publiceer poort 5432 niet. Initialiseer op een leeg volume eerst de afzonderlijke admin-, migrator- en app-rollen uit `tools/postgres/init/10-bootstrap-roles.sh`. Als de Coolify-databaseservice geen init-script kan mounten, voer dezelfde bootstrap eenmalig als admin uit en leg alleen het resultaat vast, nooit de secretwaarden. Geef de server uitsluitend `DATABASE_URL` met de interne app-rol-URL en voeg de Better Auth- en CORS-secrets toe via Coolify's secret/configuration UI. De server-runtime krijgt geen admin- of migrator-credential.
 
 Configureer een aparte one-shot migrator-job op basis van `apps/server/Dockerfile.migrate` (niet `apps/server/Dockerfile`). Coolify's Dockerfile-buildpack gebruikt de image-`CMD` en negeert doorgaans een aparte `start_command`; de migrator-Dockerfile zet daarom expliciet `CMD ["bun","run","db:migrate"]` zonder `HEALTHCHECK`, zodat de container na Drizzle met exitcode 0 stopt in plaats van de API te starten. Alleen deze job krijgt `MIGRATION_DATABASE_URL` en voert vóór iedere server-release uit.
+
+Hetzelfde buildpackgedrag geldt voor de projector: `apps/server/Dockerfile.projector` is byte-identiek aan de server-Dockerfile op alleen `CMD ["bun","run","projector"]` na. Configureer geen afwijkend start command in Coolify. Daardoor erft de image ook de API-healthcheck; schakel die voor deze application uit. De projector serveert geen HTTP-endpoint; runtimebewijs bestaat uit een draaiende container, `projector_cycle`-logs en `searchProjection` met `lagEvents: 0` nadat een nieuw outboxevent is gedraind.
 
 De repository staat in die image op `/app`. Laat de job na een succesvolle migratie stoppen en rol alleen dan de server uit. Hergebruik de migrator-URL nooit als runtimevariabele van de server en voer de job niet met de app-credential uit. Configureer de web-domain via de Coolify-proxy en zet `NEXT_PUBLIC_SERVER_URL` zowel als build argument als runtimevariabele op de publiek bereikbare API-domain; `server:3000` mag nooit in browsercode terechtkomen.
 

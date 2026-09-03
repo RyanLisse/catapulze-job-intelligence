@@ -1,7 +1,14 @@
-import type { BackfillRunMetrics, BackfillRunStore } from "./neon-v1-types";
+import type {
+  BackfillFailureEvidence,
+  BackfillRunEvidence,
+  BackfillRunMetrics,
+  BackfillRunStore,
+} from "./neon-v1-types";
 
 export class InMemoryBackfillRunStore implements BackfillRunStore {
   readonly runs: {
+    evidence?: BackfillRunEvidence;
+    failure?: BackfillFailureEvidence;
     metrics?: BackfillRunMetrics;
     reason?: string;
     scrapeRunId: string;
@@ -14,19 +21,30 @@ export class InMemoryBackfillRunStore implements BackfillRunStore {
     return Promise.resolve({ scrapeRunId });
   }
 
-  completeRun(scrapeRunId: string, metrics: BackfillRunMetrics): Promise<void> {
+  completeRun(
+    scrapeRunId: string,
+    evidence: BackfillRunEvidence
+  ): Promise<void> {
     const run = this.runs.find((entry) => entry.scrapeRunId === scrapeRunId);
     if (run) {
-      run.metrics = metrics;
+      run.evidence = evidence;
+      run.metrics = evidence.metrics;
       run.status = "succeeded";
     }
     return Promise.resolve();
   }
 
-  failRun(scrapeRunId: string, reason: string): Promise<void> {
+  failRun(
+    scrapeRunId: string,
+    failure: BackfillFailureEvidence,
+    evidence: BackfillRunEvidence
+  ): Promise<void> {
     const run = this.runs.find((entry) => entry.scrapeRunId === scrapeRunId);
     if (run) {
-      run.reason = reason;
+      run.evidence = evidence;
+      run.failure = failure;
+      run.metrics = evidence.metrics;
+      run.reason = `Backfill failed during ${failure.phase}`;
       run.status = "failed";
     }
     return Promise.resolve();

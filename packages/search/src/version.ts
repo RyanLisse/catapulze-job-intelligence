@@ -56,12 +56,13 @@ export const isStaleSearchVersion = (
  * the set of tables it writes to changes; a checkpoint carrying a different
  * hash means the index was built for another schema and requires a full
  * rebuild (new generation), never a silent reindex. v3 (RJC-383): the same
- * columns, now split over `aanvragen_active` + `aanvragen_archive`.
+ * columns, now split over `aanvragen_active` + `aanvragen_archive`. v4 adds
+ * an inspectable canonical `projection_hash` attribute to each RT row.
  */
 // ponytail: hand-maintained constant; runtime hashing of the mapping buys
 // nothing until the mapping itself is data-driven.
 export const SEARCH_SCHEMA_HASH =
-  "aanvragen-v3[active|archive]:beschrijving,bron_id,contracttype,document_id,index_version,laatst_gezien_op,locatie,locatie_land,sluitingsdatum,status,tarief_max,tarief_min,titel";
+  "aanvragen-v4[active|archive]:beschrijving,bron_id,contracttype,document_id,index_version,laatst_gezien_op,locatie,locatie_land,sluitingsdatum,status,tarief_max,tarief_min,titel,projection_hash";
 
 /**
  * The single-table mapping before RJC-383 split the index. Kept only so

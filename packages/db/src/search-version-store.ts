@@ -13,6 +13,10 @@ import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 
 import type * as schema from "./schema";
 import { searchProjectionCheckpoint } from "./schema";
+import {
+  lockSearchIndexCoordination,
+  readSearchIndexCheckpoint,
+} from "./search-index-coordination";
 
 export type SearchVersionDatabase = PostgresJsDatabase<typeof schema>;
 
@@ -83,16 +87,29 @@ export class PostgresSearchVersionStore implements SearchVersionStore {
 
   async startNewGeneration(schemaHash: string): Promise<SearchVersion> {
     await this.ensureCheckpoint();
-    const rows = await this.database
-      .update(searchProjectionCheckpoint)
-      .set({
-        appliedSequence: ZERO_SEQUENCE,
-        generation: sql`${searchProjectionCheckpoint.generation} + 1`,
-        schemaHash,
-        updatedAt: new Date(),
-      })
-      .where(eq(searchProjectionCheckpoint.indexName, this.indexName))
-      .returning();
+    const rows = await this.database.transaction(async (transaction) => {
+      await lockSearchIndexCoordination(transaction, this.indexName);
+      const checkpoint = await readSearchIndexCheckpoint(
+        transaction,
+        this.indexName,
+        true
+      );
+      if (!checkpoint) {
+        throw new Error(
+          `Search projection checkpoint missing for index "${this.indexName}"`
+        );
+      }
+      return transaction
+        .update(searchProjectionCheckpoint)
+        .set({
+          appliedSequence: ZERO_SEQUENCE,
+          generation: sql`${searchProjectionCheckpoint.generation} + 1`,
+          schemaHash,
+          updatedAt: new Date(),
+        })
+        .where(eq(searchProjectionCheckpoint.indexName, this.indexName))
+        .returning();
+    });
 
     const [row] = rows;
     if (!row) {

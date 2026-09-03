@@ -25,6 +25,7 @@ import {
   isNotNull,
   isNull,
   lt,
+  lte,
   ne,
   notExists,
   or,
@@ -360,7 +361,7 @@ export const requeueDeadLetteredOutboxEvents = async (
 
 interface BatchOutcome {
   ackIds: Set<string>;
-  appliedDeletes: string[];
+  appliedDeletes: { aggregateId: string; sequenceNumber: bigint }[];
   appliedUpserts: { aggregateId: string; sequenceNumber: bigint }[];
   /** Outbox event ids per distinct error message. */
   blamed: Map<string, string[]>;
@@ -402,7 +403,10 @@ const partitionOutcomes = (
       outcome.ackIds.add(eventId);
     }
     if (mutation.kind === "delete") {
-      outcome.appliedDeletes.push(id);
+      outcome.appliedDeletes.push({
+        aggregateId: id,
+        sequenceNumber: mutation.sequenceNumber,
+      });
     } else {
       outcome.appliedUpserts.push({
         aggregateId: id,
@@ -437,9 +441,11 @@ const persistProjectionState = async (
           projectionHash: sql`excluded.projection_hash`,
           updatedAt: sql`now()`,
         },
-        // Compare-and-set within a generation: a stale drain can never move
-        // the state row backwards. A new generation always wins.
-        setWhere: sql`${searchProjectionState.generation} < excluded.generation OR ${searchProjectionState.appliedSequence} < excluded.applied_sequence`,
+        // A stale drain can never move state backwards. Sequence numbers are
+        // only comparable inside one generation: an old generation can have
+        // a larger global outbox sequence but must never overwrite a newer
+        // generation's state.
+        setWhere: sql`${searchProjectionState.generation} < excluded.generation OR (${searchProjectionState.generation} = excluded.generation AND ${searchProjectionState.appliedSequence} < excluded.applied_sequence)`,
         target: searchProjectionState.aggregateId,
       });
   }
@@ -447,7 +453,23 @@ const persistProjectionState = async (
     await database
       .delete(searchProjectionState)
       .where(
-        inArray(searchProjectionState.aggregateId, outcome.appliedDeletes)
+        or(
+          ...outcome.appliedDeletes.map((deleted) =>
+            and(
+              eq(searchProjectionState.aggregateId, deleted.aggregateId),
+              or(
+                lt(searchProjectionState.generation, generation),
+                and(
+                  eq(searchProjectionState.generation, generation),
+                  lte(
+                    searchProjectionState.appliedSequence,
+                    deleted.sequenceNumber
+                  )
+                )
+              )
+            )
+          )
+        )
       );
   }
 };
@@ -570,7 +592,11 @@ const applyClaimedRows = async (
   await persistProjectionState(
     input.database,
     plan,
-    result.generation,
+    // The batch was planned against this generation. If a rebuild races an
+    // in-flight engine write, never mislabel old-generation state as the new
+    // generation; the generation-aware CAS below then leaves newer state
+    // intact. Authoritative rebuilds still require a quiesced projector.
+    checkpoint.generation,
     outcome
   );
 

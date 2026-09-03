@@ -26,6 +26,7 @@ export {
   ManticoreSearchEngine,
   partitionFromProjectionHash,
   projectionHash,
+  hashDocumentId,
   SEARCH_TEXT_FIELDS,
 } from "./manticore";
 export { readOutboxStatus, type OutboxEventPayload } from "./outbox-payload";

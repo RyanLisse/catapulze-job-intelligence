@@ -25,10 +25,12 @@ bun run bench:search
 
 This switches to an extended report (a JSON array, one object per engine) that adds `documentCount`, `errorCount`, `indexingDocsPerSecond`, `indexingMs`, and `maxMs` alongside the usual latency fields. The default single-engine invocation (neither `MANTICORE_29_URL` nor `LATENCY_GOLDEN_QUERIES` set) is untouched — same report shape as before.
 
+Manticore runs use dedicated `aanvragen_bench_active` / `aanvragen_bench_archive` tables. The runner requires a strict canonical nonnegative integer from a real `SELECT COUNT(*)` before indexing, deletes only its UUID-scoped document IDs in `finally`, and requires both tables to count zero afterward. CI also sets `BENCH_REQUIRE_MANTICORE=1`, so a missing URL cannot silently turn the Manticore lane into an in-memory run. The runner never writes to or cleans production search tables.
+
 ## RJC-382: golden-query mode
 
 Set `LATENCY_GOLDEN_QUERIES=1` to run the 43 real queries from `benchmarks/relevance/queries.jsonl` through the same timing loop instead of `profile.json`'s 5 synthetic queries — `SearchAdapter`'s own defaults (facets on, `sort=relevance`, `limit=20`) already match the production request shape (post RJC-378), so this only swaps the query set, not the call parameters. Combine with `MANTICORE_29_URL` to golden-query both engines in one run. See `docs/research/manticore-latency-2026-09-01.md` for a worked comparison round.
 
-## Corpus ids and the shared 6.3.8 table
+## Corpus ids and concurrent runs
 
-`MANTICORE_URL` points at the same `aanvragen` table the running app uses. `generate-corpus.ts` ids default to `bench-doc-N`; when inserting a generated corpus against the shared 6.3.8 instance, rewrite ids to a lane-specific prefix first (e.g. a `sed` pass to `latency-rjc382-N`) so they cannot collide with production rows or another lane's benchmark run — the same `slug:referentie`-style convention `benchmarks/relevance/run.ts` uses. Clean up afterward and verify the count returns to its pre-run baseline; a single range delete on the `document_id` string attribute (`DELETE FROM aanvragen WHERE document_id>='<prefix>' AND document_id<'<prefix-with-next-ascii-char>'`) is more reliable under load than per-id batched deletes.
+Generated corpus ids remain stable in the input and report. For Manticore, the runner adds a fresh run-scoped UUID suffix to every indexed id so concurrent invocations cannot overwrite or delete each other's documents. Cleanup is limited to the exact scoped ids owned by that invocation.

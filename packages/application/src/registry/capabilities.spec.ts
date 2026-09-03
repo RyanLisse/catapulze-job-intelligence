@@ -3,12 +3,18 @@ import { describe, expect, it } from "bun:test";
 import {
   createTestSliceARegistry,
   permissionsForRole,
+  TEST_DEPLOYMENT_SCOPE_ID,
 } from "@ji/application/registry";
 
 const recruiterPrincipal = {
   kind: "user" as const,
   permissions: permissionsForRole("recruiter"),
   subjectId: "recruiter-1",
+};
+
+const otherRecruiterPrincipal = {
+  ...recruiterPrincipal,
+  subjectId: "recruiter-2",
 };
 
 const seedAanvragen = (
@@ -83,7 +89,10 @@ describe("create_snapshot selection contract (RJC-385)", () => {
     });
     expect(created.value.indexVersion).toBe(7);
 
-    const stored = await bundle.deps.stores.snapshots.getById(created.value.id);
+    const stored = await bundle.deps.stores.snapshots.getById(
+      created.value.id,
+      TEST_DEPLOYMENT_SCOPE_ID
+    );
     expect(stored?.resultIds).toEqual(picked);
     expect(stored?.searchVersion).toEqual({
       appliedSequence: 7n,
@@ -177,7 +186,8 @@ describe("AE4 snapshot immutability", () => {
     seedAanvragen(bundle, ["00000000-0000-4000-8000-000000000099"]);
 
     const snapshot = await bundle.deps.stores.snapshots.getById(
-      created.value.id
+      created.value.id,
+      TEST_DEPLOYMENT_SCOPE_ID
     );
     expect(snapshot?.resultIds).toHaveLength(17);
     expect(snapshot?.resultIds).toEqual(created.value.resultIds);
@@ -203,6 +213,53 @@ describe("saved search stores parser and schema version", () => {
     expect(result.value.parserVersion).toBe("1");
     expect(result.value.schemaVersion).toBe("slice-a-v1");
   });
+
+  it("does not let another user bind a saved search to a snapshot", async () => {
+    const bundle = createTestSliceARegistry();
+    const aanvraagId = "00000000-0000-4000-8000-000000000011";
+    seedAanvragen(bundle, [aanvraagId]);
+    const save = bundle.registry.createInvoker({
+      capabilityId: "create_saved_search",
+      operation: "POST /v1/saved-searches",
+      transport: "rest",
+    });
+    const saved = await save(
+      { naam: "Eigen zoekopdracht", query: "Azure" },
+      { principal: recruiterPrincipal, requestId: "saved-search-owner" }
+    );
+    expect(saved.ok).toBe(true);
+    if (!saved.ok) {
+      return;
+    }
+
+    const createSnapshot = bundle.registry.createInvoker({
+      capabilityId: "create_snapshot",
+      operation: "POST /v1/snapshots",
+      transport: "rest",
+    });
+    const denied = await createSnapshot(
+      {
+        query: "Azure",
+        savedSearchId: saved.value.id,
+        selectedIds: [aanvraagId],
+      },
+      { principal: otherRecruiterPrincipal, requestId: "snapshot-cross-user" }
+    );
+    expect(denied.ok).toBe(false);
+    if (!denied.ok) {
+      expect(denied.error.code).toBe("NOT_FOUND");
+    }
+
+    const owner = await createSnapshot(
+      {
+        query: "Azure",
+        savedSearchId: saved.value.id,
+        selectedIds: [aanvraagId],
+      },
+      { principal: recruiterPrincipal, requestId: "snapshot-owner" }
+    );
+    expect(owner.ok).toBe(true);
+  });
 });
 
 describe("markeer_aanvraag writes audit event", () => {
@@ -225,12 +282,60 @@ describe("markeer_aanvraag writes audit event", () => {
       operation: "POST /v1/aanvragen/{id}/markering",
       transport: "rest",
     });
-    const before = bundle.deps.stores.audit.list().length;
+    const auditBeforeMarkering = await bundle.deps.stores.audit.listByActorId(
+      recruiterPrincipal.subjectId,
+      TEST_DEPLOYMENT_SCOPE_ID
+    );
+    const before = auditBeforeMarkering.length;
     const result = await invoker(
       { aanvraagId, status: "relevant" },
       { principal: recruiterPrincipal, requestId: "mark" }
     );
     expect(result.ok).toBe(true);
-    expect(bundle.deps.stores.audit.list()).toHaveLength(before + 1);
+    expect(
+      await bundle.deps.stores.audit.listByActorId(
+        recruiterPrincipal.subjectId,
+        TEST_DEPLOYMENT_SCOPE_ID
+      )
+    ).toHaveLength(before + 1);
+  });
+
+  it("keeps a user's markering invisible to another user", async () => {
+    const bundle = createTestSliceARegistry();
+    const aanvraagId = "00000000-0000-4000-8000-000000000012";
+    seedAanvragen(bundle, [aanvraagId]);
+    const mark = bundle.registry.createInvoker({
+      capabilityId: "markeer_aanvraag",
+      operation: "POST /v1/aanvragen/{id}/markering",
+      transport: "rest",
+    });
+    const marked = await mark(
+      { aanvraagId, status: "relevant" },
+      { principal: recruiterPrincipal, requestId: "mark-owner" }
+    );
+    expect(marked.ok).toBe(true);
+
+    const get = bundle.registry.createInvoker({
+      capabilityId: "get_aanvraag",
+      operation: "GET /v1/aanvragen/{id}",
+      transport: "rest",
+    });
+    const owner = await get(
+      { id: aanvraagId },
+      { principal: recruiterPrincipal, requestId: "get-owner" }
+    );
+    const other = await get(
+      { id: aanvraagId },
+      { principal: otherRecruiterPrincipal, requestId: "get-other" }
+    );
+    expect(owner.ok).toBe(true);
+    expect(other.ok).toBe(true);
+    if (owner.ok && other.ok) {
+      expect(owner.value.markering).toEqual({
+        reden: null,
+        status: "relevant",
+      });
+      expect(other.value.markering).toBeNull();
+    }
   });
 });

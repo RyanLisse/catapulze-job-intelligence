@@ -26,10 +26,16 @@ export {
   type ExportDatabase,
 } from "./export-stores";
 export {
-  PostgresApprovalStore,
   PostgresQuerySnapshotStore,
   type ReadPathDatabase,
 } from "./read-path-stores";
+export {
+  PostgresApprovalStore,
+  PostgresAuditStore,
+  PostgresMarkeringStore,
+  PostgresSavedSearchStore,
+  type UserWriteDatabase,
+} from "./user-write-stores";
 export {
   PostgresBackfillProvenanceStore,
   PostgresBackfillRunStore,
@@ -44,12 +50,37 @@ export {
 } from "./postgres-curate-store";
 export {
   PROJECTION_REPAIR_EVENT_TYPE,
+  PROJECTION_REPAIR_DEFAULT_PAGE_SIZE,
+  PROJECTION_REPAIR_DEFAULT_SAMPLE_LIMIT,
+  ProjectionRepairGenerationChangedError,
+  ProjectionRepairInventoryCompletenessError,
+  ProjectionRepairInventorySafetyError,
+  ProjectionRepairPhysicalCorruptionError,
   ProjectionRepairSchemaMismatchError,
+  manticoreIdsForBoundedLookup,
   reconcileProjection,
   type ProjectionDivergence,
+  type ProjectionDivergenceReason,
+  type ProjectionPhysicalCorruption,
+  type ProjectionPhysicalCorruptionReason,
   type ReconcileProjectionInput,
   type ReconcileProjectionResult,
+  type SearchProjectionInventoryPort,
+  type SearchProjectionInventoryRecord,
 } from "./projection-repair";
+export {
+  SEARCH_REINDEX_DEFAULT_PAGE_SIZE,
+  SEARCH_REINDEX_EVENT_TYPE,
+  SEARCH_REINDEX_PENDING_PREFIX,
+  SearchReindexDeadLetterError,
+  SearchReindexGenerationChangedError,
+  SearchReindexPendingGenerationError,
+  runSearchReindex,
+  searchReindexEventId,
+  type RunSearchReindexInput,
+  type RunSearchReindexResult,
+  type SearchReindexProgress,
+} from "./search-reindex";
 export {
   resolveNeonV1BackfillSource,
   runMotianV1Backfill,

@@ -1,22 +1,44 @@
 import { describe, expect, it } from "bun:test";
 
-import { createTestSliceARegistry } from "@ji/application/registry";
+import {
+  createTestSliceARegistry,
+  permissionsForRole,
+} from "@ji/application/registry";
 
 import { createRestCapabilityHandler, restRoutesFromRegistry } from "./rest";
+
+const allowedOrigin = "https://app.catapulze.test";
+const browserSessionHeaders = (): Headers =>
+  new Headers({
+    Cookie: "better-auth.session_token=valid-session",
+    Origin: allowedOrigin,
+  });
+
+const resolveRecruiter = () =>
+  Promise.resolve({
+    ok: true as const,
+    principal: {
+      kind: "user" as const,
+      permissions: permissionsForRole("recruiter"),
+      subjectId: "user-1",
+    },
+  });
 
 describe("REST search contract", () => {
   it("returns structured syntax errors for invalid Boolean input", async () => {
     const bundle = createTestSliceARegistry();
     const handler = createRestCapabilityHandler(
       bundle.registry,
-      restRoutesFromRegistry(bundle.registry)
+      restRoutesFromRegistry(bundle.registry),
+      resolveRecruiter,
+      { allowedCookieOrigin: allowedOrigin }
     );
     const mockContext = {
       req: {
-        header: () => "Bearer recruiter:user-1",
         json: () => Promise.resolve({ query: "(Azure" }),
         method: "POST",
         path: "/v1/aanvragen/search",
+        raw: { headers: browserSessionHeaders() },
         url: "http://localhost/v1/aanvragen/search",
       },
     };
@@ -44,14 +66,16 @@ describe("REST search contract", () => {
     });
     const handler = createRestCapabilityHandler(
       bundle.registry,
-      restRoutesFromRegistry(bundle.registry)
+      restRoutesFromRegistry(bundle.registry),
+      resolveRecruiter,
+      { allowedCookieOrigin: allowedOrigin }
     );
     const mockContext = {
       req: {
-        header: () => "Bearer recruiter:user-1",
         json: () => Promise.resolve({ query: "Azure" }),
         method: "POST",
         path: "/v1/aanvragen/search",
+        raw: { headers: browserSessionHeaders() },
         url: "http://localhost/v1/aanvragen/search",
       },
     };

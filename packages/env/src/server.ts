@@ -6,6 +6,15 @@ export const env = createEnv({
   emptyStringAsUndefined: true,
   runtimeEnv: process.env,
   server: {
+    // Public deployment identity used by guarded live browser verification.
+    // When absent, /version returns 503 rather than inventing a release.
+    APP_RELEASE_SHA: z
+      .string()
+      .regex(
+        /^[a-f0-9]{40}$/u,
+        "APP_RELEASE_SHA must be a 40-character Git SHA."
+      )
+      .optional(),
     BETTER_AUTH_SECRET: z.string().min(32),
     BETTER_AUTH_URL: z.url(),
     CORS_ORIGIN: z.url(),

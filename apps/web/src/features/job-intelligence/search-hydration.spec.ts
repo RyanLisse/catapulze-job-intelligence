@@ -187,7 +187,6 @@ describe("search hydration call count (RJC-379)", () => {
     recordedRequests.length = 0;
     const adapter = createRestJobDataAdapter({
       baseUrl: "http://server.test",
-      subjectId: "recruiter-1",
     });
     const state = parseJobSearchState(new URLSearchParams("q=Azure"));
 
@@ -221,7 +220,6 @@ describe("search hydration call count (RJC-379)", () => {
     try {
       const adapter = createRestJobDataAdapter({
         baseUrl: "http://server.test",
-        subjectId: "recruiter-1",
       });
       const state = parseJobSearchState(new URLSearchParams("q=Azure"));
 
@@ -259,7 +257,6 @@ describe("server-side sort, filter and pagination (RJC-378)", () => {
   const search = (params: string) =>
     createRestJobDataAdapter({
       baseUrl: "http://server.test",
-      subjectId: "recruiter-1",
     }).search(parseJobSearchState(new URLSearchParams(params)));
 
   const lastSearchBody = () =>
@@ -377,7 +374,6 @@ describe("bron filter list derives from the API (RJC-368)", () => {
     try {
       const adapter = createRestJobDataAdapter({
         baseUrl: "http://server.test",
-        subjectId: "recruiter-1",
       });
 
       const sources = await adapter.listSources();

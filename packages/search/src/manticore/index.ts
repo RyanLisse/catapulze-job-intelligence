@@ -47,3 +47,4 @@ export {
   projectionHash,
   SLUITINGSDATUM_MISSING_SENTINEL,
 } from "./engine";
+export { hashDocumentId } from "./id-hash";

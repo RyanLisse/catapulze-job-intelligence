@@ -17,9 +17,9 @@ export class MemoryQuerySnapshotStore implements QuerySnapshotStore {
     return Promise.resolve(snapshot);
   }
 
-  getById(id: string): Promise<QuerySnapshotRecord | null> {
+  getById(id: string, scopeId: string): Promise<QuerySnapshotRecord | null> {
     const record = this.records.get(id);
-    if (!record) {
+    if (!record || record.scopeId !== scopeId) {
       return Promise.resolve(null);
     }
     return Promise.resolve({

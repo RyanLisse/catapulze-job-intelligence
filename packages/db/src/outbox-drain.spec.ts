@@ -25,7 +25,7 @@ import {
   summarizeOutboxFailures,
 } from "./outbox-drain";
 import * as schema from "./schema";
-import { outboxEvent } from "./schema";
+import { outboxEvent, searchProjectionState } from "./schema";
 import { PostgresSearchVersionStore } from "./search-version-store";
 
 const testDatabaseUrl =
@@ -101,6 +101,7 @@ class MapLoader implements BulkSearchDocumentLoader {
  */
 class ScriptedEngine implements SearchEngine {
   readonly applied = new Map<string, number>();
+  readonly applyStarted = Promise.withResolvers<null>();
   readonly documents = new Map<string, SearchDocument>();
   failWith = new Map<string, string>();
   /** When set, applyBatch waits here first — simulates a drain stalled mid-batch. */
@@ -115,6 +116,7 @@ class ScriptedEngine implements SearchEngine {
   }
 
   async applyBatch(batch: SearchIndexBatch): Promise<SearchIndexBatchResult> {
+    this.applyStarted.resolve(null);
     if (this.holdUntil) {
       await this.holdUntil;
     }
@@ -558,6 +560,90 @@ describe("bulk outbox drain with row claims (RJC-389)", () => {
     const fourth = await drain(engine, store, loader);
     expect(fourth.unchanged).toBe(0);
     expect(engine.applied.get(doc.id)).toBe(3);
+  });
+
+  it("does not let an old-generation upsert overwrite newer projection state", async () => {
+    if (!postgresAvailable) {
+      expect(postgresAvailable).toBe(false);
+      return;
+    }
+    const loader = new MapLoader();
+    const doc = sampleDocument(crypto.randomUUID());
+    loader.add(doc);
+    const store = newStore();
+    const engine = new ScriptedEngine(store);
+    const release = Promise.withResolvers<null>();
+    engine.holdUntil = release.promise;
+    await insertEvents([doc.id]);
+
+    const staleDrain = drain(engine, store, loader);
+    try {
+      await engine.applyStarted.promise;
+      const before = await store.read();
+      const rebuilt = await store.startNewGeneration(before.schemaHash);
+      await requireDb().insert(searchProjectionState).values({
+        aggregateId: doc.id,
+        appliedSequence: 0n,
+        generation: rebuilt.generation,
+        projectionHash: "new-generation-state",
+      });
+    } finally {
+      release.resolve(null);
+    }
+    await staleDrain;
+
+    const [state] = await requireDb()
+      .select()
+      .from(searchProjectionState)
+      .where(eq(searchProjectionState.aggregateId, doc.id));
+    expect(state).toMatchObject({
+      aggregateId: doc.id,
+      appliedSequence: 0n,
+      generation: 2,
+      projectionHash: "new-generation-state",
+    });
+  });
+
+  it("does not let an old-generation delete remove newer projection state", async () => {
+    if (!postgresAvailable) {
+      expect(postgresAvailable).toBe(false);
+      return;
+    }
+    const loader = new MapLoader();
+    const doc = sampleDocument(crypto.randomUUID());
+    loader.add(doc);
+    const store = newStore();
+    const engine = new ScriptedEngine(store);
+    const release = Promise.withResolvers<null>();
+    engine.holdUntil = release.promise;
+    await insertEvents([doc.id], "aanvraag.verwijderd");
+
+    const staleDrain = drain(engine, store, loader);
+    try {
+      await engine.applyStarted.promise;
+      const before = await store.read();
+      const rebuilt = await store.startNewGeneration(before.schemaHash);
+      await requireDb().insert(searchProjectionState).values({
+        aggregateId: doc.id,
+        appliedSequence: 0n,
+        generation: rebuilt.generation,
+        projectionHash: "new-generation-state",
+      });
+    } finally {
+      release.resolve(null);
+    }
+    await staleDrain;
+
+    const [state] = await requireDb()
+      .select()
+      .from(searchProjectionState)
+      .where(eq(searchProjectionState.aggregateId, doc.id));
+    expect(state).toMatchObject({
+      aggregateId: doc.id,
+      appliedSequence: 0n,
+      generation: 2,
+      projectionHash: "new-generation-state",
+    });
   });
 
   it("does not let a late-committing delete remove a document re-created after it", async () => {
