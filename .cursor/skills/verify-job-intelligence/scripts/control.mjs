@@ -3,7 +3,7 @@
  * Launch, doctor, HTTP-drive, and stop a Catapulze Job Intelligence verification instance.
  * Invoke from the repository root. Never kill by process name — only PIDs this script recorded.
  */
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { openSync } from "node:fs";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
@@ -24,6 +24,7 @@ const usage = `Usage: bun .cursor/skills/verify-job-intelligence/scripts/control
   doctor     Read-only health: ports, GET /, tRPC healthCheck
   stop       Kill only PIDs recorded by launch
   snapshot   Save home HTML + tRPC body under artifacts/<feature-id>/
+  drive      Browser-drive all feature recipes (requires launch + doctor)
   http       GET a URL (pass the URL as the next argument)
 `;
 
@@ -245,6 +246,16 @@ try {
       }
       const result = await httpGet(url);
       console.log(`${result.status}\n${result.body}`);
+      break;
+    }
+    case "drive": {
+      const driveScript = join(SKILL_DIR, "scripts", "drive.mjs");
+      const result = spawnSync("bun", [driveScript], {
+        cwd: REPO_ROOT,
+        env: process.env,
+        stdio: "inherit",
+      });
+      process.exit(result.status ?? 1);
       break;
     }
     default:
