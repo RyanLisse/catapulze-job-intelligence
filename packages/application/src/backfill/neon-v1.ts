@@ -632,6 +632,50 @@ const persistAndVerifyRaw = async (input: {
   return rawPayloadRef;
 };
 
+/**
+ * Refuses a v1 row that would curate onto an aanvraag already bound to a
+ * different v1 id, BEFORE curation. curateObservation commits its own
+ * transaction (aanvraag update, version, outbox event), so a provenance
+ * failure after it would leave current data from this row under the first
+ * row's v1_id with nothing rolling those writes back. Fixture and production
+ * stores share this check; the Postgres UPDATE guard stays as the last line.
+ */
+const requireIdentityUnboundOrOwn = async (input: {
+  bronId: string;
+  curateStore: CurateStore;
+  job: NeonV1JobRow;
+  provenanceStore: RunNeonV1BackfillInput["provenanceStore"];
+}): Promise<void> => {
+  const identityMatch = await input.curateStore.findAanvraagByIdentity(
+    input.bronId,
+    input.job.external_id
+  );
+  if (!identityMatch) {
+    return;
+  }
+  let bound: BackfillProvenanceRecord | null;
+  try {
+    bound = await input.provenanceStore.findByAanvraagId(
+      identityMatch.aanvraagId
+    );
+  } catch (error) {
+    throw new BackfillFailureError(
+      {
+        code: "PROVENANCE_READ_FAILED",
+        phase: "provenance",
+      },
+      false,
+      { cause: error }
+    );
+  }
+  if (bound && bound.v1Id !== input.job.id) {
+    throw new BackfillFailureError({
+      code: "PROVENANCE_MISMATCH",
+      phase: "provenance",
+    });
+  }
+};
+
 const importNeonV1Job = async (input: {
   curateStore: CurateStore;
   job: NeonV1JobRow;
@@ -693,6 +737,13 @@ const importNeonV1Job = async (input: {
       incrementMetric(input.metrics, platform, "skipped");
       return existing;
     }
+
+    await requireIdentityUnboundOrOwn({
+      bronId: platformBinding.bronId,
+      curateStore: input.curateStore,
+      job: input.job,
+      provenanceStore: input.provenanceStore,
+    });
 
     const draftBase = mapV1JobToDraft(input.job);
     const draft: NormalisedAanvraagDraft = {

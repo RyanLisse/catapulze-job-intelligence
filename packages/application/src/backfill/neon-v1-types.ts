@@ -256,7 +256,15 @@ export interface BackfillProvenanceStore {
     batchSize: number,
     consume: (batch: readonly BackfillTargetProvenanceRecord[]) => Promise<void>
   ) => Promise<BackfillSnapshotWindow>;
+  /** The v1 binding an aanvraag already carries, or null when unbound. Read
+   * before curation so a second v1 row that resolves to the same aanvraag is
+   * refused before any curated write, version, or outbox event lands. */
+  findByAanvraagId: (
+    aanvraagId: string
+  ) => Promise<BackfillProvenanceRecord | null>;
   findByV1Id: (v1Id: string) => Promise<BackfillProvenanceRecord | null>;
+  /** Binds one v1 id to one aanvraag. Implementations must reject when the
+   * aanvraag is already bound to a different v1 id. */
   registerV1Id: (record: BackfillProvenanceRecord) => Promise<void>;
 }
 
