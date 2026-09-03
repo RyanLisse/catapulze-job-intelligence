@@ -250,6 +250,8 @@ const DEFAULT_BACKFILL_EXECUTION: BackfillExecution = {
 };
 
 const SOURCE_FAILURE_PLATFORM = "__source__";
+const RECONCILIATION_FAILURE_PLATFORM = "__reconcile__";
+const UNKNOWN_SOURCE_JOB_ID = "unknown";
 
 type BackfillMetricKey = keyof BackfillPlatformMetrics;
 
@@ -424,14 +426,51 @@ class BackfillFailureError extends Error {
   readonly failure: BackfillFailureEvidence;
   readonly metricRecorded: boolean;
 
-  constructor(failure: BackfillFailureEvidence, metricRecorded = false) {
+  constructor(
+    failure: BackfillFailureEvidence,
+    metricRecorded = false,
+    options: { cause?: unknown } = {}
+  ) {
     const validated = backfillFailureEvidenceSchema.parse(failure);
-    super(`Motian v1 backfill failed during ${validated.phase}`);
+    super(`Motian v1 backfill failed during ${validated.phase}`, {
+      cause: options.cause,
+    });
     this.name = "BackfillFailureError";
     this.failure = validated;
     this.metricRecorded = metricRecorded;
   }
 }
+
+interface BackfillFailureLocation {
+  readonly platform: string;
+  readonly sourceJobId: string;
+}
+
+export interface BackfillFailureDiagnostic extends BackfillFailureLocation {
+  /** In-process only. Callers must sanitize the cause before emitting it. */
+  readonly error: Error;
+}
+
+const failureLocations = new WeakMap<
+  BackfillFailureError,
+  BackfillFailureLocation
+>();
+const failureDiagnostics = new WeakMap<
+  BackfillRunResult,
+  BackfillFailureDiagnostic
+>();
+
+const withFailureLocation = (
+  error: BackfillFailureError,
+  location: BackfillFailureLocation
+): BackfillFailureError => {
+  failureLocations.set(error, location);
+  return error;
+};
+
+export const getBackfillFailureDiagnostic = (
+  result: BackfillRunResult
+): BackfillFailureDiagnostic | undefined => failureDiagnostics.get(result);
 
 const isBackfillFailure = (cause: unknown): cause is BackfillFailureError =>
   cause instanceof BackfillFailureError;
@@ -459,11 +498,15 @@ const readProvenance = async (
 ): Promise<BackfillProvenanceRecord | null> => {
   try {
     return await provenanceStore.findByV1Id(v1Id);
-  } catch {
-    throw new BackfillFailureError({
-      code: "PROVENANCE_READ_FAILED",
-      phase: "provenance",
-    });
+  } catch (error) {
+    throw new BackfillFailureError(
+      {
+        code: "PROVENANCE_READ_FAILED",
+        phase: "provenance",
+      },
+      false,
+      { cause: error }
+    );
   }
 };
 
@@ -476,11 +519,15 @@ const requireRawReadback = async (input: {
   let stored;
   try {
     stored = await input.objectStore.get(input.rawPayloadRef);
-  } catch {
-    throw new BackfillFailureError({
-      code: "RAW_READBACK_FAILED",
-      phase: "raw-write",
-    });
+  } catch (error) {
+    throw new BackfillFailureError(
+      {
+        code: "RAW_READBACK_FAILED",
+        phase: "raw-write",
+      },
+      false,
+      { cause: error }
+    );
   }
   if (!stored || stored.contentType !== "json") {
     throw new BackfillFailureError({
@@ -492,11 +539,15 @@ const requireRawReadback = async (input: {
   let readbackHash: string;
   try {
     readbackHash = await hashContent(stored.body);
-  } catch {
-    throw new BackfillFailureError({
-      code: "RAW_READBACK_FAILED",
-      phase: "raw-write",
-    });
+  } catch (error) {
+    throw new BackfillFailureError(
+      {
+        code: "RAW_READBACK_FAILED",
+        phase: "raw-write",
+      },
+      false,
+      { cause: error }
+    );
   }
   if (
     readbackHash !== input.contentHash ||
@@ -529,11 +580,15 @@ const persistAndVerifyRaw = async (input: {
       expiresAt: new Date(input.startedAt.getTime() + 90 * 86_400_000),
       path: rawPayloadRef,
     });
-  } catch {
-    throw new BackfillFailureError({
-      code: "RAW_WRITE_FAILED",
-      phase: "raw-write",
-    });
+  } catch (error) {
+    throw new BackfillFailureError(
+      {
+        code: "RAW_WRITE_FAILED",
+        phase: "raw-write",
+      },
+      false,
+      { cause: error }
+    );
   }
   await requireRawReadback({
     body: input.body,
@@ -570,11 +625,15 @@ const importNeonV1Job = async (input: {
     try {
       rawBody = rawBodyForJob(input.job);
       contentHash = await hashContent(rawBody);
-    } catch {
-      throw new BackfillFailureError({
-        code: "RAW_WRITE_FAILED",
-        phase: "raw-write",
-      });
+    } catch (error) {
+      throw new BackfillFailureError(
+        {
+          code: "RAW_WRITE_FAILED",
+          phase: "raw-write",
+        },
+        false,
+        { cause: error }
+      );
     }
     const expectedProvenance = {
       bronId: platformBinding.bronId,
@@ -624,11 +683,15 @@ const importNeonV1Job = async (input: {
         rawPayloadRef,
         scrapeRunId: input.scrapeRunId,
       });
-    } catch {
-      throw new BackfillFailureError({
-        code: "CURATE_FAILED",
-        phase: "curate",
-      });
+    } catch (error) {
+      throw new BackfillFailureError(
+        {
+          code: "CURATE_FAILED",
+          phase: "curate",
+        },
+        false,
+        { cause: error }
+      );
     }
 
     if (curated.status === "quarantined" || !curated.aanvraagId) {
@@ -645,11 +708,15 @@ const importNeonV1Job = async (input: {
     };
     try {
       await input.provenanceStore.registerV1Id(provenance);
-    } catch {
-      throw new BackfillFailureError({
-        code: "PROVENANCE_WRITE_FAILED",
-        phase: "provenance",
-      });
+    } catch (error) {
+      throw new BackfillFailureError(
+        {
+          code: "PROVENANCE_WRITE_FAILED",
+          phase: "provenance",
+        },
+        false,
+        { cause: error }
+      );
     }
     const registered = await readProvenance(
       input.provenanceStore,
@@ -675,11 +742,18 @@ const importNeonV1Job = async (input: {
   } catch (error) {
     incrementMetric(input.metrics, platform, "errors");
     if (isBackfillFailure(error)) {
-      throw new BackfillFailureError(error.failure, true);
+      throw withFailureLocation(
+        new BackfillFailureError(error.failure, true, { cause: error.cause }),
+        { platform, sourceJobId: input.job.id }
+      );
     }
-    throw new BackfillFailureError(
-      { code: "CURATE_FAILED", phase: "curate" },
-      true
+    throw withFailureLocation(
+      new BackfillFailureError(
+        { code: "CURATE_FAILED", phase: "curate" },
+        true,
+        { cause: error }
+      ),
+      { platform, sourceJobId: input.job.id }
     );
   }
 };
@@ -732,10 +806,16 @@ const importFromSource = async (input: {
   const consume = async (jobs: readonly NeonV1JobRow[]): Promise<void> => {
     for (const job of jobs) {
       if (lastSourceId !== null && job.id.localeCompare(lastSourceId) <= 0) {
-        throw new BackfillFailureError({
-          code: "SOURCE_READ_FAILED",
-          phase: "source-read",
-        });
+        throw withFailureLocation(
+          new BackfillFailureError({
+            code: "SOURCE_READ_FAILED",
+            phase: "source-read",
+          }),
+          {
+            platform: platformForJob(input.bindings, job),
+            sourceJobId: job.id,
+          }
+        );
       }
       lastSourceId = job.id;
       selected += 1;
@@ -755,10 +835,16 @@ const importFromSource = async (input: {
         (binding) => binding.bronId === provenance.bronId
       )?.platform;
       if (!platform) {
-        throw new BackfillFailureError({
-          code: "SOURCE_READ_FAILED",
-          phase: "source-read",
-        });
+        throw withFailureLocation(
+          new BackfillFailureError({
+            code: "SOURCE_READ_FAILED",
+            phase: "source-read",
+          }),
+          {
+            platform: SOURCE_FAILURE_PLATFORM,
+            sourceJobId: provenance.v1Id,
+          }
+        );
       }
       appendOrderedMapping(mappingDigest, provenance, platform);
     }
@@ -800,10 +886,20 @@ const importFromSource = async (input: {
     if (isBackfillFailure(error)) {
       throw error;
     }
-    throw new BackfillFailureError({
-      code: "SOURCE_READ_FAILED",
-      phase: "source-read",
-    });
+    throw withFailureLocation(
+      new BackfillFailureError(
+        {
+          code: "SOURCE_READ_FAILED",
+          phase: "source-read",
+        },
+        false,
+        { cause: error }
+      ),
+      {
+        platform: SOURCE_FAILURE_PLATFORM,
+        sourceJobId: lastSourceId ?? UNKNOWN_SOURCE_JOB_ID,
+      }
+    );
   }
 };
 
@@ -878,11 +974,18 @@ const reconcileProvenance = async (input: {
         return Promise.resolve();
       }
     );
-  } catch {
-    throw new BackfillFailureError({
-      code: "RECONCILIATION_READ_FAILED",
-      phase: "reconcile",
-    });
+  } catch (error) {
+    if (isBackfillFailure(error)) {
+      throw error;
+    }
+    throw new BackfillFailureError(
+      {
+        code: "RECONCILIATION_READ_FAILED",
+        phase: "reconcile",
+      },
+      false,
+      { cause: error }
+    );
   }
 
   if (!isValidSnapshotWindow(snapshot)) {
@@ -979,6 +1082,9 @@ const recordBackfillFailure = async (input: {
         code: "RECONCILIATION_READ_FAILED",
         phase: "reconcile",
       });
+  const failureError = isBackfillFailure(input.cause)
+    ? input.cause
+    : new BackfillFailureError(failure, false, { cause: input.cause });
   if (!isBackfillFailure(input.cause) || !input.cause.metricRecorded) {
     const failurePlatform =
       failure.phase === "source-read"
@@ -993,6 +1099,14 @@ const recordBackfillFailure = async (input: {
     "failed",
     failure
   );
+  const location = failureLocations.get(failureError) ?? {
+    platform:
+      failure.phase === "source-read"
+        ? SOURCE_FAILURE_PLATFORM
+        : RECONCILIATION_FAILURE_PLATFORM,
+    sourceJobId: UNKNOWN_SOURCE_JOB_ID,
+  };
+  failureDiagnostics.set(result, { error: failureError, ...location });
   await input.runStore.failRun(input.scrapeRunId, failure, result.evidence);
   return result;
 };

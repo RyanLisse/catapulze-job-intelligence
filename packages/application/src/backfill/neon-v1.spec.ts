@@ -13,10 +13,12 @@ import {
   UnreachableNeonV1Source,
   backfillFailureEvidenceSchema,
   createFixtureNeonV1Source,
+  getBackfillFailureDiagnostic,
   loadNeonV1Fixture,
   mapV1JobToDraft,
   runNeonV1Backfill,
 } from "./neon-v1";
+import type { BackfillProvenanceStore } from "./neon-v1";
 
 const sampleJob = () => ({
   company: "Broker BV",
@@ -356,6 +358,46 @@ describe("Neon v1 backfill run", () => {
       code: "PROVENANCE_MISMATCH",
       phase: "provenance",
     });
+  });
+
+  it("keeps a provenance write error as the BackfillFailureError cause", async () => {
+    const backingStore = new InMemoryBackfillProvenanceStore();
+    const storeError = new Error("duplicate v1_id");
+    storeError.name = "PostgresError";
+    const provenanceStore: BackfillProvenanceStore = {
+      consumeReconciliationSnapshot: (bronIds, batchSize, consume) =>
+        backingStore.consumeReconciliationSnapshot(bronIds, batchSize, consume),
+      findByV1Id: (v1Id) => backingStore.findByV1Id(v1Id),
+      registerV1Id: () => Promise.reject(storeError),
+    };
+
+    const result = await runNeonV1Backfill({
+      bindings,
+      curateStore: new InMemoryCurateStore(),
+      objectStore: new InMemoryObjectStore(),
+      provenanceStore,
+      runStore: new InMemoryBackfillRunStore(),
+      source: createFixtureNeonV1Source({
+        capturedAt: "2026-08-29T10:00:00.000Z",
+        contractVersion: NEON_V1_BACKFILL_CONTRACT_VERSION,
+        jobs: [sampleJob()],
+      }),
+    });
+    const diagnostic = getBackfillFailureDiagnostic(result);
+
+    expect(result.status).toBe("failed");
+    expect(result.evidence.failure).toEqual({
+      code: "PROVENANCE_WRITE_FAILED",
+      phase: "provenance",
+    });
+    expect(result.metrics.errors).toBe(1);
+    expect(diagnostic).toMatchObject({
+      platform: "nationalevacaturebank",
+      sourceJobId: "v1-job-000001",
+    });
+    expect(diagnostic?.error.name).toBe("BackfillFailureError");
+    expect(diagnostic?.error.cause).toBe(storeError);
+    expect(JSON.stringify(result)).not.toContain(storeError.message);
   });
 
   it("fails exact reconciliation on extra or duplicate target provenance", async () => {
