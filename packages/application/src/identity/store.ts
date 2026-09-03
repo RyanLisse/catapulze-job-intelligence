@@ -24,6 +24,24 @@ export class InMemoryCurateStore implements CurateStore {
     return Promise.resolve(match ? structuredClone(match) : null);
   }
 
+  /** Single-threaded, so find-then-push is already race-free here. */
+  ensureDedupGroep(input: { dedupKey: string }): Promise<StoredDedupGroep> {
+    const match = this.dedupGroepen.find(
+      (row) => row.dedupKey === input.dedupKey
+    );
+    if (match) {
+      return Promise.resolve(structuredClone(match));
+    }
+    const row: StoredDedupGroep = {
+      dedupGroepId: crypto.randomUUID(),
+      dedupKey: input.dedupKey,
+      handmatigBevestigd: false,
+      status: "reviewable",
+    };
+    this.dedupGroepen.push(row);
+    return Promise.resolve(structuredClone(row));
+  }
+
   findDedupGroepByKey(dedupKey: string): Promise<StoredDedupGroep | null> {
     const match = this.dedupGroepen.find((row) => row.dedupKey === dedupKey);
     return Promise.resolve(match ? structuredClone(match) : null);
@@ -37,17 +55,6 @@ export class InMemoryCurateStore implements CurateStore {
       aanvraagId: crypto.randomUUID(),
     };
     this.aanvragen.push(row);
-    return Promise.resolve(structuredClone(row));
-  }
-
-  insertDedupGroep(input: { dedupKey: string }): Promise<StoredDedupGroep> {
-    const row: StoredDedupGroep = {
-      dedupGroepId: crypto.randomUUID(),
-      dedupKey: input.dedupKey,
-      handmatigBevestigd: false,
-      status: "reviewable",
-    };
-    this.dedupGroepen.push(row);
     return Promise.resolve(structuredClone(row));
   }
 

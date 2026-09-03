@@ -81,11 +81,19 @@ export interface CurateStore {
     bronId: BronId,
     bronReferentie: string
   ) => Promise<StoredAanvraag | null>;
+  /**
+   * Returns the one group for `dedupKey`, creating it when absent. Must be
+   * safe under concurrency: two callers racing on the same key — in
+   * separate transactions — both get the same group. The Postgres store
+   * leans on the unique index `dedup_groep_dedup_key_uidx` for this
+   * (insert ... on conflict do nothing, then re-select); a find-then-insert
+   * under READ COMMITTED is not enough.
+   */
+  ensureDedupGroep: (input: { dedupKey: string }) => Promise<StoredDedupGroep>;
   findDedupGroepByKey: (dedupKey: string) => Promise<StoredDedupGroep | null>;
   insertAanvraag: (
     input: Omit<StoredAanvraag, "aanvraagId">
   ) => Promise<StoredAanvraag>;
-  insertDedupGroep: (input: { dedupKey: string }) => Promise<StoredDedupGroep>;
   insertOutboxEvent: (
     input: Omit<StoredOutboxEvent, "id">
   ) => Promise<StoredOutboxEvent>;
@@ -177,21 +185,17 @@ export const buildSnapshot = (stored: StoredAanvraag): AanvraagSnapshot => ({
   titel: stored.titel,
 });
 
-const ensureDedupGroep = async (
+const ensureDedupGroep = (
   store: CurateStore,
   draft: NormalisedAanvraagDraft
-): Promise<StoredDedupGroep | null> => {
-  const dedupKey = buildDedupKey({
-    opdrachtgeverNaam: draft.opdrachtgeverNaam.value,
-    startDatum: draft.startDatum.value,
-    titel: draft.titel.value,
+): Promise<StoredDedupGroep> =>
+  store.ensureDedupGroep({
+    dedupKey: buildDedupKey({
+      opdrachtgeverNaam: draft.opdrachtgeverNaam.value,
+      startDatum: draft.startDatum.value,
+      titel: draft.titel.value,
+    }),
   });
-  const existing = await store.findDedupGroepByKey(dedupKey);
-  if (existing) {
-    return existing;
-  }
-  return store.insertDedupGroep({ dedupKey });
-};
 
 export const curateObservation = async (
   store: CurateStore,
@@ -241,12 +245,10 @@ export const curateObservation = async (
       const dedupGroep = await timeCriticalPathPhase("ingest-dedupe", () =>
         ensureDedupGroep(tx, input.draft)
       );
-      if (dedupGroep) {
-        await tx.linkAanvraagToDedupGroep(
-          created.aanvraagId,
-          dedupGroep.dedupGroepId
-        );
-      }
+      await tx.linkAanvraagToDedupGroep(
+        created.aanvraagId,
+        dedupGroep.dedupGroepId
+      );
       await tx.insertVersie({
         aanvraagId: created.aanvraagId,
         contentHash: created.contentHash,
@@ -271,7 +273,7 @@ export const curateObservation = async (
       );
       return {
         aanvraagId: created.aanvraagId,
-        dedupGroepId: dedupGroep?.dedupGroepId,
+        dedupGroepId: dedupGroep.dedupGroepId,
         outboxEventId: outbox.id,
         status: "curated",
         versie: 1,

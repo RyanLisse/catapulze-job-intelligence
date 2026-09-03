@@ -67,13 +67,18 @@ ordered source batch through a bounded worker pool. It defaults to `16` and is
 refused outside `1..64`. Source IDs are still checked for canonical monotonic
 order before any row in the batch is dispatched. Rows sharing the same
 canonical `(platform, external_id)` key are serialized, so two source rows can
-never race `curateObservation` for one aanvraag. Successful provenance records
-are reassembled in source order before the manifest digest is updated. Rows
-whose complete raw source bodies have the same content hash are also serialized.
-This matters for duplicate listings: Cloudflare R2 rejects concurrent writes to
-the same object key with `Reduce your concurrent request rate for the same
-object.` The later row verifies and reuses the first row's content-addressed
-object instead of issuing another `PUT`; unrelated content hashes still overlap.
+never race `curateObservation` for one aanvraag. Two *different* aanvragen that
+share a dedup key (same normalised titel, opdrachtgever and startdatum) are not
+serialized here; since migration `0015` the unique index
+`dedup_groep_dedup_key_uidx` plus the store's insert-on-conflict-then-reselect
+make that race converge on one `curated.dedup_groep` row instead. Successful
+provenance records are reassembled in source order before the manifest digest
+is updated. Rows whose complete raw source bodies have the same content hash
+are also serialized. This matters for duplicate listings: Cloudflare R2 rejects
+concurrent writes to the same object key with `Reduce your concurrent request
+rate for the same object.` The later row verifies and reuses the first row's
+content-addressed object instead of issuing another `PUT`; unrelated content
+hashes still overlap.
 
 Only transient raw-object `PUT` failures are retried: HTTP `429`, `500`, `502`,
 `503`, `504`, and the R2 same-object message above. The importer makes at most

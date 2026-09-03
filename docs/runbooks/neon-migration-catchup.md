@@ -279,6 +279,65 @@ refreshed against the live state before execution. Historical reasoning:
 this row count" verdict was explicitly a function of the captured near-empty
 tables, not a permanent property of these migrations.
 
+## `0015` dedup_groep dedup_key — rehearsed on a Neon branch 2026-09-03
+
+`0015_dedup_groep_dedup_key.sql` adds `curated.dedup_groep.dedup_key`, merges
+any groups that share a key (survivor: `handmatig_bevestigd` first, then oldest
+`created_at`, then `id`; aanvragen are repointed before losers are deleted),
+backfills `dedup_key` from every `methode` that is an actual key (contains
+the U+001F separator), and creates the partial unique index
+`dedup_groep_dedup_key_uidx`. The curate store's get-or-create relies on that
+index, so the migration must land before or together with the code that
+stops writing `methode`.
+
+Pre-check to run against production before applying (read-only). A non-zero
+`duplicate_keys` means the merge step will delete that many losing groups and
+repoint their aanvragen — expected and deterministic, but read the affected
+keys first so the reviewer knows what merged:
+
+```sql
+SELECT count(*) AS groups,
+       count(*) FILTER (WHERE methode IS NOT NULL AND position(chr(31) IN methode) > 0) AS keyed_groups,
+       (SELECT count(*) FROM (
+          SELECT methode FROM curated.dedup_groep
+          WHERE methode IS NOT NULL GROUP BY methode HAVING count(*) > 1) d) AS duplicate_keys
+FROM curated.dedup_groep;
+```
+
+Production readback 2026-09-03 13:30 UTC (read-only, `production` branch,
+journal at 15 rows = `0000`–`0014` applied): `groups = 209`,
+`keyed_groups = 209`, `duplicate_keys = 0`, `curated.aanvraag = 221` (220
+grouped). The rehearsal below ran against that state.
+
+**Re-read 2026-09-03 ~19:45 UTC, after the Motian backfill ran with
+`NEON_V1_CONCURRENCY=16`:** `groups = 6925`, `keyed_groups = 6925`,
+`duplicate_keys = 1` (one surplus group), `curated.aanvraag = 8023` (8022
+grouped). The duplicated key has two groups created **7 ms apart**
+(`19:33:47.805Z` with 17 aanvragen, `19:33:47.812Z` with 1), neither manually
+confirmed — exactly the find-then-insert race this migration closes. On this
+data the merge step is no longer a no-op: it repoints that one aanvraag to the
+older group and deletes the newer one, leaving one group with 18 aanvragen. Run
+the pre-check again immediately before applying; every further concurrent
+import until 0015 lands can add duplicates, and each is merged the same way.
+
+Rehearsal: branch `rehearsal-0015-dedup-key-20260903`
+(`br-tiny-sea-zacrpksh`, parent `production` at LSN `0/2418CD8`). The five
+statements of `0015` were executed as one transaction on that branch via the
+Neon SQL API (not via `drizzle-kit migrate`, so the branch's journal still
+reads 15 — the journal row is the only thing the migrator would add).
+Post-state on the branch: `groups = 209`, `without_key = 0`,
+`key_methode_mismatch = 0`, `aanvragen = 221` (220 grouped), dangling links
+`0`, index present with the expected definition. A duplicate-key insert on the
+branch was rejected with `duplicate key value violates unique constraint
+"dedup_groep_dedup_key_uidx"`. Wall time of the transaction was sub-second at
+209 rows. The branch was left in place for the operator to inspect and delete;
+nothing was written to `production`.
+
+Lock class: `ADD COLUMN` (nullable, no rewrite), two data-modifying CTEs that
+touch zero rows on today's data, one `UPDATE` of 209 rows, and a
+non-`CONCURRENTLY` unique index build (`SHARE` lock on `dedup_groep` for the
+build). All `ACCESS EXCLUSIVE` windows are metadata-only at this size.
+
 ## Current readback and post-migration verification matrix
 
 Use these read-only checks both to establish the live preflight and, only if a
@@ -299,7 +358,10 @@ alone is insufficient.
 | `0012` | `SELECT column_name, data_type, is_nullable FROM information_schema.columns WHERE table_schema='staging' AND table_name='source_record' AND column_name='listing_hash';` | 1 row: `listing_hash`, `text`, `YES` |
 | `0013` | Run the scope, markering, index, and constraint readbacks below. | Eight non-null `scope_id` columns, `audit_class` non-null with default, the markering table/indexes/constraints present, and zero invalid/null backfilled values. |
 | `0014` | Run the role-column, role-constraint, and aggregate-user readbacks below. | `public.user.role` is `text NOT NULL DEFAULT 'recruiter'`, `user_role_check` is validated, and no stored role is outside the four allowed values. |
-| all, reviewed integration base | `SELECT count(*) FROM drizzle.__drizzle_migrations;` | `15`; for any other `DEPLOY_SHA`, derive this dynamically rather than copying `15` |
+| `0015` | `SELECT count(*) AS groups, count(*) FILTER (WHERE dedup_key IS NULL) AS without_key, count(*) FILTER (WHERE dedup_key IS DISTINCT FROM methode) AS key_methode_mismatch FROM curated.dedup_groep;` | `without_key = 0` and `key_methode_mismatch = 0` when every pre-0015 `methode` was a real key (true on the 2026-09-03 branch: 209 / 0 / 0); `groups` unchanged from the pre-write baseline unless the pre-check below reported duplicates |
+| `0015` | `SELECT indexdef FROM pg_indexes WHERE schemaname = 'curated' AND indexname = 'dedup_groep_dedup_key_uidx';` | one row: `CREATE UNIQUE INDEX ... USING btree (dedup_key) WHERE (dedup_key IS NOT NULL)` |
+| `0015` | `SELECT count(*) FROM curated.aanvraag a WHERE a.dedup_groep_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM curated.dedup_groep g WHERE g.id = a.dedup_groep_id);` | `0` (the merge repoints every aanvraag before deleting a losing group) |
+| all, reviewed integration base | `SELECT count(*) FROM drizzle.__drizzle_migrations;` | `15` for the base ending at `0014`, `16` once `0015` is included; for any other `DEPLOY_SHA`, derive this dynamically rather than copying a number |
 | all | `SELECT 'outbox_event', count(*) FROM curated.outbox_event UNION ALL SELECT 'source_record', count(*) FROM staging.source_record UNION ALL SELECT 'aanvraag', count(*) FROM curated.aanvraag;` | unchanged from a fresh live pre-write baseline; do not use the historical 3 / 145 / 4 counts |
 
 The `0012`–`0014` expectations and 15-entry reference come from the reviewed

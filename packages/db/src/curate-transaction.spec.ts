@@ -77,11 +77,11 @@ const draft = (
 const withFailingOutbox = (base: CurateStore): CurateStore => ({
   closeOpenVersie: (aanvraagId, closedAt) =>
     base.closeOpenVersie(aanvraagId, closedAt),
+  ensureDedupGroep: (input) => base.ensureDedupGroep(input),
   findAanvraagByIdentity: (bronId, bronReferentie) =>
     base.findAanvraagByIdentity(bronId, bronReferentie),
   findDedupGroepByKey: (dedupKey) => base.findDedupGroepByKey(dedupKey),
   insertAanvraag: (input) => base.insertAanvraag(input),
-  insertDedupGroep: (input) => base.insertDedupGroep(input),
   insertOutboxEvent: () =>
     Promise.reject(new Error("forced outbox insert failure")),
   insertVersie: (input) => base.insertVersie(input),
