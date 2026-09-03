@@ -8,7 +8,9 @@ import {
   buildFacetCacheKey,
   canonicalizeAst,
   compareCodepoints,
+  hasNegatedClause,
   hashAst,
+  isHybridSearchEligible,
 } from "./ast-hash";
 import {
   cleanupLiveDocuments,
@@ -25,6 +27,17 @@ const parseOk = (query: string) => {
 };
 
 const version = { appliedSequence: 1n, generation: 1 };
+
+describe("hybrid query eligibility", () => {
+  it("accepts positive text and rejects any nested NOT clause", () => {
+    expect(isHybridSearchEligible(parseOk("Azure platform"))).toBe(true);
+    expect(isHybridSearchEligible(parseOk("Azure NOT intern"))).toBe(false);
+    expect(isHybridSearchEligible(parseOk("NOT intern"))).toBe(false);
+    expect(hasNegatedClause(parseOk("Azure OR (platform NOT junior)"))).toBe(
+      true
+    );
+  });
+});
 
 // RJC-388 fix-first review: a plain stableStringifyAst sort put "not("
 // ahead of "or(", "phrase:", and "term:" alphabetically, so a NOT operand
@@ -161,6 +174,7 @@ describe("cache key prefixes (RJC-388)", () => {
       {},
       {
         limit: 20,
+        mode: "lexical",
         offset: 0,
         scope: "active",
         sort: "relevance",
@@ -184,8 +198,20 @@ describe("cache key prefixes (RJC-388)", () => {
 
   it("buildFacetCacheKey omits page, so identical query+filters share it across pages", async () => {
     const astHash = await hashAst(parseOk("Azure"));
-    const pageOne = await buildFacetCacheKey(astHash, version, {}, "active");
-    const another = await buildFacetCacheKey(astHash, version, {}, "active");
+    const pageOne = await buildFacetCacheKey(
+      astHash,
+      version,
+      {},
+      "active",
+      "lexical"
+    );
+    const another = await buildFacetCacheKey(
+      astHash,
+      version,
+      {},
+      "active",
+      "lexical"
+    );
     expect(pageOne).toBe(another);
   });
 
@@ -198,6 +224,7 @@ describe("cache key prefixes (RJC-388)", () => {
       {},
       {
         ...page,
+        mode: "lexical",
         scope: "active",
       }
     );
@@ -207,30 +234,60 @@ describe("cache key prefixes (RJC-388)", () => {
       {},
       {
         ...page,
+        mode: "lexical",
         scope: "all",
       }
     );
     expect(active).not.toBe(all);
-    expect(await buildFacetCacheKey(astHash, version, {}, "active")).not.toBe(
-      await buildFacetCacheKey(astHash, version, {}, "all")
+    expect(
+      await buildFacetCacheKey(astHash, version, {}, "active", "lexical")
+    ).not.toBe(
+      await buildFacetCacheKey(astHash, version, {}, "all", "lexical")
     );
   });
 
   it("buildFacetCacheKey differs from buildCacheKey for the same inputs", async () => {
     const astHash = await hashAst(parseOk("Azure"));
-    const facetKey = await buildFacetCacheKey(astHash, version, {}, "active");
+    const facetKey = await buildFacetCacheKey(
+      astHash,
+      version,
+      {},
+      "active",
+      "lexical"
+    );
     const resultKey = await buildCacheKey(
       astHash,
       version,
       {},
       {
         limit: 20,
+        mode: "lexical",
         offset: 0,
         scope: "active",
         sort: "relevance",
       }
     );
     expect(facetKey).not.toBe(resultKey);
+  });
+
+  it("separates lexical and hybrid result and facet entries", async () => {
+    const astHash = await hashAst(parseOk("Azure"));
+    const page = {
+      limit: 20,
+      offset: 0,
+      scope: "active" as const,
+      sort: "relevance" as const,
+    };
+    expect(
+      await buildCacheKey(astHash, version, {}, { ...page, mode: "lexical" })
+    ).not.toBe(
+      await buildCacheKey(astHash, version, {}, { ...page, mode: "hybrid" })
+    );
+    expect(
+      await buildFacetCacheKey(astHash, version, {}, "active", "lexical")
+    ).not.toBe(
+      await buildFacetCacheKey(astHash, version, {}, "active", "hybrid")
+    );
   });
 });
 

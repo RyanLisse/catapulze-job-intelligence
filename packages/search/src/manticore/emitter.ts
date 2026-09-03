@@ -66,6 +66,36 @@ export const buildQueryString = (ast: BooleanNode | null): string | null => {
   return `@(${SEARCH_TEXT_FIELDS}) ${match}`;
 };
 
+const collectPositiveText = (node: BooleanNode): string[] => {
+  switch (node.kind) {
+    case "term":
+    case "phrase": {
+      const value = node.value.trim();
+      return value.length === 0 ? [] : [value];
+    }
+    case "not": {
+      return [];
+    }
+    case "and":
+    case "or": {
+      return node.operands.flatMap(collectPositiveText);
+    }
+    default: {
+      const _exhaustive: never = node;
+      throw new Error(`Unsupported boolean node: ${String(_exhaustive)}`);
+    }
+  }
+};
+
+/** Natural-language input for auto-embedding; Boolean operators and negated text are omitted. */
+export const buildKnnQueryText = (ast: BooleanNode | null): string | null => {
+  if (ast === null) {
+    return null;
+  }
+  const text = collectPositiveText(ast).join(" ");
+  return text.length === 0 ? null : text;
+};
+
 export interface ManticoreBoolQuery {
   bool: {
     minimum_should_match?: number;

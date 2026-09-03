@@ -1,7 +1,7 @@
 import type { BooleanNode } from "@ji/domain";
 
 import type { SearchScope } from "./partition";
-import type { SearchFilters, SearchSort } from "./types";
+import type { SearchFilters, SearchMode, SearchSort } from "./types";
 import type { SearchVersion } from "./version";
 
 const stableStringifyAst = (node: BooleanNode): string => {
@@ -152,8 +152,55 @@ export const canonicalizeAst = (node: BooleanNode): BooleanNode => {
 export const hashAst = (ast: BooleanNode): Promise<string> =>
   hashString(stableStringifyAst(canonicalizeAst(ast)));
 
+/** True when the AST contains text outside a NOT subtree. */
+export const hasPositiveFreeText = (node: BooleanNode): boolean => {
+  switch (node.kind) {
+    case "term":
+    case "phrase": {
+      return node.value.trim().length > 0;
+    }
+    case "not": {
+      return false;
+    }
+    case "and":
+    case "or": {
+      return node.operands.some(hasPositiveFreeText);
+    }
+    default: {
+      const _exhaustive: never = node;
+      throw new Error(`Unsupported boolean node: ${String(_exhaustive)}`);
+    }
+  }
+};
+
+/** True when any subtree is negated, including negation nested under AND/OR. */
+export const hasNegatedClause = (node: BooleanNode): boolean => {
+  switch (node.kind) {
+    case "term":
+    case "phrase": {
+      return false;
+    }
+    case "not": {
+      return true;
+    }
+    case "and":
+    case "or": {
+      return node.operands.some(hasNegatedClause);
+    }
+    default: {
+      const _exhaustive: never = node;
+      throw new Error(`Unsupported boolean node: ${String(_exhaustive)}`);
+    }
+  }
+};
+
+/** RRF can reintroduce KNN hits excluded by MATCH, so negated queries stay lexical. */
+export const isHybridSearchEligible = (node: BooleanNode): boolean =>
+  hasPositiveFreeText(node) && !hasNegatedClause(node);
+
 export interface CacheKeyPage {
   limit: number;
+  mode: SearchMode;
   offset: number;
   /** Partitions read (RJC-383); an active-scope page must never serve an all-scope request. */
   scope: SearchScope;
@@ -171,9 +218,10 @@ export interface CacheKeyPage {
  * `localeCompare` to a codepoint comparator, so a v5 key built under a
  * different ICU default locale could disagree with a v6 key for the same
  * query text — old keys become unreachable, which is the point.
+ * `v7` separates lexical and hybrid result pages.
  */
-const RESULT_CACHE_KEY_PREFIX = "search:v6";
-const FACET_CACHE_KEY_PREFIX = "search:facets:v3";
+const RESULT_CACHE_KEY_PREFIX = "search:v7";
+const FACET_CACHE_KEY_PREFIX = "search:facets:v4";
 
 export const buildCacheKey = (
   astHash: string,
@@ -182,7 +230,7 @@ export const buildCacheKey = (
   page: CacheKeyPage
 ): Promise<string> =>
   hashString(
-    `${RESULT_CACHE_KEY_PREFIX}:${astHash}:${version.generation}:${version.appliedSequence}:${stableStringifyFilters(filters)}:${page.scope}:${page.sort}:${page.offset}:${page.limit}`
+    `${RESULT_CACHE_KEY_PREFIX}:${astHash}:${version.generation}:${version.appliedSequence}:${stableStringifyFilters(filters)}:${page.mode}:${page.scope}:${page.sort}:${page.offset}:${page.limit}`
   );
 
 /**
@@ -190,13 +238,15 @@ export const buildCacheKey = (
  * limit so every page of the same query+filters shares one facets entry —
  * page 2 doesn't force a fresh facet computation. `v3` retires every v2
  * entry for the same reason RESULT_CACHE_KEY_PREFIX bumped to v6 (RJC-396).
+ * `v4` separates lexical and hybrid facets.
  */
 export const buildFacetCacheKey = (
   astHash: string,
   version: SearchVersion,
   filters: SearchFilters,
-  scope: SearchScope
+  scope: SearchScope,
+  mode: SearchMode
 ): Promise<string> =>
   hashString(
-    `${FACET_CACHE_KEY_PREFIX}:${astHash}:${version.generation}:${version.appliedSequence}:${stableStringifyFilters(filters)}:${scope}`
+    `${FACET_CACHE_KEY_PREFIX}:${astHash}:${version.generation}:${version.appliedSequence}:${stableStringifyFilters(filters)}:${mode}:${scope}`
   );

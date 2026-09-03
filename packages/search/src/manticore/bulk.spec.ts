@@ -162,6 +162,47 @@ describe("ManticoreSearchEngine.applyBatch over /bulk (RJC-389)", () => {
     expect(checkpoint.appliedSequence).toBe(13n);
   });
 
+  it("dual-writes the base table only when hybrid synchronization is enabled", async () => {
+    const client = new ScriptedBulkClient(never);
+    const engine = new ManticoreSearchEngine(
+      client,
+      new InMemorySearchVersionStore(),
+      "aanvragen",
+      () => new Date("2026-09-01T00:00:00.000Z"),
+      { hybridEnabled: true }
+    );
+
+    await engine.applyBatch({
+      appliedSequence: 14n,
+      mutations: [
+        {
+          document: document("a"),
+          kind: "upsert",
+          partition: "active",
+          previousPartition: "archive",
+          sequenceNumber: 13n,
+        },
+        {
+          id: "c",
+          kind: "delete",
+          partition: "archive",
+          sequenceNumber: 14n,
+        },
+      ],
+    });
+
+    const lines = client.calls[0]?.map((line) => JSON.parse(line)) ?? [];
+    expect(
+      lines.map((line) => line.replace?.index ?? line.delete?.index)
+    ).toEqual([
+      "aanvragen_active",
+      "aanvragen",
+      "aanvragen_archive",
+      "aanvragen_archive",
+      "aanvragen",
+    ]);
+  });
+
   it("isolates a persistent poison line: blames it alone, applies the rest, watermark = their max", async () => {
     const client = new ScriptedBulkClient(poisonAlways("b"));
     const store = new InMemorySearchVersionStore();

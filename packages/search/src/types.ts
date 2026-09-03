@@ -25,6 +25,9 @@ export const SEARCH_SORT_OPTIONS = [
 
 export type SearchSort = (typeof SEARCH_SORT_OPTIONS)[number];
 
+/** Execution strategy selected by SearchAdapter for one parsed query. */
+export type SearchMode = "hybrid" | "lexical";
+
 export interface SearchDocument {
   beschrijving: string;
   bronId: string;
@@ -113,6 +116,8 @@ export interface EngineSearchParams {
   ast: BooleanNode | null;
   filters: SearchFilters;
   limit: number;
+  /** Defaults to lexical for direct/legacy engine callers. */
+  mode?: SearchMode;
   offset: number;
   /** Defaults to "active" (RJC-383): the placeable stock, not everything ever seen. */
   scope?: SearchScope;

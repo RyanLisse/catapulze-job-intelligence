@@ -1,9 +1,16 @@
-export { SearchAdapter, evaluateBooleanAst } from "./adapter";
+export {
+  SearchAdapter,
+  evaluateBooleanAst,
+  isSearchHybridEnabled,
+} from "./adapter";
 export {
   buildCacheKey,
   buildFacetCacheKey,
   canonicalizeAst,
+  hasNegatedClause,
+  hasPositiveFreeText,
   hashAst,
+  isHybridSearchEligible,
 } from "./ast-hash";
 export { type FacetCache, MemoryFacetCache } from "./cache/facets-cache";
 export { ParserLruCache, PARSER_CACHE_MAX_ENTRIES } from "./cache/parser-cache";
@@ -18,6 +25,7 @@ export { Singleflight } from "./cache/singleflight";
 export { InMemorySearchEngine } from "./in-memory-engine";
 export {
   buildBoolJson,
+  buildKnnQueryText,
   buildQueryString,
   emitMatch,
   FetchManticoreClient,
@@ -78,6 +86,7 @@ export {
   type SearchIndexBatchResult,
   type SearchIndexMutation,
   type SearchMutationFailure,
+  type SearchMode,
   type SearchSort,
 } from "./types";
 export {

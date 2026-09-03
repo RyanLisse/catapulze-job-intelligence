@@ -19,6 +19,7 @@ import {
   buildFacetCacheKey,
   canonicalizeAst,
   hashAst,
+  isHybridSearchEligible,
 } from "./ast-hash";
 import { MemoryFacetCache } from "./cache/facets-cache";
 import type { FacetCache } from "./cache/facets-cache";
@@ -33,6 +34,7 @@ import type {
   SearchAdapterSuccess,
   SearchEngine,
   SearchFilters,
+  SearchMode,
   SearchSort,
 } from "./types";
 import type { SearchVersion } from "./version";
@@ -50,18 +52,27 @@ export interface SearchAdapterOptions {
   cache?: ResultCache;
   cacheTtlSeconds?: number;
   engine: SearchEngine;
+  /** Overrides SEARCH_HYBRID for isolated evaluation runs and focused tests. */
+  hybridEnabled?: boolean;
 }
+
+export const isSearchHybridEnabled = (
+  value: string | undefined = undefined
+): boolean => value === "1";
 
 export class SearchAdapter {
   private readonly cache?: ResultCache;
   private readonly cacheTtlSeconds: number;
   private readonly engine: SearchEngine;
+  private readonly hybridEnabled: boolean;
   private readonly facetsCache: FacetCache = new MemoryFacetCache();
   private readonly parserCache = new ParserLruCache();
   private readonly singleflight = new Singleflight<SearchAdapterResult>();
 
   constructor(options: SearchAdapterOptions) {
     this.engine = options.engine;
+    this.hybridEnabled =
+      options.hybridEnabled ?? isSearchHybridEnabled(process.env.SEARCH_HYBRID);
     this.cache = options.cache;
     this.cacheTtlSeconds = options.cacheTtlSeconds ?? DEFAULT_CACHE_TTL_SECONDS;
   }
@@ -98,6 +109,7 @@ export class SearchAdapter {
     astHash: string,
     parserVersion: number,
     filters: SearchFilters,
+    mode: SearchMode,
     cacheKey: string,
     facetKey: string,
     page: {
@@ -114,6 +126,7 @@ export class SearchAdapter {
         ast,
         filters,
         limit: page.limit,
+        mode,
         offset: page.offset,
         scope: page.scope,
         sort: page.sort,
@@ -180,12 +193,17 @@ export class SearchAdapter {
       const offset = input.offset ?? DEFAULT_OFFSET;
       const sort = input.sort ?? DEFAULT_SORT;
       const scope = input.scope ?? DEFAULT_SEARCH_SCOPE;
+      const mode: SearchMode =
+        this.hybridEnabled && isHybridSearchEligible(parsed.ast)
+          ? "hybrid"
+          : "lexical";
 
       return timeCriticalPathPhase("search-adapter", async () => {
         const astHash = await hashAst(parsed.ast);
         const version = await this.engine.getAppliedVersion();
         const cacheKey = await buildCacheKey(astHash, version, filters, {
           limit,
+          mode,
           offset,
           scope,
           sort,
@@ -216,7 +234,8 @@ export class SearchAdapter {
           astHash,
           version,
           filters,
-          scope
+          scope,
+          mode
         );
         const { coalesced, promise } = this.singleflight.run(cacheKey, () =>
           this.computeAndCache(
@@ -224,6 +243,7 @@ export class SearchAdapter {
             astHash,
             parsed.version,
             filters,
+            mode,
             cacheKey,
             facetKey,
             { limit, offset, scope, sort }

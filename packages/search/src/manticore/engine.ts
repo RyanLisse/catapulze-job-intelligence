@@ -1,6 +1,7 @@
 import type { BooleanNode } from "@ji/domain";
 import { recordCriticalPathPhaseSync } from "@ji/performance";
 
+import { isHybridSearchEligible } from "../ast-hash";
 import { Singleflight } from "../cache/singleflight";
 import {
   DEFAULT_SEARCH_SCOPE,
@@ -40,11 +41,12 @@ import {
   searchManticore,
 } from "./client";
 import type { ManticoreHttpClient } from "./client";
-import { buildBoolJson, buildQueryString } from "./emitter";
+import { buildBoolJson, buildKnnQueryText, buildQueryString } from "./emitter";
 import type { ManticoreBoolQuery } from "./emitter";
 import { hashDocumentId } from "./id-hash";
 import type {
   ManticoreBulkLine,
+  ManticoreFacetName,
   ManticoreIndexedDocument,
   ManticoreQueryBody,
   ManticoreSearchRequestBody,
@@ -64,6 +66,14 @@ export const MANTICORE_BULK_MAX_BYTES = 8 * 1024 * 1024;
  * is released unblamed to the next drain.
  */
 export const MANTICORE_BULK_ISOLATION_RESENDS_PER_CHUNK = 1;
+
+const HYBRID_FACET_NAMES = [
+  "bron_id",
+  "contracttype",
+  "locatie",
+  "locatie_land",
+  "status",
+] as const satisfies readonly ManticoreFacetName[];
 
 /**
  * 2100-01-01T00:00:00Z. Indexed under `sluitingsdatum` when a document has no
@@ -215,11 +225,17 @@ const withoutEntry = (chunk: BulkChunk, at: number): BulkChunk => ({
   entries: chunk.entries.filter((_, index) => index !== at),
 });
 
+export interface ManticoreSearchEngineOptions {
+  /** Synchronize the logical all-scope table used by Manticore 29 hybrid search. */
+  hybridEnabled?: boolean;
+}
+
 export class ManticoreSearchEngine implements SearchEngine {
   private readonly client: ManticoreHttpClient;
   private readonly clock: () => Date;
   /** Logical index name; the RT tables are `<indexName>_active` / `<indexName>_archive`. */
   private readonly indexName: string;
+  private readonly hybridEnabled: boolean;
   private readonly versionReads = new Singleflight<SearchVersion>();
   private readonly versionStore: SearchVersionStore;
 
@@ -227,25 +243,30 @@ export class ManticoreSearchEngine implements SearchEngine {
     client: ManticoreHttpClient,
     versionStore: SearchVersionStore,
     indexName: string = SEARCH_INDEX_NAME,
-    clock: () => Date = () => new Date()
+    clock: () => Date = () => new Date(),
+    options: ManticoreSearchEngineOptions = {}
   ) {
     this.client = client;
     this.versionStore = versionStore;
     this.indexName = indexName;
     this.clock = clock;
+    this.hybridEnabled =
+      options.hybridEnabled ?? process.env.SEARCH_HYBRID === "1";
   }
 
   static fromUrl(
     baseUrl: string,
     versionStore: SearchVersionStore,
     indexName: string = SEARCH_INDEX_NAME,
-    clock: () => Date = () => new Date()
+    clock: () => Date = () => new Date(),
+    options: ManticoreSearchEngineOptions = {}
   ): ManticoreSearchEngine {
     return new ManticoreSearchEngine(
       new FetchManticoreClient(baseUrl),
       versionStore,
       indexName,
-      clock
+      clock,
+      options
     );
   }
 
@@ -383,12 +404,21 @@ export class ManticoreSearchEngine implements SearchEngine {
     ): ManticoreBulkLine => ({
       delete: { id: hashDocumentId(id), index: this.table(partition) },
     });
+    const deleteFromBase = (id: string): ManticoreBulkLine => ({
+      delete: { id: hashDocumentId(id), index: this.indexName },
+    });
     if (mutation.kind === "delete") {
       const partitions =
         mutation.partition === undefined
           ? SEARCH_PARTITIONS
           : [mutation.partition];
-      return partitions.map((partition) => deleteFrom(mutation.id, partition));
+      const lines = partitions.map((partition) =>
+        deleteFrom(mutation.id, partition)
+      );
+      if (this.hybridEnabled) {
+        lines.push(deleteFromBase(mutation.id));
+      }
+      return lines;
     }
     // Capture one clock value for both partition and the fallback hash. The
     // normal projector supplies its precomputed hash so the physical row is
@@ -398,15 +428,29 @@ export class ManticoreSearchEngine implements SearchEngine {
       mutation.partition ?? documentPartition(mutation.document, now);
     const hash =
       mutation.projectionHash ?? projectionHash(mutation.document, now);
+    const indexedDocument = documentToManticore(
+      mutation.document,
+      indexVersion,
+      hash
+    );
     const lines: ManticoreBulkLine[] = [
       {
         replace: {
-          doc: documentToManticore(mutation.document, indexVersion, hash),
+          doc: indexedDocument,
           id: hashDocumentId(mutation.document.id),
           index: this.table(partition),
         },
       },
     ];
+    if (this.hybridEnabled) {
+      lines.push({
+        replace: {
+          doc: indexedDocument,
+          id: hashDocumentId(mutation.document.id),
+          index: this.indexName,
+        },
+      });
+    }
     if (mutation.previousPartition !== partition) {
       lines.push(deleteFrom(mutation.document.id, otherPartition(partition)));
     }
@@ -417,6 +461,9 @@ export class ManticoreSearchEngine implements SearchEngine {
     for (const partition of SEARCH_PARTITIONS) {
       // oxlint-disable-next-line no-await-in-loop -- two tables, sequential to keep the client simple
       await deleteManticoreDocument(this.client, this.table(partition), id);
+    }
+    if (this.hybridEnabled) {
+      await deleteManticoreDocument(this.client, this.indexName, id);
     }
   }
 
@@ -440,8 +487,10 @@ export class ManticoreSearchEngine implements SearchEngine {
   }
 
   /**
-   * Scope "active" reads `<index>_active`; "all" reads both tables in one
-   * request (multi-table search, sound on 6.3.8 — see scopeTables). For
+   * Scope "active" reads `<index>_active`. Lexical "all" reads both partition
+   * tables in one request; hybrid "all" reads the synchronized logical base
+   * table because Manticore 29 rejects hybrid multi-table queries with the
+   * deterministic secondary sorter and aggregations. For
    * "active" a second, aggregation-free `limit: 0` request against the
    * archive runs in parallel so the UI can report "N in archief" honestly;
    * that is the one extra round trip the split costs the default search.
@@ -452,33 +501,62 @@ export class ManticoreSearchEngine implements SearchEngine {
    */
   async search(params: EngineSearchParams): Promise<SearchEngineResult> {
     const scope: SearchScope = params.scope ?? DEFAULT_SEARCH_SCOPE;
-    const { archiveCountRequest, request } = recordCriticalPathPhaseSync(
-      "search-serialization",
-      () => {
+    const { archiveCountRequest, facetRequests, request } =
+      recordCriticalPathPhaseSync("search-serialization", () => {
         const queryString = buildQueryString(params.ast);
+        const requestedMode = params.mode ?? "lexical";
+        const mode =
+          requestedMode === "hybrid" &&
+          params.ast !== null &&
+          isHybridSearchEligible(params.ast)
+            ? "hybrid"
+            : "lexical";
+        const knnQueryText =
+          mode === "hybrid" ? buildKnnQueryText(params.ast) : undefined;
         const queryBody: ManticoreQueryBody | null =
           queryString === null ? null : { query_string: queryString };
+        const searchTable =
+          mode === "hybrid" && scope === "all"
+            ? this.indexName
+            : scopeTables(this.indexName, scope);
         const searchRequest = buildManticoreSearchRequest(
-          scopeTables(this.indexName, scope),
+          searchTable,
           queryBody,
           params.filters,
           params.limit,
           params.offset,
-          params.sort
+          params.sort,
+          mode,
+          knnQueryText ?? undefined
         );
+        let hybridFacetRequests: ManticoreSearchRequestBody[] = [];
+        if (mode === "hybrid" && searchRequest.aggs) {
+          hybridFacetRequests = HYBRID_FACET_NAMES.map((facetName) => ({
+            ...searchRequest,
+            aggs: { [facetName]: searchRequest.aggs?.[facetName] },
+            limit: 0,
+            offset: 0,
+          }));
+          for (const facetRequest of hybridFacetRequests) {
+            delete facetRequest.sort;
+          }
+          delete searchRequest.aggs;
+        }
         return {
           archiveCountRequest:
             scope === "active"
               ? buildManticoreCountRequest(
                   this.table("archive"),
                   queryBody,
-                  params.filters
+                  params.filters,
+                  mode,
+                  knnQueryText ?? undefined
                 )
               : null,
+          facetRequests: hybridFacetRequests,
           request: searchRequest,
         };
-      }
-    );
+      });
 
     // The version read is a Postgres round trip (Neon over TLS in
     // production) and the Manticore query does not depend on it — it is only
@@ -486,11 +564,25 @@ export class ManticoreSearchEngine implements SearchEngine {
     // matches". Awaiting it first put its full latency in front of every
     // uncached search; issued alongside, it costs whatever it exceeds the
     // search by, which is normally nothing.
-    const [response, archiveTotal, version] = await Promise.all([
+    const [hitResponse, facetResponses, archiveTotal, version] =
+      await Promise.all([
       searchManticore(this.client, request),
+      Promise.all(
+        facetRequests.map((facetRequest) =>
+          searchManticore(this.client, facetRequest)
+        )
+      ),
       this.countArchive(archiveCountRequest),
       this.getAppliedVersion(),
     ]);
+    const response = { ...hitResponse };
+    for (const [index, facetName] of HYBRID_FACET_NAMES.entries()) {
+      const facetResponse = facetResponses[index];
+      if (facetResponse) {
+        response.facets[facetName] = facetResponse.facets[facetName];
+        response.emptyReason ??= facetResponse.emptyReason;
+      }
+    }
     // A reason Manticore itself reported (e.g. "query_timeout", RJC-380)
     // takes priority over the empty_index fallback below — an index that
     // timed out at zero hits is not the same thing as a genuinely empty
@@ -549,15 +641,23 @@ export class ManticoreSearchEngine implements SearchEngine {
     const version = await this.getAppliedVersion();
     const now = this.clock();
     const partition = documentPartition(document, now);
+    const indexedDocument = documentToManticore(
+      document,
+      Number(version.appliedSequence),
+      projectionHash(document, now)
+    );
     await replaceManticoreDocument(
       this.client,
       this.table(partition),
-      documentToManticore(
-        document,
-        Number(version.appliedSequence),
-        projectionHash(document, now)
-      )
+      indexedDocument
     );
+    if (this.hybridEnabled) {
+      await replaceManticoreDocument(
+        this.client,
+        this.indexName,
+        indexedDocument
+      );
+    }
     await deleteManticoreDocument(
       this.client,
       this.table(otherPartition(partition)),
