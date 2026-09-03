@@ -9,7 +9,17 @@ import type {
   BackfillTargetProvenanceRecord,
 } from "@ji/application/backfill";
 import { backfillFailureEvidenceSchema } from "@ji/application/backfill";
-import { and, asc, eq, gt, inArray, isNotNull, or, sql } from "drizzle-orm";
+import {
+  and,
+  asc,
+  eq,
+  gt,
+  inArray,
+  isNotNull,
+  isNull,
+  or,
+  sql,
+} from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 
 import type * as schema from "./schema";
@@ -140,11 +150,50 @@ export class PostgresBackfillProvenanceStore implements BackfillProvenanceStore 
     return row?.v1Id ? { ...row, v1Id: row.v1Id } : null;
   }
 
+  /**
+   * Binds a Motian v1 job id to an aanvraag. The write only lands on a row
+   * whose `v1_id` is still NULL or already equals the incoming id. If two v1
+   * rows ever collapse onto one aanvraag via curateObservation, the second
+   * call fails here, at the write, instead of silently re-pointing the
+   * provenance and surfacing later as an unexplained reconciliation mismatch.
+   */
   async registerV1Id(record: BackfillProvenanceRecord): Promise<void> {
-    await this.database
+    const { aanvraagId, v1Id } = record;
+    const updated = await this.database
       .update(aanvraag)
-      .set({ v1Id: record.v1Id })
-      .where(eq(aanvraag.id, record.aanvraagId));
+      .set({ v1Id })
+      .where(
+        and(
+          eq(aanvraag.id, aanvraagId),
+          or(isNull(aanvraag.v1Id), eq(aanvraag.v1Id, v1Id))
+        )
+      )
+      .returning({ id: aanvraag.id });
+    if (updated.length === 1) {
+      return;
+    }
+    const cause = await this.describeRegisterV1IdFailure(v1Id, aanvraagId);
+    throw new Error(
+      `Refusing to register v1_id ${v1Id} on aanvraag ${aanvraagId}: expected exactly 1 row updated, got ${updated.length} (${cause})`
+    );
+  }
+
+  private async describeRegisterV1IdFailure(
+    v1Id: string,
+    aanvraagId: string
+  ): Promise<string> {
+    const [current] = await this.database
+      .select({ v1Id: aanvraag.v1Id })
+      .from(aanvraag)
+      .where(eq(aanvraag.id, aanvraagId))
+      .limit(1);
+    if (!current) {
+      return "aanvraag row does not exist";
+    }
+    if (current.v1Id !== null && current.v1Id !== v1Id) {
+      return `aanvraag is already bound to v1_id ${current.v1Id}; overwriting would break provenance`;
+    }
+    return "row matched but the guarded update did not apply";
   }
 }
 

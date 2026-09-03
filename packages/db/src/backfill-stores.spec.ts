@@ -2,14 +2,17 @@ import { describe, expect, it } from "bun:test";
 
 import type {
   BackfillFailureEvidence,
+  BackfillProvenanceRecord,
   BackfillRunEvidence,
 } from "@ji/application/backfill";
+import { drizzle } from "drizzle-orm/pg-proxy";
 
 import {
   PostgresBackfillProvenanceStore,
   PostgresBackfillRunStore,
 } from "./backfill-stores";
 import type { BackfillDatabase } from "./backfill-stores";
+import * as schema from "./schema";
 
 const metrics = {
   duplicates: 0,
@@ -373,3 +376,91 @@ describe("Postgres backfill target reconciliation snapshot", () => {
   });
 });
 /* oxlint-enable node/callback-return, promise/prefer-await-to-callbacks */
+
+interface RecordedQuery {
+  readonly params: unknown[];
+  readonly sql: string;
+}
+
+/**
+ * Runs the real Drizzle query builder against a scripted driver so the tests
+ * exercise the SQL the store actually emits, rather than a hand-written fake
+ * that could agree with a wrong query. Each queued response is the array-mode
+ * row set Postgres would have returned for the next statement.
+ */
+const createScriptedDatabase = (responses: readonly unknown[][][]) => {
+  const queue = [...responses];
+  const queries: RecordedQuery[] = [];
+  const database = asBackfillDatabase(
+    drizzle(
+      (sql, params) => {
+        queries.push({ params, sql });
+        const rows = queue.shift();
+        if (rows === undefined) {
+          throw new Error(`Unexpected query: ${sql}`);
+        }
+        return Promise.resolve({ rows });
+      },
+      { schema }
+    )
+  );
+  return { database, queries };
+};
+
+const V1_ID = "motian-v1-job-1";
+const OTHER_V1_ID = "motian-v1-job-2";
+const AANVRAAG_ID = "0f2c0a0e-4e1b-4d7e-9c6a-2b7f2d5a9e11";
+
+const provenanceRecord = (v1Id: string): BackfillProvenanceRecord => ({
+  aanvraagId: AANVRAAG_ID,
+  bronId: "6b1d4a72-0f3c-4d55-8a21-9c7e4f0b3d18",
+  bronReferentie: "motian-external-1",
+  contentHash: "sha256:0f2c0a0e4e1b4d7e9c6a2b7f2d5a9e11",
+  rawPayloadRef: "motian/v1/job-1.json",
+  v1Id,
+});
+
+const GUARDED_UPDATE =
+  /update "curated"\."aanvraag" set .*"v1_id" = \$\d+ where \("curated"\."aanvraag"\."id" = \$\d+ and \("curated"\."aanvraag"\."v1_id" is null or "curated"\."aanvraag"\."v1_id" = \$\d+\)\) returning "id"/u;
+
+describe("PostgresBackfillProvenanceStore.registerV1Id", () => {
+  it("binds a v1_id to an unbound aanvraag with a guarded update", async () => {
+    const { database, queries } = createScriptedDatabase([[[AANVRAAG_ID]]]);
+    const store = new PostgresBackfillProvenanceStore(database);
+
+    await store.registerV1Id(provenanceRecord(V1_ID));
+
+    expect(queries).toHaveLength(1);
+    const [update] = queries;
+    expect(update?.sql).toMatch(GUARDED_UPDATE);
+    expect(update?.params).toContain(AANVRAAG_ID);
+    expect(update?.params.filter((param) => param === V1_ID)).toHaveLength(2);
+  });
+
+  it("refuses to re-point an aanvraag already bound to a different v1_id", async () => {
+    const { database, queries } = createScriptedDatabase([[], [[OTHER_V1_ID]]]);
+    const store = new PostgresBackfillProvenanceStore(database);
+
+    await expect(store.registerV1Id(provenanceRecord(V1_ID))).rejects.toThrow(
+      new RegExp(
+        `Refusing to register v1_id ${V1_ID} on aanvraag ${AANVRAAG_ID}: expected exactly 1 row updated, got 0 \\(aanvraag is already bound to v1_id ${OTHER_V1_ID}; overwriting would break provenance\\)`,
+        "u"
+      )
+    );
+
+    expect(queries).toHaveLength(2);
+    expect(queries[0]?.sql).toMatch(GUARDED_UPDATE);
+    expect(queries[1]?.sql).toMatch(
+      /select "v1_id" from "curated"\."aanvraag" where "curated"\."aanvraag"\."id" = \$1 limit \$2/u
+    );
+  });
+
+  it("fails closed with a cause when the aanvraag row does not exist", async () => {
+    const { database } = createScriptedDatabase([[], []]);
+    const store = new PostgresBackfillProvenanceStore(database);
+
+    await expect(store.registerV1Id(provenanceRecord(V1_ID))).rejects.toThrow(
+      /expected exactly 1 row updated, got 0 \(aanvraag row does not exist\)/u
+    );
+  });
+});
