@@ -54,7 +54,9 @@ export class InMemoryBackfillProvenanceStore implements BackfillProvenanceStore 
 
   /** Mirrors the Postgres adapter's one-v1-id-per-aanvraag guard so fixture
    * runs reject the same collision production rejects. */
-  registerV1Id(record: BackfillProvenanceRecord): Promise<void> {
+  registerV1Id(
+    record: BackfillProvenanceRecord
+  ): Promise<BackfillProvenanceRecord> {
     const bound = [...this.byV1Id.values()].find(
       (candidate) =>
         candidate.aanvraagId === record.aanvraagId &&
@@ -67,7 +69,8 @@ export class InMemoryBackfillProvenanceStore implements BackfillProvenanceStore 
         )
       );
     }
-    this.byV1Id.set(record.v1Id, structuredClone(record));
-    return Promise.resolve();
+    const registered = structuredClone(record);
+    this.byV1Id.set(record.v1Id, registered);
+    return Promise.resolve(structuredClone(registered));
   }
 }

@@ -175,7 +175,9 @@ export class PostgresBackfillProvenanceStore implements BackfillProvenanceStore 
    * call fails here, at the write, instead of silently re-pointing the
    * provenance and surfacing later as an unexplained reconciliation mismatch.
    */
-  async registerV1Id(record: BackfillProvenanceRecord): Promise<void> {
+  async registerV1Id(
+    record: BackfillProvenanceRecord
+  ): Promise<BackfillProvenanceRecord> {
     const { aanvraagId, v1Id } = record;
     const updated = await this.database
       .update(aanvraag)
@@ -186,14 +188,27 @@ export class PostgresBackfillProvenanceStore implements BackfillProvenanceStore 
           or(isNull(aanvraag.v1Id), eq(aanvraag.v1Id, v1Id))
         )
       )
-      .returning({ id: aanvraag.id });
-    if (updated.length === 1) {
-      return;
+      .returning({
+        aanvraagId: aanvraag.id,
+        bronId: aanvraag.bronId,
+        bronReferentie: aanvraag.bronReferentie,
+        contentHash: aanvraag.contentHash,
+        rawPayloadRef: aanvraag.rawPayloadRef,
+        v1Id: aanvraag.v1Id,
+      });
+    if (updated.length !== 1) {
+      const cause = await this.describeRegisterV1IdFailure(v1Id, aanvraagId);
+      throw new Error(
+        `Refusing to register v1_id ${v1Id} on aanvraag ${aanvraagId}: expected exactly 1 row updated, got ${updated.length} (${cause})`
+      );
     }
-    const cause = await this.describeRegisterV1IdFailure(v1Id, aanvraagId);
-    throw new Error(
-      `Refusing to register v1_id ${v1Id} on aanvraag ${aanvraagId}: expected exactly 1 row updated, got ${updated.length} (${cause})`
-    );
+    const [registered] = updated;
+    if (!registered?.v1Id) {
+      throw new Error(
+        `Refusing to register v1_id ${v1Id} on aanvraag ${aanvraagId}: guarded update returned null v1_id`
+      );
+    }
+    return { ...registered, v1Id: registered.v1Id };
   }
 
   private async describeRegisterV1IdFailure(

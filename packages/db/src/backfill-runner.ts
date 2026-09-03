@@ -1,6 +1,8 @@
 import {
   MOTIAN_V1_BRON_BINDINGS,
   MOTIAN_V1_BRON_SEEDS,
+  NEON_V1_DEFAULT_CONCURRENCY,
+  NEON_V1_MAX_CONCURRENCY,
   createFixtureNeonV1Source,
   createMotianNeonV1Source,
   loadNeonV1Fixture,
@@ -29,6 +31,7 @@ import * as schema from "./schema";
 
 export interface RunMotianV1BackfillOptions {
   readonly batchSize?: number;
+  readonly concurrency?: number;
   readonly databaseUrl?: string;
   /** Explicitly selects durable production semantics; never inferred from NODE_ENV. */
   readonly executionMode?: BackfillExecutionMode;
@@ -133,7 +136,20 @@ export const runMotianV1Backfill = async (
     );
   }
 
-  const sql = postgres(databaseUrl, { max: 4 });
+  const concurrency = options.concurrency ?? NEON_V1_DEFAULT_CONCURRENCY;
+  if (
+    !Number.isInteger(concurrency) ||
+    concurrency < 1 ||
+    concurrency > NEON_V1_MAX_CONCURRENCY
+  ) {
+    throw new Error(
+      `Motian v1 backfill concurrency must be an integer between 1 and ${NEON_V1_MAX_CONCURRENCY}`
+    );
+  }
+
+  // This one-shot client is independent from the server's shared client. Its
+  // destination pool must not throttle the bounded row worker pool.
+  const sql = postgres(databaseUrl, { max: concurrency });
   const database = drizzle(sql, { schema });
   await seedMotianV1Bronnen(database, MOTIAN_V1_BRON_SEEDS);
 
@@ -141,6 +157,7 @@ export const runMotianV1Backfill = async (
     return await runNeonV1Backfill({
       batchSize: options.batchSize,
       bindings: MOTIAN_V1_BRON_BINDINGS,
+      concurrency,
       curateStore: new PostgresCurateStore(database),
       execution,
       objectStore,

@@ -8,6 +8,10 @@ export const NEON_V1_BACKFILL_CONTRACT_VERSION = "neon-v1-backfill/v1" as const;
 
 export const NEON_V1_PARSER_VERSION = "neon-v1/2026-08-29";
 
+export const NEON_V1_DEFAULT_CONCURRENCY = 16;
+
+export const NEON_V1_MAX_CONCURRENCY = 64;
+
 export const BACKFILL_SCOPE_MANIFEST_VERSION =
   "motian-v1-scope-manifest/v1" as const;
 
@@ -265,12 +269,15 @@ export interface BackfillProvenanceStore {
   findByV1Id: (v1Id: string) => Promise<BackfillProvenanceRecord | null>;
   /** Binds one v1 id to one aanvraag. Implementations must reject when the
    * aanvraag is already bound to a different v1 id. */
-  registerV1Id: (record: BackfillProvenanceRecord) => Promise<void>;
+  registerV1Id: (
+    record: BackfillProvenanceRecord
+  ) => Promise<BackfillProvenanceRecord>;
 }
 
 export interface RunNeonV1BackfillInput {
   readonly batchSize?: number;
   readonly bindings: readonly BackfillBronBinding[];
+  readonly concurrency?: number;
   readonly curateStore: CurateStore;
   /** The execution intent is persisted as durable run evidence. Production
    * callers must provide `scope: "full"`; runner adapters enforce storage. */

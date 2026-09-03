@@ -1,4 +1,8 @@
-import { getBackfillFailureDiagnostic } from "@ji/application/backfill";
+import {
+  NEON_V1_DEFAULT_CONCURRENCY,
+  NEON_V1_MAX_CONCURRENCY,
+  getBackfillFailureDiagnostic,
+} from "@ji/application/backfill";
 import type {
   BackfillFailureDiagnostic,
   BackfillFailureEvidence,
@@ -92,6 +96,22 @@ const resolveBatchSize = (): number => {
   return batchSize;
 };
 
+export const resolveConcurrency = (): number => {
+  const concurrency = Number(
+    process.env.NEON_V1_CONCURRENCY ?? NEON_V1_DEFAULT_CONCURRENCY
+  );
+  if (
+    !Number.isInteger(concurrency) ||
+    concurrency < 1 ||
+    concurrency > NEON_V1_MAX_CONCURRENCY
+  ) {
+    throw new Error(
+      `NEON_V1_CONCURRENCY must be an integer between 1 and ${NEON_V1_MAX_CONCURRENCY}`
+    );
+  }
+  return concurrency;
+};
+
 const main = async (): Promise<void> => {
   const { runMotianV1Backfill } = await import("@ji/db");
   const executionMode = resolveExecutionMode();
@@ -106,6 +126,7 @@ const main = async (): Promise<void> => {
   });
   const result = await runMotianV1Backfill({
     batchSize: resolveBatchSize(),
+    concurrency: resolveConcurrency(),
     executionMode,
     includeClosed:
       scope === "active" && process.env.NEON_V1_INCLUDE_CLOSED === "1",

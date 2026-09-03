@@ -18,7 +18,7 @@ import {
   mapV1JobToDraft,
   runNeonV1Backfill,
 } from "./neon-v1";
-import type { BackfillProvenanceStore } from "./neon-v1";
+import type { BackfillProvenanceStore, NeonV1JobRow } from "./neon-v1";
 
 const sampleJob = () => ({
   company: "Broker BV",
@@ -48,6 +48,30 @@ const reconciliationMetrics = (input: {
   matched: input.matched,
   missing: input.missing ?? 0,
   selected: input.selected,
+});
+
+const fixedSnapshotProvenanceStore = (): InMemoryBackfillProvenanceStore => {
+  const provenanceStore = new InMemoryBackfillProvenanceStore();
+  const consumeSnapshot =
+    provenanceStore.consumeReconciliationSnapshot.bind(provenanceStore);
+  provenanceStore.consumeReconciliationSnapshot = async (
+    bronIds,
+    batchSize,
+    consume
+  ) => {
+    await consumeSnapshot(bronIds, batchSize, consume);
+    return {
+      completedAt: "2026-09-03T10:05:00.000Z",
+      startedAt: "2026-09-03T10:00:00.000Z",
+    };
+  };
+  return provenanceStore;
+};
+
+const fixtureJob = (idSuffix: string, externalId: string): NeonV1JobRow => ({
+  ...sampleJob(),
+  external_id: externalId,
+  id: `00000000-0000-4000-8000-${idSuffix.padStart(12, "0")}`,
 });
 
 describe("Neon v1 backfill mapping", () => {
@@ -123,6 +147,161 @@ describe("Neon v1 backfill mapping", () => {
 });
 
 describe("Neon v1 backfill run", () => {
+  it("produces identical fixture evidence with concurrency 1 and 16", async () => {
+    const fixture = await loadNeonV1Fixture("neon-v1-sample.json");
+    const runFixture = (concurrency: number) =>
+      runNeonV1Backfill({
+        bindings: MOTIAN_V1_BRON_BINDINGS,
+        concurrency,
+        curateStore: new InMemoryCurateStore(),
+        objectStore: new InMemoryObjectStore(),
+        provenanceStore: fixedSnapshotProvenanceStore(),
+        runStore: new InMemoryBackfillRunStore(),
+        source: createFixtureNeonV1Source(fixture),
+        startedAt: new Date(fixture.capturedAt),
+      });
+
+    const sequential = await runFixture(1);
+    const concurrent = await runFixture(16);
+
+    expect(sequential.status).toBe("succeeded");
+    expect(concurrent.status).toBe("succeeded");
+    expect(concurrent.evidence).toEqual(sequential.evidence);
+    expect(concurrent.metrics.imported).toBe(200);
+    expect(concurrent.evidence.scopeManifest?.orderedDigest).toBe(
+      sequential.evidence.scopeManifest?.orderedDigest
+    );
+  });
+
+  it("stops dispatch after the first row failure and drains in-flight rows", async () => {
+    const jobs = [
+      fixtureJob("1", "external-1"),
+      fixtureJob("2", "external-2"),
+      fixtureJob("3", "external-3"),
+      fixtureJob("4", "external-4"),
+    ];
+    const [failingJob, inFlightJob] = jobs;
+    if (!failingJob || !inFlightJob) {
+      throw new Error("Expected failure test jobs");
+    }
+    const backingStore = fixedSnapshotProvenanceStore();
+    const dispatched: string[] = [];
+    const failingRead = Promise.withResolvers<null>();
+    const inFlightRead = Promise.withResolvers<null>();
+    const initialDispatchComplete = Promise.withResolvers<undefined>();
+    const provenanceStore: BackfillProvenanceStore = {
+      consumeReconciliationSnapshot: (bronIds, batchSize, consume) =>
+        backingStore.consumeReconciliationSnapshot(bronIds, batchSize, consume),
+      findByAanvraagId: (aanvraagId) =>
+        backingStore.findByAanvraagId(aanvraagId),
+      findByV1Id: (v1Id) => {
+        dispatched.push(v1Id);
+        if (dispatched.length === 2) {
+          initialDispatchComplete.resolve();
+        }
+        if (v1Id === failingJob.id) {
+          return failingRead.promise;
+        }
+        if (v1Id === inFlightJob.id) {
+          return inFlightRead.promise;
+        }
+        return backingStore.findByV1Id(v1Id);
+      },
+      registerV1Id: (record) => backingStore.registerV1Id(record),
+    };
+
+    const resultPromise = runNeonV1Backfill({
+      bindings,
+      concurrency: 2,
+      curateStore: new InMemoryCurateStore(),
+      objectStore: new InMemoryObjectStore(),
+      provenanceStore,
+      runStore: new InMemoryBackfillRunStore(),
+      source: createFixtureNeonV1Source({
+        capturedAt: "2026-09-03T10:05:00.000Z",
+        contractVersion: NEON_V1_BACKFILL_CONTRACT_VERSION,
+        jobs,
+      }),
+    });
+    await initialDispatchComplete.promise;
+    failingRead.reject(new Error("synthetic provenance read failure"));
+    await Bun.sleep(0);
+    inFlightRead.resolve(null);
+    const result = await resultPromise;
+
+    expect(result.status).toBe("failed");
+    expect(result.evidence.failure).toEqual({
+      code: "PROVENANCE_READ_FAILED",
+      phase: "provenance",
+    });
+    expect(dispatched).toEqual([failingJob.id, inFlightJob.id]);
+    expect(result.metrics).toMatchObject({
+      errors: 1,
+      imported: 1,
+      selected: 2,
+    });
+  });
+
+  it("serializes duplicate platform and external_id keys within a batch", async () => {
+    const first = fixtureJob("1", "shared-external-id");
+    const duplicate = fixtureJob("2", "shared-external-id");
+    const independent = fixtureJob("3", "independent-external-id");
+    const backingStore = fixedSnapshotProvenanceStore();
+    const events: string[] = [];
+    const firstRead = Promise.withResolvers<null>();
+    const independentDispatched = Promise.withResolvers<undefined>();
+    const provenanceStore: BackfillProvenanceStore = {
+      consumeReconciliationSnapshot: (bronIds, batchSize, consume) =>
+        backingStore.consumeReconciliationSnapshot(bronIds, batchSize, consume),
+      findByAanvraagId: (aanvraagId) =>
+        backingStore.findByAanvraagId(aanvraagId),
+      findByV1Id: (v1Id) => {
+        events.push(`find:${v1Id}`);
+        if (v1Id === first.id) {
+          return firstRead.promise;
+        }
+        if (v1Id === independent.id) {
+          independentDispatched.resolve();
+        }
+        return backingStore.findByV1Id(v1Id);
+      },
+      registerV1Id: async (record) => {
+        const registered = await backingStore.registerV1Id(record);
+        events.push(`registered:${record.v1Id}`);
+        return registered;
+      },
+    };
+
+    const resultPromise = runNeonV1Backfill({
+      bindings,
+      concurrency: 3,
+      curateStore: new InMemoryCurateStore(),
+      objectStore: new InMemoryObjectStore(),
+      provenanceStore,
+      runStore: new InMemoryBackfillRunStore(),
+      source: createFixtureNeonV1Source({
+        capturedAt: "2026-09-03T10:05:00.000Z",
+        contractVersion: NEON_V1_BACKFILL_CONTRACT_VERSION,
+        jobs: [first, duplicate, independent],
+      }),
+    });
+    await independentDispatched.promise;
+
+    expect(events).toContain(`find:${first.id}`);
+    expect(events).not.toContain(`find:${duplicate.id}`);
+    firstRead.resolve(null);
+    const result = await resultPromise;
+
+    expect(result.status).toBe("failed");
+    expect(events.indexOf(`registered:${first.id}`)).toBeLessThan(
+      events.indexOf(`find:${duplicate.id}`)
+    );
+    expect(result.evidence.failure).toEqual({
+      code: "PROVENANCE_MISMATCH",
+      phase: "provenance",
+    });
+  });
+
   it("imports fixture jobs idempotently on duplicate v1_id", async () => {
     const fixture = {
       capturedAt: "2026-08-29T10:00:00.000Z",

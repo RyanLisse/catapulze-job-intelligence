@@ -421,7 +421,7 @@ const provenanceRecord = (v1Id: string): BackfillProvenanceRecord => ({
 });
 
 const GUARDED_UPDATE =
-  /update "curated"\."aanvraag" set .*"v1_id" = \$\d+ where \("curated"\."aanvraag"\."id" = \$\d+ and \("curated"\."aanvraag"\."v1_id" is null or "curated"\."aanvraag"\."v1_id" = \$\d+\)\) returning "id"/u;
+  /update "curated"\."aanvraag" set .*"v1_id" = \$\d+ where \("curated"\."aanvraag"\."id" = \$\d+ and \("curated"\."aanvraag"\."v1_id" is null or "curated"\."aanvraag"\."v1_id" = \$\d+\)\) returning "id", "bron_id", "bron_referentie", "content_hash", "raw_payload_ref", "v1_id"/u;
 
 describe("PostgresBackfillProvenanceStore.findByAanvraagId", () => {
   it("reads only a bound aanvraag row", async () => {
@@ -453,10 +453,22 @@ describe("PostgresBackfillProvenanceStore.findByAanvraagId", () => {
 
 describe("PostgresBackfillProvenanceStore.registerV1Id", () => {
   it("binds a v1_id to an unbound aanvraag with a guarded update", async () => {
-    const { database, queries } = createScriptedDatabase([[[AANVRAAG_ID]]]);
+    const expected = provenanceRecord(V1_ID);
+    const { database, queries } = createScriptedDatabase([
+      [
+        [
+          expected.aanvraagId,
+          expected.bronId,
+          expected.bronReferentie,
+          expected.contentHash,
+          expected.rawPayloadRef,
+          expected.v1Id,
+        ],
+      ],
+    ]);
     const store = new PostgresBackfillProvenanceStore(database);
 
-    await store.registerV1Id(provenanceRecord(V1_ID));
+    await expect(store.registerV1Id(expected)).resolves.toEqual(expected);
 
     expect(queries).toHaveLength(1);
     const [update] = queries;
@@ -489,6 +501,33 @@ describe("PostgresBackfillProvenanceStore.registerV1Id", () => {
 
     await expect(store.registerV1Id(provenanceRecord(V1_ID))).rejects.toThrow(
       /expected exactly 1 row updated, got 0 \(aanvraag row does not exist\)/u
+    );
+  });
+
+  it("fails closed and diagnoses an update that returns multiple rows", async () => {
+    const expected = provenanceRecord(V1_ID);
+    const returnedRow = [
+      expected.aanvraagId,
+      expected.bronId,
+      expected.bronReferentie,
+      expected.contentHash,
+      expected.rawPayloadRef,
+      expected.v1Id,
+    ];
+    const { database, queries } = createScriptedDatabase([
+      [returnedRow, returnedRow],
+      [[V1_ID]],
+    ]);
+    const store = new PostgresBackfillProvenanceStore(database);
+
+    await expect(store.registerV1Id(expected)).rejects.toThrow(
+      /expected exactly 1 row updated, got 2 \(row matched but the guarded update did not apply\)/u
+    );
+
+    expect(queries).toHaveLength(2);
+    expect(queries[0]?.sql).toMatch(GUARDED_UPDATE);
+    expect(queries[1]?.sql).toMatch(
+      /select "v1_id" from "curated"\."aanvraag" where "curated"\."aanvraag"\."id" = \$1 limit \$2/u
     );
   });
 });
