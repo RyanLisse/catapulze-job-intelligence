@@ -106,3 +106,4 @@ export {
   CTM_PARSER_VERSION,
   type CtmConnectorOptions,
 } from "./ctm";
+export { decodeHtmlEntities } from "./html-entities";

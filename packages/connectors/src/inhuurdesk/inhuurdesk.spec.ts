@@ -9,10 +9,11 @@ import {
   runConnector,
 } from "@ji/connectors";
 
-import { createInhuurdeskClient } from "./client";
+import { createInhuurdeskClient, inhuurdeskBronReferentie } from "./client";
 import type { InhuurdeskClient } from "./client";
+import { projectInhuurdeskAssignment } from "./connector";
 import { hashInhuurdeskListingItem } from "./hash";
-import type { InhuurdeskAssignment } from "./types";
+import type { InhuurdeskAssignment, InhuurdeskFetchedPayload } from "./types";
 
 const retryPolicy = {
   initialDelayMs: 0,
@@ -23,7 +24,17 @@ const retryPolicy = {
 };
 
 describe("Inhuurdesk connector", () => {
-  it("ingests listing fixtures with found/new/changed/rejected/error metrics", async () => {
+  it("uses the platform UUID as bronReferentie", () => {
+    expect(
+      inhuurdeskBronReferentie({
+        id: "7b9e123f-db3e-417b-b88f-d7f280add881",
+        referenceCode: "SRQ178204",
+        title: "Programmasecretaris",
+      })
+    ).toBe("7b9e123f-db3e-417b-b88f-d7f280add881");
+  });
+
+  it("ingests the real listing fixture (captured 2026-09-03) with found/new/changed/rejected/error metrics", async () => {
     const bronId = "bron-inhuurdesk-fixture";
     const result = await runConnector({
       bronId,
@@ -41,16 +52,89 @@ describe("Inhuurdesk connector", () => {
       runKind: "test",
       runLifecycleStore: new InMemoryRunLifecycleStore(),
       scrapeRunId: "run-ih-1",
-      startedAt: new Date("2026-08-28T10:15:00.000Z"),
+      startedAt: new Date("2026-09-03T19:15:00.000Z"),
     });
 
     expect(result.metrics).toMatchObject({
       changed: 0,
       error: 0,
-      found: 2,
-      new: 2,
+      found: 4,
+      new: 4,
       rejected: 0,
     });
+  });
+
+  it("projects the real fixture record into a whitelisted payload only (DEC-008)", async () => {
+    const bronId = "bron-inhuurdesk-projection";
+    const connector = createInhuurdeskConnector({
+      bronId,
+      client: createInhuurdeskClient({ liveEnabled: false }),
+    });
+    const discovered = await connector.discover(null);
+    const target = discovered.items.find(
+      (item) => item.bronReferentie === "3c9792fd-d0ef-4bcc-9500-c2ceaba566a4"
+    );
+    expect(target).toBeDefined();
+    if (!target) {
+      throw new Error("fixture record 3c9792fd… not discovered");
+    }
+    const fetched = await connector.fetch(target);
+    expect(fetched?.status).toBe("fetched");
+    if (fetched?.status !== "fetched") {
+      throw new Error("expected fetched payload");
+    }
+    // SAFETY: the connector serialises InhuurdeskFetchedPayload as JSON.
+    const payload = JSON.parse(
+      new TextDecoder().decode(fetched.body)
+    ) as InhuurdeskFetchedPayload;
+    expect(payload.assignment).toEqual({
+      clientName: "Alliander",
+      clientNameSlug: "alliander",
+      closingDateClient: "2026-09-08T08:00:00",
+      closingDateInvoice: "2026-09-08T08:00:00",
+      content: payload.assignment.content,
+      endDate: "2026-12-14T00:00:00",
+      hasMaxRate: false,
+      hourlyRateMax: 0,
+      hourlyRateMin: 0,
+      hoursPerWeekMax: 36,
+      hoursPerWeekMin: 36,
+      id: "3c9792fd-d0ef-4bcc-9500-c2ceaba566a4",
+      location: "Arnhem Bellevue",
+      publishedDate: "2026-09-03T11:46:00",
+      referenceCode: "SRQ149582",
+      segmentName: "Techniek Binnen",
+      startDate: "2026-09-14T00:00:00",
+      title: "Planner C",
+      titleSlug: "planner-c",
+    });
+    expect(payload.assignment.content).toContain("<p>");
+    // Raw-only fields never leave the connector.
+    expect(payload.assignment).not.toHaveProperty("clientId");
+    expect(payload.assignment).not.toHaveProperty("portalId");
+    expect(payload.assignment).not.toHaveProperty("recruiterEmail");
+    expect(payload.assignment).not.toHaveProperty("brokerUrl");
+  });
+
+  it("rejects a listing row missing the stable id", async () => {
+    const bronId = "bron-inhuurdesk-missing-id";
+    const client: InhuurdeskClient = {
+      fetchListing: () =>
+        Promise.resolve({
+          // Live row without a usable id: fetch() must reject, not ingest.
+          data: [{ id: "", referenceCode: "SRQ1", title: "Geen id" }],
+          total: 1,
+        }),
+    };
+    const connector = createInhuurdeskConnector({ bronId, client });
+    const discovered = await connector.discover(null);
+    const [item] = discovered.items;
+    expect(item).toBeDefined();
+    if (!item) {
+      throw new Error("expected one discovered item");
+    }
+    const fetched = await connector.fetch(item);
+    expect(fetched?.status).toBe("rejected");
   });
 
   it("replays fixture ingest without duplicate source records", async () => {
@@ -78,41 +162,41 @@ describe("Inhuurdesk connector", () => {
     await runConnector({ ...sharedInput, scrapeRunId: "run-ih-replay-1" });
     await runConnector({ ...sharedInput, scrapeRunId: "run-ih-replay-2" });
 
-    expect(recorder.records).toHaveLength(2);
+    expect(recorder.records).toHaveLength(4);
     expect(
       new Set(recorder.records.map((record) => record.bronReferentie)).size
-    ).toBe(2);
+    ).toBe(4);
   });
 
-  it("advances through listing pages until total is exhausted", async () => {
+  it("advances through 1-indexed listing pages until total is exhausted", async () => {
     const bronId = "bron-inhuurdesk-pages";
     const assignments = [
       {
-        aanvraagnummer: "IH-1",
+        id: "ih-1",
         title: "One",
       },
       {
-        aanvraagnummer: "IH-2",
+        id: "ih-2",
         title: "Two",
       },
       {
-        aanvraagnummer: "IH-3",
+        id: "ih-3",
         title: "Three",
       },
       {
-        aanvraagnummer: "IH-4",
+        id: "ih-4",
         title: "Four",
       },
     ] satisfies InhuurdeskAssignment[];
     const client: InhuurdeskClient = {
       fetchListing: (page) => {
-        if (page === 0) {
+        if (page === 1) {
           return Promise.resolve({
             data: assignments.slice(0, 2),
             total: 4,
           });
         }
-        if (page === 1) {
+        if (page === 2) {
           return Promise.resolve({
             data: assignments.slice(2, 4),
             total: 4,
@@ -134,22 +218,39 @@ describe("Inhuurdesk connector", () => {
 
 describe("Inhuurdesk listing hash coverage (RJC-357 / RJC-401)", () => {
   const baseAssignment: InhuurdeskAssignment = {
-    aanvraagnummer: "AANVR-1",
+    id: "7b9e123f-db3e-417b-b88f-d7f280add881",
     title: "Senior Developer",
   };
 
   it("covers every InhuurdeskAssignment field the normaliser can read", async () => {
     const variants: Partial<InhuurdeskAssignment>[] = [
-      { aanvraagnummer: "AANVR-2" },
-      { client: "Gemeente Amsterdam" },
-      { description: "Andere omschrijving" },
-      { endDate: "2027-01-01" },
-      { hoursPerWeek: 36 },
-      { id: 12_345 },
+      { clientName: "Gemeente Amsterdam" },
+      { clientNameSlug: "gemeente-amsterdam" },
+      { closingDateClient: "2026-09-09T12:00:00" },
+      { closingDateInvoice: "2026-09-09T12:00:00" },
+      { content: "<p>Andere omschrijving</p>" },
+      { endDate: "2027-01-01T00:00:00" },
+      { hasMaxRate: true },
+      { hourlyRateMax: 110 },
+      { hourlyRateMin: 90 },
+      { hoursPerWeekMax: 36 },
+      { hoursPerWeekMin: 32 },
+      { id: "3c9792fd-d0ef-4bcc-9500-c2ceaba566a4" },
       { location: "Utrecht" },
-      { startDate: "2026-10-01" },
+      { publishedDate: "2026-09-03T14:43:00" },
+      { referenceCode: "SRQ178204" },
+      { segmentName: "DAS" },
+      { startDate: "2026-10-01T00:00:00" },
       { title: "Andere titel" },
+      { titleSlug: "andere-titel" },
     ];
+    // Every whitelisted key must have a variant above (RJC-401 sync guard).
+    const projectedKeys = Object.keys(
+      projectInhuurdeskAssignment(baseAssignment)
+    ).toSorted();
+    expect(
+      variants.flatMap((variant) => Object.keys(variant)).toSorted()
+    ).toEqual(projectedKeys);
     const base = await hashInhuurdeskListingItem(baseAssignment);
     for (const variant of variants) {
       // oxlint-disable-next-line no-await-in-loop -- sequential hash comparisons keep the failure message per-field
