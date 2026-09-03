@@ -42,7 +42,6 @@ export const scheduleSliceAPollsTask = schedules.task({
       bronnen.map((bron) => ({
         options: {
           concurrencyKey: bron.bronId,
-          queue: "poll-bron",
         },
         payload: {
           bronId: bron.bronId,
