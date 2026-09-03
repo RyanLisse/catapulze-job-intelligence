@@ -495,6 +495,13 @@ naar `server:3000`. Daarna zonder cookies
 `307` naar `/login`; een `500` betekent dat de server-side sessiecheck de API
 niet bereikt (`INTERNAL_SERVER_URL` ontbreekt of wijst verkeerd).
 
+Let op, al vóór deze fix aanwezig: draaien web en API op verschillende
+hostnamen, dan stuurt de browser het host-only sessiecookie van de API nooit
+mee naar de web-domain, en ziet de server-side sessiecheck een uitgelogde
+bezoeker — `/dashboard` bounct dan altijd naar `/login`, terwijl de 307-check
+hierboven gewoon slaagt. Dat vergt `crossSubDomainCookies` in Better Auth of
+een `/api/auth`-proxy op de web-host; apart op te pakken, niet in scope hier.
+
 ### Stap 6 — Redis en raw object store
 
 Redis on-box (privaat), `REDIS_URL` op de server. Raw store: een Cloudflare

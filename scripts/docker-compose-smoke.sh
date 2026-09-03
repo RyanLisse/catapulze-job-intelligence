@@ -38,6 +38,14 @@ bun run db:migrate
 "${compose_command[@]}" up -d --no-build --wait
 curl --fail --silent --show-error --retry 10 --retry-delay 2 http://localhost:3000/readyz >/dev/null
 curl --fail --silent --show-error --retry 10 --retry-delay 2 http://localhost:3001/ >/dev/null
+# The SSR session lookup on /dashboard leaves the web container over
+# INTERNAL_SERVER_URL; without it every /dashboard was a 500 (ECONNREFUSED
+# 127.0.0.1:3000) while "/" stayed green. Assert the logged-out redirect.
+dashboard_status="$(curl --silent --output /dev/null --write-out '%{http_code}' http://localhost:3001/dashboard)"
+if [[ "$dashboard_status" != "307" ]]; then
+  echo "docker-compose smoke: GET /dashboard returned $dashboard_status, expected 307 to /login (check INTERNAL_SERVER_URL on web)" >&2
+  exit 1
+fi
 echo "docker-compose smoke: postgres, server and web are healthy"
 
 # RJC-356: exercise the live Manticore document-id integration test now that
