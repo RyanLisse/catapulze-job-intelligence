@@ -11,7 +11,8 @@ The `/jobs` route exposes Boolean job search with filters, sort, pagination, and
 - `jobs-nav` header nav link `Zoeken` routes to `/jobs`.
 - `jobs-chips` every active filter and the query render as a removable chip above the results; `Alles wissen` clears query and filters together.
 - `jobs-facets` the sidebar facet groups (`Bron`, `Contract`, `Locatie`, `Gepubliceerd`, `Minimum uurtarief`) collapse on their heading and show live counts; groups past six entries expose `Toon alle N …`.
-- `jobs-archive` the `Ook in archief zoeken` checkbox sends `scope=all` (RJC-383).
+- `jobs-archive` the `Ook in archief zoeken` checkbox sets internal state `scope=all`; the shareable URL query is `archief=1` (not `scope=`), per `search-state.ts` (RJC-383).
+- `jobs-auth-gate` without `NEXT_PUBLIC_USE_FIXTURES` and without a session, `/jobs` shows H1 `Log in om opdrachten te bekijken` and button `Inloggen` instead of search UI.
 
 ## How to get to it (user POV)
 
@@ -36,7 +37,9 @@ Preconditions:
 
 - Fixture mode is the default verification precondition; record it in `meta.json` when fixtures were required.
 - Without fixtures, an empty or loading shell may mean Manticore/REST is down — that is an environment gap, not a passing search proof.
-- Search UI copy is Dutch; auth pages remain English (`Create Account`, `Sign In`, etc.).
+- Search UI copy is Dutch; auth pages remain English (`Welcome Back`, `Sign In`, etc.). Public sign-up is disabled — do not expect `Create Account` on `/login`.
+- Archive toggle: assert `archief=1` in the URL when archive search is on; `scope=` is internal state only.
+- Without fixtures and without a session, `/jobs` is an auth gate — that is expected, not a search regression.
 - Pagination controls read `Vorige` / `Volgende` on screen with accessible names `Vorige pagina` / `Volgende pagina`.
 - Boolean search and the facet sidebar are the capability the reference design does not have; a port that drops either is a regression, not a simplification.
 - Do not invent separate feature files for approvals or Spott export — they have no `:3001` UI yet.

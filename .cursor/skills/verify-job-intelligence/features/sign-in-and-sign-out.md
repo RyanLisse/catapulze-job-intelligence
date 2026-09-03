@@ -1,17 +1,17 @@
 # Sign in and sign out
 
-A returning user signs in from `Welcome Back`, sees the dashboard, then signs out and returns to home without a session.
+A returning user signs in from `Welcome Back`, sees the dashboard, then signs out and returns to home without a session. Public sign-up is disabled; `/login` mounts only the sign-in form (no switch to `Create Account`).
 
 ## Sub-features
 
-- `signin-switch` from `Create Account`, choose `Already have an account? Sign In` to get `Welcome Back`.
-- `signin-submit` valid email/password reaches `/dashboard`.
+- `signin-open` `/login` shows heading `Welcome Back`, labels `Email` / `Password`, button `Sign In`.
+- `signin-submit` valid email/password for a **provisioned** account reaches `/dashboard` with paragraph `Welcome <name>` and text `API: This is private`.
 - `signout` the user-menu button showing the account name exposes `Uitloggen` and returns to `/`.
 
 ## How to get to it (user POV)
 
-- `/login` → `Already have an account? Sign In`.
-- Header `Inloggen` while signed out, then switch to the sign-in form if needed.
+- Header button `Inloggen` while signed out → `/login` (`Welcome Back`).
+- Open `/login` directly.
 - Signed-in header button showing the user's name → `Uitloggen`.
 
 ## Driving it with control.mjs
@@ -19,19 +19,20 @@ A returning user signs in from `Welcome Back`, sees the dashboard, then signs ou
 Preconditions:
 
 - Doctor reports `ok: true`.
-- An existing account (from a prior sign-up run). Do not invent credentials.
+- **For `signin-submit` and `signout`:** an existing provisioned account in the database (CLI `auth:provision` or prior bootstrap). Without one, mark those sub-features `verified-unreachable` with prerequisite `provisioned account / AUTH_BOOTSTRAP` and still drive the reachable shell checks below.
 
 Browser path:
 
-- **Switch form.** On `/login`, choose `Already have an account? Sign In`. Heading becomes `Welcome Back`.
-- **Submit.** Fill labeled `Email` and `Password`, choose `Sign In`. Land on `/dashboard` with paragraph `Welcome <name>`.
-- **Sign out.** Open the header button whose name is the user name, choose `Uitloggen`. URL becomes `/`. Header shows button `Inloggen` again.
-- **Proof.** After sign-in, `GET /dashboard` with cookies is 200. After sign-out, `GET /dashboard` without those cookies (or after cookie clear) redirects to `/login`. Save both under `artifacts/sign-in-and-sign-out/`.
+- **Open sign-in.** Load `/login`. Heading is `Welcome Back`. No `Create Account`, `Sign Up`, or sign-up switch copy.
+- **Submit (when provisioned).** Fill labeled `Email` and `Password`, choose `Sign In`. Land on `/dashboard` with paragraph `Welcome <name>` and client-rendered `API: This is private`.
+- **Sign out (when provisioned).** Open the header button whose name is the user name, choose `Uitloggen`. URL becomes `/`. Header shows button `Inloggen` again.
+- **Proof.** Save screenshot/HTML under `artifacts/sign-in-and-sign-out/`. When provisioned: after sign-in, `GET /dashboard` with cookies is 200; after sign-out, `GET /dashboard` redirects to `/login`. When not provisioned: record `signin-submit` and `signout` as unreachable in `meta.json` with the prerequisite.
 
 ## Gotchas
 
-- `/login` opens on Sign Up. If you submit email/password on `Create Account` you are signing **up**, not in.
+- There is no sign-up/sign-in toggle on `/login`. Do not look for `Already have an account? Sign In` or `Need an account? Sign Up`.
 - Sign-out `onSuccess` pushes `/`. Proving sign-out requires a follow-up `/dashboard` request that redirects.
 - Shared local sessions: signing out here signs out that browser profile on 3001.
 - Dashboard welcome is a `<p>Welcome {name}</p>`, not a heading.
 - Do not look for menu item `Sign Out`; the live label is `Uitloggen`.
+- `API: This is private` is client-rendered via React Query; wait for it after the welcome paragraph.

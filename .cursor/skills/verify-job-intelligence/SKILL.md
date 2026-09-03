@@ -62,7 +62,7 @@ Harness:
   - Jobs search label `Zoek opdrachten met Boolean-logica`, results `aria-label="Zoekresultaten"`
   - Jobs active-filter chips: each chip removes one filter, `Alles wissen` resets query and filters
   - Jobs pagination buttons `Vorige` / `Volgende` with accessible names `Vorige pagina` / `Volgende pagina`
-  - Login headings `Create Account` / `Welcome Back`, labels `Name` / `Email` / `Password`, buttons `Sign Up` / `Sign In`
+  - Login heading `Welcome Back`, labels `Email` / `Password`, button `Sign In` (public sign-up disabled — no `Create Account` / `Sign Up` UI)
   - Dashboard paragraph `Welcome <name>`, text `API: This is private`
   - Theme toggle `sr-only` name `Thema wijzigen`, menu items `Licht` / `Donker` / `Systeem`
 
@@ -75,7 +75,7 @@ Drive at `http://localhost:3001` (not `127.0.0.1`). Next.js 16 dev blocks `_next
 
 Do not call tRPC `privateData` from a test-only client and call that a dashboard proof. The user path is `/login` then `/dashboard`.
 
-Auth sign-up writes a real row to the configured database. Use a unique `verify+<run-id>@example.test` email. There is no cleanup API; leftover verify users are expected.
+Public email/password sign-up is disabled (`disableSignUp: true`). Verify absence of sign-up UI and API rejection; do not drive a public sign-up flow. Provisioned accounts (`auth:provision`) are required for sign-in submit and sign-out proofs.
 
 ## Evidence
 
@@ -132,6 +132,7 @@ Sends SIGTERM (then SIGKILL) to the process groups recorded in `pids.json` only.
 bun .cursor/skills/verify-job-intelligence/scripts/control.mjs launch
 bun .cursor/skills/verify-job-intelligence/scripts/control.mjs doctor
 bun .cursor/skills/verify-job-intelligence/scripts/control.mjs snapshot home-command-center
+bun .cursor/skills/verify-job-intelligence/scripts/control.mjs drive
 bun .cursor/skills/verify-job-intelligence/scripts/control.mjs http http://localhost:3001/jobs
 bun .cursor/skills/verify-job-intelligence/scripts/control.mjs stop
 ```
