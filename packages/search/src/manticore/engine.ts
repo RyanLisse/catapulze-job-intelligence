@@ -224,7 +224,7 @@ export class ManticoreSearchEngine implements SearchEngine {
   constructor(
     client: ManticoreHttpClient,
     versionStore: SearchVersionStore,
-    indexName = SEARCH_INDEX_NAME,
+    indexName: string = SEARCH_INDEX_NAME,
     clock: () => Date = () => new Date()
   ) {
     this.client = client;
@@ -236,7 +236,7 @@ export class ManticoreSearchEngine implements SearchEngine {
   static fromUrl(
     baseUrl: string,
     versionStore: SearchVersionStore,
-    indexName = SEARCH_INDEX_NAME,
+    indexName: string = SEARCH_INDEX_NAME,
     clock: () => Date = () => new Date()
   ): ManticoreSearchEngine {
     return new ManticoreSearchEngine(

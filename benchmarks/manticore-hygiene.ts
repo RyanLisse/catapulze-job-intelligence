@@ -18,8 +18,11 @@ interface CleanupEngine {
       sequenceNumber: bigint;
     }[];
   }) => Promise<{
-    failures: { error: string; id: string }[];
-    unapplied: string[];
+    readonly failures: readonly {
+      readonly error: string;
+      readonly id: string;
+    }[];
+    readonly unapplied: readonly string[];
   }>;
 }
 

@@ -7,6 +7,7 @@ import type { BenchmarkProfile } from "./run";
 import { benchmarkProfileSchema, runMeasured, runWarmup } from "./run";
 
 const SEARCH_DELAY_MS = 5;
+const STUB_WINDOW_LIMIT = 1000;
 
 interface InFlightTracker {
   engine: SearchEngine;
@@ -41,7 +42,9 @@ const createInFlightTrackingEngine = (): InFlightTracker => {
           facets: emptySearchFacets(),
           hits: [],
           indexVersion: 1,
+          scope: "active",
           total: 0,
+          windowLimit: STUB_WINDOW_LIMIT,
         };
       },
       upsertDocument: () => Promise.resolve(),
