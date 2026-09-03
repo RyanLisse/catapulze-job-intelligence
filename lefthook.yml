@@ -12,6 +12,8 @@ pre-commit:
       exclude:
         - docs/**
         - openwiki/**
+        - .cursor/skills/verify-job-intelligence/**
+        - .cursor/skills/verify-job-intelligence/**
       run: bash tools/quality/fix-staged.sh {staged_files}
       stage_fixed: true
     - name: qlty

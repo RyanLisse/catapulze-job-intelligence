@@ -8,7 +8,7 @@ The checked-in app includes authentication, a recruiter home command center, Boo
 
 - Web at `http://localhost:3001`, API at `http://localhost:3000`.
 - `apps/server/.env` and `apps/web/.env` are present.
-- For `/jobs` verification without Manticore, set `NEXT_PUBLIC_USE_FIXTURES=1` in `apps/web/.env`.
+- For `/jobs` verification without Manticore, set `NEXT_PUBLIC_USE_FIXTURES=1` in `apps/web/.env` (not listed in `apps/web/.env.example`; optional for local verify only).
 - Run `bun .cursor/skills/verify-job-intelligence/scripts/control.mjs doctor` and require `ok: true`.
 - Never `stop` an instance this skill did not `launch`.
 - Ports 3000/3001 cannot be shared by two copies. If a human already has `bun run dev` up, set `JI_VERIFY_ALLOW_SHARED=1` and drive read-only.
@@ -19,7 +19,7 @@ The checked-in app includes authentication, a recruiter home command center, Boo
 - Start every recipe from the baseline unless its preconditions say otherwise.
 - Prefer headings, labeled inputs, link text, and `aria-label` over CSS or DOM position.
 - Treat helper commands as literal.
-- Restore nothing on Neon after signup; use a unique verify email per run.
+- Public email/password sign-up is disabled (`disableSignUp: true` in auth config). Do not expect a `Create Account` UI or a passing public sign-up flow.
 - Do not delete proof artifacts during cleanup.
 
 ## Proof and skip reporting
@@ -41,5 +41,5 @@ Each feature file starts with an H1 and one paragraph, then exactly four H2s: `S
 - [Home command center](./home-command-center.md) covers the public `/` recruiter landing and doctor tRPC `healthCheck`.
 - [Job search](./job-search.md) covers Boolean search at `/jobs` (fixtures or REST).
 - [Dashboard guard](./dashboard-guard.md) covers unauthenticated `/dashboard` redirect to `/login`.
-- [Sign up](./sign-up.md) covers creating an account and landing on the dashboard.
+- [Sign up](./sign-up.md) covers disabled public sign-up (no UI path; Better Auth rejects email sign-up).
 - [Sign in and sign out](./sign-in-and-sign-out.md) covers returning users and clearing the session.

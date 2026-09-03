@@ -1,37 +1,35 @@
 # Sign up
 
-A visitor creates an email-and-password account and lands on the dashboard, which greets them by name and shows private API text.
+Public email/password sign-up is **disabled**. Better Auth sets `disableSignUp: true` in `packages/auth/src/security-config.ts`. The `/login` route mounts only `SignInForm` (`Welcome Back`); `SignUpForm` (`Create Account`) exists in the repo but is not imported. New accounts are provisioned operator-side via the unmounted CLI `auth:provision` (see `docs/runbooks/auth-access.md`).
 
 ## Sub-features
 
-- `signup-open` shows `Create Account` on `/login`.
-- `signup-submit` accepts Name, Email, and Password (password ≥ 8 characters, name ≥ 2).
-- `signup-dashboard` after success the URL is `/dashboard`, paragraph includes `Welcome <name>`, and the page contains `API: This is private`.
+- `signup-disabled-ui` `/login` shows heading `Welcome Back` only — no `Create Account`, no `Sign Up` button, no `Need an account? Sign Up` switch.
+- `signup-disabled-api` `POST /api/auth/sign-up/email` with valid JSON is rejected (403 or equivalent error body) while `disableSignUp` remains true.
+- `signup-bootstrap-note` document-only: operator bootstrap is outside this skill's drive scope; cite `docs/runbooks/auth-access.md` when reporting provisioning prerequisites.
 
 ## How to get to it (user POV)
 
-- Choose header button `Inloggen` (routes to `/login`, which starts on Sign Up).
-- Open `/login` directly.
+- Open `/login` via header button `Inloggen` or directly.
+- There is no user-facing path to create an account. Do not hunt for a hidden sign-up toggle.
 
 ## Driving it with control.mjs
 
 Preconditions:
 
 - Doctor reports `ok: true`.
-- Use a unique email `verify+<run-id>@example.test` that is not already in the database.
-- Password at least 8 characters.
 
-This path needs a browser (or Better Auth `POST http://localhost:3000/api/auth/sign-up/email` with JSON `{ "name", "email", "password" }`, then a request to `/dashboard` that forwards the `Set-Cookie` values). Prefer the browser: fill labeled `Name`, `Email`, `Password`, choose `Sign Up`.
+Browser path:
 
-- **Open signup.** Load `/login`. Heading is `Create Account`.
-- **Submit.** Fill the three labeled fields and choose `Sign Up`. Toast `Sign up successful` may appear.
-- **Land.** URL is `/dashboard`. Visible text includes `Welcome` plus the name and `API: This is private`.
-- **Proof.** Screenshot plus HTML or ARIA snapshot in `artifacts/sign-up/`. Confirm a second `GET /dashboard` with the same cookies still shows the welcome line.
+- **Login shell.** Load `/login`. Heading is `Welcome Back`. Page does **not** contain `Create Account`, `Sign Up`, or `Already have an account? Sign In`.
+- **API rejection.** `POST http://localhost:3000/api/auth/sign-up/email` with `{ "name": "Verify User", "email": "verify+disabled@example.test", "password": "verify-pass-8" }` returns a non-success status (400/403) with an error such as `EMAIL_PASSWORD_SIGN_UP_DISABLED` — not a session cookie.
+- **Proof.** Save screenshot or HTML under `artifacts/sign-up/` with `meta.json` recording `disableSignUp: true` and the API status/body snippet.
+
+Do **not** mark `signup-submit` or `signup-dashboard` as verified via public sign-up. Those flows require a provisioned account (`auth:provision` / `AUTH_BOOTSTRAP`), covered under sign-in.
 
 ## Gotchas
 
-- Signup writes a real database user. Do not use a personal email. There is no delete-user control in this app.
-- Duplicate email fails with a toast; that is not a passing signup.
-- Client `router.push("/dashboard")` can race session cookies. Re-load `/dashboard` before asserting.
-- `API: This is private` is client-rendered via React Query; wait for it after the welcome paragraph.
-- Header chrome is Dutch (`Inloggen`, `Uitloggen`); login form copy remains English.
+- `SignUpForm` remains in `apps/web/src/components/sign-up-form.tsx` as orphaned code — absence from `/login` is the live behavior to verify.
+- A stale map that expects `/login` to open on `Create Account` is wrong; guard and sign-in recipes must expect `Welcome Back`.
+- Duplicate-email toasts and dashboard landing after sign-up are **not** applicable while public sign-up is disabled.
+- Header chrome is Dutch (`Inloggen`, `Uitloggen`); the sign-in form copy remains English.
