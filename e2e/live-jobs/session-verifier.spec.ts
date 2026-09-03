@@ -328,4 +328,64 @@ describe("live jobs Better Auth session verifier", () => {
       })
     ).rejects.toThrow(/configured subject/u);
   });
+
+  it("rejects a server-derived subject with leading whitespace", async () => {
+    const payload = validSessionPayload();
+    payload.user.id = ` ${config.expectedSubjectId}`;
+    const fetchedUrls: string[] = [];
+
+    await expect(
+      verifyAuthenticatedSession(config, {
+        fetcher: (input) => {
+          fetchedUrls.push(input);
+          return Promise.resolve(response(payload));
+        },
+        now: () => fixedNow,
+        readStorageState: () => Promise.resolve(validStorageState()),
+      })
+    ).rejects.toThrow(/configured subject/u);
+    expect(fetchedUrls).toEqual([
+      "https://api.jobs.example/api/auth/get-session",
+    ]);
+  });
+
+  it("rejects a server-derived subject with trailing whitespace", async () => {
+    const payload = validSessionPayload();
+    payload.user.id = `${config.expectedSubjectId} `;
+    const fetchedUrls: string[] = [];
+
+    await expect(
+      verifyAuthenticatedSession(config, {
+        fetcher: (input) => {
+          fetchedUrls.push(input);
+          return Promise.resolve(response(payload));
+        },
+        now: () => fixedNow,
+        readStorageState: () => Promise.resolve(validStorageState()),
+      })
+    ).rejects.toThrow(/configured subject/u);
+    expect(fetchedUrls).toEqual([
+      "https://api.jobs.example/api/auth/get-session",
+    ]);
+  });
+
+  it("rejects a server-derived subject containing only whitespace", async () => {
+    const payload = validSessionPayload();
+    payload.user.id = " ";
+    const fetchedUrls: string[] = [];
+
+    await expect(
+      verifyAuthenticatedSession(config, {
+        fetcher: (input) => {
+          fetchedUrls.push(input);
+          return Promise.resolve(response(payload));
+        },
+        now: () => fixedNow,
+        readStorageState: () => Promise.resolve(validStorageState()),
+      })
+    ).rejects.toThrow(/configured subject/u);
+    expect(fetchedUrls).toEqual([
+      "https://api.jobs.example/api/auth/get-session",
+    ]);
+  });
 });

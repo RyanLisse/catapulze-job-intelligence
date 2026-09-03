@@ -86,7 +86,7 @@ const sessionResponseSchema = z.object({
     expiresAt: z.string().datetime({ offset: true }),
   }),
   user: z.object({
-    id: z.string().trim().min(1).max(200),
+    id: z.string().min(1).max(200),
   }),
 });
 const missingSessionResponseSchema = z.union([
