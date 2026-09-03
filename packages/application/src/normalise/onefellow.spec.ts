@@ -160,7 +160,14 @@ describe("parseOnefellowPayload", () => {
   });
 
   it("maps the real Gasunie record end-to-end", () => {
-    const draft = parseOnefellowPayload(buildPayload(), "hash-4");
+    // The captured deadline (1788418800 = 2026-09-03T07:00Z) has passed, so
+    // push it into the future: this test is about the mapping, and the
+    // lifecycle assertion must not flip to "closed" by date math alone.
+    const futureDeadline = Math.floor(Date.now() / 1000) + 5 * 60;
+    const draft = parseOnefellowPayload(
+      buildPayload({ time_deadline: futureDeadline }),
+      "hash-4"
+    );
     expect(draft.bronReferentie.value).toBe("920");
     expect(draft.bronUrl.value).toBe("https://onefellow.nl/opdrachten/920");
     expect(draft.titel.value).toContain("Constructiemanager");

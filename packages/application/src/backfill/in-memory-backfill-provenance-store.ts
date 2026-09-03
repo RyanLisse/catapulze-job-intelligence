@@ -38,12 +38,35 @@ export class InMemoryBackfillProvenanceStore implements BackfillProvenanceStore 
     return { completedAt: new Date().toISOString(), startedAt };
   }
 
+  findByAanvraagId(
+    aanvraagId: string
+  ): Promise<BackfillProvenanceRecord | null> {
+    const record = [...this.byV1Id.values()].find(
+      (candidate) => candidate.aanvraagId === aanvraagId
+    );
+    return Promise.resolve(record ? structuredClone(record) : null);
+  }
+
   findByV1Id(v1Id: string): Promise<BackfillProvenanceRecord | null> {
     const record = this.byV1Id.get(v1Id);
     return Promise.resolve(record ? structuredClone(record) : null);
   }
 
+  /** Mirrors the Postgres adapter's one-v1-id-per-aanvraag guard so fixture
+   * runs reject the same collision production rejects. */
   registerV1Id(record: BackfillProvenanceRecord): Promise<void> {
+    const bound = [...this.byV1Id.values()].find(
+      (candidate) =>
+        candidate.aanvraagId === record.aanvraagId &&
+        candidate.v1Id !== record.v1Id
+    );
+    if (bound) {
+      return Promise.reject(
+        new Error(
+          `Refusing to register v1_id ${record.v1Id} on aanvraag ${record.aanvraagId}: aanvraag is already bound to v1_id ${bound.v1Id}; overwriting would break provenance`
+        )
+      );
+    }
     this.byV1Id.set(record.v1Id, structuredClone(record));
     return Promise.resolve();
   }

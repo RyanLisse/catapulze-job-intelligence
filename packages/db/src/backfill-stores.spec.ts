@@ -423,6 +423,34 @@ const provenanceRecord = (v1Id: string): BackfillProvenanceRecord => ({
 const GUARDED_UPDATE =
   /update "curated"\."aanvraag" set .*"v1_id" = \$\d+ where \("curated"\."aanvraag"\."id" = \$\d+ and \("curated"\."aanvraag"\."v1_id" is null or "curated"\."aanvraag"\."v1_id" = \$\d+\)\) returning "id"/u;
 
+describe("PostgresBackfillProvenanceStore.findByAanvraagId", () => {
+  it("reads only a bound aanvraag row", async () => {
+    const { database, queries } = createScriptedDatabase([
+      [
+        [
+          AANVRAAG_ID,
+          "6b1d4a72-0f3c-4d55-8a21-9c7e4f0b3d18",
+          "motian-external-1",
+          "sha256:0f2c0a0e4e1b4d7e9c6a2b7f2d5a9e11",
+          "motian/v1/job-1.json",
+          V1_ID,
+        ],
+      ],
+      [],
+    ]);
+    const store = new PostgresBackfillProvenanceStore(database);
+
+    expect(await store.findByAanvraagId(AANVRAAG_ID)).toEqual(
+      provenanceRecord(V1_ID)
+    );
+    expect(await store.findByAanvraagId("missing")).toBeNull();
+
+    expect(queries[0]?.sql).toMatch(
+      /where \("curated"\."aanvraag"\."id" = \$1 and "curated"\."aanvraag"\."v1_id" is not null\) limit \$2/u
+    );
+  });
+});
+
 describe("PostgresBackfillProvenanceStore.registerV1Id", () => {
   it("binds a v1_id to an unbound aanvraag with a guarded update", async () => {
     const { database, queries } = createScriptedDatabase([[[AANVRAAG_ID]]]);

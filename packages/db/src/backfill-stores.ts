@@ -134,6 +134,24 @@ export class PostgresBackfillProvenanceStore implements BackfillProvenanceStore 
     );
   }
 
+  async findByAanvraagId(
+    aanvraagId: string
+  ): Promise<BackfillProvenanceRecord | null> {
+    const [row] = await this.database
+      .select({
+        aanvraagId: aanvraag.id,
+        bronId: aanvraag.bronId,
+        bronReferentie: aanvraag.bronReferentie,
+        contentHash: aanvraag.contentHash,
+        rawPayloadRef: aanvraag.rawPayloadRef,
+        v1Id: aanvraag.v1Id,
+      })
+      .from(aanvraag)
+      .where(and(eq(aanvraag.id, aanvraagId), isNotNull(aanvraag.v1Id)))
+      .limit(1);
+    return row?.v1Id ? { ...row, v1Id: row.v1Id } : null;
+  }
+
   async findByV1Id(v1Id: string): Promise<BackfillProvenanceRecord | null> {
     const [row] = await this.database
       .select({

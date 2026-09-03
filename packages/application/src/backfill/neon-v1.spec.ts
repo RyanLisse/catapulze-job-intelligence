@@ -367,6 +367,8 @@ describe("Neon v1 backfill run", () => {
     const provenanceStore: BackfillProvenanceStore = {
       consumeReconciliationSnapshot: (bronIds, batchSize, consume) =>
         backingStore.consumeReconciliationSnapshot(bronIds, batchSize, consume),
+      findByAanvraagId: (aanvraagId) =>
+        backingStore.findByAanvraagId(aanvraagId),
       findByV1Id: (v1Id) => backingStore.findByV1Id(v1Id),
       registerV1Id: () => Promise.reject(storeError),
     };
@@ -398,6 +400,74 @@ describe("Neon v1 backfill run", () => {
     expect(diagnostic?.error.name).toBe("BackfillFailureError");
     expect(diagnostic?.error.cause).toBe(storeError);
     expect(JSON.stringify(result)).not.toContain(storeError.message);
+  });
+
+  it("refuses a second v1 row that collapses onto an already-bound aanvraag before curating it", async () => {
+    const curateStore = new InMemoryCurateStore();
+    const provenanceStore = new InMemoryBackfillProvenanceStore();
+    const firstJob = sampleJob();
+    const secondJob = {
+      ...sampleJob(),
+      description: "Same posting, different Motian id.",
+      id: "00000000-0000-4000-8000-000000000009",
+    };
+
+    const result = await runNeonV1Backfill({
+      bindings,
+      curateStore,
+      objectStore: new InMemoryObjectStore(),
+      provenanceStore,
+      runStore: new InMemoryBackfillRunStore(),
+      source: createFixtureNeonV1Source({
+        capturedAt: "2026-08-29T10:00:00.000Z",
+        contractVersion: NEON_V1_BACKFILL_CONTRACT_VERSION,
+        jobs: [firstJob, secondJob],
+      }),
+    });
+
+    expect(result.status).toBe("failed");
+    expect(result.evidence.failure).toEqual({
+      code: "PROVENANCE_MISMATCH",
+      phase: "provenance",
+    });
+    expect(getBackfillFailureDiagnostic(result)).toMatchObject({
+      sourceJobId: secondJob.id,
+    });
+    // The collision is refused before curation touches the aanvraag: one
+    // aanvraag, one version, one outbox event, still carrying the first row.
+    expect(curateStore.aanvragen).toHaveLength(1);
+    expect(curateStore.versies).toHaveLength(1);
+    expect(curateStore.outboxEvents).toHaveLength(1);
+    const firstProvenance = await provenanceStore.findByV1Id(firstJob.id);
+    expect(curateStore.aanvragen[0]?.contentHash).toBe(
+      firstProvenance?.contentHash
+    );
+    expect(await provenanceStore.findByV1Id(secondJob.id)).toBeNull();
+  });
+
+  it("mirrors the one-v1-id-per-aanvraag guard in the in-memory store", async () => {
+    const provenanceStore = new InMemoryBackfillProvenanceStore();
+    const aanvraagId = crypto.randomUUID();
+    const record = {
+      aanvraagId,
+      bronId: "bron-1",
+      bronReferentie: "ext-1",
+      contentHash: "0".repeat(64),
+      rawPayloadRef: "raw/ext-1.json",
+      v1Id: "v1-1",
+    };
+    await provenanceStore.registerV1Id(record);
+    await provenanceStore.registerV1Id(record);
+
+    await expect(
+      provenanceStore.registerV1Id({ ...record, v1Id: "v1-2" })
+    ).rejects.toThrow(
+      `Refusing to register v1_id v1-2 on aanvraag ${aanvraagId}: aanvraag is already bound to v1_id v1-1`
+    );
+    expect(await provenanceStore.findByAanvraagId(aanvraagId)).toMatchObject({
+      v1Id: "v1-1",
+    });
+    expect(await provenanceStore.findByAanvraagId("unbound")).toBeNull();
   });
 
   it("fails exact reconciliation on extra or duplicate target provenance", async () => {
