@@ -13,7 +13,7 @@
 | Reviews | klaar | 4× Codex autoreview clean (0.96–0.98); fable-advisor eindverdict *ship* na twee fix-first-rondes |
 | Neon productie (`neondb_owner`, ep-holy-dream-…-pooler, eu-west-2) | schema klaar | 15/15 migraties (0013/0014 op 2026-09-02 na branch-rehearsal; rollback-branch `rollback-pre-0013-0014-20260902` bewaard); 4 losse rijen, 0 backfill-runs, geen least-privilege-rollen (`ji_*`) aanwezig |
 | Cloudflare R2 | bucket bestaat | `catapulze-ji-storage` (aangemaakt 2026-09-01) op het account uit `R2_S3_API_ENDPOINT`; `RAW_S3_BUCKET` was TBD in ADR-0008, dit is hem |
-| Hetzner server 164228118 | Ubuntu 24.04 clean, protectie aan | SSH met de 1Password-sleutel werd op 2026-09-02 geweigerd op OS én Rescue; herstel via `hcloud server reset-password` liep op 2026-09-03 als Codex-lane (zie §4) |
+| Hetzner server **164361997** (`ubuntu-8gb-nbg1-1`, 23.88.60.222, CPX32 nbg1, Ubuntu 26.04) | **SSH werkt, Coolify 4.3.14 geïnstalleerd** (2026-09-03) | Oude 164228118 bestaat niet meer. Root-sleutel-login werkte direct zodra de sleutel in OpenSSH-formaat was (1Password gaf PKCS#8; gebruik `?ssh-format=openssh`). Sudo-gebruiker `catapulze` met dezelfde sleutel; wachtwoord-login uit; extern root-login uit. Hetzner-firewall 11557985: TCP 22 alleen vanaf egress `147.161.173.105/32` (⚠ dynamisch; Tailscale is de duurzame follow-up), 80/443 publiek, 8000 dicht. unattended-upgrades aan, UFW uit (runbook). Delete+rebuild-protectie aan. Coolify: lokaal 302 → /login, publiek geblokkeerd, via tunnel bereikbaar |
 | DNS | wijst NIET naar Hetzner | `api.catapulze.com`, `app.catapulze.com`, `catapulze.com` → A 80.69.67.21 (TransIP-nameservers). Bewuste omzetting nodig, niet gedaan |
 | Lokale Compose-stack (OrbStack) | gezond op image dd6f14c | alleen op de Mac; `/readyz` ready, 200 fixture-rijen |
 | Lokale Coolify-VM (OrbStack `coolify-local`, Coolify 4.3.14) | volledige stack draait op VM-interne Postgres | alleen op de Mac; bewijst Dockerfiles, projector-image en runbook-stappen |
@@ -76,6 +76,8 @@ Bekend gebrek: `/dashboard` doet server-side een auth-call naar `NEXT_PUBLIC_SER
 - Stale-lock-herstel na een gecrashte backfill automatiseren (heartbeat op `scrape_run`).
 - Rotatie Motian-owner-wachtwoord (zie §2).
 - RJC-373 Trigger.dev-productieconfiguratie.
+- Tailscale (of een vast bastion-IP) voor SSH naar de Hetzner-box; de huidige `/32`-regel breekt zodra het egress-IP wijzigt.
+- `packages/application/src/normalise/onefellow.spec.ts` was datumafhankelijk (Gasunie-deadline 2026-09-02); de klok is nu gepind met `setSystemTime` — zit als tweede commit op deze branch omdat de pre-push-gate anders op elke branch faalt.
 
 ## 6. Lokale artefacten die niet in git staan (alleen op de Mac)
 
