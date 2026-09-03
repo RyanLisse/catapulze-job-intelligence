@@ -51,11 +51,11 @@ const observation = (bronReferentie: string, contentHash: string) => ({
 const withFailingOutbox = (base: CurateStore): CurateStore => ({
   closeOpenVersie: (aanvraagId, closedAt) =>
     base.closeOpenVersie(aanvraagId, closedAt),
+  ensureDedupGroep: (input) => base.ensureDedupGroep(input),
   findAanvraagByIdentity: (bronId, bronReferentie) =>
     base.findAanvraagByIdentity(bronId, bronReferentie),
   findDedupGroepByKey: (dedupKey) => base.findDedupGroepByKey(dedupKey),
   insertAanvraag: (input) => base.insertAanvraag(input),
-  insertDedupGroep: (input) => base.insertDedupGroep(input),
   insertOutboxEvent: () =>
     Promise.reject(new Error("forced outbox insert failure")),
   insertVersie: (input) => base.insertVersie(input),
@@ -102,5 +102,44 @@ describe("curateObservation transaction semantics (RJC-399)", () => {
     expect(store.versies).toHaveLength(1);
     expect(store.versies[0]).toMatchObject({ geldigTot: null, versie: 1 });
     expect(store.outboxEvents).toHaveLength(1);
+  });
+});
+
+describe("curateObservation dedup grouping", () => {
+  const sharedTitle = (bronReferentie: string, contentHash: string) => {
+    const base = observation(bronReferentie, contentHash);
+    return {
+      ...base,
+      draft: {
+        ...base.draft,
+        opdrachtgeverNaam: { provenance, value: "Gemeente Amsterdam" },
+        startDatum: { provenance, value: "2026-10-01" },
+        titel: { provenance, value: "Senior Java Developer" },
+      },
+    };
+  };
+
+  it("links two listings with the same dedup key to one group", async () => {
+    const store = new InMemoryCurateStore();
+    const first = await curateObservation(store, sharedTitle("A", "hash-a"));
+    const second = await curateObservation(store, sharedTitle("B", "hash-b"));
+
+    const groepId = first.dedupGroepId ?? null;
+    expect(groepId).not.toBeNull();
+    expect(second.dedupGroepId).toBe(groepId ?? undefined);
+    expect(store.dedupGroepen).toHaveLength(1);
+    expect(store.aanvragen.map((row) => row.dedupGroepId)).toEqual([
+      groepId,
+      groepId,
+    ]);
+  });
+
+  it("gives listings with different keys their own groups", async () => {
+    const store = new InMemoryCurateStore();
+    const first = await curateObservation(store, observation("A", "hash-a"));
+    const second = await curateObservation(store, observation("B", "hash-b"));
+
+    expect(second.dedupGroepId).not.toBe(first.dedupGroepId);
+    expect(store.dedupGroepen).toHaveLength(2);
   });
 });

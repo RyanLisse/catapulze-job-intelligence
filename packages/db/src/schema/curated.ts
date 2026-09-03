@@ -171,8 +171,17 @@ export const dedupGroep = curatedSchema.table(
     createdAt: timestamp("created_at", { withTimezone: true })
       .defaultNow()
       .notNull(),
+    /**
+     * Canonical dedup key from `buildDedupKey` (normalised titel,
+     * opdrachtgever, startDatum joined by U+001F). One group per key is
+     * enforced by `dedup_groep_dedup_key_uidx`; the curate store relies on
+     * that index (insert ... on conflict do nothing, then re-select) so two
+     * concurrent imports of the same key converge on one group.
+     */
+    dedupKey: text("dedup_key"),
     handmatigBevestigd: boolean("handmatig_bevestigd").default(false).notNull(),
     id: uuid("id").defaultRandom().primaryKey(),
+    /** Legacy: held the dedup key before migration 0015 moved it to `dedup_key`. */
     methode: text("methode"),
     primaireAanvraagId: uuid("primaire_aanvraag_id"),
     similariteit: numeric("similariteit"),
@@ -182,7 +191,12 @@ export const dedupGroep = curatedSchema.table(
       .$onUpdate(() => new Date())
       .notNull(),
   },
-  (table) => [index("dedup_groep_status_idx").on(table.status)]
+  (table) => [
+    index("dedup_groep_status_idx").on(table.status),
+    uniqueIndex("dedup_groep_dedup_key_uidx")
+      .on(table.dedupKey)
+      .where(sql`${table.dedupKey} IS NOT NULL`),
+  ]
 );
 
 export const aanvraag = curatedSchema.table(

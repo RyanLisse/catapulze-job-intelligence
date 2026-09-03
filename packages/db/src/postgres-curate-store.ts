@@ -14,7 +14,7 @@ import type {
 } from "@ji/domain";
 import { AANVRAAG_LIFECYCLE } from "@ji/domain";
 import type { ExtractTablesWithRelations } from "drizzle-orm";
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq, isNull, sql } from "drizzle-orm";
 import type {
   PostgresJsDatabase,
   PostgresJsTransaction,
@@ -69,6 +69,16 @@ const emptyProvenance = (): StoredAanvraag["provenance"] => ({
   tarief_max: { parserVersion: "postgres-curate-store", sourcePath: "n/a" },
   tarief_min: { parserVersion: "postgres-curate-store", sourcePath: "n/a" },
   titel: { parserVersion: "postgres-curate-store", sourcePath: "n/a" },
+});
+
+const toStoredDedupGroep = (
+  row: typeof dedupGroep.$inferSelect,
+  dedupKey: string
+): StoredDedupGroep => ({
+  dedupGroepId: row.id,
+  dedupKey,
+  handmatigBevestigd: row.handmatigBevestigd,
+  status: "reviewable",
 });
 
 const toStoredAanvraag = (
@@ -143,17 +153,45 @@ export class PostgresCurateStore implements CurateStore {
     const [row] = await this.database
       .select()
       .from(dedupGroep)
-      .where(eq(dedupGroep.methode, dedupKey))
+      .where(eq(dedupGroep.dedupKey, dedupKey))
       .limit(1);
-    if (!row) {
-      return null;
+    return row ? toStoredDedupGroep(row, dedupKey) : null;
+  }
+
+  /**
+   * Get-or-create in two statements that are race-free together: the insert
+   * targets the partial unique index `dedup_groep_dedup_key_uidx`, so a
+   * concurrent transaction inserting the same key blocks until this one
+   * commits, then hits the conflict and re-selects the committed row. The
+   * re-select runs after the conflict wait, so under READ COMMITTED it sees
+   * the winner's row even though this transaction started earlier.
+   */
+  async ensureDedupGroep(input: {
+    dedupKey: string;
+  }): Promise<StoredDedupGroep> {
+    const inserted = await this.database
+      .insert(dedupGroep)
+      .values({ dedupKey: input.dedupKey, status: "reviewable" })
+      .onConflictDoNothing({
+        target: dedupGroep.dedupKey,
+        where: sql`${dedupGroep.dedupKey} IS NOT NULL`,
+      })
+      .returning();
+    const [row] = inserted;
+    if (row) {
+      return toStoredDedupGroep(row, input.dedupKey);
     }
-    return {
-      dedupGroepId: row.id,
-      dedupKey,
-      handmatigBevestigd: row.handmatigBevestigd,
-      status: "reviewable",
-    };
+    const existing = await this.findDedupGroepByKey(input.dedupKey);
+    if (!existing) {
+      // Only reachable if the committed group we conflicted with was deleted
+      // (splitDedupGroep) between the conflict and the re-select; a rolled
+      // back competitor never gets here, because Postgres then lets our own
+      // insert proceed instead of reporting a conflict.
+      throw new Error(
+        "Unable to resolve dedup_groep after a unique-key conflict"
+      );
+    }
+    return existing;
   }
 
   async insertAanvraag(
@@ -187,25 +225,6 @@ export class PostgresCurateStore implements CurateStore {
       })
       .returning();
     return toStoredAanvraag(requireRow(rows, "insert aanvraag"));
-  }
-
-  async insertDedupGroep(input: {
-    dedupKey: string;
-  }): Promise<StoredDedupGroep> {
-    const rows = await this.database
-      .insert(dedupGroep)
-      .values({
-        methode: input.dedupKey,
-        status: "reviewable",
-      })
-      .returning();
-    const row = requireRow(rows, "insert dedup_groep");
-    return {
-      dedupGroepId: row.id,
-      dedupKey: input.dedupKey,
-      handmatigBevestigd: row.handmatigBevestigd,
-      status: "reviewable",
-    };
   }
 
   async insertOutboxEvent(

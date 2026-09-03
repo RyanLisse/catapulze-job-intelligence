@@ -1105,3 +1105,198 @@ describe.serial("0011 to 0012 source_record listing_hash migration", () => {
     expect(updated).toMatchObject([{ listing_hash: "listing-hash-1" }]);
   });
 });
+
+describe.serial("0014 to 0015 dedup_groep dedup_key migration", () => {
+  let client: ReturnType<typeof postgres> | undefined;
+  let priorStatements: string[] = [];
+  let dedupKeyStatements: string[] = [];
+  const priorMigrations = [
+    "0000_core.sql",
+    "0001_u3_durable_ingestion.sql",
+    "0002_u8_backfill_observability.sql",
+    "0003_u9_snapshot_approval.sql",
+    "0004_u10_export_idempotency.sql",
+    "0005_u11_external_receipt.sql",
+    "0006_search_projection_checkpoint.sql",
+    "0007_snapshot_search_version.sql",
+    "0008_bulk_projector_claims.sql",
+    "0009_source_record_missed_polls.sql",
+    "0010_query_snapshot_search_scope.sql",
+    "0011_aanvraag_locatie_sluitingsdatum.sql",
+    "0012_source_record_listing_hash.sql",
+    "0013_durable_user_writes.sql",
+    "0014_auth_user_role.sql",
+  ];
+  // Pre-0015 rows stored the key in "methode": fields joined by U+001F.
+  const SEP = "";
+  const KEY_DUPLICATED = `senior java developer${SEP}gemeente amsterdam${SEP}2026-09-01`;
+  const KEY_SINGLE = `data engineer${SEP}provincie utrecht${SEP}2026-10-01`;
+  const UNIQUE_VIOLATION = "23505";
+
+  beforeAll(async () => {
+    if (!upgradeDatabaseUrl) {
+      if (upgradeDatabaseRequired) {
+        throw new Error("Required upgrade test database URL is unavailable");
+      }
+      return;
+    }
+    client = postgres(upgradeDatabaseUrl, { max: 1 });
+    const perMigration = await Promise.all(
+      priorMigrations.map((name) => readMigrationStatements(name))
+    );
+    priorStatements = perMigration.flat();
+    dedupKeyStatements = await readMigrationStatements(
+      "0015_dedup_groep_dedup_key.sql"
+    );
+  });
+
+  afterAll(async () => {
+    await client?.end({ timeout: 5 });
+  });
+
+  it("merges duplicate groups deterministically, backfills dedup_key, and enforces uniqueness", async () => {
+    if (!client) {
+      expect(upgradeDatabaseUrl).toBeUndefined();
+      return;
+    }
+
+    await client.unsafe(`
+      DROP SCHEMA IF EXISTS curated CASCADE;
+      DROP SCHEMA IF EXISTS marts CASCADE;
+      DROP SCHEMA IF EXISTS staging CASCADE;
+      DROP SCHEMA IF EXISTS drizzle CASCADE;
+      DROP SCHEMA IF EXISTS public CASCADE;
+      CREATE SCHEMA public;
+    `);
+    await client.begin(async (transaction) => {
+      for (const statement of priorStatements) {
+        // oxlint-disable-next-line no-await-in-loop -- migration statements are order-dependent
+        await transaction.unsafe(statement);
+      }
+    });
+
+    // Three groups for one key (the race this migration closes): the oldest,
+    // a newer one a reviewer confirmed, and a newest unconfirmed one. One
+    // group for another key, and one legacy row whose "methode" is not a key.
+    await client.unsafe(
+      `
+      INSERT INTO curated.dedup_groep (id, methode, handmatig_bevestigd, created_at) VALUES
+        ('30000000-0000-0000-0000-000000000001', $1, false, '2026-09-01T08:00:00Z'),
+        ('30000000-0000-0000-0000-000000000002', $1, true,  '2026-09-01T09:00:00Z'),
+        ('30000000-0000-0000-0000-000000000003', $1, false, '2026-09-01T10:00:00Z'),
+        ('30000000-0000-0000-0000-000000000004', $2, false, '2026-09-01T08:00:00Z'),
+        ('30000000-0000-0000-0000-000000000005', 'html', false, '2026-09-01T08:00:00Z');
+    `,
+      [KEY_DUPLICATED, KEY_SINGLE]
+    );
+    const [bron] = await client.unsafe(`
+      INSERT INTO curated.bron (categorie, naam) VALUES ('msp_broker', 'Existing Bron')
+      RETURNING id;
+    `);
+    const [scrapeRun] = await client.unsafe(`
+      INSERT INTO curated.scrape_run (bron_id) VALUES ('${bron?.id}')
+      RETURNING id;
+    `);
+    const aanvraagValues = (ref: string, groep: string | null) =>
+      `('${bron?.id}', '${ref}', 'beschrijving', 'hash-${ref}', now(), 'html_parser', now(), 'raw/${ref}.html', '${scrapeRun?.id}', 'titel', ${groep ? `'${groep}'` : "NULL"})`;
+    await client.unsafe(`
+      INSERT INTO curated.aanvraag
+        (bron_id, bron_referentie, beschrijving, content_hash, eerste_gezien_op, extractie_methode, laatst_gezien_op, raw_payload_ref, scrape_run_id, titel, dedup_groep_id)
+      VALUES
+        ${aanvraagValues("on-old", "30000000-0000-0000-0000-000000000001")},
+        ${aanvraagValues("on-confirmed", "30000000-0000-0000-0000-000000000002")},
+        ${aanvraagValues("on-new", "30000000-0000-0000-0000-000000000003")},
+        ${aanvraagValues("on-single", "30000000-0000-0000-0000-000000000004")},
+        ${aanvraagValues("on-legacy", "30000000-0000-0000-0000-000000000005")},
+        ${aanvraagValues("ungrouped", null)};
+    `);
+
+    await client.begin(async (transaction) => {
+      for (const statement of dedupKeyStatements) {
+        // oxlint-disable-next-line no-await-in-loop -- migration statements are order-dependent
+        await transaction.unsafe(statement);
+      }
+    });
+
+    // Survivor for the duplicated key is the confirmed group, even though it
+    // is not the oldest; both losers are gone.
+    const groups = await client.unsafe(`
+      SELECT id, methode, dedup_key, handmatig_bevestigd
+      FROM curated.dedup_groep ORDER BY id;
+    `);
+    expect(groups).toMatchObject([
+      {
+        dedup_key: KEY_DUPLICATED,
+        handmatig_bevestigd: true,
+        id: "30000000-0000-0000-0000-000000000002",
+        methode: KEY_DUPLICATED,
+      },
+      {
+        dedup_key: KEY_SINGLE,
+        handmatig_bevestigd: false,
+        id: "30000000-0000-0000-0000-000000000004",
+        methode: KEY_SINGLE,
+      },
+      // A non-key "methode" is preserved as-is and gets no dedup_key.
+      {
+        dedup_key: null,
+        handmatig_bevestigd: false,
+        id: "30000000-0000-0000-0000-000000000005",
+        methode: "html",
+      },
+    ]);
+
+    // Every aanvraag on a losing group now points at the survivor; the rest
+    // are untouched (no ON DELETE SET NULL fallout).
+    const links = await client.unsafe(`
+      SELECT bron_referentie, dedup_groep_id FROM curated.aanvraag ORDER BY bron_referentie;
+    `);
+    expect(links).toMatchObject([
+      {
+        bron_referentie: "on-confirmed",
+        dedup_groep_id: "30000000-0000-0000-0000-000000000002",
+      },
+      {
+        bron_referentie: "on-legacy",
+        dedup_groep_id: "30000000-0000-0000-0000-000000000005",
+      },
+      {
+        bron_referentie: "on-new",
+        dedup_groep_id: "30000000-0000-0000-0000-000000000002",
+      },
+      {
+        bron_referentie: "on-old",
+        dedup_groep_id: "30000000-0000-0000-0000-000000000002",
+      },
+      {
+        bron_referentie: "on-single",
+        dedup_groep_id: "30000000-0000-0000-0000-000000000004",
+      },
+      { bron_referentie: "ungrouped", dedup_groep_id: null },
+    ]);
+
+    // The index is what makes the curate store's insert-on-conflict safe.
+    const [index] = await client.unsafe(`
+      SELECT indexdef FROM pg_indexes
+      WHERE schemaname = 'curated' AND indexname = 'dedup_groep_dedup_key_uidx';
+    `);
+    expect(index?.indexdef).toContain("UNIQUE INDEX");
+    expect(index?.indexdef).toContain("WHERE (dedup_key IS NOT NULL)");
+    // postgres.js queries are lazy thenables, not Promises: wrap in an async
+    // call so `.rejects` actually executes the insert.
+    const activeClient = client;
+    const insertDuplicate = async (): Promise<void> => {
+      await activeClient.unsafe(
+        "INSERT INTO curated.dedup_groep (dedup_key) VALUES ($1);",
+        [KEY_SINGLE]
+      );
+    };
+    await expect(insertDuplicate()).rejects.toMatchObject({
+      code: UNIQUE_VIOLATION,
+    });
+    // NULL keys stay outside the index, so legacy-style rows still insert.
+    await client.unsafe(
+      "INSERT INTO curated.dedup_groep (methode) VALUES ('html'), ('html');"
+    );
+  });
+});
