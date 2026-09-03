@@ -85,6 +85,13 @@ git of in chat.**
 | `NODE_ENV` | nee (default `development`) | productie-guards (filesystem-weigering, Redis-boot-weigering) staan dan uit — zet hem in productie dus expliciet op `production` | deploy-configuratie |
 | `PORT` | nee (default 3000) | — | deploy-configuratie |
 
+### Web (apps/web) — leest via `packages/env/src/web.ts`
+
+| Variabele | Verplicht | Zonder deze | Wie levert |
+|---|---|---|---|
+| `NEXT_PUBLIC_SERVER_URL` | ja (URL) | build en boot falen (zod) | operator: publieke API-URL — als build-arg (wordt in de browserbundel ingebakken) én als runtimevariabele; nooit `server:3000` ([coolify-local.md](coolify-local.md)) |
+| `INTERNAL_SERVER_URL` | nee (valt terug op `NEXT_PUBLIC_SERVER_URL`) | server-side fetches van Next.js (de Better Auth-sessiecheck in `apps/web/src/app/dashboard/page.tsx`) gaan naar de publieke URL; routeert die niet vanuit de web-container (`localhost:3000` is dáár de web-container zelf), dan rendert `/dashboard` een 500 met `ECONNREFUSED 127.0.0.1:3000` — ook voor uitgelogde bezoekers, die dan geen redirect naar `/login` meer krijgen | deploy-configuratie: de interne API-URL zoals de web-container die ziet — compose zet `http://server:3000`; in Coolify de interne servicenaam en poort van de `server`-application. Alleen runtimevariabele, geen build-arg; komt nooit in browsercode (t3-env `server`-scope gooit bij client-toegang) |
+
 ### Worker (apps/worker, Trigger.dev) — leest `process.env` direct
 
 | Variabele | Verplicht | Zonder deze | Wie levert |
@@ -129,9 +136,10 @@ Alleen de one-shot migrator krijgt deze credential; de server-runtime nooit
 `RAW_STORAGE_MINIO_ROOT_PASSWORD`, `RAW_STORAGE_MINIO_API_PORT`,
 `RAW_STORAGE_MINIO_CONSOLE_PORT`, `MANTICORE29_HTTP_PORT`,
 `MANTICORE29_MYSQL_PORT`, `MANTICORE_HTTP_PORT`, `MANTICORE_MYSQL_PORT`,
-`REDIS_HOST_PORT`, `NEXT_PUBLIC_SERVER_URL` (deze laatste is in productie
-wél nodig als build-arg én runtimevariabele van `web`, met de publieke
-API-URL — nooit `server:3000` in browsercode, [coolify-local.md](coolify-local.md)).
+`REDIS_HOST_PORT`. `NEXT_PUBLIC_SERVER_URL` en `INTERNAL_SERVER_URL` staan
+ook in compose, maar horen bij de web-inventaris hierboven en zijn in
+productie wél nodig (publieke resp. interne API-URL — nooit `server:3000` in
+browsercode, [coolify-local.md](coolify-local.md)).
 
 Bij het controleren van env-waarden: scrub elke Postgres-URL vóór hij een
 terminal of log raakt — `sed -E 's#postgres(ql)?://[^ "]+#<url>#g'` — en
@@ -477,11 +485,15 @@ dit punt acceptabel zijn (`postgres` en `manticore` moeten al `ok` zijn).
 
 Coolify-application op `apps/web/Dockerfile`, poort 3001,
 `NEXT_PUBLIC_SERVER_URL` als build-arg én runtimevariabele op de publieke
-API-URL; domain via de Coolify-proxy.
+API-URL, `INTERNAL_SERVER_URL` als runtimevariabele op de interne URL van de
+`server`-application (§ 2, Web); domain via de Coolify-proxy.
 
 Verificatie: `curl -s -o /dev/null -w '%{http_code}' https://<web-domain>/`
 → `200`, en de browserconsole doet API-calls naar de publieke API-URL, niet
-naar `server:3000`.
+naar `server:3000`. Daarna zonder cookies
+`curl -s -o /dev/null -w '%{http_code}' https://<web-domain>/dashboard` →
+`307` naar `/login`; een `500` betekent dat de server-side sessiecheck de API
+niet bereikt (`INTERNAL_SERVER_URL` ontbreekt of wijst verkeerd).
 
 ### Stap 6 — Redis en raw object store
 
