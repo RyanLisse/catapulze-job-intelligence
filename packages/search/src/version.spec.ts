@@ -4,8 +4,11 @@ import {
   compareSearchVersions,
   InMemorySearchVersionStore,
   isStaleSearchVersion,
+  resolveSearchSchemaHash,
   SEARCH_SCHEMA_HASH,
+  SEARCH_SCHEMA_HASH_HYBRID,
   SEARCH_SCHEMA_HASH_V1,
+  SEARCH_SCHEMA_HASH_V4,
   startSearchGeneration,
 } from "./version";
 
@@ -82,6 +85,26 @@ describe("SEARCH_SCHEMA_HASH (RJC-378)", () => {
     expect(rebuilt.generation).toBe(2);
     const current = await stale.read();
     expect(current.schemaHash).toBe(SEARCH_SCHEMA_HASH);
+  });
+});
+
+describe("SEARCH_SCHEMA_HASH hybrid feature flag", () => {
+  it("keeps the current v4 schema when the flag is absent or off", () => {
+    expect(resolveSearchSchemaHash()).toBe(SEARCH_SCHEMA_HASH_V4);
+    expect(resolveSearchSchemaHash("0")).toBe(SEARCH_SCHEMA_HASH_V4);
+    expect(resolveSearchSchemaHash("true")).toBe(SEARCH_SCHEMA_HASH_V4);
+  });
+
+  it("selects a new vector and wordforms schema only for SEARCH_HYBRID=1", () => {
+    expect(resolveSearchSchemaHash("1")).toBe(SEARCH_SCHEMA_HASH_HYBRID);
+    expect(SEARCH_SCHEMA_HASH_HYBRID).not.toBe(SEARCH_SCHEMA_HASH_V4);
+    expect(SEARCH_SCHEMA_HASH_HYBRID).toContain("embedding=hnsw/cosine");
+    expect(SEARCH_SCHEMA_HASH_HYBRID).toContain(
+      "Xenova/paraphrase-multilingual-MiniLM-L12-v2"
+    );
+    expect(SEARCH_SCHEMA_HASH_HYBRID).toContain("from:titel+beschrijving");
+    expect(SEARCH_SCHEMA_HASH_HYBRID).toContain("gemeenten>gemeent");
+    expect(SEARCH_SCHEMA_HASH_HYBRID).toContain("duurzame>duurzaam");
   });
 });
 

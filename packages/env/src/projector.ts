@@ -16,6 +16,8 @@ export const env = createEnv({
     DATABASE_URL: z.string().trim().min(1),
     MANTICORE_URL: z.url(),
     PROJECTOR_DATABASE_URL: projectorDatabaseUrlSchema,
+    /** Must match the server while rebuilding/draining the hybrid generation. */
+    SEARCH_HYBRID: z.enum(["0", "1"]).default("0"),
   },
   skipValidation: !!process.env.SKIP_ENV_VALIDATION,
 });
