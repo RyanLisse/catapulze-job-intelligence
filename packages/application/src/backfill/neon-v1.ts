@@ -34,6 +34,8 @@ import type {
 } from "./neon-v1-types";
 import {
   NEON_V1_BACKFILL_CONTRACT_VERSION,
+  NEON_V1_DEFAULT_CONCURRENCY,
+  NEON_V1_MAX_CONCURRENCY,
   NEON_V1_PARSER_VERSION,
   BACKFILL_SCOPE_MANIFEST_VERSION,
   BACKFILL_TARGET_RECONCILIATION_VERSION,
@@ -42,7 +44,9 @@ import {
 
 export {
   NEON_V1_BACKFILL_CONTRACT_VERSION,
+  NEON_V1_DEFAULT_CONCURRENCY,
   NEON_V1_FORBIDDEN_TABLES,
+  NEON_V1_MAX_CONCURRENCY,
   NEON_V1_PARSER_VERSION,
   type BackfillBronBinding,
   type BackfillExecution,
@@ -367,6 +371,46 @@ const incrementMetric = (
   platformMetrics[key] += 1;
 };
 
+const mergeMetrics = (
+  target: MutableBackfillRunMetrics,
+  completed: MutableBackfillRunMetrics
+): void => {
+  for (const key of [
+    "duplicates",
+    "errors",
+    "extra",
+    "found",
+    "imported",
+    "matched",
+    "missing",
+    "rejected",
+    "selected",
+    "skipped",
+  ] as const) {
+    target[key] += completed[key];
+  }
+  for (const [platform, completedPlatform] of Object.entries(
+    completed.platforms
+  )) {
+    const targetPlatform = target.platforms[platform] ?? emptyPlatformMetrics();
+    target.platforms[platform] = targetPlatform;
+    for (const key of [
+      "duplicates",
+      "errors",
+      "extra",
+      "found",
+      "imported",
+      "matched",
+      "missing",
+      "rejected",
+      "selected",
+      "skipped",
+    ] as const) {
+      targetPlatform[key] += completedPlatform[key];
+    }
+  }
+};
+
 const platformForJob = (
   bindings: readonly BackfillBronBinding[],
   job: NeonV1JobRow
@@ -386,10 +430,9 @@ const snapshotMetrics = (
   matched: metrics.matched,
   missing: metrics.missing,
   platforms: Object.fromEntries(
-    Object.entries(metrics.platforms).map(([platform, platformMetrics]) => [
-      platform,
-      { ...platformMetrics },
-    ])
+    Object.entries(metrics.platforms)
+      .toSorted(([left], [right]) => compareCodeUnits(left, right))
+      .map(([platform, platformMetrics]) => [platform, { ...platformMetrics }])
   ),
   rejected: metrics.rejected,
   selected: metrics.selected,
@@ -790,8 +833,9 @@ const importNeonV1Job = async (input: {
       aanvraagId: curated.aanvraagId,
       rawPayloadRef,
     };
+    let registered: BackfillProvenanceRecord;
     try {
-      await input.provenanceStore.registerV1Id(provenance);
+      registered = await input.provenanceStore.registerV1Id(provenance);
     } catch (error) {
       throw new BackfillFailureError(
         {
@@ -802,12 +846,7 @@ const importNeonV1Job = async (input: {
         { cause: error }
       );
     }
-    const registered = await readProvenance(
-      input.provenanceStore,
-      input.job.id
-    );
     if (
-      !registered ||
       registered.aanvraagId !== curated.aanvraagId ||
       !provenanceMatches(registered, expectedProvenance, rawPayloadRef)
     ) {
@@ -844,6 +883,7 @@ const importNeonV1Job = async (input: {
 
 const importNeonV1Jobs = async (input: {
   bindings: readonly BackfillBronBinding[];
+  concurrency: number;
   curateStore: RunNeonV1BackfillInput["curateStore"];
   jobs: readonly NeonV1JobRow[];
   metrics: MutableBackfillRunMetrics;
@@ -852,30 +892,86 @@ const importNeonV1Jobs = async (input: {
   scrapeRunId: string;
   startedAt: Date;
 }): Promise<readonly BackfillProvenanceRecord[]> => {
-  const provenanceRecords: BackfillProvenanceRecord[] = [];
-  /* oxlint-disable no-await-in-loop -- backfill imports must stay ordered for deterministic metrics */
-  for (const job of input.jobs) {
-    const provenance = await importNeonV1Job({
-      bindings: input.bindings,
-      curateStore: input.curateStore,
-      job,
-      metrics: input.metrics,
-      objectStore: input.objectStore,
-      provenanceStore: input.provenanceStore,
-      scrapeRunId: input.scrapeRunId,
-      startedAt: input.startedAt,
-    });
-    if (provenance) {
-      provenanceRecords.push(provenance);
+  const activeIdentityKeys = new Set<string>();
+  const pendingIndexes = input.jobs.map((_job, index) => index);
+  const results: (BackfillProvenanceRecord | null | undefined)[] = Array.from({
+    length: input.jobs.length,
+  });
+  let firstFailure: BackfillFailureError | undefined;
+
+  const takeNext = ():
+    | { identityKey: string; index: number; job: NeonV1JobRow }
+    | undefined => {
+    if (firstFailure) {
+      return undefined;
     }
+    const pendingPosition = pendingIndexes.findIndex((index) => {
+      const job = input.jobs[index];
+      if (!job) {
+        return false;
+      }
+      const platform = platformForJob(input.bindings, job);
+      return !activeIdentityKeys.has(`${platform}\u0000${job.external_id}`);
+    });
+    if (pendingPosition === -1) {
+      return undefined;
+    }
+    const [index] = pendingIndexes.splice(pendingPosition, 1);
+    const job = index === undefined ? undefined : input.jobs[index];
+    if (!job || index === undefined) {
+      return undefined;
+    }
+    const platform = platformForJob(input.bindings, job);
+    const identityKey = `${platform}\u0000${job.external_id}`;
+    activeIdentityKeys.add(identityKey);
+    return { identityKey, index, job };
+  };
+
+  const worker = async (): Promise<void> => {
+    for (;;) {
+      const next = takeNext();
+      if (!next) {
+        return;
+      }
+      const completedMetrics = emptyMetrics(input.bindings);
+      try {
+        // oxlint-disable-next-line no-await-in-loop -- each bounded worker processes one row at a time
+        results[next.index] = await importNeonV1Job({
+          bindings: input.bindings,
+          curateStore: input.curateStore,
+          job: next.job,
+          metrics: completedMetrics,
+          objectStore: input.objectStore,
+          provenanceStore: input.provenanceStore,
+          scrapeRunId: input.scrapeRunId,
+          startedAt: input.startedAt,
+        });
+      } catch (error) {
+        if (!firstFailure && isBackfillFailure(error)) {
+          firstFailure = error;
+        }
+      } finally {
+        mergeMetrics(input.metrics, completedMetrics);
+        activeIdentityKeys.delete(next.identityKey);
+      }
+    }
+  };
+
+  const workerCount = Math.min(input.concurrency, input.jobs.length);
+  await Promise.all(Array.from({ length: workerCount }, () => worker()));
+  if (firstFailure) {
+    throw firstFailure;
   }
-  /* oxlint-enable no-await-in-loop */
-  return provenanceRecords;
+  return results.filter(
+    (record): record is BackfillProvenanceRecord =>
+      record !== null && record !== undefined
+  );
 };
 
 const importFromSource = async (input: {
   batchSize: number;
   bindings: readonly BackfillBronBinding[];
+  concurrency: number;
   curateStore: RunNeonV1BackfillInput["curateStore"];
   metrics: MutableBackfillRunMetrics;
   objectStore: RunNeonV1BackfillInput["objectStore"];
@@ -911,6 +1007,7 @@ const importFromSource = async (input: {
     }
     const provenanceRecords = await importNeonV1Jobs({
       bindings: input.bindings,
+      concurrency: input.concurrency,
       curateStore: input.curateStore,
       jobs,
       metrics: input.metrics,
@@ -1206,6 +1303,16 @@ export const runNeonV1Backfill = async (
   input: RunNeonV1BackfillInput
 ): Promise<BackfillRunResult> => {
   const execution = input.execution ?? DEFAULT_BACKFILL_EXECUTION;
+  const concurrency = input.concurrency ?? NEON_V1_DEFAULT_CONCURRENCY;
+  if (
+    !Number.isInteger(concurrency) ||
+    concurrency < 1 ||
+    concurrency > NEON_V1_MAX_CONCURRENCY
+  ) {
+    throw new Error(
+      `Motian v1 backfill concurrency must be an integer between 1 and ${NEON_V1_MAX_CONCURRENCY}`
+    );
+  }
   if (execution.mode === "production" && execution.scope !== "full") {
     throw new Error("Production Motian v1 backfills require scope: full");
   }
@@ -1227,6 +1334,7 @@ export const runNeonV1Backfill = async (
     artifacts.scopeManifest = await importFromSource({
       batchSize,
       bindings: input.bindings,
+      concurrency,
       curateStore: input.curateStore,
       metrics,
       objectStore: input.objectStore,
