@@ -238,8 +238,8 @@ export const createMotianNeonV1Source = (
             scraped_at::text AS scraped_at
           FROM jobs
           WHERE platform = ANY(${platforms})
-            AND (${afterId === null} OR id > ${afterId ?? ""})
-          ORDER BY id ASC
+            AND (${afterId === null} OR id COLLATE "C" > ${afterId ?? ""})
+          ORDER BY id COLLATE "C" ASC
           LIMIT ${size}
         `;
       return rows;
@@ -273,8 +273,8 @@ export const createMotianNeonV1Source = (
           WHERE platform = ANY(${platforms})
             AND deleted_at IS NULL
             AND archived_at IS NULL
-            AND (${afterId === null} OR id > ${afterId ?? ""})
-          ORDER BY id ASC
+            AND (${afterId === null} OR id COLLATE "C" > ${afterId ?? ""})
+          ORDER BY id COLLATE "C" ASC
           LIMIT ${size}
         `;
       return rows;
@@ -308,8 +308,8 @@ export const createMotianNeonV1Source = (
             AND deleted_at IS NULL
             AND archived_at IS NULL
             AND status = 'open'
-            AND (${afterId === null} OR id > ${afterId ?? ""})
-          ORDER BY id ASC
+            AND (${afterId === null} OR id COLLATE "C" > ${afterId ?? ""})
+          ORDER BY id COLLATE "C" ASC
           LIMIT ${size}
         `;
     return rows;

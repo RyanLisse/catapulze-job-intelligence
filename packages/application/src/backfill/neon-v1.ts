@@ -805,7 +805,7 @@ const importFromSource = async (input: {
   let selected = 0;
   const consume = async (jobs: readonly NeonV1JobRow[]): Promise<void> => {
     for (const job of jobs) {
-      if (lastSourceId !== null && job.id.localeCompare(lastSourceId) <= 0) {
+      if (lastSourceId !== null && job.id <= lastSourceId) {
         throw withFailureLocation(
           new BackfillFailureError({
             code: "SOURCE_READ_FAILED",

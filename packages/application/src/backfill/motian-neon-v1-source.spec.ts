@@ -380,7 +380,8 @@ describe("Motian Neon v1 source access", () => {
         expect(statement).toContain("start_date::text AS start_date");
         expect(statement).toContain("posted_at::text AS posted_at");
         expect(statement).toContain("scraped_at::text AS scraped_at");
-        expect(statement).toContain("(? OR id > ?)");
+        expect(statement).toContain('(? OR id COLLATE "C" > ?)');
+        expect(statement).toContain('ORDER BY id COLLATE "C" ASC');
         expect(statement).not.toContain("created_at");
         expect(statement).not.toContain("::uuid");
         expect(statement).not.toContain("updated_at");

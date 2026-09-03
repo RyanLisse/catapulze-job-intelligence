@@ -559,6 +559,51 @@ describe("Neon v1 backfill run", () => {
     expect(runStore.runs.at(-1)?.status).toBe("failed");
   });
 
+  it("checks source batches in C collation order", async () => {
+    const cOrderedIds = ["A-job", "A.job", "a-job", "a.job"];
+    const localeOrderedIds = ["a-job", "A-job", "a.job", "A.job"];
+    const runWithIds = async (ids: readonly string[]) => {
+      let consumed = false;
+      const result = await runNeonV1Backfill({
+        bindings,
+        curateStore: new InMemoryCurateStore(),
+        objectStore: new InMemoryObjectStore(),
+        provenanceStore: new InMemoryBackfillProvenanceStore(),
+        runStore: new InMemoryBackfillRunStore(),
+        source: {
+          consumeSnapshot: async (_batchSize, consume) => {
+            await consume(
+              ids.map((id) => ({
+                ...sampleJob(),
+                external_id: `external-${id}`,
+                id,
+              }))
+            );
+            consumed = true;
+            return {
+              completedAt: "2026-09-03T10:05:00.000Z",
+              startedAt: "2026-09-03T10:00:00.000Z",
+            };
+          },
+          label: "C-ordered-test",
+          loadJobs: () => Promise.resolve([]),
+        },
+      });
+      return { consumed, result };
+    };
+
+    const accepted = await runWithIds(cOrderedIds);
+    const rejected = await runWithIds(localeOrderedIds);
+
+    expect(accepted.consumed).toBe(true);
+    expect(accepted.result.metrics.selected).toBe(cOrderedIds.length);
+    expect(rejected.consumed).toBe(false);
+    expect(rejected.result.evidence.failure).toEqual({
+      code: "SOURCE_READ_FAILED",
+      phase: "source-read",
+    });
+  });
+
   it("fails a production run when a platform is rejected and persists its evidence", async () => {
     const runStore = new InMemoryBackfillRunStore();
     const result = await runNeonV1Backfill({
