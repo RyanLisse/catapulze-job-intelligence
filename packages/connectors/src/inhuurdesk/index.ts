@@ -1,7 +1,6 @@
 export {
   createInhuurdeskClient,
   inhuurdeskBronReferentie,
-  mergeListingIntoPayload,
   type InhuurdeskClient,
   type InhuurdeskClientOptions,
 } from "./client";

@@ -153,12 +153,12 @@ describe("U4/U5 fixture read path", () => {
     expect(result.metrics).toMatchObject({
       changed: 0,
       error: 0,
-      found: 2,
-      new: 2,
+      found: 4,
+      new: 4,
       rejected: 0,
     });
-    expect(observationRecorder.records).toHaveLength(2);
-    expect(curateStore.aanvragen).toHaveLength(2);
+    expect(observationRecorder.records).toHaveLength(4);
+    expect(curateStore.aanvragen).toHaveLength(4);
   });
 });
 

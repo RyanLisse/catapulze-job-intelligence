@@ -36,7 +36,7 @@ export const createInhuurdeskClient = (
   return {
     fetchListing: async (page) => {
       if (!liveEnabled) {
-        if (page > 0) {
+        if (page > 1) {
           return { data: [], total: 1 };
         }
         const fixture =
@@ -51,10 +51,10 @@ export const createInhuurdeskClient = (
   };
 };
 
+/** The platform UUID is the stable external id: the public detail URL is
+ * keyed on it and it is the record's primary identity across the
+ * HeadFirst-family APIs (same choice as Striive). `referenceCode` (the
+ * human-facing `SRQ…` aanvraagnummer) is kept in bronSpecifiek. */
 export const inhuurdeskBronReferentie = (
   assignment: InhuurdeskAssignment
-): string => assignment.aanvraagnummer;
-
-export const mergeListingIntoPayload = (
-  assignment: InhuurdeskAssignment
-): InhuurdeskAssignment => structuredClone(assignment);
+): string => assignment.id;

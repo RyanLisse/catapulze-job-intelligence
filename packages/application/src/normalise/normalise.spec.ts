@@ -56,11 +56,11 @@ const buildTenderNedPayload = (ids: {
 const buildInhuurdeskBody = (description: string): Uint8Array => {
   const payload: InhuurdeskFetchedPayload = {
     assignment: {
-      aanvraagnummer: "IH-AE6-001",
-      client: "Alliander",
-      description,
+      clientName: "Alliander",
+      content: description,
+      id: "ih-ae6-001",
       location: "Duiven",
-      startDate: "2026-09-01",
+      startDate: "2026-09-01T00:00:00",
       title: "Senior Java Developer",
     },
   };
@@ -113,9 +113,9 @@ describe("normalise", () => {
     const store = new InMemoryCurateStore();
     const payload: InhuurdeskFetchedPayload = {
       assignment: {
-        aanvraagnummer: "IH-INVALID",
-        client: "Alliander",
-        description: "Beschrijving",
+        clientName: "Alliander",
+        content: "Beschrijving",
+        id: "ih-invalid",
         title: "   ",
       },
     };
@@ -134,7 +134,7 @@ describe("normalise", () => {
     expect(store.aanvragen).toHaveLength(0);
   });
 
-  it("never auto-closes Inhuurdesk on a closing date (RJC-377): no such field exists at this source", async () => {
+  it("keeps Inhuurdesk active when no closingDateClient is present (absent stays absent)", async () => {
     const body = buildInhuurdeskBody("<p>Rolomschrijving.</p>");
     const contentHash = await hashContent(body);
     const draft = normaliseInhuurdeskObservation(body, contentHash);
