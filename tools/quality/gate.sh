@@ -61,6 +61,10 @@ run_phase performance-typecheck bun run check-types:performance
 echo "gate: CI metrics scripts typecheck"
 run_phase ci-metrics-typecheck bun run check-types:ci-metrics
 
+# Benchmarks live outside apps/* and packages/*, so turbo never type-checks them.
+echo "gate: benchmarks typecheck"
+run_phase benchmarks-typecheck bun run check-types:benchmarks
+
 echo "gate: check-layering"
 run_phase layering bun run check-layering
 
