@@ -46,7 +46,9 @@ services:
       - path: apps/web/.env
         required: false
     environment:
-      SERVER_URL: http://server:3000
+      # Server-only: what the Next.js server process (dashboard SSR session
+      # lookup) calls; the browser keeps using NEXT_PUBLIC_SERVER_URL below.
+      INTERNAL_SERVER_URL: ${INTERNAL_SERVER_URL:-http://server:3000}
       NEXT_PUBLIC_SERVER_URL: ${NEXT_PUBLIC_SERVER_URL:-http://localhost:3000}
     depends_on:
       server:

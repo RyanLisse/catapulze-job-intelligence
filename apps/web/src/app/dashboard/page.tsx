@@ -1,12 +1,15 @@
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 
-import { authClient } from "@/lib/auth-client";
+import { getServerAuthClient } from "@/lib/auth-server";
 
 import Dashboard from "./dashboard";
 
 export default async function DashboardPage() {
-  const session = await authClient.getSession({
+  // Server-side session lookup: this fetch leaves the web container, so it
+  // must use the internal API URL (see apps/web/src/lib/auth-server.ts), not
+  // the browser-facing NEXT_PUBLIC_SERVER_URL.
+  const session = await getServerAuthClient().getSession({
     fetchOptions: {
       headers: await headers(),
       throw: true,
