@@ -1,11 +1,13 @@
 import { describe, expect, it, mock } from "bun:test";
 
 import {
+  acquireManticoreBenchmarkLocks,
   assertCleanManticoreTables,
   cleanupAndAssertManticoreTables,
   cleanupBenchmarkRuns,
   cleanupManticoreDocuments,
   countManticoreRows,
+  MANTICORE_BENCH_HYBRID_TABLES,
   MANTICORE_BENCH_TABLES,
   requireManticoreUrl,
   scopeBenchmarkDocuments,
@@ -15,6 +17,25 @@ const countResponse = (count: number): Response =>
   Response.json([{ data: [{ "count(*)": count }] }]);
 
 describe("Manticore benchmark hygiene", () => {
+  it("serializes ownership of the same target across benchmark runs", async () => {
+    const release = await acquireManticoreBenchmarkLocks([
+      "http://manticore-lock.test:9308/path-one",
+      "http://manticore-lock.test:9308/path-two",
+    ]);
+    try {
+      await expect(
+        acquireManticoreBenchmarkLocks(["http://manticore-lock.test:9308"])
+      ).rejects.toThrow("Another benchmark process owns");
+    } finally {
+      await release();
+    }
+
+    const releaseAfter = await acquireManticoreBenchmarkLocks([
+      "http://manticore-lock.test:9308",
+    ]);
+    await releaseAfter();
+  });
+
   it("counts both dedicated tables with SELECT COUNT(*) and accepts zero rows", async () => {
     const request = mock((_url: string | URL | Request, init?: RequestInit) => {
       expect(String(init?.body)).toContain(
@@ -48,6 +69,27 @@ describe("Manticore benchmark hygiene", () => {
         request
       )
     ).rejects.toThrow("aanvragen_bench_active=2");
+  });
+
+  it("checks the combined logical table for a hybrid schema", async () => {
+    const queriedTables: string[] = [];
+    const request = mock((_url: string | URL | Request, init?: RequestInit) => {
+      queriedTables.push(decodeURIComponent(String(init?.body)));
+      return Promise.resolve(countResponse(0));
+    });
+
+    await assertCleanManticoreTables(
+      "hybrid benchmark",
+      "http://manticore.test",
+      "before",
+      request,
+      MANTICORE_BENCH_HYBRID_TABLES
+    );
+
+    expect(request).toHaveBeenCalledTimes(MANTICORE_BENCH_HYBRID_TABLES.length);
+    expect(queriedTables).toContain(
+      "query=SELECT COUNT(*) FROM aanvragen_bench"
+    );
   });
 
   it.each(["", " ", true, {}, "1.0", 1.5, -1, "01", "+1"])(
@@ -119,6 +161,24 @@ describe("Manticore benchmark hygiene", () => {
     expect(request).toHaveBeenCalledTimes(MANTICORE_BENCH_TABLES.length);
   });
 
+  it("proves all hybrid-schema tables clean after cleanup", async () => {
+    const request = mock(() => Promise.resolve(countResponse(0)));
+    const engine = {
+      applyBatch: () => Promise.resolve({ failures: [], unapplied: [] }),
+    };
+
+    await cleanupAndAssertManticoreTables(
+      "hybrid benchmark",
+      "http://manticore.test",
+      engine,
+      ["run-a"],
+      request,
+      MANTICORE_BENCH_HYBRID_TABLES
+    );
+
+    expect(request).toHaveBeenCalledTimes(MANTICORE_BENCH_HYBRID_TABLES.length);
+  });
+
   it("fails closed when CI requires Manticore but no URL is configured", () => {
     expect(() => requireManticoreUrl(undefined, true)).toThrow(
       "requires a non-empty MANTICORE_URL"
@@ -135,6 +195,15 @@ describe("Manticore benchmark hygiene", () => {
     expect(first.documentIds[0]).not.toBe(second.documentIds[0]);
     expect(first.toCorpusId(first.documentIds[0] ?? "")).toBe("corpus-a");
     expect(first.documents[0]?.title).toBe("A");
+  });
+
+  it("accepts a stable scope for deterministic relevance tie-breaking", () => {
+    const corpus = [{ id: "corpus-a" }, { id: "corpus-b" }];
+    const first = scopeBenchmarkDocuments(corpus, "golden-relevance-v1");
+    const second = scopeBenchmarkDocuments(corpus, "golden-relevance-v1");
+
+    expect(first.documentIds).toEqual(second.documentIds);
+    expect(first.toCorpusId(first.documentIds[0] ?? "")).toBe("corpus-a");
   });
 
   it("fails closed without exposing an unknown foreign hit id", () => {

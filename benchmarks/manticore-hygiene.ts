@@ -1,3 +1,8 @@
+import { createHash } from "node:crypto";
+import { mkdir, rmdir } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+
 import { z } from "zod";
 
 export const MANTICORE_BENCH_INDEX_NAME = "aanvragen_bench";
@@ -6,6 +11,63 @@ export const MANTICORE_BENCH_TABLES = [
   `${MANTICORE_BENCH_INDEX_NAME}_active`,
   `${MANTICORE_BENCH_INDEX_NAME}_archive`,
 ] as const;
+
+export const MANTICORE_BENCH_HYBRID_TABLES = [
+  MANTICORE_BENCH_INDEX_NAME,
+  ...MANTICORE_BENCH_TABLES,
+] as const;
+
+const benchmarkLockPath = (url: string): string => {
+  const { origin } = new URL(url);
+  const targetHash = createHash("sha256").update(origin).digest("hex");
+  return path.join(
+    os.tmpdir(),
+    `ji-manticore-benchmark-${targetHash.slice(0, 24)}.lock`
+  );
+};
+
+/**
+ * Claims exclusive ownership of every benchmark target for one process.
+ * Directory creation is atomic across worktrees. A crashed process leaves a
+ * fail-closed lock that the operator must inspect and remove deliberately.
+ */
+export const acquireManticoreBenchmarkLocks = async (
+  urls: readonly string[]
+): Promise<() => Promise<void>> => {
+  const lockPaths = [...new Set(urls.map(benchmarkLockPath))].toSorted();
+  const acquired: string[] = [];
+  try {
+    for (const lockPath of lockPaths) {
+      // oxlint-disable-next-line no-await-in-loop -- locks must be acquired in sorted order to avoid cross-target deadlock
+      await mkdir(lockPath, { mode: 0o700 });
+      acquired.push(lockPath);
+    }
+  } catch (error) {
+    await Promise.allSettled(acquired.map((lockPath) => rmdir(lockPath)));
+    const parsedError = z.object({ code: z.string() }).safeParse(error);
+    if (parsedError.success && parsedError.data.code === "EEXIST") {
+      throw new Error(
+        "Another benchmark process owns one of the configured Manticore targets",
+        { cause: error }
+      );
+    }
+    throw error;
+  }
+
+  return async () => {
+    const releases = await Promise.allSettled(
+      acquired.toReversed().map((lockPath) => rmdir(lockPath))
+    );
+    const releaseFailures = releases.filter(
+      (release) => release.status === "rejected"
+    );
+    if (releaseFailures.length > 0) {
+      throw new Error(
+        `Failed to release ${releaseFailures.length} Manticore benchmark target lock(s)`
+      );
+    }
+  };
+};
 
 type BenchmarkPhase = "after" | "before";
 
@@ -45,7 +107,8 @@ const canonicalCountSchema = z
 
 export const countManticoreRows = async (
   url: string,
-  request: CountRequest = fetch
+  request: CountRequest = fetch,
+  tables: readonly string[] = MANTICORE_BENCH_TABLES
 ): Promise<Record<string, number>> => {
   const countTable = async (table: string): Promise<[string, number]> => {
     const response = await request(`${url}/sql?mode=raw`, {
@@ -70,7 +133,7 @@ export const countManticoreRows = async (
   };
 
   return Object.fromEntries(
-    await Promise.all(MANTICORE_BENCH_TABLES.map((table) => countTable(table)))
+    await Promise.all(tables.map((table) => countTable(table)))
   );
 };
 
@@ -109,14 +172,14 @@ export interface ScopedBenchmarkDocuments<T extends { id: string }> {
   toCorpusId: (id: string) => string;
 }
 
-/** Gives each engine invocation collision-safe IDs while retaining score/export IDs. */
+/** Gives each engine invocation scoped IDs while retaining score/export IDs. */
 export const scopeBenchmarkDocuments = <T extends { id: string }>(
-  documents: readonly T[]
+  documents: readonly T[],
+  scopeId: string = crypto.randomUUID()
 ): ScopedBenchmarkDocuments<T> => {
-  const runId = crypto.randomUUID();
   const corpusIdsByScopedId = new Map<string, string>();
   const scopedDocuments = documents.map((document) => {
-    const id = `${runId}:${document.id}`;
+    const id = `${scopeId}:${document.id}`;
     corpusIdsByScopedId.set(id, document.id);
     return { ...document, id };
   });
@@ -137,9 +200,10 @@ export const assertCleanManticoreTables = async (
   name: string,
   url: string,
   phase: BenchmarkPhase,
-  request: CountRequest = fetch
+  request: CountRequest = fetch,
+  tables: readonly string[] = MANTICORE_BENCH_TABLES
 ): Promise<void> => {
-  const counts = await countManticoreRows(url, request);
+  const counts = await countManticoreRows(url, request, tables);
   console.log(`${name}: rows ${phase} run ${JSON.stringify(counts)}`);
   const dirty = Object.entries(counts).filter(([, count]) => count !== 0);
   if (dirty.length === 0) {
@@ -176,7 +240,8 @@ export const cleanupAndAssertManticoreTables = async (
   url: string,
   engine: CleanupEngine,
   documentIds: readonly string[],
-  request: CountRequest = fetch
+  request: CountRequest = fetch,
+  tables: readonly string[] = MANTICORE_BENCH_TABLES
 ): Promise<void> => {
   const failures: unknown[] = [];
   try {
@@ -185,7 +250,7 @@ export const cleanupAndAssertManticoreTables = async (
     failures.push(error);
   }
   try {
-    await assertCleanManticoreTables(name, url, "after", request);
+    await assertCleanManticoreTables(name, url, "after", request, tables);
   } catch (error) {
     failures.push(error);
   }

@@ -11,6 +11,17 @@ MANTICORE_URL=http://127.0.0.1:9308 bun run relevance    # + local Manticore
 
 Output: a per-category table of Recall@20 and nDCG@10 per engine, plus a deterministic JSON report at `.artifacts/relevance/report.json` (no timestamps — two runs on the same corpus produce byte-identical files).
 
+For the Manticore 29 hybrid decision, one invocation measures the three isolated candidate modes (plus the existing in-memory floor):
+
+```bash
+SEARCH_HYBRID=1 \
+MANTICORE_URL=http://127.0.0.1:9308 \
+MANTICORE_29_URL=http://127.0.0.1:9312 \
+bun run relevance
+```
+
+This adds `manticore-6.3.8-lexical`, `manticore-29-lexical`, and `manticore-29-hybrid`. The 29 modes run sequentially, with the mandatory empty-table proof across `aanvragen_bench`, `aanvragen_bench_active`, and `aanvragen_bench_archive`, plus run-scoped cleanup between them. The combined logical table is populated only for the 29 vector schema; 6.3.8 continues to use and inspect only its two partition tables. Volatile p50/p95 query latency for the default active scope and indexing throughput are written separately to `.artifacts/relevance/performance.json`, preserving the deterministic contract of `report.json`. Relevance documents use one stable benchmark scope so the numeric Manticore ID tie-break is identical across engines and repeated runs. Before the non-atomic empty-table preflight, the runner atomically claims a local per-endpoint lock shared across worktrees; a concurrent invocation fails closed instead of overwriting the stable IDs. For either 29 mode, `embeddingDocsPerSecond` is the measured indexing rate because the vector-schema table creates an auto-embedding for each indexed document; it is `null` for schemas without auto-embeddings.
+
 ## What it measures, and why these metrics
 
 - **Recall@20 (primary).** A missed assignment is a missed deal: the product cost of a relevant aanvraag not appearing on the first page dominates every other ranking concern. MRR is unsuitable because most queries have several correct answers, not one; P@k unfairly punishes queries with few relevant documents in a small corpus.
@@ -62,7 +73,7 @@ When a second annotator joins, disagreements resolve by discussion and the resol
 The runner talks only to the `SearchEngine` seam (`packages/search`):
 
 - **in-memory** — always runs; the floor. Its "ranking" is lexicographic id order with substring matching, so treat its nDCG as a baseline artifact.
-- **manticore** — runs when `MANTICORE_URL` is set and always targets the dedicated `aanvragen_bench_active` / `aanvragen_bench_archive` tables. Every invocation assigns UUID-scoped document ids, maps results back to stable corpus ids before scoring, deletes only those scoped ids, and requires both dedicated tables to be empty before and after the run. The runner never writes to or cleans production search tables.
+- **manticore** — runs when `MANTICORE_URL` is set and always targets the dedicated `aanvragen_bench_active` / `aanvragen_bench_archive` tables. Ordinary runs assign UUID-scoped document ids. The three-mode relevance comparison instead uses a stable scope for reproducible numeric-id tie-breaking and therefore holds an atomic per-endpoint lock for its full preflight/index/score/cleanup lifecycle. Results map back to stable corpus ids before scoring, cleanup deletes only the selected scope, and both dedicated tables must be empty before and after the run. The runner never writes to or cleans production search tables.
 
   Scoring runs twice per engine: `scope: "all"` (both partitions, the number comparable with pre-split history — printed first and stored under `engines`) and `scope: "active"` (the default search space; stored under `enginesActiveScope`).
 
