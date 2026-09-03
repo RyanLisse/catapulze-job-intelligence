@@ -40,7 +40,7 @@ One JSON object per line:
 }
 ```
 
-- ~43 Dutch queries across six categories: `exact-skill`, `nl-morphology` (ontwikkelaar/ontwikkelaars), `compound` (frontendontwikkelaar), `semantic-synonym`, `phrase-filter`, `nl-en-mix`. Some categories are thin because the corpus is thin; every query is answerable from the real corpus.
+- ~41 Dutch queries across six categories: `exact-skill`, `nl-morphology` (ontwikkelaar/ontwikkelaars), `compound` (frontendontwikkelaar), `semantic-synonym`, `phrase-filter`, `nl-en-mix`. Some categories are thin because the corpus is thin; every query is answerable from the real corpus.
 - `relevant`: binary judgments — document ids a searcher issuing this query would want to see.
 - `hardNegatives`: documents that superficially look relevant (shared stem, adjacent domain) but were judged irrelevant. They document the judgment boundary and keep future annotators honest; they do not enter the score.
 - `filters`: optional `SearchFilters` for the `phrase-filter` category.
