@@ -5,7 +5,10 @@ import type {
   BackfillFailureEvidence,
 } from "@ji/application/backfill";
 
-import { formatBackfillFailureDiagnostic } from "./backfill-neon-v1";
+import {
+  formatBackfillFailureDiagnostic,
+  resolveConcurrency,
+} from "./backfill-neon-v1";
 
 const failure: BackfillFailureEvidence = {
   code: "PROVENANCE_WRITE_FAILED",
@@ -53,5 +56,41 @@ describe("formatBackfillFailureDiagnostic", () => {
     expect(formatted).toContain('message="No underlying error"');
     expect(formatted).not.toContain("must-not-be-printed");
     expect(formatted.split("\n")).toHaveLength(1);
+  });
+});
+
+describe("resolveConcurrency", () => {
+  it("defaults to 16 and accepts the bounded maximum", () => {
+    const original = process.env.NEON_V1_CONCURRENCY;
+    try {
+      delete process.env.NEON_V1_CONCURRENCY;
+      expect(resolveConcurrency()).toBe(16);
+      process.env.NEON_V1_CONCURRENCY = "64";
+      expect(resolveConcurrency()).toBe(64);
+    } finally {
+      if (original === undefined) {
+        delete process.env.NEON_V1_CONCURRENCY;
+      } else {
+        process.env.NEON_V1_CONCURRENCY = original;
+      }
+    }
+  });
+
+  it("rejects values outside the fail-closed bound", () => {
+    const original = process.env.NEON_V1_CONCURRENCY;
+    try {
+      for (const invalid of ["0", "65", "1.5", "not-a-number"]) {
+        process.env.NEON_V1_CONCURRENCY = invalid;
+        expect(() => resolveConcurrency()).toThrow(
+          "NEON_V1_CONCURRENCY must be an integer between 1 and 64"
+        );
+      }
+    } finally {
+      if (original === undefined) {
+        delete process.env.NEON_V1_CONCURRENCY;
+      } else {
+        process.env.NEON_V1_CONCURRENCY = original;
+      }
+    }
   });
 });

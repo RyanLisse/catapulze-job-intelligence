@@ -52,6 +52,36 @@ reader applies UTC explicitly so the runtime timezone cannot shift a date.
 | Provenance and reconciliation | A pre-existing `v1_id` is only skipped after `(bron_id, bron_referentie, content_hash, raw_payload_ref)` and raw bytes match the current source row. The checkpoint persists a versioned scope manifest with source snapshot start/end, total and per-platform counts, and a rolling SHA-256 over ordered `[source id, canonical platform]` JSONL items. Target provenance is streamed in bounded keyset pages from a separate `REPEATABLE READ, READ ONLY` snapshot and persists the same ordered digest contract. Digest inequality fails the run even when counts are equal, so swapped IDs cannot hide behind `selected = matched`. |
 | Failure policy | A production run only succeeds when `errors = 0`, `rejected = 0`, `missing = 0`, `extra = 0`, and `duplicates = 0`. Failed checkpoints contain only a typed phase/code (`source-read`, `raw-write`, `curate`, `provenance`, or `reconcile`), never a URL, exception, or raw payload. |
 
+## Bounded row concurrency
+
+The 2026-09-03 production probe from a Hetzner CX43 to Neon `eu-west-2`
+and Cloudflare R2 measured about 57 rows/minute with sequential rows, versus
+about 1,400 rows/minute on local Compose. At 251,982 rows, the sequential path
+would take roughly 73 hours. The main cost was the series of short Neon and R2
+round trips per row, not the keyset source query.
+
+`NEON_V1_CONCURRENCY` therefore runs independent rows within each already
+ordered source batch through a bounded worker pool. It defaults to `16` and is
+refused outside `1..64`. Source IDs are still checked for canonical monotonic
+order before any row in the batch is dispatched. Rows sharing the same
+canonical `(platform, external_id)` key are serialized, so two source rows can
+never race `curateObservation` for one aanvraag. Successful provenance records
+are reassembled in source order before the manifest digest is updated.
+
+On the first row failure, the pool stops dispatching new rows, waits for the
+already in-flight rows, merges the counters of every completed row, and then
+records the first failure. A retry remains required and re-verifies both the R2
+readback and the end-to-end source/target reconciliation. The R2 `PUT` + `GET`
+durability proof is unchanged. The final provenance verification uses the full
+row returned by the existing guarded `UPDATE ... RETURNING`; a missing,
+multiple, or field-mismatched row still fails closed.
+
+Use the Neon **pooled** connection URL as `DATABASE_URL` for the destination
+import. The one-shot destination client sizes its postgres-js pool to the
+validated row concurrency, so its pool has at least as many connections as
+workers. Keep `MOTIAN_DATABASE_URL` on the direct read-only host for the
+long-lived source snapshot, as described below.
+
 Do not print, attach, or paste raw objects or database URLs into logs, tickets, or chat. The script’s JSON result contains only execution intent and counters.
 
 ## Exclusive window and snapshot preflight
@@ -132,7 +162,7 @@ Inspect `runMotianV1Backfill` JSON output. It contains `evidence.execution`, `ev
 
 | Variable | Required | Purpose |
 | -------- | -------- | ------- |
-| `DATABASE_URL` | Yes (persist mode) | Catapulze Postgres app role |
+| `DATABASE_URL` | Yes (persist mode) | Catapulze Postgres app role; use the Neon pooled URL for the concurrent production import |
 | `MOTIAN_DATABASE_URL` | Opt-in live Motian source | Read-only Motian-Neon role; **never commit** |
 | `RAW_S3_BUCKET` | Yes in production | Durable destination for copied raw Motian payloads |
 | `RAW_S3_ENDPOINT` | For S3-compatible stores | Object-store endpoint (for example Hetzner or MinIO) |
@@ -141,6 +171,7 @@ Inspect `runMotianV1Backfill` JSON output. It contains `evidence.execution`, `ev
 | `RAW_S3_SECRET_ACCESS_KEY` | Provider-dependent | Object-store secret key |
 | `MANTICORE_URL` | Yes for search | Manticore HTTP endpoint (server + worker) |
 | `NEON_V1_BATCH_SIZE` | No (default 1000) | Keyset batch size for live Motian import |
+| `NEON_V1_CONCURRENCY` | No (default 16, max 64) | Concurrent destination row workers inside one ordered source batch |
 | `NEON_V1_EXECUTION_MODE` | Yes for live backfill | `production` is explicit; it never derives from `NODE_ENV` |
 | `NEON_V1_SCOPE` | Yes for live backfill | `full` (all statuses, including deleted/archived); `active` is fixture/dev only |
 | `NEON_V1_INCLUDE_CLOSED` | Deprecated | Only widens legacy `active` scope; it has no effect in `full` |
@@ -153,11 +184,11 @@ When `MOTIAN_DATABASE_URL` is unset, `NEON_V1_EXECUTION_MODE=fixture bun run bac
 
 ```bash
 # CI / local fixture backfill (needs Catapulze Postgres)
-NEON_V1_EXECUTION_MODE=fixture bun run backfill:neon-v1
+NEON_V1_EXECUTION_MODE=fixture NEON_V1_CONCURRENCY=16 bun run backfill:neon-v1
 
 # Live Motian Neon: values are runtime-injected, never committed or echoed.
 # The script refuses a missing S3 backend, non-full scope, rejected rows, or errors.
-NEON_V1_EXECUTION_MODE=production NEON_V1_SCOPE=full bun run backfill:neon-v1
+NEON_V1_EXECUTION_MODE=production NEON_V1_SCOPE=full NEON_V1_CONCURRENCY=16 bun run backfill:neon-v1
 
 # Unit tests (in-memory, no Postgres)
 bun test packages/application/src/backfill packages/db/src/backfill-runner.spec.ts
