@@ -4,6 +4,7 @@ import { InMemoryObjectStore } from "@ji/connectors";
 import type { ObjectStore } from "@ji/connectors";
 
 import { InMemoryCurateStore } from "../identity/store";
+import type { JsonValue } from "../normalise";
 import { MOTIAN_V1_BRON_BINDINGS } from "./motian-v1-bindings";
 import {
   NEON_V1_BACKFILL_CONTRACT_VERSION,
@@ -299,6 +300,172 @@ describe("Neon v1 backfill run", () => {
     expect(result.evidence.failure).toEqual({
       code: "PROVENANCE_MISMATCH",
       phase: "provenance",
+    });
+  });
+
+  it("serializes identical raw bodies and reuses one content-addressed write", async () => {
+    const sharedSourceRow = { raw_payload: { vacancy: "same-object" } };
+    const first = {
+      ...fixtureJob("1", "external-1"),
+      sourceRow: sharedSourceRow,
+    };
+    const duplicateBody = {
+      ...fixtureJob("2", "external-2"),
+      sourceRow: sharedSourceRow,
+    };
+    const backingStore = new InMemoryObjectStore();
+    const firstPutStarted = Promise.withResolvers<undefined>();
+    const releaseFirstPut = Promise.withResolvers<undefined>();
+    let putCalls = 0;
+    let successfulReadbacks = 0;
+    const objectStore: ObjectStore = {
+      deleteExpired: (before) => backingStore.deleteExpired(before),
+      get: async (path) => {
+        const stored = await backingStore.get(path);
+        if (stored) {
+          successfulReadbacks += 1;
+        }
+        return stored;
+      },
+      put: async (object) => {
+        putCalls += 1;
+        if (putCalls === 1) {
+          firstPutStarted.resolve();
+          await releaseFirstPut.promise;
+        }
+        await backingStore.put(object);
+      },
+    };
+
+    const resultPromise = runNeonV1Backfill({
+      bindings,
+      concurrency: 2,
+      curateStore: new InMemoryCurateStore(),
+      objectStore,
+      provenanceStore: new InMemoryBackfillProvenanceStore(),
+      runStore: new InMemoryBackfillRunStore(),
+      source: createFixtureNeonV1Source({
+        capturedAt: "2026-09-03T10:05:00.000Z",
+        contractVersion: NEON_V1_BACKFILL_CONTRACT_VERSION,
+        jobs: [first, duplicateBody],
+      }),
+    });
+    await firstPutStarted.promise;
+    await Bun.sleep(0);
+
+    expect(putCalls).toBe(1);
+    releaseFirstPut.resolve();
+    const result = await resultPromise;
+
+    expect(result.status).toBe("succeeded");
+    expect(putCalls).toBe(1);
+    expect(successfulReadbacks).toBe(2);
+  });
+
+  it("retries the R2 same-object rate error and succeeds", async () => {
+    const backingStore = new InMemoryObjectStore();
+    let putCalls = 0;
+    const objectStore: ObjectStore = {
+      deleteExpired: (before) => backingStore.deleteExpired(before),
+      get: (path) => backingStore.get(path),
+      put: async (object) => {
+        putCalls += 1;
+        if (putCalls === 1) {
+          throw new Error(
+            "Reduce your concurrent request rate for the same object."
+          );
+        }
+        await backingStore.put(object);
+      },
+    };
+
+    const result = await runNeonV1Backfill({
+      bindings,
+      curateStore: new InMemoryCurateStore(),
+      objectStore,
+      provenanceStore: new InMemoryBackfillProvenanceStore(),
+      runStore: new InMemoryBackfillRunStore(),
+      source: createFixtureNeonV1Source({
+        capturedAt: "2026-09-03T10:05:00.000Z",
+        contractVersion: NEON_V1_BACKFILL_CONTRACT_VERSION,
+        jobs: [sampleJob()],
+      }),
+    });
+
+    expect(result.status).toBe("succeeded");
+    expect(putCalls).toBe(2);
+  });
+
+  it("does not retry a permanent object-store write error", async () => {
+    const permanentError = Object.assign(new Error("Access denied"), {
+      status: 403,
+    });
+    let putCalls = 0;
+    const objectStore: ObjectStore = {
+      deleteExpired: () => Promise.resolve(0),
+      get: () => Promise.resolve(null),
+      put: () => {
+        putCalls += 1;
+        return Promise.reject(permanentError);
+      },
+    };
+
+    const result = await runNeonV1Backfill({
+      bindings,
+      curateStore: new InMemoryCurateStore(),
+      objectStore,
+      provenanceStore: new InMemoryBackfillProvenanceStore(),
+      runStore: new InMemoryBackfillRunStore(),
+      source: createFixtureNeonV1Source({
+        capturedAt: "2026-09-03T10:05:00.000Z",
+        contractVersion: NEON_V1_BACKFILL_CONTRACT_VERSION,
+        jobs: [sampleJob()],
+      }),
+    });
+
+    expect(result.status).toBe("failed");
+    expect(result.evidence.failure).toEqual({
+      code: "RAW_WRITE_FAILED",
+      phase: "raw-write",
+    });
+    expect(putCalls).toBe(1);
+    expect(getBackfillFailureDiagnostic(result)?.error.cause).toBe(
+      permanentError
+    );
+  });
+
+  it("counts a pre-dispatch raw preparation failure exactly once", async () => {
+    const cyclicSourceRow: Record<string, JsonValue> = {};
+    cyclicSourceRow.self = cyclicSourceRow;
+
+    const result = await runNeonV1Backfill({
+      bindings,
+      concurrency: 16,
+      curateStore: new InMemoryCurateStore(),
+      objectStore: new InMemoryObjectStore(),
+      provenanceStore: new InMemoryBackfillProvenanceStore(),
+      runStore: new InMemoryBackfillRunStore(),
+      source: createFixtureNeonV1Source({
+        capturedAt: "2026-09-03T10:05:00.000Z",
+        contractVersion: NEON_V1_BACKFILL_CONTRACT_VERSION,
+        jobs: [{ ...sampleJob(), sourceRow: cyclicSourceRow }],
+      }),
+    });
+
+    expect(result.status).toBe("failed");
+    expect(result.evidence.failure).toEqual({
+      code: "RAW_WRITE_FAILED",
+      phase: "raw-write",
+    });
+    expect(result.metrics).toMatchObject({
+      errors: 1,
+      found: 1,
+      selected: 1,
+    });
+    expect(result.metrics.platforms.nationalevacaturebank).toMatchObject({
+      errors: 1,
+      found: 1,
+      selected: 1,
     });
   });
 

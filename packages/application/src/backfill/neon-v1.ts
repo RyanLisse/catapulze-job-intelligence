@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
+import { setTimeout as sleep } from "node:timers/promises";
 
 import {
   buildContentAddressedRawObjectPath,
@@ -146,6 +147,69 @@ const bytesEqual = (left: Uint8Array, right: Uint8Array): boolean => {
     return false;
   }
   return left.every((byte, index) => byte === right[index]);
+};
+
+const RAW_WRITE_RETRY_DELAYS_MS = [250, 1000, 4000] as const;
+const R2_SAME_OBJECT_RATE_MESSAGE =
+  "Reduce your concurrent request rate for the same object.";
+
+interface ObjectStoreErrorDetails extends Error {
+  readonly $metadata?: { readonly httpStatusCode?: number };
+  readonly code?: number | string;
+  readonly httpStatusCode?: number;
+  readonly status?: number;
+  readonly statusCode?: number;
+}
+
+const isTransientObjectStoreError = (error?: Error): boolean => {
+  if (!error) {
+    return false;
+  }
+  // SAFETY: object-store adapters add these optional HTTP diagnostic fields
+  // to Error instances; absent fields simply do not classify as transient.
+  const details = error as ObjectStoreErrorDetails;
+  const status =
+    details.status ??
+    details.statusCode ??
+    details.httpStatusCode ??
+    details.$metadata?.httpStatusCode ??
+    details.code;
+  if (
+    status !== undefined &&
+    [429, 500, 502, 503, 504, "429", "500", "502", "503", "504"].includes(
+      status
+    )
+  ) {
+    return true;
+  }
+  return error.message.includes(R2_SAME_OBJECT_RATE_MESSAGE);
+};
+
+const putRawWithRetry = async (
+  objectStore: ObjectStore,
+  object: Parameters<ObjectStore["put"]>[0]
+): Promise<void> => {
+  let originalCause: unknown;
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      // oxlint-disable-next-line no-await-in-loop -- retries must be sequential
+      await objectStore.put(object);
+      return;
+    } catch (error) {
+      originalCause ??= error;
+      const delayMs = RAW_WRITE_RETRY_DELAYS_MS[attempt];
+      if (
+        delayMs === undefined ||
+        !isTransientObjectStoreError(error instanceof Error ? error : undefined)
+      ) {
+        throw originalCause;
+      }
+      const jitteredDelayMs =
+        delayMs + Math.floor(Math.random() * delayMs * 0.25);
+      // oxlint-disable-next-line no-await-in-loop -- backoff separates sequential retry attempts
+      await sleep(jitteredDelayMs);
+    }
+  }
 };
 
 const tariefValue = (
@@ -636,6 +700,55 @@ const requireRawReadback = async (input: {
   }
 };
 
+const existingRawMatches = async (input: {
+  body: Uint8Array;
+  contentHash: string;
+  objectStore: ObjectStore;
+  rawPayloadRef: string;
+}): Promise<boolean> => {
+  let stored;
+  try {
+    stored = await input.objectStore.get(input.rawPayloadRef);
+  } catch (error) {
+    throw new BackfillFailureError(
+      {
+        code: "RAW_READBACK_FAILED",
+        phase: "raw-write",
+      },
+      false,
+      { cause: error }
+    );
+  }
+  if (!stored) {
+    return false;
+  }
+  let readbackHash: string;
+  try {
+    readbackHash = await hashContent(stored.body);
+  } catch (error) {
+    throw new BackfillFailureError(
+      {
+        code: "RAW_READBACK_FAILED",
+        phase: "raw-write",
+      },
+      false,
+      { cause: error }
+    );
+  }
+  if (
+    stored.contentType !== "json" ||
+    stored.body.byteLength !== input.body.byteLength ||
+    readbackHash !== input.contentHash ||
+    !bytesEqual(stored.body, input.body)
+  ) {
+    throw new BackfillFailureError({
+      code: "RAW_READBACK_FAILED",
+      phase: "raw-write",
+    });
+  }
+  return true;
+};
+
 const persistAndVerifyRaw = async (input: {
   body: Uint8Array;
   contentHash: string;
@@ -649,8 +762,18 @@ const persistAndVerifyRaw = async (input: {
     contentType: "json",
     startedAt: input.startedAt,
   });
+  if (
+    await existingRawMatches({
+      body: input.body,
+      contentHash: input.contentHash,
+      objectStore: input.objectStore,
+      rawPayloadRef,
+    })
+  ) {
+    return rawPayloadRef;
+  }
   try {
-    await input.objectStore.put({
+    await putRawWithRetry(input.objectStore, {
       body: input.body,
       contentType: "json",
       expiresAt: new Date(input.startedAt.getTime() + 90 * 86_400_000),
@@ -674,6 +797,12 @@ const persistAndVerifyRaw = async (input: {
   });
   return rawPayloadRef;
 };
+
+interface PreparedNeonV1Job {
+  readonly contentHash: string;
+  readonly job: NeonV1JobRow;
+  readonly rawBody: Uint8Array;
+}
 
 /**
  * Refuses a v1 row that would curate onto an aanvraag already bound to a
@@ -728,10 +857,12 @@ const importNeonV1Job = async (input: {
   provenanceStore: RunNeonV1BackfillInput["provenanceStore"];
   scrapeRunId: string;
   startedAt: Date;
+  prepared: PreparedNeonV1Job;
 }): Promise<BackfillProvenanceRecord | null> => {
-  const platformBinding = resolveBinding(input.bindings, input.job.platform);
+  const { contentHash, job, rawBody } = input.prepared;
+  const platformBinding = resolveBinding(input.bindings, job.platform);
   const platform =
-    platformBinding?.platform ?? platformForJob(input.bindings, input.job);
+    platformBinding?.platform ?? platformForJob(input.bindings, job);
   incrementMetric(input.metrics, platform, "found");
   incrementMetric(input.metrics, platform, "selected");
   if (!platformBinding) {
@@ -740,21 +871,6 @@ const importNeonV1Job = async (input: {
   }
 
   try {
-    let rawBody: Uint8Array;
-    let contentHash: string;
-    try {
-      rawBody = rawBodyForJob(input.job);
-      contentHash = await hashContent(rawBody);
-    } catch (error) {
-      throw new BackfillFailureError(
-        {
-          code: "RAW_WRITE_FAILED",
-          phase: "raw-write",
-        },
-        false,
-        { cause: error }
-      );
-    }
     const expectedProvenance = {
       bronId: platformBinding.bronId,
       bronReferentie: input.job.external_id,
@@ -892,39 +1008,70 @@ const importNeonV1Jobs = async (input: {
   scrapeRunId: string;
   startedAt: Date;
 }): Promise<readonly BackfillProvenanceRecord[]> => {
+  const preparedJobs = await Promise.all(
+    input.jobs.map(async (job): Promise<PreparedNeonV1Job> => {
+      try {
+        const rawBody = rawBodyForJob(job);
+        return { contentHash: await hashContent(rawBody), job, rawBody };
+      } catch (error) {
+        const platform = platformForJob(input.bindings, job);
+        incrementMetric(input.metrics, platform, "found");
+        incrementMetric(input.metrics, platform, "selected");
+        incrementMetric(input.metrics, platform, "errors");
+        throw withFailureLocation(
+          new BackfillFailureError(
+            { code: "RAW_WRITE_FAILED", phase: "raw-write" },
+            true,
+            { cause: error }
+          ),
+          {
+            platform,
+            sourceJobId: job.id,
+          }
+        );
+      }
+    })
+  );
   const activeIdentityKeys = new Set<string>();
-  const pendingIndexes = input.jobs.map((_job, index) => index);
+  const activeContentHashes = new Set<string>();
+  const pendingIndexes = preparedJobs.map((_job, index) => index);
   const results: (BackfillProvenanceRecord | null | undefined)[] = Array.from({
     length: input.jobs.length,
   });
   let firstFailure: BackfillFailureError | undefined;
 
   const takeNext = ():
-    | { identityKey: string; index: number; job: NeonV1JobRow }
+    | { identityKey: string; index: number; prepared: PreparedNeonV1Job }
     | undefined => {
     if (firstFailure) {
       return undefined;
     }
     const pendingPosition = pendingIndexes.findIndex((index) => {
-      const job = input.jobs[index];
-      if (!job) {
+      const prepared = preparedJobs[index];
+      if (!prepared) {
         return false;
       }
+      const { contentHash, job } = prepared;
       const platform = platformForJob(input.bindings, job);
-      return !activeIdentityKeys.has(`${platform}\u0000${job.external_id}`);
+      return (
+        !activeIdentityKeys.has(`${platform}\u0000${job.external_id}`) &&
+        !activeContentHashes.has(contentHash)
+      );
     });
     if (pendingPosition === -1) {
       return undefined;
     }
     const [index] = pendingIndexes.splice(pendingPosition, 1);
-    const job = index === undefined ? undefined : input.jobs[index];
-    if (!job || index === undefined) {
+    const prepared = index === undefined ? undefined : preparedJobs[index];
+    if (!prepared || index === undefined) {
       return undefined;
     }
+    const { contentHash, job } = prepared;
     const platform = platformForJob(input.bindings, job);
     const identityKey = `${platform}\u0000${job.external_id}`;
     activeIdentityKeys.add(identityKey);
-    return { identityKey, index, job };
+    activeContentHashes.add(contentHash);
+    return { identityKey, index, prepared };
   };
 
   const worker = async (): Promise<void> => {
@@ -939,9 +1086,10 @@ const importNeonV1Jobs = async (input: {
         results[next.index] = await importNeonV1Job({
           bindings: input.bindings,
           curateStore: input.curateStore,
-          job: next.job,
+          job: next.prepared.job,
           metrics: completedMetrics,
           objectStore: input.objectStore,
+          prepared: next.prepared,
           provenanceStore: input.provenanceStore,
           scrapeRunId: input.scrapeRunId,
           startedAt: input.startedAt,
@@ -953,6 +1101,7 @@ const importNeonV1Jobs = async (input: {
       } finally {
         mergeMetrics(input.metrics, completedMetrics);
         activeIdentityKeys.delete(next.identityKey);
+        activeContentHashes.delete(next.prepared.contentHash);
       }
     }
   };
