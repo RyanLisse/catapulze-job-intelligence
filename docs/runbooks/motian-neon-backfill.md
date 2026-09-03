@@ -64,17 +64,24 @@ round trips per row, not the keyset source query.
 ordered source batch through a bounded worker pool. It defaults to `16` and is
 refused outside `1..64`. Source IDs are still checked for canonical monotonic
 order before any row in the batch is dispatched. Rows sharing the same
-canonical `(platform, external_id)` key are serialized, so two source rows can
-never race `curateObservation` for one aanvraag. Successful provenance records
-are reassembled in source order before the manifest digest is updated.
+canonical `(platform, external_id)` key or normalized
+`(opdrachtgever, startDatum, titel)` dedup key are serialized, so two source
+rows can never race `curateObservation` for one aanvraag or dedup group.
+Successful provenance records are reassembled in source order before the
+manifest digest is updated.
 
 On the first row failure, the pool stops dispatching new rows, waits for the
 already in-flight rows, merges the counters of every completed row, and then
-records the first failure. A retry remains required and re-verifies both the R2
-readback and the end-to-end source/target reconciliation. The R2 `PUT` + `GET`
-durability proof is unchanged. The final provenance verification uses the full
-row returned by the existing guarded `UPDATE ... RETURNING`; a missing,
-multiple, or field-mismatched row still fails closed.
+records the first failure in completion order. A retry remains required and
+re-verifies both the R2 readback and the end-to-end source/target
+reconciliation. The R2 `PUT` + `GET` durability proof is unchanged. The final
+provenance verification uses the full row returned by the existing guarded
+`UPDATE ... RETURNING`; a missing, multiple, or field-mismatched row still
+fails closed.
+
+Open follow-up (out of this PR): add a structural partial unique index for
+active dedup keys, use `INSERT ... ON CONFLICT DO NOTHING`, and re-select the
+winning row. That database-level guarantee requires migration `0016`.
 
 Use the Neon **pooled** connection URL as `DATABASE_URL` for the destination
 import. The one-shot destination client sizes its postgres-js pool to the

@@ -177,15 +177,18 @@ export const buildSnapshot = (stored: StoredAanvraag): AanvraagSnapshot => ({
   titel: stored.titel,
 });
 
-const ensureDedupGroep = async (
-  store: CurateStore,
-  draft: NormalisedAanvraagDraft
-): Promise<StoredDedupGroep | null> => {
-  const dedupKey = buildDedupKey({
+export const dedupKeyForDraft = (draft: NormalisedAanvraagDraft): string =>
+  buildDedupKey({
     opdrachtgeverNaam: draft.opdrachtgeverNaam.value,
     startDatum: draft.startDatum.value,
     titel: draft.titel.value,
   });
+
+const ensureDedupGroep = async (
+  store: CurateStore,
+  draft: NormalisedAanvraagDraft
+): Promise<StoredDedupGroep | null> => {
+  const dedupKey = dedupKeyForDraft(draft);
   const existing = await store.findDedupGroepByKey(dedupKey);
   if (existing) {
     return existing;

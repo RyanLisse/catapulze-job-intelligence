@@ -10,7 +10,7 @@ import {
 import type { ObjectStore } from "@ji/connectors";
 import { UNKNOWN } from "@ji/domain";
 
-import { curateObservation } from "../identity/curate";
+import { curateObservation, dedupKeyForDraft } from "../identity/curate";
 import type { CurateStore } from "../identity/curate";
 import { field } from "../normalise";
 import type { NormalisedAanvraagDraft } from "../normalise";
@@ -892,6 +892,7 @@ const importNeonV1Jobs = async (input: {
   scrapeRunId: string;
   startedAt: Date;
 }): Promise<readonly BackfillProvenanceRecord[]> => {
+  const activeDedupKeys = new Set<string>();
   const activeIdentityKeys = new Set<string>();
   const pendingIndexes = input.jobs.map((_job, index) => index);
   const results: (BackfillProvenanceRecord | null | undefined)[] = Array.from({
@@ -900,7 +901,12 @@ const importNeonV1Jobs = async (input: {
   let firstFailure: BackfillFailureError | undefined;
 
   const takeNext = ():
-    | { identityKey: string; index: number; job: NeonV1JobRow }
+    | {
+        dedupKey: string;
+        identityKey: string;
+        index: number;
+        job: NeonV1JobRow;
+      }
     | undefined => {
     if (firstFailure) {
       return undefined;
@@ -911,7 +917,11 @@ const importNeonV1Jobs = async (input: {
         return false;
       }
       const platform = platformForJob(input.bindings, job);
-      return !activeIdentityKeys.has(`${platform}\u0000${job.external_id}`);
+      const identityKey = `${platform}\u0000${job.external_id}`;
+      const dedupKey = dedupKeyForDraft(mapV1JobToDraft(job));
+      return (
+        !activeIdentityKeys.has(identityKey) && !activeDedupKeys.has(dedupKey)
+      );
     });
     if (pendingPosition === -1) {
       return undefined;
@@ -923,8 +933,10 @@ const importNeonV1Jobs = async (input: {
     }
     const platform = platformForJob(input.bindings, job);
     const identityKey = `${platform}\u0000${job.external_id}`;
+    const dedupKey = dedupKeyForDraft(mapV1JobToDraft(job));
+    activeDedupKeys.add(dedupKey);
     activeIdentityKeys.add(identityKey);
-    return { identityKey, index, job };
+    return { dedupKey, identityKey, index, job };
   };
 
   const worker = async (): Promise<void> => {
@@ -952,6 +964,7 @@ const importNeonV1Jobs = async (input: {
         }
       } finally {
         mergeMetrics(input.metrics, completedMetrics);
+        activeDedupKeys.delete(next.dedupKey);
         activeIdentityKeys.delete(next.identityKey);
       }
     }

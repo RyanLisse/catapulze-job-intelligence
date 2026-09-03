@@ -2,6 +2,7 @@ import { describe, expect, it } from "bun:test";
 
 import { InMemoryObjectStore } from "@ji/connectors";
 import type { ObjectStore } from "@ji/connectors";
+import type { BronId } from "@ji/domain";
 
 import { InMemoryCurateStore } from "../identity/store";
 import { MOTIAN_V1_BRON_BINDINGS } from "./motian-v1-bindings";
@@ -179,7 +180,7 @@ describe("Neon v1 backfill run", () => {
       fixtureJob("2", "external-2"),
       fixtureJob("3", "external-3"),
       fixtureJob("4", "external-4"),
-    ];
+    ].map((job, index) => ({ ...job, title: `Independent role ${index}` }));
     const [failingJob, inFlightJob] = jobs;
     if (!failingJob || !inFlightJob) {
       throw new Error("Expected failure test jobs");
@@ -245,7 +246,10 @@ describe("Neon v1 backfill run", () => {
   it("serializes duplicate platform and external_id keys within a batch", async () => {
     const first = fixtureJob("1", "shared-external-id");
     const duplicate = fixtureJob("2", "shared-external-id");
-    const independent = fixtureJob("3", "independent-external-id");
+    const independent = {
+      ...fixtureJob("3", "independent-external-id"),
+      title: "Independent role",
+    };
     const backingStore = fixedSnapshotProvenanceStore();
     const events: string[] = [];
     const firstRead = Promise.withResolvers<null>();
@@ -300,6 +304,102 @@ describe("Neon v1 backfill run", () => {
       code: "PROVENANCE_MISMATCH",
       phase: "provenance",
     });
+  });
+
+  it("serializes shared dedup keys while unrelated curation overlaps", async () => {
+    const first = {
+      ...fixtureJob("1", "dedup-first"),
+      company: "  Broker   BV ",
+      start_date: "2026-10-01T00:00:00.000Z",
+      title: "Platform Engineer Azure",
+    };
+    const duplicate = {
+      ...fixtureJob("2", "dedup-second"),
+      company: "broker bv",
+      platform: "werkzoeken",
+      start_date: "2026-10-01",
+      title: "  platform engineer   azure ",
+    };
+    const independent = {
+      ...fixtureJob("3", "independent"),
+      company: "Different employer",
+      start_date: "2026-11-01",
+      title: "Security architect",
+    };
+    const firstCurateStarted = Promise.withResolvers<undefined>();
+    const independentCurateStarted = Promise.withResolvers<undefined>();
+    const releaseFirstCurate = Promise.withResolvers<undefined>();
+
+    class TrackingCurateStore extends InMemoryCurateStore {
+      private readonly identityReads = new Map<string, number>();
+      sharedCurateCalls = 0;
+      sharedCurateCallsActive = 0;
+      sharedCurateCallsMax = 0;
+
+      override async findAanvraagByIdentity(
+        bronId: BronId,
+        bronReferentie: string
+      ) {
+        const reads = (this.identityReads.get(bronReferentie) ?? 0) + 1;
+        this.identityReads.set(bronReferentie, reads);
+        const isCurateCall = reads === 2;
+        const isSharedDedupKey =
+          bronReferentie === first.external_id ||
+          bronReferentie === duplicate.external_id;
+
+        if (isCurateCall && isSharedDedupKey) {
+          this.sharedCurateCalls += 1;
+          this.sharedCurateCallsActive += 1;
+          this.sharedCurateCallsMax = Math.max(
+            this.sharedCurateCallsMax,
+            this.sharedCurateCallsActive
+          );
+          if (bronReferentie === first.external_id) {
+            firstCurateStarted.resolve();
+            await releaseFirstCurate.promise;
+          }
+          const result = await super.findAanvraagByIdentity(
+            bronId,
+            bronReferentie
+          );
+          this.sharedCurateCallsActive -= 1;
+          return result;
+        }
+
+        if (isCurateCall && bronReferentie === independent.external_id) {
+          independentCurateStarted.resolve();
+        }
+        return super.findAanvraagByIdentity(bronId, bronReferentie);
+      }
+    }
+
+    const curateStore = new TrackingCurateStore();
+    const resultPromise = runNeonV1Backfill({
+      bindings,
+      concurrency: 3,
+      curateStore,
+      objectStore: new InMemoryObjectStore(),
+      provenanceStore: fixedSnapshotProvenanceStore(),
+      runStore: new InMemoryBackfillRunStore(),
+      source: createFixtureNeonV1Source({
+        capturedAt: "2026-09-03T10:05:00.000Z",
+        contractVersion: NEON_V1_BACKFILL_CONTRACT_VERSION,
+        jobs: [first, duplicate, independent],
+      }),
+    });
+
+    await Promise.all([
+      firstCurateStarted.promise,
+      independentCurateStarted.promise,
+    ]);
+    expect(curateStore.sharedCurateCalls).toBe(1);
+    releaseFirstCurate.resolve();
+
+    const result = await resultPromise;
+
+    expect(result.status).toBe("succeeded");
+    expect(curateStore.sharedCurateCalls).toBe(2);
+    expect(curateStore.sharedCurateCallsMax).toBe(1);
   });
 
   it("imports fixture jobs idempotently on duplicate v1_id", async () => {
