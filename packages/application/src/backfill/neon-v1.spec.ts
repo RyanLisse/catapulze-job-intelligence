@@ -26,7 +26,7 @@ const sampleJob = () => ({
   description: "Azure platform engineer for a Dutch ministry.",
   external_id: "ext-000001",
   external_url: "https://example.com/jobs/ext-000001",
-  id: "v1-job-000001",
+  id: "00000000-0000-4000-8000-000000000001",
   location: "Utrecht",
   platform: "nationalevacaturebank",
   rate_max: 120,
@@ -217,7 +217,7 @@ describe("Neon v1 backfill run", () => {
       jobs: [
         {
           ...sampleJob(),
-          id: sourceRow.id,
+          id: "00000000-0000-4000-8000-000000000002",
           sourceRow,
         },
       ],
@@ -393,7 +393,7 @@ describe("Neon v1 backfill run", () => {
     expect(result.metrics.errors).toBe(1);
     expect(diagnostic).toMatchObject({
       platform: "nationalevacaturebank",
-      sourceJobId: "v1-job-000001",
+      sourceJobId: "00000000-0000-4000-8000-000000000001",
     });
     expect(diagnostic?.error.name).toBe("BackfillFailureError");
     expect(diagnostic?.error.cause).toBe(storeError);
@@ -412,7 +412,7 @@ describe("Neon v1 backfill run", () => {
       bronReferentie: "extra-target-row",
       contentHash: "0".repeat(64),
       rawPayloadRef: `raw/${binding.platform}/2026/08/${"0".repeat(64)}.json`,
-      v1Id: "extra-v1-id",
+      v1Id: "00000000-0000-4000-8000-000000000002",
     });
     const consumeSnapshot =
       provenanceStore.consumeReconciliationSnapshot.bind(provenanceStore);
@@ -461,7 +461,7 @@ describe("Neon v1 backfill run", () => {
         consume(
           batch.map((record) => ({
             ...record,
-            v1Id: "v1-job-swapped-with-same-count",
+            v1Id: "00000000-0000-4000-8000-000000000002",
           }))
         )
       );
@@ -559,9 +559,13 @@ describe("Neon v1 backfill run", () => {
     expect(runStore.runs.at(-1)?.status).toBe("failed");
   });
 
-  it("checks source batches in C collation order", async () => {
-    const cOrderedIds = ["A-job", "A.job", "a-job", "a.job"];
-    const localeOrderedIds = ["a-job", "A-job", "a.job", "A.job"];
+  it("accepts canonical lowercase UUID source ids in byte order", async () => {
+    const orderedIds = [
+      "00000000-0000-4000-8000-000000000009",
+      "00000000-0000-4000-8000-00000000000a",
+      "00000000-0000-4000-8000-00000000000f",
+      "00000000-0000-4000-8000-000000000010",
+    ];
     const runWithIds = async (ids: readonly string[]) => {
       let consumed = false;
       const result = await runNeonV1Backfill({
@@ -585,23 +589,122 @@ describe("Neon v1 backfill run", () => {
               startedAt: "2026-09-03T10:00:00.000Z",
             };
           },
-          label: "C-ordered-test",
+          label: "canonical-ordered-test",
           loadJobs: () => Promise.resolve([]),
         },
       });
       return { consumed, result };
     };
 
-    const accepted = await runWithIds(cOrderedIds);
-    const rejected = await runWithIds(localeOrderedIds);
+    const accepted = await runWithIds(orderedIds);
 
     expect(accepted.consumed).toBe(true);
-    expect(accepted.result.metrics.selected).toBe(cOrderedIds.length);
-    expect(rejected.consumed).toBe(false);
-    expect(rejected.result.evidence.failure).toEqual({
+    expect(accepted.result.metrics.selected).toBe(orderedIds.length);
+  });
+
+  it("rejects a non-canonical source id shape", async () => {
+    const offendingId = "00000000-0000-4000-8000-00000000000A";
+    const result = await runNeonV1Backfill({
+      bindings,
+      curateStore: new InMemoryCurateStore(),
+      objectStore: new InMemoryObjectStore(),
+      provenanceStore: new InMemoryBackfillProvenanceStore(),
+      runStore: new InMemoryBackfillRunStore(),
+      source: createFixtureNeonV1Source({
+        capturedAt: "2026-09-03T10:05:00.000Z",
+        contractVersion: NEON_V1_BACKFILL_CONTRACT_VERSION,
+        jobs: [{ ...sampleJob(), id: offendingId }],
+      }),
+    });
+    const diagnostic = getBackfillFailureDiagnostic(result);
+
+    expect(result.evidence.failure).toEqual({
       code: "SOURCE_READ_FAILED",
       phase: "source-read",
     });
+    const cause = diagnostic?.error.cause;
+    expect(cause).toBeInstanceOf(Error);
+    if (!(cause instanceof Error)) {
+      throw new Error("Expected a source ID shape diagnostic");
+    }
+    expect(cause.message).toContain(offendingId);
+    expect(cause.message).not.toContain(sampleJob().description);
+  });
+
+  it("rejects descending canonical source ids", async () => {
+    const result = await runNeonV1Backfill({
+      bindings,
+      curateStore: new InMemoryCurateStore(),
+      objectStore: new InMemoryObjectStore(),
+      provenanceStore: new InMemoryBackfillProvenanceStore(),
+      runStore: new InMemoryBackfillRunStore(),
+      source: {
+        consumeSnapshot: async (_batchSize, consume) => {
+          await consume([
+            {
+              ...sampleJob(),
+              id: "00000000-0000-4000-8000-000000000002",
+            },
+            {
+              ...sampleJob(),
+              id: "00000000-0000-4000-8000-000000000001",
+            },
+          ]);
+          return {
+            completedAt: "2026-09-03T10:05:00.000Z",
+            startedAt: "2026-09-03T10:00:00.000Z",
+          };
+        },
+        label: "descending-canonical-test",
+        loadJobs: () => Promise.resolve([]),
+      },
+    });
+
+    expect(result.evidence.failure).toEqual({
+      code: "SOURCE_READ_FAILED",
+      phase: "source-read",
+    });
+  });
+
+  it("rejects a non-canonical target id shape", async () => {
+    const offendingId = "00000000-0000-4000-8000-00000000000A";
+    const provenanceStore = new InMemoryBackfillProvenanceStore();
+    const consumeSnapshot =
+      provenanceStore.consumeReconciliationSnapshot.bind(provenanceStore);
+    provenanceStore.consumeReconciliationSnapshot = (
+      bronIds,
+      batchSize,
+      consume
+    ) =>
+      consumeSnapshot(bronIds, batchSize, (batch) =>
+        consume(batch.map((record) => ({ ...record, v1Id: offendingId })))
+      );
+
+    const result = await runNeonV1Backfill({
+      bindings,
+      curateStore: new InMemoryCurateStore(),
+      objectStore: new InMemoryObjectStore(),
+      provenanceStore,
+      runStore: new InMemoryBackfillRunStore(),
+      source: createFixtureNeonV1Source({
+        capturedAt: "2026-09-03T10:05:00.000Z",
+        contractVersion: NEON_V1_BACKFILL_CONTRACT_VERSION,
+        jobs: [sampleJob()],
+      }),
+    });
+    const diagnostic = getBackfillFailureDiagnostic(result);
+
+    expect(result.evidence.failure).toEqual({
+      code: "RECONCILIATION_READ_FAILED",
+      phase: "reconcile",
+    });
+    const cause = diagnostic?.error.cause;
+    expect(cause).toBeInstanceOf(Error);
+    if (!(cause instanceof Error)) {
+      throw new Error("Expected a target ID shape diagnostic");
+    }
+    expect(cause.message).toContain(offendingId);
+    expect(cause.message).not.toContain(sampleJob().description);
   });
 
   it("fails a production run when a platform is rejected and persists its evidence", async () => {

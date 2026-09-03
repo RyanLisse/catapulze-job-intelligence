@@ -94,11 +94,21 @@ export const loadNeonV1Fixture = async (
   return parsed;
 };
 
+const compareCodeUnits = (left: string, right: string): number => {
+  if (left < right) {
+    return -1;
+  }
+  if (left > right) {
+    return 1;
+  }
+  return 0;
+};
+
 export const createFixtureNeonV1Source = (
   fixture: NeonV1Fixture
 ): NeonV1Source => {
   const orderedJobs = fixture.jobs.toSorted((left, right) =>
-    left.id.localeCompare(right.id)
+    compareCodeUnits(left.id, right.id)
   );
   return {
     consumeSnapshot: async (_batchSize, consume) => {
@@ -440,6 +450,29 @@ class BackfillFailureError extends Error {
     this.metricRecorded = metricRecorded;
   }
 }
+
+const CANONICAL_LOWERCASE_UUID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/u;
+
+/**
+ * Canonical lowercase UUIDs contain only ASCII hex digits with hyphens at
+ * fixed positions. Within that constrained shape, native database collation,
+ * byte order, and JavaScript code-unit order agree, so the database can use
+ * its ordinary primary-key index without forcing a different collation.
+ */
+const assertCanonicalOrderedId = (
+  id: string,
+  failure: BackfillFailureEvidence,
+  origin: "source" | "target"
+): void => {
+  if (!CANONICAL_LOWERCASE_UUID_PATTERN.test(id)) {
+    throw new BackfillFailureError(failure, false, {
+      cause: new Error(
+        `${origin} id has a non-canonical shape; expected lowercase UUID, received ${id}`
+      ),
+    });
+  }
+};
 
 interface BackfillFailureLocation {
   readonly platform: string;
@@ -805,6 +838,11 @@ const importFromSource = async (input: {
   let selected = 0;
   const consume = async (jobs: readonly NeonV1JobRow[]): Promise<void> => {
     for (const job of jobs) {
+      assertCanonicalOrderedId(
+        job.id,
+        { code: "SOURCE_READ_FAILED", phase: "source-read" },
+        "source"
+      );
       if (lastSourceId !== null && job.id <= lastSourceId) {
         throw withFailureLocation(
           new BackfillFailureError({
@@ -950,10 +988,12 @@ const reconcileProvenance = async (input: {
               phase: "reconcile",
             });
           }
-          if (
-            digest.lastId !== null &&
-            record.v1Id.localeCompare(digest.lastId) < 0
-          ) {
+          assertCanonicalOrderedId(
+            record.v1Id,
+            { code: "RECONCILIATION_READ_FAILED", phase: "reconcile" },
+            "target"
+          );
+          if (digest.lastId !== null && record.v1Id < digest.lastId) {
             throw new BackfillFailureError({
               code: "RECONCILIATION_READ_FAILED",
               phase: "reconcile",

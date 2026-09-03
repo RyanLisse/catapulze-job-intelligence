@@ -29,8 +29,53 @@ type FakeTransactionSql = (
   ...values: readonly unknown[]
 ) => Promise<readonly object[]>;
 
+class FakeSqlFragment {
+  readonly strings: TemplateStringsArray;
+  readonly values: readonly unknown[];
+
+  constructor(strings: TemplateStringsArray, values: readonly unknown[]) {
+    this.strings = strings;
+    this.values = values;
+  }
+}
+
+interface RenderedQuery {
+  readonly parameters: readonly unknown[];
+  readonly statement: string;
+}
+
+// oxlint-disable-next-line anti-slop/no-unknown-parameters -- test SQL interpolation accepts the postgres.js value boundary.
+const isFakeSqlFragment = (value: unknown): value is FakeSqlFragment =>
+  value instanceof FakeSqlFragment;
+
+const renderQuery = (
+  strings: TemplateStringsArray,
+  values: readonly unknown[]
+): RenderedQuery => {
+  const parameters: unknown[] = [];
+  let statement = strings[0] ?? "";
+  for (const [index, value] of values.entries()) {
+    if (isFakeSqlFragment(value)) {
+      const rendered = renderQuery(value.strings, value.values);
+      statement += rendered.statement;
+      parameters.push(...rendered.parameters);
+    } else {
+      statement += "?";
+      parameters.push(value);
+    }
+    statement += strings[index + 1] ?? "";
+  }
+  return {
+    parameters,
+    statement: statement.replaceAll(/\s+/gu, " ").trim(),
+  };
+};
+
 interface FakeSql {
-  (): Promise<never>;
+  (
+    strings?: TemplateStringsArray,
+    ...values: readonly unknown[]
+  ): FakeSqlFragment | Promise<never>;
   begin: <T>(
     options: string,
     callback: (readOnlySql: postgres.TransactionSql) => Promise<T>
@@ -102,7 +147,7 @@ const createFakeMotianSqlClient = (
     strings: TemplateStringsArray,
     ...values: readonly unknown[]
   ): Promise<readonly object[]> => {
-    const statement = strings.join("?").replaceAll(/\s+/gu, " ").trim();
+    const { parameters, statement } = renderQuery(strings, values);
     if (statement.startsWith("SHOW transaction_read_only")) {
       events.push("transaction-state");
       return Promise.resolve([{ transaction_read_only: transactionReadOnly }]);
@@ -127,7 +172,7 @@ const createFakeMotianSqlClient = (
     }
     if (statement.includes("FROM jobs")) {
       events.push("jobs");
-      jobParameters.push(values);
+      jobParameters.push(parameters);
       jobStatements.push(statement);
       const batch = input.jobBatches?.[jobBatchIndex] ?? [];
       jobBatchIndex += 1;
@@ -136,7 +181,13 @@ const createFakeMotianSqlClient = (
     return Promise.reject(new Error(`Unexpected Motian query: ${statement}`));
   };
   const transaction = asTransactionSql(transactionQuery);
-  const rootQuery = (): Promise<never> => {
+  const rootQuery = (
+    strings?: TemplateStringsArray,
+    ...values: readonly unknown[]
+  ): FakeSqlFragment | Promise<never> => {
+    if (strings) {
+      return new FakeSqlFragment(strings, values);
+    }
     rootQueryCalls += 1;
     return Promise.reject(
       new Error("Motian query escaped its read-only transaction")
@@ -300,8 +351,8 @@ describe("Motian Neon v1 source access", () => {
   it("walks every keyset batch inside one repeatable-read snapshot", async () => {
     const client = createFakeMotianSqlClient({
       jobBatches: [
-        [motianJobRow("-source-id-before-zero")],
-        [motianJobRow("source-id-after-zero")],
+        [motianJobRow("00000000-0000-0000-0000-000000000001")],
+        [motianJobRow("00000000-0000-0000-0000-000000000002")],
         [],
       ],
     });
@@ -316,16 +367,20 @@ describe("Motian Neon v1 source access", () => {
     const jobs = await source.loadJobs();
 
     expect(jobs.map((job) => job.id)).toEqual([
-      "-source-id-before-zero",
-      "source-id-after-zero",
+      "00000000-0000-0000-0000-000000000001",
+      "00000000-0000-0000-0000-000000000002",
     ]);
     expect(
-      client.jobParameters.map((parameters) => parameters.slice(1, 3))
+      client.jobParameters.map((parameters) => parameters.slice(1))
     ).toEqual([
-      [true, ""],
-      [false, "-source-id-before-zero"],
-      [false, "source-id-after-zero"],
+      [1],
+      ["00000000-0000-0000-0000-000000000001", 1],
+      ["00000000-0000-0000-0000-000000000002", 1],
     ]);
+    expect(client.jobParameters[0]).not.toContain("");
+    expect(client.jobStatements[0]).not.toContain("AND id >");
+    expect(client.jobStatements[1]).toContain("AND id > ?");
+    expect(client.jobStatements[2]).toContain("AND id > ?");
     expect(client.beginOptions).toEqual([
       "isolation level repeatable read read only",
     ]);
@@ -367,6 +422,7 @@ describe("Motian Neon v1 source access", () => {
 
         const jobs = await source.loadJobs();
         const [statement] = client.jobStatements;
+        const [parameters] = client.jobParameters;
 
         expect(jobs[0]).toMatchObject({
           application_deadline: "2026-09-10T12:00:00.000Z",
@@ -380,8 +436,10 @@ describe("Motian Neon v1 source access", () => {
         expect(statement).toContain("start_date::text AS start_date");
         expect(statement).toContain("posted_at::text AS posted_at");
         expect(statement).toContain("scraped_at::text AS scraped_at");
-        expect(statement).toContain('(? OR id COLLATE "C" > ?)');
-        expect(statement).toContain('ORDER BY id COLLATE "C" ASC');
+        expect(statement).not.toContain("COLLATE");
+        expect(statement).not.toContain("AND id >");
+        expect(statement).toContain("ORDER BY id ASC");
+        expect(parameters).not.toContain("");
         expect(statement).not.toContain("created_at");
         expect(statement).not.toContain("::uuid");
         expect(statement).not.toContain("updated_at");
