@@ -54,11 +54,13 @@ reader applies UTC explicitly so the runtime timezone cannot shift a date.
 
 ## Bounded row concurrency
 
-The 2026-09-03 production probe from a Hetzner CX43 to Neon `eu-west-2`
-and Cloudflare R2 measured about 57 rows/minute with sequential rows, versus
-about 1,400 rows/minute on local Compose. At 251,982 rows, the sequential path
-would take roughly 73 hours. The main cost was the series of short Neon and R2
-round trips per row, not the keyset source query.
+De productiemeting van 2026-09-03 vanaf de Hetzner CX43 naar Neon
+`eu-west-2` en Cloudflare R2 kwam uit op ongeveer 57 rijen/minuut bij
+sequentiële verwerking en ongeveer 750 rijen/minuut met
+`NEON_V1_CONCURRENCY=16` (PR #125). Voor 251.982 rijen is dat circa 73 uur
+sequentieel tegenover circa 5,6 uur met concurrency 16. De hoofdkosten zaten
+in de reeks korte Neon- en R2-roundtrips per rij, niet in de keyset-query op de
+bron.
 
 `NEON_V1_CONCURRENCY` therefore runs independent rows within each already
 ordered source batch through a bounded worker pool. It defaults to `16` and is
@@ -91,6 +93,10 @@ Use an explicit maintenance window for both the first run and its idempotency re
 1. Pause every Motian connector/scraper that writes the source `jobs` table. A repeatable-read snapshot is logically stable under writes, but a long-lived snapshot pins the MVCC cleanup horizon; continuing high write churn can increase dead tuples, WAL and Neon storage pressure.
 2. Pause every Trigger.dev, Coolify shell, or operator path that can start `backfill-neon-v1` or write `curated.aanvraag.v1_id`. Trigger.dev concurrency `1` alone does not fence a simultaneous manual/Coolify launch. The Postgres run store also serializes launch with an advisory transaction lock and rejects any new run while a durable backfill row is `running`; keep the paths paused through the second-run proof anyway so an unexpected writer cannot race source/target snapshots.
 3. Confirm no earlier backfill is `running`, and record its run ID before deciding whether it is stale. Do not start two source snapshots or target writers in parallel.
+   Gebruik in productiemodus uitsluitend een aparte bronrol, bijvoorbeeld
+   `motian_backfill_ro`, met alleen `SELECT` en expliciet zonder `INSERT` op
+   `jobs`. Een owner-URL is geen toegestane shortcut: de preflight stopt dan
+   direct met `Motian source role must not have INSERT privilege on jobs`.
 4. Check the Motian-Neon server-side timeouts with the exact read-only role used by the run:
 
    ```sql
@@ -194,6 +200,29 @@ NEON_V1_EXECUTION_MODE=production NEON_V1_SCOPE=full NEON_V1_CONCURRENCY=16 bun 
 bun test packages/application/src/backfill packages/db/src/backfill-runner.spec.ts
 ```
 
+De geverifieerde productieroute draait binnen de API-container: daar zijn Bun,
+de repository, `DATABASE_URL` en `RAW_S3_*` al beschikbaar. Injecteer de
+Motian-URL vanuit de lokale secretomgeving zonder de waarde te tonen en stuur
+de uitvoer naar een bestand ín de container:
+
+```bash
+docker exec -d \
+  -e MOTIAN_DATABASE_URL \
+  -e NEON_V1_EXECUTION_MODE=production \
+  -e NEON_V1_SCOPE=full \
+  -e NEON_V1_CONCURRENCY=16 \
+  <api-container> sh -lc \
+  'bun run backfill:neon-v1 > /tmp/backfill.log 2>&1'
+```
+
+De CLI schrijft zijn samenvatting pas aan het einde; een tussentijds stil log
+is dus geen bewijs dat de run hangt. Meet voortgang read-only op de
+Catapulze-database:
+
+```sql
+SELECT count(v1_id) FROM curated.aanvraag WHERE v1_id IS NOT NULL;
+```
+
 Trigger.dev one-shot: `backfill-neon-v1` task in `apps/worker` (concurrency 1).
 
 ## Coolify-local
@@ -203,7 +232,9 @@ On the Coolify stack described in [coolify-local.md](./coolify-local.md):
 1. Add **`MOTIAN_DATABASE_URL`** only to the one-shot backfill job or an operator shell — not to the long-running `server` service and not as `DATABASE_URL`.
 2. Keep **`DATABASE_URL`** on `server`, worker, and backfill jobs pointed at the internal Catapulze Postgres app role.
 3. Configure **`MANTICORE_URL`** on server and worker for search projection.
-4. Use a Neon **read-only** role on the Motian branch; prefer the direct host over `-pooler` for long batch reads.
+4. Gebruik op de Motian-branch de aparte `SELECT`-only bronrol zonder
+   `INSERT`; gebruik bij voorkeur de directe host in plaats van `-pooler` voor
+   de langlopende snapshot.
 5. Run the migrator job before backfill so `curated.aanvraag.v1_id` and `scrape_run.run_kind = 'backfill'` exist.
 6. Use the Trigger.dev `backfill-neon-v1` task for production. It hard-codes `production + full`; its S3 check is based on the selected object-store backend, not `NODE_ENV`.
 
@@ -211,7 +242,126 @@ Provenance: `v1_id` on `curated.aanvraag` plus `BackfillProvenanceStore` verifie
 
 ## Idempotency
 
-Re-running the backfill skips rows whose Motian `jobs.id` is already registered **only after** exact provenance and object-store readback. NVB-scale imports rely on bounded keyset batches (`id > cursor`) inside one source snapshot. A stopped run can have some imported rows; on rerun those count as `skipped`. Acceptance requires a second run with `imported = 0`, `skipped = selected`, `matched = selected`, and zero `missing`, `extra`, `duplicates`, `rejected`, and `errors` for every platform. While the exclusive window keeps the source fixed, the second run's source `orderedDigest` must equal the first run's, and each run's target `orderedDigest` must equal its own source digest with `matchesScope = true`.
+Een herstart slaat een al geregistreerde Motian-`jobs.id` alleen over na exacte
+provenance- en object-store-readback. Dat is alleen idempotent zolang de
+bronrij sinds de eerste import bytegelijk is. Motian wijzigt `status` zonder
+`scraped_at` bij te werken. Zodra zo'n al geïmporteerde rij muteert, kan een
+onderbroken import niet rechtstreeks worden hervat: de rerun stopt terecht
+met `PROVENANCE_MISMATCH`. Veronderstel dus niet meer dat iedere gestopte run
+automatisch met `skipped` kan doorgaan.
+
+Een hard gestopte run kan bovendien een `running`-rij in
+`curated.scrape_run` achterlaten, waardoor nieuwe runs worden geblokkeerd.
+Markeer uitsluitend de vastgestelde, stale run met de exacte toegestane
+failure-tuple:
+
+```sql
+UPDATE curated.scrape_run
+SET status = 'failed',
+    geindigd = now(),
+    fouten = 1,
+    failure_class = 'internal',
+    failure_code = 'UNEXPECTED_FAILURE',
+    failure_phase = 'unknown',
+    failure_message = 'Connector run failed'
+WHERE id = '<stale-backfill-run-id>'
+  AND run_kind = 'backfill'
+  AND status = 'running';
+```
+
+### Operatorherstel na provenance-mismatch
+
+> **Destructieve noodroute.** Dit volledige resetpad is alleen geldig zolang
+> geen niet-backfilldata, handmatige markering of andere gebruikersdata van de
+> geïmporteerde aanvragen of hun dedupgroepen afhankelijk is. Bewijs dat eerst,
+> pauzeer alle writers en projector, maak een herstelbare databasesnapshot en
+> laat een operator de exacte scope goedkeuren. Anders niet uitvoeren.
+
+De op 2026-09-03 werkende schone reset verwijdert in één transactie eerst de
+geïmporteerde aanvragen (de foreign keys cascaderen naar bronlinks,
+markeringen en versies), daarna de stagingrijen van de backfill-runs, alleen
+de daardoor verweesde dedupgroepen en ten slotte de backfill-runrijen. Neem in
+de resetset naast `v1_id IS NOT NULL` ook partiële aanvragen op die via hun
+actuele rij of een versierij aan een geselecteerde backfill-run hangen: een
+hard kill kan plaatsvinden tussen curatie en het registreren van `v1_id`.
+
+```sql
+BEGIN;
+
+CREATE TEMP TABLE reset_backfill_runs ON COMMIT DROP AS
+SELECT id
+FROM curated.scrape_run
+WHERE run_kind = 'backfill';
+
+CREATE TEMP TABLE reset_backfill_aanvragen ON COMMIT DROP AS
+SELECT DISTINCT a.id, a.dedup_groep_id
+FROM curated.aanvraag AS a
+WHERE a.v1_id IS NOT NULL
+   OR a.scrape_run_id IN (SELECT id FROM reset_backfill_runs)
+   OR EXISTS (
+     SELECT 1
+     FROM curated.aanvraag_versie AS v
+     WHERE v.aanvraag_id = a.id
+       AND v.scrape_run_id IN (SELECT id FROM reset_backfill_runs)
+   );
+
+CREATE TEMP TABLE reset_backfill_dedup_groups ON COMMIT DROP AS
+SELECT DISTINCT dedup_groep_id AS id
+FROM reset_backfill_aanvragen
+WHERE dedup_groep_id IS NOT NULL;
+
+DELETE FROM curated.aanvraag
+WHERE id IN (SELECT id FROM reset_backfill_aanvragen);
+
+DELETE FROM staging.source_record
+WHERE scrape_run_id IN (SELECT id FROM reset_backfill_runs);
+
+DELETE FROM curated.dedup_groep AS d
+WHERE d.id IN (SELECT id FROM reset_backfill_dedup_groups)
+  AND NOT EXISTS (
+    SELECT 1 FROM curated.aanvraag AS a WHERE a.dedup_groep_id = d.id
+  );
+
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1
+    FROM curated.aanvraag
+    WHERE scrape_run_id IN (SELECT id FROM reset_backfill_runs)
+  ) OR EXISTS (
+    SELECT 1
+    FROM curated.aanvraag_versie
+    WHERE scrape_run_id IN (SELECT id FROM reset_backfill_runs)
+  ) THEN
+    RAISE EXCEPTION 'Reset geweigerd: aanvraag-FK naar backfill-run resteert';
+  END IF;
+END $$;
+
+DELETE FROM curated.scrape_run
+WHERE id IN (SELECT id FROM reset_backfill_runs);
+
+COMMIT;
+```
+
+Houd de projector daarna quiescent en ruim de verweesde Manticore-documenten
+op met:
+
+```bash
+bun run search:reconcile-projection --apply --projector-quiesced
+```
+
+Start vervolgens exact één projector opnieuw. Verifieer vóór een nieuwe
+backfill dat `curated.aanvraag` nul `v1_id`-rijen bevat, dat er geen backfill-
+`scrape_run` of stagingrij met zo'n run-ID resteert, dat de projectorlag en
+dead letters nul zijn en dat de read-only search-reconciliation geen orphans
+of countverschil meer meldt.
+
+In de normale, niet-gemuteerde situatie blijft de acceptatie-eis voor een
+tweede run: `imported = 0`, `skipped = selected`, `matched = selected`, en
+nul `missing`, `extra`, `duplicates`, `rejected` en `errors` per platform.
+Binnen het exclusieve venster moet de source-`orderedDigest` gelijk blijven en
+iedere target-`orderedDigest` met `matchesScope = true` aan zijn bron gelijk
+zijn.
 
 ## Completion evidence
 
