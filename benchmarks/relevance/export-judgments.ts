@@ -369,12 +369,38 @@ const parseArgs = (argv: readonly string[]): Args => {
   return { outPath, poolDepth };
 };
 
-const main = async (): Promise<void> => {
-  const { outPath, poolDepth } = parseArgs(process.argv.slice(2));
+export interface ExportJudgmentsOptions {
+  /** CSV target; the `.md` twin lands next to it. */
+  outPath: string;
+  /** Top-N per engine pooled into the sheet (default 20). */
+  poolDepth?: number;
+  /** Defaults to the committed `queries.jsonl` beside this module. */
+  queriesPath?: string;
+}
+
+export interface ExportJudgmentsResult {
+  csvPath: string;
+  mdPath: string;
+  queryCount: number;
+  rowCount: number;
+}
+
+/**
+ * The whole export as one in-process call. `main` below is a thin CLI over
+ * it; the spec calls this directly so the determinism check never has to
+ * boot a second Bun runtime (and re-transpile the workspace) per run —
+ * that spawn cost is what made the CLI-only test exceed the default 5 s
+ * per-test budget under load (see docs/runbooks/gate-flaky-tests.md).
+ */
+export const exportJudgments = async (
+  options: ExportJudgmentsOptions
+): Promise<ExportJudgmentsResult> => {
+  const { outPath } = options;
+  const poolDepth = options.poolDepth ?? DEFAULT_POOL_DEPTH;
+  const queriesPath =
+    options.queriesPath ?? path.join(import.meta.dirname, "queries.jsonl");
   const corpus = await loadRelevanceCorpus();
-  const queries = await loadJudgmentQueries(
-    path.join(import.meta.dirname, "queries.jsonl")
-  );
+  const queries = await loadJudgmentQueries(queriesPath);
   const corpusById = new Map(
     corpus.documents.map((item) => [item.id, item] as const)
   );
@@ -406,12 +432,23 @@ const main = async (): Promise<void> => {
     const mdPath = outPath.replace(/\.csv$/u, ".md");
     await writeFile(mdPath, toMarkdown(queries, rows));
 
-    console.log(
-      `wrote ${rows.length} pooled rows across ${queries.length} queries to ${outPath} (+ ${mdPath})`
-    );
+    return {
+      csvPath: outPath,
+      mdPath,
+      queryCount: queries.length,
+      rowCount: rows.length,
+    };
   } finally {
     await cleanupBenchmarkRuns(runs);
   }
+};
+
+const main = async (): Promise<void> => {
+  const { outPath, poolDepth } = parseArgs(process.argv.slice(2));
+  const result = await exportJudgments({ outPath, poolDepth });
+  console.log(
+    `wrote ${result.rowCount} pooled rows across ${result.queryCount} queries to ${result.csvPath} (+ ${result.mdPath})`
+  );
 };
 
 if (import.meta.main) {
