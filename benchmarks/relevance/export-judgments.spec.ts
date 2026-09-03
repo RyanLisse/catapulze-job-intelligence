@@ -1,10 +1,12 @@
-import { describe, expect, it } from "bun:test";
-import { readFile, rm } from "node:fs/promises";
+import { afterAll, beforeAll, describe, expect, it } from "bun:test";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
 import {
+  CSV_HEADER,
   csvField,
+  exportJudgments,
   loadJudgmentQueries,
   sanitizeFormulaCell,
   toSnippet,
@@ -104,19 +106,100 @@ describe("loadJudgmentQueries", () => {
   });
 });
 
-describe("export-judgments CLI (integration)", () => {
+/**
+ * One CLI spawn boots a fresh Bun runtime, transpiles the workspace
+ * (@ji/application, @ji/connectors, @ji/search, @ji/domain) and replays
+ * every connector over its fixtures: 1.5 s warm, 3.4 s cold on an idle
+ * M-series laptop, several times that while `bun run check-types` is
+ * saturating the cores during the pre-push gate. Bun's default per-test
+ * budget is 5 s, so the budget here is explicit and sized to the spawn,
+ * not to the work. Tracked in docs/runbooks/gate-flaky-tests.md.
+ */
+const CLI_SMOKE_TIMEOUT_MS = 60_000;
+
+const EXPECTED_HEADER = CSV_HEADER.join(";");
+
+const stripBom = (text: string): string => text.replace(/^\uFEFF/u, "");
+
+/** The export adds a Manticore engine whenever these are set in the shell.
+ * The spec pins itself to the in-memory engine so it never depends on (or
+ * writes to) a live index, then restores the developer's values. */
+const clearManticoreEnv = (): (() => void) => {
+  const saved = {
+    MANTICORE_29_URL: process.env.MANTICORE_29_URL,
+    MANTICORE_URL: process.env.MANTICORE_URL,
+  };
+  delete process.env.MANTICORE_29_URL;
+  delete process.env.MANTICORE_URL;
+  return () => {
+    if (saved.MANTICORE_29_URL !== undefined) {
+      process.env.MANTICORE_29_URL = saved.MANTICORE_29_URL;
+    }
+    if (saved.MANTICORE_URL !== undefined) {
+      process.env.MANTICORE_URL = saved.MANTICORE_URL;
+    }
+  };
+};
+
+describe("exportJudgments (in-process)", () => {
+  let workDir: string;
+  let restoreEnv: () => void;
+
+  beforeAll(async () => {
+    restoreEnv = clearManticoreEnv();
+    workDir = await mkdtemp(path.join(tmpdir(), "judg-export-"));
+  });
+
+  afterAll(async () => {
+    restoreEnv();
+    await rm(workDir, { force: true, recursive: true });
+  });
+
   it("writes a deterministic CSV + md pair and reruns byte-identical", async () => {
-    const outA = path.join(
-      tmpdir(),
-      `judg-export-a-${crypto.randomUUID()}.csv`
-    );
-    const outB = path.join(
-      tmpdir(),
-      `judg-export-b-${crypto.randomUUID()}.csv`
-    );
-    const repoRoot = path.join(import.meta.dirname, "..", "..");
-    try {
-      const runOnce = (outPath: string) => {
+    const outA = path.join(workDir, "a.csv");
+    const outB = path.join(workDir, "b.csv");
+    const resultA = await exportJudgments({ outPath: outA, poolDepth: 5 });
+    const resultB = await exportJudgments({ outPath: outB, poolDepth: 5 });
+
+    expect(resultA.rowCount).toBeGreaterThan(0);
+    expect(resultA.queryCount).toBeGreaterThanOrEqual(35);
+    expect(resultB.rowCount).toBe(resultA.rowCount);
+
+    const csvA = await readFile(outA, "utf-8");
+    const csvB = await readFile(outB, "utf-8");
+    expect(csvA).toBe(csvB);
+
+    const lines = csvA.split("\n").filter((line) => line.length > 0);
+    const [headerLine] = lines;
+    expect(csvA.startsWith("\uFEFF")).toBe(true);
+    expect(stripBom(headerLine ?? "")).toBe(EXPECTED_HEADER);
+    expect(lines.length).toBe(resultA.rowCount + 1);
+
+    const mdA = await readFile(resultA.mdPath, "utf-8");
+    const mdB = await readFile(resultB.mdPath, "utf-8");
+    expect(mdA).toBe(mdB);
+    expect(mdA).toContain("# Relevance judgments");
+  });
+
+  it("rejects a queries file it cannot parse before writing anything", async () => {
+    const queriesPath = path.join(workDir, "bad-queries.jsonl");
+    await Bun.write(queriesPath, "{not json}\n");
+    const outPath = path.join(workDir, "never-written.csv");
+    await expect(
+      exportJudgments({ outPath, poolDepth: 5, queriesPath })
+    ).rejects.toThrow();
+    expect(await Bun.file(outPath).exists()).toBe(false);
+  });
+});
+
+describe("export-judgments CLI (integration smoke — spawns bun)", () => {
+  it(
+    "exits 0 and writes the CSV + md pair through the real argv path",
+    async () => {
+      const workDir = await mkdtemp(path.join(tmpdir(), "judg-export-cli-"));
+      const outPath = path.join(workDir, "smoke.csv");
+      const repoRoot = path.join(import.meta.dirname, "..", "..");
+      try {
         const proc = Bun.spawnSync(
           [
             "bun",
@@ -126,31 +209,38 @@ describe("export-judgments CLI (integration)", () => {
             "--pool-depth",
             "5",
           ],
-          { cwd: repoRoot, stderr: "pipe", stdout: "pipe" }
+          {
+            cwd: repoRoot,
+            // Strip the Manticore switches so the smoke run is the in-memory
+            // engine regardless of the developer's shell — with MANTICORE_URL
+            // set the CLI would hit a live index and could warn on stderr
+            // while still succeeding.
+            env: {
+              ...process.env,
+              MANTICORE_29_URL: undefined,
+              MANTICORE_URL: undefined,
+            },
+            stderr: "pipe",
+            stdout: "pipe",
+          }
         );
-        expect(proc.exitCode).toBe(0);
-      };
-      runOnce(outA);
-      runOnce(outB);
+        expect(
+          { exitCode: proc.exitCode, stderr: proc.stderr.toString() },
+          "CLI must exit 0; stderr shown for diagnosis"
+        ).toMatchObject({ exitCode: 0 });
+        expect(proc.stdout.toString()).toMatch(
+          /^wrote \d+ pooled rows across \d+ queries to /u
+        );
 
-      const csvA = await readFile(outA, "utf-8");
-      const csvB = await readFile(outB, "utf-8");
-      expect(csvA).toBe(csvB);
-
-      const lines = csvA.split("\n").filter((line) => line.length > 0);
-      const [headerLine] = lines;
-      expect(headerLine?.replace(/^﻿/u, "")).toBe(
-        "query_id;category;query;filters_json;doc_id;bron;titel;snippet;current_label;grade;comment"
-      );
-      expect(lines.length).toBeGreaterThan(1);
-
-      const mdA = await readFile(outA.replace(/\.csv$/u, ".md"), "utf-8");
-      expect(mdA).toContain("# Relevance judgments");
-    } finally {
-      await rm(outA, { force: true });
-      await rm(outB, { force: true });
-      await rm(outA.replace(/\.csv$/u, ".md"), { force: true });
-      await rm(outB.replace(/\.csv$/u, ".md"), { force: true });
-    }
-  });
+        const csv = await readFile(outPath, "utf-8");
+        const [headerLine] = csv.split("\n");
+        expect(stripBom(headerLine ?? "")).toBe(EXPECTED_HEADER);
+        const md = await readFile(outPath.replace(/\.csv$/u, ".md"), "utf-8");
+        expect(md).toContain("# Relevance judgments");
+      } finally {
+        await rm(workDir, { force: true, recursive: true });
+      }
+    },
+    { timeout: CLI_SMOKE_TIMEOUT_MS }
+  );
 });
