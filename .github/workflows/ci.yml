@@ -51,8 +51,10 @@ jobs:
               - ".yamllint.yml"
               - "lefthook.yml"
 
+  # Never gate the test suite on paths: spec-only and dependency-only changes
+  # must still produce a full gate duration and JUnit report. The changes
+  # filter is reserved for the expensive build and restore-drill jobs below.
   verify:
-    needs: changes
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
@@ -85,7 +87,6 @@ jobs:
           bun-version: "1.3.14"
 
       - name: Pre-pull PostgreSQL image in the background
-        if: needs.changes.outputs.code == 'true'
         run: |
           # Overlaps the image pull with the cache/install steps below; the
           # later `docker compose up --wait` finds the layers already local.
@@ -94,7 +95,6 @@ jobs:
 
       - name: Restore Bun dependency cache
         id: bun-cache
-        if: needs.changes.outputs.code == 'true'
         uses: actions/cache@d4323d4df104b026a6aa633fdb11d772146be0bf  # v4.2.2
         with:
           path: |
@@ -105,11 +105,9 @@ jobs:
             bun-deps-${{ runner.os }}-
 
       - name: Install Qlty
-        if: needs.changes.outputs.code == 'true'
         uses: qltysh/qlty-action/install@08a0a862c159eae9b9003081da6663d96efef637  # v2.3.0
 
       - name: Restore Qlty cache
-        if: needs.changes.outputs.code == 'true'
         uses: actions/cache@d4323d4df104b026a6aa633fdb11d772146be0bf  # v4.2.2
         with:
           path: ~/.qlty
@@ -118,7 +116,6 @@ jobs:
             qlty-${{ runner.os }}-
 
       - name: Restore Turborepo cache
-        if: needs.changes.outputs.code == 'true'
         uses: actions/cache@d4323d4df104b026a6aa633fdb11d772146be0bf  # v4.2.2
         with:
           path: .turbo/cache
@@ -127,7 +124,6 @@ jobs:
             turbo-verify-${{ runner.os }}-
 
       - name: Install locked dependencies
-        if: needs.changes.outputs.code == 'true'
         env:
           PERF_CACHE_STATE: >-
             ${{ steps.bun-cache.outputs.cache-hit == 'true' && 'hit' || 'miss' }}
@@ -136,7 +132,6 @@ jobs:
         run: bun scripts/performance/measure.ts --label install -- bun install --frozen-lockfile
 
       - name: Start isolated PostgreSQL
-        if: needs.changes.outputs.code == 'true'
         env:
           POSTGRES_DATA_VOLUME: catapulze-postgres-ci
         run: |
@@ -144,11 +139,10 @@ jobs:
           docker compose --env-file .env.example up -d --wait postgres
 
       - name: Verify
-        if: needs.changes.outputs.code == 'true'
         run: bun scripts/performance/measure.ts --label gate -- bun run gate
 
       - name: Stop isolated PostgreSQL
-        if: always() && needs.changes.outputs.code == 'true'
+        if: always()
         env:
           POSTGRES_DATA_VOLUME: catapulze-postgres-ci
         run: |
@@ -157,18 +151,12 @@ jobs:
           docker compose --env-file .env.example down -v
           docker volume rm "$POSTGRES_DATA_VOLUME"
 
-      - name: Skip heavy verify for doc-only changes
-        if: needs.changes.outputs.code != 'true'
-        run: |
-          echo "Skipped Postgres, gate, and build — docs-only diff."
-          echo "No app, package, test, script, tool, workflow, lockfile, compose, or quality-config changes."
-
       - name: Report CI command timing
-        if: always() && needs.changes.outputs.code == 'true'
+        if: always()
         run: bun scripts/performance/report.ts
 
       - name: Upload CI command timing
-        if: always() && needs.changes.outputs.code == 'true'
+        if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
         with:
           name: ci-performance-${{ github.run_id }}-${{ github.run_attempt }}
