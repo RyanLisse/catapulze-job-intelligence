@@ -80,14 +80,28 @@ export class S3ObjectClient implements DurableObjectClient {
   async put(object: StoredObject): Promise<void> {
     const contentAddressed = parseContentAddressedRawObjectPath(object.path);
     if (contentAddressed) {
-      // ponytail: HEAD-then-PUT idempotency is an optimisation, not an
-      // atomic guarantee — a concurrent writer could race between the
-      // exists() check and the write below. S3 conditional writes
-      // (If-None-Match) would close that gap but vary by provider; add if
-      // duplicate-write races are ever observed in practice.
       const alreadyStored = await this.client.exists(object.path);
       if (alreadyStored) {
-        return;
+        const [stored, requestedHash] = await Promise.all([
+          this.get(object.path),
+          sha256Hex(object.body),
+        ]);
+        if (!stored) {
+          // The body was deleted between HEAD and GET. Treat it as absent and
+          // repair it through the normal metadata-before-body write below.
+        } else if (
+          stored.body.byteLength !== object.body.byteLength ||
+          stored.contentType !== object.contentType ||
+          requestedHash !== contentAddressed.contentHash
+        ) {
+          throw new RawObjectDigestMismatchError(
+            object.path,
+            contentAddressed.contentHash,
+            requestedHash
+          );
+        } else {
+          return;
+        }
       }
     }
 

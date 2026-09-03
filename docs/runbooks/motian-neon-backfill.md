@@ -46,7 +46,7 @@ reader applies UTC explicitly so the runtime timezone cannot shift a date.
 | Source scope | `NEON_V1_EXECUTION_MODE=production` requires `NEON_V1_SCOPE=full`; a production run without `MOTIAN_DATABASE_URL` is refused. |
 | Consistent selection | The complete keyset walk runs inside one `REPEATABLE READ, READ ONLY` transaction. Destination writes happen one bounded batch at a time, so source inserts/deletes cannot change the selected ID-set between batches. A start heartbeat and an end heartbeat run on that same transaction; a lost session or failed commit fails closed as `SOURCE_READ_FAILED`. |
 | Platform mapping | `(platform, external_id)` maps to the configured `(bron_id, bron_referentie)`; `starapple` maps to the `starapple-nl` binding. |
-| Raw preservation | The source query selects `to_jsonb(jobs)` alongside the typed mapping fields. That complete source row, including Motian `raw_payload` and unmodelled columns, is written as JSON to a content-addressed path containing the full 64-character SHA-256. Every put is followed by a get; missing, changed, or digest-mismatched bytes fail the run. |
+| Raw preservation | The source query selects `to_jsonb(jobs)` alongside the typed mapping fields. That complete source row, including Motian `raw_payload` and unmodelled columns, is written as JSON to a content-addressed path containing the full 64-character SHA-256. An existing object is reused only after its size and digest match. Every imported row still performs readback verification; missing, changed, or digest-mismatched bytes fail the run. |
 | Source authorization | In the snapshot session, the effective role must have `SELECT` on `jobs` and lack table-level `INSERT`, `UPDATE`, `DELETE`, and `TRUNCATE`. `has_any_column_privilege` must also prove that no column-level `INSERT` or `UPDATE` grant exists. Null/unknown checks fail closed; URL names are not authorization evidence. |
 | Curated mapping | Mapped fields stay canonical; retained v1 provenance in `bron_specifiek` uses `v1_` keys. The full source object is deliberately not duplicated in `curated.aanvraag`. |
 | Provenance and reconciliation | A pre-existing `v1_id` is only skipped after `(bron_id, bron_referentie, content_hash, raw_payload_ref)` and raw bytes match the current source row. The checkpoint persists a versioned scope manifest with source snapshot start/end, total and per-platform counts, and a rolling SHA-256 over ordered `[source id, canonical platform]` JSONL items. Target provenance is streamed in bounded keyset pages from a separate `REPEATABLE READ, READ ONLY` snapshot and persists the same ordered digest contract. Digest inequality fails the run even when counts are equal, so swapped IDs cannot hide behind `selected = matched`. |
@@ -68,7 +68,20 @@ refused outside `1..64`. Source IDs are still checked for canonical monotonic
 order before any row in the batch is dispatched. Rows sharing the same
 canonical `(platform, external_id)` key are serialized, so two source rows can
 never race `curateObservation` for one aanvraag. Successful provenance records
-are reassembled in source order before the manifest digest is updated.
+are reassembled in source order before the manifest digest is updated. Rows
+whose complete raw source bodies have the same content hash are also serialized.
+This matters for duplicate listings: Cloudflare R2 rejects concurrent writes to
+the same object key with `Reduce your concurrent request rate for the same
+object.` The later row verifies and reuses the first row's content-addressed
+object instead of issuing another `PUT`; unrelated content hashes still overlap.
+
+Only transient raw-object `PUT` failures are retried: HTTP `429`, `500`, `502`,
+`503`, `504`, and the R2 same-object message above. The importer makes at most
+three retries, using `250ms`, `1s`, and `4s` exponential delays with jitter.
+Authentication and permission failures, other client errors, and readback or
+hash mismatches are never retried. If all retries fail, the run remains failed
+as `RAW_WRITE_FAILED` and retains the original write error as its diagnostic
+cause.
 
 On the first row failure, the pool stops dispatching new rows, waits for the
 already in-flight rows, merges the counters of every completed row, and then

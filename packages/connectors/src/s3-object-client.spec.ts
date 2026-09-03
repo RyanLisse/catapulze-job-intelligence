@@ -69,8 +69,8 @@ describeIfS3("S3ObjectClient (requires RAW_S3_BUCKET / MinIO)", () => {
       expiresAt: firstExpiresAt,
       path,
     });
-    // Second put with a different expiresAt must be a no-op: the
-    // HEAD-then-PUT short-circuit means the first write's metadata wins.
+    // Second put with a different expiresAt must be a no-op after the
+    // existing body's size and digest are verified; first metadata wins.
     await expect(
       client.put({
         body,
@@ -82,6 +82,29 @@ describeIfS3("S3ObjectClient (requires RAW_S3_BUCKET / MinIO)", () => {
 
     const stored = await client.get(path);
     expect(stored?.expiresAt.toISOString()).toBe(firstExpiresAt.toISOString());
+  });
+
+  it("rejects a second put whose body does not match its content-addressed path", async () => {
+    const client = new S3ObjectClient(s3Options());
+    const body = new TextEncoder().encode(`original-${crypto.randomUUID()}`);
+    const contentHash = await hashContent(body);
+    const path = buildContentAddressedRawObjectPath({
+      bronSlug: "test-bron",
+      contentHash,
+      contentType: "json",
+    });
+    const expiresAt = new Date("2030-01-01T00:00:00.000Z");
+
+    await client.put({ body, contentType: "json", expiresAt, path });
+
+    await expect(
+      client.put({
+        body: new TextEncoder().encode("different"),
+        contentType: "json",
+        expiresAt,
+        path,
+      })
+    ).rejects.toBeInstanceOf(RawObjectDigestMismatchError);
   });
 
   it("retries a put when the sidecar exists but the body does not (crash recovery)", async () => {
