@@ -257,6 +257,7 @@ const teardownIsolatedDatabase = async (): Promise<void> => {
   if (!isolatedDatabaseName) {
     return;
   }
+  const startedAt = performance.now();
   const admin = postgres({
     connect_timeout: 3,
     database: "postgres",
@@ -268,8 +269,22 @@ const teardownIsolatedDatabase = async (): Promise<void> => {
   });
   requireDatabaseName(isolatedDatabaseName);
   try {
+    // Backends still attached are the ones WITH (FORCE) has to terminate and
+    // wait for; logging the count (and the wall time) below keeps the
+    // teardown's real cost visible in every gate log — see
+    // docs/runbooks/gate-flaky-tests.md, rule 1.
+    const [activity] = await admin<{ attached: number }[]>`
+      SELECT count(*)::int AS attached
+      FROM pg_stat_activity
+      WHERE datname = ${isolatedDatabaseName}
+    `;
     await admin.unsafe(
       `DROP DATABASE IF EXISTS "${isolatedDatabaseName}" WITH (FORCE)`
+    );
+    const elapsedMs = Math.round(performance.now() - startedAt);
+    // biome-ignore lint: diagnostic output for local/CI test runs
+    console.log(
+      `test-isolation: dropped '${isolatedDatabaseName}' in ${elapsedMs} ms (${activity?.attached ?? "unknown"} backend(s) still attached at drop time)`
     );
   } catch (error) {
     // A failed teardown must not fail the whole (already-passed) test run —
@@ -292,6 +307,30 @@ const teardownIsolatedDatabase = async (): Promise<void> => {
 // which Bun treats as global: it runs exactly once, after every test file.
 await setupIsolatedDatabase();
 
-afterAll(async () => {
-  await teardownIsolatedDatabase();
-});
+// Bun applies its 5000 ms default per-test budget to this global hook too,
+// and reports a timeout here as
+//   (fail) (unnamed) [5000.xxms]
+//     ^ a beforeEach/afterEach hook timed out for this test.
+// under whichever spec file ran LAST — never under this module. Bun orders
+// files by a breadth-first directory walk, so that is the deepest test file
+// in the repo (apps/web/src/features/job-intelligence/rest/
+// capability-client.spec.ts as of 2026-09-04), which took the blame for one
+// such timeout in the pre-push gate. See docs/runbooks/gate-flaky-tests.md.
+//
+// The teardown is a network round-trip, not in-process work: a fresh admin
+// connection plus DROP DATABASE ... WITH (FORCE), which terminates every
+// backend still attached, waits for them to exit, and forces an immediate
+// checkpoint of the dropped database. Measured per runbook rule 3 (4-core
+// Linux, local Postgres 16, full suite looped beside `turbo run check-types
+// --force`): 104–549 ms for the DROP statement alone, 0 backends left to
+// terminate; 5021 ms observed once on macOS with Postgres in Docker under the
+// full gate. Sized at 60 s so a slow checkpoint under gate load cannot fail
+// an already-green run.
+const TEARDOWN_TIMEOUT_MS = 60_000;
+
+afterAll(
+  async () => {
+    await teardownIsolatedDatabase();
+  },
+  { timeout: TEARDOWN_TIMEOUT_MS }
+);

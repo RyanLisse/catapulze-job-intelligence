@@ -24,7 +24,12 @@ instead of every DB spec sharing the long-lived `ji_test` database.
      at it.
   4. A global `afterAll` (registered outside any `describe`, which Bun
      treats as running once for the whole process, after the last test
-     file) drops the isolated database with `WITH (FORCE)`.
+     file) drops the isolated database with `WITH (FORCE)`. It runs under
+     an explicit 60 s budget and logs `test-isolation: dropped '<db>' in
+     <n> ms (<k> backend(s) still attached at drop time)`; if it ever times
+     out, Bun reports that as a prefix-less `(unnamed)` hook failure under
+     the last spec file, not under this module — see
+     [gate-flaky-tests.md](gate-flaky-tests.md), rule 6.
 
 Every existing spec's fallback (`process.env.DATABASE_TEST_URL ?? "<shared
 ji_test URL>"`) picks up the isolated database automatically — **no spec
