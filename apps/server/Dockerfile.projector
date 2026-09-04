@@ -15,5 +15,6 @@ COPY --chown=bun:bun --from=builder /app /app
 
 WORKDIR /app/apps/server
 USER bun
-HEALTHCHECK NONE
+HEALTHCHECK --interval=15s --timeout=5s --start-period=30s --retries=4 \
+  CMD ["bun", "src/projector/heartbeat.ts", "--check"]
 CMD ["bun", "run", "projector"]
