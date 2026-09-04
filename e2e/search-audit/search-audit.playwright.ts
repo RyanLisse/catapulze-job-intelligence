@@ -15,7 +15,8 @@ const waitForSearchResponse = (page: Page) =>
     (response) =>
       response.request().method() === "POST" &&
       response.url() === "http://localhost:3100/v1/aanvragen/search" &&
-      response.ok()
+      response.ok(),
+    { timeout: 15_000 }
   );
 
 test("browses empty and filter-only searches and preserves comma URL state", async ({
@@ -93,14 +94,24 @@ test("browses empty and filter-only searches and preserves comma URL state", asy
   await expect(
     page.getByRole("heading", { name: "Boolean-query klopt nog niet" })
   ).toBeVisible();
+  const malformedQueryChip = page.getByRole("button", {
+    exact: true,
+    name: "Zoekterm (Azure verwijderen",
+  });
   await Promise.all([
     waitForSearchResponse(page),
-    page
-      .getByRole("complementary")
+    malformedQueryChip
+      .locator("..")
       .getByRole("button", { name: "Alles wissen" })
       .click(),
   ]);
   await expect(page).toHaveURL("http://localhost:3001/jobs");
+  await expect(searchInput).toHaveValue("");
+  await expect(malformedQueryChip).toHaveCount(0);
+  await expect(locationFilter).not.toBeChecked();
+  await expect(
+    page.getByRole("heading", { name: "Boolean-query klopt nog niet" })
+  ).toHaveCount(0);
   await expect(
     page.getByRole("button", { name: "Brongetrouwe onbekende velden" })
   ).toBeVisible();
