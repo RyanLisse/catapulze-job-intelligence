@@ -1,9 +1,15 @@
 # ADR-0006 — Neon als production system of record
 
-- Status: Accepted
+- Status: **Superseded by [ADR-0011](ADR-0011-postgres-on-box-trigger-static-ips.md)** (2026-09-04)
 - Datum: 2026-08-31
 - Eigenaar: Job Intelligence platform (besluit: Ryan, 2026-08-31)
-- Gerelateerd: ADR-0004, ADR-0005, DEC-005, RJC-371, RJC-373, [COSTS.md](../COSTS.md), [neon-trigger-verification-2026-08-31.md](../runbooks/neon-trigger-verification-2026-08-31.md)
+- Gerelateerd: ADR-0004, ADR-0005, ADR-0011, DEC-005, RJC-371, RJC-373, RJC-418, [COSTS.md](../COSTS.md), [neon-trigger-verification-2026-08-31.md](../runbooks/neon-trigger-verification-2026-08-31.md)
+
+> **Superseded-notitie (2026-09-04).** Ryan koos opnieuw voor Postgres on-box in
+> Coolify nadat Neon Free de 512 MB-limiet raakte (RJC-404) en Trigger.dev static
+> egress-IP’s op het paid plan allowlisting mogelijk maakten. Zie ADR-0011 /
+> RJC-418. De tekst hieronder blijft het historische Neon-besluit; volg ADR-0011
+> voor nieuwe productie-ops.
 
 ## Besluit
 

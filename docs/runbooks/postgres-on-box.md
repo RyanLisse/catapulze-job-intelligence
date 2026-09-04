@@ -1,15 +1,23 @@
 # Postgres on-box — productiepoort
 
-Status: **Productiedeel superseded (2026-08-31): [ADR-0006](../adr/ADR-0006-neon-as-system-of-record.md) kiest Neon als production system of record.** Dit runbook blijft gelden voor de lokale/CI Docker-lane (volume-, rol- en compose-checks) en als historisch vastgelegde productiegate; de on-box-productie-instance zelf komt er niet. De Neon-equivalenten (rollen, pooling, PITR/restore-drill, off-provider export) staan als verplichtingen in ADR-0006.
-De geordende Hetzner-deploy-procedure (met Neon als SoR) staat in [hetzner-deploy.md](hetzner-deploy.md).
-Doel (historisch): Catapulze gebruikt vanaf P0 een nieuwe PostgreSQL 16-database in Docker. De bestaande Motian-Neon-database is uitsluitend een read-only importbron — dat laatste blijft ook onder ADR-0006 gelden.
+Status: **Productie opnieuw Accepted via [ADR-0011](../adr/ADR-0011-postgres-on-box-trigger-static-ips.md) / RJC-418 (2026-09-04).**
+Neon Free is geen duurzaam SoR meer (RJC-404). Dit runbook dekt de lokale/CI
+Docker-lane én de Coolify on-box productie-instance. Uitvoering van de
+Neon→on-box cutover staat in RJC-418; hybrid corpus-rollout wacht daarop
+([hybrid-corpus-rollout.md](hybrid-corpus-rollout.md)).
+
+Historisch: [ADR-0006](../adr/ADR-0006-neon-as-system-of-record.md) koos Neon
+als SoR (2026-08-31) en markeerde dit runbook tijdelijk “local/CI only”; dat is
+superseded. Motian-Neon blijft uitsluitend read-only importbron (DEC-005).
+De geordende Hetzner-deploy-procedure staat in [hetzner-deploy.md](hetzner-deploy.md).
 
 ## Systeemgrens
 
-- Catapulze schrijft alleen naar de nieuwe on-box Postgres.
+- Catapulze schrijft alleen naar de on-box Postgres (Coolify-resource / Compose).
 - Motian-Neon krijgt voor import een afzonderlijke read-only connection string en read-only databasegebruiker. Die URL wordt nooit als `DATABASE_URL` van de Catapulze-runtime gebruikt.
 - Postgres is de system of record. Manticore is een afgeleide, volledig rebuildbare index uit Postgres en outbox.
 - Productie en P0-tests gebruiken verschillende databases, credentials en externe volumes.
+- Trigger.dev Cloud bereikt productie-Postgres alleen via static egress-IP’s in de Hetzner-firewall (ADR-0011); Coolify-apps via het interne netwerk.
 
 ## Beschermd volume en private poort
 
@@ -42,7 +50,7 @@ POSTGRES_DATA_VOLUME=catapulze-postgres-production \
   bash tools/postgres/ensure-volume.sh
 ```
 
-Poort 5432 bindt lokaal uitsluitend aan `127.0.0.1`. Containers verbinden via `postgres:5432` op het private Compose-netwerk. Vóór productie moet de Hetzner-firewall aantoonbaar zonder inboundregel voor 5432 zijn geconfigureerd en moet een externe probe bevestigen dat de poort niet publiek bereikbaar is.
+Poort 5432 bindt lokaal uitsluitend aan `127.0.0.1`. Containers verbinden via `postgres:5432` op het private Compose-netwerk. In productie (ADR-0011) luistert Coolify-Postgres op het interne netwerk; de Hetzner-firewall laat TCP 5432 alleen toe vanaf de Trigger.dev static egress-IP’s (plus eventuele operator-beheerroute). Een externe probe vanaf een niet-allowlisted IP moet 5432 gesloten tonen.
 
 Bewijs vóór productie-ingest:
 
