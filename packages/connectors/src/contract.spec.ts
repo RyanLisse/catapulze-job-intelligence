@@ -370,11 +370,25 @@ describe("InMemoryRunLifecycleStore", () => {
     const key = { bronId: "bron-fence", scrapeRunId: "run-fence" };
     const staleProgress = {
       checkpoint: { page: 1 },
-      metrics: { changed: 0, error: 0, found: 1, new: 1, rejected: 0 },
+      metrics: {
+        changed: 0,
+        error: 0,
+        found: 1,
+        new: 1,
+        rejected: 0,
+        unchanged: 0,
+      },
     };
     const newestProgress = {
       checkpoint: { page: 2 },
-      metrics: { changed: 1, error: 0, found: 2, new: 1, rejected: 0 },
+      metrics: {
+        changed: 1,
+        error: 0,
+        found: 2,
+        new: 1,
+        rejected: 0,
+        unchanged: 0,
+      },
     };
     const first = await store.start({
       key,
@@ -426,7 +440,14 @@ describe("InMemoryRunLifecycleStore", () => {
     const key = { bronId: "bron-time", scrapeRunId: "run-time" };
     const progress = {
       checkpoint: null,
-      metrics: { changed: 0, error: 0, found: 0, new: 0, rejected: 0 },
+      metrics: {
+        changed: 0,
+        error: 0,
+        found: 0,
+        new: 0,
+        rejected: 0,
+        unchanged: 0,
+      },
     };
     await store.start({
       key,
@@ -483,7 +504,14 @@ describe("InMemoryRunLifecycleStore", () => {
     const store = new InMemoryRunLifecycleStore();
     const progress = {
       checkpoint: null,
-      metrics: { changed: 0, error: 0, found: 0, new: 0, rejected: 0 },
+      metrics: {
+        changed: 0,
+        error: 0,
+        found: 0,
+        new: 0,
+        rejected: 0,
+        unchanged: 0,
+      },
     };
     const succeededKey = {
       bronId: "bron-terminal",
@@ -719,7 +747,14 @@ describe("runConnector", () => {
       startedAt: new Date("2026-08-28T10:15:00.000Z"),
     });
     expect(result).toMatchObject({
-      metrics: { changed: 0, error: 0, found: 1, new: 1, rejected: 0 },
+      metrics: {
+        changed: 0,
+        error: 0,
+        found: 1,
+        new: 1,
+        rejected: 0,
+        unchanged: 0,
+      },
       writtenRecords: 1,
     });
     expect(dependencies.observationRecorder.records).toEqual([
@@ -839,7 +874,14 @@ describe("runConnector", () => {
       mode: "reset",
       progress: {
         checkpoint: { page: 99 },
-        metrics: { changed: 0, error: 0, found: 99, new: 99, rejected: 0 },
+        metrics: {
+          changed: 0,
+          error: 0,
+          found: 99,
+          new: 99,
+          rejected: 0,
+          unchanged: 0,
+        },
       },
       runKind: "poll",
       startedAt: new Date("2026-08-28T08:00:00.000Z"),
@@ -848,7 +890,14 @@ describe("runConnector", () => {
       key,
       {
         checkpoint: { page: 99 },
-        metrics: { changed: 0, error: 0, found: 99, new: 99, rejected: 0 },
+        metrics: {
+          changed: 0,
+          error: 0,
+          found: 99,
+          new: 99,
+          rejected: 0,
+          unchanged: 0,
+        },
       },
       seeded.fenceToken
     );
@@ -874,7 +923,14 @@ describe("runConnector", () => {
     expect(result.checkpoint).toEqual({ page: 1 });
     expect(await dependencies.runLifecycleStore.load(key)).toEqual({
       checkpoint: { page: 1 },
-      metrics: { changed: 0, error: 0, found: 0, new: 0, rejected: 0 },
+      metrics: {
+        changed: 0,
+        error: 0,
+        found: 0,
+        new: 0,
+        rejected: 0,
+        unchanged: 0,
+      },
     });
     expect(
       await dependencies.runLifecycleStore.load({
@@ -893,7 +949,14 @@ describe("runConnector", () => {
       mode: "reset",
       progress: {
         checkpoint: { cursor: "resume-here" },
-        metrics: { changed: 1, error: 0, found: 4, new: 2, rejected: 1 },
+        metrics: {
+          changed: 1,
+          error: 0,
+          found: 4,
+          new: 2,
+          rejected: 1,
+          unchanged: 0,
+        },
       },
       runKind: "poll",
       startedAt: new Date("2026-08-28T08:00:00.000Z"),
@@ -902,7 +965,14 @@ describe("runConnector", () => {
       key,
       {
         checkpoint: { cursor: "resume-here" },
-        metrics: { changed: 1, error: 0, found: 4, new: 2, rejected: 1 },
+        metrics: {
+          changed: 1,
+          error: 0,
+          found: 4,
+          new: 2,
+          rejected: 1,
+          unchanged: 0,
+        },
       },
       seeded.fenceToken
     );
@@ -930,6 +1000,7 @@ describe("runConnector", () => {
       found: 4,
       new: 2,
       rejected: 1,
+      unchanged: 0,
     });
     expect(result.writtenRecords).toBe(3);
   });
@@ -1092,7 +1163,14 @@ describe("runConnector", () => {
       mode: "reset",
       progress: {
         checkpoint: { page: 0 },
-        metrics: { changed: 0, error: 0, found: 0, new: 0, rejected: 0 },
+        metrics: {
+          changed: 0,
+          error: 0,
+          found: 0,
+          new: 0,
+          rejected: 0,
+          unchanged: 0,
+        },
       },
       runKind: "poll",
       startedAt: new Date("2026-08-28T08:00:00.000Z"),
@@ -1101,7 +1179,14 @@ describe("runConnector", () => {
       key,
       {
         checkpoint: { page: 0 },
-        metrics: { changed: 0, error: 0, found: 0, new: 0, rejected: 0 },
+        metrics: {
+          changed: 0,
+          error: 0,
+          found: 0,
+          new: 0,
+          rejected: 0,
+          unchanged: 0,
+        },
       },
       seeded.fenceToken
     );
@@ -1127,7 +1212,14 @@ describe("runConnector", () => {
     expect(discoveries).toBe(1);
     expect(await dependencies.runLifecycleStore.load(key)).toEqual({
       checkpoint: { page: 0 },
-      metrics: { changed: 0, error: 1, found: 1, new: 0, rejected: 0 },
+      metrics: {
+        changed: 0,
+        error: 1,
+        found: 1,
+        new: 0,
+        rejected: 0,
+        unchanged: 0,
+      },
     });
   });
 
@@ -1162,7 +1254,11 @@ describe("runConnector", () => {
       "run-unchanged",
       "1111111111111111111111111111111111111111111111111111111111111111"
     );
-    expect(unchanged.metrics).toMatchObject({ changed: 0, new: 0 });
+    expect(unchanged.metrics).toMatchObject({
+      changed: 0,
+      new: 0,
+      unchanged: 1,
+    });
     expect(unchanged.writtenRecords).toBe(0);
     const changed = await runOnce(
       "run-changed",
@@ -1295,7 +1391,14 @@ describe("runConnector", () => {
       mode: "reset",
       progress: {
         checkpoint: null,
-        metrics: { changed: 0, error: 0, found: 0, new: 0, rejected: 0 },
+        metrics: {
+          changed: 0,
+          error: 0,
+          found: 0,
+          new: 0,
+          rejected: 0,
+          unchanged: 0,
+        },
       },
       runKind: "poll",
       startedAt: originalStartedAt,

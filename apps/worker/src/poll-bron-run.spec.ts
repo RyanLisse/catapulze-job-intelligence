@@ -428,6 +428,7 @@ describe("runBronIngestPipeline silence evaluation (RJC-409)", () => {
         found: 10,
         new: 0,
         rejected: 0,
+        unchanged: 10,
       },
       scrapeRunId: "00000000-0000-4000-8000-000000000001",
       status: "succeeded" as const,
@@ -540,6 +541,7 @@ describe("runBronIngestPipeline silence evaluation (RJC-409)", () => {
         found: 30,
         new: 5,
         rejected: 0,
+        unchanged: 23,
       },
       scrapeRunId: "00000000-0000-4000-8000-000000000002",
       status: "succeeded" as const,
@@ -633,6 +635,7 @@ describe("runBronIngestPipeline silence evaluation (RJC-409)", () => {
         found: 0,
         new: 0,
         rejected: 0,
+        unchanged: 0,
       },
       scrapeRunId: "00000000-0000-4000-8000-000000000003",
       status: "succeeded" as const,
@@ -679,5 +682,153 @@ describe("runBronIngestPipeline silence evaluation (RJC-409)", () => {
       "test"
     );
     expect(result).toBeNull();
+  });
+});
+
+describe("runPollBron scrape_run.gesloten and unchanged metrics (RJC-414)", () => {
+  it("writes scrape_run.gesloten from lifecycle.staled and exposes unchanged on PollBronRunResult", async () => {
+    const { runPollBron } = await import("./poll-bron-run");
+    const { InMemoryCurateStore } = await import("@ji/application/identity");
+    const { InMemoryMissedPollsStore } =
+      await import("@ji/application/lifecycle");
+    const { SOURCES } = await import("@ji/application/sources");
+    const {
+      InMemoryKnownHashStore,
+      InMemoryObjectStore,
+      InMemoryObservationRecorder,
+      InMemoryRunLifecycleStore,
+    } = await import("@ji/connectors");
+
+    const source = SOURCES.hero;
+    const { bronId } = source;
+    const scrapeRunId = "00000000-0000-4000-8000-00000000a414";
+
+    const record = {
+      actief: true,
+      bronId,
+      categorie: "msp_broker",
+      crawlDelayMs: 0,
+      interval: "*/15 * * * *",
+      lastRun: null,
+      loginVereist: false,
+      mappingRef: null,
+      method: "html" as const,
+      naam: source.naam,
+      rateLimitPerMinute: 600,
+      retentionDays: 30,
+      secretRef: null,
+      status: "ready" as const,
+      voorwaardenStatus: "toegestaan" as const,
+    };
+
+    interface UpdateCapture {
+      values: { gesloten?: number };
+    }
+    const updatedRows: UpdateCapture[] = [];
+    const fakeDatabase = {
+      update: () => ({
+        set: (values: { gesloten?: number }) => ({
+          where: () => {
+            updatedRows.push({ values });
+            return Promise.resolve([]);
+          },
+        }),
+      }),
+    };
+    // SAFETY: Test double fulfills the BronRuntimeDatabase update subset required by runPollBron.
+    const database = fakeDatabase as never;
+
+    const curateStore = new InMemoryCurateStore();
+    const missedPolls = new InMemoryMissedPollsStore();
+    missedPolls.ensure(bronId, "staled-ref");
+    const missedRow = missedPolls.read(bronId, "staled-ref");
+    if (missedRow) {
+      missedRow.missedPolls = 2;
+    }
+
+    const provenanceItem = { parserVersion: "test", sourcePath: "n/a" };
+    await curateStore.insertAanvraag({
+      beschrijving: "test",
+      bronId,
+      bronReferentie: "staled-ref",
+      bronSpecifiek: {},
+      bronUrl: null,
+      contentHash: "hash-99",
+      dedupGroepId: null,
+      eersteGezienOp: new Date("2026-08-01T00:00:00Z"),
+      extractieMethode: "html_parser",
+      laatstGezienOp: new Date("2026-08-20T00:00:00Z"),
+      locatieLand: "NL",
+      locatieTekst: null,
+      parserVersion: "test",
+      provenance: {
+        beschrijving: provenanceItem,
+        bron_referentie: provenanceItem,
+        bron_specifiek: provenanceItem,
+        bron_url: provenanceItem,
+        locatie_land: provenanceItem,
+        locatie_tekst: provenanceItem,
+        opdrachtgever_naam: provenanceItem,
+        start_datum: provenanceItem,
+        tarief_eenheid: provenanceItem,
+        tarief_max: provenanceItem,
+        tarief_min: provenanceItem,
+        titel: provenanceItem,
+      },
+      rawPayloadRef: "raw/test.json",
+      scrapeRunId: "00000000-0000-4000-8000-000000000001",
+      sluitingsdatum: null,
+      status: "active",
+      tariefEenheid: null,
+      tariefMax: null,
+      tariefMin: null,
+      tariefValuta: "EUR",
+      titel: "test",
+      versie: 1,
+    });
+
+    const runtime = {
+      bronPersistence: {
+        activate: () => Promise.reject(new Error("unused")),
+        create: () => Promise.reject(new Error("unused")),
+        findById: () => Promise.resolve(record),
+        list: () => Promise.resolve([record]),
+      },
+      close: () => Promise.resolve(),
+      createConnector: () => ({
+        bronId,
+        discover: () =>
+          Promise.resolve({
+            checkpoint: {},
+            hasMore: false,
+            items: [{ bronReferentie: "still-here", contentHash: "h1" }],
+          }),
+        fetch: () => Promise.resolve(null),
+      }),
+      get curateStore(): never {
+        return untouched("curateStore");
+      },
+      database,
+      knownHashStore: new InMemoryKnownHashStore(),
+      lifecycle: { curateStore, missedPolls },
+      objectStore: new InMemoryObjectStore(),
+      observationRecorder: new InMemoryObservationRecorder(),
+      runLifecycleStore: new InMemoryRunLifecycleStore(),
+    };
+
+    const result = await runPollBron(
+      {
+        bronId,
+        bronSlug: "hero",
+        scrapeRunId,
+      },
+      runtime,
+      "poll"
+    );
+
+    expect(result.metrics.unchanged).toBe(0);
+    expect(result.lifecycle?.staled).toBe(1);
+    expect(updatedRows).toHaveLength(1);
+    expect(updatedRows[0]?.values).toEqual({ gesloten: 1 });
   });
 });

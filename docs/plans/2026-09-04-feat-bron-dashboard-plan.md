@@ -78,7 +78,7 @@ Status = critical als één critical, anders warning als één warning, anders g
 | Run-record per bron | ✅ `curated.scrape_run`: `status`, `run_kind`, `gestart`, `geindigd`, `aantal_gevonden`, `nieuw`, `gewijzigd`, `rejected`, `gesloten`, `fouten`, `failure_phase/class/code/message`, `circuit_status`, `checkpoint` | `packages/db/src/schema/curated.ts:77-166` |
 | Ongewijzigd per run | ✅ maar alleen in `staging.aanvraag_observation.outcome = 'unchanged'` | `packages/db/src/schema/staging.ts:68-103` |
 | Duur per run | ⚠️ geen kolom; `geindigd - gestart` | idem |
-| `gesloten` | ❌ wordt nooit geschreven (altijd 0) terwijl `lifecycle.staled` wél bekend is | `packages/db/src/bron-runtime.ts:338-345`, `apps/worker/src/poll-bron-run.ts:41-47` |
+| `gesloten` | ✅ geschreven uit `lifecycle.staled` (`scrape_run.gesloten`) | `packages/db/src/bron-runtime.ts:338-345`, `apps/worker/src/poll-bron-run.ts:41-47` |
 | Faalclassificatie | ✅ vaste envelope van 8 tuples, DB-check afgedwongen | `packages/connectors/src/run-lifecycle.ts:10-56` |
 | Bronregister met cron | ✅ `curated.bron.interval`, `actief`, `status`, `rate_limit_per_minute` | `curated.ts:18-75` |
 | Laatste run per bron via API | ✅ `list_bronnen` → `PublicBronView.lastRun` | `packages/application/src/registry/capabilities.ts:150` |
@@ -223,8 +223,8 @@ Elke unit is een verticale slice met TDD en één PR. Volgorde is afhankelijkhei
 - [ ] Sparkline per bronkaart zonder eigen ResponsiveContainer per kaart (één gedeelde breedte-meting) — voorkomt layout-thrash bij 12+ kaarten.
 
 **D8**
-- [ ] `progressValues` schrijft `gesloten` uit `lifecycle.staled`; bestaande runs blijven 0 (geen backfill).
-- [ ] `PollBronRunResult.metrics` krijgt `unchanged` zodat de Trigger.dev-run-output dezelfde vijf tellers toont als het dashboard.
+- [x] `progressValues` schrijft `gesloten` uit `lifecycle.staled`; bestaande runs blijven 0 (geen backfill).
+- [x] `PollBronRunResult.metrics` krijgt `unchanged` zodat de Trigger.dev-run-output dezelfde vijf tellers toont als het dashboard.
 
 **D9**
 - [ ] Meting met `packages/performance` op een fixture van 50k `scrape_run`-rijen; p95 servertijd < 1 s, elke query < 300 ms.

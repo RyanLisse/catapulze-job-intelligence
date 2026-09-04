@@ -18,6 +18,8 @@ import {
   PostgresBronPersistence,
   PostgresObservationRecorder,
   PostgresRunStore,
+  progressValues,
+  toRunProgress,
 } from "./bron-runtime";
 import type { BronRuntimeDatabase } from "./bron-runtime";
 import { PostgresKnownHashStore } from "./known-hash-store";
@@ -1583,6 +1585,116 @@ describe("durable bron runtime adapters", () => {
       expect(
         await knownHashes.get(bronId, "listing-hash-reference")
       ).toBeNull();
+    } finally {
+      await database.delete(bron).where(eq(bron.id, bronId));
+      await client.end({ timeout: 5 });
+    }
+  });
+
+  it("writes gesloten: 0 when closed metric is omitted (no backfill)", () => {
+    const values = progressValues({
+      checkpoint: null,
+      metrics: emptyRunMetrics(),
+    });
+    expect(values.gesloten).toBe(0);
+    expect(values.aantalGevonden).toBe(0);
+    expect(values.fouten).toBe(0);
+    expect(values.gewijzigd).toBe(0);
+    expect(values.nieuw).toBe(0);
+    expect(values.rejected).toBe(0);
+  });
+
+  it("writes gesloten from metrics.closed when present", () => {
+    const values = progressValues({
+      checkpoint: { page: 1 },
+      metrics: {
+        ...emptyRunMetrics(),
+        closed: 4,
+        found: 10,
+        new: 2,
+      },
+    });
+    expect(values.gesloten).toBe(4);
+    expect(values.aantalGevonden).toBe(10);
+    expect(values.nieuw).toBe(2);
+  });
+
+  it("toRunProgress exposes closed only when non-zero and always exposes unchanged", () => {
+    const zeroClosed = toRunProgress({
+      changed: 1,
+      checkpoint: null,
+      closed: 0,
+      error: 0,
+      found: 5,
+      new: 2,
+      rejected: 0,
+    });
+    expect(zeroClosed.metrics.unchanged).toBe(0);
+    expect(zeroClosed.metrics.closed).toBeUndefined();
+
+    const withClosed = toRunProgress({
+      changed: 1,
+      checkpoint: null,
+      closed: 3,
+      error: 0,
+      found: 5,
+      new: 2,
+      rejected: 0,
+    });
+    expect(withClosed.metrics.closed).toBe(3);
+    expect(withClosed.metrics.unchanged).toBe(0);
+  });
+
+  it("persists gesloten and roundtrips via load", async () => {
+    if (!available) {
+      return;
+    }
+    const client = postgres(applicationUrl, { max: 1 });
+    const database = drizzle(client, { schema });
+    const bronId = crypto.randomUUID();
+    const scrapeRunId = crypto.randomUUID();
+    const key = { bronId, scrapeRunId };
+    const store = new PostgresRunStore(database);
+
+    try {
+      await database.insert(bron).values({
+        categorie: "runtime-test",
+        id: bronId,
+        naam: `Gesloten test ${bronId}`,
+      });
+
+      const started = await store.start({
+        key,
+        mode: "reset",
+        progress: { checkpoint: null, metrics: emptyRunMetrics() },
+        runKind: "poll",
+        startedAt: new Date("2026-08-31T10:00:00Z"),
+      });
+
+      await store.checkpoint(
+        key,
+        {
+          checkpoint: { page: 1 },
+          metrics: { ...emptyRunMetrics(), closed: 7, found: 20 },
+        },
+        started.fenceToken
+      );
+
+      const loaded = await store.load(key);
+      expect(loaded).toEqual({
+        checkpoint: { page: 1 },
+        metrics: {
+          ...emptyRunMetrics(),
+          closed: 7,
+          found: 20,
+        },
+      });
+
+      const [persistedRow] = await database
+        .select({ gesloten: scrapeRun.gesloten })
+        .from(scrapeRun)
+        .where(eq(scrapeRun.id, scrapeRunId));
+      expect(persistedRow?.gesloten).toBe(7);
     } finally {
       await database.delete(bron).where(eq(bron.id, bronId));
       await client.end({ timeout: 5 });

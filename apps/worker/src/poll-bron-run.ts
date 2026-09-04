@@ -33,12 +33,14 @@ import {
   PostgresSearchDocumentLoader,
   PostgresSearchVersionStore,
   querySilenceBaselineSamples,
+  scrapeRun,
 } from "@ji/db";
 import type { BronRuntimeDatabase } from "@ji/db";
 import { curateScrapeRun } from "@ji/db/curate-scrape-run";
 import { PostgresCurateStore } from "@ji/db/postgres-curate-store";
 import type { BronId, ScrapeRunId } from "@ji/domain";
 import { ManticoreSearchEngine } from "@ji/search";
+import { eq } from "drizzle-orm";
 
 import { readSearchProjectorMode, requireManticoreUrl } from "./poll-bron-env";
 import type { SliceABronSlug } from "./slice-a-bronnen";
@@ -67,6 +69,7 @@ export interface PollBronRunResult {
     found: number;
     new: number;
     rejected: number;
+    unchanged: number;
   };
   scrapeRunId: ScrapeRunId;
   status: "succeeded";
@@ -214,6 +217,13 @@ export const runPollBron = async (
     runLifecycleStore: runtime.runLifecycleStore,
     scrapeRunId,
   });
+
+  if (result.lifecycle && result.lifecycle.staled.length > 0) {
+    await runtime.database
+      .update(scrapeRun)
+      .set({ gesloten: result.lifecycle.staled.length })
+      .where(eq(scrapeRun.id, scrapeRunId));
+  }
 
   return {
     bronId,
