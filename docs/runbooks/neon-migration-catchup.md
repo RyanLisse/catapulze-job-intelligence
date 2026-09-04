@@ -2,6 +2,30 @@
 
 ## Current status: BLOCKED pending release-specific evidence and approval
 
+## Historisch record: UITGEVOERD — 2026-09-01 (catch-up 0006–0013)
+
+Deze catch-up is **uitgevoerd tegen productie-Neon** (project `catapulze-ji`,
+branch `production`) op 2026-09-01. Niet nog een keer draaien; `db:migrate` is
+idempotent, maar de rollback-branch hieronder hoort bij deze ene uitvoering.
+
+- **Rollback-branch (vóór de migratie):** `br-withered-shadow-zatb46q2`
+  (`pre-migration-0006-0011-20260901-1122`). Laat staan tot de deploy bewezen
+  stabiel is; daarna opruimen.
+- **Resultaat:** journal 6 → 13 (13 want migratie 0012 `listing_hash` landde
+  dezelfde dag op main, ná het schrijven van dit runbook).
+- **Data ongewijzigd, geverifieerd na afloop:** `curated.aanvraag` 4,
+  `staging.source_record` 145, `curated.outbox_event` 3, `curated.scrape_run` 8.
+- **Nieuwe objecten aanwezig:** `curated.search_projection_checkpoint`,
+  `curated.search_projection_state`.
+- **`sequence_number` backfill:** 1, 2, 3 — op volgorde, geen gaten, geen NULLs.
+- **`curated.outbox_event.index_version`:** nu `bigint` (de int→bigint-rewrite
+  die als enige echte risico was aangemerkt).
+
+De baseline die vooraf is gemeten kwam exact overeen met de kwantificering in
+dit document (6 migraties, 4/145/3/8 rijen, beide nieuwe tabellen afwezig).
+
+## Verdict: GO
+
 > **Execution stop.** The reviewed integration base
 > `80e2882447e1a678855c1334aa30a752808d0f7c` contains exactly 15 ordered
 > migrations (`0000`–`0014`), ending in
