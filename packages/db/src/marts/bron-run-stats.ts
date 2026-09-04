@@ -18,7 +18,7 @@ import type { SQL } from "drizzle-orm";
 import { sql } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 
-import type * as schema from "./schema";
+import type * as schema from "../schema";
 
 export type BronRunStatsDatabase = PostgresJsDatabase<typeof schema>;
 
@@ -49,12 +49,7 @@ interface BronRunStatsAggregate extends Record<string, unknown> {
   readonly gewijzigd: number;
   readonly interval: string | null;
   readonly is_totaal: number;
-  readonly last_failure_class: string | null;
-  readonly last_failure_code: string | null;
-  readonly last_failure_message: string | null;
-  readonly last_failure_phase: string | null;
   readonly last_run_at: string | null;
-  readonly last_run_status: string | null;
   readonly naam: string | null;
   readonly nieuw: number;
   readonly ongewijzigd: number;
@@ -63,6 +58,26 @@ interface BronRunStatsAggregate extends Record<string, unknown> {
   readonly runs: number;
   readonly running: number;
   readonly succeeded: number;
+}
+
+/**
+ * Newest run per source, and newest failed run per source.
+ *
+ * Pulled with `DISTINCT ON` instead of `array_agg(... ORDER BY gestart DESC)`
+ * inside the aggregate. The aggregate form made Postgres sort every run in the
+ * window once per column, five times over, which pushed the 30-day query to
+ * 300ms on a 50k-run fixture and intermittently over the RJC-407 budget.
+ * `DISTINCT ON` walks `scrape_run_bron_id_idx` and stops at the first row per
+ * source.
+ */
+interface BronRunLatest extends Record<string, unknown> {
+  readonly bron_id: string;
+  readonly failure_class: string | null;
+  readonly failure_code: string | null;
+  readonly failure_message: string | null;
+  readonly failure_phase: string | null;
+  readonly gestart: string;
+  readonly status: string;
 }
 
 /** One `failure_code` and how often it occurred, per source and overall. */
@@ -167,19 +182,6 @@ const OBSERVATION_TOTALS_CTE = sql`
   )
 `;
 
-/** Latest value of a run column within the group, newest `gestart` first. */
-const latestRunValue = (column: SQL): SQL =>
-  sql`(array_agg(${column} ORDER BY r.gestart DESC) FILTER (WHERE r.id IS NOT NULL))[1]`;
-
-/**
- * Most recent *failure*, which is not the same as the failure fields of the
- * most recent run. A source that failed three runs ago and has been running
- * since still needs to show why it failed; reading the newest run's envelope
- * would blank the reason the moment the next run starts.
- */
-const latestFailureValue = (column: SQL): SQL =>
-  sql`(array_agg(${column} ORDER BY r.gestart DESC) FILTER (WHERE r.failure_code IS NOT NULL))[1]`;
-
 /**
  * Bucket expression, inlined rather than parameterised.
  *
@@ -211,7 +213,9 @@ const toFailureKey = (bronId: string | null): string => bronId ?? "__totaal__";
 
 const toStatsRow = (
   row: BronRunStatsAggregate,
-  topFailures: readonly BronRunFailureCount[]
+  topFailures: readonly BronRunFailureCount[],
+  latestRun: BronRunLatest | undefined,
+  latestFailure: BronRunLatest | undefined
 ): BronRunStatsRow => {
   const totaal = isTotaalRow(row);
   return {
@@ -225,12 +229,12 @@ const toStatsRow = (
     gesloten: row.gesloten,
     gewijzigd: row.gewijzigd,
     interval: totaal ? null : row.interval,
-    lastFailureClass: row.last_failure_class,
-    lastFailureCode: row.last_failure_code,
-    lastFailureMessage: row.last_failure_message,
-    lastFailurePhase: row.last_failure_phase,
+    lastFailureClass: latestFailure?.failure_class ?? null,
+    lastFailureCode: latestFailure?.failure_code ?? null,
+    lastFailureMessage: latestFailure?.failure_message ?? null,
+    lastFailurePhase: latestFailure?.failure_phase ?? null,
     lastRunAt: toDate(row.last_run_at),
-    lastRunStatus: row.last_run_status,
+    lastRunStatus: latestRun?.status ?? null,
     naam: totaal ? null : row.naam,
     nieuw: row.nieuw,
     ongewijzigd: row.ongewijzigd,
@@ -247,6 +251,28 @@ const toStatsRow = (
     topFailures,
   };
 };
+
+/**
+ * The newest of a per-source set, used for the rolled-up totaal row.
+ *
+ * A plain loop rather than `reduce(..., undefined)`: the lint autofix strips a
+ * trailing `undefined` argument, which silently turns the seeded reduce into an
+ * unseeded one that throws on an empty set.
+ */
+const newestOf = (
+  rows: readonly BronRunLatest[]
+): BronRunLatest | undefined => {
+  let newest: BronRunLatest | undefined;
+  for (const row of rows) {
+    if (newest === undefined || row.gestart > newest.gestart) {
+      newest = row;
+    }
+  }
+  return newest;
+};
+
+const byBronId = (rows: readonly BronRunLatest[]): Map<string, BronRunLatest> =>
+  new Map(rows.map((row) => [row.bron_id, row]));
 
 const groupFailuresByBron = (
   rows: readonly BronRunFailureTally[]
@@ -290,15 +316,35 @@ export class PostgresBronRunStatsReader implements BronRunStatsReader {
       query.bronIds
     );
 
-    const failuresByBron = groupFailuresByBron(failures);
-    const rows = aggregates.map((row) =>
-      toStatsRow(
-        row,
-        failuresByBron.get(
-          toFailureKey(isTotaalRow(row) ? null : row.bron_id)
-        ) ?? []
-      )
+    const latestRuns = await this.selectLatestRuns(
+      since,
+      runKind,
+      query.bronIds,
+      false
     );
+    const latestFailures = await this.selectLatestRuns(
+      since,
+      runKind,
+      query.bronIds,
+      true
+    );
+
+    const failuresByBron = groupFailuresByBron(failures);
+    const latestRunByBron = byBronId(latestRuns);
+    const latestFailureByBron = byBronId(latestFailures);
+    const newestRun = newestOf(latestRuns);
+    const newestFailure = newestOf(latestFailures);
+
+    const rows = aggregates.map((row) => {
+      const totaal = isTotaalRow(row);
+      const bronId = totaal ? null : row.bron_id;
+      return toStatsRow(
+        row,
+        failuresByBron.get(toFailureKey(bronId)) ?? [],
+        totaal ? newestRun : latestRunByBron.get(row.bron_id ?? ""),
+        totaal ? newestFailure : latestFailureByBron.get(row.bron_id ?? "")
+      );
+    });
 
     const totaal = rows.find((row) => row.bronId === null);
     if (totaal === undefined) {
@@ -405,18 +451,43 @@ export class PostgresBronRunStatsReader implements BronRunStatsReader {
         CAST(coalesce(sum(o.ongewijzigd), 0) AS integer) AS ongewijzigd,
         CAST(avg(r.duur_ms) AS double precision) AS avg_duration_ms,
         CAST(percentile_cont(0.95) WITHIN GROUP (ORDER BY r.duur_ms) AS double precision) AS p95_duration_ms,
-        max(r.gestart) AS last_run_at,
-        ${latestRunValue(sql`r.status`)} AS last_run_status,
-        ${latestFailureValue(sql`r.failure_class`)} AS last_failure_class,
-        ${latestFailureValue(sql`r.failure_code`)} AS last_failure_code,
-        ${latestFailureValue(sql`r.failure_message`)} AS last_failure_message,
-        ${latestFailureValue(sql`r.failure_phase`)} AS last_failure_phase
+        max(r.gestart) AS last_run_at
       FROM curated.bron b
       LEFT JOIN windowed_runs r ON r.bron_id = b.id
       LEFT JOIN observation_totals o ON o.scrape_run_id = r.id
       WHERE true${buildBronPredicate(sql`b.id`, bronIds)}
       GROUP BY GROUPING SETS ((b.id, b.naam, b.actief, b.interval), ())
       ORDER BY GROUPING(b.id), b.naam, b.id
+    `);
+  }
+
+  /**
+   * Newest run per source, or newest failed run per source when `failedOnly`.
+   *
+   * Two cheap index walks instead of five sorts inside the aggregate.
+   */
+  private selectLatestRuns(
+    since: Date,
+    runKind: BronRunKindFilter,
+    bronIds: readonly string[] | undefined,
+    failedOnly: boolean
+  ): Promise<BronRunLatest[]> {
+    const failurePredicate = failedOnly
+      ? sql` AND r.failure_code IS NOT NULL`
+      : sql``;
+    return this.database.execute<BronRunLatest>(sql`
+      WITH ${buildWindowedRunsCte(since, runKind)}
+      SELECT DISTINCT ON (r.bron_id)
+        r.bron_id,
+        r.gestart,
+        r.status,
+        r.failure_class,
+        r.failure_code,
+        r.failure_message,
+        r.failure_phase
+      FROM windowed_runs r
+      WHERE true${failurePredicate}${buildBronPredicate(sql`r.bron_id`, bronIds)}
+      ORDER BY r.bron_id, r.gestart DESC
     `);
   }
 

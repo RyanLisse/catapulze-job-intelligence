@@ -9,9 +9,9 @@ import { drizzle } from "drizzle-orm/postgres-js";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 
+import * as schema from "../schema";
+import { aanvraagObservation, bron, scrapeRun, sourceRecord } from "../schema";
 import { PostgresBronRunStatsReader } from "./bron-run-stats";
-import * as schema from "./schema";
-import { aanvraagObservation, bron, scrapeRun, sourceRecord } from "./schema";
 
 const testDatabaseUrl =
   process.env.DATABASE_TEST_URL ??
@@ -98,6 +98,7 @@ const seed = async (
   const runIdA4 = crypto.randomUUID();
   const runIdB1 = crypto.randomUUID();
   const runIdC1 = crypto.randomUUID();
+  const runIdB2 = crypto.randomUUID();
 
   const startA1 = minutesAgo(120);
   const startA2 = minutesAgo(180);
@@ -161,6 +162,17 @@ const seed = async (
       id: runIdB1,
       nieuw: 1,
       runKind: "poll",
+      status: "succeeded",
+    },
+    // Operator test import: like backfill, out of the poll view but reachable.
+    {
+      aantalGevonden: 3,
+      bronId: bronIdB,
+      geindigd: plusMs(startB1, 400),
+      gestart: startB1,
+      id: runIdB2,
+      nieuw: 3,
+      runKind: "test",
       status: "succeeded",
     },
     // Legacy migration import: must stay out of the poll view.
@@ -391,8 +403,23 @@ describe("PostgresBronRunStatsReader", () => {
     expect(rowFor(backfillView, fixture.bronIdC).runs).toBe(1);
     expect(rowFor(backfillView, fixture.bronIdA).runs).toBe(0);
 
-    expect(allView.totaal.runs).toBe(5);
-    expect(allView.totaal.aantalGevonden).toBe(1015);
+    expect(allView.totaal.runs).toBe(6);
+    expect(allView.totaal.aantalGevonden).toBe(1018);
+  });
+
+  it("exposes operator test imports through the run_kind filter", async () => {
+    const pollView = await stats();
+    const testView = await stats({ runKind: "test" });
+    if (!(pollView && testView && fixture)) {
+      expect(fixture).toBeNull();
+      return;
+    }
+
+    // bronB polled once and was test-imported once; only the poll counts here.
+    expect(rowFor(pollView, fixture.bronIdB).runs).toBe(1);
+    expect(rowFor(testView, fixture.bronIdB).runs).toBe(1);
+    expect(rowFor(testView, fixture.bronIdB).aantalGevonden).toBe(3);
+    expect(rowFor(testView, fixture.bronIdA).runs).toBe(0);
   });
 
   it("keeps two sources with the same naam apart by bron_id", async () => {

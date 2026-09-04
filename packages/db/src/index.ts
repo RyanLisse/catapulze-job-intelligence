@@ -109,7 +109,7 @@ export {
 export {
   type BronRunStatsDatabase,
   PostgresBronRunStatsReader,
-} from "./bron-run-stats";
+} from "./marts/bron-run-stats";
 export { PostgresKnownHashStore } from "./known-hash-store";
 export {
   createPostgresLifecyclePorts,

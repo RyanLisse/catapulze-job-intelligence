@@ -78,6 +78,7 @@
     "relevance": "PATH=\"./node_modules/.bin:$PATH\" bun benchmarks/relevance/run.ts",
     "relevance:export": "PATH=\"./node_modules/.bin:$PATH\" bun benchmarks/relevance/export-judgments.ts",
     "relevance:import": "PATH=\"./node_modules/.bin:$PATH\" bun benchmarks/relevance/import-judgments.ts",
+    "bench:bron-dashboard": "PATH=\"./node_modules/.bin:$PATH\" bun benchmarks/bron-dashboard/run.ts",
     "bench:generate": "PATH=\"./node_modules/.bin:$PATH\" bun benchmarks/search/generate-corpus.ts",
     "backfill:neon-v1": "PATH=\"./node_modules/.bin:$PATH\" bun scripts/backfill-neon-v1.ts",
     "replay:run": "PATH=\"./node_modules/.bin:$PATH\" bun run scripts/replay-run.ts",
