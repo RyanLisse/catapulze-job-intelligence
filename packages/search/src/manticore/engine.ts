@@ -566,15 +566,15 @@ export class ManticoreSearchEngine implements SearchEngine {
     // search by, which is normally nothing.
     const [hitResponse, facetResponses, archiveTotal, version] =
       await Promise.all([
-      searchManticore(this.client, request),
-      Promise.all(
-        facetRequests.map((facetRequest) =>
-          searchManticore(this.client, facetRequest)
-        )
-      ),
-      this.countArchive(archiveCountRequest),
-      this.getAppliedVersion(),
-    ]);
+        searchManticore(this.client, request),
+        Promise.all(
+          facetRequests.map((facetRequest) =>
+            searchManticore(this.client, facetRequest)
+          )
+        ),
+        this.countArchive(archiveCountRequest),
+        this.getAppliedVersion(),
+      ]);
     const response = { ...hitResponse };
     for (const [index, facetName] of HYBRID_FACET_NAMES.entries()) {
       const facetResponse = facetResponses[index];
