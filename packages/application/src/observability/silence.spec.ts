@@ -105,6 +105,7 @@ describe("AE7 source silence detection", () => {
         found: 40,
         new: 0,
         rejected: 0,
+        unchanged: 0,
       },
     });
 

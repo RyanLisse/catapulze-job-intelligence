@@ -98,9 +98,12 @@ export {
   PostgresBronPersistence,
   PostgresObservationRecorder,
   PostgresRunStore,
+  progressValues,
+  toRunProgress,
   type ActivateBronInput,
   type BronRuntimeDatabase,
 } from "./bron-runtime";
+export { scrapeRun } from "./schema/curated";
 export {
   PostgresAanvraagStore,
   PostgresRawPayloadStore,

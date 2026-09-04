@@ -325,6 +325,8 @@ const runConnectorInner = async (
     } else if (sourceRecord.outcome === "changed") {
       metrics.changed += 1;
       writtenRecords += 1;
+    } else if (sourceRecord.outcome === "unchanged") {
+      metrics.unchanged += 1;
     }
   };
 

@@ -7,6 +7,7 @@ import { validateSecretRef } from "@ji/application/bronnen";
 import type {
   CheckpointKey,
   ConnectorObservation,
+  ConnectorRunMetrics,
   ConnectorRunProgress,
   ObservationRecordInput,
   ObservationRecorder,
@@ -335,33 +336,42 @@ export class PostgresBronPersistence implements BronPersistence {
   }
 }
 
-const progressValues = (progress: ConnectorRunProgress) => ({
+export const progressValues = (progress: ConnectorRunProgress) => ({
   aantalGevonden: progress.metrics.found,
   checkpoint: progress.checkpoint,
   fouten: progress.metrics.error,
+  gesloten: progress.metrics.closed ?? 0,
   gewijzigd: progress.metrics.changed,
   nieuw: progress.metrics.new,
   rejected: progress.metrics.rejected,
 });
 
-const toRunProgress = (row: {
+export const toRunProgress = (row: {
   changed: number;
   checkpoint: unknown;
+  closed?: number;
   error: number;
   found: number;
   new: number;
   rejected: number;
-}): ConnectorRunProgress => ({
-  // SAFETY: Connector checkpoints are the only JSON values written through this adapter.
-  checkpoint: row.checkpoint as ConnectorRunProgress["checkpoint"],
-  metrics: {
+}): ConnectorRunProgress => {
+  const metrics: ConnectorRunMetrics = {
     changed: row.changed,
     error: row.error,
     found: row.found,
     new: row.new,
     rejected: row.rejected,
-  },
-});
+    unchanged: 0,
+  };
+  if (row.closed !== undefined && row.closed > 0) {
+    metrics.closed = row.closed;
+  }
+  return {
+    // SAFETY: Connector checkpoints are the only JSON values written through this adapter.
+    checkpoint: row.checkpoint as ConnectorRunProgress["checkpoint"],
+    metrics,
+  };
+};
 
 const completionValues = (input: RunCompletionInput) => ({
   ...progressValues(input.progress),
@@ -392,6 +402,7 @@ export class PostgresRunStore implements RunLifecycleStore {
       .select({
         changed: scrapeRun.gewijzigd,
         checkpoint: scrapeRun.checkpoint,
+        closed: scrapeRun.gesloten,
         error: scrapeRun.fouten,
         found: scrapeRun.aantalGevonden,
         new: scrapeRun.nieuw,
@@ -502,6 +513,7 @@ export class PostgresRunStore implements RunLifecycleStore {
           bronId: scrapeRun.bronId,
           changed: scrapeRun.gewijzigd,
           checkpoint: scrapeRun.checkpoint,
+          closed: scrapeRun.gesloten,
           error: scrapeRun.fouten,
           fenceToken: scrapeRun.fenceToken,
           found: scrapeRun.aantalGevonden,

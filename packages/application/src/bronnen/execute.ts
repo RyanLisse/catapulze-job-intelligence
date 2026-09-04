@@ -209,5 +209,8 @@ export const executeBronRun = async (
           scrapeRunId: input.scrapeRunId,
         })
       : null;
+  if (lifecycle) {
+    result.metrics.closed = lifecycle.staled.length;
+  }
   return { ...result, lifecycle };
 };

@@ -53,10 +53,12 @@ export type ConnectorFetchResult =
 
 export interface ConnectorRunMetrics {
   changed: number;
+  closed?: number;
   error: number;
   found: number;
   new: number;
   rejected: number;
+  unchanged: number;
 }
 
 /** Stable hand-off from source connectors to the U5 normalisation pipeline. */
@@ -95,15 +97,23 @@ export const emptyRunMetrics = (): ConnectorRunMetrics => ({
   found: 0,
   new: 0,
   rejected: 0,
+  unchanged: 0,
 });
 
 export const mergeRunMetrics = (
   left: ConnectorRunMetrics,
   right: ConnectorRunMetrics
-): ConnectorRunMetrics => ({
-  changed: left.changed + right.changed,
-  error: left.error + right.error,
-  found: left.found + right.found,
-  new: left.new + right.new,
-  rejected: left.rejected + right.rejected,
-});
+): ConnectorRunMetrics => {
+  const merged: ConnectorRunMetrics = {
+    changed: left.changed + right.changed,
+    error: left.error + right.error,
+    found: left.found + right.found,
+    new: left.new + right.new,
+    rejected: left.rejected + right.rejected,
+    unchanged: left.unchanged + right.unchanged,
+  };
+  if (left.closed !== undefined || right.closed !== undefined) {
+    merged.closed = (left.closed ?? 0) + (right.closed ?? 0);
+  }
+  return merged;
+};
