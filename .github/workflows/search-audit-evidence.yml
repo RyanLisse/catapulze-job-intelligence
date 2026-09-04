@@ -94,8 +94,8 @@ jobs:
 
           bunx playwright test --config=e2e/search-audit/playwright.config.ts
           find .artifacts/e2e/search-audit -name '*.webm' -print0 | while IFS= read -r -d '' clip; do
-            ffmpeg -i "${clip}" -c:v libx264 -preset medium -crf 23 -pix_fmt yuv420p \
-              -movflags +faststart "${clip%.webm}.mp4"
+            ffmpeg -nostdin -i "${clip}" -c:v libx264 -preset medium -crf 23 \
+              -pix_fmt yuv420p -movflags +faststart -threads 1 "${clip%.webm}.mp4"
           done
 
       - name: Show service logs after failure

@@ -2,7 +2,7 @@
   "extends": "@ji/config/tsconfig.base.json",
   "compilerOptions": {
     "noEmit": true,
-    "types": ["bun", "node"]
+    "types": ["bun"]
   },
   "include": ["*.ts"]
 }
