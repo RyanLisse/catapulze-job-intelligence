@@ -1,7 +1,13 @@
 # Catapulze Job Intelligence — bouwbrief
 
-Status: discovery-consolidatie, besluitstatus bijgewerkt 28 augustus 2026<br>
+Status: discovery-consolidatie, architectuurstatus herijkt op `main@2049008` op 5 september 2026<br>
 Eigenaren: Robbie (product/toegang), Ryan (architectuur/uitvoering)
+
+Deze brief maakt drie statussen apart zichtbaar:
+
+- **Besloten:** RJC-418 kiest een dedicated Postgres-resource on-box in Coolify als productie-SoR. Open PR [#149](https://github.com/RyanLisse/catapulze-job-intelligence/pull/149) legt dit vast in ADR-0011 en werkt de bestaande hosting-ADRs bij.
+- **Geïmplementeerd op `main`:** Postgres/Drizzle is de bron van waarheid in de applicatiecode; Manticore is de afgeleide zoekindex achter `SearchAdapter`. [ADR-0007](adr/ADR-0007-search-platform-state-2026-09-01.md) beschrijft die zoekarchitectuur.
+- **Nog niet als productie bewezen:** de RJC-418-cutover, firewall-allowlist, dump/restore, R2-restoretest, `/readyz`, projector-drain en Trigger.dev-productierun zijn nog open. Deze brief claimt geen uitgevoerde cutover of actuele productieconfiguratie.
 
 ## 1. Uitkomst
 
@@ -9,7 +15,7 @@ Bouw eerst één dunne verticale slice:
 
 > Verzamel vacatures uit een beperkte maar uitbreidbare bronset, bewaar de oorsprong, normaliseer en dedupliceer ze, maak ze aantoonbaar snel doorzoekbaar met Boolean-logica, laat een mens een vaste resultatensnapshot goedkeuren en exporteer uitsluitend nieuwe vacatures idempotent naar Spot/Spott.
 
-Dit levert onmiddellijk sourcingwaarde en legt tegelijk de juiste basis voor meer bronnen, Candidate Intelligence en het latere Company OS. Het is nadrukkelijk niet “eerst het hele dataplatform” en ook niet “agents eerst”.
+Dit levert onmiddellijk sourcingwaarde en legt tegelijk de juiste basis voor meer bronnen, Candidate Intelligence en het latere Company OS. De levering blijft slice-first: bouw het hele dataplatform en de agentruntime niet vooruit. De gedeelde capabilitygrens hoort wel vanaf dag één bij de slice, zodat UI, REST en MCP hetzelfde domeingedrag kunnen gebruiken.
 
 ## 2. Ideal State Criteria
 
@@ -92,37 +98,37 @@ De scheiding is bewust:
 
 ## 5. Technische keuzes
 
-### Nu kiezen
+### Actuele keuze en status
 
 | Onderdeel | Voorgestelde default | Reden |
 |---|---|---|
-| System of record | Nieuwe Postgres 16 on-box in Docker vanaf P0 (DEC-005) | Geen extra Neon-kosten of latere Neon→on-box-migratie; lage latency naar outbox-worker en Manticore |
+| System of record | Dedicated Postgres on-box in Coolify (RJC-418; ADR-0011 in open PR #149) | Besluit genomen; uitvoering en productie-evidence blijven open onder RJC-418 |
 | Bestaande data | Motian-Neon uitsluitend als read-only import/backfillbron met herkomst | Niets weggooien, geen nieuwe Catapulze-writes naar v1 en migratierisico beperken |
 | Raw data | Onveranderlijke JSON-payload per bronwaarneming | Replay, debugging en nieuwe normalisatie mogelijk maken |
-| Search MVP | Postgres FTS + GIN, `pg_trgm` en een eigen geteste Boolean-parser | Geen aparte cluster voordat een benchmark dat rechtvaardigt |
-| Search-evolutie | `SearchAdapter` met OpenSearch als volgende implementatie | Schaalpad zonder vroege lock-in |
+| Search read path | `SearchAdapter` met Manticore als afgeleide, herbouwbare index ([ADR-0007](adr/ADR-0007-search-platform-state-2026-09-01.md)) | Dit is de geïmplementeerde architectuur op `main`; Postgres blijft het system of record |
+| Search-evolutie | Manticore 29 hybrid blijft een meetbare kandidaat ([ADR-0009](adr/ADR-0009-manticore-29-hybrid.md), Proposed) | Eerst het 200k-profiel en de acceptatie-uitkomst bewijzen; geen productieclaim op basis van de kleinere meetronde |
 | Semantic/vector | Niet in P0 | De call noemt het als optie, niet als geaccepteerde MVP-eis |
 | Connectorstrategie | API/feed/structured endpoint eerst; browser pas daarna | Minder breekbaar en goedkoper |
 | AI/vision bij scrapers | Alleen exception-based diagnose | Dagelijkse visuele vergelijking is onnodig duur |
 | Spot/Spott-write | Smalle `export_approved_jobs`-actie | Geen generieke CRUD/SQL en duidelijk effectcontract |
 | Deployment | Kleine losse services/workers, remote uitgevoerd | Isolatie en schaalbaarheid zonder persoonlijke laptop als runtime |
 
-### DEC-005 production gates
+### RJC-418-productiegates
 
-Het on-box-besluit accepteert databasebeheer als expliciete operationele verantwoordelijkheid. Productie is daarom pas klaar wanneer:
+Het on-box-besluit accepteert databasebeheer als expliciete operationele verantwoordelijkheid. ADR-0011 en de operationele wijzigingen blijven eigendom van open PR #149; deze brief neemt die scope niet over. Productie is pas klaar wanneer RJC-418 onder meer het volgende bewijst:
 
-1. Postgres op een vooraf aangemaakt, extern beschermd volume staat dat buiten de Compose-lifecycle valt; `docker compose down -v` is verboden;
-2. `5432` niet publiek is en alleen via het private service-/hostnetwerk bereikbaar is;
-3. continue WAL-archivering off-site staat, retentie en encryptie zijn vastgelegd en een restore naar een lege geïsoleerde database periodiek slaagt;
-4. monitoring en alerts minimaal beschikbaarheid, diskruimte, WAL/back-uplag, verbindingen, locks, querylatency, CPU en geheugen dekken;
-5. resourcegrenzen en capaciteitsmarges zijn gemeten, waarbij Postgres voorrang krijgt boven de rebuildbare Manticore-index;
-6. een aparte DB-host of managed Postgres wordt gekozen zodra HA nodig is of meetbare disk-, RAM- of CPU-concurrentie de database-SLO bedreigt.
+1. de Coolify Postgres-resource duurzaam op de Hetzner-box draait, met least-privilege-rollen en R2-back-ups;
+2. `5432` alleen bereikbaar is vanaf het interne Coolify-netwerk en de vastgelegde Trigger.dev-egress-IP's;
+3. de Neon-dump gecontroleerd on-box is hersteld en migratiejournalen overeenkomen;
+4. `/readyz` groen is, de projectorachterstand nul is en een echte Trigger.dev-`poll-bron` slaagt;
+5. een restore uit de R2-back-up naar een lege geïsoleerde database aantoonbaar slaagt;
+6. de volledige Motian-kopie en hybrid-rollout pas na deze gates starten.
 
-Deze criteria zijn acceptatiegates. Dit document claimt niet dat continue back-up of restore al operationeel is bewezen.
+Deze criteria zijn acceptatiegates. Open PR #149 levert documentatie en lokale/CI-evidence, maar voert de productiecutover niet uit.
 
 ### Pas kiezen na bewijs
 
-- OpenSearch/Elasticsearch/Algolia: alleen als de afgesproken Postgres-benchmark faalt of semantic search P0 wordt.
+- OpenSearch/Elasticsearch/Algolia: de eerdere OpenSearch-default is vervangen door de Manticore-architectuur uit ADR-0007. Heroverweeg een ander platform alleen via een nieuw besluit met gemeten tekortkomingen.
 - Databricks/Snowflake/Fabric: niet nodig voor de eerste verticale slice; heroverweeg bij analytische workload of volumegroei.
 - Glean/Bedrock/agentplatform/Grok Bot: los architectuurspoor; niet blokkeren op Job Intelligence.
 - Candidate matching, enrichment en campagnegedrag: pas na aparte risico-, privacy- en human-oversight-ontwerpen.
@@ -154,7 +160,7 @@ Onbekende data is expliciet `unknown`; ontbrekende data wordt niet geraden. Bron
 
 1. **Ingest-idempotentie:** dezelfde bronpayload maakt niet twee `SourceRecord`s.
 2. **Cross-source identity:** meerdere bronrecords mogen conservatief aan één `Vacancy` worden gekoppeld; onzekere links blijven reviewbaar en omkeerbaar.
-3. **Effect-idempotentie:** de sleutel `target + canonical_vacancy_id + action_type` blijft stabiel over querysnapshots heen. Een bestaande remote crosswalk wordt standaard overgeslagen; een latere update vereist een afzonderlijke, expliciet goedgekeurde update-actie.
+3. **Effect-idempotentie:** de beoogde sleutel `target + canonical_vacancy_id + action_type` blijft stabiel over querysnapshots heen. De huidige `commit_export` slaat een create alleen over wanneer al een afgeronde remote crosswalk bestaat. De effectkey wordt nog niet duurzaam vóór de provider-POST gereserveerd; een confirmation failure kan daardoor bij retry een tweede POST veroorzaken. RJC-435 bezit de vereiste reservering en reconciliatie. Een latere update vereist een afzonderlijke, expliciet goedgekeurde update-actie.
 
 ## 7. Searchcontract
 
@@ -167,7 +173,7 @@ P0 ondersteunt:
 - stabiele paginering en een zichtbare result count;
 - een `QuerySnapshot` vóór approval/export.
 
-Voorgestelde eerste SLO, nog te accepteren: p95 ≤ 750 ms en p99 ≤ 1.500 ms voor representatieve Boolean-queries over 200.000 records, exclusief netwerkweergave. Eerst benchmarken; niet als transcriptfeit presenteren.
+[ADR-0003](adr/ADR-0003-performance-budgets-and-regression-policy.md) houdt de `SearchAdapter`-doelwaarde op p95 ≤ 100 ms voor het versioned 200k-profiel, maar maakt die nog niet tot een algemene harde gate. De uitgevoerde Manticore-meting gebruikte 20k documenten en bleef binnen de doelwaarde op die schaal; ze bewijst geen 200k- of productieprestatie. De verhouding tot de eerdere end-to-end-voorstellen van p95 ≤ 750 ms en p99 ≤ 1.500 ms blijft een open besluit met vaste queryset, concurrency, cache-state en meetgrens.
 
 ## 8. Scrapercontract en observability
 
@@ -195,6 +201,8 @@ Het geplakte red-team-oordeel corrigeert terecht de agentvisie:
 - behoud `human-only` acties in de capability-map;
 - gebruik één intern ID plus externe-ID-crosswalks;
 - agents stellen voor; het Company OS commit.
+
+De ongemergde conceptbeslissing voor RJC-441 selecteert uitsluitend first-party, door de operator beheerde MCP-clients met een signed Better Auth-sessie van een bestaande Catapulze-gebruiker. Generieke externe clients blijven daarin niet ondersteund; de OAuth-criteria zijn daarom niet van toepassing binnen het geselecteerde conceptmodel. `main@2049008` valideert al Better Auth-gebruikerssessies per call, inclusief signed bearer, maar de formele clientgrens en bijbehorende hardening uit RJC-441 zijn nog niet gemergd of geleverd.
 
 Voor P0 betekent dit een minimale control slice rondom Spot/Spott-export. Candidate matching/ranking is een later high-risk decision-supportspoor: geen auto-reject, verborgen top-N of automatische kandidaatstatuswijziging. AVG en toepasselijke AI-regels zijn geen “later in te bouwen feature”.
 
@@ -233,7 +241,13 @@ Een volledige productieklare implementatie van “alle bronnen” is niet betrou
 
 ## 12. Besluiten en resterende blockers
 
-DEC-005 / RJC-321 is op 28 augustus 2026 geaccepteerd en afgerond: een nieuwe, dedicated PostgreSQL 16 in Docker/on-box wordt het system of record. De huidige Motian/Lovable-Neon blijft onaangeroerd en dient alleen als read-only migratiebron. [ADR-0004](adr/ADR-0004-postgres-environment-strategy.md) legt de omgevingsstrategie en escape hatch vast. Dit architectuurbesluit is nog geen production-readinessbewijs; implementatie en validatie blijven open onder RJC-347.
+De besluitvolgorde is inmiddels verder gegaan dan de discoveryversie van deze brief:
+
+1. DEC-005 / RJC-321 koos oorspronkelijk een dedicated PostgreSQL 16 on-box.
+2. [ADR-0006](adr/ADR-0006-neon-as-system-of-record.md) verving dat productiedeel tijdelijk door een eigen Catapulze-Neon-instance. Die tekst is historische besluitcontext, niet de huidige keuze.
+3. RJC-418 kiest sinds 4 september 2026 opnieuw Postgres on-box in Coolify, nu met Trigger.dev static egress-IP-allowlisting. Open PR [#149](https://github.com/RyanLisse/catapulze-job-intelligence/pull/149) legt dit vast als ADR-0011 en markeert ADR-0006 als vervangen.
+
+Het huidige besluit is daarmee helder, maar de uitvoering is nog open. De productie-SoR is pas omgezet na het dump/restorepad, de firewall- en rolconfiguratie, de R2-restoretest, een groene `/readyz`, projectorachterstand nul en een geslaagde Trigger.dev-productierun. De Motian/Lovable-Neon-database blijft uitsluitend een read-only migratiebron.
 
 1. Definitieve bronmatrix: URLs, landen, prioriteit, methode, auth, rate limits en eigenaar.
 2. Donderdagscope: alleen read path of ook Spot/Spott-export.
@@ -277,3 +291,7 @@ De selectievolgorde blijft: officiële API/feed → publiek structured endpoint 
 - Geplakt v1.2-oordeel: slice-first, control-plane vóór effecten, evidence-by-default.
 - [Fantastic.jobs — best job scrapers](https://fantastic.jobs/article/best-job-scrapers), leverancierstekst, april 2026.
 - [Lovable/Neon Job Intelligence-prototype](https://neon-data-whisperer.lovable.app/), read-only momentopname van 27 augustus 2026.
+- [ADR-0003 — Performancebudgets en regressiebeleid](adr/ADR-0003-performance-budgets-and-regression-policy.md), geaccepteerde meet- en gategrens voor search.
+- [ADR-0007 — Zoekplatform-staat 2026-09-01](adr/ADR-0007-search-platform-state-2026-09-01.md), actuele code-backed searcharchitectuur op de herijkte `main`-basis.
+- [ADR-0009 — Manticore 29 hybrid search candidate](adr/ADR-0009-manticore-29-hybrid.md), Proposed; geen bewijs van productieacceptatie.
+- [RJC-418 / PR #149](https://github.com/RyanLisse/catapulze-job-intelligence/pull/149), geaccepteerd hostingbesluit en nog open uitvoerings-/evidencegrens.
