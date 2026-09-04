@@ -17,6 +17,7 @@ import { fullJitter } from "@ji/connectors";
 import type {
   Connector,
   ConnectorRunKind,
+  ConnectorRunMetrics,
   RunIncompleteReason,
   KnownHashStore,
   ObjectStore,
@@ -64,14 +65,7 @@ export interface PollBronRunResult {
   bronId: BronId;
   bronSlug: SliceABronSlug;
   lifecycle: PollBronLifecycleSummary | null;
-  metrics: {
-    changed: number;
-    error: number;
-    found: number;
-    new: number;
-    rejected: number;
-    unchanged: number;
-  };
+  metrics: ConnectorRunMetrics;
   scrapeRunId: ScrapeRunId;
   status: "succeeded";
   writtenRecords: number;
