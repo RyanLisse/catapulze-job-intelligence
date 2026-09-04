@@ -47,6 +47,11 @@ describe("CI code path filter", () => {
     expect(isCodeChange(["scripts/replay-run.ts"])).toBe(true);
   });
 
+  it("classifies Docker build-context and Turbo config changes as code", () => {
+    expect(isCodeChange([".dockerignore"])).toBe(true);
+    expect(isCodeChange(["turbo.json"])).toBe(true);
+  });
+
   it("classifies spec-only changes anywhere in the repository as code", () => {
     expect(isCodeChange(["standalone/contract.spec.ts"])).toBe(true);
   });

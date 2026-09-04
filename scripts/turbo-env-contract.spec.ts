@@ -25,6 +25,10 @@ describe("Turbo production database env contracts", () => {
     expect(taskEnv("projector")).toContain("PROJECTOR_DATABASE_URL");
   });
 
+  it("passes the explicit hybrid-search opt-in to the projector task", () => {
+    expect(taskEnv("projector")).toContain("SEARCH_HYBRID");
+  });
+
   it.each(["db:generate", "db:migrate", "db:push", "db:studio"])(
     "passes only the explicit migration URL to %s",
     (taskName) => {
