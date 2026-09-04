@@ -438,6 +438,7 @@ describe
         );
         expect(later.metrics).toEqual({
           changed: 0,
+          closed: 0,
           error: 0,
           found: 2,
           new: 0,

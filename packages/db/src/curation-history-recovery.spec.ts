@@ -1099,6 +1099,17 @@ describe("historical curation recovery (RJC-433)", () => {
       sourceRecordId,
       title: "Missing predecessor",
     });
+    const predecessorInput = {
+      attemptLimit: 2,
+      bronId: BRON_ID,
+      bronSlug: BRON_SLUG,
+      database,
+      objectStore,
+      scrapeRunId: predecessorRunId,
+    };
+    const deferred = await curateScrapeRun(predecessorInput);
+    expect(deferred).toMatchObject({ pending: 1, remaining: 1 });
+
     const committedRaw = rawRef(bronReferentie, "legacy-exact");
     const aanvraagId = await seedCommitted({
       bronReferentie,
@@ -1129,10 +1140,12 @@ describe("historical curation recovery (RJC-433)", () => {
       scrapeRunId: committedRunId,
     };
 
-    const deferred = await curateScrapeRun(input);
-    expect(deferred).toMatchObject({ pending: 1, remaining: 2 });
     const blocked = await curateScrapeRun(input);
-    expect(blocked).toMatchObject({ blockedOrdering: 1, remaining: 2 });
+    expect(blocked).toMatchObject({
+      blockedOrdering: 1,
+      pending: 1,
+      remaining: 2,
+    });
     const [legacyBlocked] = await database
       .select({ status: aanvraagObservation.status })
       .from(aanvraagObservation)
