@@ -1300,3 +1300,144 @@ describe.serial("0014 to 0015 dedup_groep dedup_key migration", () => {
     );
   });
 });
+
+describe.serial("0015 to 0016 bron_health and alert migration", () => {
+  let client: ReturnType<typeof postgres> | undefined;
+  let priorStatements: string[] = [];
+  let bronHealthAlertStatements: string[] = [];
+  const priorMigrations = [
+    "0000_core.sql",
+    "0001_u3_durable_ingestion.sql",
+    "0002_u8_backfill_observability.sql",
+    "0003_u9_snapshot_approval.sql",
+    "0004_u10_export_idempotency.sql",
+    "0005_u11_external_receipt.sql",
+    "0006_search_projection_checkpoint.sql",
+    "0007_snapshot_search_version.sql",
+    "0008_bulk_projector_claims.sql",
+    "0009_source_record_missed_polls.sql",
+    "0010_query_snapshot_search_scope.sql",
+    "0011_aanvraag_locatie_sluitingsdatum.sql",
+    "0012_source_record_listing_hash.sql",
+    "0013_durable_user_writes.sql",
+    "0014_auth_user_role.sql",
+    "0015_dedup_groep_dedup_key.sql",
+  ];
+
+  beforeAll(async () => {
+    if (!upgradeDatabaseUrl) {
+      if (upgradeDatabaseRequired) {
+        throw new Error("Required upgrade test database URL is unavailable");
+      }
+      return;
+    }
+    client = postgres(upgradeDatabaseUrl, { max: 1 });
+    const perMigration = await Promise.all(
+      priorMigrations.map((name) => readMigrationStatements(name))
+    );
+    priorStatements = perMigration.flat();
+    bronHealthAlertStatements = await readMigrationStatements(
+      "0016_bron_health_and_alerts.sql"
+    );
+  });
+
+  afterAll(async () => {
+    await client?.end({ timeout: 5 });
+  });
+
+  it("creates curated.bron_health and curated.alert tables with constraints", async () => {
+    if (!client) {
+      expect(upgradeDatabaseUrl).toBeUndefined();
+      return;
+    }
+
+    await client.unsafe(`
+      DROP SCHEMA IF EXISTS curated CASCADE;
+      DROP SCHEMA IF EXISTS marts CASCADE;
+      DROP SCHEMA IF EXISTS staging CASCADE;
+      DROP SCHEMA IF EXISTS drizzle CASCADE;
+      DROP SCHEMA IF EXISTS public CASCADE;
+      CREATE SCHEMA public;
+    `);
+
+    await client.begin(async (transaction) => {
+      for (const statement of priorStatements) {
+        // oxlint-disable-next-line no-await-in-loop -- migration statements are order-dependent
+        await transaction.unsafe(statement);
+      }
+    });
+
+    const testBronId = "10000000-0000-4000-8000-000000000016";
+    await client.unsafe(`
+      INSERT INTO curated.bron (id, naam, categorie, status, voorwaarden_status)
+      VALUES ('${testBronId}', 'Test Bron 16', 'overheidsportaal', 'ready', 'toegestaan');
+    `);
+
+    await client.begin(async (transaction) => {
+      for (const statement of bronHealthAlertStatements) {
+        // oxlint-disable-next-line no-await-in-loop -- migration statements are order-dependent
+        await transaction.unsafe(statement);
+      }
+    });
+
+    await client.unsafe(`
+      INSERT INTO curated.bron_health (bron_id, circuit_status, last_run_status, silence_alert_open)
+      VALUES ('${testBronId}', 'closed', 'succeeded', false);
+    `);
+
+    const healthRows = await client.unsafe(`
+      SELECT bron_id, circuit_status, silence_alert_open FROM curated.bron_health WHERE bron_id = '${testBronId}';
+    `);
+    expect(healthRows).toMatchObject([
+      {
+        bron_id: testBronId,
+        circuit_status: "closed",
+        silence_alert_open: false,
+      },
+    ]);
+
+    const testAlertId = "20000000-0000-4000-8000-000000000016";
+    await client.unsafe(`
+      INSERT INTO curated.alert (id, bron_id, dedupe_key, kind, message, evidence)
+      VALUES ('${testAlertId}', '${testBronId}', 'silence:${testBronId}', 'bron.stil', 'Alert message', '{"key": "val"}'::jsonb);
+    `);
+
+    const alertRows = await client.unsafe(`
+      SELECT id, bron_id, dedupe_key, acked_at FROM curated.alert WHERE id = '${testAlertId}';
+    `);
+    expect(alertRows).toMatchObject([
+      {
+        acked_at: null,
+        bron_id: testBronId,
+        dedupe_key: `silence:${testBronId}`,
+        id: testAlertId,
+      },
+    ]);
+
+    const activeClient = client;
+    const updateInconsistentAck = async (): Promise<void> => {
+      await activeClient.unsafe(`
+        UPDATE curated.alert SET acked_at = now() WHERE id = '${testAlertId}';
+      `);
+    };
+    await expect(updateInconsistentAck()).rejects.toMatchObject({
+      code: "23514",
+    });
+
+    await client.unsafe(`
+      UPDATE curated.alert SET acked_at = now(), acked_by = 'operator-1' WHERE id = '${testAlertId}';
+    `);
+
+    await client.unsafe(`
+      DELETE FROM curated.bron WHERE id = '${testBronId}';
+    `);
+    const remainingHealth = await client.unsafe(
+      `SELECT * FROM curated.bron_health WHERE bron_id = '${testBronId}';`
+    );
+    const remainingAlert = await client.unsafe(
+      `SELECT * FROM curated.alert WHERE id = '${testAlertId}';`
+    );
+    expect(remainingHealth).toHaveLength(0);
+    expect(remainingAlert).toHaveLength(0);
+  });
+});

@@ -4,6 +4,13 @@ import type {
   ExecuteBronRunResult,
 } from "@ji/application/bronnen";
 import type { LifecycleReconcilePorts } from "@ji/application/lifecycle";
+import type { RunBaselineSample } from "@ji/application/observability";
+import {
+  buildSilenceDedupeKey,
+  createSilenceAlertWriter,
+  observeConnectorRunSilence,
+} from "@ji/application/observability";
+import type { AlertStore, BronHealthStore } from "@ji/application/registry";
 import { SOURCES } from "@ji/application/sources";
 import type { SourceDefinition } from "@ji/application/sources";
 import { fullJitter } from "@ji/connectors";
@@ -21,8 +28,11 @@ import { createRawObjectStore } from "@ji/connectors/s3-object-client";
 import {
   createBronRuntimeClient,
   drainPostgresOutbox,
+  PostgresAlertStore,
+  PostgresBronHealthStore,
   PostgresSearchDocumentLoader,
   PostgresSearchVersionStore,
+  querySilenceBaselineSamples,
 } from "@ji/db";
 import type { BronRuntimeDatabase } from "@ji/db";
 import { curateScrapeRun } from "@ji/db/curate-scrape-run";
@@ -69,10 +79,13 @@ export interface BronIngestPipelineResult extends PollBronRunResult {
   /** Null in "onbox" mode: this process never drains, so it has no version to report. */
   indexVersion: number | null;
   quarantined: number;
+  silenceAlert?: { alertId?: string; created: boolean } | null;
   unchanged: number;
 }
 
 export interface PollBronRuntime {
+  alerts?: AlertStore;
+  bronHealth?: BronHealthStore;
   bronPersistence: BronPersistence;
   close: () => Promise<void>;
   createConnector: (input: {
@@ -86,6 +99,7 @@ export interface PollBronRuntime {
   knownHashStore: KnownHashStore;
   /** RJC-397: missed-poll reconcile ports handed to every poll run. */
   lifecycle: LifecycleReconcilePorts;
+  loadBaseline?: (bronId: string) => Promise<readonly RunBaselineSample[]>;
   objectStore: ObjectStore;
   observationRecorder: ObservationRecorder;
   runLifecycleStore: RunLifecycleStore;
@@ -125,6 +139,8 @@ export const createPollBronRuntime = (databaseUrl: string): PollBronRuntime => {
   }
 
   return {
+    alerts: new PostgresAlertStore(client.database),
+    bronHealth: new PostgresBronHealthStore(client.database),
     bronPersistence: client.bronPersistence,
     close: client.close,
     createConnector: ({ bronId, bronSlug, knownHashes, runKind }) => {
@@ -246,12 +262,90 @@ export const drainOrDeferToProjector = async (
   };
 };
 
+export const handleSilenceAndHealth = async (
+  pollResult: PollBronRunResult,
+  runtime: PollBronRuntime,
+  runKind: ConnectorRunKind
+): Promise<{ alertId?: string; created: boolean } | null> => {
+  if (runKind !== "poll") {
+    return null;
+  }
+
+  const now = new Date();
+  const alerts = runtime.alerts ?? new PostgresAlertStore(runtime.database);
+  const bronHealth =
+    runtime.bronHealth ?? new PostgresBronHealthStore(runtime.database);
+
+  let baseline: readonly RunBaselineSample[] = [];
+  try {
+    if (runtime.loadBaseline) {
+      baseline = await runtime.loadBaseline(pollResult.bronId);
+    } else if (runtime.database) {
+      baseline = await querySilenceBaselineSamples(
+        runtime.database,
+        pollResult.bronId,
+        now,
+        pollResult.scrapeRunId
+      );
+    }
+  } catch {
+    baseline = [];
+  }
+
+  const lastSuccessAt = baseline.length > 0 ? (baseline[0]?.at ?? null) : null;
+  let bronNaam: string = pollResult.bronSlug;
+  try {
+    const record = await runtime.bronPersistence.findById(pollResult.bronId);
+    if (record?.naam) {
+      bronNaam = record.naam;
+    }
+  } catch {
+    // fallback to bronSlug
+  }
+
+  const writer = createSilenceAlertWriter({ alerts, bronHealth });
+  const result = await observeConnectorRunSilence({
+    baseline,
+    bronId: pollResult.bronId,
+    bronNaam,
+    detectedAt: now,
+    httpStatus: 200,
+    lastSuccessAt,
+    metrics: pollResult.metrics,
+    writer,
+  });
+
+  if (!result.event) {
+    const existing = await bronHealth.getByBronId(pollResult.bronId);
+    const openAlert = await alerts.findOpenByDedupeKey(
+      buildSilenceDedupeKey(pollResult.bronId)
+    );
+    await bronHealth.upsert({
+      bronId: pollResult.bronId,
+      circuitStatus: existing?.circuitStatus ?? "closed",
+      lastRunAt: now,
+      lastRunStatus: "succeeded",
+      silenceAlertOpen: openAlert !== null,
+    });
+  }
+
+  return {
+    alertId: result.alertId,
+    created: result.created,
+  };
+};
+
 export const runBronIngestPipeline = async (
   payload: PollBronPayload,
   runtime: PollBronRuntime,
   runKind: ConnectorRunKind = "poll"
 ): Promise<BronIngestPipelineResult> => {
   const pollResult = await runPollBron(payload, runtime, runKind);
+  const silenceAlert = await handleSilenceAndHealth(
+    pollResult,
+    runtime,
+    runKind
+  );
   const curateResult = await curateScrapeRun({
     bronId: pollResult.bronId,
     bronSlug: pollResult.bronSlug,
@@ -269,6 +363,7 @@ export const runBronIngestPipeline = async (
     drained: drainSummary.drained,
     indexVersion: drainSummary.indexVersion,
     quarantined: curateResult.quarantined,
+    silenceAlert,
     unchanged: curateResult.unchanged,
   };
 };

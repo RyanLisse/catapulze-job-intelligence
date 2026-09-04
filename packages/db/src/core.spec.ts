@@ -47,6 +47,8 @@ const requiredTables = [
   { name: "audit_event", schema: "curated" },
   { name: "outbox_event", schema: "curated" },
   { name: "agent_context", schema: "curated" },
+  { name: "bron_health", schema: "curated" },
+  { name: "alert", schema: "curated" },
 ];
 
 const forbiddenTables = [

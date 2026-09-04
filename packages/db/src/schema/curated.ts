@@ -586,8 +586,83 @@ export const agentContext = curatedSchema.table(
   ]
 );
 
-export const bronRelations = relations(bron, ({ many }) => ({
+export const bronHealth = curatedSchema.table(
+  "bron_health",
+  {
+    bronId: uuid("bron_id")
+      .primaryKey()
+      .references(() => bron.id, { onDelete: "cascade" }),
+    circuitStatus: text("circuit_status").default("closed").notNull(),
+    lastRunAt: timestamp("last_run_at", { withTimezone: true }),
+    lastRunStatus: text("last_run_status"),
+    silenceAlertOpen: boolean("silence_alert_open").default(false).notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .$onUpdate(() => new Date())
+      .notNull(),
+  },
+  (table) => [
+    check(
+      "bron_health_circuit_status_check",
+      sql`length(trim(${table.circuitStatus})) > 0`
+    ),
+  ]
+);
+
+export const alert = curatedSchema.table(
+  "alert",
+  {
+    ackedAt: timestamp("acked_at", { withTimezone: true }),
+    ackedBy: text("acked_by"),
+    bronId: uuid("bron_id")
+      .notNull()
+      .references(() => bron.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    dedupeKey: text("dedupe_key").notNull(),
+    evidence: jsonb("evidence").default({}).notNull(),
+    id: uuid("id").defaultRandom().primaryKey(),
+    kind: text("kind").notNull(),
+    message: text("message").notNull(),
+  },
+  (table) => [
+    index("alert_bron_id_idx").on(table.bronId),
+    index("alert_dedupe_key_idx").on(table.dedupeKey),
+    index("alert_open_idx")
+      .on(table.dedupeKey)
+      .where(sql`${table.ackedAt} IS NULL`),
+    check("alert_dedupe_key_check", sql`length(trim(${table.dedupeKey})) > 0`),
+    check("alert_kind_check", sql`length(trim(${table.kind})) > 0`),
+    check("alert_message_check", sql`length(trim(${table.message})) > 0`),
+    check(
+      "alert_acked_consistency_check",
+      sql`(${table.ackedAt} IS NULL AND ${table.ackedBy} IS NULL) OR (${table.ackedAt} IS NOT NULL AND ${table.ackedBy} IS NOT NULL)`
+    ),
+  ]
+);
+
+export const bronHealthRelations = relations(bronHealth, ({ one }) => ({
+  bron: one(bron, {
+    fields: [bronHealth.bronId],
+    references: [bron.id],
+  }),
+}));
+
+export const alertRelations = relations(alert, ({ one }) => ({
+  bron: one(bron, {
+    fields: [alert.bronId],
+    references: [bron.id],
+  }),
+}));
+
+export const bronRelations = relations(bron, ({ many, one }) => ({
   aanvragen: many(aanvraag),
+  alerts: many(alert),
+  health: one(bronHealth, {
+    fields: [bron.id],
+    references: [bronHealth.bronId],
+  }),
   scrapeRuns: many(scrapeRun),
 }));
 

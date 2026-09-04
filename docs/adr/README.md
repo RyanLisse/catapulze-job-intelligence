@@ -21,6 +21,8 @@ Deze map bevat de canonieke architectuurbesluiten die meerdere packages, uitvoer
 | [ADR-0006](ADR-0006-neon-as-system-of-record.md) | Accepted | Neon (managed Postgres) als production system of record; supersedeert het on-box deel van ADR-0004 |
 | [ADR-0007](ADR-0007-search-platform-state-2026-09-01.md) | Accepted (staat-vastlegging) | Zoek-/ingest-/opslagarchitectuur op `main` per 2026-09-01: on-box projector, S3 raw store, cache-lagen, component-readiness, SearchVersion-invarianten |
 | [ADR-0008](ADR-0008-cloudflare-r2-for-raw-payloads.md) | Accepted | Cloudflare R2 als productie-raw-payload-store; MinIO blijft lokale dev-target; nul applicatiecode geraakt |
+| [ADR-0009](ADR-0009-manticore-29-hybrid.md) | Proposed | Manticore 29 hybrid search candidate |
+| [ADR-0010](ADR-0010-bron-health-and-alert-storage.md) | Accepted | Dedicated storage voor bron_health en alert versus audit_event |
 
 ## Runbooks
 

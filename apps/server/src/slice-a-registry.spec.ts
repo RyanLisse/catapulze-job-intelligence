@@ -9,7 +9,9 @@ process.env.DATABASE_URL ??= "postgres://user:pass@127.0.0.1:1/db";
 
 const { createProductionSliceADeps } = await import("./slice-a-registry");
 const {
+  PostgresAlertStore,
   PostgresAuditStore,
+  PostgresBronHealthStore,
   PostgresExternalReceiptStore,
   PostgresMarkeringStore,
   PostgresSavedSearchStore,
@@ -46,6 +48,19 @@ describe("createProductionSliceADeps", () => {
       expect(deps.stores.savedSearches).toBeInstanceOf(
         PostgresSavedSearchStore
       );
+    } finally {
+      await deps.close();
+    }
+  });
+
+  it("wires durable stores for alerts and bron health (RJC-409)", async () => {
+    const deps = await createProductionSliceADeps({
+      ...baseInput,
+      nodeEnv: "test",
+    });
+    try {
+      expect(deps.stores.alerts).toBeInstanceOf(PostgresAlertStore);
+      expect(deps.stores.bronHealth).toBeInstanceOf(PostgresBronHealthStore);
     } finally {
       await deps.close();
     }
