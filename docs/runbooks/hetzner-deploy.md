@@ -146,6 +146,28 @@ terminal of log raakt — `sed -E 's#postgres(ql)?://[^ "]+#<url>#g'` — en
 gebruik nooit `set -x`/`env`/`printenv` in deze route
 ([coolify-local.md](coolify-local.md)).
 
+Coolify bewaart elke variabele als twéé rijen: een gewone rij en een
+preview-rij (`is_preview = true`). `POST /api/v1/applications/{uuid}/envs`
+(en in sommige paden ook de UI) kan de gewone rij **leeg** achterlaten
+terwijl alleen de preview-rij de waarde draagt; de container krijgt dan een
+lege variabele. Zo draaide op 2026-09-04 de migrator met een lege
+`MIGRATION_DATABASE_URL` en stopte hij zonder iets toe te passen. De API is
+hier geen bewijs: `is_shown_once`-waarden komen gemaskeerd (leeg) terug, dus
+"lengte 0" via de API zegt niets. Controleer in Coolify's eigen Postgres:
+
+```bash
+docker exec coolify-db psql -U coolify -d coolify -At -c \
+  "select key, is_preview, is_shown_once, length(value)
+   from environment_variables ev
+   join applications a on a.id = ev.resourceable_id
+   where a.uuid = '<application-uuid>'"
+```
+
+Een lengte `0` of `NULL` op de niet-preview-rij is een echt lege variabele.
+Herstel: verwijder die rij (`DELETE /api/v1/applications/{uuid}/envs/{env-uuid}`)
+en POST hem opnieuw — dat maakt beide rijen weer aan. De query toont alleen
+sleutels en lengtes, nooit waarden; houd dat zo.
+
 ## 3. Geordende deploy-sequentie
 
 Elke stap eindigt met een verificatie. Ga niet door zolang die faalt.
@@ -543,6 +565,32 @@ restore/switchoverprocedure uit het runbook. Bij elke latere release geldt
 hetzelfde SHA-afgeleide contract
 ([coolify-local.md](coolify-local.md)).
 
+**Coolify 4.3.14 kan de migrator-application niet zelf uitrollen** (live
+gezien 2026-09-04). De rolling update wacht op een Docker-healthstatus, maar
+`apps/server/Dockerfile.migrate` zet `HEALTHCHECK NONE`, waardoor
+`docker inspect` op `.State.Health` faalt ("map has no entry for key
+Health") en Coolify iedere migrator-deploy als mislukt markeert — ook wanneer
+de job zelf goed liep. Het pad dat werkte: laat Coolify de image bouwen (de
+"mislukte" deploy laat `<application-uuid>:<sha>` gewoon op de box achter;
+voor de migrator is dat `esjfwzdbibaz7kqrhqgatjkh:<sha>`) en draai die image
+daarna als one-shot vanaf de host:
+
+```bash
+# /home/catapulze/.migrate.env, mode 0600, bevat uitsluitend:
+#   MIGRATION_DATABASE_URL=<migrator-url>
+#   TURBO_CACHE_DIR=/tmp/turbo
+#   TURBO_TELEMETRY_DISABLED=1
+docker run --rm --env-file /home/catapulze/.migrate.env --network coolify \
+  esjfwzdbibaz7kqrhqgatjkh:<sha> bun run db:migrate
+rm /home/catapulze/.migrate.env
+```
+
+De twee `TURBO_*`-variabelen zijn nodig omdat de image als user `bun` draait
+en `/app/.turbo/cache` niet kan aanmaken. Verwijder het env-bestand direct na
+de run. Bewijs is de journal-count vóór en ná
+(`SELECT count(*) FROM drizzle.__drizzle_migrations;`): voor `0015` ging die
+van 15 naar 16.
+
 Verificatie (met de read-only rol, URL gescrubd):
 
 ```sql
@@ -559,6 +607,13 @@ journal én het live schema komen overeen met de migraties van de exacte
 uitvoert (`packages/db/src/readiness.ts`,
 `resolveExpectedMigrationTimestamp`), maar die ene waarde vervangt de
 volledige readback vóór een eventuele migratie niet.
+
+Die koppeling snijdt ook de andere kant op: zodra een nieuwe migratie is
+toegepast, geeft de **oude** server-container `503` op `/readyz`
+(`migration_mismatch` — hij verwacht nog de journal-timestamp van zijn eigen
+build) totdat de server met de bijbehorende `DEPLOY_SHA` opnieuw is
+uitgerold. Plan migratie en server-redeploy daarom als één venster; tussen
+die twee stappen is de API bewust niet "ready".
 
 ### Stap 4 — Server (API)
 
@@ -581,6 +636,30 @@ curl -s http://127.0.0.1:3000/readyz
 verwacht nog **geen** `"status":"ready"` — de projector draait nog niet en
 de index kan leeg zijn; zie stap 7 en § 4 voor welke componentstatussen op
 dit punt acceptabel zijn (`postgres` en `manticore` moeten al `ok` zijn).
+
+**Rolling update faalt met "New container is unhealthy" (open, 2026-09-04).**
+Server- en projector-deploys op HEAD faalden die dag herhaaldelijk bij
+Coolify's allereerste `docker inspect`, met een lege `Health.Log`, terwijl
+dezelfde image handmatig met dezelfde env binnen 15 s gezond was. De oorzaak
+was bij het schrijven nog niet gevonden; zie de blockertabel. Het
+diagnoserecept dat "image kapot" van "Coolify-orchestratie kapot" scheidt:
+
+```bash
+# env van de nog draaiende oude container overnemen (0600, daarna weggooien)
+docker inspect <oude-container> \
+  --format '{{range .Config.Env}}{{println .}}{{end}}' > /tmp/ji-probe.env
+chmod 0600 /tmp/ji-probe.env
+docker run -d --name ji-probe --network coolify \
+  --env-file /tmp/ji-probe.env <image>
+docker exec ji-probe bun -e \
+  "fetch('http://localhost:3000/readyz').then(async r => console.log(r.status, await r.text()))"
+docker rm -f ji-probe && rm /tmp/ji-probe.env
+```
+
+Lees de readiness-JSON, nooit `/version`: dat zegt alleen welke build draait
+en niets over de afhankelijkheden. Het env-bestand bevat secrets — scrub de
+inhoud met het `sed`-patroon uit § 2 voordat er iets van in een log of ticket
+belandt, en verwijder het direct na de probe.
 
 ### Stap 5 — Web
 
@@ -651,6 +730,11 @@ Verificatie: één cycle-logregel per drain
 (`{"event":"projector_cycle","drained":N,…}`; `drained: 0` per ~1s is normaal
 bij idle), en een tweede instance-start eindigt met "another projector holds
 the lock" en exit 0 (advisory lock werkt).
+
+Faalt de Coolify-deploy van de projector met "New container is unhealthy",
+gebruik dan hetzelfde zijcontainer-recept als bij stap 4. De projector heeft
+geen `/readyz`; het bewijs is dan de `projector_cycle`-regel in
+`docker logs ji-probe`.
 
 ### Stap 8 — Search-bootstrap (verse Manticore heeft geen data)
 
@@ -830,6 +914,7 @@ vallen allemaal buiten het mandaat van dit runbook:
 | RJC-373: productieconfiguratie van `TRIGGER_SECRET_KEY` verifiëren of zo nodig inrichten | Stap 9 (worker-deploy en gedeployd bewijs) | Ryan / Trigger.dev-account |
 | Voorgestelde ADR-0009: hybrid-evaluatie op Manticore 29 afronden | Geen blokkade voor de huidige lexicale productie-engine 29.0.2; hybrid activeren vereist afzonderlijk gereviewd bewijs | Ryan |
 | ~~Raw-store-provider~~ — beslist: Cloudflare R2 ([ADR-0008](../adr/ADR-0008-cloudflare-r2-for-raw-payloads.md)); bestaan/configuratie van bucket + keys verifiëren en zo nodig inrichten | Stap 6 | Ryan |
+| Coolify-rolling-update van server en projector faalt sinds 2026-09-04 met "New container is unhealthy" bij de eerste inspect (lege `Health.Log`), terwijl dezelfde image handmatig gezond is; oorzaak open — diagnoserecept in stap 4 | Stap 4 en 7 (elke server-/projector-release via Coolify) | Ryan |
 | Branch protection op `main` | Geen deploystap, wel de release-hygiëne eromheen | Ryan |
 
 Daarnaast: host en Coolify waren op 2026-09-03 live bereikbaar, maar iedere
