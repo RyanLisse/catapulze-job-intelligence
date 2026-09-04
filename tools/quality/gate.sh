@@ -21,6 +21,12 @@ fi
 
 PATH="./node_modules/.bin:$PATH"
 
+# Claude Stop / lefthook / bare `bun run gate` do not inherit interactive
+# shell exports. Load unset POSTGRES_* from `.env` (else `.env.example`) so
+# test-isolation matches the credentials Compose used to start Postgres.
+# shellcheck disable=SC1091
+source "$ROOT/tools/quality/load-compose-env.sh"
+
 if [[ -z "${QLTY_JOBS:-}" ]]; then
   if [[ "$(uname -s)" == "Darwin" ]]; then
     QLTY_JOBS=1
