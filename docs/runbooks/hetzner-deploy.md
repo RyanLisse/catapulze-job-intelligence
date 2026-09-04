@@ -78,6 +78,7 @@ git of in chat.**
 | `BETTER_AUTH_SECRET` | ja (min. 32 tekens) | boot faalt | operator/1Password |
 | `BETTER_AUTH_URL` | ja (URL) | boot faalt | operator: publieke API-URL |
 | `CORS_ORIGIN` | ja (URL) | boot faalt | operator: publieke web-URL |
+| `APP_RELEASE_SHA` | **nee** — laat weg in Coolify | de server gebruikt `SOURCE_COMMIT`, dat Coolify in iedere container injecteert (de exacte gebouwde commit); `/version` echoot die waarde. Alleen zetten om bewust te overriden, en dan uitsluitend een 40-teken lowercase Git-SHA: iedere andere waarde (bijv. een branchnaam) laat de boot falen met `Invalid environment variables` en rolt elke rolling update terug (productie, 2026-09-04) | Coolify (`SOURCE_COMMIT`) |
 | `MANTICORE_URL` | nee, default `http://127.0.0.1:9308` | zoekopdrachten en `/readyz`-manticore-check falen als de default niet klopt | Productie-API en -projector: `http://manticore29-<service-uuid>:9308` via **Connect to Predefined Network**; handmatige host-readback van Manticore 29: `http://127.0.0.1:9312`; lokaal compose: `http://manticore:9308` |
 | `REDIS_URL` | nee | in-process cache; `/readyz` meldt `redis: not-configured` | operator; on-box Redis |
 | `RAW_S3_BUCKET` (+ `RAW_S3_ENDPOINT`, `RAW_S3_REGION`, `RAW_S3_ACCESS_KEY_ID`, `RAW_S3_SECRET_ACCESS_KEY`) | in productie effectief ja | zonder `RAW_S3_BUCKET` valt de store terug op filesystem en **weigert de server in productie te starten** (`apps/server/src/slice-a-registry.ts`, RJC-386) | operator; provider beslist: Cloudflare R2 ([ADR-0008](../adr/ADR-0008-cloudflare-r2-for-raw-payloads.md)); bestaan/configuratie live verifiëren en zo nodig inrichten |
@@ -392,10 +393,12 @@ Gebruik bij API-beheer de volgende, live geverifieerde semantiek:
   `POST /deploy?uuid=<application-uuid>&force=true`.
 
 De eerste deploy kan `git_commit_sha` op één vaste commit vastzetten. De route
-`/version` echoot alleen `APP_RELEASE_SHA` en bewijst daardoor niet welke code
-in de container draait. Controleer voor release-evidence zowel de imagetag
-`<app-uuid>:<git-sha>` met `docker ps --format '{{.Image}}'` als een gerichte
-grep naar een releasekenmerk in de container. Zet met
+`/version` echoot alleen het bij boot opgeloste release-SHA (`APP_RELEASE_SHA`
+als die gezet is, anders Coolify's `SOURCE_COMMIT`; zie de env-tabel in § 2) en
+bewijst daardoor niet welke code in de container draait. Controleer voor
+release-evidence zowel de imagetag `<app-uuid>:<git-sha>` met
+`docker ps --format '{{.Image}}'` als een gerichte grep naar een
+releasekenmerk in de container. Zet met
 `PATCH /applications/{uuid}` de waarde `git_commit_sha` op `HEAD` wanneer de
 application voortaan de geconfigureerde branch moet volgen.
 

@@ -2,18 +2,25 @@ import "dotenv/config";
 import { createEnv } from "@t3-oss/env-core";
 import { z } from "zod";
 
+const RELEASE_SHA_MESSAGE =
+  "Release SHA must be a 40-character lowercase Git SHA (read from APP_RELEASE_SHA, or from Coolify's SOURCE_COMMIT when APP_RELEASE_SHA is unset).";
+
 export const env = createEnv({
   emptyStringAsUndefined: true,
-  runtimeEnv: process.env,
+  runtimeEnv: {
+    ...process.env,
+    // Coolify injects SOURCE_COMMIT (the exact commit it built) into every
+    // container, so a hand-maintained APP_RELEASE_SHA is optional and only
+    // overrides it when set. Resolved here, once: everything that needs the
+    // release SHA (/version, readiness, telemetry) reads env.APP_RELEASE_SHA.
+    APP_RELEASE_SHA: process.env.APP_RELEASE_SHA || process.env.SOURCE_COMMIT,
+  },
   server: {
     // Public deployment identity used by guarded live browser verification.
     // When absent, /version returns 503 rather than inventing a release.
     APP_RELEASE_SHA: z
       .string()
-      .regex(
-        /^[a-f0-9]{40}$/u,
-        "APP_RELEASE_SHA must be a 40-character Git SHA."
-      )
+      .regex(/^[a-f0-9]{40}$/u, RELEASE_SHA_MESSAGE)
       .optional(),
     BETTER_AUTH_SECRET: z.string().min(32),
     BETTER_AUTH_URL: z.url(),

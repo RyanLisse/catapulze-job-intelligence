@@ -6,16 +6,20 @@ recording production business payloads. It is deliberately a canary-only
 release proof, not a completeness proof for ordinary production data.
 
 Every run requires `E2E_EXPECTED_RELEASE_SHA`, an exact 40-character Git SHA.
-The API exposes only its configured `APP_RELEASE_SHA` at `GET /version`:
+The API exposes only its resolved release SHA at `GET /version`:
 
 ```json
 { "releaseSha": "0123456789abcdef0123456789abcdef01234567" }
 ```
 
 The runner refuses any redirect, non-200 response, malformed identity, or SHA
-mismatch before it starts Playwright. Configure `APP_RELEASE_SHA` in the
-deployment environment; it is public metadata, not a secret. An absent server
-value returns HTTP 503 rather than pretending to identify a release.
+mismatch before it starts Playwright. The server resolves the SHA from
+`APP_RELEASE_SHA`, falling back to `SOURCE_COMMIT`, which Coolify injects into
+every container with the exact commit it built — so on Coolify nothing needs to
+be configured. `APP_RELEASE_SHA` is optional and only overrides that; if set, it
+must itself be a 40-character SHA or the server refuses to start. It is public
+metadata, not a secret. When neither is present the server returns HTTP 503
+rather than pretending to identify a release.
 
 ## Data and artifact boundaries
 
