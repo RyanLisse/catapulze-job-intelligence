@@ -9,6 +9,8 @@ export {
 } from "./auth";
 export {
   agentContext,
+  alert,
+  alertRelations,
   approvalRecord,
   approvalRecordRelations,
   aanvraag,
@@ -21,6 +23,8 @@ export {
   aanvraagVersieRelations,
   auditEvent,
   bron,
+  bronHealth,
+  bronHealthRelations,
   bronRelations,
   dedupGroep,
   dedupGroepRelations,

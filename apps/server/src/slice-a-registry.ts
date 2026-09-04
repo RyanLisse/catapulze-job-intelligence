@@ -12,8 +12,10 @@ import type { ObjectStore } from "@ji/connectors";
 import { createRawObjectStore } from "@ji/connectors/s3-object-client";
 import {
   PostgresAanvraagStore,
+  PostgresAlertStore,
   PostgresApprovalStore,
   PostgresAuditStore,
+  PostgresBronHealthStore,
   PostgresExportAttemptStore,
   PostgresExternalIdCrosswalkStore,
   PostgresExternalReceiptStore,
@@ -101,8 +103,11 @@ export const createProductionSliceADeps = async (
   const stores: SliceAStores = {
     ...memoryStores,
     aanvragen: new PostgresAanvraagStore(runtime.database),
+    alerts: new PostgresAlertStore(runtime.database),
     approvals: new PostgresApprovalStore(runtime.database),
     audit: new PostgresAuditStore(runtime.database),
+    bronHealth: new PostgresBronHealthStore(runtime.database),
+
     exportAttempts: new PostgresExportAttemptStore(runtime.database),
     externalCrosswalk: new PostgresExternalIdCrosswalkStore(runtime.database),
     externalReceipts: new PostgresExternalReceiptStore(runtime.database),

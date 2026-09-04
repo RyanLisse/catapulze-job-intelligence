@@ -195,10 +195,10 @@ Elke unit is een verticale slice met TDD en één PR. Volgorde is afhankelijkhei
 - [ ] Tabel-gedreven tests: één test per signaalcode, één per statusprecedentie.
 
 **D3**
-- [ ] `PostgresBronHealthStore` en `PostgresAlertStore` met dezelfde contracttests als de memory-varianten.
-- [ ] `evaluateSilence` wordt in `runBronIngestPipeline` aangeroepen na `complete`; dedupe key voorkomt een tweede alert.
-- [ ] `VOLATILE_STORE_ALLOWLIST` verliest `alerts` en `bronHealth` in dezelfde PR; `assertProductionPersistence` blijft groen.
-- [ ] Migratie voor `curated.bron_health` en `curated.alert` (of hergebruik `audit_event` — beslis in de PR met ADR-notitie).
+- [x] `PostgresBronHealthStore` en `PostgresAlertStore` met dezelfde contracttests als de memory-varianten.
+- [x] `evaluateSilence` wordt in `runBronIngestPipeline` aangeroepen na `complete`; dedupe key voorkomt een tweede alert.
+- [x] `VOLATILE_STORE_ALLOWLIST` verliest `alerts` en `bronHealth` in dezelfde PR; `assertProductionPersistence` blijft groen.
+- [x] Migratie voor `curated.bron_health` en `curated.alert` (of hergebruik `audit_event` — beslis in de PR met ADR-notitie).
 
 **D4**
 - [ ] Vier capabilities in `capabilities.ts` met Zod-in/uitvoer, `ROLE_OPERATOR`, `audit_class: access`.

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "bun:test";
 
+import type { RunBaselineSample } from "@ji/application/observability";
 import { resolveTenderNedTestImportDays } from "@ji/application/sources";
 
 import { requireDatabaseUrl, requireManticoreUrl } from "./poll-bron-env";
@@ -384,5 +385,295 @@ describe("runPollBron missed-poll lifecycle wiring (RJC-397)", () => {
     expect(missedPolls.read(bronId, "gone-since-last-run")?.missedPolls).toBe(
       1
     );
+  });
+});
+
+const unusedSilenceProp = (name: string): never => {
+  throw new Error(`handleSilenceAndHealth must not touch runtime.${name}`);
+};
+
+const baselineSamples = (): RunBaselineSample[] => {
+  const detectedAt = new Date("2026-08-29T12:00:00.000Z");
+  return Array.from({ length: 7 }, (_, index) => ({
+    at: new Date(detectedAt.getTime() - (index + 1) * 86_400_000),
+    changed: 4,
+    found: 40,
+    new: 8,
+  }));
+};
+
+describe("runBronIngestPipeline silence evaluation (RJC-409)", () => {
+  const bronId = "00000000-0000-4000-8000-000000000010";
+  const bronNaam = "TenderNed";
+
+  it("wires evaluateSilence in runBronIngestPipeline after complete and dedupes second alert", async () => {
+    const { MemoryAlertStore, MemoryBronHealthStore } =
+      await import("@ji/application/registry");
+    const { handleSilenceAndHealth } = await import("./poll-bron-run");
+
+    const alerts = new MemoryAlertStore();
+    const bronHealth = new MemoryBronHealthStore();
+
+    const silentPollResult = {
+      bronId,
+      bronSlug: "tenderned" as const,
+      lifecycle: null,
+      metrics: {
+        changed: 0,
+        error: 0,
+        found: 10,
+        new: 0,
+        rejected: 0,
+      },
+      scrapeRunId: "00000000-0000-4000-8000-000000000001",
+      status: "succeeded" as const,
+      writtenRecords: 0,
+    };
+
+    const runtime = {
+      alerts,
+      bronHealth,
+      bronPersistence: {
+        activate: () => Promise.reject(new Error("unused")),
+        create: () => Promise.reject(new Error("unused")),
+        findById: () =>
+          Promise.resolve({
+            actief: true,
+            bronId,
+            categorie: "overheidsportaal",
+            crawlDelayMs: 0,
+            interval: "*/15 * * * *",
+            lastRun: null,
+            loginVereist: false,
+            mappingRef: null,
+            method: "json-api" as const,
+            naam: bronNaam,
+            rateLimitPerMinute: 60,
+            retentionDays: 90,
+            secretRef: null,
+            status: "ready" as const,
+            voorwaardenStatus: "toegestaan" as const,
+          }),
+        list: () => Promise.resolve([]),
+      },
+      close: () => Promise.resolve(),
+      createConnector: () => unusedSilenceProp("createConnector"),
+      get curateStore(): never {
+        return unusedSilenceProp("curateStore");
+      },
+      get database(): never {
+        return unusedSilenceProp("database");
+      },
+      get knownHashStore(): never {
+        return unusedSilenceProp("knownHashStore");
+      },
+      get lifecycle(): never {
+        return unusedSilenceProp("lifecycle");
+      },
+      loadBaseline: () => Promise.resolve(baselineSamples()),
+      get objectStore(): never {
+        return unusedSilenceProp("objectStore");
+      },
+      get observationRecorder(): never {
+        return unusedSilenceProp("observationRecorder");
+      },
+      get runLifecycleStore(): never {
+        return unusedSilenceProp("runLifecycleStore");
+      },
+    };
+
+    // First run: silence detected -> alert created, silenceAlertOpen set to true
+    const firstResult = await handleSilenceAndHealth(
+      silentPollResult,
+      runtime,
+      "poll"
+    );
+    expect(firstResult).not.toBeNull();
+    expect(firstResult?.created).toBe(true);
+    expect(firstResult?.alertId).toBeDefined();
+
+    const openAlerts = await alerts.listOpen();
+    expect(openAlerts).toHaveLength(1);
+    expect(openAlerts[0]?.id).toBe(firstResult?.alertId);
+    expect(openAlerts[0]?.kind).toBe("bron.stil");
+
+    const healthAfterFirst = await bronHealth.getByBronId(bronId);
+    expect(healthAfterFirst?.silenceAlertOpen).toBe(true);
+    expect(healthAfterFirst?.lastRunStatus).toBe("succeeded");
+
+    // Second run: silence detected again -> dedupe key prevents second alert
+    const secondResult = await handleSilenceAndHealth(
+      silentPollResult,
+      runtime,
+      "poll"
+    );
+    expect(secondResult).not.toBeNull();
+    expect(secondResult?.created).toBe(false);
+    expect(secondResult?.alertId).toBe(firstResult?.alertId);
+
+    const openAlertsAfterSecond = await alerts.listOpen();
+    expect(openAlertsAfterSecond).toHaveLength(1);
+
+    const healthAfterSecond = await bronHealth.getByBronId(bronId);
+    expect(healthAfterSecond?.silenceAlertOpen).toBe(true);
+  });
+
+  it("updates bronHealth with silenceAlertOpen false when run has normal activity", async () => {
+    const { MemoryAlertStore, MemoryBronHealthStore } =
+      await import("@ji/application/registry");
+    const { handleSilenceAndHealth } = await import("./poll-bron-run");
+
+    const alerts = new MemoryAlertStore();
+    const bronHealth = new MemoryBronHealthStore();
+
+    const normalPollResult = {
+      bronId,
+      bronSlug: "tenderned" as const,
+      lifecycle: null,
+      metrics: {
+        changed: 2,
+        error: 0,
+        found: 30,
+        new: 5,
+        rejected: 0,
+      },
+      scrapeRunId: "00000000-0000-4000-8000-000000000002",
+      status: "succeeded" as const,
+      writtenRecords: 7,
+    };
+
+    const runtime = {
+      alerts,
+      bronHealth,
+      bronPersistence: {
+        activate: () => Promise.reject(new Error("unused")),
+        create: () => Promise.reject(new Error("unused")),
+        findById: () =>
+          Promise.resolve({
+            actief: true,
+            bronId,
+            categorie: "overheidsportaal",
+            crawlDelayMs: 0,
+            interval: "*/15 * * * *",
+            lastRun: null,
+            loginVereist: false,
+            mappingRef: null,
+            method: "json-api" as const,
+            naam: bronNaam,
+            rateLimitPerMinute: 60,
+            retentionDays: 90,
+            secretRef: null,
+            status: "ready" as const,
+            voorwaardenStatus: "toegestaan" as const,
+          }),
+        list: () => Promise.resolve([]),
+      },
+      close: () => Promise.resolve(),
+      createConnector: () => unusedSilenceProp("createConnector"),
+      get curateStore(): never {
+        return unusedSilenceProp("curateStore");
+      },
+      get database(): never {
+        return unusedSilenceProp("database");
+      },
+      get knownHashStore(): never {
+        return unusedSilenceProp("knownHashStore");
+      },
+      get lifecycle(): never {
+        return unusedSilenceProp("lifecycle");
+      },
+      loadBaseline: () => Promise.resolve(baselineSamples()),
+      get objectStore(): never {
+        return unusedSilenceProp("objectStore");
+      },
+      get observationRecorder(): never {
+        return unusedSilenceProp("observationRecorder");
+      },
+      get runLifecycleStore(): never {
+        return unusedSilenceProp("runLifecycleStore");
+      },
+    };
+
+    const result = await handleSilenceAndHealth(
+      normalPollResult,
+      runtime,
+      "poll"
+    );
+    expect(result).not.toBeNull();
+    expect(result?.created).toBe(false);
+    expect(result?.alertId).toBeUndefined();
+
+    const openAlerts = await alerts.listOpen();
+    expect(openAlerts).toHaveLength(0);
+
+    const health = await bronHealth.getByBronId(bronId);
+    expect(health?.silenceAlertOpen).toBe(false);
+    expect(health?.lastRunStatus).toBe("succeeded");
+  });
+
+  it("does not evaluate silence for non-poll runs", async () => {
+    const { MemoryAlertStore, MemoryBronHealthStore } =
+      await import("@ji/application/registry");
+    const { handleSilenceAndHealth } = await import("./poll-bron-run");
+
+    const alerts = new MemoryAlertStore();
+    const bronHealth = new MemoryBronHealthStore();
+
+    const testPollResult = {
+      bronId,
+      bronSlug: "tenderned" as const,
+      lifecycle: null,
+      metrics: {
+        changed: 0,
+        error: 0,
+        found: 0,
+        new: 0,
+        rejected: 0,
+      },
+      scrapeRunId: "00000000-0000-4000-8000-000000000003",
+      status: "succeeded" as const,
+      writtenRecords: 0,
+    };
+
+    const runtime = {
+      alerts,
+      bronHealth,
+      bronPersistence: {
+        activate: () => Promise.reject(new Error("unused")),
+        create: () => Promise.reject(new Error("unused")),
+        findById: () => Promise.resolve(null),
+        list: () => Promise.resolve([]),
+      },
+      close: () => Promise.resolve(),
+      createConnector: () => unusedSilenceProp("createConnector"),
+      get curateStore(): never {
+        return unusedSilenceProp("curateStore");
+      },
+      get database(): never {
+        return unusedSilenceProp("database");
+      },
+      get knownHashStore(): never {
+        return unusedSilenceProp("knownHashStore");
+      },
+      get lifecycle(): never {
+        return unusedSilenceProp("lifecycle");
+      },
+      get objectStore(): never {
+        return unusedSilenceProp("objectStore");
+      },
+      get observationRecorder(): never {
+        return unusedSilenceProp("observationRecorder");
+      },
+      get runLifecycleStore(): never {
+        return unusedSilenceProp("runLifecycleStore");
+      },
+    };
+
+    const result = await handleSilenceAndHealth(
+      testPollResult,
+      runtime,
+      "test"
+    );
+    expect(result).toBeNull();
   });
 });
