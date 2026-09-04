@@ -10,7 +10,7 @@ The public home page (`/`) is a recruiter command center with preview metrics an
 - `home-cta-example` secondary link `Bekijk een zoekvoorbeeld` routes to `/jobs?q=Azure&freshness=30d`.
 - `home-health-ok` tRPC `healthCheck` returns `OK` (doctor-only; not rendered on home).
 - `home-kpis` five KPI tiles (`Opdrachten in preview`, `Actief`, `Bronnen`, `Met remote optie`, `Zoekvoorbeelden`) derived from the fixture set.
-- `home-panels` four panels: `Nieuwe opdrachten per kanaal`, `Opgeslagen zoekvoorbeelden`, `Dekking van de previewdata`, `Skills in de previewset`.
+- `home-panels` seven panels: `Opdrachten per publicatieweek`, `Opdrachten per bron`, `Opdrachten per locatie`, `Verdeling van het uurtarief`, `Dekking van de previewdata`, `Opgeslagen zoekvoorbeelden`, `Skills in de previewset` (plus three capability cards below the panels).
 
 ## How to get to it (user POV)
 
@@ -36,5 +36,5 @@ Preconditions:
 - Opening the app at `127.0.0.1:3001` while env uses `localhost` can block Next.js dev chunks. Drive at `localhost:3001`.
 - Fixture metrics and charts on home are synthetic preview data, not live ingest counts.
 - Home is the approved dark console dashboard (KPI tiles + panels), not the older ink hero band. The H1 and both CTAs are unchanged; the surrounding layout is not.
-- The bar charts are CSS bars, not a charting library — `apps/web` deliberately has no chart dependency.
+- `WeeklyVolumeChart`, `HorizontalBars`, and `RateHistogram` in `apps/web/src/components/dashboard/charts.tsx` use **recharts** (`apps/web/package.json`). Only `CoverageBars` on home is pure CSS in `page.tsx`.
 - Do not treat preview copy about U7 REST as evidence that production ingest is wired.

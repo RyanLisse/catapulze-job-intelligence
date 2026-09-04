@@ -1,6 +1,6 @@
 # Job search
 
-The `/jobs` route exposes Boolean job search with filters, sort, pagination, and result cards. Browser tab title is `Opdrachten zoeken · Catapulze Job Intelligence`. Job detail opens as URL state on the same route (`?job=<id>` alongside query params), not a separate `/jobs/[id]` page. With `NEXT_PUBLIC_USE_FIXTURES=1` in `apps/web/.env`, the UI uses in-repo fixture data and does not require Manticore or a live REST index.
+The `/jobs` route exposes Boolean job search with filters, sort, pagination, and a desktop results table. Browser tab title is `Opdrachten zoeken · Catapulze Job Intelligence`. Job detail opens as URL state on the same route (`?job=<id>` alongside query params), not a separate `/jobs/[id]` page. With `NEXT_PUBLIC_USE_FIXTURES=1` in `apps/web/.env`, the UI uses in-repo fixture data and does not require Manticore or a live REST index.
 
 ## Sub-features
 
@@ -29,7 +29,7 @@ Preconditions:
 
 - **HTTP shell.** Run `bun .cursor/skills/verify-job-intelligence/scripts/control.mjs http http://localhost:3001/jobs`. Status `200`; body contains `Zoek opdrachten met Boolean-logica`, `Zoekresultaten`, and `Opdrachten zoeken`.
 - **Example query.** Load `/jobs?q=Azure&freshness=30d` in a browser; URL keeps `q=Azure` and results filter accordingly.
-- **Browser results.** Wait for `[aria-label="Zoekresultaten"]` to contain at least one result card when fixtures are enabled.
+- **Browser results.** Wait for `[aria-label="Zoekresultaten"]` to contain at least one result row (`table tbody button`) when fixtures are enabled.
 - **Detail panel.** Activate a result; URL gains `job=<id>` without leaving `/jobs`. Dismiss detail; `job` param clears.
 - **Proof.** Save HTML or a screenshot under `artifacts/job-search/` with `meta.json` recording `NEXT_PUBLIC_USE_FIXTURES` and the query/detail URL exercised.
 
