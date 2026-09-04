@@ -44,6 +44,7 @@ Niet in compose, wél onderdeel van productie:
 - **Migrator-job.** One-shot container op `apps/server/Dockerfile.migrate`
   (`CMD ["bun","run","db:migrate"]`), per
   [coolify-local.md](coolify-local.md) § Coolify-proef.
+  Coolify migrator app needs `health_check_enabled=false` (do not set `HEALTHCHECK` in the Dockerfile — `HEALTHCHECK NONE` still breaks Coolify on missing `.State.Health`).
 
 ### Deployment-scope-invariant
 
