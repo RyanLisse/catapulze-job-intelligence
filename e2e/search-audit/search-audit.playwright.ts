@@ -10,6 +10,14 @@ const openJobs = async (page: Page, url = "/jobs") => {
   await expect(page.getByText("Live · U7 REST", { exact: true })).toBeVisible();
 };
 
+const waitForSearchResponse = (page: Page) =>
+  page.waitForResponse(
+    (response) =>
+      response.request().method() === "POST" &&
+      response.url() === "http://localhost:3100/v1/aanvragen/search" &&
+      response.ok()
+  );
+
 test("browses empty and filter-only searches and preserves comma URL state", async ({
   context,
   page,
@@ -62,23 +70,37 @@ test("browses empty and filter-only searches and preserves comma URL state", asy
   ).toBeChecked();
   await sharedPage.close();
 
-  await page
-    .getByRole("button", { name: `Zoekterm ${COMMA_QUERY} verwijderen` })
-    .click();
+  await Promise.all([
+    waitForSearchResponse(page),
+    page
+      .getByRole("button", { name: `Zoekterm ${COMMA_QUERY} verwijderen` })
+      .click(),
+  ]);
   await expect(searchInput).toHaveValue("");
   await expect(page).toHaveURL(
     (url) =>
       url.searchParams.get("q") === null &&
       url.searchParams.get("location") === COMMA_LOCATION
   );
+  await expect(
+    page.getByRole("button", {
+      name: "Amsterdam, Noord-Holland platformopdracht",
+    })
+  ).toBeVisible();
 
   await searchInput.fill("(Azure");
   await page.getByRole("button", { exact: true, name: "Zoeken" }).click();
   await expect(
     page.getByRole("heading", { name: "Boolean-query klopt nog niet" })
   ).toBeVisible();
-  await page.getByRole("button", { name: "Alles wissen" }).click();
+  await Promise.all([
+    waitForSearchResponse(page),
+    page.getByRole("button", { name: "Alles wissen" }).click(),
+  ]);
   await expect(page).toHaveURL("http://localhost:3001/jobs");
+  await expect(
+    page.getByRole("button", { name: "Brongetrouwe onbekende velden" })
+  ).toBeVisible();
 });
 
 test("distinguishes published commercial facts from unknown source facts", async ({

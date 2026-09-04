@@ -114,7 +114,7 @@ describe("create_snapshot selection contract (RJC-385)", () => {
 
   it("accepts browse context through REST and MCP but rejects malformed nonempty syntax", async () => {
     const bundle = createTestSliceARegistry();
-    const [aanvraagId] = snapshotSelection(1);
+    const aanvraagId = "00000000-0000-4000-8000-000000000000";
     seedAanvragen(bundle, [aanvraagId]);
 
     await Promise.all(

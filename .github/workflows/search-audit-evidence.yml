@@ -60,7 +60,8 @@ jobs:
         env:
           NEXT_PUBLIC_SERVER_URL: http://localhost:3100
           NEXT_PUBLIC_USE_FIXTURES: "0"
-        run: bun --cwd apps/web run build
+        working-directory: apps/web
+        run: bun run build
 
       - name: Run real REST adapter browser proof
         env:
@@ -72,7 +73,7 @@ jobs:
           set -euo pipefail
           bun e2e/search-audit/synthetic-api.ts > /tmp/search-audit-api.log 2>&1 &
           api_pid=$!
-          bun --cwd apps/web run start > /tmp/search-audit-web.log 2>&1 &
+          (cd apps/web && exec ./node_modules/.bin/next start) > /tmp/search-audit-web.log 2>&1 &
           web_pid=$!
           cleanup() {
             kill "${web_pid}" "${api_pid}" 2>/dev/null || true
@@ -80,6 +81,14 @@ jobs:
           trap cleanup EXIT
 
           for attempt in $(seq 1 60); do
+            if ! kill -0 "${api_pid}" 2>/dev/null; then
+              cat /tmp/search-audit-api.log
+              exit 1
+            fi
+            if ! kill -0 "${web_pid}" 2>/dev/null; then
+              cat /tmp/search-audit-web.log
+              exit 1
+            fi
             if curl --fail --silent http://localhost:3100/health >/dev/null && \
               curl --fail --silent http://localhost:3001/jobs >/dev/null; then
               break
