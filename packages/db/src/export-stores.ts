@@ -306,7 +306,7 @@ export class PostgresExportEffectStore implements ExportEffectStore {
     });
   }
 
-  finalizeConfirmed(
+  async finalizeConfirmed(
     input: ExportEffectKey & {
       readonly approvalId: string;
       readonly externalId: string;
@@ -317,58 +317,62 @@ export class PostgresExportEffectStore implements ExportEffectStore {
   ): Promise<FinalizeConfirmedExportResult> {
     const externalId = requireExternalId(input.externalId);
     const responseHash = requireResponseHash(input.responseHash);
-    return this.database.transaction(async (transaction) => {
-      const [existing] = await transaction
-        .select()
-        .from(exportEffect)
-        .where(effectWhere(input))
-        .limit(1)
-        .for("update");
-      if (!existing?.externalId) {
-        throw new Error("Export effect has no durable external ID");
-      }
-      if (existing.externalId !== externalId) {
-        throw new Error(
-          "Export effect external ID does not match confirmation"
-        );
-      }
-      if (existing.status === "confirmed") {
-        return { created: false, externalId };
-      }
+    const result =
+      await this.database.transaction<FinalizeConfirmedExportResult>(
+        async (transaction) => {
+          const [existing] = await transaction
+            .select()
+            .from(exportEffect)
+            .where(effectWhere(input))
+            .limit(1)
+            .for("update");
+          if (!existing?.externalId) {
+            throw new Error("Export effect has no durable external ID");
+          }
+          if (existing.externalId !== externalId) {
+            throw new Error(
+              "Export effect external ID does not match confirmation"
+            );
+          }
+          if (existing.status === "confirmed") {
+            return { created: false, externalId };
+          }
 
-      await insertCrosswalk(transaction, {
-        actionType: input.actionType,
-        canonicalVacancyId: input.canonicalVacancyId,
-        externalId,
-        scopeId: input.scopeId,
-        target: input.target,
-      });
-      const attempt = await insertAttempt(transaction, {
-        actionType: input.actionType,
-        approvalId: input.approvalId,
-        canonicalVacancyId: input.canonicalVacancyId,
-        errorMessage: null,
-        externalId,
-        idempotencyKey: input.idempotencyKey,
-        scopeId: input.scopeId,
-        snapshotId: input.snapshotId,
-        status: "created",
-        target: input.target,
-      });
-      const receipt = await insertReceipt(transaction, {
-        canonicalVacancyId: input.canonicalVacancyId,
-        confirmedEffect: true,
-        exportAttemptId: attempt.id,
-        responseHash,
-        scopeId: input.scopeId,
-        spottVacancyId: externalId,
-      });
-      await transaction
-        .update(exportEffect)
-        .set({ status: "confirmed", updatedAt: new Date() })
-        .where(effectWhere(input));
-      return { attempt, created: true, externalId, receipt };
-    });
+          await insertCrosswalk(transaction, {
+            actionType: input.actionType,
+            canonicalVacancyId: input.canonicalVacancyId,
+            externalId,
+            scopeId: input.scopeId,
+            target: input.target,
+          });
+          const attempt = await insertAttempt(transaction, {
+            actionType: input.actionType,
+            approvalId: input.approvalId,
+            canonicalVacancyId: input.canonicalVacancyId,
+            errorMessage: null,
+            externalId,
+            idempotencyKey: input.idempotencyKey,
+            scopeId: input.scopeId,
+            snapshotId: input.snapshotId,
+            status: "created",
+            target: input.target,
+          });
+          const receipt = await insertReceipt(transaction, {
+            canonicalVacancyId: input.canonicalVacancyId,
+            confirmedEffect: true,
+            exportAttemptId: attempt.id,
+            responseHash,
+            scopeId: input.scopeId,
+            spottVacancyId: externalId,
+          });
+          await transaction
+            .update(exportEffect)
+            .set({ status: "confirmed", updatedAt: new Date() })
+            .where(effectWhere(input));
+          return { attempt, created: true, externalId, receipt };
+        }
+      );
+    return result;
   }
 }
 
