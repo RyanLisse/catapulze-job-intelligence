@@ -322,10 +322,11 @@ await setupIsolatedDatabase();
 // backend still attached, waits for them to exit, and forces an immediate
 // checkpoint of the dropped database. Measured per runbook rule 3 (4-core
 // Linux, local Postgres 16, full suite looped beside `turbo run check-types
-// --force`): 104–549 ms for the DROP statement alone, 0 backends left to
-// terminate; 5021 ms observed once on macOS with Postgres in Docker under the
-// full gate. Sized at 60 s so a slow checkpoint under gate load cannot fail
-// an already-green run.
+// --force`): 90–549 ms for the DROP statement alone, 114–270 ms teardown
+// wall, 0 backends left to terminate; 176–644 ms wall with an fsync-heavy
+// writer added on the data filesystem (load avg 8.6); 5021 ms observed once
+// on macOS with Postgres in Docker under the full gate. Sized at 60 s so a
+// slow checkpoint under gate load cannot fail an already-green run.
 const TEARDOWN_TIMEOUT_MS = 60_000;
 
 afterAll(
