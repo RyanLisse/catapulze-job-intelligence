@@ -18,6 +18,7 @@ import {
 import { env as projectorEnv } from "@ji/env/projector";
 import { ManticoreSearchEngine } from "@ji/search";
 
+import { heartbeatFilePath, writeHeartbeat } from "./heartbeat";
 import { acquireAdvisoryLock, LockLostError } from "./lock";
 import type { ProjectorCycleLog } from "./loop";
 import { runProjectorLoop } from "./loop";
@@ -86,8 +87,21 @@ const main = async (): Promise<void> => {
   process.on("SIGINT", () => requestShutdown("SIGINT"));
   process.on("SIGTERM", () => requestShutdown("SIGTERM"));
 
+  const heartbeatFile = heartbeatFilePath();
+  // Liveness for the Docker HEALTHCHECK (see heartbeat.ts); a failed write
+  // must never take the drain loop down, so it is logged and ignored.
+  const recordHeartbeat = async (): Promise<void> => {
+    try {
+      await writeHeartbeat(heartbeatFile);
+    } catch (error) {
+      logLine(process.stderr, "projector_heartbeat_failed", {
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
+  };
   const onCycle = (log: ProjectorCycleLog): void => {
     logLine(process.stdout, "projector_cycle", log);
+    void recordHeartbeat();
   };
 
   try {
