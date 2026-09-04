@@ -84,4 +84,21 @@ if [[ "${GATE_COMPOSE_ENV_VERBOSE:-}" == "1" ]]; then
   echo "load-compose-env.sh: loaded ${_ji_loaded} unset POSTGRES_* key(s) from ${_ji_compose_env_file}"
 fi
 
+# Derive the host-side database URLs the Stop hook / gate need for `@ji/env`
+# and Drizzle when a developer has not exported them (Claude Stop, bare
+# `bun run gate`). Compose uses these same role/password/db values.
+_ji_pg_host_port="${POSTGRES_HOST_PORT:-5432}"
+_ji_pg_db="${POSTGRES_DB:-ji_test}"
+
+if [[ -z "${DATABASE_URL+x}" ]]; then
+  export DATABASE_URL="postgresql://${POSTGRES_APP_USER:-ji_app}:${POSTGRES_APP_PASSWORD:-ji_app_local}@127.0.0.1:${_ji_pg_host_port}/${_ji_pg_db}"
+fi
+if [[ -z "${MIGRATION_DATABASE_URL+x}" ]]; then
+  export MIGRATION_DATABASE_URL="postgresql://${POSTGRES_MIGRATOR_USER:-ji_migrator}:${POSTGRES_MIGRATOR_PASSWORD:-ji_migrator_local}@127.0.0.1:${_ji_pg_host_port}/${_ji_pg_db}"
+fi
+if [[ -z "${PROJECTOR_DATABASE_URL+x}" ]]; then
+  export PROJECTOR_DATABASE_URL="postgresql://${POSTGRES_APP_USER:-ji_app}:${POSTGRES_APP_PASSWORD:-ji_app_local}@127.0.0.1:${_ji_pg_host_port}/${_ji_pg_db}"
+fi
+
 unset _ji_compose_env_root _ji_compose_env_file _ji_line _ji_key _ji_value _ji_loaded
+unset _ji_pg_host_port _ji_pg_db

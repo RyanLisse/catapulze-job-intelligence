@@ -14,12 +14,13 @@ interface LoaderResult {
   exitCode: number;
   loaded: Map<string, string>;
   stderr: string;
+  urls: Map<string, string>;
 }
 
-const parsePostgresEnv = (stdout: string): Map<string, string> => {
+const parseEnvLines = (stdout: string, prefix: string): Map<string, string> => {
   const loaded = new Map<string, string>();
   for (const line of stdout.split("\n")) {
-    if (!line.startsWith("POSTGRES_")) {
+    if (!line.startsWith(prefix)) {
       continue;
     }
     const separator = line.indexOf("=");
@@ -34,6 +35,7 @@ const parsePostgresEnv = (stdout: string): Map<string, string> => {
 const runLoader = async (options: {
   envFileContents: string;
   preset?: {
+    DATABASE_URL?: string;
     POSTGRES_ADMIN_PASSWORD?: string;
     POSTGRES_ADMIN_USER?: string;
   };
@@ -43,6 +45,8 @@ const runLoader = async (options: {
   await writeFile(envFile, options.envFileContents, { mode: 0o600 });
 
   const unsetList = [
+    "DATABASE_URL",
+    "MIGRATION_DATABASE_URL",
     "POSTGRES_ADMIN_PASSWORD",
     "POSTGRES_ADMIN_USER",
     "POSTGRES_APP_PASSWORD",
@@ -51,6 +55,7 @@ const runLoader = async (options: {
     "POSTGRES_HOST_PORT",
     "POSTGRES_MIGRATOR_PASSWORD",
     "POSTGRES_MIGRATOR_USER",
+    "PROJECTOR_DATABASE_URL",
   ]
     .map((key) => `unset ${key}`)
     .join("\n");
@@ -63,6 +68,9 @@ const runLoader = async (options: {
     preset.POSTGRES_ADMIN_PASSWORD === undefined
       ? ""
       : `export POSTGRES_ADMIN_PASSWORD=${JSON.stringify(preset.POSTGRES_ADMIN_PASSWORD)}`,
+    preset.DATABASE_URL === undefined
+      ? ""
+      : `export DATABASE_URL=${JSON.stringify(preset.DATABASE_URL)}`,
   ]
     .filter((line) => line.length > 0)
     .join("\n");
@@ -73,7 +81,12 @@ ${unsetList}
 ${presetExports}
 export GATE_COMPOSE_ENV_FILE=${JSON.stringify(envFile)}
 source ${JSON.stringify(loaderPath)}
-env | awk -F= '/^POSTGRES_/ {print}' | sort
+env | awk -F= '
+  $1 ~ /^POSTGRES_/ { print }
+  $1 == "DATABASE_URL" { print }
+  $1 == "MIGRATION_DATABASE_URL" { print }
+  $1 == "PROJECTOR_DATABASE_URL" { print }
+' | sort
 `;
 
   const proc = Bun.spawn(["bash", "-c", script], {
@@ -90,10 +103,17 @@ env | awk -F= '/^POSTGRES_/ {print}' | sort
 
   await rm(directory, { force: true, recursive: true });
 
+  const urls = new Map<string, string>([
+    ...parseEnvLines(stdout, "DATABASE_URL"),
+    ...parseEnvLines(stdout, "MIGRATION_"),
+    ...parseEnvLines(stdout, "PROJECTOR_"),
+  ]);
+
   return {
     exitCode,
-    loaded: parsePostgresEnv(stdout),
+    loaded: parseEnvLines(stdout, "POSTGRES_"),
     stderr,
+    urls,
   };
 };
 
@@ -105,6 +125,11 @@ describe("load-compose-env.sh", () => {
         "POSTGRES_ADMIN_USER=from_file",
         "POSTGRES_ADMIN_PASSWORD=secret_from_file",
         "POSTGRES_DB=ji_from_file",
+        "POSTGRES_APP_USER=app_from_file",
+        "POSTGRES_APP_PASSWORD=app_secret",
+        "POSTGRES_MIGRATOR_USER=mig_from_file",
+        "POSTGRES_MIGRATOR_PASSWORD=mig_secret",
+        "POSTGRES_HOST_PORT=5432",
         "BETTER_AUTH_SECRET=must-not-load",
         "CATAPULZE_DATABASE_URL=postgresql://must-not-load",
         "",
@@ -118,6 +143,12 @@ describe("load-compose-env.sh", () => {
     );
     expect(result.loaded.get("POSTGRES_DB")).toBe("ji_from_file");
     expect(result.loaded.has("BETTER_AUTH_SECRET")).toBe(false);
+    expect(result.urls.get("DATABASE_URL")).toBe(
+      "postgresql://app_from_file:app_secret@127.0.0.1:5432/ji_from_file"
+    );
+    expect(result.urls.get("MIGRATION_DATABASE_URL")).toBe(
+      "postgresql://mig_from_file:mig_secret@127.0.0.1:5432/ji_from_file"
+    );
   });
 
   it("does not override POSTGRES_* keys already present in the environment", async () => {
@@ -137,6 +168,25 @@ describe("load-compose-env.sh", () => {
     expect(result.loaded.get("POSTGRES_ADMIN_USER")).toBe("already_set");
     expect(result.loaded.get("POSTGRES_ADMIN_PASSWORD")).toBe("already_secret");
     expect(result.loaded.get("POSTGRES_DB")).toBe("ji_from_file");
+  });
+
+  it("does not override DATABASE_URL when already set", async () => {
+    const result = await runLoader({
+      envFileContents: [
+        "POSTGRES_APP_USER=app_from_file",
+        "POSTGRES_APP_PASSWORD=app_secret",
+        "POSTGRES_DB=ji_from_file",
+        "POSTGRES_HOST_PORT=5432",
+      ].join("\n"),
+      preset: {
+        DATABASE_URL: "postgresql://preset:preset@127.0.0.1:5432/preset_db",
+      },
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(result.urls.get("DATABASE_URL")).toBe(
+      "postgresql://preset:preset@127.0.0.1:5432/preset_db"
+    );
   });
 
   it("strips surrounding quotes from Compose-style values", async () => {
