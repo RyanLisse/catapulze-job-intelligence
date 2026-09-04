@@ -1,4 +1,5 @@
-// oxlint-disable-next-line oxc/no-barrel-file -- This is the package's explicit ./registry public API.
+// oxlint-disable oxc/no-barrel-file -- This is the package's explicit ./registry public API.
+export * from "./bron-run-stats";
 export * from "./capabilities";
 export * from "./capability";
 export * from "./catalog";
