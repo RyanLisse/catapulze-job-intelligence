@@ -126,15 +126,15 @@ const resolveBeschrijving = (
   return tender.tender_description?.trim() || tender.tender_name;
 };
 
-/** Resolved start date defaults to `tender_start_date`; some records omit it
- * while still carrying `tender_first_seen` (when the tender was first
- * observed by the aggregator), which is the closer available proxy. */
+/** Only `tender_start_date` represents contract start. `tender_first_seen`
+ * is aggregator observation metadata and must not influence canonical
+ * contract-start identity. */
 const resolveStartDatum = (
   tender: OpdrachtoverheidFetchedPayload["tender"]
-): string | typeof UNKNOWN =>
-  tender.tender_start_date?.slice(0, 10) ??
-  tender.tender_first_seen?.slice(0, 10) ??
-  UNKNOWN;
+): string | typeof UNKNOWN => {
+  const startDatum = tender.tender_start_date?.trim();
+  return startDatum ? startDatum.slice(0, 10) : UNKNOWN;
+};
 
 export const parseOpdrachtoverheidPayload = (
   payload: OpdrachtoverheidFetchedPayload,
@@ -167,6 +167,7 @@ export const parseOpdrachtoverheidPayload = (
     contract_type: tender.contract_type ?? null,
     exclusive: tender.exclusive ?? null,
     opdracht_overheid_url: tender.opdracht_overheid_url ?? null,
+    tender_first_seen: tender.tender_first_seen ?? null,
     tender_source: tender.tender_source ?? null,
     tender_url: tender.tender_url ?? null,
     uren_max: uren.max === UNKNOWN ? null : uren.max,

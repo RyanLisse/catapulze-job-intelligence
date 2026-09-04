@@ -630,7 +630,7 @@ const toTimestamp = (value: string | null, description: string): number => {
   return timestamp;
 };
 
-const compareSourcePointerOrder = (
+export const compareSourcePointerOrder = (
   left: SourcePointerOrder,
   right: SourcePointerOrder
 ): number => {
@@ -867,6 +867,9 @@ export class PostgresObservationRecorder implements ObservationRecorder {
           payload: observation,
           scrapeRunId: observation.scrapeRunId,
           sourceRecordId: observation.sourceRecordId,
+          // RJC-433: distinguish forward-path work from legacy rows whose
+          // historical `pending` default does not prove that replay is safe.
+          status: "awaiting_curation",
         })
         .onConflictDoNothing({
           target: [

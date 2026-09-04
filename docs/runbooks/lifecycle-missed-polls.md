@@ -42,6 +42,18 @@ A `stale` record that shows up in a later complete listing goes back to
 (closed by the source or its closing date, RJC-377) stays `closed`: being
 observed resets its counter, never its status.
 
+The counter reset and every resulting reopen write share one database
+transaction (RJC-434). The transaction locks the bron before reading its
+source records, so two reconciles for the same bron cannot interleave.
+Observed `source_record` rows are then locked before their old counter decides
+whether they reappeared. A failure while closing the old SCD2 version,
+updating status, inserting the new version, or writing the outbox event rolls
+the counter reset and the whole transition back. The next unchanged complete
+listing therefore sees the stale counter again and retries the reopen.
+The canonical database lock order is `bron` (no-key update), sorted
+`source_record` rows, then `aanvraag`/SCD2/outbox. Keep curation and recovery
+paths in that order when they share these rows.
+
 Test-import runs never count misses. Replays run as test imports.
 
 ## Completeness
@@ -92,6 +104,11 @@ exhausted, so `truncated` is honestly absent there.
   `curateObservation`'s unchanged-content branch writes a status change with
   no outbox event when the content hash is equal, so such a status flip
   diverges the index the same way; the repair tool is also the remedy there.
+- ~~Counter reset can commit before a reopen status write.~~ Closed by RJC-434:
+  reset, SCD2 version, status and outbox now commit in the same per-bron
+  transaction. A failed reopen remains `stale` with its previous counter and
+  retries on the next unchanged complete listing. Source- or date-closed
+  records remain `closed`.
 
 ## Operator checks
 

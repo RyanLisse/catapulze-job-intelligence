@@ -48,7 +48,7 @@ export interface TenderNedFilters {
   typeOpdracht?: string;
 }
 
-export const TENDER_NED_PARSER_VERSION = "tenderned/v1" as const;
+export const TENDER_NED_PARSER_VERSION = "tenderned/v2" as const;
 
 export const TENDER_NED_MAX_PAGE_SIZE = 100;
 

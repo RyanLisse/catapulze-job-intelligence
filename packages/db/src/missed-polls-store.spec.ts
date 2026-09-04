@@ -2,7 +2,12 @@ import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import path from "node:path";
 
 import { executeBronRun } from "@ji/application/bronnen";
-import { AANVRAAG_STATUS_GEWIJZIGD_EVENT } from "@ji/application/lifecycle";
+import type { CurateStore } from "@ji/application/identity";
+import {
+  AANVRAAG_STATUS_GEWIJZIGD_EVENT,
+  reconcileMissedPolls,
+} from "@ji/application/lifecycle";
+import type { LifecycleReconcilePorts } from "@ji/application/lifecycle";
 import { InMemoryObjectStore } from "@ji/connectors";
 import type { Connector } from "@ji/connectors";
 import type { BronId, ScrapeRunId } from "@ji/domain";
@@ -76,6 +81,40 @@ const listingConnector = (bronId: BronId, refs: string[]): Connector => ({
     }),
 });
 
+const withFailingOutbox = (base: CurateStore): CurateStore => ({
+  closeOpenVersie: (aanvraagId, closedAt) =>
+    base.closeOpenVersie(aanvraagId, closedAt),
+  ensureDedupGroep: (input) => base.ensureDedupGroep(input),
+  findAanvraagByIdentity: (bronId, bronReferentie) =>
+    base.findAanvraagByIdentity(bronId, bronReferentie),
+  findDedupGroepByKey: (dedupKey) => base.findDedupGroepByKey(dedupKey),
+  insertAanvraag: (input) => base.insertAanvraag(input),
+  insertOutboxEvent: () =>
+    Promise.reject(new Error("forced reopen outbox failure")),
+  insertVersie: (input) => base.insertVersie(input),
+  linkAanvraagToDedupGroep: (aanvraagId, dedupGroepId) =>
+    base.linkAanvraagToDedupGroep(aanvraagId, dedupGroepId),
+  splitDedupGroep: (dedupGroepId) => base.splitDedupGroep(dedupGroepId),
+  updateAanvraag: (aanvraagId, patch) => base.updateAanvraag(aanvraagId, patch),
+  withTransaction: (fn) =>
+    base.withTransaction((transactionStore) =>
+      fn(withFailingOutbox(transactionStore))
+    ),
+});
+
+const withFailingLifecycleOutbox = (
+  base: LifecycleReconcilePorts
+): LifecycleReconcilePorts => ({
+  ...base,
+  withTransaction: (bronId, fn) =>
+    base.withTransaction(bronId, (transactionPorts) =>
+      fn({
+        ...transactionPorts,
+        curateStore: withFailingOutbox(transactionPorts.curateStore),
+      })
+    ),
+});
+
 describe("PostgresMissedPollsStore through executeBronRun", () => {
   let available = false;
   let migratorClient: ReturnType<typeof postgres> | undefined;
@@ -105,7 +144,7 @@ describe("PostgresMissedPollsStore through executeBronRun", () => {
     const database = drizzle(client, { schema });
     const bronId = crypto.randomUUID();
     const runIds: ScrapeRunId[] = Array.from(
-      { length: 5 },
+      { length: 6 },
       () =>
         // SAFETY: ScrapeRunId is a nominal UUID string brand; randomUUID yields a valid value.
         crypto.randomUUID() as ScrapeRunId
@@ -124,12 +163,16 @@ describe("PostgresMissedPollsStore through executeBronRun", () => {
     const lifecycle = createPostgresLifecyclePorts(database, {
       missedPollsBeforeStale: STALE_AFTER,
     });
-    const runListing = (runIndex: number, refs: string[]) =>
+    const runListing = (
+      runIndex: number,
+      refs: string[],
+      lifecyclePorts: LifecycleReconcilePorts = lifecycle
+    ) =>
       executeBronRun(persistence, {
         bronId,
         bronSlug: "hero",
         connector: listingConnector(bronId, refs),
-        lifecycle,
+        lifecycle: lifecyclePorts,
         objectStore,
         observationRecorder,
         runLifecycleStore,
@@ -301,10 +344,35 @@ describe("PostgresMissedPollsStore through executeBronRun", () => {
         },
       ]);
 
-      const fifth = await runListing(4, ["A", "B"]);
-      expect(fifth.lifecycle?.reopened).toEqual([bAanvraagId]);
+      await expect(
+        runListing(4, ["A", "B"], withFailingLifecycleOutbox(lifecycle))
+      ).rejects.toThrow("forced reopen outbox failure");
       expect(await readSourceRecord("B")).toMatchObject({
-        lastSeenScrapeRunId: runIds[4],
+        lastSeenAt: STARTED_AT,
+        lastSeenScrapeRunId: runIds[0],
+        missedPolls: STALE_AFTER,
+      });
+      const [afterFailedReopen] = await database
+        .select({ status: aanvraag.status, versie: aanvraag.versie })
+        .from(aanvraag)
+        .where(eq(aanvraag.id, bAanvraagId));
+      expect(afterFailedReopen).toEqual({ status: "stale", versie: 2 });
+      const versionsAfterFailedReopen = await database
+        .select({ versie: aanvraagVersie.versie })
+        .from(aanvraagVersie)
+        .where(eq(aanvraagVersie.aanvraagId, bAanvraagId));
+      expect(versionsAfterFailedReopen).toEqual([{ versie: 2 }]);
+      const eventsAfterFailedReopen = await database
+        .select({ payload: outboxEvent.payload })
+        .from(outboxEvent)
+        .where(eq(outboxEvent.aggregateId, bAanvraagId));
+      expect(eventsAfterFailedReopen).toHaveLength(1);
+
+      const recovered = await runListing(5, ["A", "B"]);
+      expect(recovered.lifecycle?.reopened).toEqual([bAanvraagId]);
+      expect(await readSourceRecord("B")).toMatchObject({
+        lastSeenAt: new Date(STARTED_AT.getTime() + 5 * 3_600_000),
+        lastSeenScrapeRunId: runIds[5],
         missedPolls: 0,
       });
       const [reopened] = await database
@@ -312,6 +380,12 @@ describe("PostgresMissedPollsStore through executeBronRun", () => {
         .from(aanvraag)
         .where(eq(aanvraag.id, bAanvraagId));
       expect(reopened).toEqual({ status: "active", versie: 3 });
+      const versionsAfterRecovery = await database
+        .select({ versie: aanvraagVersie.versie })
+        .from(aanvraagVersie)
+        .where(eq(aanvraagVersie.aanvraagId, bAanvraagId))
+        .orderBy(aanvraagVersie.versie);
+      expect(versionsAfterRecovery).toEqual([{ versie: 2 }, { versie: 3 }]);
       const reopenEvents = await database
         .select({ payload: outboxEvent.payload })
         .from(outboxEvent)
@@ -319,8 +393,36 @@ describe("PostgresMissedPollsStore through executeBronRun", () => {
         .orderBy(outboxEvent.sequenceNumber);
       expect(reopenEvents.at(-1)?.payload).toMatchObject({
         reden: "listing_teruggekeerd",
+        scrape_run_id: runIdAt(5),
         status: "active",
       });
+      expect(reopenEvents).toHaveLength(2);
+
+      const recoveryReplay = await reconcileMissedPolls(lifecycle, {
+        bronId,
+        completeness: { complete: true },
+        observedAt: new Date(STARTED_AT.getTime() + 5 * 3_600_000),
+        observedBronReferenties: ["A", "B"],
+        scrapeRunId: runIdAt(5),
+      });
+      expect(recoveryReplay.reopened).toEqual([]);
+      const [afterReplay] = await database
+        .select({ status: aanvraag.status, versie: aanvraag.versie })
+        .from(aanvraag)
+        .where(eq(aanvraag.id, bAanvraagId));
+      expect(afterReplay).toEqual({ status: "active", versie: 3 });
+      expect(
+        await database
+          .select({ versie: aanvraagVersie.versie })
+          .from(aanvraagVersie)
+          .where(eq(aanvraagVersie.aanvraagId, bAanvraagId))
+      ).toHaveLength(2);
+      expect(
+        await database
+          .select({ id: outboxEvent.id })
+          .from(outboxEvent)
+          .where(eq(outboxEvent.aggregateId, bAanvraagId))
+      ).toHaveLength(2);
     } finally {
       await client.end({ timeout: 5 });
     }
