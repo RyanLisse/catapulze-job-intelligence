@@ -1,6 +1,7 @@
 import type { BooleanNode } from "@ji/domain";
 import { recordCriticalPathPhaseSync } from "@ji/performance";
 
+import { Singleflight } from "../cache/singleflight";
 import {
   DEFAULT_SEARCH_SCOPE,
   documentPartition,
@@ -219,6 +220,7 @@ export class ManticoreSearchEngine implements SearchEngine {
   private readonly clock: () => Date;
   /** Logical index name; the RT tables are `<indexName>_active` / `<indexName>_archive`. */
   private readonly indexName: string;
+  private readonly versionReads = new Singleflight<SearchVersion>();
   private readonly versionStore: SearchVersionStore;
 
   constructor(
@@ -418,12 +420,23 @@ export class ManticoreSearchEngine implements SearchEngine {
     }
   }
 
-  async getAppliedVersion(): Promise<SearchVersion> {
-    const checkpoint = await this.versionStore.read();
-    return {
-      appliedSequence: checkpoint.appliedSequence,
-      generation: checkpoint.generation,
-    };
+  /**
+   * Coalesces concurrent checkpoint reads (RJC-388's singleflight, applied to
+   * the version read). Every search reads the version at least twice — once
+   * in SearchAdapter to build the cache key, once here — and under load N
+   * concurrent searches each issued their own SELECT against the same
+   * unchanging row. Sharing the in-flight read returns exactly what a
+   * separate read would have: no staleness window, because nothing is
+   * retained after it settles.
+   */
+  getAppliedVersion(): Promise<SearchVersion> {
+    return this.versionReads.run(this.indexName, async () => {
+      const checkpoint = await this.versionStore.read();
+      return {
+        appliedSequence: checkpoint.appliedSequence,
+        generation: checkpoint.generation,
+      };
+    }).promise;
   }
 
   /**
@@ -438,7 +451,6 @@ export class ManticoreSearchEngine implements SearchEngine {
    * and never touches `emptyReason`.
    */
   async search(params: EngineSearchParams): Promise<SearchEngineResult> {
-    const version = await this.getAppliedVersion();
     const scope: SearchScope = params.scope ?? DEFAULT_SEARCH_SCOPE;
     const { archiveCountRequest, request } = recordCriticalPathPhaseSync(
       "search-serialization",
@@ -468,9 +480,16 @@ export class ManticoreSearchEngine implements SearchEngine {
       }
     );
 
-    const [response, archiveTotal] = await Promise.all([
+    // The version read is a Postgres round trip (Neon over TLS in
+    // production) and the Manticore query does not depend on it — it is only
+    // needed to label the result and to tell "empty index" apart from "no
+    // matches". Awaiting it first put its full latency in front of every
+    // uncached search; issued alongside, it costs whatever it exceeds the
+    // search by, which is normally nothing.
+    const [response, archiveTotal, version] = await Promise.all([
       searchManticore(this.client, request),
       this.countArchive(archiveCountRequest),
+      this.getAppliedVersion(),
     ]);
     // A reason Manticore itself reported (e.g. "query_timeout", RJC-380)
     // takes priority over the empty_index fallback below — an index that

@@ -33,6 +33,8 @@ export interface PostgresSearchVersionStoreOptions {
  * the same database reads and advances the same checkpoint row.
  */
 export class PostgresSearchVersionStore implements SearchVersionStore {
+  /** Resolves once the bootstrap insert has succeeded; see ensureCheckpoint. */
+  private checkpointEnsured?: Promise<void>;
   private readonly database: SearchVersionDatabase;
   private readonly indexName: string;
   private readonly schemaHash: string;
@@ -120,15 +122,47 @@ export class PostgresSearchVersionStore implements SearchVersionStore {
     return { appliedSequence: row.appliedSequence, generation: row.generation };
   }
 
-  private async ensureCheckpoint(): Promise<void> {
-    await this.database
-      .insert(searchProjectionCheckpoint)
-      .values({
-        appliedSequence: ZERO_SEQUENCE,
-        generation: FIRST_GENERATION,
-        indexName: this.indexName,
-        schemaHash: this.schemaHash,
-      })
-      .onConflictDoNothing();
+  /**
+   * Bootstrap insert, run at most once per store instance.
+   *
+   * `read()` sits on the search read path — `SearchAdapter.search()` reads
+   * the version before it can even build a cache key — so running the
+   * INSERT ... ON CONFLICT DO NOTHING per call put a *write* in front of
+   * every search, cache hit included, for a row that never changes after
+   * the first one succeeds. Against Neon over TLS that is a network
+   * round-trip and a WAL record per query.
+   *
+   * The promise is memoised only after it resolves: a failed bootstrap
+   * (unreachable database, missing grant) must be retried by the next
+   * caller, not cached as done.
+   *
+   * Consequence worth knowing: if the checkpoint row is deleted while a
+   * process is running, `read()` now raises "checkpoint missing" instead of
+   * silently re-inserting it. That is the safer failure — a re-inserted row
+   * reads as generation 1 / sequence 0, which tells the projector the index
+   * is empty and makes a deleted checkpoint look like a legitimate rebuild.
+   */
+  private ensureCheckpoint(): Promise<void> {
+    this.checkpointEnsured ??= this.insertCheckpointOnce();
+    return this.checkpointEnsured;
+  }
+
+  private async insertCheckpointOnce(): Promise<void> {
+    try {
+      await this.database
+        .insert(searchProjectionCheckpoint)
+        .values({
+          appliedSequence: ZERO_SEQUENCE,
+          generation: FIRST_GENERATION,
+          indexName: this.indexName,
+          schemaHash: this.schemaHash,
+        })
+        .onConflictDoNothing();
+    } catch (error) {
+      // Clear the memo so the next caller retries: a bootstrap that failed
+      // on an unreachable database must not be remembered as done.
+      this.checkpointEnsured = undefined;
+      throw error;
+    }
   }
 }

@@ -8,23 +8,30 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 
+import {
+  HorizontalBars,
+  RateHistogram,
+  WeeklyVolumeChart,
+} from "@/components/dashboard/charts";
 import { JOB_FIXTURES } from "@/features/job-intelligence/fixtures";
+import { sourceLabel } from "@/features/job-intelligence/presentation";
+import {
+  countJobsWithHourlyRate,
+  hourlyRateBuckets,
+  jobsPerLocation,
+  jobsPerSource,
+  topSkills,
+  weeklyPublicationVolume,
+} from "@/features/job-intelligence/preview-metrics";
 import {
   parseJobSearchState,
   searchJobs,
 } from "@/features/job-intelligence/search-state";
 
-const CHART_COLORS = [
-  "var(--chart-1)",
-  "var(--chart-2)",
-  "var(--chart-3)",
-  "var(--chart-4)",
-  "var(--chart-5)",
-] as const;
-
 const CLOSING_SOON_DAYS = 7;
 const MILLISECONDS_PER_DAY = 86_400_000;
 const TOP_SKILL_COUNT = 14;
+const LOCATION_BAR_COUNT = 8;
 // The fixture set carries fixed publication and closing dates, so the
 // coverage panel measures "sluit binnen 7 dagen" against the fixture
 // epoch rather than Date.now() — otherwise this preview number silently
@@ -32,13 +39,6 @@ const TOP_SKILL_COUNT = 14;
 const PREVIEW_REFERENCE_DATE = Date.parse("2026-09-01T00:00:00.000Z");
 
 const numberFormatter = new Intl.NumberFormat("nl-NL");
-
-const sourceActivity = [
-  { label: "Inhuurdesk", value: 82 },
-  { label: "Werken voor Nederland", value: 68 },
-  { label: "TenderNed", value: 53 },
-  { label: "Indeed", value: 36 },
-] as const;
 
 const savedSearches = [
   {
@@ -99,39 +99,6 @@ const Kpi = ({ accent = false, footer, label, value }: KpiProps) => (
   </div>
 );
 
-interface BarDatum {
-  readonly label: string;
-  readonly value: number;
-}
-
-const HorizontalBars = ({ data }: { readonly data: readonly BarDatum[] }) => {
-  const highest = Math.max(...data.map(({ value }) => value), 1);
-
-  return (
-    <ul className="space-y-2.5">
-      {data.map(({ label, value }, index) => (
-        <li key={label} className="flex items-center gap-3 text-xs">
-          <span className="w-32 shrink-0 truncate text-muted-foreground">
-            {label}
-          </span>
-          <span className="h-3 flex-1 overflow-hidden rounded-sm bg-muted">
-            <span
-              className="block h-full rounded-sm"
-              style={{
-                backgroundColor: CHART_COLORS[index % CHART_COLORS.length],
-                width: `${(value / highest) * 100}%`,
-              }}
-            />
-          </span>
-          <span className="w-10 shrink-0 text-right font-mono text-[10px] text-muted-foreground tabular-nums">
-            {value}
-          </span>
-        </li>
-      ))}
-    </ul>
-  );
-};
-
 interface CoverageDatum {
   readonly filled: number;
   readonly label: string;
@@ -187,37 +154,20 @@ const capabilityCards = [
   },
 ] as const;
 
-const countSkills = (): readonly BarDatum[] => {
-  const tally = new Map<string, number>();
-  for (const { skills } of JOB_FIXTURES) {
-    for (const skill of skills) {
-      tally.set(skill, (tally.get(skill) ?? 0) + 1);
-    }
-  }
-  return [...tally.entries()]
-    .map(([label, value]) => ({ label, value }))
-    .toSorted(
-      (left, right) =>
-        right.value - left.value || left.label.localeCompare(right.label, "nl")
-    )
-    .slice(0, TOP_SKILL_COUNT);
-};
-
 const Home = () => {
   const activeJobs = JOB_FIXTURES.filter(({ status }) => status !== "closed");
-  const sourceCount = new Set(
-    JOB_FIXTURES.flatMap(({ sourceRecords }) =>
-      sourceRecords.map(({ name }) => name)
-    )
-  ).size;
+  const sources = jobsPerSource(JOB_FIXTURES, sourceLabel);
+  const locations = jobsPerLocation(JOB_FIXTURES);
+  const skills = topSkills(JOB_FIXTURES, TOP_SKILL_COUNT);
+  const weeklyVolume = weeklyPublicationVolume(JOB_FIXTURES);
+  const rateBuckets = hourlyRateBuckets(JOB_FIXTURES);
   const remoteCount = JOB_FIXTURES.filter(({ remote }) => remote).length;
-  const withRateCount = JOB_FIXTURES.filter(({ rate }) => rate !== null).length;
+  const withRateCount = countJobsWithHourlyRate(JOB_FIXTURES);
   const closingSoonCount = JOB_FIXTURES.filter(
     ({ closingAt }) =>
       Date.parse(closingAt) - PREVIEW_REFERENCE_DATE <
       CLOSING_SOON_DAYS * MILLISECONDS_PER_DAY
   ).length;
-  const topSkills = countSkills();
   const savedSearchPreviews = savedSearches.map((savedSearch) => ({
     ...savedSearch,
     count: searchJobs(
@@ -241,8 +191,7 @@ const Home = () => {
           </h1>
           <p className="mt-2 max-w-2xl text-sm leading-relaxed text-muted-foreground">
             Eén snelle, herleidbare zoeklaag over publieke en private bronnen.
-            Ontworpen om te lezen, vergelijken en beslissen zonder
-            dashboardruis.
+            Kies een balk of een skill om die selectie in Zoeken te openen.
           </p>
           <p className="mt-2 inline-flex items-center gap-2 rounded-full border border-border bg-secondary px-2.5 py-1 font-mono text-[10px] text-muted-foreground">
             <span className="size-1.5 rounded-full bg-primary" />
@@ -276,53 +225,62 @@ const Home = () => {
           value={activeJobs.length}
           footer="open of sluit binnenkort"
         />
-        <Kpi label="Bronnen" value={sourceCount} footer="kanalen in preview" />
+        <Kpi
+          label="Bronnen"
+          value={sources.length}
+          footer="kanalen in preview"
+        />
         <Kpi label="Met remote optie" value={remoteCount} />
         <Kpi label="Zoekvoorbeelden" value={savedSearches.length} />
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-2">
+      <Panel
+        title="Opdrachten per publicatieweek"
+        subtitle="Publicatiedatum uit de previewset, lege weken inbegrepen"
+      >
+        <WeeklyVolumeChart data={weeklyVolume} />
+      </Panel>
+
+      <div className="grid items-start gap-4 lg:grid-cols-2">
         <Panel
-          title="Nieuwe opdrachten per kanaal"
-          subtitle="Synthetische preview-trend, geen live ingestcijfers"
+          title="Opdrachten per bron"
+          subtitle="Kies een balk om die bron in Zoeken te filteren"
         >
           <HorizontalBars
-            data={sourceActivity.map(({ label, value }) => ({ label, value }))}
+            linkListLabel="Filter Zoeken op bron"
+            data={sources.map(({ count, label, value }) => ({
+              href: `/jobs?source=${encodeURIComponent(value)}`,
+              name: label,
+              value: count,
+            }))}
           />
         </Panel>
 
         <Panel
-          title="Opgeslagen zoekvoorbeelden"
-          subtitle="Kies een voorbeeld om het in Zoeken te openen"
+          title="Opdrachten per locatie"
+          subtitle="Kies een balk om die locatie in Zoeken te filteren"
         >
-          <ul className="divide-y divide-border">
-            {savedSearchPreviews.map(({ count, label, query }) => (
-              <li key={label}>
-                <Link
-                  href={{ pathname: "/jobs", query: { q: query } }}
-                  className="group flex min-h-14 items-center gap-3 rounded-md px-2 outline-none transition-colors hover:bg-accent/60 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
-                >
-                  <span className="grid size-8 shrink-0 place-items-center rounded-md border border-border bg-secondary font-mono text-xs tabular-nums">
-                    {count}
-                  </span>
-                  <span className="min-w-0 flex-1">
-                    <span className="block text-sm font-medium">{label}</span>
-                    <span className="mt-0.5 block truncate font-mono text-[10px] text-muted-foreground">
-                      {query}
-                    </span>
-                  </span>
-                  <ArrowUpRight
-                    aria-hidden="true"
-                    className="size-3.5 shrink-0 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100"
-                  />
-                </Link>
-              </li>
-            ))}
-          </ul>
+          <HorizontalBars
+            linkListLabel="Filter Zoeken op locatie"
+            data={locations
+              .slice(0, LOCATION_BAR_COUNT)
+              .map(({ count, label, value }) => ({
+                href: `/jobs?location=${encodeURIComponent(value)}`,
+                name: label,
+                value: count,
+              }))}
+          />
         </Panel>
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-2">
+      <div className="grid items-start gap-4 lg:grid-cols-2">
+        <Panel
+          title="Verdeling van het uurtarief"
+          subtitle="Buckets van €10 over het laagste uurtarief; jaartarieven tellen niet mee"
+        >
+          <RateHistogram data={rateBuckets} />
+        </Panel>
+
         <Panel
           title="Dekking van de previewdata"
           subtitle="Aandeel opdrachten waarvoor dit veld gevuld is"
@@ -352,13 +310,45 @@ const Home = () => {
             ]}
           />
         </Panel>
+      </div>
+
+      <div className="grid items-start gap-4 lg:grid-cols-2">
+        <Panel
+          title="Opgeslagen zoekvoorbeelden"
+          subtitle="Kies een voorbeeld om het in Zoeken te openen"
+        >
+          <ul className="divide-y divide-border">
+            {savedSearchPreviews.map(({ count, label, query }) => (
+              <li key={label}>
+                <Link
+                  href={{ pathname: "/jobs", query: { q: query } }}
+                  className="group flex min-h-14 items-center gap-3 rounded-md px-2 outline-none transition-colors hover:bg-accent/60 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+                >
+                  <span className="grid size-8 shrink-0 place-items-center rounded-md border border-border bg-secondary font-mono text-xs tabular-nums">
+                    {count}
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-sm font-medium">{label}</span>
+                    <span className="mt-0.5 block truncate font-mono text-[10px] text-muted-foreground">
+                      {query}
+                    </span>
+                  </span>
+                  <ArrowUpRight
+                    aria-hidden="true"
+                    className="size-3.5 shrink-0 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100"
+                  />
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </Panel>
 
         <Panel
           title="Skills in de previewset"
           subtitle="Kies een skill om ermee te zoeken"
         >
           <div className="flex flex-wrap gap-2">
-            {topSkills.map(({ label, value }) => (
+            {skills.map(({ count, label }) => (
               <Link
                 key={label}
                 href={{ pathname: "/jobs", query: { q: `"${label}"` } }}
@@ -366,7 +356,7 @@ const Home = () => {
               >
                 {label}
                 <span className="font-mono text-[10px] text-muted-foreground tabular-nums">
-                  {value}
+                  {count}
                 </span>
                 <ArrowUpRight
                   aria-hidden="true"
