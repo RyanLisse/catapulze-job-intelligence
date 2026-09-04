@@ -49,12 +49,22 @@ const previewAanvraag = (record: AanvraagRecord) => ({
   beschrijving: previewText(record.beschrijving),
   bronId: record.bronId,
   bronReferentie: record.bronReferentie,
+  contracttype: record.contracttype ?? null,
   id: record.id,
+  locatie: record.locatie ?? null,
   mode: "preview" as const,
+  opdrachtgeverNaam: record.opdrachtgeverNaam ?? null,
+  publicatiedatum: record.publicatiedatum ?? null,
   rawPayloadRef: record.rawPayloadRef,
   scrapeRunId: record.scrapeRunId,
+  sluitingsdatum: record.sluitingsdatum?.toISOString() ?? null,
   status: record.status,
+  tariefEenheid: record.tariefEenheid ?? null,
+  tariefMax: record.tariefMax ?? null,
+  tariefMin: record.tariefMin ?? null,
+  tariefValuta: record.tariefValuta ?? null,
   titel: record.titel,
+  werkvorm: record.werkvorm ?? null,
 });
 
 const fullAanvraag = (record: AanvraagRecord) => ({
@@ -115,6 +125,7 @@ export const searchAanvragenOutputSchema = z
     }),
     hits: z.array(z.object({ id: z.string(), weight: z.number() })),
     ids: z.array(z.string()),
+    incomplete: z.boolean(),
     indexVersion: z.number(),
     parserVersion: z.number(),
     /** Partitions this result was read from (RJC-383). */
@@ -148,6 +159,7 @@ export const createSearchAanvragenHandler =
           facets: result.facets,
           hits: result.hits,
           ids: result.hits.map((hit) => hit.id),
+          incomplete: result.incomplete,
           indexVersion: result.indexVersion,
           parserVersion: result.parserVersion,
           scope: result.scope,
@@ -482,6 +494,16 @@ export const createSavedSearchHandler =
     input: z.output<typeof createSavedSearchInputSchema>,
     context: { principal: { subjectId: string } }
   ) => {
+    if (input.query.trim() !== "") {
+      const parsed = parseBooleanQuery(input.query);
+      if (!parsed.ok) {
+        return domainFailure(
+          "SYNTAX_ERROR",
+          parsed.error.message,
+          parsed.error
+        );
+      }
+    }
     const saved = await deps.stores.savedSearches.create({
       filters: input.filters ?? {},
       naam: input.naam,
@@ -583,7 +605,10 @@ export const createSnapshotHandler =
     input: z.output<typeof createSnapshotInputSchema>,
     context: { principal: { subjectId: string } }
   ) => {
-    const parsed = parseBooleanQuery(input.query);
+    const parsed =
+      input.query.trim() === ""
+        ? { ok: true as const, version: BOOLEAN_PARSER_VERSION }
+        : parseBooleanQuery(input.query);
     if (!parsed.ok) {
       return domainFailure("SYNTAX_ERROR", parsed.error.message, parsed.error);
     }

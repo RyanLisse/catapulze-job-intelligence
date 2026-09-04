@@ -26,6 +26,7 @@ export interface ManticoreSearchResponse {
   emptyReason?: string;
   facets: ReturnType<typeof emptySearchFacets>;
   hits: ManticoreSearchHit[];
+  incomplete: boolean;
   total: number;
 }
 
@@ -264,6 +265,7 @@ export const parseManticoreSearchResponse = (
     emptyReason: payload.timed_out === true ? "query_timeout" : undefined,
     facets,
     hits,
+    incomplete: payload.timed_out === true,
     total,
   };
 };

@@ -112,6 +112,49 @@ describe("create_snapshot selection contract (RJC-385)", () => {
     }
   });
 
+  it("accepts browse context through REST and MCP but rejects malformed nonempty syntax", async () => {
+    const bundle = createTestSliceARegistry();
+    const [aanvraagId] = snapshotSelection(1);
+    seedAanvragen(bundle, [aanvraagId]);
+
+    await Promise.all(
+      (["rest", "mcp"] as const).map(async (transport) => {
+        const operation =
+          transport === "rest" ? "POST /v1/snapshots" : "create_snapshot";
+        const invoke = bundle.registry.createInvoker({
+          capabilityId: "create_snapshot",
+          operation,
+          transport,
+        });
+        const browseSnapshot = await invoke(
+          {
+            filters: { locatieLand: ["NL"] },
+            query: "  ",
+            selectedIds: [aanvraagId],
+          },
+          { principal: recruiterPrincipal, requestId: `snapshot-${transport}` }
+        );
+        expect(browseSnapshot.ok).toBe(true);
+        if (browseSnapshot.ok) {
+          expect(browseSnapshot.value.resultIds).toEqual([aanvraagId]);
+          expect(browseSnapshot.value.queryText).toBe("  ");
+        }
+
+        const invalid = await invoke(
+          { query: "Azure OR", selectedIds: [aanvraagId] },
+          {
+            principal: recruiterPrincipal,
+            requestId: `snapshot-invalid-${transport}`,
+          }
+        );
+        expect(invalid.ok).toBe(false);
+        if (!invalid.ok) {
+          expect(invalid.error.code).toBe("SYNTAX_ERROR");
+        }
+      })
+    );
+  });
+
   it("rejects an empty selection", async () => {
     const bundle = createTestSliceARegistry();
     const result = await invokeCreateSnapshot(bundle, {
@@ -212,6 +255,52 @@ describe("saved search stores parser and schema version", () => {
     }
     expect(result.value.parserVersion).toBe("1");
     expect(result.value.schemaVersion).toBe("slice-a-v1");
+  });
+
+  it("saves browse queries through REST and MCP but rejects malformed nonempty syntax", async () => {
+    const bundle = createTestSliceARegistry();
+
+    await Promise.all(
+      (["rest", "mcp"] as const).map(async (transport) => {
+        const operation =
+          transport === "rest"
+            ? "POST /v1/saved-searches"
+            : "create_saved_search";
+        const invoke = bundle.registry.createInvoker({
+          capabilityId: "create_saved_search",
+          operation,
+          transport,
+        });
+        const browse = await invoke(
+          {
+            filters: { status: ["active"] },
+            naam: "Actieve aanvragen",
+            query: "",
+          },
+          {
+            principal: recruiterPrincipal,
+            requestId: `save-browse-${transport}`,
+          }
+        );
+        expect(browse.ok).toBe(true);
+        if (browse.ok) {
+          expect(browse.value.queryText).toBe("");
+          expect(browse.value.parserVersion).toBe("1");
+        }
+
+        const invalid = await invoke(
+          { naam: "Ongeldig", query: "Azure AND" },
+          {
+            principal: recruiterPrincipal,
+            requestId: `save-invalid-${transport}`,
+          }
+        );
+        expect(invalid.ok).toBe(false);
+        if (!invalid.ok) {
+          expect(invalid.error.code).toBe("SYNTAX_ERROR");
+        }
+      })
+    );
   });
 
   it("does not let another user bind a saved search to a snapshot", async () => {

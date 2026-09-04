@@ -581,6 +581,7 @@ export class ManticoreSearchEngine implements SearchEngine {
       if (facetResponse) {
         response.facets[facetName] = facetResponse.facets[facetName];
         response.emptyReason ??= facetResponse.emptyReason;
+        response.incomplete ||= facetResponse.incomplete;
       }
     }
     // A reason Manticore itself reported (e.g. "query_timeout", RJC-380)
@@ -603,6 +604,7 @@ export class ManticoreSearchEngine implements SearchEngine {
       emptyReason,
       facets,
       hits: response.hits,
+      incomplete: response.incomplete,
       indexVersion: Number(version.appliedSequence),
       scope,
       total: response.total,

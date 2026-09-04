@@ -39,11 +39,16 @@ const readValues = (input: SearchParamInput, key: string): string[] => {
       ? input.getAll(key)
       : [input[key]].flatMap((value) => value ?? []);
 
-  return rawValues
-    .flatMap((value) => value.split(","))
-    .map((value) => value.trim())
-    .filter(Boolean);
+  return rawValues.map((value) => value.trim()).filter(Boolean);
 };
+
+const readLegacyEnumValues = (input: SearchParamInput, key: string): string[] =>
+  readValues(input, key).flatMap((value) =>
+    value
+      .split(",")
+      .map((part) => part.trim())
+      .filter(Boolean)
+  );
 
 const readFirst = (input: SearchParamInput, key: string): string | null =>
   readValues(input, key)[0] ?? null;
@@ -83,7 +88,7 @@ export const parseJobSearchState = (
   return {
     filters: {
       contractTypes: uniqueAllowedValues(
-        readValues(input, "contract"),
+        readLegacyEnumValues(input, "contract"),
         JOB_CONTRACT_TYPES
       ),
       freshness: isOneOf(freshness, FRESHNESS_FILTERS) ? freshness : "all",
@@ -178,7 +183,9 @@ const searchableText = (job: JobListing): string =>
       job.summary,
       job.description,
       ...job.skills,
-    ].join(" ")
+    ]
+      .filter((value): value is string => value !== null)
+      .join(" ")
   );
 
 const parseBooleanExpression = (query: string): BooleanNode | null => {
@@ -243,11 +250,14 @@ const freshnessMilliseconds = {
 } satisfies Record<Exclude<FreshnessFilter, "all">, number>;
 
 const isFreshEnough = (
-  publishedAt: string,
+  publishedAt: string | null,
   freshness: FreshnessFilter
 ): boolean => {
   if (freshness === "all") {
     return true;
+  }
+  if (!publishedAt) {
+    return false;
   }
   return (
     FIXTURE_NOW - Date.parse(publishedAt) <= freshnessMilliseconds[freshness]
@@ -261,9 +271,11 @@ const matchesFilters = (job: JobListing, state: JobSearchState): boolean => {
     job.sourceRecords.some((source) => filters.sources.includes(source.name));
   const contractMatches =
     filters.contractTypes.length === 0 ||
-    filters.contractTypes.includes(job.contractType);
+    (job.contractType !== null &&
+      filters.contractTypes.includes(job.contractType));
   const locationMatches =
-    filters.locations.length === 0 || filters.locations.includes(job.location);
+    filters.locations.length === 0 ||
+    (job.location !== null && filters.locations.includes(job.location));
   const rateMatches =
     filters.minRate === null ||
     (job.rate?.period === "hour" && job.rate.max >= filters.minRate);
@@ -314,7 +326,10 @@ const compareJobs = (
     return (right.rate?.max ?? -1) - (left.rate?.max ?? -1);
   }
   if (sort === "closing-soon") {
-    return Date.parse(left.closingAt) - Date.parse(right.closingAt);
+    return (
+      (left.closingAt ? Date.parse(left.closingAt) : Number.POSITIVE_INFINITY) -
+      (right.closingAt ? Date.parse(right.closingAt) : Number.POSITIVE_INFINITY)
+    );
   }
   if (sort === "relevance" && query) {
     const scoreDifference =
@@ -323,7 +338,10 @@ const compareJobs = (
       return scoreDifference;
     }
   }
-  return Date.parse(right.publishedAt) - Date.parse(left.publishedAt);
+  return (
+    (right.publishedAt ? Date.parse(right.publishedAt) : 0) -
+    (left.publishedAt ? Date.parse(left.publishedAt) : 0)
+  );
 };
 
 const countFacets = <T extends string>(values: readonly T[]): FacetCount<T>[] =>
@@ -339,8 +357,12 @@ const countFacets = <T extends string>(values: readonly T[]): FacetCount<T>[] =>
     );
 
 const buildFacets = (jobs: readonly JobListing[]) => ({
-  contractTypes: countFacets(jobs.map(({ contractType }) => contractType)),
-  locations: countFacets(jobs.map(({ location }) => location)),
+  contractTypes: countFacets(
+    jobs.flatMap(({ contractType }) => (contractType ? [contractType] : []))
+  ),
+  locations: countFacets(
+    jobs.flatMap(({ location }) => (location ? [location] : []))
+  ),
   sources: countFacets(
     jobs.flatMap((job) => job.sourceRecords.map(({ name }) => name))
   ),
@@ -402,6 +424,7 @@ export const searchJobs = (
 
   return {
     archiveTotal,
+    complete: true,
     facets: buildFacets(jobs.filter(inScope)),
     items,
     message,

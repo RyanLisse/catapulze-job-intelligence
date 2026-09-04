@@ -4,22 +4,27 @@ import type { SearchScope } from "./partition";
 import type { SearchFilters, SearchMode, SearchSort } from "./types";
 import type { SearchVersion } from "./version";
 
-const stableStringifyAst = (node: BooleanNode): string => {
+type CanonicalAstEncoding =
+  | readonly ["and" | "or", readonly CanonicalAstEncoding[]]
+  | readonly ["not", CanonicalAstEncoding]
+  | readonly ["phrase" | "term", string];
+
+const encodeAst = (node: BooleanNode): CanonicalAstEncoding => {
   switch (node.kind) {
     case "term": {
-      return `term:${node.value}`;
+      return ["term", node.value];
     }
     case "phrase": {
-      return `phrase:${node.value}`;
+      return ["phrase", node.value];
     }
     case "not": {
-      return `not(${stableStringifyAst(node.operand)})`;
+      return ["not", encodeAst(node.operand)];
     }
     case "and": {
-      return `and(${node.operands.map(stableStringifyAst).join(",")})`;
+      return ["and", node.operands.map(encodeAst)];
     }
     case "or": {
-      return `or(${node.operands.map(stableStringifyAst).join(",")})`;
+      return ["or", node.operands.map(encodeAst)];
     }
     default: {
       const _exhaustive: never = node;
@@ -27,6 +32,9 @@ const stableStringifyAst = (node: BooleanNode): string => {
     }
   }
 };
+
+const stableStringifyAst = (node: BooleanNode): string =>
+  JSON.stringify(encodeAst(node));
 
 /**
  * Deterministic codepoint-order comparison (RJC-396): `String.localeCompare`
@@ -152,6 +160,10 @@ export const canonicalizeAst = (node: BooleanNode): BooleanNode => {
 export const hashAst = (ast: BooleanNode): Promise<string> =>
   hashString(stableStringifyAst(canonicalizeAst(ast)));
 
+/** A browse request is structurally distinct from every valid Boolean AST. */
+export const hashSearchAst = (ast: BooleanNode | null): Promise<string> =>
+  ast === null ? hashString(JSON.stringify(["match_all"])) : hashAst(ast);
+
 /** True when the AST contains text outside a NOT subtree. */
 export const hasPositiveFreeText = (node: BooleanNode): boolean => {
   switch (node.kind) {
@@ -219,9 +231,10 @@ export interface CacheKeyPage {
  * different ICU default locale could disagree with a v6 key for the same
  * query text — old keys become unreachable, which is the point.
  * `v7` separates lexical and hybrid result pages.
+ * `v8` retires delimiter-ambiguous AST hashes (RJC-427).
  */
-const RESULT_CACHE_KEY_PREFIX = "search:v7";
-const FACET_CACHE_KEY_PREFIX = "search:facets:v4";
+const RESULT_CACHE_KEY_PREFIX = "search:v8";
+const FACET_CACHE_KEY_PREFIX = "search:facets:v5";
 
 export const buildCacheKey = (
   astHash: string,
@@ -239,6 +252,7 @@ export const buildCacheKey = (
  * page 2 doesn't force a fresh facet computation. `v3` retires every v2
  * entry for the same reason RESULT_CACHE_KEY_PREFIX bumped to v6 (RJC-396).
  * `v4` separates lexical and hybrid facets.
+ * `v5` retires delimiter-ambiguous AST hashes (RJC-427).
  */
 export const buildFacetCacheKey = (
   astHash: string,

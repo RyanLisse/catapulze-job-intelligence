@@ -83,8 +83,10 @@ export interface JobSourceRecord {
   readonly url: string;
   readonly scrapeRunId: string;
   readonly normalizationVersion: string;
-  readonly firstSeenAt: string;
-  readonly lastSeenAt: string;
+  readonly firstSeenAt?: string | null;
+  readonly lastSeenAt?: string | null;
+  readonly validFrom?: string | null;
+  readonly validTo?: string | null;
 }
 
 export interface JobRate {
@@ -110,19 +112,21 @@ export interface JobMarkering {
 export interface JobListing {
   readonly id: string;
   readonly title: string;
-  readonly organization: string;
-  readonly location: string;
-  readonly country: "NL";
-  readonly contractType: JobContractType;
+  readonly organization: string | null;
+  readonly location: string | null;
+  readonly country: "NL" | null;
+  readonly contractType: JobContractType | null;
   readonly rate: JobRate | null;
   readonly skills: readonly string[];
   readonly sourceRecords: readonly JobSourceRecord[];
-  readonly publishedAt: string;
-  readonly closingAt: string;
+  readonly publishedAt: string | null;
+  readonly closingAt: string | null;
   readonly status: JobLifecycleStatus;
   readonly summary: string;
   readonly description: string;
-  readonly remote: boolean;
+  readonly remote: boolean | null;
+  /** Curated source wording when a bron explicitly publishes the work form. */
+  readonly workArrangement?: string | null;
   readonly markering?: JobMarkering | null;
   readonly rawPreview?: string;
 }
@@ -165,6 +169,8 @@ export interface JobSearchResponse {
   readonly total: number;
   /** Matches the same search has in the archive; null when the archive was searched too (RJC-383). */
   readonly archiveTotal: number | null;
+  /** False when the engine timed out and returned only a partial result set. */
+  readonly complete: boolean;
   readonly page: number;
   readonly pageSize: number;
   readonly totalPages: number;

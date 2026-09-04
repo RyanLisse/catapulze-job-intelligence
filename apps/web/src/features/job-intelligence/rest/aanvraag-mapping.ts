@@ -12,11 +12,21 @@ export interface AanvraagPreview {
   readonly beschrijving: string;
   readonly bronId: string;
   readonly bronReferentie: string;
+  readonly contracttype?: string | null;
   readonly id: string;
+  readonly locatie?: string | null;
+  readonly opdrachtgeverNaam?: string | null;
+  readonly publicatiedatum?: string | null;
   readonly rawPayloadRef: string;
   readonly scrapeRunId: string;
+  readonly sluitingsdatum?: string | null;
   readonly status: string;
+  readonly tariefEenheid?: string | null;
+  readonly tariefMax?: number | null;
+  readonly tariefMin?: number | null;
+  readonly tariefValuta?: string | null;
   readonly titel: string;
+  readonly werkvorm?: string | null;
 }
 
 export interface AanvraagVersieView {
@@ -67,6 +77,44 @@ const latestVersie = (
 const previewSummary = (value: string): string =>
   value.length <= 220 ? value : `${value.slice(0, 217)}…`;
 
+const mapContractType = (value: string | null): JobContractType | null => {
+  switch (value) {
+    case "detachering":
+    case "freelance":
+    case "interim":
+    case "vast": {
+      return value;
+    }
+    default: {
+      return null;
+    }
+  }
+};
+
+const mapRate = (aanvraag: AanvraagPreview): JobListing["rate"] => {
+  const { tariefEenheid, tariefMax, tariefMin, tariefValuta } = aanvraag;
+  if (
+    tariefEenheid !== "uur" ||
+    tariefValuta !== "EUR" ||
+    tariefMin === null ||
+    tariefMin === undefined ||
+    tariefMax === null ||
+    tariefMax === undefined ||
+    !Number.isFinite(tariefMin) ||
+    !Number.isFinite(tariefMax) ||
+    tariefMin < 0 ||
+    tariefMax < tariefMin
+  ) {
+    return null;
+  }
+  return {
+    currency: "EUR",
+    max: tariefMax,
+    min: tariefMin,
+    period: "hour",
+  };
+};
+
 export const mapAanvraagToJobListing = (input: {
   readonly aanvraag: AanvraagPreview;
   readonly bronCatalog: ReadonlyMap<string, BronCatalogEntry>;
@@ -79,37 +127,38 @@ export const mapAanvraagToJobListing = (input: {
     input.bronCatalog
   );
   const versie = latestVersie(input.versies);
-  const seenAt = versie?.geldigVan ?? new Date().toISOString();
-  const closingAt = versie?.geldigTot ?? seenAt;
 
   return {
-    closingAt,
-    contractType: "interim" satisfies JobContractType,
-    country: "NL",
+    closingAt: input.aanvraag.sluitingsdatum ?? null,
+    contractType: mapContractType(input.aanvraag.contracttype ?? null),
+    country: null,
     description: input.aanvraag.beschrijving,
     id: input.aanvraag.id,
-    location: "Nederland",
+    location: input.aanvraag.locatie ?? null,
     markering: input.markering ?? null,
-    organization: "—",
-    publishedAt: seenAt,
-    rate: null,
+    organization: input.aanvraag.opdrachtgeverNaam ?? null,
+    publishedAt: input.aanvraag.publicatiedatum ?? null,
+    rate: mapRate(input.aanvraag),
     rawPreview: input.rawPreview,
-    remote: true,
+    remote: null,
     skills: [],
     sourceRecords: [
       {
-        firstSeenAt: seenAt,
+        firstSeenAt: null,
         id: `${sourceName}-${input.aanvraag.bronReferentie}`,
-        lastSeenAt: seenAt,
+        lastSeenAt: null,
         name: sourceName,
         normalizationVersion: versie?.normalisatieversie ?? "onbekend",
         reference: input.aanvraag.bronReferentie,
         scrapeRunId: input.aanvraag.scrapeRunId,
         url: `#bron/${input.aanvraag.bronId}`,
+        validFrom: versie?.geldigVan ?? null,
+        validTo: versie?.geldigTot ?? null,
       },
     ],
     status: mapApiStatus(input.aanvraag.status),
     summary: previewSummary(input.aanvraag.beschrijving),
     title: input.aanvraag.titel,
+    workArrangement: input.aanvraag.werkvorm?.trim() || null,
   };
 };

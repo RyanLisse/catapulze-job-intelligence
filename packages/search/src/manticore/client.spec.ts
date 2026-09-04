@@ -200,6 +200,7 @@ describe("parseManticoreSearchResponse", () => {
     });
 
     expect(response.total).toBe(300);
+    expect(response.incomplete).toBe(false);
     expect(response.facets.locatie).toEqual([
       { count: 7, value: "Amsterdam" },
       { count: 293, value: "NL" },
@@ -227,6 +228,17 @@ describe("parseManticoreSearchResponse", () => {
       },
     ]);
   });
+
+  it("marks timed-out responses incomplete while preserving partial hits", () => {
+    const response = parseManticoreSearchResponse({
+      hits: { hits: [{ _id: "partial", _score: 2 }], total: 1 },
+      timed_out: true,
+    });
+
+    expect(response.incomplete).toBe(true);
+    expect(response.hits).toEqual([{ id: "partial", weight: 2 }]);
+    expect(response.emptyReason).toBe("query_timeout");
+  });
 });
 
 class RecordingClient implements ManticoreHttpClient {
@@ -251,6 +263,60 @@ class RecordingClient implements ManticoreHttpClient {
     return Promise.resolve(this.response);
   }
 }
+
+const facetTimeoutClient: ManticoreHttpClient = {
+  bulk: (_lines: readonly string[]): Promise<ManticoreBulkPayload> =>
+    Promise.resolve({ errors: false }),
+  request: (
+    _path: string,
+    body: ManticoreRequestBody
+  ): Promise<ManticoreSearchPayload> => {
+    if ("aggs" in body && body.aggs?.status) {
+      return Promise.resolve({
+        aggregations: {
+          status: { buckets: [{ doc_count: 1, key: "active" }] },
+        },
+        hits: { hits: [], total: 0 },
+        timed_out: true,
+      });
+    }
+    return Promise.resolve({
+      hits: {
+        hits: [
+          {
+            _hybrid_score: 0.8,
+            _id: 1,
+            _source: { document_id: "partial-facet-hit" },
+          },
+        ],
+        total: 1,
+      },
+    });
+  },
+};
+
+describe("ManticoreSearchEngine incomplete results (RJC-431)", () => {
+  it("marks a result incomplete when a hybrid facet request times out", async () => {
+    const engine = new ManticoreSearchEngine(
+      facetTimeoutClient,
+      new InMemorySearchVersionStore()
+    );
+
+    const result = await engine.search({
+      ast: { kind: "term", value: "Azure" },
+      filters: {},
+      limit: 20,
+      mode: "hybrid",
+      offset: 0,
+      scope: "all",
+    });
+
+    expect(result.incomplete).toBe(true);
+    expect(result.emptyReason).toBe("query_timeout");
+    expect(result.hits).toEqual([{ id: "partial-facet-hit", weight: 0.8 }]);
+    expect(result.facets.status).toEqual([{ count: 1, value: "active" }]);
+  });
+});
 
 describe("ManticoreSearchEngine document mapping", () => {
   it("indexes locatie from locatieLand and the deadline sentinel when both are absent", async () => {

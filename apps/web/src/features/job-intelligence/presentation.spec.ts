@@ -3,6 +3,7 @@ import { describe, expect, it } from "bun:test";
 import { JOB_FIXTURES } from "./fixtures";
 import {
   formatRate,
+  formatRemote,
   validateBooleanPreview,
   describeApiSyntaxError,
 } from "./presentation";
@@ -39,5 +40,24 @@ describe("job presentation", () => {
       throw new Error("Expected a fixture with an unknown rate");
     }
     expect(formatRate(unknownRateJob)).toBe("Tarief onbekend");
+  });
+
+  it("prefers literal curated work form and keeps absent live data unknown", () => {
+    const [fixture] = JOB_FIXTURES;
+    if (!fixture) {
+      throw new Error("Expected a job fixture");
+    }
+
+    expect(
+      formatRemote({
+        ...fixture,
+        remote: true,
+        workArrangement: "Volledig remote",
+      })
+    ).toBe("Volledig remote");
+    expect(
+      formatRemote({ ...fixture, remote: null, workArrangement: null })
+    ).toBe("Onbekend");
+    expect(formatRemote({ ...fixture, remote: true })).toBe("Hybride");
   });
 });
