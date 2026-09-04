@@ -393,7 +393,11 @@ const unusedSilenceProp = (name: string): never => {
 };
 
 const baselineSamples = (): RunBaselineSample[] => {
-  const detectedAt = new Date("2026-08-29T12:00:00.000Z");
+  // Anchored to the run, not to a calendar date. `handleSilenceAndHealth`
+  // evaluates silence against the real clock, so a fixed `detectedAt` ages out
+  // of the baseline window and the suite starts failing on a date nobody
+  // changed anything on.
+  const detectedAt = new Date();
   return Array.from({ length: 7 }, (_, index) => ({
     at: new Date(detectedAt.getTime() - (index + 1) * 86_400_000),
     changed: 4,
