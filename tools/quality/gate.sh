@@ -4,6 +4,21 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$ROOT"
 
+# The Stop hook (.claude/settings.json) runs `bun run gate` as a plain
+# subprocess of the Claude Code harness, not the developer's interactive
+# shell — it never inherits POSTGRES_* from direnv/shell rc files the way a
+# terminal-run `bun run gate` does. `docker compose` already reads `.env`
+# automatically for the same variables; do the same here so the migration
+# and test phases below see the real local credentials instead of falling
+# back to the `ji_admin`/... defaults baked into tools/postgres/*.ts. CI
+# never has a `.env` file (it's gitignored), so this is a no-op there.
+if [[ -f .env ]]; then
+  set -a
+  # shellcheck disable=SC1091
+  source .env
+  set +a
+fi
+
 PATH="./node_modules/.bin:$PATH"
 
 if [[ -z "${QLTY_JOBS:-}" ]]; then
