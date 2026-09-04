@@ -95,7 +95,10 @@ test("browses empty and filter-only searches and preserves comma URL state", asy
   ).toBeVisible();
   await Promise.all([
     waitForSearchResponse(page),
-    page.getByRole("button", { name: "Alles wissen" }).click(),
+    page
+      .getByRole("complementary")
+      .getByRole("button", { name: "Alles wissen" })
+      .click(),
   ]);
   await expect(page).toHaveURL("http://localhost:3001/jobs");
   await expect(
@@ -129,9 +132,7 @@ test("distinguishes published commercial facts from unknown source facts", async
   await expect(
     unknownCells.nth(0).getByText("Onbekend", { exact: true })
   ).toHaveCount(2);
-  await expect(
-    unknownCells.nth(1).getByText("Onbekend", { exact: true })
-  ).toHaveCount(2);
+  await expect(unknownCells.nth(1)).toHaveText(/^Onbekend\s*Onbekend$/u);
   await expect(
     unknownCells.nth(2).getByText("Tarief onbekend", { exact: true })
   ).toBeVisible();
@@ -178,7 +179,9 @@ test("keeps partial hits visible and blocks snapshots until retry", async ({
     }
   });
   await openJobs(page, "/jobs?q=timeout");
-  const incompleteAlert = page.getByRole("alert");
+  const incompleteAlert = page
+    .getByRole("region", { name: "Zoekresultaten" })
+    .getByRole("alert");
   await expect(incompleteAlert).toContainText("Zoekresultaat is onvolledig");
   await page.getByRole("button", { name: "Timeout platformopdracht" }).click();
   await expect(

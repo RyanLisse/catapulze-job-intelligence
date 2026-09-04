@@ -41,6 +41,7 @@ const createInFlightTrackingEngine = (): InFlightTracker => {
         return {
           facets: emptySearchFacets(),
           hits: [],
+          incomplete: false,
           indexVersion: 1,
           scope: "active",
           total: 0,

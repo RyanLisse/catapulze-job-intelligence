@@ -27,7 +27,7 @@ export default defineConfig({
     baseURL: "http://localhost:3001",
     screenshot: "only-on-failure",
     trace: "retain-on-failure",
-    video: "on",
+    video: { mode: "on", size: { height: 960, width: 1440 } },
     viewport: { height: 960, width: 1440 },
   },
   workers: 1,
