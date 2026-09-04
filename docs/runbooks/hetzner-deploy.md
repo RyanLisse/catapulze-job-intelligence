@@ -563,7 +563,8 @@ een succesvolle read-only query vast. Verkrijg pas daarna de definitieve GO,
 expliciet gebonden aan `DEPLOY_SHA`, pending tags, rehearsal verdict en al die
 rollbackevidence. Zonder tussenliggende state change draait dan onmiddellijk
 de one-shot migrator-job (`apps/server/Dockerfile.migrate`, alleen
-`MIGRATION_DATABASE_URL`). Herstel vereist de gecontroleerde
+`MIGRATION_DATABASE_URL`). Zet in Coolify `health_check_enabled=false` op
+de migrator-application (one-shot; geen Docker HEALTHCHECK). Herstel vereist de gecontroleerde
 restore/switchoverprocedure uit het runbook. Bij elke latere release geldt
 hetzelfde SHA-afgeleide contract
 ([coolify-local.md](coolify-local.md)).
