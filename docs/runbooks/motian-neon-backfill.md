@@ -62,6 +62,10 @@ sequentieel tegenover circa 5,6 uur met concurrency 16. De hoofdkosten zaten
 in de reeks korte Neon- en R2-roundtrips per rij, niet in de keyset-query op de
 bron.
 
+Let op: op het Neon Free plan stopt de run ver vóór die 252k rijen op de
+512 MB-projectlimiet; zie
+[Neon-opslag](#neon-opslag-free-plan-limiet-en-reclaim).
+
 `NEON_V1_CONCURRENCY` therefore runs independent rows within each already
 ordered source batch through a bounded worker pool. It defaults to `16` and is
 refused outside `1..64`. Source IDs are still checked for canonical monotonic
@@ -135,8 +139,46 @@ Use an explicit maintenance window for both the first run and its idempotency re
    ```
 
    Escalate unexpected old transactions, vacuum lag, high dead-tuple/WAL growth, or insufficient Neon storage headroom. The one-shot is not safe merely because the client can connect.
+   Zie [Neon-opslag](#neon-opslag-free-plan-limiet-en-reclaim) hieronder
+   voor de harde projectlimiet op het Free plan en de reclaim die werkte.
 
 Resume the Motian writers and Catapulze launch paths only after both runs, durable checkpoint readback, outbox drain, and search verification. A disappeared source snapshot yields `SOURCE_READ_FAILED` and no completed `scopeManifest`; a disappeared target snapshot or failed commit yields `RECONCILIATION_READ_FAILED` and no completed `targetReconciliation`.
+
+### Neon-opslag: Free-plan-limiet en reclaim
+
+Het Catapulze-Neon-project op het **Free plan heeft een harde projectlimiet
+van 512 MB**. De backfill van 2026-09-04 liep daar tegenaan bij 62.250 rijen
+(zeven Motian-platforms, scope `full`): ongeveer 490 MB, waarvan
+`curated.aanvraag` 216 MB en `curated.aanvraag_versie` 196 MB (de TOAST van
+`beschrijving`; de versietabel dupliceert de draft) en `curated.outbox_event`
+49 MB. Het volledige corpus van circa 252k rijen past dus niet op het Free
+plan; daarvoor is een betaald Neon-plan nodig.
+
+Het symptoom is misleidend: de run faalt als `CURATE_FAILED` met een
+`DrizzleQueryError`, en het backfill-log toont alleen de buitenste query. De
+geneste oorzaak is `PostgresError 53100: could not extend file because
+project size limit (512 MB) has been exceeded`. Om die te lezen, speel één
+job opnieuw door `curateObservation` binnen een transactie die je daarna
+terugrolt; de geneste `cause` op de fout bevat dan de Postgres-code.
+
+Ruimte terugwinnen zonder dataverlies — de route die werkte (489 → 440 MB):
+
+```sql
+DELETE FROM curated.outbox_event
+WHERE processed_at IS NOT NULL
+  AND processed_at < now() - interval '30 minutes'
+  AND dead_lettered_at IS NULL;
+VACUUM FULL curated.outbox_event;
+```
+
+Dit is veilig omdat reindex en een nieuwe generatie verwerkte events niet
+lezen en `drain-outbox` alleen `processed_at IS NULL` leest. Een gewone
+`VACUUM` verkleint Neons logische projectgrootte **niet**; alleen
+`VACUUM FULL` deed dat hier. Daarnaast tellen stale rollbackbranches van
+eerdere migraties mee in de projectopslag: verwijder in Neon de branches die
+niet meer als rollback-source dienen, en pas nadat de bijbehorende migratie
+definitief is geaccepteerd volgens
+[neon-migration-catchup.md](./neon-migration-catchup.md).
 
 ## Live ingest (TenderNed / Inhuurdesk)
 
