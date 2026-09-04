@@ -106,6 +106,10 @@ export {
   PostgresRawPayloadStore,
   PostgresSearchDocumentLoader,
 } from "./aanvraag-stores";
+export {
+  type BronRunStatsDatabase,
+  PostgresBronRunStatsReader,
+} from "./bron-run-stats";
 export { PostgresKnownHashStore } from "./known-hash-store";
 export {
   createPostgresLifecyclePorts,

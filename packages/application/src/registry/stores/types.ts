@@ -1,5 +1,10 @@
 import type { SearchFilters, SearchScope, SearchVersion } from "@ji/search";
 
+import type {
+  BronRunKindFilter,
+  BronRunStatsWindow,
+  BronRunTimeseriesBucket,
+} from "../bron-run-stats";
 import type { AuditClass } from "../metadata";
 
 export type AuditActorType = "agent" | "service" | "system" | "user";
@@ -349,4 +354,97 @@ export interface SliceAStores {
   readonly rawPayloads: RawPayloadStore;
   readonly savedSearches: SavedSearchStore;
   readonly snapshots: QuerySnapshotStore;
+}
+
+export interface BronRunFailureCount {
+  readonly code: string;
+  readonly count: number;
+}
+
+/**
+ * One row of `bron_run_stats`. `bronId` is `null` on the `totaal` row only.
+ *
+ * Grouped by `bron_id`, never by `naam`: the seven legacy Motian rows share
+ * their display name with live sources, so grouping by name silently merges a
+ * dead source into a healthy one.
+ */
+export interface BronRunStatsRow {
+  readonly aantalGevonden: number;
+  readonly actief: boolean | null;
+  readonly avgDurationMs: number | null;
+  readonly bronId: string | null;
+  readonly cancelled: number;
+  readonly failed: number;
+  readonly fouten: number;
+  readonly gesloten: number;
+  readonly gewijzigd: number;
+  readonly interval: string | null;
+  readonly lastFailureClass: string | null;
+  readonly lastFailureCode: string | null;
+  readonly lastFailureMessage: string | null;
+  readonly lastFailurePhase: string | null;
+  readonly lastRunAt: Date | null;
+  readonly lastRunStatus: string | null;
+  readonly naam: string | null;
+  readonly nieuw: number;
+  readonly ongewijzigd: number;
+  readonly p95DurationMs: number | null;
+  readonly rejected: number;
+  readonly runs: number;
+  readonly running: number;
+  readonly succeeded: number;
+  readonly successRate: number | null;
+  readonly topFailures: readonly BronRunFailureCount[];
+}
+
+export interface BronRunStatsResult {
+  readonly bronnen: readonly BronRunStatsRow[];
+  readonly runKind: BronRunKindFilter;
+  readonly since: Date;
+  readonly totaal: BronRunStatsRow;
+  readonly window: BronRunStatsWindow;
+}
+
+export interface BronRunTimeseriesPoint {
+  readonly aantalGevonden: number;
+  readonly avgDurationMs: number | null;
+  readonly bronId: string;
+  readonly bucket: Date;
+  readonly failed: number;
+  readonly fouten: number;
+  readonly gewijzigd: number;
+  readonly nieuw: number;
+  readonly ongewijzigd: number;
+  readonly rejected: number;
+  readonly runs: number;
+  readonly succeeded: number;
+}
+
+export interface BronRunStatsQuery {
+  /** Restrict to these sources. Omitted means every source in the register. */
+  readonly bronIds?: readonly string[];
+  /** Injected so the window is deterministic under test. */
+  readonly now?: Date;
+  /** Defaults to `poll`, which keeps legacy backfill runs out of poll stats. */
+  readonly runKind?: BronRunKindFilter;
+  readonly window: BronRunStatsWindow;
+}
+
+export interface BronRunTimeseriesQuery extends BronRunStatsQuery {
+  readonly bucket?: BronRunTimeseriesBucket;
+}
+
+/**
+ * Reads the brondashboard aggregates straight from Postgres.
+ *
+ * Deliberately has no dependency on Trigger.dev or any other network service:
+ * Motian's dashboard called the Trigger.dev runs API on every page load, which
+ * cost 1-10s per request and occasionally timed out. Scheduler liveness is
+ * derived from run rows instead.
+ */
+export interface BronRunStatsReader {
+  bronRunStats: (query: BronRunStatsQuery) => Promise<BronRunStatsResult>;
+  bronRunTimeseries: (
+    query: BronRunTimeseriesQuery
+  ) => Promise<readonly BronRunTimeseriesPoint[]>;
 }
