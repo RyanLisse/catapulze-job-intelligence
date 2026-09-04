@@ -34,6 +34,8 @@ export const env = createEnv({
     RAW_S3_SECRET_ACCESS_KEY: z.string().min(1).optional(),
     /** Search result cache (RJC-388). Unset runs the in-process memory cache. */
     REDIS_URL: z.url().optional(),
+    /** Manticore 29 hybrid candidate; off keeps lexical 6.3.8 behavior. */
+    SEARCH_HYBRID: z.enum(["0", "1"]).default("0"),
   },
   skipValidation: !!process.env.SKIP_ENV_VALIDATION,
 });

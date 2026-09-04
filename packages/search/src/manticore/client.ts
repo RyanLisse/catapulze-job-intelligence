@@ -1,4 +1,4 @@
-import type { SearchFilters, SearchSort } from "../types";
+import type { SearchFilters, SearchMode, SearchSort } from "../types";
 import { emptySearchFacets, SEARCH_WINDOW_LIMIT } from "../types";
 import { hashDocumentId } from "./id-hash";
 import { parseManticoreBulkPayload, parseManticoreSearchPayload } from "./json";
@@ -240,7 +240,7 @@ export const parseManticoreSearchResponse = (
       const id =
         entry._source?.document_id ??
         (entry._id === undefined ? null : String(entry._id));
-      const weight = entry._score ?? 0;
+      const weight = entry._hybrid_score ?? entry._score ?? 0;
       if (id === null) {
         return null;
       }
@@ -322,11 +322,14 @@ const DESC: ManticoreSortDirection = "desc";
  * them last without an expression — nothing extra to evaluate per match.
  */
 export const buildManticoreSort = (
-  sort: SearchSort
+  sort: SearchSort,
+  mode: SearchMode = "lexical"
 ): ManticoreSearchRequestBody["sort"] => {
   switch (sort) {
     case "relevance": {
-      return [{ "WEIGHT()": DESC }, { id: ASC }];
+      return mode === "hybrid"
+        ? [{ "hybrid_score()": DESC }, { id: ASC }]
+        : [{ "WEIGHT()": DESC }, { id: ASC }];
     }
     case "newest": {
       return [{ laatst_gezien_op: DESC }, { id: ASC }];
@@ -350,7 +353,9 @@ export const buildManticoreSearchRequest = (
   filters: SearchFilters,
   limit: number,
   offset: number,
-  sort: SearchSort = "relevance"
+  sort: SearchSort = "relevance",
+  mode: SearchMode = "lexical",
+  knnQueryText?: string
 ): ManticoreSearchRequestBody => {
   const request: ManticoreSearchRequestBody = {
     aggs: {
@@ -365,10 +370,19 @@ export const buildManticoreSearchRequest = (
     max_matches: DEFAULT_MAX_MATCHES,
     max_query_time: DEFAULT_MAX_QUERY_TIME_MS,
     offset,
-    sort: buildManticoreSort(sort),
+    sort: buildManticoreSort(sort, mode),
     // Exact totals are what the UI's page count is built on (RJC-378).
     track_total_hits: true,
   };
+
+  if (mode === "hybrid") {
+    if (!knnQueryText) {
+      throw new Error("Hybrid search requires positive KNN query text");
+    }
+    request.knn = { field: "embedding", query: knnQueryText };
+    request.options = { fusion_method: "rrf" };
+    request._source = ["document_id"];
+  }
 
   const filter = buildFilterClauses(filters);
   if (filter.length > 0) {
@@ -392,7 +406,9 @@ export const buildManticoreSearchRequest = (
 export const buildManticoreCountRequest = (
   index: string,
   query: ManticoreQueryBody | null,
-  filters: SearchFilters
+  filters: SearchFilters,
+  mode: SearchMode = "lexical",
+  knnQueryText?: string
 ): ManticoreSearchRequestBody => {
   const request: ManticoreSearchRequestBody = {
     index,
@@ -403,6 +419,16 @@ export const buildManticoreCountRequest = (
     sort: [{ id: ASC }],
     track_total_hits: true,
   };
+  if (mode === "hybrid") {
+    if (!knnQueryText) {
+      throw new Error("Hybrid search requires positive KNN query text");
+    }
+    request.knn = { field: "embedding", query: knnQueryText };
+    request.options = { fusion_method: "rrf" };
+    request._source = ["document_id"];
+    request.max_matches = DEFAULT_MAX_MATCHES;
+    delete request.sort;
+  }
   const filter = buildFilterClauses(filters);
   if (filter.length > 0) {
     request.query =

@@ -16,9 +16,12 @@ import {
 import { z } from "zod";
 
 import {
+  acquireManticoreBenchmarkLocks,
   assertCleanManticoreTables,
   cleanupAndAssertManticoreTables,
+  MANTICORE_BENCH_HYBRID_TABLES,
   MANTICORE_BENCH_INDEX_NAME,
+  MANTICORE_BENCH_TABLES,
   requireManticoreUrl,
 } from "../manticore-hygiene";
 import { sha256Digest } from "./digest";
@@ -232,15 +235,24 @@ const finishManticoreRun = async (
   label: string,
   url: string,
   engine: ManticoreSearchEngine,
-  documentIds: readonly string[]
+  documentIds: readonly string[],
+  hybridSchemaEnabled: boolean
 ): Promise<void> => {
-  await cleanupAndAssertManticoreTables(label, url, engine, documentIds);
+  await cleanupAndAssertManticoreTables(
+    label,
+    url,
+    engine,
+    documentIds,
+    fetch,
+    hybridSchemaEnabled ? MANTICORE_BENCH_HYBRID_TABLES : MANTICORE_BENCH_TABLES
+  );
 };
 
 const buildNamedEngineRun = async (
   label: string,
   url: string | undefined,
-  documents: SearchDocument[]
+  documents: SearchDocument[],
+  hybridSchemaEnabled = false
 ): Promise<NamedEngineRun> => {
   if (!url) {
     const engine = new InMemorySearchEngine();
@@ -261,11 +273,16 @@ const buildNamedEngineRun = async (
     };
   }
 
-  await assertCleanManticoreTables(label, url, "before");
+  const hygieneTables = hybridSchemaEnabled
+    ? MANTICORE_BENCH_HYBRID_TABLES
+    : MANTICORE_BENCH_TABLES;
+  await assertCleanManticoreTables(label, url, "before", fetch, hygieneTables);
   const engine = ManticoreSearchEngine.fromUrl(
     url,
     new InMemorySearchVersionStore(),
-    MANTICORE_BENCH_INDEX_NAME
+    MANTICORE_BENCH_INDEX_NAME,
+    undefined,
+    { hybridEnabled: hybridSchemaEnabled }
   );
   const runDocuments = scopeManticoreDocuments(documents);
   const documentIds = runDocuments.map((document) => document.id);
@@ -275,7 +292,13 @@ const buildNamedEngineRun = async (
     await engine.applyBatch({ appliedSequence: 1n, mutations: [] });
   } catch (error) {
     try {
-      await finishManticoreRun(label, url, engine, documentIds);
+      await finishManticoreRun(
+        label,
+        url,
+        engine,
+        documentIds,
+        hybridSchemaEnabled
+      );
     } catch (cleanupError) {
       throw new AggregateError(
         [error, cleanupError],
@@ -287,7 +310,8 @@ const buildNamedEngineRun = async (
   }
   const indexingMs = performance.now() - startedAt;
   return {
-    cleanup: () => finishManticoreRun(label, url, engine, documentIds),
+    cleanup: () =>
+      finishManticoreRun(label, url, engine, documentIds, hybridSchemaEnabled),
     documentCount: documents.length,
     engine,
     indexingDocsPerSecond:
@@ -490,6 +514,7 @@ export const runMeasured = async (
 interface LatencyEngineReport {
   boundary: string;
   documentCount: number;
+  embeddingDocsPerSecond: number | null;
   engine: string;
   errorCount: number;
   indexingDocsPerSecond: number;
@@ -503,10 +528,79 @@ interface LatencyEngineReport {
   profile: string;
   queryMode: "golden" | "profile";
   queryset: string;
+  searchMode: "hybrid" | "lexical";
   sloMaxMs: number;
 }
 
-const runLatencyRound = async (
+interface LatencyEngineSpec {
+  hybridSchemaEnabled: boolean;
+  hybridEnabled: boolean;
+  label: string;
+  url: string | undefined;
+}
+
+const HYBRID_P95_MAX_MS = 200;
+const LEXICAL_EVALUATION_P95_MAX_MS = 50;
+
+const resolveLatencySlo = (
+  profileMaxMs: number,
+  hybridEvaluation: boolean,
+  hybridEnabled: boolean
+): number => {
+  if (!hybridEvaluation) {
+    return profileMaxMs;
+  }
+  return hybridEnabled ? HYBRID_P95_MAX_MS : LEXICAL_EVALUATION_P95_MAX_MS;
+};
+
+const buildLatencyEngineSpecs = (
+  manticoreUrl: string | undefined,
+  hybridEvaluation: boolean
+): LatencyEngineSpec[] => {
+  const manticore29Url = process.env.MANTICORE_29_URL?.trim();
+  if (hybridEvaluation && (!manticoreUrl || !manticore29Url)) {
+    throw new Error(
+      "SEARCH_HYBRID=1 latency evaluation requires MANTICORE_URL and MANTICORE_29_URL"
+    );
+  }
+
+  let baseLabel = "in-memory";
+  if (manticoreUrl) {
+    baseLabel = hybridEvaluation
+      ? "manticore-6.3.8-lexical"
+      : "manticore-6.3.8";
+  }
+  const specs: LatencyEngineSpec[] = [
+    {
+      hybridEnabled: false,
+      hybridSchemaEnabled: false,
+      label: baseLabel,
+      url: manticoreUrl,
+    },
+  ];
+  if (!manticore29Url) {
+    return specs;
+  }
+
+  const label = process.env.MANTICORE_29_LABEL?.trim() || "manticore-29";
+  specs.push({
+    hybridEnabled: false,
+    hybridSchemaEnabled: hybridEvaluation,
+    label: hybridEvaluation ? `${label}-lexical` : label,
+    url: manticore29Url,
+  });
+  if (hybridEvaluation) {
+    specs.push({
+      hybridEnabled: true,
+      hybridSchemaEnabled: true,
+      label: `${label}-hybrid`,
+      url: manticore29Url,
+    });
+  }
+  return specs;
+};
+
+const runLatencyRoundUnlocked = async (
   profile: BenchmarkProfile,
   profilePath: string
 ): Promise<void> => {
@@ -520,26 +614,23 @@ const runLatencyRound = async (
     : profile.queries.map((q) => ({ ...q }));
   const { documents } = resolveCorpusDocuments(profile);
 
-  const engineSpecs: { label: string; url: string | undefined }[] = [
-    {
-      label: manticoreUrl ? "manticore-6.3.8" : "in-memory",
-      url: manticoreUrl,
-    },
-  ];
-  const manticore29Url = process.env.MANTICORE_29_URL?.trim();
-  if (manticore29Url) {
-    engineSpecs.push({
-      label: process.env.MANTICORE_29_LABEL?.trim() || "manticore-29",
-      url: manticore29Url,
-    });
-  }
+  const hybridEvaluation = process.env.SEARCH_HYBRID === "1";
+  const engineSpecs = buildLatencyEngineSpecs(manticoreUrl, hybridEvaluation);
 
   const reports: LatencyEngineReport[] = [];
   for (const spec of engineSpecs) {
     // oxlint-disable-next-line no-await-in-loop -- engines are indexed and measured sequentially so each series is isolated and comparable
-    const run = await buildNamedEngineRun(spec.label, spec.url, documents);
+    const run = await buildNamedEngineRun(
+      spec.label,
+      spec.url,
+      documents,
+      spec.hybridSchemaEnabled
+    );
     try {
-      const adapter = new SearchAdapter({ engine: run.engine });
+      const adapter = new SearchAdapter({
+        engine: run.engine,
+        hybridEnabled: spec.hybridEnabled,
+      });
       // oxlint-disable-next-line no-await-in-loop -- sequential series, see above
       const stats = await runSeries(
         adapter,
@@ -548,9 +639,17 @@ const runLatencyRound = async (
         profile.warmupIterations,
         profile.measuredIterations
       );
+      const sloMaxMs = resolveLatencySlo(
+        profile.slo.maxMs,
+        hybridEvaluation,
+        spec.hybridEnabled
+      );
       reports.push({
         boundary: profile.slo.boundary,
         documentCount: run.documentCount,
+        embeddingDocsPerSecond: spec.hybridSchemaEnabled
+          ? run.indexingDocsPerSecond
+          : null,
         engine: run.label,
         errorCount: stats.errorCount,
         indexingDocsPerSecond: run.indexingDocsPerSecond,
@@ -559,12 +658,13 @@ const runLatencyRound = async (
         p50Ms: stats.p50Ms,
         p95Ms: stats.p95Ms,
         p99Ms: stats.p99Ms,
-        passed: stats.p95Ms <= profile.slo.maxMs,
+        passed: stats.p95Ms <= sloMaxMs,
         perQuery: stats.perQuery,
         profile: profilePath,
         queryMode: useGolden ? "golden" : "profile",
         queryset: useGolden ? GOLDEN_QUERIES_PATH : profile.corpus.pointer,
-        sloMaxMs: profile.slo.maxMs,
+        searchMode: spec.hybridEnabled ? "hybrid" : "lexical",
+        sloMaxMs,
       });
     } finally {
       if (run.cleanup) {
@@ -579,6 +679,22 @@ const runLatencyRound = async (
   const anyFailed = reports.some((r) => r.passed !== true);
   if (anyFailed && process.env.BENCH_ALLOW_FAIL !== "1") {
     process.exitCode = 1;
+  }
+};
+
+const runLatencyRound = async (
+  profile: BenchmarkProfile,
+  profilePath: string
+): Promise<void> => {
+  const targetUrls = [
+    process.env.MANTICORE_URL?.trim(),
+    process.env.MANTICORE_29_URL?.trim(),
+  ].filter((url): url is string => Boolean(url));
+  const releaseLocks = await acquireManticoreBenchmarkLocks(targetUrls);
+  try {
+    await runLatencyRoundUnlocked(profile, profilePath);
+  } finally {
+    await releaseLocks();
   }
 };
 

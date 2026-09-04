@@ -2,7 +2,7 @@ import { describe, expect, it } from "bun:test";
 
 import type { BooleanNode } from "@ji/domain";
 
-import { SearchAdapter } from "./adapter";
+import { isSearchHybridEnabled, SearchAdapter } from "./adapter";
 import { MemoryResultCache } from "./cache/result-cache";
 import { InMemorySearchEngine } from "./in-memory-engine";
 import { hashDocumentId } from "./manticore/id-hash";
@@ -10,7 +10,7 @@ import {
   cleanupLiveDocuments,
   requireLiveManticoreUrl,
 } from "./manticore/live-test-hygiene";
-import type { SearchDocument, SearchEngine } from "./types";
+import type { SearchDocument, SearchEngine, SearchMode } from "./types";
 
 const sampleDocument = (
   overrides: Partial<SearchDocument> = {}
@@ -41,6 +41,27 @@ const instrumentEngine = (
   },
   upsertDocument: (document) => engine.upsertDocument(document),
 });
+
+const constructWithHybridFlag = (
+  hybridFlag: string | undefined,
+  options: ConstructorParameters<typeof SearchAdapter>[0]
+): SearchAdapter => {
+  const previous = process.env.SEARCH_HYBRID;
+  if (hybridFlag === undefined) {
+    delete process.env.SEARCH_HYBRID;
+  } else {
+    process.env.SEARCH_HYBRID = hybridFlag;
+  }
+  try {
+    return new SearchAdapter(options);
+  } finally {
+    if (previous === undefined) {
+      delete process.env.SEARCH_HYBRID;
+    } else {
+      process.env.SEARCH_HYBRID = previous;
+    }
+  }
+};
 
 describe("SearchAdapter", () => {
   it("covers AE1 with stable hit IDs across repeated searches", async () => {
@@ -132,6 +153,65 @@ describe("SearchAdapter", () => {
     expect(first.ok).toBe(true);
     expect(second.ok).toBe(true);
     expect(searchCalls).toBe(1);
+  });
+});
+
+describe("SearchAdapter hybrid mode", () => {
+  it("enables the environment flag strictly for the value 1", () => {
+    expect(isSearchHybridEnabled("1")).toBe(true);
+    expect(isSearchHybridEnabled("true")).toBe(false);
+    expect(isSearchHybridEnabled("0")).toBe(false);
+    expect(isSearchHybridEnabled()).toBe(false);
+  });
+
+  it("passes hybrid only for positive free text without negation", async () => {
+    const engine = new InMemorySearchEngine();
+    const modes: (SearchMode | undefined)[] = [];
+    const capturingEngine: SearchEngine = {
+      applyBatch: (batch) => engine.applyBatch(batch),
+      deleteDocument: (id) => engine.deleteDocument(id),
+      getAppliedVersion: () => engine.getAppliedVersion(),
+      search: (params) => {
+        modes.push(params.mode);
+        return engine.search(params);
+      },
+      upsertDocument: (document) => engine.upsertDocument(document),
+    };
+    const adapter = constructWithHybridFlag("1", {
+      engine: capturingEngine,
+    });
+
+    await adapter.search({ query: "Azure platform" });
+    await adapter.search({ query: "Azure NOT intern" });
+    await adapter.search({ query: "NOT intern" });
+
+    expect(modes).toEqual(["hybrid", "lexical", "lexical"]);
+  });
+
+  it("separates cached results between lexical and hybrid mode", async () => {
+    const engine = new InMemorySearchEngine();
+    await engine.upsertDocument(sampleDocument());
+    await engine.applyBatch({ appliedSequence: 1n, mutations: [] });
+    let searchCalls = 0;
+    const sharedCache = new MemoryResultCache();
+    const instrumented = instrumentEngine(engine, () => {
+      searchCalls += 1;
+    });
+    const lexical = constructWithHybridFlag(undefined, {
+      cache: sharedCache,
+      engine: instrumented,
+    });
+    const hybrid = constructWithHybridFlag("1", {
+      cache: sharedCache,
+      engine: instrumented,
+    });
+
+    await lexical.search({ query: "Azure" });
+    await hybrid.search({ query: "Azure" });
+    await lexical.search({ query: "Azure" });
+    await hybrid.search({ query: "Azure" });
+
+    expect(searchCalls).toBe(2);
   });
 });
 

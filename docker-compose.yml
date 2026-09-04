@@ -139,6 +139,7 @@ services:
       # entrypoint chowns /etc/manticoresearch before dropping to the
       # manticore user; :ro makes that chown fail and crash-loops searchd.
       - ./tools/manticore/manticore29.conf:/etc/manticoresearch/manticore.conf
+      - ./tools/manticore/wordforms-nl.txt:/etc/manticoresearch/wordforms-nl.txt
     healthcheck:
       # Table-independent on purpose (unlike the 6.3.8 healthcheck above,
       # which greps for the aanvragen table): this service starts with an
@@ -173,6 +174,7 @@ services:
       DATABASE_URL: ${CATAPULZE_DATABASE_URL:?CATAPULZE_DATABASE_URL is required}
       MANTICORE_URL: ${MANTICORE_URL:-http://manticore:9308}
       REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+      SEARCH_HYBRID: ${SEARCH_HYBRID:-0}
     depends_on:
       postgres:
         condition: service_healthy
@@ -246,7 +248,10 @@ services:
     command: ["bun", "run", "projector"]
     environment:
       DATABASE_URL: ${CATAPULZE_DATABASE_URL:?CATAPULZE_DATABASE_URL is required}
-      MANTICORE_URL: http://manticore:9308
+      # Override together with SEARCH_HYBRID when deliberately targeting the
+      # already-started, healthy shadow service (http://manticore29:9308).
+      MANTICORE_URL: ${MANTICORE_URL:-http://manticore:9308}
+      SEARCH_HYBRID: ${SEARCH_HYBRID:-0}
       # Local Compose uses the same direct Postgres service for data and lock.
       # Production must override this when CATAPULZE_DATABASE_URL is pooled;
       # the projector's typed env rejects a known Neon pooler host here.

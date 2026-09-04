@@ -16,6 +16,7 @@ export const manticoreHitSchema = z.object({
   // string here since ManticoreSearchHit.id is a string. The real
   // SearchDocument.id lives in _source.document_id and is preferred when
   // present — see parseManticoreSearchResponse.
+  _hybrid_score: z.number().optional(),
   _id: z.union([z.string(), z.number()]).optional(),
   _score: z.number().optional(),
   _source: z.object({ document_id: z.string().optional() }).optional(),
@@ -153,6 +154,10 @@ export interface ManticoreSortEntry {
   "WEIGHT()": ManticoreSortDirection;
 }
 
+export interface ManticoreHybridSortEntry {
+  "hybrid_score()": ManticoreSortDirection;
+}
+
 export interface ManticoreIdSortEntry {
   id: ManticoreSortDirection;
 }
@@ -168,16 +173,27 @@ export interface ManticoreTermsAgg {
   size: number;
 }
 
+export type ManticoreFacetName =
+  | "bron_id"
+  | "contracttype"
+  | "locatie"
+  | "locatie_land"
+  | "status";
+
+export type ManticoreTermsAggregations = Partial<
+  Record<ManticoreFacetName, { terms: ManticoreTermsAgg }>
+>;
+
 export interface ManticoreSearchRequestBody {
+  /** Hybrid requests select only display/sort metadata, never the embedding vector. */
+  _source?: string[];
   /** Omitted on the RJC-383 archive count request, which only needs `total`. */
-  aggs?: {
-    bron_id: { terms: ManticoreTermsAgg };
-    contracttype: { terms: ManticoreTermsAgg };
-    locatie: { terms: ManticoreTermsAgg };
-    locatie_land: { terms: ManticoreTermsAgg };
-    status: { terms: ManticoreTermsAgg };
-  };
+  aggs?: ManticoreTermsAggregations;
   index: string;
+  knn?: {
+    field: "embedding";
+    query: string;
+  };
   limit: number;
   // Upper bound on how many candidate matches Manticore ranks and holds in
   // memory for this query, independent of limit/offset (RJC-380). See the
@@ -188,9 +204,11 @@ export interface ManticoreSearchRequestBody {
   // the docblock on DEFAULT_MAX_QUERY_TIME_MS in client.ts.
   max_query_time: number;
   offset: number;
+  options?: { fusion_method: "rrf" };
   query?: ManticoreFilteredQueryBody | ManticoreQueryBody;
-  sort: (
+  sort?: (
     | ManticoreAttributeSortEntry
+    | ManticoreHybridSortEntry
     | ManticoreIdSortEntry
     | ManticoreSortEntry
   )[];

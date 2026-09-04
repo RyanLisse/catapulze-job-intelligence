@@ -6,15 +6,18 @@ import type { SearchEngine, SearchFilters, SearchScope } from "@ji/search";
 import {
   InMemorySearchEngine,
   InMemorySearchVersionStore,
+  isHybridSearchEligible,
   ManticoreSearchEngine,
 } from "@ji/search";
 import { z } from "zod";
 
 import {
+  acquireManticoreBenchmarkLocks,
   assertCleanManticoreTables,
-  cleanupBenchmarkRuns,
   cleanupAndAssertManticoreTables,
+  MANTICORE_BENCH_HYBRID_TABLES,
   MANTICORE_BENCH_INDEX_NAME,
+  MANTICORE_BENCH_TABLES,
   scopeBenchmarkDocuments,
 } from "../manticore-hygiene";
 import { loadRelevanceCorpus } from "./corpus";
@@ -47,6 +50,7 @@ const NDCG_DEPTH = 10;
 const MIN_QUERY_COUNT = 35;
 const METRIC_PRECISION = 6;
 const REPORT_PATH = path.join(".artifacts", "relevance", "report.json");
+const RELEVANCE_SCOPE_ID = "golden-relevance-v1";
 /** Fixed partition clock (RJC-383); one day after the corpus' laatstGezienOp. */
 const BENCH_NOW = new Date("2026-09-01T00:00:00.000Z");
 const benchClock = (): Date => BENCH_NOW;
@@ -194,6 +198,22 @@ interface EngineReport {
   perQuery: QueryScore[];
 }
 
+interface EnginePerformance {
+  embeddingDocsPerSecond: number | null;
+  engine: string;
+  indexingDocsPerSecond: number;
+  indexingMs: number;
+  mode: "hybrid" | "lexical";
+  p50Ms: number;
+  p95Ms: number;
+  querySamples: number;
+}
+
+interface ScoredEngine {
+  durationsMs: number[];
+  report: EngineReport;
+}
+
 const macroAverage = (scores: readonly QueryScore[]): MetricPair => {
   if (scores.length === 0) {
     return { ndcg10: 0, recall20: 0 };
@@ -211,9 +231,11 @@ const scoreEngine = async (
   engine: SearchEngine,
   queries: readonly RelevanceQuery[],
   scope: SearchScope,
-  toCorpusId: (id: string) => string
-): Promise<EngineReport> => {
+  toCorpusId: (id: string) => string,
+  mode: "hybrid" | "lexical"
+): Promise<ScoredEngine> => {
   const perQuery: QueryScore[] = [];
+  const durationsMs: number[] = [];
   for (const query of queries) {
     const parsed = parseBooleanQuery(query.query);
     if (!parsed.ok) {
@@ -224,14 +246,21 @@ const scoreEngine = async (
     // SAFETY: filtersSchema mirrors SearchFilters field-for-field; zod has
     // already validated shape and lifecycle values.
     const filters: SearchFilters = query.filters ?? {};
+    const effectiveMode =
+      mode === "hybrid" && isHybridSearchEligible(parsed.ast)
+        ? "hybrid"
+        : "lexical";
+    const startedAt = performance.now();
     // oxlint-disable-next-line no-await-in-loop -- queries run sequentially for stable, comparable output
     const result = await engine.search({
       ast: parsed.ast,
       filters,
       limit: RECALL_DEPTH,
+      mode: effectiveMode,
       offset: 0,
       scope,
     });
+    durationsMs.push(performance.now() - startedAt);
     const rankedIds = result.hits.map((hit) => toCorpusId(hit.id));
     const relevant = new Set(query.relevant);
     perQuery.push({
@@ -251,10 +280,13 @@ const scoreEngine = async (
   }
 
   return {
-    engine: name,
-    overall: macroAverage(perQuery),
-    perCategory,
-    perQuery,
+    durationsMs,
+    report: {
+      engine: name,
+      overall: macroAverage(perQuery),
+      perCategory,
+      perQuery,
+    },
   };
 };
 
@@ -262,6 +294,9 @@ interface EngineRun {
   cleanup: (() => Promise<void>) | null;
   documents: RelevanceCorpusSummary["documents"][number]["document"][];
   engine: SearchEngine;
+  /** The 29 vector schema generates embeddings on every indexed document. */
+  hybridSchemaEnabled: boolean;
+  mode: "hybrid" | "lexical";
   name: string;
   /** Manticore only: refuse dirty tables before indexing, prove them clean after (RJC-383). */
   preflight: ((phase: "after" | "before") => Promise<void>) | null;
@@ -273,31 +308,42 @@ interface EngineRun {
 const buildManticoreRun = (
   name: string,
   url: string,
-  corpus: RelevanceCorpusSummary
+  corpus: RelevanceCorpusSummary,
+  mode: "hybrid" | "lexical",
+  hybridSchemaEnabled: boolean
 ): EngineRun => {
   const scoped = scopeBenchmarkDocuments(
-    corpus.documents.map((item) => item.document)
+    corpus.documents.map((item) => item.document),
+    RELEVANCE_SCOPE_ID
   );
   const manticore = ManticoreSearchEngine.fromUrl(
     url,
     new InMemorySearchVersionStore(),
     MANTICORE_BENCH_INDEX_NAME,
-    benchClock
+    benchClock,
+    { hybridEnabled: hybridSchemaEnabled }
   );
+  const hygieneTables = hybridSchemaEnabled
+    ? MANTICORE_BENCH_HYBRID_TABLES
+    : MANTICORE_BENCH_TABLES;
   return {
     cleanup: async () => {
       await cleanupAndAssertManticoreTables(
         name,
         url,
         manticore,
-        scoped.documentIds
+        scoped.documentIds,
+        fetch,
+        hygieneTables
       );
     },
     documents: scoped.documents,
     engine: manticore,
+    hybridSchemaEnabled,
+    mode,
     name,
     preflight: async (phase) => {
-      await assertCleanManticoreTables(name, url, phase);
+      await assertCleanManticoreTables(name, url, phase, fetch, hygieneTables);
     },
     toCorpusId: scoped.toCorpusId,
   };
@@ -318,19 +364,56 @@ const buildEngineRuns = (corpus: RelevanceCorpusSummary): EngineRun[] => {
       cleanup: null,
       documents: corpus.documents.map((item) => item.document),
       engine: new InMemorySearchEngine(undefined, benchClock),
+      hybridSchemaEnabled: false,
+      mode: "lexical",
       name: "in-memory",
       preflight: null,
       toCorpusId: (id) => id,
     },
   ];
   const manticoreUrl = process.env.MANTICORE_URL?.trim();
-  if (manticoreUrl) {
-    runs.push(buildManticoreRun("manticore", manticoreUrl, corpus));
-  }
+  const hybridEvaluation = process.env.SEARCH_HYBRID === "1";
   const manticore29Url = process.env.MANTICORE_29_URL?.trim();
+  if (hybridEvaluation && (!manticoreUrl || !manticore29Url)) {
+    throw new Error(
+      "SEARCH_HYBRID=1 relevance evaluation requires MANTICORE_URL and MANTICORE_29_URL"
+    );
+  }
+  if (manticoreUrl) {
+    runs.push(
+      buildManticoreRun(
+        hybridEvaluation ? "manticore-6.3.8-lexical" : "manticore",
+        manticoreUrl,
+        corpus,
+        "lexical",
+        false
+      )
+    );
+  }
   if (manticore29Url) {
     const label = process.env.MANTICORE_29_LABEL?.trim() || "manticore-29";
-    runs.push(buildManticoreRun(label, manticore29Url, corpus));
+    if (hybridEvaluation) {
+      runs.push(
+        buildManticoreRun(
+          `${label}-lexical`,
+          manticore29Url,
+          corpus,
+          "lexical",
+          true
+        ),
+        buildManticoreRun(
+          `${label}-hybrid`,
+          manticore29Url,
+          corpus,
+          "hybrid",
+          true
+        )
+      );
+    } else {
+      runs.push(
+        buildManticoreRun(label, manticore29Url, corpus, "lexical", false)
+      );
+    }
   }
   return runs;
 };
@@ -367,7 +450,44 @@ const printReport = (
   console.log([pad("OVERALL (macro)"), ...overallCells].join(""));
 };
 
-const main = async (): Promise<void> => {
+const printPerformanceReport = (
+  reports: readonly EnginePerformance[]
+): void => {
+  console.log("\nperformance (scope=active query calls)");
+  console.log(
+    `${pad("engine")}${pad("mode")}${pad("p50 ms")}${pad("p95 ms")}${pad("index docs/s")}${pad("embed docs/s")}`
+  );
+  for (const report of reports) {
+    console.log(
+      [
+        pad(report.engine),
+        pad(report.mode),
+        pad(report.p50Ms.toFixed(2)),
+        pad(report.p95Ms.toFixed(2)),
+        pad(report.indexingDocsPerSecond.toFixed(1)),
+        pad(
+          report.embeddingDocsPerSecond === null
+            ? "n/a"
+            : report.embeddingDocsPerSecond.toFixed(1)
+        ),
+      ].join("")
+    );
+  }
+};
+
+const percentile = (values: readonly number[], pct: number): number => {
+  if (values.length === 0) {
+    return 0;
+  }
+  const sorted = values.toSorted((left, right) => left - right);
+  const index = Math.min(
+    sorted.length - 1,
+    Math.max(0, Math.ceil((pct / 100) * sorted.length) - 1)
+  );
+  return sorted[index] ?? 0;
+};
+
+const runEvaluation = async (): Promise<void> => {
   const corpus = await loadRelevanceCorpus();
   const queries = await loadQueries(
     path.join(import.meta.dirname, "queries.jsonl")
@@ -380,42 +500,64 @@ const main = async (): Promise<void> => {
 
   const reports: EngineReport[] = [];
   const activeScopeReports: EngineReport[] = [];
+  const performanceReports: EnginePerformance[] = [];
   const runs = buildEngineRuns(corpus);
-  try {
-    for (const run of runs) {
+  for (const run of runs) {
+    try {
       if (run.preflight) {
         // oxlint-disable-next-line no-await-in-loop -- must refuse before anything is indexed
         await run.preflight("before");
       }
+      const indexingStartedAt = performance.now();
       for (const document of run.documents) {
         // oxlint-disable-next-line no-await-in-loop -- upserts are ordered so both engines index identically
         await run.engine.upsertDocument(document);
       }
       // oxlint-disable-next-line no-await-in-loop -- the index must be complete before it is scored
       await run.engine.applyBatch({ appliedSequence: 1n, mutations: [] });
+      const indexingMs = performance.now() - indexingStartedAt;
       // oxlint-disable-next-line no-await-in-loop -- engines are scored one at a time so a shared Manticore index is never measured concurrently
       const allScope = await scoreEngine(
         run.name,
         run.engine,
         queries,
         "all",
-        run.toCorpusId
+        run.toCorpusId,
+        run.mode
       );
-      reports.push(allScope);
+      reports.push(allScope.report);
       // oxlint-disable-next-line no-await-in-loop -- same engine, same index, second scope
       const activeScope = await scoreEngine(
         run.name,
         run.engine,
         queries,
         "active",
-        run.toCorpusId
+        run.toCorpusId,
+        run.mode
       );
-      activeScopeReports.push(activeScope);
+      activeScopeReports.push(activeScope.report);
+      const indexingDocsPerSecond =
+        indexingMs > 0
+          ? Number((run.documents.length / (indexingMs / 1000)).toFixed(1))
+          : 0;
+      performanceReports.push({
+        embeddingDocsPerSecond: run.hybridSchemaEnabled
+          ? indexingDocsPerSecond
+          : null,
+        engine: run.name,
+        indexingDocsPerSecond,
+        indexingMs: Number(indexingMs.toFixed(2)),
+        mode: run.mode,
+        p50Ms: Number(percentile(activeScope.durationsMs, 50).toFixed(2)),
+        p95Ms: Number(percentile(activeScope.durationsMs, 95).toFixed(2)),
+        querySamples: activeScope.durationsMs.length,
+      });
+    } finally {
+      if (run.cleanup) {
+        // oxlint-disable-next-line no-await-in-loop -- shared 29 tables must be empty before the next mode starts
+        await run.cleanup();
+      }
     }
-  } finally {
-    await cleanupBenchmarkRuns(runs);
-    // Manticore cleanup includes the mandatory post-run SELECT COUNT(*)
-    // proof even when one or more document deletes fail.
   }
 
   printReport(reports);
@@ -440,6 +582,32 @@ const main = async (): Promise<void> => {
   await mkdir(path.dirname(REPORT_PATH), { recursive: true });
   await writeFile(REPORT_PATH, `${JSON.stringify(report, null, 2)}\n`);
   console.log(`\nreport written to ${REPORT_PATH}`);
+
+  if (process.env.SEARCH_HYBRID === "1") {
+    const performancePath = path.join(
+      path.dirname(REPORT_PATH),
+      "performance.json"
+    );
+    await writeFile(
+      performancePath,
+      `${JSON.stringify({ engines: performanceReports }, null, 2)}\n`
+    );
+    printPerformanceReport(performanceReports);
+    console.log(`performance report written to ${performancePath}`);
+  }
+};
+
+const main = async (): Promise<void> => {
+  const targetUrls = [
+    process.env.MANTICORE_URL?.trim(),
+    process.env.MANTICORE_29_URL?.trim(),
+  ].filter((url): url is string => Boolean(url));
+  const releaseLocks = await acquireManticoreBenchmarkLocks(targetUrls);
+  try {
+    await runEvaluation();
+  } finally {
+    await releaseLocks();
+  }
 };
 
 if (import.meta.main) {

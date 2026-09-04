@@ -57,12 +57,27 @@ export const isStaleSearchVersion = (
  * hash means the index was built for another schema and requires a full
  * rebuild (new generation), never a silent reindex. v3 (RJC-383): the same
  * columns, now split over `aanvragen_active` + `aanvragen_archive`. v4 adds
- * an inspectable canonical `projection_hash` attribute to each RT row.
+ * an inspectable canonical `projection_hash` attribute to each RT row. The
+ * hybrid candidate adds an auto-embedding vector and the measured Dutch
+ * wordforms; it is a distinct generation only when SEARCH_HYBRID=1.
  */
 // ponytail: hand-maintained constant; runtime hashing of the mapping buys
 // nothing until the mapping itself is data-driven.
-export const SEARCH_SCHEMA_HASH =
+export const SEARCH_SCHEMA_HASH_V4 =
   "aanvragen-v4[active|archive]:beschrijving,bron_id,contracttype,document_id,index_version,laatst_gezien_op,locatie,locatie_land,sluitingsdatum,status,tarief_max,tarief_min,titel,projection_hash";
+
+export const SEARCH_SCHEMA_HASH_HYBRID =
+  "aanvragen-v5[all|active|archive]:beschrijving,bron_id,contracttype,document_id,embedding,index_version,laatst_gezien_op,locatie,locatie_land,sluitingsdatum,status,tarief_max,tarief_min,titel,projection_hash;embedding=hnsw/cosine/Xenova/paraphrase-multilingual-MiniLM-L12-v2/from:titel+beschrijving;wordforms=gemeenten>gemeent,duurzame>duurzaam";
+
+/** Resolves the checkpoint schema without enabling the candidate by default. */
+export const resolveSearchSchemaHash = (
+  searchHybrid: string | undefined = undefined
+): string =>
+  searchHybrid === "1" ? SEARCH_SCHEMA_HASH_HYBRID : SEARCH_SCHEMA_HASH_V4;
+
+export const SEARCH_SCHEMA_HASH = resolveSearchSchemaHash(
+  process.env.SEARCH_HYBRID
+);
 
 /**
  * The single-table mapping before RJC-383 split the index. Kept only so
