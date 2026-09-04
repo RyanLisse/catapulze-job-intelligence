@@ -2,6 +2,7 @@ import { describe, expect, it } from "bun:test";
 
 import { createTestSliceARegistry } from "@ji/application/registry";
 import type { Context } from "hono";
+import { Hono } from "hono";
 import { z } from "zod";
 
 import { createSessionPrincipalResolver } from "./auth";
@@ -12,6 +13,7 @@ const currentTime = new Date("2026-09-02T12:00:00.000Z");
 const allowedOrigin = "https://app.catapulze.test";
 const validBearer = "Bearer valid.signed-session";
 const expiredBearer = "Bearer expired.signed-session";
+const mcpProtocolVersion = "2026-07-28";
 
 const resolvePrincipal = createSessionPrincipalResolver(
   (headers) => {
@@ -63,46 +65,68 @@ const createRestContext = (
   return context as Context;
 };
 
-const createMcpContext = (
+const sendMcpRequest = (
+  handler: ReturnType<typeof createMcpHandler>,
   headers: Headers,
   name = "search_aanvragen",
   options: {
     readonly arguments?: object;
     readonly onBodyRead?: () => void;
   } = {}
-): Context => {
-  const context = {
-    req: {
-      json: () => {
-        options.onBodyRead?.();
-        return Promise.resolve({
-          id: "request-1",
-          jsonrpc: "2.0",
-          method: "tools/call",
-          params: {
-            arguments: options.arguments ?? { query: "Azure" },
-            name,
-          },
-        });
+): Promise<Response> => {
+  const requestHeaders = new Headers(headers);
+  requestHeaders.set("Accept", "application/json, text/event-stream");
+  requestHeaders.set("Content-Type", "application/json");
+  requestHeaders.set("Host", "server.test");
+  requestHeaders.set("MCP-Protocol-Version", mcpProtocolVersion);
+  requestHeaders.set("Mcp-Method", "tools/call");
+  requestHeaders.set("Mcp-Name", name);
+  const request = new Request("http://server.test/mcp", {
+    body: JSON.stringify({
+      id: "request-1",
+      jsonrpc: "2.0",
+      method: "tools/call",
+      params: {
+        _meta: {
+          "io.modelcontextprotocol/clientCapabilities": {},
+          "io.modelcontextprotocol/protocolVersion": mcpProtocolVersion,
+        },
+        arguments: options.arguments ?? { query: "Azure" },
+        name,
       },
-      raw: { headers },
-    },
-  };
-  // SAFETY: The MCP handler reads only req.json and req.raw.headers from this focused test double.
-  return context as Context;
-};
-
-const mcpResponseSchema = z.object({
-  result: z
-    .object({
-      isError: z.boolean().optional(),
-    })
-    .optional(),
-});
-
-const readMcpError = async (response: Response): Promise<boolean> => {
-  const body = mcpResponseSchema.parse(await response.json());
-  return body.result?.isError === true;
+    }),
+    headers: requestHeaders,
+    method: "POST",
+  });
+  if (options.onBodyRead) {
+    const { onBodyRead } = options;
+    const cloneRequest = request.clone.bind(request);
+    const readJson = request.json.bind(request);
+    const readText = request.text.bind(request);
+    Object.defineProperties(request, {
+      clone: {
+        value: () => {
+          onBodyRead();
+          return cloneRequest();
+        },
+      },
+      json: {
+        value: () => {
+          onBodyRead();
+          return readJson();
+        },
+      },
+      text: {
+        value: () => {
+          onBodyRead();
+          return readText();
+        },
+      },
+    });
+  }
+  const app = new Hono();
+  app.post("/mcp", (context) => handler(context));
+  return Promise.resolve(app.request(request));
 };
 
 describe("REST and MCP authentication boundary", () => {
@@ -115,14 +139,15 @@ describe("REST and MCP authentication boundary", () => {
   );
   const mcp = createMcpHandler(bundle.registry, resolvePrincipal, {
     allowedCookieOrigin: allowedOrigin,
+    allowedHost: "server.test",
   });
 
   it("rejects anonymous REST and MCP calls", async () => {
     const restResponse = await rest(createRestContext(new Headers()));
-    const mcpResponse = await mcp(createMcpContext(new Headers()));
+    const mcpResponse = await sendMcpRequest(mcp, new Headers());
 
     expect(restResponse.status).toBe(401);
-    expect(await readMcpError(mcpResponse)).toBe(true);
+    expect(mcpResponse.status).toBe(401);
   });
 
   it("rejects a forged admin header for REST and MCP writes", async () => {
@@ -133,10 +158,10 @@ describe("REST and MCP authentication boundary", () => {
         path: "/v1/bronnen/00000000-0000-4000-8000-000000000001/runs",
       })
     );
-    const mcpResponse = await mcp(createMcpContext(headers, "start_run"));
+    const mcpResponse = await sendMcpRequest(mcp, headers, "start_run");
 
     expect(restResponse.status).toBe(401);
-    expect(await readMcpError(mcpResponse)).toBe(true);
+    expect(mcpResponse.status).toBe(401);
   });
 
   it("accepts a validated cookie for REST and signed bearer session for MCP", async () => {
@@ -151,13 +176,14 @@ describe("REST and MCP authentication boundary", () => {
     const bearerRestResponse = await rest(
       createRestContext(new Headers({ Authorization: validBearer }))
     );
-    const mcpResponse = await mcp(
-      createMcpContext(new Headers({ Authorization: validBearer }))
+    const mcpResponse = await sendMcpRequest(
+      mcp,
+      new Headers({ Authorization: validBearer })
     );
 
     expect(restResponse.status).toBe(200);
     expect(bearerRestResponse.status).toBe(200);
-    expect(await readMcpError(mcpResponse)).toBe(false);
+    expect(mcpResponse.status).toBe(200);
   });
 
   it("rejects untrusted or missing origins before cookie-authenticated write effects", async () => {
@@ -204,7 +230,7 @@ describe("REST and MCP authentication boundary", () => {
     const csrfProtectedMcp = createMcpHandler(
       bundle.registry,
       countedResolver,
-      { allowedCookieOrigin: allowedOrigin }
+      { allowedCookieOrigin: allowedOrigin, allowedHost: "server.test" }
     );
     const cookie = "better-auth.session_token=valid-session";
     const options = {
@@ -214,32 +240,79 @@ describe("REST and MCP authentication boundary", () => {
       },
     };
 
-    const untrusted = await csrfProtectedMcp(
-      createMcpContext(
-        new Headers({ Cookie: cookie, Origin: "https://evil.example" }),
-        "create_saved_search",
-        options
-      )
+    const untrusted = await sendMcpRequest(
+      csrfProtectedMcp,
+      new Headers({ Cookie: cookie, Origin: "https://evil.example" }),
+      "create_saved_search",
+      options
     );
-    const missing = await csrfProtectedMcp(
-      createMcpContext(
-        new Headers({ Cookie: cookie }),
-        "create_saved_search",
-        options
-      )
+    const missing = await sendMcpRequest(
+      csrfProtectedMcp,
+      new Headers({ Cookie: cookie }),
+      "create_saved_search",
+      options
+    );
+    const untrustedBearer = await sendMcpRequest(
+      csrfProtectedMcp,
+      new Headers({
+        Authorization: validBearer,
+        Origin: "https://evil.example",
+      }),
+      "create_saved_search",
+      options
+    );
+    const wrongSchemeCookie = await sendMcpRequest(
+      csrfProtectedMcp,
+      new Headers({
+        Cookie: cookie,
+        Origin: "http://app.catapulze.test",
+      }),
+      "create_saved_search",
+      options
+    );
+    const wrongSchemeBearer = await sendMcpRequest(
+      csrfProtectedMcp,
+      new Headers({
+        Authorization: validBearer,
+        Origin: "http://app.catapulze.test",
+      }),
+      "create_saved_search",
+      options
+    );
+    const wrongPortCookie = await sendMcpRequest(
+      csrfProtectedMcp,
+      new Headers({
+        Cookie: cookie,
+        Origin: "https://app.catapulze.test:444",
+      }),
+      "create_saved_search",
+      options
+    );
+    const wrongPortBearer = await sendMcpRequest(
+      csrfProtectedMcp,
+      new Headers({
+        Authorization: validBearer,
+        Origin: "https://app.catapulze.test:444",
+      }),
+      "create_saved_search",
+      options
     );
 
     expect(untrusted.status).toBe(403);
     expect(missing.status).toBe(403);
+    expect(untrustedBearer.status).toBe(403);
+    expect(wrongSchemeCookie.status).toBe(403);
+    expect(wrongSchemeBearer.status).toBe(403);
+    expect(wrongPortCookie.status).toBe(403);
+    expect(wrongPortBearer.status).toBe(403);
     expect(bodyReads).toBe(0);
     expect(resolverCalls).toBe(0);
 
-    const allowed = await csrfProtectedMcp(
-      createMcpContext(
-        new Headers({ Cookie: cookie, Origin: allowedOrigin }),
-        "create_saved_search",
-        options
-      )
+    const allowed = await sendMcpRequest(
+      csrfProtectedMcp,
+      new Headers({ Cookie: cookie, Origin: allowedOrigin }),
+      "create_saved_search",
+      options
     );
     const allowedBody = z
       .object({
@@ -250,7 +323,9 @@ describe("REST and MCP authentication boundary", () => {
       .parse(await allowed.json());
 
     expect(allowed.status).toBe(200);
-    expect(bodyReads).toBe(1);
+    // The boundary validates a cloned body before the SDK Hono adapter parses
+    // its own clone. Rejected Origins must bypass both reads above.
+    expect(bodyReads).toBe(2);
     expect(resolverCalls).toBe(1);
     expect(
       await bundle.deps.stores.savedSearches.getById(
@@ -277,7 +352,7 @@ describe("REST and MCP authentication boundary", () => {
     const unavailableMcp = createMcpHandler(
       bundle.registry,
       unavailableResolver,
-      { allowedCookieOrigin: allowedOrigin }
+      { allowedCookieOrigin: allowedOrigin, allowedHost: "server.test" }
     );
     let restBodyReads = 0;
 
@@ -288,8 +363,9 @@ describe("REST and MCP authentication boundary", () => {
         },
       })
     );
-    const mcpResponse = await unavailableMcp(
-      createMcpContext(new Headers({ Authorization: validBearer }))
+    const mcpResponse = await sendMcpRequest(
+      unavailableMcp,
+      new Headers({ Authorization: validBearer })
     );
     const restText = await restResponse.text();
     const mcpText = await mcpResponse.text();
@@ -315,13 +391,13 @@ describe("REST and MCP authentication boundary", () => {
       await Promise.all([
         rest(createRestContext(expiredHeaders)),
         rest(createRestContext(invalidHeaders)),
-        mcp(createMcpContext(expiredHeaders)),
-        mcp(createMcpContext(invalidHeaders)),
+        sendMcpRequest(mcp, expiredHeaders),
+        sendMcpRequest(mcp, invalidHeaders),
       ]);
 
     expect(expiredRest.status).toBe(401);
     expect(invalidRest.status).toBe(401);
-    expect(await readMcpError(expiredMcp)).toBe(true);
-    expect(await readMcpError(invalidMcp)).toBe(true);
+    expect(expiredMcp.status).toBe(401);
+    expect(invalidMcp.status).toBe(401);
   });
 });

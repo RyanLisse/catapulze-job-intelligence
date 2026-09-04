@@ -9,6 +9,7 @@ import { cors } from "hono/cors";
 import { logger } from "hono/logger";
 
 import { createSessionPrincipalResolver } from "./capabilities/auth";
+import { PRODUCTION_UNAVAILABLE_CAPABILITIES } from "./capabilities/capability-availability";
 import { createMcpHandler } from "./capabilities/mcp";
 import {
   createRestCapabilityHandler,
@@ -29,7 +30,13 @@ app.use(logger());
 app.use(
   "/*",
   cors({
-    allowHeaders: ["Content-Type", "Authorization"],
+    allowHeaders: [
+      "Content-Type",
+      "Authorization",
+      "MCP-Protocol-Version",
+      "Mcp-Method",
+      "Mcp-Name",
+    ],
     allowMethods: ["GET", "POST", "OPTIONS"],
     credentials: true,
     origin: allowedWebOrigin,
@@ -100,10 +107,18 @@ const restHandler = createRestCapabilityHandler(
   sliceA.registry,
   restRoutes,
   resolvePrincipal,
-  { allowedCookieOrigin: allowedWebOrigin }
+  {
+    allowedCookieOrigin: allowedWebOrigin,
+    unavailableCapabilities: PRODUCTION_UNAVAILABLE_CAPABILITIES,
+  }
 );
 const mcpHandler = createMcpHandler(sliceA.registry, resolvePrincipal, {
   allowedCookieOrigin: allowedWebOrigin,
+  allowedHost: new URL(env.BETTER_AUTH_URL).hostname,
+  recordMetric: (metric) => {
+    process.stderr.write(`${JSON.stringify(metric)}\n`);
+  },
+  unavailableCapabilities: PRODUCTION_UNAVAILABLE_CAPABILITIES,
 });
 
 app.all("/v1/*", (context) => restHandler(context));
