@@ -34,12 +34,26 @@ An exit trap captures `.artifacts/docker-smoke/containers.txt` and
 --remove-orphans`. A cleanup failure fails an otherwise successful smoke. The
 CI job uploads those files on success and failure with seven-day retention.
 
-The CI job is the application-image evidence and should be configured as a
-required branch-protection check by repository administration. Adding the job
-makes failures visible and blocking within the workflow; it does not itself
-change GitHub branch-protection settings. Record the observed duration from the
-first successful CI run here or in the PR evidence; it is pending until that
-remote run completes.
+The first successful remote evidence is [PR #157](https://github.com/RyanLisse/catapulze-job-intelligence/pull/157)
+at exact head `6bc25541743781fcb93442f30191ddb6847fc107`. In [CI run
+33927344487](https://github.com/RyanLisse/catapulze-job-intelligence/actions/runs/33927344487),
+the `application-image-smoke` job completed successfully in 2m56s; its `Build
+and smoke application images` step took 2m50s.
+
+Required-check configuration remains a separate repository-administration
+task. The administration API returned HTTP 403 because the current GitHub plan
+does not provide required-check enforcement for this private repository. This
+runbook does not claim automatic enforcement and does not authorize a billing
+plan or repository-visibility change.
+
+Until repository administration can enforce the checks, use this manual merge
+gate. When the `changes` job reports `code == true`, the exact current PR head
+must have successful `verify`, `build`, `postgres-restore-drill`, and
+`application-image-smoke` checks before merge. For a documentation-only PR with
+`code == false`, `verify` must succeed and the other three checks must show their
+expected code-filter skips. Re-check the applicable success/skip set after every
+head change. Independent agent reviews are separate evidence; they are not
+formal GitHub approvals.
 
 This check proves the images start and complete a synthetic application path at
 the tested commit. It is not deployment, production-data, backup, or live
