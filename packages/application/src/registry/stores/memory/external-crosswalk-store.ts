@@ -4,6 +4,11 @@ import type {
   ExternalIdCrosswalkStore,
 } from "../types";
 
+interface PreparedExternalIdCrosswalk {
+  readonly key: string;
+  readonly record: ExternalIdCrosswalkRecord;
+}
+
 export class MemoryExternalIdCrosswalkStore implements ExternalIdCrosswalkStore {
   private readonly byKey = new Map<string, ExternalIdCrosswalkRecord>();
 
@@ -13,11 +18,14 @@ export class MemoryExternalIdCrosswalkStore implements ExternalIdCrosswalkStore 
     scopeId: string;
     target: ExternalIdCrosswalkRecord["target"];
   }): Promise<ExternalIdCrosswalkRecord | null> {
-    const key = `${input.scopeId}:${buildExportIdempotencyKey(
-      input.target,
-      input.canonicalVacancyId,
-      input.actionType
-    )}`;
+    const key = JSON.stringify([
+      input.scopeId,
+      buildExportIdempotencyKey(
+        input.target,
+        input.canonicalVacancyId,
+        input.actionType
+      ),
+    ]);
     const record = this.byKey.get(key);
     return Promise.resolve(record ? { ...record } : null);
   }
@@ -25,16 +33,34 @@ export class MemoryExternalIdCrosswalkStore implements ExternalIdCrosswalkStore 
   create(
     record: Omit<ExternalIdCrosswalkRecord, "createdAt">
   ): Promise<ExternalIdCrosswalkRecord> {
-    const key = `${record.scopeId}:${buildExportIdempotencyKey(
-      record.target,
-      record.canonicalVacancyId,
-      record.actionType
-    )}`;
+    const prepared = this.prepare(record);
+    this.commitPrepared(prepared);
+    return Promise.resolve({ ...prepared.record });
+  }
+
+  prepare(
+    record: Omit<ExternalIdCrosswalkRecord, "createdAt">
+  ): PreparedExternalIdCrosswalk {
+    const key = JSON.stringify([
+      record.scopeId,
+      buildExportIdempotencyKey(
+        record.target,
+        record.canonicalVacancyId,
+        record.actionType
+      ),
+    ]);
+    const existing = this.byKey.get(key);
+    if (existing && existing.externalId !== record.externalId) {
+      throw new Error("External ID crosswalk already has a different ID");
+    }
     const stored: ExternalIdCrosswalkRecord = {
       ...record,
       createdAt: new Date(),
     };
-    this.byKey.set(key, stored);
-    return Promise.resolve({ ...stored });
+    return { key, record: existing ?? stored };
+  }
+
+  commitPrepared(prepared: PreparedExternalIdCrosswalk): void {
+    this.byKey.set(prepared.key, prepared.record);
   }
 }

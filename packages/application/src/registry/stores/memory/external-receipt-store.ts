@@ -7,13 +7,26 @@ export class MemoryExternalReceiptStore implements ExternalReceiptStore {
   create(
     record: Omit<ExternalReceiptRecord, "createdAt" | "id">
   ): Promise<ExternalReceiptRecord> {
-    const stored: ExternalReceiptRecord = {
+    const stored = MemoryExternalReceiptStore.prepare(record);
+    this.commitPrepared(stored);
+    return Promise.resolve({ ...stored });
+  }
+
+  static prepare(
+    record: Omit<ExternalReceiptRecord, "createdAt" | "id">
+  ): ExternalReceiptRecord {
+    if (!record.responseHash.trim()) {
+      throw new Error("External receipt response hash must not be empty");
+    }
+    return {
       ...record,
       createdAt: new Date(),
       id: randomId(),
     };
+  }
+
+  commitPrepared(stored: ExternalReceiptRecord): void {
     this.records.push(stored);
-    return Promise.resolve({ ...stored });
   }
 
   getByExportAttemptId(

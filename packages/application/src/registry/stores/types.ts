@@ -271,6 +271,29 @@ export type ExportTarget = "spott";
 
 export type ExportActionType = "create";
 
+export type ExportEffectStatus =
+  | "reserved"
+  | "external_id_acquired"
+  | "confirmed";
+
+export type ExportExternalIdSource = "manual_evidence" | "provider_response";
+
+export interface ExportEffectKey {
+  readonly actionType: ExportActionType;
+  readonly canonicalVacancyId: string;
+  readonly scopeId: string;
+  readonly target: ExportTarget;
+}
+
+export interface ExportEffectRecord extends ExportEffectKey {
+  readonly createdAt: Date;
+  readonly externalId: string | null;
+  readonly externalIdSource: ExportExternalIdSource | null;
+  readonly status: ExportEffectStatus;
+  readonly updatedAt: Date;
+}
+
+/** Outcome of this local invocation; `failed` does not prove provider failure. */
 export type ExportAttemptStatus = "created" | "failed" | "skipped";
 
 export interface ExternalIdCrosswalkRecord {
@@ -340,12 +363,59 @@ export interface ExternalReceiptStore {
   ) => Promise<readonly ExternalReceiptRecord[]>;
 }
 
+export type FinalizeConfirmedExportResult =
+  | {
+      readonly created: false;
+      readonly externalId: string;
+    }
+  | {
+      readonly attempt: ExportAttemptRecord;
+      readonly created: true;
+      readonly externalId: string;
+      readonly receipt: ExternalReceiptRecord;
+    };
+
+export interface ExportEffectStore {
+  /**
+   * Atomically claims the provider-effect key. A non-acquired reservation is
+   * never safe to POST again; a known provider ID authorizes GET-only repair.
+   */
+  reserve: (key: ExportEffectKey) => Promise<{
+    readonly acquired: boolean;
+    readonly effect: ExportEffectRecord;
+  }>;
+  /**
+   * Persists provider evidence before confirmation. A different existing ID
+   * is a hard conflict and must never be overwritten.
+   */
+  recordExternalId: (
+    key: ExportEffectKey & {
+      readonly externalId: string;
+      readonly source: ExportExternalIdSource;
+    }
+  ) => Promise<ExportEffectRecord>;
+  /**
+   * Atomically confirms the reservation and writes its crosswalk, successful
+   * attempt and receipt. Exact concurrent finalizations return created=false.
+   */
+  finalizeConfirmed: (
+    input: ExportEffectKey & {
+      readonly approvalId: string;
+      readonly externalId: string;
+      readonly idempotencyKey: string;
+      readonly responseHash: string;
+      readonly snapshotId: string;
+    }
+  ) => Promise<FinalizeConfirmedExportResult>;
+}
+
 export interface SliceAStores {
   readonly alerts: AlertStore;
   readonly aanvragen: AanvraagStore;
   readonly approvals: ApprovalStore;
   readonly audit: AuditStore;
   readonly bronHealth: BronHealthStore;
+  readonly exportEffects: ExportEffectStore;
   readonly exportAttempts: ExportAttemptStore;
   readonly externalCrosswalk: ExternalIdCrosswalkStore;
   readonly externalReceipts: ExternalReceiptStore;

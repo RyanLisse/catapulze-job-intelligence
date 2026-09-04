@@ -16,6 +16,7 @@ import {
   PostgresApprovalStore,
   PostgresAuditStore,
   PostgresBronHealthStore,
+  PostgresExportEffectStore,
   PostgresExportAttemptStore,
   PostgresExternalIdCrosswalkStore,
   PostgresExternalReceiptStore,
@@ -107,8 +108,8 @@ export const createProductionSliceADeps = async (
     approvals: new PostgresApprovalStore(runtime.database),
     audit: new PostgresAuditStore(runtime.database),
     bronHealth: new PostgresBronHealthStore(runtime.database),
-
     exportAttempts: new PostgresExportAttemptStore(runtime.database),
+    exportEffects: new PostgresExportEffectStore(runtime.database),
     externalCrosswalk: new PostgresExternalIdCrosswalkStore(runtime.database),
     externalReceipts: new PostgresExternalReceiptStore(runtime.database),
     markeringen: new PostgresMarkeringStore(runtime.database),

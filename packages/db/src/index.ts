@@ -27,6 +27,7 @@ export {
   type BronHealthDatabase,
 } from "./bron-health-stores";
 export {
+  PostgresExportEffectStore,
   PostgresExportAttemptStore,
   PostgresExternalIdCrosswalkStore,
   PostgresExternalReceiptStore,

@@ -29,6 +29,7 @@ export {
   dedupGroep,
   dedupGroepRelations,
   outboxEvent,
+  exportEffect,
   exportAttempt,
   externalIdCrosswalk,
   externalReceipt,

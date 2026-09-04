@@ -120,6 +120,13 @@
       "when": 1789286400000,
       "tag": "0016_bron_health_and_alerts",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1789372800000,
+      "tag": "0017_export_effect_reservation",
+      "breakpoints": true
     }
   ]
 }
