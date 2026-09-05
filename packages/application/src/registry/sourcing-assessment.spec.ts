@@ -119,6 +119,26 @@ describe("evaluate_sourcing_assessment (RJC-447)", () => {
     );
   });
 
+  it("keeps stale trusted evidence from passing", () => {
+    const result = evaluate(completeSourcingFixture, {
+      ...completeTrustedAttestation,
+      sourceReferences: completeTrustedAttestation.sourceReferences.map(
+        (reference) =>
+          reference.id === "detail-1"
+            ? { ...reference, observedAt: "2026-09-05T08:00:00.000Z" }
+            : reference
+      ),
+    });
+
+    expect(result.evaluation.status).toBe("needs-review");
+    expect(result.evaluation.findings).toContainEqual(
+      expect.objectContaining({ code: "STALE_SOURCE_REFERENCE" })
+    );
+    expect(result.sourceReferences).toContainEqual(
+      expect.objectContaining({ id: "detail-1", status: "stale" })
+    );
+  });
+
   it("surfaces contradictory cited conclusions", () => {
     const result = evaluate(
       contradictorySourcingFixture,

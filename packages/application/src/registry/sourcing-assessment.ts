@@ -98,6 +98,7 @@ const findingCodes = [
   "CONTRADICTORY_EVIDENCE",
   "MISSING_FIELD_CONCLUSION",
   "FUTURE_SOURCE_REFERENCE",
+  "STALE_SOURCE_REFERENCE",
   "UPSTREAM_SEARCH_INCOMPLETE",
 ] as const;
 const evaluatorFindingSchema = z
@@ -204,6 +205,28 @@ const finding = (
 const sameIds = (left: readonly string[], right: readonly string[]) =>
   left.toSorted().join("\0") === right.toSorted().join("\0");
 
+const readFreshness = (
+  reference: z.output<typeof sourceReferenceSchema>,
+  asOf: Date
+): z.output<typeof freshnessReadbackSchema> => {
+  if (reference.observedAt === null) {
+    return { ...reference, ageSeconds: null, status: "unknown" };
+  }
+  const observedAt = new Date(reference.observedAt);
+  const ageSeconds = Math.max(
+    0,
+    Math.floor((asOf.getTime() - observedAt.getTime()) / 1000)
+  );
+  if (observedAt > asOf || reference.maxAgeSeconds === undefined) {
+    return { ...reference, ageSeconds, status: "unknown" };
+  }
+  return {
+    ...reference,
+    ageSeconds,
+    status: ageSeconds <= reference.maxAgeSeconds ? "fresh" : "stale",
+  };
+};
+
 const evaluateReferenceFindings = (
   attestation: TrustedSourcingAttestation,
   asOf: Date
@@ -239,6 +262,14 @@ const evaluateReferenceFindings = (
         finding(
           "FUTURE_SOURCE_REFERENCE",
           `Reference ${reference.id} is later than server evaluation time`
+        )
+      );
+    }
+    if (readFreshness(reference, asOf).status === "stale") {
+      findings.push(
+        finding(
+          "STALE_SOURCE_REFERENCE",
+          `Reference ${reference.id} exceeds its trusted freshness limit`
         )
       );
     }
@@ -354,27 +385,6 @@ const evaluateFindings = (
     }
   }
   return findings;
-};
-const readFreshness = (
-  reference: z.output<typeof sourceReferenceSchema>,
-  asOf: Date
-): z.output<typeof freshnessReadbackSchema> => {
-  if (reference.observedAt === null) {
-    return { ...reference, ageSeconds: null, status: "unknown" };
-  }
-  const observedAt = new Date(reference.observedAt);
-  const ageSeconds = Math.max(
-    0,
-    Math.floor((asOf.getTime() - observedAt.getTime()) / 1000)
-  );
-  if (observedAt > asOf || reference.maxAgeSeconds === undefined) {
-    return { ...reference, ageSeconds, status: "unknown" };
-  }
-  return {
-    ...reference,
-    ageSeconds,
-    status: ageSeconds <= reference.maxAgeSeconds ? "fresh" : "stale",
-  };
 };
 const determineEvaluationStatus = (
   input: SourcingAssessmentInput,
