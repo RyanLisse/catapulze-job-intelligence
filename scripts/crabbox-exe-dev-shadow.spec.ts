@@ -634,7 +634,7 @@ grep -q '"exitStatus":23' "$PHASES_FILE"
     }
   });
 
-  test("clears inherited database requirements from the unit phase", () => {
+  test("isolates database requirements in the unit phase", () => {
     const workspace = mkdtempSync(path.join(tmpdir(), "ji-shadow-unit-"));
     const binDirectory = path.join(workspace, "bin");
     const captureFile = path.join(workspace, "unit-environment");
@@ -672,7 +672,7 @@ printf '%s\\n' "\${DATABASE_URL-unset}" "\${DATABASE_TEST_URL-unset}" "\${DATABA
       expect(result.stderr.toString()).toBe("");
       expect(result.exitCode).toBe(0);
       expect(readFileSync(captureFile, "utf-8")).toBe(
-        "unset\nunset\nunset\nunset\nunset\n"
+        "postgresql://127.0.0.1:1/unused\nunset\nunset\nunset\nunset\n"
       );
     } finally {
       rmSync(workspace, { force: true, recursive: true });

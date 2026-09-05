@@ -24,6 +24,7 @@ readonly MACHINE_CLASS="2cpu-8gb-40gb"
 readonly RUN_KIND="cold"
 readonly CACHE_STATE="repository-unprimed-provider-image-unknown"
 readonly DATASET_PROFILE="repository-correctness-suite"
+readonly UNIT_DATABASE_URL="postgresql://127.0.0.1:1/unused"
 
 RUN_STATUS="failed"
 COMPOSE_DATABASE_STARTED="false"
@@ -376,9 +377,9 @@ run_unit_suite() {
   env \
     -u DATABASE_APP_TEST_URL \
     -u DATABASE_TEST_URL \
-    -u DATABASE_URL \
     -u MIGRATION_DATABASE_URL \
     -u REQUIRE_DATABASE_TESTS \
+    DATABASE_URL="$UNIT_DATABASE_URL" \
     bun test \
       --max-concurrency 2 \
       --path-ignore-patterns '**/dist/**' \
