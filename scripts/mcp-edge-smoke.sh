@@ -12,9 +12,9 @@ run_attempt="${GITHUB_RUN_ATTEMPT:-local}"
 project_name="catapulze-edge-${run_id//[^a-zA-Z0-9_-]/-}-${run_attempt//[^a-zA-Z0-9_-]/-}-$$"
 artifact_dir="${MCP_EDGE_ARTIFACT_DIR:-.artifacts/mcp-edge-smoke}"
 compose_parallel_limit="${COMPOSE_PARALLEL_LIMIT:-2}"
-source_sha="${MCP_EDGE_SOURCE_SHA:-${CRABBOX_SOURCE_GIT_SHA:-}}"
+source_sha="$(git rev-parse HEAD 2>/dev/null || true)"
 if [[ -z "$source_sha" ]]; then
-  source_sha="$(git rev-parse HEAD 2>/dev/null || true)"
+  source_sha="${CRABBOX_SOURCE_GIT_SHA:-}"
 fi
 pr_head_sha="${MCP_EDGE_PR_HEAD_SHA:-$source_sha}"
 

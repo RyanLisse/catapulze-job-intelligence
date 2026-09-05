@@ -17,19 +17,32 @@ interface ComposeConfig {
 }
 
 let config: ComposeConfig;
+let expectedSourceSha: string;
 let tempDirectory: string;
 
 beforeAll(async () => {
   tempDirectory = await mkdtemp(path.join(tmpdir(), "mcp-edge-contract-"));
   const configPath = path.join(tempDirectory, "config.json");
+  const git = Bun.spawn(["git", "rev-parse", "HEAD"], {
+    stderr: "pipe",
+    stdout: "pipe",
+  });
+  const [gitExitCode, gitStdout] = await Promise.all([
+    git.exited,
+    new Response(git.stdout).text(),
+  ]);
+  expectedSourceSha =
+    gitExitCode === 0
+      ? gitStdout.trim()
+      : "0000000000000000000000000000000000000448";
   const child = Bun.spawn(["bash", "scripts/mcp-edge-smoke.sh"], {
     env: {
       ...globalThis.process.env,
       CATAPULZE_DATABASE_URL: "postgresql://production.invalid/prod",
       COMPOSE_FILE: "production-compose.yml",
       COMPOSE_PROJECT_NAME: "production-project",
+      CRABBOX_SOURCE_GIT_SHA: expectedSourceSha,
       MCP_EDGE_CONFIG_OUTPUT: configPath,
-      MCP_EDGE_SOURCE_SHA: "0000000000000000000000000000000000000448",
       POSTGRES_DATA_VOLUME: "production-volume",
     },
     stderr: "pipe",
@@ -67,6 +80,9 @@ describe("MCP stateless edge Compose contract", () => {
     expect(config.name).not.toBe("production-project");
     expect(config.services["server-a"]?.environment?.DATABASE_URL).toBe(
       "postgresql://ji_app:ji_app_smoke@postgres:5432/ji_smoke"
+    );
+    expect(config.services["server-a"]?.environment?.APP_RELEASE_SHA).toBe(
+      expectedSourceSha
     );
     for (const volume of [
       "postgres_data",

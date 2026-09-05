@@ -117,7 +117,7 @@ services:
           "-q",
           "-O",
           "/dev/null",
-          "http://localhost:8080/edge-health",
+          "http://127.0.0.1:8080/edge-health",
         ]
       interval: 5s
       timeout: 5s
