@@ -328,6 +328,18 @@ describe("exe.dev shadow scripts", () => {
       `${remoteEvidencePath}/mcp-edge-smoke/container-status.txt`
     );
     expect(crabboxConfig).toContain(
+      `${remoteEvidencePath}/mcp-edge-smoke/evidence.json=.artifacts/crabbox/exe-dev-shadow/mcp-edge-smoke/evidence.json`
+    );
+    expect(crabboxConfig).toContain(
+      `${remoteEvidencePath}/mcp-edge-smoke/runtime-identity.json=.artifacts/crabbox/exe-dev-shadow/mcp-edge-smoke/runtime-identity.json`
+    );
+    expect(crabboxConfig).toContain(
+      `${remoteEvidencePath}/mcp-edge-smoke/route-config.conf=.artifacts/crabbox/exe-dev-shadow/mcp-edge-smoke/route-config.conf`
+    );
+    expect(crabboxConfig).toContain(
+      `${remoteEvidencePath}/mcp-edge-smoke/container-status.txt=.artifacts/crabbox/exe-dev-shadow/mcp-edge-smoke/container-status.txt`
+    );
+    expect(crabboxConfig).toContain(
       "command: CRABBOX_CAPTURE_VALIDATION_STATUS=1 bash scripts/crabbox-exe-dev-shadow.sh"
     );
   });

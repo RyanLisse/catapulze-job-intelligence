@@ -208,4 +208,8 @@ jobs:
       - crabbox-output/exe-dev-shadow/unit-diagnostics.json=.artifacts/crabbox/exe-dev-shadow/unit-diagnostics.json
       - crabbox-output/exe-dev-shadow/validation-exit-status.txt=.artifacts/crabbox/exe-dev-shadow/validation-exit-status.txt
       - crabbox-output/exe-dev-shadow/manifest.sha256=.artifacts/crabbox/exe-dev-shadow/manifest.sha256
+      - crabbox-output/exe-dev-shadow/mcp-edge-smoke/evidence.json=.artifacts/crabbox/exe-dev-shadow/mcp-edge-smoke/evidence.json
+      - crabbox-output/exe-dev-shadow/mcp-edge-smoke/runtime-identity.json=.artifacts/crabbox/exe-dev-shadow/mcp-edge-smoke/runtime-identity.json
+      - crabbox-output/exe-dev-shadow/mcp-edge-smoke/route-config.conf=.artifacts/crabbox/exe-dev-shadow/mcp-edge-smoke/route-config.conf
+      - crabbox-output/exe-dev-shadow/mcp-edge-smoke/container-status.txt=.artifacts/crabbox/exe-dev-shadow/mcp-edge-smoke/container-status.txt
     stop: always
