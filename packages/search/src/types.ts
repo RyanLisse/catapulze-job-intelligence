@@ -36,11 +36,11 @@ export interface SearchDocument {
   laatstGezienOp: Date;
   /**
    * Display location as the UI shows it (RJC-378). Optional because the
-   * curated aanvraag row only carries `locatie_land` today; when absent the
-   * engines index `locatieLand` under this attribute so the facet and filter
-   * still round-trip — see `documentLocatie`.
+   * `null` is an explicit unknown from the curated source. An omitted field
+   * is retained for legacy/direct engine callers, which still derive the
+   * display value from `locatieLand`.
    */
-  locatie?: string;
+  locatie?: string | null;
   locatieLand: string;
   /** Deadline; absent/null when the bron does not publish one. */
   sluitingsdatum?: Date | null;
@@ -51,8 +51,14 @@ export interface SearchDocument {
 }
 
 /** The `locatie` attribute value both engines index and facet on. */
-export const documentLocatie = (document: SearchDocument): string =>
-  document.locatie ?? document.locatieLand;
+export const documentLocatie = (
+  document: SearchDocument
+): string | undefined =>
+  // `null` is different from an omitted property: the former is the
+  // persistence boundary's honest unknown and must not fall back to NL.
+  document.locatie === null
+    ? undefined
+    : (document.locatie ?? document.locatieLand);
 
 export interface SearchFilters {
   bronIds?: readonly string[];

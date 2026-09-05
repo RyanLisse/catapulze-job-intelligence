@@ -5,7 +5,6 @@ import {
 
 import { evaluateBooleanAst } from "./adapter";
 import { compareCodepoints } from "./ast-hash";
-import { matchesSearchFilters } from "./filter-match";
 import { hashDocumentId } from "./manticore/id-hash";
 import {
   DEFAULT_SEARCH_SCOPE,
@@ -20,6 +19,7 @@ import type {
   SearchEngineResult,
   SearchFacetBucket,
   SearchFacets,
+  SearchFilters,
   SearchIndexBatch,
   SearchIndexBatchResult,
   SearchSort,
@@ -31,6 +31,72 @@ import {
 } from "./types";
 import { InMemorySearchVersionStore } from "./version";
 import type { SearchVersion, SearchVersionStore } from "./version";
+
+const matchesLocationFilter = (
+  document: SearchDocument,
+  locations: SearchFilters["locatie"]
+): boolean => {
+  if (locations === undefined) {
+    return true;
+  }
+  const location = documentLocatie(document);
+  return location !== undefined && locations.includes(location);
+};
+
+const matchesFilters = (
+  document: SearchDocument,
+  filters: SearchFilters
+): boolean => {
+  if (filters.bronIds && !filters.bronIds.includes(document.bronId)) {
+    return false;
+  }
+
+  if (filters.status && !filters.status.includes(document.status)) {
+    return false;
+  }
+
+  if (
+    filters.locatieLand &&
+    !filters.locatieLand.includes(document.locatieLand)
+  ) {
+    return false;
+  }
+
+  if (!matchesLocationFilter(document, filters.locatie)) {
+    return false;
+  }
+
+  if (
+    filters.contracttype &&
+    document.contracttype !== null &&
+    !filters.contracttype.includes(document.contracttype)
+  ) {
+    return false;
+  }
+
+  if (
+    filters.tariefMin !== undefined &&
+    (document.tariefMax === null || document.tariefMax < filters.tariefMin)
+  ) {
+    return false;
+  }
+
+  if (
+    filters.tariefMax !== undefined &&
+    (document.tariefMin === null || document.tariefMin > filters.tariefMax)
+  ) {
+    return false;
+  }
+
+  if (filters.freshnessDays !== undefined) {
+    const cutoff = Date.now() - filters.freshnessDays * 86_400_000;
+    if (document.laatstGezienOp.getTime() < cutoff) {
+      return false;
+    }
+  }
+
+  return true;
+};
 
 type FacetField =
   | "bronId"
@@ -48,7 +114,7 @@ const facetValueForField = (
       return document.bronId;
     }
     case "locatie": {
-      return documentLocatie(document);
+      return documentLocatie(document) ?? "";
     }
     case "locatieLand": {
       return document.locatieLand;
@@ -73,6 +139,9 @@ const countFacet = (
   const counts = new Map<string, number>();
   for (const document of documents) {
     const value = facetValueForField(document, field);
+    if (field === "locatie" && value === "") {
+      continue;
+    }
     counts.set(value, (counts.get(value) ?? 0) + 1);
   }
 
@@ -204,7 +273,7 @@ export class InMemorySearchEngine implements SearchEngine {
     const scope = params.scope ?? DEFAULT_SEARCH_SCOPE;
     return timeCriticalPathPhase("search-serialization", () => {
       const matchesQuery = (document: SearchDocument): boolean => {
-        if (!matchesSearchFilters(document, params.filters)) {
+        if (!matchesFilters(document, params.filters)) {
           return false;
         }
 
@@ -253,7 +322,6 @@ export class InMemorySearchEngine implements SearchEngine {
         emptyReason,
         facets,
         hits: page.map((document) => ({ id: document.id, weight: 1 })),
-        incomplete: false,
         indexVersion: Number(version.appliedSequence),
         scope,
         total: matched.length,

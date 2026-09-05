@@ -118,7 +118,8 @@ export interface ManticoreIndexedDocument {
   laatst_gezien_op: number;
   // Display location the UI filters and facets on (RJC-378); see
   // documentLocatie in ../types.ts for how it is derived.
-  locatie: string;
+  /** Omitted when the curated source did not publish a location. */
+  locatie?: string;
   locatie_land: string;
   // Epoch seconds; SLUITINGSDATUM_MISSING_SENTINEL when the bron publishes no
   // deadline, so `sluitingsdatum asc` puts missing deadlines last natively.

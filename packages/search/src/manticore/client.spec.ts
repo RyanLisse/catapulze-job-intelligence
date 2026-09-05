@@ -389,6 +389,35 @@ describe("ManticoreSearchEngine document mapping", () => {
     );
   });
 
+  it("omits an explicitly unknown locatie instead of falling back to the country", async () => {
+    const client = new RecordingClient();
+    const engine = new ManticoreSearchEngine(
+      client,
+      new InMemorySearchVersionStore()
+    );
+
+    await engine.upsertDocument({
+      beschrijving: "b",
+      bronId: "bron-1",
+      contracttype: null,
+      id: "doc-unknown-location",
+      laatstGezienOp: new Date("2026-08-01T00:00:00.000Z"),
+      locatie: null,
+      locatieLand: "NL",
+      status: "active",
+      tariefMax: null,
+      tariefMin: null,
+      titel: "t",
+    });
+
+    const [replace] = client.bodies;
+    if (!replace || !("doc" in replace)) {
+      throw new Error("expected a /replace body");
+    }
+    expect(replace.doc.locatie).toBeUndefined();
+    expect(replace.doc.locatie_land).toBe("NL");
+  });
+
   it("dual-writes and deletes the base table only when explicitly enabled", async () => {
     const client = new RecordingClient();
     const engine = new ManticoreSearchEngine(

@@ -95,24 +95,30 @@ const epochSeconds = (value: Date): number =>
 const documentToManticoreFields = (
   document: SearchDocument,
   indexVersion: number
-): Omit<ManticoreIndexedDocument, "projection_hash"> => ({
-  beschrijving: document.beschrijving,
-  bron_id: document.bronId,
-  contracttype: document.contracttype ?? "",
-  document_id: document.id,
-  index_version: indexVersion,
-  laatst_gezien_op: epochSeconds(document.laatstGezienOp),
-  locatie: documentLocatie(document),
-  locatie_land: document.locatieLand,
-  sluitingsdatum: document.sluitingsdatum
-    ? epochSeconds(document.sluitingsdatum)
-    : SLUITINGSDATUM_MISSING_SENTINEL,
-  status: document.status,
-  // 0 doubles as "no rate": rate-high sorts tarief_max desc, so it lands last.
-  tarief_max: document.tariefMax ?? 0,
-  tarief_min: document.tariefMin ?? 0,
-  titel: document.titel,
-});
+): Omit<ManticoreIndexedDocument, "projection_hash"> => {
+  const location = documentLocatie(document);
+  const fields: Omit<ManticoreIndexedDocument, "projection_hash"> = {
+    beschrijving: document.beschrijving,
+    bron_id: document.bronId,
+    contracttype: document.contracttype ?? "",
+    document_id: document.id,
+    index_version: indexVersion,
+    laatst_gezien_op: epochSeconds(document.laatstGezienOp),
+    locatie_land: document.locatieLand,
+    sluitingsdatum: document.sluitingsdatum
+      ? epochSeconds(document.sluitingsdatum)
+      : SLUITINGSDATUM_MISSING_SENTINEL,
+    status: document.status,
+    // 0 doubles as "no rate": rate-high sorts tarief_max desc, so it lands last.
+    tarief_max: document.tariefMax ?? 0,
+    tarief_min: document.tariefMin ?? 0,
+    titel: document.titel,
+  };
+  if (location !== undefined) {
+    fields.locatie = location;
+  }
+  return fields;
+};
 
 const documentToManticore = (
   document: SearchDocument,
