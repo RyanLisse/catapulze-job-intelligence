@@ -27,8 +27,9 @@ CI uploads only bounded evidence: tested checkout SHA, PR head SHA, production
 server and proxy image IDs, the sanitized proxy route config and its runtime
 digest, selected upstream addresses, request IDs, response classes, content
 types, and timings. It excludes credentials, cookies, query text, arguments,
-actors, and synthetic request IDs. Raw application and proxy logs are not
-uploaded.
+actors, and synthetic vacancy fixture identifiers. Synthetic RPC correlation
+IDs remain included as bounded routing evidence. Raw application and proxy
+logs are not uploaded.
 
 This proves stateless routing through the disposable edge at the tested commit.
 It does not prove production deployment, production data, OAuth, TLS, DNS,
