@@ -27,12 +27,12 @@ export const JOB_SORT_OPTIONS = [
 export type JobSort = (typeof JOB_SORT_OPTIONS)[number];
 
 /**
- * RJC-394: the production search loader (packages/db PostgresSearchDocumentLoader)
- * now fills `locatie` (from `locatie_tekst`, falling back to the country
- * code) and `sluitingsdatum` from the curated columns the normalisers
- * populate. Only newly-ingested/re-indexed rows carry real values -- rows
- * indexed before this migration still read as the country code / the
- * missing-deadline sentinel until the next poll and reindex touches them.
+ * RJC-394/RJC-449: the production search loader
+ * (packages/db PostgresSearchDocumentLoader) fills `locatie` from the
+ * curated `locatie_tekst` column and leaves it explicitly unknown when the
+ * source publishes no location. It also fills `sluitingsdatum` from the
+ * curated columns the normalisers populate. Existing rows require the search
+ * generation replay before these semantics are reflected in the index.
  */
 export const ENRICHED_SEARCH_DATA_AVAILABLE = true;
 

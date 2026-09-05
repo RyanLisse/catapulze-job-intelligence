@@ -7,9 +7,11 @@ import {
   resolveSearchSchemaHash,
   SEARCH_SCHEMA_HASH,
   SEARCH_SCHEMA_HASH_HYBRID,
+  SEARCH_SCHEMA_HASH_HYBRID_V7,
   SEARCH_SCHEMA_HASH_V1,
   SEARCH_SCHEMA_HASH_V4,
   SEARCH_SCHEMA_HASH_V6,
+  SEARCH_SCHEMA_HASH_V8,
   startSearchGeneration,
 } from "./version";
 
@@ -75,38 +77,55 @@ describe("SEARCH_SCHEMA_HASH mapping generations", () => {
     expect(SEARCH_SCHEMA_HASH).toContain("sluitingsdatum");
     expect(SEARCH_SCHEMA_HASH).toContain("projection_hash");
     expect(SEARCH_SCHEMA_HASH).toContain("locatie=nullable-omitted");
+    expect(SEARCH_SCHEMA_HASH).toContain("locatie_land=nullable-omitted");
   });
 
-  it("requires a new generation for the nullable locatie mapping", () => {
-    expect(SEARCH_SCHEMA_HASH).toBe(SEARCH_SCHEMA_HASH_V6);
+  it("requires a new generation for the unknown-location mapping", () => {
+    expect(SEARCH_SCHEMA_HASH).toBe(SEARCH_SCHEMA_HASH_V8);
+    expect(SEARCH_SCHEMA_HASH).not.toBe(SEARCH_SCHEMA_HASH_V6);
     expect(SEARCH_SCHEMA_HASH).not.toBe(SEARCH_SCHEMA_HASH_V4);
   });
 
-  it("a checkpoint written by the v1 mapping no longer matches the code", async () => {
-    const stale = new InMemorySearchVersionStore(SEARCH_SCHEMA_HASH_V1);
+  it("requires a new generation and replay for a checkpoint written by v6", async () => {
+    const stale = new InMemorySearchVersionStore(SEARCH_SCHEMA_HASH_V6);
+    await stale.advance(42n);
     const checkpoint = await stale.read();
 
     expect(checkpoint.schemaHash === SEARCH_SCHEMA_HASH).toBe(false);
 
     const rebuilt = await stale.startNewGeneration(SEARCH_SCHEMA_HASH);
     expect(rebuilt.generation).toBe(2);
+    expect(rebuilt.appliedSequence).toBe(0n);
+    const current = await stale.read();
+    expect(current.schemaHash).toBe(SEARCH_SCHEMA_HASH);
+  });
+
+  it("still rejects the v1 mapping", async () => {
+    const stale = new InMemorySearchVersionStore(SEARCH_SCHEMA_HASH_V1);
+    const checkpoint = await stale.read();
+
+    expect(checkpoint.schemaHash === SEARCH_SCHEMA_HASH).toBe(false);
+    await stale.startNewGeneration(SEARCH_SCHEMA_HASH);
     const current = await stale.read();
     expect(current.schemaHash).toBe(SEARCH_SCHEMA_HASH);
   });
 });
 
 describe("SEARCH_SCHEMA_HASH hybrid feature flag", () => {
-  it("keeps the current v6 schema when the flag is absent or off", () => {
-    expect(resolveSearchSchemaHash()).toBe(SEARCH_SCHEMA_HASH_V6);
-    expect(resolveSearchSchemaHash("0")).toBe(SEARCH_SCHEMA_HASH_V6);
-    expect(resolveSearchSchemaHash("true")).toBe(SEARCH_SCHEMA_HASH_V6);
+  it("keeps the current v8 schema when the flag is absent or off", () => {
+    expect(resolveSearchSchemaHash()).toBe(SEARCH_SCHEMA_HASH_V8);
+    expect(resolveSearchSchemaHash("0")).toBe(SEARCH_SCHEMA_HASH_V8);
+    expect(resolveSearchSchemaHash("true")).toBe(SEARCH_SCHEMA_HASH_V8);
   });
 
   it("selects a new vector and wordforms schema only for SEARCH_HYBRID=1", () => {
     expect(resolveSearchSchemaHash("1")).toBe(SEARCH_SCHEMA_HASH_HYBRID);
-    expect(SEARCH_SCHEMA_HASH_HYBRID).not.toBe(SEARCH_SCHEMA_HASH_V6);
-    expect(SEARCH_SCHEMA_HASH_HYBRID).toStartWith("aanvragen-v7[");
+    expect(SEARCH_SCHEMA_HASH_HYBRID).not.toBe(SEARCH_SCHEMA_HASH_HYBRID_V7);
+    expect(SEARCH_SCHEMA_HASH_HYBRID).toStartWith("aanvragen-v9[");
     expect(SEARCH_SCHEMA_HASH_HYBRID).toContain("locatie=nullable-omitted");
+    expect(SEARCH_SCHEMA_HASH_HYBRID).toContain(
+      "locatie_land=nullable-omitted"
+    );
     expect(SEARCH_SCHEMA_HASH_HYBRID).toContain("embedding=hnsw/cosine");
     expect(SEARCH_SCHEMA_HASH_HYBRID).toContain(
       "Xenova/paraphrase-multilingual-MiniLM-L12-v2"
@@ -114,6 +133,20 @@ describe("SEARCH_SCHEMA_HASH hybrid feature flag", () => {
     expect(SEARCH_SCHEMA_HASH_HYBRID).toContain("from:titel+beschrijving");
     expect(SEARCH_SCHEMA_HASH_HYBRID).toContain("gemeenten>gemeent");
     expect(SEARCH_SCHEMA_HASH_HYBRID).toContain("duurzame>duurzaam");
+  });
+
+  it("requires a new generation and replay for a checkpoint written by hybrid v7", async () => {
+    const stale = new InMemorySearchVersionStore(SEARCH_SCHEMA_HASH_HYBRID_V7);
+    await stale.advance(42n);
+    const checkpoint = await stale.read();
+
+    expect(checkpoint.schemaHash).toBe(SEARCH_SCHEMA_HASH_HYBRID_V7);
+    expect(checkpoint.schemaHash).not.toBe(SEARCH_SCHEMA_HASH_HYBRID);
+
+    const rebuilt = await stale.startNewGeneration(SEARCH_SCHEMA_HASH_HYBRID);
+    expect(rebuilt).toEqual({ appliedSequence: 0n, generation: 2 });
+    const current = await stale.read();
+    expect(current.schemaHash).toBe(SEARCH_SCHEMA_HASH_HYBRID);
   });
 });
 

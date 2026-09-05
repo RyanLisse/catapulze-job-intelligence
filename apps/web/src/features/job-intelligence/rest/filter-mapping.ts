@@ -34,10 +34,10 @@ export interface ApiSearchFacets {
   readonly locatie_land: readonly ApiFacetBucket[];
 }
 
-// RJC-394: the loader now indexes a real `locatie` (locatie_tekst, falling
-// back to the country code), so the UI switches to filtering/faceting on it
-// once enrichedDataAvailable is on; the flag stays as a single kill switch
-// back to the country-only attribute if the enrichment needs pulling.
+// RJC-394/RJC-449: the loader indexes the published `locatie_tekst` value.
+// An explicit unknown location stays absent from both location attributes, so
+// the UI switches to location filtering/faceting only when enrichment is on;
+// the flag remains a single kill switch for the country-only attribute.
 const locationFilterKey = (
   enrichedDataAvailable: boolean
 ): "locatie" | "locatieLand" =>
@@ -47,8 +47,8 @@ const locationFacetKey = (
 ): "locatie" | "locatie_land" =>
   enrichedDataAvailable ? "locatie" : "locatie_land";
 
-// The index stores the curated location value (locatie_tekst when a bron
-// publishes one, otherwise the country code); the UI shows a label. The
+// The index stores the curated location value when a bron publishes one; an
+// explicit unknown has no location bucket. The UI shows a label, and the
 // filter must send back the indexed value or it never matches (RJC-378).
 const LOCATION_LABELS = [["NL", "Nederland"]] as const;
 

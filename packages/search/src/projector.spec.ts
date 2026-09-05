@@ -471,6 +471,24 @@ describe("outbox projector", () => {
     );
   });
 
+  it("preserves the known-location projection hash field order", () => {
+    const knownLocation: SearchDocument = {
+      ...document,
+      id: "known-location",
+      locatie: "Amsterdam",
+      locatieLand: "NL",
+      sluitingsdatum: new Date("2026-09-05T12:00:00.000Z"),
+      titel: "Known location",
+    };
+
+    // This is the canonical hash from before unknown locations began omitting
+    // locatie_land. Keep the literal so moving the known field's insertion
+    // point silently cannot rewrite every existing known-location row.
+    expect(
+      projectionHash(knownLocation, new Date("2026-09-01T00:00:00.000Z"))
+    ).toBe("active:8rs48ad2bj.1rt3o4jniia");
+  });
+
   it("consumes a late mutation (delete or upsert) as a no-op when an equal or newer sequence was already applied", async () => {
     const lateDelete: OutboxEventRecord = {
       aggregateId: document.id,
