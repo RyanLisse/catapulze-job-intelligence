@@ -1,5 +1,8 @@
 import { permissionsForRole } from "@ji/application/registry";
-import type { SliceARole } from "@ji/application/registry";
+import type {
+  SliceARole,
+  TestSliceARegistryBundle,
+} from "@ji/application/registry";
 import { Hono } from "hono";
 import { z } from "zod";
 
@@ -7,7 +10,6 @@ import type { PrincipalResolver } from "./auth";
 import { PRODUCTION_UNAVAILABLE_CAPABILITIES } from "./capability-availability";
 import type { CapabilityAvailabilityPolicy } from "./capability-availability";
 import { createMcpHandler } from "./mcp";
-import type { SliceARegistry } from "./registry-types";
 import type { JsonValue, RestJsonBody } from "./transport-boundary";
 
 export const MCP_PROTOCOL_VERSION = "2026-07-28";
@@ -16,7 +18,7 @@ export const MCP_TEST_BEARER = "Bearer fixture-session";
 const rawBodySchema = z.string();
 
 export const createMcpProtocolFixture = (
-  registry: SliceARegistry,
+  bundle: Pick<TestSliceARegistryBundle, "entries" | "registry">,
   role: SliceARole = "recruiter",
   unavailableCapabilities: CapabilityAvailabilityPolicy = PRODUCTION_UNAVAILABLE_CAPABILITIES
 ) => {
@@ -32,9 +34,10 @@ export const createMcpProtocolFixture = (
             }
           : null,
     });
-  const handler = createMcpHandler(registry, resolvePrincipal, {
+  const handler = createMcpHandler(bundle.registry, resolvePrincipal, {
     allowedCookieOrigin: MCP_ALLOWED_ORIGIN,
     allowedHost: "server.test",
+    entries: bundle.entries,
     unavailableCapabilities,
   });
   const app = new Hono();

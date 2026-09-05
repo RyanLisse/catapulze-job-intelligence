@@ -45,6 +45,14 @@ for (const expectedId of sliceACapabilityIds) {
       }
     }
   }
+  for (const binding of [...restBindings, ...mcpBindings]) {
+    const expected = `${binding.transport}:${binding.operation}`;
+    if (!entry.metadata.wiredTransports.includes(expected)) {
+      failures.push(
+        `${expectedId} registry binding is missing from wiredTransports: ${expected}`
+      );
+    }
+  }
 }
 
 if (failures.length > 0) {

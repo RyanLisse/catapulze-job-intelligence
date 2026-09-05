@@ -91,13 +91,13 @@ const createInvocationCounter = () => {
     createInvoker: createInvoker as SliceARegistry["createInvoker"],
     health: bundle.registry.health,
   };
-  return { count: () => invocationCount, registry };
+  return { count: () => invocationCount, entries: bundle.entries, registry };
 };
 
 describe("MCP 2026-07-28 request headers and envelope", () => {
   it("rejects each missing routing or version header before invocation", async () => {
     const counter = createInvocationCounter();
-    const fixture = createMcpProtocolFixture(counter.registry);
+    const fixture = createMcpProtocolFixture(counter);
     const params = modernParams({ arguments: {}, name: "list_bronnen" });
     const results = await Promise.all(
       ["MCP-Protocol-Version", "Mcp-Method", "Mcp-Name"].map(
@@ -131,9 +131,7 @@ describe("MCP 2026-07-28 request headers and envelope", () => {
   });
 
   it("echoes a readable string id when the protocol version header is missing", async () => {
-    const fixture = createMcpProtocolFixture(
-      createTestSliceARegistry().registry
-    );
+    const fixture = createMcpProtocolFixture(createTestSliceARegistry());
     const response = await fixture.fetch("http://server.test/mcp", {
       body: JSON.stringify({
         ...rpcRequest("tools/list", modernParams()),
@@ -156,7 +154,7 @@ describe("MCP 2026-07-28 request headers and envelope", () => {
 
   it("rejects either missing modern envelope field before invocation", async () => {
     const counter = createInvocationCounter();
-    const fixture = createMcpProtocolFixture(counter.registry);
+    const fixture = createMcpProtocolFixture(counter);
     const incompleteMetadata: JsonValue[] = [
       { "io.modelcontextprotocol/clientCapabilities": {} },
       { "io.modelcontextprotocol/protocolVersion": MCP_PROTOCOL_VERSION },
@@ -181,7 +179,7 @@ describe("MCP 2026-07-28 request headers and envelope", () => {
 
   it("rejects mismatched names and versions before invocation", async () => {
     const counter = createInvocationCounter();
-    const fixture = createMcpProtocolFixture(counter.registry);
+    const fixture = createMcpProtocolFixture(counter);
     const params = modernParams({ arguments: {}, name: "list_bronnen" });
     const wrongName = await sendRequest(
       fixture,
@@ -208,9 +206,7 @@ describe("MCP 2026-07-28 request headers and envelope", () => {
   });
 
   it("treats header names as case-insensitive and values as case-sensitive", async () => {
-    const fixture = createMcpProtocolFixture(
-      createTestSliceARegistry().registry
-    );
+    const fixture = createMcpProtocolFixture(createTestSliceARegistry());
     const params = modernParams({ arguments: {}, name: "list_bronnen" });
     const lowercaseNames = await sendRequest(
       fixture,
@@ -242,9 +238,7 @@ describe("MCP 2026-07-28 request headers and envelope", () => {
   });
 
   it("accepts the official Base64 sentinel form for Mcp-Name", async () => {
-    const fixture = createMcpProtocolFixture(
-      createTestSliceARegistry().registry
-    );
+    const fixture = createMcpProtocolFixture(createTestSliceARegistry());
     const response = await sendRequest(
       fixture,
       "tools/call",
@@ -260,9 +254,7 @@ describe("MCP 2026-07-28 request headers and envelope", () => {
   });
 
   it("returns JSON without an Accept header in explicit JSON response mode", async () => {
-    const fixture = createMcpProtocolFixture(
-      createTestSliceARegistry().registry
-    );
+    const fixture = createMcpProtocolFixture(createTestSliceARegistry());
     const response = await sendRequest(
       fixture,
       "tools/list",
@@ -279,9 +271,7 @@ describe("MCP 2026-07-28 request headers and envelope", () => {
   });
 
   it("rejects an unknown tool and malformed tool params as invalid params", async () => {
-    const fixture = createMcpProtocolFixture(
-      createTestSliceARegistry().registry
-    );
+    const fixture = createMcpProtocolFixture(createTestSliceARegistry());
     const unknownTool = await sendRequest(
       fixture,
       "tools/call",
@@ -305,9 +295,7 @@ describe("MCP 2026-07-28 request headers and envelope", () => {
   });
 
   it("returns domain failure as a complete tool error without catalog cache hints", async () => {
-    const fixture = createMcpProtocolFixture(
-      createTestSliceARegistry().registry
-    );
+    const fixture = createMcpProtocolFixture(createTestSliceARegistry());
     const response = await sendRequest(
       fixture,
       "tools/call",

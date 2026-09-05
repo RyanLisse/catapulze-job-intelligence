@@ -116,6 +116,7 @@ const createTrackedRegistry = () => {
     health: bundle.registry.health,
   };
   return {
+    entries: bundle.entries,
     invocationCount: () => invocationCount,
     operatorEffectCount: () => operatorEffectCount,
     registry,
@@ -208,7 +209,7 @@ describe("production capability availability policy", () => {
   it("hides every unavailable capability from the admin MCP catalog", async () => {
     const tracked = createTrackedRegistry();
     const fixture = createMcpProtocolFixture(
-      tracked.registry,
+      tracked,
       "admin",
       PRODUCTION_UNAVAILABLE_CAPABILITIES
     );
@@ -239,7 +240,7 @@ describe("production capability availability policy", () => {
       PRODUCTION_UNAVAILABLE_CAPABILITIES
     );
     const mcp = createMcpProtocolFixture(
-      tracked.registry,
+      tracked,
       "admin",
       PRODUCTION_UNAVAILABLE_CAPABILITIES
     );
@@ -343,7 +344,7 @@ describe("production capability availability policy", () => {
           resolverForRole(denied.role)
         );
         const mcp = createMcpProtocolFixture(
-          tracked.registry,
+          tracked,
           denied.role,
           PRODUCTION_UNAVAILABLE_CAPABILITIES
         );
@@ -406,11 +407,7 @@ describe("production capability availability policy", () => {
     const tracked = createTrackedRegistry();
     const emptyPolicy = new Map();
     const rest = createRestFixture(tracked.registry, emptyPolicy);
-    const mcp = createMcpProtocolFixture(
-      tracked.registry,
-      "admin",
-      emptyPolicy
-    );
+    const mcp = createMcpProtocolFixture(tracked, "admin", emptyPolicy);
     const input = {
       evidence: ["fixture"],
       status: "success",

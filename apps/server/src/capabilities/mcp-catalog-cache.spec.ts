@@ -159,6 +159,7 @@ const createFixtureEnvironment = (): FixtureEnvironment => {
   const handler = createMcpHandler(bundle.registry, resolvePrincipal, {
     allowedCookieOrigin: allowedOrigin,
     allowedHost: serverUrl.hostname,
+    entries: bundle.entries,
     unavailableCapabilities: disableCapabilities,
   });
   const app = new Hono();

@@ -140,6 +140,7 @@ describe("REST and MCP authentication boundary", () => {
   const mcp = createMcpHandler(bundle.registry, resolvePrincipal, {
     allowedCookieOrigin: allowedOrigin,
     allowedHost: "server.test",
+    entries: bundle.entries,
   });
 
   it("rejects anonymous REST and MCP calls", async () => {
@@ -230,7 +231,11 @@ describe("REST and MCP authentication boundary", () => {
     const csrfProtectedMcp = createMcpHandler(
       bundle.registry,
       countedResolver,
-      { allowedCookieOrigin: allowedOrigin, allowedHost: "server.test" }
+      {
+        allowedCookieOrigin: allowedOrigin,
+        allowedHost: "server.test",
+        entries: bundle.entries,
+      }
     );
     const cookie = "better-auth.session_token=valid-session";
     const options = {
@@ -352,7 +357,11 @@ describe("REST and MCP authentication boundary", () => {
     const unavailableMcp = createMcpHandler(
       bundle.registry,
       unavailableResolver,
-      { allowedCookieOrigin: allowedOrigin, allowedHost: "server.test" }
+      {
+        allowedCookieOrigin: allowedOrigin,
+        allowedHost: "server.test",
+        entries: bundle.entries,
+      }
     );
     let restBodyReads = 0;
 

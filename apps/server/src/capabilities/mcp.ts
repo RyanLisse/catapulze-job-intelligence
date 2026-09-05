@@ -1,4 +1,7 @@
-import type { InvocationPrincipal } from "@ji/application/registry";
+import type {
+  InvocationPrincipal,
+  SliceACapabilityCatalog,
+} from "@ji/application/registry";
 import { createMcpHonoApp } from "@modelcontextprotocol/hono";
 import {
   createMcpHandler as createSdkMcpHandler,
@@ -51,11 +54,11 @@ const SERVER_INFO = {
 
 interface McpHandlerOptions extends CookieAuthOriginPolicy {
   readonly allowedHost: string;
+  readonly entries: SliceACapabilityCatalog;
   readonly recordMetric?: McpMetricRecorder;
   readonly unavailableCapabilities?: CapabilityAvailabilityPolicy;
 }
 
-const structuredContentSchema = z.record(z.string(), jsonValueSchema);
 const principalSchema = z.object({
   kind: z.enum(["agent", "service", "user"]),
   permissions: z.instanceof(Set<string>),
@@ -129,15 +132,10 @@ const toMcpInputSchema = (
 
 const toMcpOutputSchema = (
   schema: RegistryOutputJsonSchema
-): Tool["outputSchema"] | undefined => {
-  if (schema.type !== "object") {
-    return undefined;
-  }
-  // Older MCP clients require an object-root output schema. Non-object roots remain
-  // discoverable through Catapulze metadata without advertising a mismatched contract.
-  // SAFETY: The checked object discriminator satisfies the SDK's cross-version contract.
-  return schema as Tool["outputSchema"];
-};
+): Tool["outputSchema"] =>
+  // The registry validates the full JSON Schema before exposing the MCP binding.
+  // SAFETY: MCP 2026 accepts any JSON Schema root for tool output.
+  schema as Tool["outputSchema"];
 
 const metricRouteFromRequest = (
   request: JSONRPCRequest,
@@ -195,6 +193,7 @@ const inspectMcpResponse = async (response: Response) => {
 
 const createServer = (
   registry: SliceARegistry,
+  entries: SliceACapabilityCatalog,
   unavailableCapabilities: CapabilityAvailabilityPolicy | undefined,
   authInfo?: AuthInfo
 ): Server => {
@@ -205,8 +204,8 @@ const createServer = (
     capabilities: { tools: {} },
   });
   const authorizedTools = sortMcpCatalogTools(
-    mcpToolsFromRegistry(registry, unavailableCapabilities).filter((tool) =>
-      principal?.permissions.has(tool.requiredPermission)
+    mcpToolsFromRegistry(registry, entries, unavailableCapabilities).filter(
+      (tool) => principal?.permissions.has(tool.requiredPermission)
     )
   );
   const tools = authorizedTools.filter(
@@ -233,10 +232,7 @@ const createServer = (
             grounded: tool.grounded,
           },
           "catapulze/outputSchema": tool.outputSchema,
-          "catapulze/outputSchemaPolicy":
-            outputSchema === undefined
-              ? "extension-only-non-object-root"
-              : "standard-object-root",
+          "catapulze/outputSchemaPolicy": "standard-json-schema",
           "catapulze/requiredPermission": tool.requiredPermission,
         },
         annotations,
@@ -244,9 +240,7 @@ const createServer = (
         inputSchema: toMcpInputSchema(tool.inputSchema),
         name: tool.name,
       };
-      return outputSchema === undefined
-        ? listedTool
-        : { ...listedTool, outputSchema };
+      return { ...listedTool, outputSchema };
     }),
   }));
   server.setRequestHandler(
@@ -310,11 +304,10 @@ const createServer = (
       const content = [
         { text: JSON.stringify(serializedValue), type: "text" as const },
       ];
-      const structuredContent =
-        structuredContentSchema.safeParse(serializedValue);
-      return structuredContent.success
-        ? { content, structuredContent: structuredContent.data }
-        : { content };
+      return {
+        content,
+        structuredContent: jsonValueSchema.parse(serializedValue),
+      };
     }
   );
   return server;
@@ -327,7 +320,12 @@ export const createMcpHandler = (
 ) => {
   const sdkHandler = createSdkMcpHandler(
     ({ authInfo }) =>
-      createServer(registry, options.unavailableCapabilities, authInfo),
+      createServer(
+        registry,
+        options.entries,
+        options.unavailableCapabilities,
+        authInfo
+      ),
     { legacy: "reject", responseMode: "json" }
   );
   const mcpApp = createMcpHonoApp({
@@ -404,9 +402,11 @@ export const createMcpHandler = (
       );
     }
     const knownToolNames = new Set(
-      mcpToolsFromRegistry(registry, options.unavailableCapabilities).map(
-        (tool) => tool.name
-      )
+      mcpToolsFromRegistry(
+        registry,
+        options.entries,
+        options.unavailableCapabilities
+      ).map((tool) => tool.name)
     );
     const metricRoute = metricRouteFromRequest(
       parsedMessage,

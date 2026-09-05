@@ -1,4 +1,7 @@
-import type { InvocationPrincipal } from "@ji/application/registry";
+import type {
+  InvocationPrincipal,
+  SliceACapabilityCatalog,
+} from "@ji/application/registry";
 import type { Context } from "hono";
 import { z } from "zod";
 
@@ -399,10 +402,19 @@ export const invokeMcpTool = (
 
 export const mcpToolsFromRegistry = (
   registry: SliceARegistry,
+  entries: SliceACapabilityCatalog,
   unavailableCapabilities?: CapabilityAvailabilityPolicy
-) =>
-  registry.catalog.flatMap((descriptor) =>
-    descriptor.bindings
+) => {
+  const metadataById = new Map<
+    string,
+    SliceACapabilityCatalog[number]["metadata"]
+  >(entries.map((entry) => [entry.capability.id, entry.metadata]));
+  return registry.catalog.flatMap((descriptor) => {
+    const metadata = metadataById.get(descriptor.id);
+    if (!metadata) {
+      throw new Error(`Missing MCP metadata for ${descriptor.id}`);
+    }
+    return descriptor.bindings
       .filter((binding) => binding.transport === "mcp")
       .map((binding) => ({
         availability: capabilityAvailability(
@@ -410,14 +422,15 @@ export const mcpToolsFromRegistry = (
           descriptor.id
         ),
         description: descriptor.outcome,
-        effect: descriptor.effect,
+        effect: metadata.sideEffectClass,
         grounded: descriptor.grounding,
         inputSchema: descriptor.inputJsonSchema,
         name: binding.operation,
         outputSchema: descriptor.outputJsonSchema,
-        readOnly: descriptor.effect === "read",
+        readOnly: metadata.sideEffectClass === "read",
         requiredPermission: descriptor.authorization.permission,
-      }))
-  );
+      }));
+  });
+};
 
 export { matchPath, pathParamNames };

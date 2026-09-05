@@ -12,6 +12,7 @@ import {
   createCapabilityDiscoveryDocument,
   createCapabilityDiscoveryHandler,
 } from "./discovery";
+import { mcpToolsFromRegistry } from "./rest";
 
 const discoveryPrincipalResolver: PrincipalResolver = (headers) => {
   const role = headers.get("Authorization")?.replace("Bearer ", "");
@@ -119,6 +120,54 @@ describe("capability discovery", () => {
       availability: { executable: false, status: "disabled" },
       effect: { evidence: "none", readback: "not-proven" },
     });
+  });
+
+  it("uses the same declared effect class for discovery and MCP", () => {
+    const bundle = createTestSliceARegistry();
+    const discovery = createCapabilityDiscoveryDocument(
+      bundle.registry,
+      bundle.entries,
+      {
+        kind: "agent",
+        permissions: permissionsForRole("admin"),
+        subjectId: "discovery-admin",
+      }
+    );
+    const mcpTools = mcpToolsFromRegistry(bundle.registry, bundle.entries);
+
+    for (const tool of mcpTools) {
+      expect(
+        discovery.capabilities.find((capability) => capability.id === tool.name)
+          ?.effect.class
+      ).toBe(tool.effect);
+    }
+  });
+
+  it("keeps declared MCP and REST transports equal to registry bindings", () => {
+    const bundle = createTestSliceARegistry();
+
+    for (const entry of bundle.entries) {
+      const descriptor = bundle.registry.catalog.find(
+        (candidate) => candidate.id === entry.capability.id
+      );
+      if (!descriptor) {
+        throw new Error(
+          `Missing registry descriptor for ${entry.capability.id}`
+        );
+      }
+      const registryTransports = descriptor.bindings
+        .filter((binding) => binding.transport !== "internal")
+        .map((binding) => `${binding.transport}:${binding.operation}`)
+        .toSorted();
+      const declaredTransports = entry.metadata.wiredTransports
+        .filter(
+          (binding) => binding.startsWith("mcp:") || binding.startsWith("rest:")
+        )
+        .map(String)
+        .toSorted();
+
+      expect(declaredTransports).toEqual(registryTransports);
+    }
   });
 
   it("protects GET /v1/capabilities and returns actor-scoped role counts", async () => {

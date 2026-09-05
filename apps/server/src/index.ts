@@ -122,6 +122,7 @@ const capabilityDiscoveryHandler = createCapabilityDiscoveryHandler(
 const mcpHandler = createMcpHandler(sliceA.registry, resolvePrincipal, {
   allowedCookieOrigin: allowedWebOrigin,
   allowedHost: new URL(env.BETTER_AUTH_URL).hostname,
+  entries: sliceA.entries,
   recordMetric: (metric) => {
     process.stderr.write(`${JSON.stringify(metric)}\n`);
   },
