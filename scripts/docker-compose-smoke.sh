@@ -11,12 +11,26 @@ if [[ ! -f "$compose_env_file" ]]; then
   echo "docker-compose smoke: Compose env file '$compose_env_file' does not exist" >&2
   exit 1
 fi
+raw_storage_enabled="${SMOKE_RAW_STORAGE:-0}"
+compose_command=(docker compose --env-file "$compose_env_file")
+compose_profiles=(--profile projector)
+diagnostic_services=(server projector)
+if [[ "$raw_storage_enabled" == "1" ]]; then
+  if [[ ! -f docker-compose.smoke.yml ]]; then
+    echo "docker-compose smoke: docker-compose.smoke.yml is required when SMOKE_RAW_STORAGE=1" >&2
+    exit 1
+  fi
+  # The override injects the synthetic MinIO S3 settings into the server only
+  # for this explicitly opted-in smoke lane. The base Compose file keeps its
+  # normal filesystem fallback and production deployment contract.
+  compose_command+=(--file docker-compose.smoke.yml)
+  compose_profiles+=(--profile storage)
+  diagnostic_services+=(raw-storage-minio raw-storage-minio-init)
+fi
 if [[ ! -f apps/server/.env && -z "${MIGRATION_DATABASE_URL:-}" ]]; then
   echo "docker-compose smoke: provide apps/server/.env or inject MIGRATION_DATABASE_URL" >&2
   exit 1
 fi
-
-compose_command=(docker compose --env-file "$compose_env_file")
 if [[ -n "$("${compose_command[@]}" ps -aq)" ]]; then
   echo "docker-compose smoke: stop the existing Compose stack before running this isolated test" >&2
   exit 1
@@ -33,9 +47,9 @@ cleanup() {
   if ((exit_status != 0)); then
     echo "docker-compose smoke: collecting failure diagnostics (exit $exit_status)" >&2
     "${compose_command[@]}" ps >&2 || true
-    "${compose_command[@]}" logs --no-color --tail 80 server projector >&2 || true
+    "${compose_command[@]}" logs --no-color --tail 80 "${diagnostic_services[@]}" >&2 || true
   fi
-  "${compose_command[@]}" --profile projector down || cleanup_status=$?
+  "${compose_command[@]}" "${compose_profiles[@]}" down || cleanup_status=$?
   if ((exit_status != 0)); then
     return "$exit_status"
   fi
@@ -45,6 +59,12 @@ trap cleanup EXIT
 
 "${compose_command[@]}" --profile projector build
 "${compose_command[@]}" up -d --wait postgres manticore redis
+if [[ "$raw_storage_enabled" == "1" ]]; then
+  # Start MinIO and wait for its healthcheck, then run the one-shot bucket
+  # bootstrap to completion before any server readiness check can run.
+  "${compose_command[@]}" --profile storage up -d --wait raw-storage-minio
+  "${compose_command[@]}" --profile storage run --rm --no-deps raw-storage-minio-init
+fi
 bun run db:migrate
 
 # A persistent Postgres volume can carry a checkpoint from an older search

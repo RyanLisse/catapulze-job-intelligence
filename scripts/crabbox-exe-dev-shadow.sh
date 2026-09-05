@@ -295,6 +295,9 @@ write_compose_env() {
   # Fixed clean-room placeholders mirror the tracked root template without
   # requiring a basename-wide .env.example sync exception in Crabbox v0.46.
   # No operator or 1Password values are read into this file.
+  # The remote integration smoke opts into a disposable MinIO target. The
+  # endpoint is the Compose network address used by the server container;
+  # these values never target production or a real bucket.
   printf '%s\n' \
     'POSTGRES_ADMIN_USER=ji_admin' \
     'POSTGRES_ADMIN_PASSWORD=ji_admin_local' \
@@ -310,6 +313,14 @@ write_compose_env() {
     'BETTER_AUTH_URL=http://localhost:3000' \
     'CORS_ORIGIN=http://localhost:3001' \
     'NEXT_PUBLIC_SERVER_URL=http://localhost:3000' \
+    'SMOKE_RAW_STORAGE=1' \
+    'RAW_S3_BUCKET=ji-raw-local' \
+    'RAW_S3_ENDPOINT=http://raw-storage-minio:9000' \
+    'RAW_S3_REGION=us-east-1' \
+    'RAW_S3_ACCESS_KEY_ID=minioadmin' \
+    'RAW_S3_SECRET_ACCESS_KEY=minioadmin' \
+    'RAW_STORAGE_MINIO_ROOT_USER=minioadmin' \
+    'RAW_STORAGE_MINIO_ROOT_PASSWORD=minioadmin' \
     'POSTGRES_CPU_LIMIT=2.0' \
     'POSTGRES_MEMORY_LIMIT=4g' \
     'POSTGRES_MEMORY_RESERVATION=1g' \

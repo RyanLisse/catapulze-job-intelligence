@@ -14,6 +14,10 @@ const script = await Bun.file(
   new URL("docker-compose-smoke.sh", import.meta.url)
 ).text();
 const scriptPath = path.join(import.meta.dir, "docker-compose-smoke.sh");
+const smokeComposeOverridePath = path.join(
+  import.meta.dir,
+  "../docker-compose.smoke.yml"
+);
 const ensureVolumeScriptPath = path.join(
   import.meta.dir,
   "../tools/postgres/ensure-volume.sh"
@@ -65,7 +69,10 @@ fi
 if [[ "$*" == *"reconcile-projection.ts"* ]]; then
   exit "\${MOCK_RECONCILE_EXIT:-0}"
 fi
-if [[ "$*" == *"--profile projector down"* ]]; then
+if [[ "$*" == *"run --rm --no-deps raw-storage-minio-init"* ]]; then
+  exit "\${MOCK_STORAGE_INIT_EXIT:-0}"
+fi
+if [[ "$*" == *"--profile projector"* && "$*" == *" down"* ]]; then
   exit "\${MOCK_CLEANUP_EXIT:-0}"
 fi
 exit 0
@@ -136,7 +143,9 @@ const writeExecutable = async (
 
 const runSmokeWithMocks = async (
   reconcileExit = 0,
-  cleanupExit = 0
+  cleanupExit = 0,
+  rawStorage = false,
+  storageInitExit = 0
 ): Promise<SmokeRun> => {
   const workspace = await mkdtemp(
     path.join(tmpdir(), "ji-docker-compose-smoke-")
@@ -157,6 +166,10 @@ const runSmokeWithMocks = async (
       ensureVolumeScriptPath,
       path.join(workspace, "tools/postgres/ensure-volume.sh")
     );
+    await copyFile(
+      smokeComposeOverridePath,
+      path.join(workspace, "docker-compose.smoke.yml")
+    );
     await writeExecutable(path.join(binDirectory, "docker"), mockDocker);
     await writeExecutable(path.join(binDirectory, "bun"), mockBun);
     await writeExecutable(path.join(binDirectory, "curl"), mockCurl);
@@ -168,7 +181,9 @@ const runSmokeWithMocks = async (
         MOCK_CLEANUP_EXIT: String(cleanupExit),
         MOCK_LOG: logPath,
         MOCK_RECONCILE_EXIT: String(reconcileExit),
+        MOCK_STORAGE_INIT_EXIT: String(storageInitExit),
         PATH: `${binDirectory}:${process.env.PATH ?? "/usr/bin:/bin"}`,
+        SMOKE_RAW_STORAGE: rawStorage ? "1" : "0",
       },
       stderr: "pipe",
       stdout: "pipe",
@@ -232,8 +247,43 @@ describe("docker-compose smoke orchestration", () => {
   it("builds and cleans the opt-in projector profile explicitly", () => {
     expect(script).toContain(`${composeCommand} --profile projector build`);
     expect(script).not.toContain(`${composeCommand} build\n`);
-    expect(script).toContain(`${composeCommand} --profile projector down`);
+    expect(script).toContain("compose_profiles=(--profile projector)");
+    expect(script).toContain("compose_profiles[@]");
+    expect(script).toContain("down || cleanup_status");
   });
+
+  it("keeps synthetic S3 wiring behind an explicit smoke override", async () => {
+    const override = await Bun.file(smokeComposeOverridePath).text();
+
+    expect(script).toContain("raw_storage_enabled=");
+    expect(script).toContain("SMOKE_RAW_STORAGE");
+    expect(script).toContain("--file docker-compose.smoke.yml");
+    expect(script).toContain(
+      `${composeCommand} --profile storage up -d --wait raw-storage-minio`
+    );
+    expect(script).toContain(
+      `${composeCommand} --profile storage run --rm --no-deps raw-storage-minio-init`
+    );
+    expect(override).toContain("RAW_S3_BUCKET:");
+    expect(override).toContain("RAW_S3_ENDPOINT:");
+  });
+
+  it("starts MinIO and completes bucket bootstrap before server readiness", async () => {
+    const result = await runSmokeWithMocks(0, 0, true);
+
+    expect(result.exitCode).toBe(0);
+    expectCommandsInOrder(
+      result.commands,
+      "docker compose --env-file .env --file docker-compose.smoke.yml up -d --wait postgres manticore redis",
+      "docker compose --env-file .env --file docker-compose.smoke.yml --profile storage up -d --wait raw-storage-minio",
+      "docker compose --env-file .env --file docker-compose.smoke.yml --profile storage run --rm --no-deps raw-storage-minio-init",
+      "docker compose --env-file .env --file docker-compose.smoke.yml up -d --no-build --wait server web",
+      "curl --silent --show-error --max-time 5 http://localhost:3000/readyz"
+    );
+    expect(result.commands.at(-1)).toBe(
+      "docker compose --env-file .env --file docker-compose.smoke.yml --profile projector --profile storage down"
+    );
+  }, 20_000);
 
   it("executes the happy path in order and waits for a drained projection", async () => {
     const result = await runSmokeWithMocks();
@@ -307,5 +357,23 @@ describe("docker-compose smoke orchestration", () => {
     expect(result.commands.at(-1)).toBe(
       "docker compose --env-file .env --profile projector down"
     );
+  }, 20_000);
+
+  it("preserves a storage bootstrap failure and still cleans every opted-in profile", async () => {
+    const result = await runSmokeWithMocks(0, 17, true, 23);
+    const storageInitIndex = result.commands.findIndex((command) =>
+      command.includes("raw-storage-minio-init")
+    );
+
+    expect(result.exitCode).toBe(23);
+    expect(result.stderr).toContain(
+      "docker-compose smoke: collecting failure diagnostics (exit 23)"
+    );
+    expect(storageInitIndex).toBeGreaterThan(-1);
+    expect(result.commands.slice(storageInitIndex + 1)).toEqual([
+      "docker compose --env-file .env --file docker-compose.smoke.yml ps",
+      "docker compose --env-file .env --file docker-compose.smoke.yml logs --no-color --tail 80 server projector raw-storage-minio raw-storage-minio-init",
+      "docker compose --env-file .env --file docker-compose.smoke.yml --profile projector --profile storage down",
+    ]);
   }, 20_000);
 });

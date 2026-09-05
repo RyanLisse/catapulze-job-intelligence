@@ -267,8 +267,8 @@ services:
       disable: true
     restart: unless-stopped
 
-  # One-shot bucket bootstrap: creates `ji-raw-local` and exits. Re-running
-  # `up --profile storage` is idempotent (`mc mb --ignore-existing`).
+  # One-shot bucket bootstrap: creates the configured local bucket and exits.
+  # Re-running `up --profile storage` is idempotent (`mc mb --ignore-existing`).
   raw-storage-minio-init:
     image: minio/mc:RELEASE.2025-08-13T08-35-41Z-cpuv1
     profiles: ["storage"]
@@ -278,12 +278,13 @@ services:
     environment:
       MINIO_ROOT_USER: ${RAW_STORAGE_MINIO_ROOT_USER:-minioadmin}
       MINIO_ROOT_PASSWORD: ${RAW_STORAGE_MINIO_ROOT_PASSWORD:-minioadmin}
+      RAW_S3_BUCKET: ${RAW_S3_BUCKET:-ji-raw-local}
     entrypoint:
       - /bin/sh
       - -c
       - |
         mc alias set local http://raw-storage-minio:9000 "$$MINIO_ROOT_USER" "$$MINIO_ROOT_PASSWORD"
-        mc mb --ignore-existing local/ji-raw-local
+        mc mb --ignore-existing "local/$$RAW_S3_BUCKET"
     restart: "no"
 
 volumes:
