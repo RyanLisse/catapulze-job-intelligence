@@ -70,12 +70,9 @@ export const createCapabilityDiscoveryDocument = (
       effect: {
         auditClass: metadata.auditClass,
         class: metadata.sideEffectClass,
-        evidence: effectEvidence(
-          isCapabilityExecutable(availability),
-          descriptor.grounding
-        ),
+        evidence: effectEvidence(executable, descriptor.grounding),
         readback:
-          isCapabilityExecutable(availability) && descriptor.effect === "read"
+          executable && descriptor.effect === "read"
             ? "capability-output"
             : "not-proven",
         reversible: metadata.reversible,

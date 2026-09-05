@@ -83,6 +83,10 @@ describe("capability discovery", () => {
         safeNextStep: "Vraag toegang tot operator aan.",
         status: "implemented",
       },
+      effect: {
+        evidence: "none",
+        readback: "not-proven",
+      },
     });
   });
 
