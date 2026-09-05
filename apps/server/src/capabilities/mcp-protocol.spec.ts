@@ -83,6 +83,7 @@ describe("MCP 2026-07-28 protocol boundary", () => {
     const listedBody = listedToolsBodySchema.parse(rawListedBody);
     const names = listedBody.result.tools.map((tool) => tool.name);
     expect(names).toEqual(names.toSorted());
+    expect(names).toContain("evaluate_sourcing_assessment");
     expect(names).toContain("search_aanvragen");
     expect(names).not.toContain("start_run");
     expect(names).not.toContain("complete_task");

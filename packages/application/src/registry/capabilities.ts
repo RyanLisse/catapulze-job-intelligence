@@ -94,6 +94,11 @@ import {
   ROLE_OPERATOR,
   ROLE_RECRUITER,
 } from "./roles";
+import {
+  createSourcingAssessmentHandler,
+  sourcingAssessmentInputSchema,
+  sourcingAssessmentOutputSchema,
+} from "./sourcing-assessment";
 
 export const createSliceACapabilityCatalog = (deps: SliceAHandlerDeps) => {
   const domainFailureSchema = sliceADomainFailureSchema;
@@ -186,6 +191,24 @@ export const createSliceACapabilityCatalog = (deps: SliceAHandlerDeps) => {
     inputSchema: readRawInputSchema,
     outcome: "Lees immutable raw payload (preview standaard)",
     outputSchema: readRawOutputSchema,
+  });
+
+  const evaluateSourcingAssessment = defineCapability({
+    authorization: { permission: ROLE_RECRUITER },
+    bindings: dualBindings(
+      "POST",
+      "/v1/sourcing/assessment",
+      "evaluate_sourcing_assessment"
+    ),
+    effect: "read",
+    failureSchema: domainFailureSchema,
+    grounding: true,
+    handler: createSourcingAssessmentHandler(deps),
+    id: "evaluate_sourcing_assessment",
+    inputSchema: sourcingAssessmentInputSchema,
+    outcome:
+      "Evaluate a versioned read-only sourcing answer with bound selection and provenance",
+    outputSchema: sourcingAssessmentOutputSchema,
   });
 
   const listBronnen = defineCapability({
@@ -599,6 +622,16 @@ export const createSliceACapabilityCatalog = (deps: SliceAHandlerDeps) => {
         "ui:DetailPanel.ReadRawPreview",
       ],
     }),
+    defineSliceACapabilityEntry(evaluateSourcingAssessment, {
+      auditClass: "access",
+      reversible: true,
+      sideEffectClass: "read",
+      target: "internal",
+      wiredTransports: [
+        "mcp:evaluate_sourcing_assessment",
+        "rest:POST /v1/sourcing/assessment",
+      ],
+    }),
     defineSliceACapabilityEntry(listBronnen, {
       auditClass: "access",
       reversible: true,
@@ -860,6 +893,7 @@ export const sliceACapabilityIds = [
   "get_aanvraag",
   "list_versies",
   "read_raw",
+  "evaluate_sourcing_assessment",
   "list_bronnen",
   "get_bron",
   "create_saved_search",
