@@ -29,6 +29,7 @@ beforeAll(async () => {
       COMPOSE_FILE: "production-compose.yml",
       COMPOSE_PROJECT_NAME: "production-project",
       MCP_EDGE_CONFIG_OUTPUT: configPath,
+      MCP_EDGE_SOURCE_SHA: "0000000000000000000000000000000000000448",
       POSTGRES_DATA_VOLUME: "production-volume",
     },
     stderr: "pipe",
