@@ -214,6 +214,27 @@ const finding = (
 ): Finding => ({ code, message, ...detail });
 const sameIds = (left: readonly string[], right: readonly string[]) =>
   left.toSorted().join("\0") === right.toSorted().join("\0");
+const canonicalClaim = (
+  claim: SourcingAssessmentInput["claims"][number]
+): string =>
+  JSON.stringify({
+    field: claim.field,
+    sourceReferenceIds: claim.sourceReferenceIds.toSorted(),
+    status: claim.status,
+    vacancyId: claim.vacancyId,
+    value: claim.value,
+  });
+const sameClaims = (
+  left: readonly SourcingAssessmentInput["claims"][number][],
+  right: readonly SourcingAssessmentInput["claims"][number][]
+) => {
+  const leftCanonical = left.map(canonicalClaim).toSorted();
+  const rightCanonical = right.map(canonicalClaim).toSorted();
+  return (
+    leftCanonical.length === rightCanonical.length &&
+    leftCanonical.every((claim, index) => claim === rightCanonical[index])
+  );
+};
 
 const readFreshness = (
   reference: z.output<typeof sourceReferenceSchema>,
@@ -318,7 +339,7 @@ const evaluateFindings = (
       finding("QUERY_DIGEST_MISMATCH", "Canonical query attestation mismatch")
     );
   }
-  if (JSON.stringify(attestation.claims) !== JSON.stringify(input.claims)) {
+  if (!sameClaims(attestation.claims, input.claims)) {
     findings.push(
       finding(
         "CLAIM_ATTESTATION_MISMATCH",

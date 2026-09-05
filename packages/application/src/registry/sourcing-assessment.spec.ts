@@ -104,6 +104,25 @@ describe("evaluate_sourcing_assessment (RJC-447)", () => {
     ).toBe(true);
   });
 
+  it("treats equivalent claims in a different client order as the same answer", () => {
+    const reorderedInput = {
+      ...completeSourcingFixture,
+      claims: completeSourcingFixture.claims
+        .map((claim) => ({
+          ...claim,
+          sourceReferenceIds: claim.sourceReferenceIds.toReversed(),
+        }))
+        .toReversed(),
+    };
+
+    const result = evaluate(reorderedInput);
+
+    expect(result.evaluation.status).toBe("passed");
+    expect(result.evaluation.findings).not.toContainEqual(
+      expect.objectContaining({ code: "CLAIM_ATTESTATION_MISMATCH" })
+    );
+  });
+
   it("reports a trusted complete empty result as insufficient evidence", () => {
     const result = evaluate(emptySourcingFixture, emptyTrustedAttestation);
 
