@@ -253,7 +253,9 @@ export const parseManticoreSearchResponse = (
   const facets = emptySearchFacets();
   facets.bron_id = parseFacetBuckets(payload, "bron_id");
   facets.status = parseFacetBuckets(payload, "status");
-  facets.locatie = parseFacetBuckets(payload, "locatie");
+  facets.locatie = parseFacetBuckets(payload, "locatie").filter(
+    (bucket) => bucket.value !== ""
+  );
   facets.locatie_land = parseFacetBuckets(payload, "locatie_land");
   facets.contracttype = parseFacetBuckets(payload, "contracttype");
 

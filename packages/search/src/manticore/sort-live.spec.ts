@@ -139,5 +139,105 @@ describe.skipIf(!manticoreUrl)(
         );
       }
     });
+
+    it("omits unknown locations from the live facet and location filter", async () => {
+      if (!manticoreUrl) {
+        throw new Error("Live test was not skipped without MANTICORE_URL");
+      }
+      const engine = ManticoreSearchEngine.fromUrl(
+        manticoreUrl,
+        new InMemorySearchVersionStore(),
+        undefined,
+        clock
+      );
+      const runToken = `locationlive${crypto.randomUUID().replaceAll("-", "")}`;
+      const prefix = `location-live-${crypto.randomUUID()}`;
+      const documents: SearchDocument[] = [
+        {
+          beschrijving: runToken,
+          bronId: "bron-live",
+          contracttype: "detachering",
+          id: `${prefix}-unknown`,
+          laatstGezienOp: new Date("2026-08-01T00:00:00.000Z"),
+          locatie: null,
+          locatieLand: "NL",
+          status: "active",
+          tariefMax: 100,
+          tariefMin: 80,
+          titel: "Unknown location",
+        },
+        {
+          beschrijving: runToken,
+          bronId: "bron-live",
+          contracttype: "detachering",
+          id: `${prefix}-nl`,
+          laatstGezienOp: new Date("2026-08-01T00:00:00.000Z"),
+          locatie: "Amsterdam",
+          locatieLand: "NL",
+          status: "active",
+          tariefMax: 100,
+          tariefMin: 80,
+          titel: "Dutch location",
+        },
+        {
+          beschrijving: runToken,
+          bronId: "bron-live",
+          contracttype: "detachering",
+          id: `${prefix}-be`,
+          laatstGezienOp: new Date("2026-08-01T00:00:00.000Z"),
+          locatie: "Brussel",
+          locatieLand: "BE",
+          status: "active",
+          tariefMax: 100,
+          tariefMin: 80,
+          titel: "Belgian location",
+        },
+      ];
+      const { parseBooleanQuery } = await import("@ji/domain");
+      const parsed = parseBooleanQuery(runToken);
+      if (!parsed.ok) {
+        throw new Error("run token must parse");
+      }
+
+      try {
+        for (const document of documents) {
+          // oxlint-disable-next-line no-await-in-loop -- sequential writes keep live fixture setup deterministic
+          await engine.upsertDocument(document);
+        }
+        const result = await engine.search({
+          ast: parsed.ast,
+          filters: {},
+          limit: 10,
+          offset: 0,
+        });
+        expect(result.total).toBe(3);
+        expect(result.facets.locatie).toHaveLength(2);
+        expect(result.facets.locatie).toContainEqual({
+          count: 1,
+          value: "Amsterdam",
+        });
+        expect(result.facets.locatie).toContainEqual({
+          count: 1,
+          value: "Brussel",
+        });
+        expect(result.facets.locatie).not.toContainEqual({
+          count: 1,
+          value: "",
+        });
+
+        const nlDisplayLocation = await engine.search({
+          ast: parsed.ast,
+          filters: { locatie: ["NL"] },
+          limit: 10,
+          offset: 0,
+        });
+        expect(nlDisplayLocation.total).toBe(0);
+      } finally {
+        await cleanupLiveDocuments(
+          engine,
+          documents.map((document) => document.id)
+        );
+      }
+    });
   }
 );

@@ -207,6 +207,23 @@ describe("parseManticoreSearchResponse", () => {
     ]);
   });
 
+  it("removes Manticore's blank bucket for omitted locatie attributes", () => {
+    const response = parseManticoreSearchResponse({
+      aggregations: {
+        locatie: {
+          buckets: [
+            { doc_count: 1, key: "" },
+            { doc_count: 2, key: "Amsterdam" },
+          ],
+        },
+      },
+      hits: { hits: [], total: { value: 3 } },
+    });
+
+    expect(response.facets.locatie).toEqual([{ count: 2, value: "Amsterdam" }]);
+    expect(response.total).toBe(3);
+  });
+
   it("uses hybrid score as the public hit weight", () => {
     const response = parseManticoreSearchResponse({
       hits: {

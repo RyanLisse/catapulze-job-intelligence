@@ -12,7 +12,7 @@ const okCheckpoint = () => ({
   appliedSequence: 42n,
   generation: 1,
   schemaHash:
-    "aanvragen-v4[active|archive]:beschrijving,bron_id,contracttype,document_id,index_version,laatst_gezien_op,locatie,locatie_land,sluitingsdatum,status,tarief_max,tarief_min,titel,projection_hash",
+    "aanvragen-v6[active|archive]:beschrijving,bron_id,contracttype,document_id,index_version,laatst_gezien_op,locatie,locatie_land,sluitingsdatum,status,tarief_max,tarief_min,titel,projection_hash;locatie=nullable-omitted",
 });
 
 const baseDeps = (overrides: Partial<ReadinessDeps> = {}): ReadinessDeps => ({
@@ -162,12 +162,16 @@ describe("GET /readyz", () => {
     });
   });
 
-  it("returns 503 unavailable on a search-schema hash mismatch", async () => {
+  it("returns 503 when the checkpoint has the old always-present location mapping", async () => {
     const { status, body } = await requestReadyz(
       baseDeps({
         checkSearchProjection: () =>
           Promise.resolve({
-            checkpoint: { ...okCheckpoint(), schemaHash: "aanvragen-v1:stale" },
+            checkpoint: {
+              ...okCheckpoint(),
+              schemaHash:
+                "aanvragen-v4[active|archive]:beschrijving,bron_id,contracttype,document_id,index_version,laatst_gezien_op,locatie,locatie_land,sluitingsdatum,status,tarief_max,tarief_min,titel,projection_hash",
+            },
             lag: { events: 0, seconds: 0 },
           }),
       })

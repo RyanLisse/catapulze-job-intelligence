@@ -9,6 +9,7 @@ import {
   SEARCH_SCHEMA_HASH_HYBRID,
   SEARCH_SCHEMA_HASH_V1,
   SEARCH_SCHEMA_HASH_V4,
+  SEARCH_SCHEMA_HASH_V6,
   startSearchGeneration,
 } from "./version";
 
@@ -67,12 +68,18 @@ describe("InMemorySearchVersionStore", () => {
 // stamped with the v1 mapping must read as a mismatch (the outbox drain
 // throws SearchIndexSchemaMismatchError on it) so the index is rebuilt in a
 // new generation rather than queried for attributes it does not have.
-describe("SEARCH_SCHEMA_HASH (RJC-378)", () => {
+describe("SEARCH_SCHEMA_HASH mapping generations", () => {
   it("differs from the pre-locatie/sluitingsdatum mapping and names both attributes", () => {
     expect(SEARCH_SCHEMA_HASH).not.toBe(SEARCH_SCHEMA_HASH_V1);
     expect(SEARCH_SCHEMA_HASH).toContain("locatie,");
     expect(SEARCH_SCHEMA_HASH).toContain("sluitingsdatum");
     expect(SEARCH_SCHEMA_HASH).toContain("projection_hash");
+    expect(SEARCH_SCHEMA_HASH).toContain("locatie=nullable-omitted");
+  });
+
+  it("requires a new generation for the nullable locatie mapping", () => {
+    expect(SEARCH_SCHEMA_HASH).toBe(SEARCH_SCHEMA_HASH_V6);
+    expect(SEARCH_SCHEMA_HASH).not.toBe(SEARCH_SCHEMA_HASH_V4);
   });
 
   it("a checkpoint written by the v1 mapping no longer matches the code", async () => {
@@ -89,15 +96,17 @@ describe("SEARCH_SCHEMA_HASH (RJC-378)", () => {
 });
 
 describe("SEARCH_SCHEMA_HASH hybrid feature flag", () => {
-  it("keeps the current v4 schema when the flag is absent or off", () => {
-    expect(resolveSearchSchemaHash()).toBe(SEARCH_SCHEMA_HASH_V4);
-    expect(resolveSearchSchemaHash("0")).toBe(SEARCH_SCHEMA_HASH_V4);
-    expect(resolveSearchSchemaHash("true")).toBe(SEARCH_SCHEMA_HASH_V4);
+  it("keeps the current v6 schema when the flag is absent or off", () => {
+    expect(resolveSearchSchemaHash()).toBe(SEARCH_SCHEMA_HASH_V6);
+    expect(resolveSearchSchemaHash("0")).toBe(SEARCH_SCHEMA_HASH_V6);
+    expect(resolveSearchSchemaHash("true")).toBe(SEARCH_SCHEMA_HASH_V6);
   });
 
   it("selects a new vector and wordforms schema only for SEARCH_HYBRID=1", () => {
     expect(resolveSearchSchemaHash("1")).toBe(SEARCH_SCHEMA_HASH_HYBRID);
-    expect(SEARCH_SCHEMA_HASH_HYBRID).not.toBe(SEARCH_SCHEMA_HASH_V4);
+    expect(SEARCH_SCHEMA_HASH_HYBRID).not.toBe(SEARCH_SCHEMA_HASH_V6);
+    expect(SEARCH_SCHEMA_HASH_HYBRID).toStartWith("aanvragen-v7[");
+    expect(SEARCH_SCHEMA_HASH_HYBRID).toContain("locatie=nullable-omitted");
     expect(SEARCH_SCHEMA_HASH_HYBRID).toContain("embedding=hnsw/cosine");
     expect(SEARCH_SCHEMA_HASH_HYBRID).toContain(
       "Xenova/paraphrase-multilingual-MiniLM-L12-v2"
