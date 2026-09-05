@@ -9,9 +9,12 @@ import {
 } from "./sourcing-assessment";
 import {
   completeSourcingFixture,
+  completeSearchReference,
   completeTrustedAttestation,
   contradictorySourcingFixture,
   contradictoryTrustedAttestation,
+  emptySourcingFixture,
+  emptyTrustedAttestation,
   partialSourcingFixture,
 } from "./sourcing-assessment.fixtures";
 import {
@@ -101,6 +104,21 @@ describe("evaluate_sourcing_assessment (RJC-447)", () => {
     ).toBe(true);
   });
 
+  it("reports a trusted complete empty result as insufficient evidence", () => {
+    const result = evaluate(emptySourcingFixture, emptyTrustedAttestation);
+
+    expect(result.evaluation).toMatchObject({
+      findings: [],
+      status: "insufficient-evidence",
+    });
+    expect(result.binding).toMatchObject({
+      searchStatus: "complete",
+      selectedIds: [],
+      trust: "attested",
+    });
+    expect(result.claims).toEqual([]);
+  });
+
   it("keeps incomplete and missing conclusions in review", () => {
     const result = evaluate(partialSourcingFixture, {
       ...completeTrustedAttestation,
@@ -136,6 +154,26 @@ describe("evaluate_sourcing_assessment (RJC-447)", () => {
     );
     expect(result.sourceReferences).toContainEqual(
       expect.objectContaining({ id: "detail-1", status: "stale" })
+    );
+  });
+
+  it("keeps unknown trusted freshness from passing", () => {
+    const result = evaluate(completeSourcingFixture, {
+      ...completeTrustedAttestation,
+      sourceReferences: completeTrustedAttestation.sourceReferences.map(
+        (reference) =>
+          reference.id === "detail-1"
+            ? { ...reference, maxAgeSeconds: undefined }
+            : reference
+      ),
+    });
+
+    expect(result.evaluation.status).toBe("needs-review");
+    expect(result.evaluation.findings).toContainEqual(
+      expect.objectContaining({ code: "UNKNOWN_SOURCE_FRESHNESS" })
+    );
+    expect(result.sourceReferences).toContainEqual(
+      expect.objectContaining({ id: "detail-1", status: "unknown" })
     );
   });
 
@@ -233,6 +271,45 @@ describe("evaluate_sourcing_assessment (RJC-447)", () => {
         evaluation: { asOf: serverTime.toISOString(), status: "passed" },
       },
     });
+  });
+
+  it("rejects unsafe or unbounded trusted source references without echoing them", async () => {
+    const unsafeReferences = [
+      "https://user:DO_NOT_EXPOSE@source.example/record",
+      `raw/${"x".repeat(253)}`,
+    ];
+
+    await Promise.all(
+      unsafeReferences.map(async (reference) => {
+        const deps = createTestSliceADeps();
+        const bundle = createSliceARegistry({
+          ...deps,
+          now: () => serverTime,
+          sourcingAssessmentAuthority: {
+            attest: () => ({
+              ...completeTrustedAttestation,
+              sourceReferences: [{ ...completeSearchReference, reference }],
+              usedCapabilities: ["search_aanvragen"],
+            }),
+          },
+        });
+        const invoke = bundle.registry.createInvoker({
+          capabilityId: "evaluate_sourcing_assessment",
+          operation: "POST /v1/sourcing/assessment",
+          transport: "rest",
+        });
+        const result = await invoke(completeSourcingFixture, {
+          principal,
+          requestId: "unsafe-reference",
+        });
+
+        expect(result).toHaveProperty(
+          "value.evaluation.status",
+          "blocked-upstream"
+        );
+        expect(JSON.stringify(result)).not.toContain(reference);
+      })
+    );
   });
 
   it("registers as read-only MCP and REST", () => {

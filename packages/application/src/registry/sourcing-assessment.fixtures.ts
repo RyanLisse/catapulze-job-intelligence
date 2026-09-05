@@ -113,18 +113,20 @@ export const completeSourcingFixture = withSelectionDigest({
   ],
   ...selection,
 });
+export const completeSearchReference: TrustedSourcingAttestation["sourceReferences"][number] =
+  {
+    capabilityId: "search_aanvragen",
+    id: "search-1",
+    maxAgeSeconds: 3600,
+    observedAt: "2026-09-05T09:25:00.000Z",
+    reference: "query-snapshot:fixture",
+  };
 export const completeTrustedAttestation: TrustedSourcingAttestation = {
   ...selection,
   claims: completeSourcingFixture.claims,
   searchStatus: "complete",
   sourceReferences: [
-    {
-      capabilityId: "search_aanvragen",
-      id: "search-1",
-      maxAgeSeconds: 3600,
-      observedAt: "2026-09-05T09:25:00.000Z",
-      reference: "query-snapshot:fixture",
-    },
+    completeSearchReference,
     {
       capabilityId: "get_aanvraag",
       id: "detail-1",
@@ -134,6 +136,14 @@ export const completeTrustedAttestation: TrustedSourcingAttestation = {
     },
   ],
   usedCapabilities: ["search_aanvragen", "get_aanvraag"],
+};
+export const emptyTrustedAttestation: TrustedSourcingAttestation = {
+  claims: [],
+  queryDigest: SOURCING_QUERY_DIGEST,
+  searchStatus: "complete",
+  selectedIds: [],
+  sourceReferences: [completeSearchReference],
+  usedCapabilities: ["search_aanvragen"],
 };
 export const contradictoryTrustedAttestation: TrustedSourcingAttestation = {
   ...completeTrustedAttestation,

@@ -23,6 +23,12 @@ const evidenceCapabilityIds = [
   "list_bronnen",
   "get_bron",
 ] as const;
+const opaqueSourceReferenceSchema = z
+  .string()
+  .min(1)
+  .max(256)
+  .regex(/^[A-Za-z0-9][A-Za-z0-9._:/-]*$/u)
+  .refine((reference) => !reference.includes("://"));
 const sha256Schema = z.string().regex(/^sha256:[a-f0-9]{64}$/u);
 const sourceReferenceSchema = z
   .object({
@@ -30,7 +36,7 @@ const sourceReferenceSchema = z
     id: z.string().min(1),
     maxAgeSeconds: z.number().int().positive().optional(),
     observedAt: z.string().datetime().nullable(),
-    reference: z.string().min(1),
+    reference: opaqueSourceReferenceSchema,
   })
   .strict();
 const claimBaseSchema = z.object({
@@ -99,6 +105,7 @@ const findingCodes = [
   "MISSING_FIELD_CONCLUSION",
   "FUTURE_SOURCE_REFERENCE",
   "STALE_SOURCE_REFERENCE",
+  "UNKNOWN_SOURCE_FRESHNESS",
   "UPSTREAM_SEARCH_INCOMPLETE",
 ] as const;
 const evaluatorFindingSchema = z
@@ -265,11 +272,20 @@ const evaluateReferenceFindings = (
         )
       );
     }
-    if (readFreshness(reference, asOf).status === "stale") {
+    const freshness = readFreshness(reference, asOf);
+    if (freshness.status === "stale") {
       findings.push(
         finding(
           "STALE_SOURCE_REFERENCE",
           `Reference ${reference.id} exceeds its trusted freshness limit`
+        )
+      );
+    }
+    if (freshness.status === "unknown") {
+      findings.push(
+        finding(
+          "UNKNOWN_SOURCE_FRESHNESS",
+          `Reference ${reference.id} has no trusted freshness conclusion`
         )
       );
     }
