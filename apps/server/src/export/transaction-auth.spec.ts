@@ -5,8 +5,8 @@ import {
   AUTH_EMAIL_PASSWORD_OPTIONS,
   AUTH_USER_ROLE_FIELD,
 } from "@ji/auth/security-config";
-import * as schema from "@ji/db/schema";
 import { session, user } from "@ji/db/schema/auth";
+import * as schema from "@ji/db/schema/index";
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { bearer } from "better-auth/plugins";
