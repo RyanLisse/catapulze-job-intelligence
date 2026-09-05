@@ -117,11 +117,11 @@ const attemptReadbackStatus = (
   attemptStatus: "created" | "failed" | "skipped",
   confirmedEffect: boolean | undefined
 ): ExportReadbackStatus => {
-  if (attemptStatus === "failed") {
-    return "failed";
-  }
   if (confirmedEffect) {
     return "unknown";
+  }
+  if (attemptStatus === "failed") {
+    return "failed";
   }
   return "attempted";
 };

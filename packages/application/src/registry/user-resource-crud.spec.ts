@@ -310,4 +310,96 @@ describe("user-owned resource CRUD parity (RJC-444)", () => {
       responseHash: "a".repeat(64),
     });
   });
+
+  it("fails closed for contradictory receipts across mixed export retries", async () => {
+    const bundle = createTestSliceARegistry();
+    const aanvraagId = "00000000-0000-4000-8000-000000000046";
+    bundle.deps.stores.aanvragen.seed({
+      beschrijving: "Synthetic",
+      bronId: "00000000-0000-4000-8000-000000000001",
+      bronReferentie: "RJC-444-export-retry",
+      id: aanvraagId,
+      rawPayloadRef: "raw/rjc-444-export-retry.json",
+      scrapeRunId: "00000000-0000-4000-8000-000000000020",
+      status: "active",
+      titel: "Synthetic export retry",
+      versies: [],
+    });
+    const created = await invoke(
+      bundle,
+      "create_snapshot",
+      "POST /v1/snapshots",
+      "rest",
+      { query: "Azure", selectedIds: [aanvraagId] }
+    );
+    expect(created.ok).toBe(true);
+    if (!created.ok) {
+      return;
+    }
+    const createdValue = createdResourceSchema.parse(created.value);
+
+    const failedAttempt = await bundle.deps.stores.exportAttempts.create({
+      actionType: "create",
+      approvalId: "00000000-0000-4000-8000-000000000099",
+      canonicalVacancyId: aanvraagId,
+      errorMessage: "confirmation timed out",
+      externalId: "fixture-confirmed-after-timeout",
+      idempotencyKey: "spott:create:fixture:retry-1",
+      scopeId: bundle.deps.scopeId,
+      snapshotId: createdValue.id,
+      status: "failed",
+      target: "spott",
+    });
+    await bundle.deps.stores.externalReceipts.create({
+      canonicalVacancyId: aanvraagId,
+      confirmedEffect: true,
+      exportAttemptId: failedAttempt.id,
+      responseHash: "b".repeat(64),
+      scopeId: bundle.deps.scopeId,
+      spottVacancyId: "fixture-confirmed-after-timeout",
+    });
+
+    const retryAttempt = await bundle.deps.stores.exportAttempts.create({
+      actionType: "create",
+      approvalId: "00000000-0000-4000-8000-000000000099",
+      canonicalVacancyId: aanvraagId,
+      errorMessage: "confirmation unavailable",
+      externalId: "fixture-retry",
+      idempotencyKey: "spott:create:fixture:retry-2",
+      scopeId: bundle.deps.scopeId,
+      snapshotId: createdValue.id,
+      status: "failed",
+      target: "spott",
+    });
+    await bundle.deps.stores.externalReceipts.create({
+      canonicalVacancyId: aanvraagId,
+      confirmedEffect: false,
+      exportAttemptId: retryAttempt.id,
+      responseHash: "c".repeat(64),
+      scopeId: bundle.deps.scopeId,
+      spottVacancyId: "fixture-retry",
+    });
+
+    const status = await invoke(
+      bundle,
+      "get_export_status",
+      "GET /v1/exports/{snapshotId}",
+      "rest",
+      { snapshotId: createdValue.id }
+    );
+    expect(status).toMatchObject({
+      ok: true,
+      value: { liveConfirmationAvailable: false, status: "unknown" },
+    });
+    if (!status.ok) {
+      return;
+    }
+    const statusValue = exportStatusValueSchema.parse(status.value);
+    expect(statusValue.attempts).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: failedAttempt.id, status: "unknown" }),
+        expect.objectContaining({ id: retryAttempt.id, status: "failed" }),
+      ])
+    );
+  });
 });
