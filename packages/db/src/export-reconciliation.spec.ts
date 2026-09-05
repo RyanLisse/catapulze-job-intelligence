@@ -930,8 +930,12 @@ describe
         results.filter((result) => result.status === "fulfilled")
       ).toHaveLength(1);
       expect(writes.audits).toHaveLength(1);
+      const persistedExternalId = writes.effects[0]?.externalId;
+      if (!persistedExternalId) {
+        throw new Error("Expected the winning external ID to be persisted");
+      }
       expect([fixture.input.externalId, competingInput.externalId]).toContain(
-        writes.effects[0]?.externalId
+        persistedExternalId
       );
     });
 
