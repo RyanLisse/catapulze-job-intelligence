@@ -24,6 +24,8 @@ export interface MarkeringReadbackState {
   readonly markering: JobMarkering | null;
   /** Highest durable revision observed, retained across a clear readback. */
   readonly revision: number | null;
+  /** A first poll clear has no revision, so detail must wait for a poll row. */
+  readonly pollClearObserved: boolean;
 }
 
 export type MarkeringReadbackSource = "detail" | "poll";
@@ -31,8 +33,41 @@ export type MarkeringReadbackSource = "detail" | "poll";
 export const emptyMarkeringReadbackState = (): MarkeringReadbackState => ({
   initialized: false,
   markering: null,
+  pollClearObserved: false,
   revision: null,
 });
+
+const shouldIgnoreLateDetailAfterInitialPollClear = (
+  current: MarkeringReadbackState,
+  next: JobMarkering | null,
+  source: MarkeringReadbackSource
+): boolean =>
+  source === "detail" &&
+  current.pollClearObserved &&
+  current.revision === null &&
+  next !== null;
+
+const mergeNullMarkeringReadback = (
+  current: MarkeringReadbackState,
+  source: MarkeringReadbackSource
+): MarkeringReadbackState => {
+  // Detail responses contain no tombstone revision, so a late null cannot
+  // prove that it is newer than a durable marker already observed by poll.
+  // Let the versioned marker endpoint own clears; its null is the explicit
+  // readback of the current marker resource.
+  if (source === "detail" && current.revision !== null) {
+    return current;
+  }
+
+  const pollClearObserved = current.pollClearObserved || source === "poll";
+  if (current.markering === null) {
+    if (current.pollClearObserved === pollClearObserved) {
+      return current;
+    }
+    return { ...current, pollClearObserved };
+  }
+  return { ...current, markering: null, pollClearObserved };
+};
 
 /**
  * Merge one resource-scoped read into the state already observed by the open
@@ -51,8 +86,16 @@ export const mergeMarkeringReadback = (
     return {
       initialized: true,
       markering: next,
+      pollClearObserved: source === "poll" && next === null,
       revision: next?.revision ?? null,
     };
+  }
+
+  // A first poll can observe a clear before the slower detail request returns
+  // an older marker. There is no revision on the clear to reject that detail
+  // response, so wait for the next authoritative poll row instead.
+  if (shouldIgnoreLateDetailAfterInitialPollClear(current, next, source)) {
+    return current;
   }
 
   const nextRevision = next?.revision;
@@ -65,22 +108,14 @@ export const mergeMarkeringReadback = (
   }
 
   if (next === null) {
-    // Detail responses contain no tombstone revision, so a late null cannot
-    // prove that it is newer than a durable marker already observed by poll.
-    // Let the versioned marker endpoint own clears; its null is the explicit
-    // readback of the current marker resource.
-    if (source === "detail" && current.revision !== null) {
-      return current;
-    }
-    return current.markering === null
-      ? current
-      : { ...current, markering: null };
+    return mergeNullMarkeringReadback(current, source);
   }
 
   if (nextRevision !== undefined) {
     return {
       initialized: true,
       markering: next,
+      pollClearObserved: false,
       revision: nextRevision,
     };
   }
@@ -92,11 +127,11 @@ export const mergeMarkeringReadback = (
   }
 
   if (!current.markering) {
-    return { ...current, markering: next };
+    return { ...current, markering: next, pollClearObserved: false };
   }
 
   return hasNewerMarkering(current.markering, next)
-    ? { ...current, markering: next }
+    ? { ...current, markering: next, pollClearObserved: false }
     : current;
 };
 

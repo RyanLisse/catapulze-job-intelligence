@@ -89,7 +89,9 @@ export const createJobSearchMutations = ({
         aanvraagId: selectedJob.id,
         status: "relevant",
       });
-      setSelectedJob({ ...selectedJob, markering });
+      setSelectedJob((current) =>
+        current?.id === selectedJob.id ? { ...current, markering } : current
+      );
       setMarkeringSyncState?.("commit");
     } catch (error) {
       // A transport failure can happen after the server committed. Keep the

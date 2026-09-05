@@ -135,6 +135,16 @@ describe("bounded markering readback", () => {
     state = mergeMarkeringReadback(state, marker(3), "poll");
     expect(state.markering).toMatchObject(marker(3));
   });
+
+  it("does not let a first poll clear resurrect an older detail marker", () => {
+    let state = emptyMarkeringReadbackState();
+    state = mergeMarkeringReadback(state, null, "poll");
+    state = mergeMarkeringReadback(state, marker(1), "detail");
+    expect(state.markering).toBeNull();
+
+    state = mergeMarkeringReadback(state, marker(2, "gevolgd"), "poll");
+    expect(state.markering).toMatchObject({ revision: 2, status: "gevolgd" });
+  });
 });
 
 describe("bounded markering polling", () => {

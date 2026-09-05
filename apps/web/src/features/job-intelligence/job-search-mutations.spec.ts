@@ -4,7 +4,7 @@ import type { SetStateAction } from "react";
 
 import { JOB_FIXTURES } from "./fixtures";
 import { createJobSearchMutations } from "./job-search-mutations";
-import type { JobIntelligenceActions, JobListing } from "./types";
+import type { JobIntelligenceActions, JobListing, JobMarkering } from "./types";
 import { DEFAULT_JOB_SEARCH_STATE } from "./types";
 
 const captureConcreteState =
@@ -143,5 +143,44 @@ describe("job-search mutation server truth", () => {
     expect(snapshotMessage).toBe(
       "Snapshot geblokkeerd: wacht op een volledige zoekuitkomst."
     );
+  });
+
+  it("does not restore a closed detail after a delayed markering response", async () => {
+    const markResult = Promise.withResolvers<JobMarkering>();
+    let selectedJob: JobListing | null = JOB_FIXTURES[0] ?? null;
+    const mutations = createJobSearchMutations({
+      actions: {
+        ...baseActions(() => Promise.resolve({ id: "saved-1", naam: "Azure" })),
+        markeerAanvraag: () => markResult.promise,
+      },
+      filters: DEFAULT_JOB_SEARCH_STATE.filters,
+      query: "Azure",
+      results: [],
+      resultsComplete: true,
+      scope: "active",
+      selectedJob,
+      setIsCreatingSnapshot: captureConcreteState(() => {}),
+      setIsSavingSearch: captureConcreteState(() => {}),
+      setSavedSearchMessage: captureConcreteState(() => {}),
+      setSelectedJob: (action) => {
+        // SAFETY: this regression harness exercises the functional updater path.
+        selectedJob = (
+          action as (current: JobListing | null) => JobListing | null
+        )(selectedJob);
+      },
+      setSnapshotMessage: captureConcreteState(() => {}),
+    });
+
+    const pending = mutations.markSelectedJob();
+    selectedJob = null;
+    markResult.resolve({
+      reden: null,
+      revision: 1,
+      status: "relevant",
+      updatedAt: "2026-09-05T00:00:01.000Z",
+    });
+    await pending;
+
+    expect(selectedJob).toBeNull();
   });
 });
