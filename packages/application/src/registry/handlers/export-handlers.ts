@@ -154,7 +154,6 @@ export const getExportStatusOutputSchema = z
           idempotencyKey: z.string(),
           receipt: z
             .object({
-              confirmedEffect: z.boolean(),
               id: z.string(),
               responseHash: z.string(),
             })
@@ -212,7 +211,6 @@ export const createGetExportStatusHandler =
           idempotencyKey: attempt.idempotencyKey,
           receipt: receipt
             ? {
-                confirmedEffect: receipt.confirmedEffect,
                 id: receipt.id,
                 responseHash: receipt.responseHash,
               }

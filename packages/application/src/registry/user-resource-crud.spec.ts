@@ -13,6 +13,20 @@ const owner = {
 };
 const other = { ...owner, subjectId: "other-user" };
 const createdResourceSchema = z.object({ id: z.string().uuid() }).passthrough();
+const exportStatusValueSchema = z
+  .object({
+    attempts: z.array(
+      z
+        .object({
+          receipt: z
+            .object({ id: z.string(), responseHash: z.string() })
+            .strict()
+            .nullable(),
+        })
+        .passthrough()
+    ),
+  })
+  .passthrough();
 
 const invoke = (
   bundle: ReturnType<typeof createTestSliceARegistry>,
@@ -286,6 +300,14 @@ describe("user-owned resource CRUD parity (RJC-444)", () => {
     expect(status).toMatchObject({
       ok: true,
       value: { liveConfirmationAvailable: false, status: "unknown" },
+    });
+    if (!status.ok) {
+      return;
+    }
+    const statusValue = exportStatusValueSchema.parse(status.value);
+    expect(statusValue.attempts[0]?.receipt).toMatchObject({
+      id: expect.any(String),
+      responseHash: "a".repeat(64),
     });
   });
 });
