@@ -1,4 +1,4 @@
-import { BOOLEAN_PARSER_VERSION, parseBooleanQuery } from "@ji/domain";
+import { parseBooleanQuery } from "@ji/domain";
 import {
   createCriticalPathSession,
   isCriticalPathEnabled,
@@ -487,12 +487,16 @@ export const createSavedSearchHandler =
       };
     }
   ) => {
+    const parsed = parseBooleanQuery(input.query);
+    if (!parsed.ok) {
+      return domainFailure("SYNTAX_ERROR", parsed.error.message, parsed.error);
+    }
     const { savedSearch } = await deps.stores.savedSearches.createWithAudit(
       {
         deletedAt: null,
         filters: input.filters ?? {},
         naam: input.naam,
-        parserVersion: String(BOOLEAN_PARSER_VERSION),
+        parserVersion: String(parsed.version),
         queryText: input.query,
         schemaVersion: SLICE_A_SCHEMA_VERSION,
         scopeId: deps.scopeId,

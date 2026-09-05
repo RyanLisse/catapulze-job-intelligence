@@ -43,6 +43,7 @@ describe("user-owned resource CRUD parity (RJC-444)", () => {
       return;
     }
     const createdValue = createdResourceSchema.parse(created.value);
+    expect(created.value).toMatchObject({ parserVersion: "1" });
 
     const denied = await invoke(
       bundle,
@@ -101,6 +102,45 @@ describe("user-owned resource CRUD parity (RJC-444)", () => {
       "update_saved_search",
       "remove_saved_search",
     ]);
+  });
+
+  it("rejects malformed and empty saved-search queries without persistence", async () => {
+    const bundle = createTestSliceARegistry();
+    const malformed = await invoke(
+      bundle,
+      "create_saved_search",
+      "create_saved_search",
+      "mcp",
+      { naam: "Malformed", query: "Azure AND" }
+    );
+    const empty = await invoke(
+      bundle,
+      "create_saved_search",
+      "POST /v1/saved-searches",
+      "rest",
+      { naam: "Empty", query: "" }
+    );
+
+    expect(malformed).toMatchObject({
+      error: { code: "SYNTAX_ERROR" },
+      ok: false,
+    });
+    expect(empty).toMatchObject({
+      error: { code: "SYNTAX_ERROR" },
+      ok: false,
+    });
+    expect(
+      await bundle.deps.stores.savedSearches.list(
+        owner.subjectId,
+        bundle.deps.scopeId
+      )
+    ).toEqual([]);
+    expect(
+      await bundle.deps.stores.audit.listByActorId(
+        owner.subjectId,
+        bundle.deps.scopeId
+      )
+    ).toEqual([]);
   });
 
   it("reads and clears only the caller's markering while retaining audit", async () => {
