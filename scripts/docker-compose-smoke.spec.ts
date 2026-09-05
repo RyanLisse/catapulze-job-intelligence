@@ -25,9 +25,10 @@ const expectInOrder = (...fragments: readonly string[]): void => {
 describe("docker-compose smoke orchestration", () => {
   it("bootstraps the search generation before the healthchecked app stack", () => {
     expectInOrder(
+      `${composeCommand} --profile projector build`,
       `${composeCommand} up -d --wait postgres manticore redis`,
       "bun run db:migrate",
-      `${composeCommand} run --rm --no-deps --no-build server \\\n  bun /app/tools/manticore/start-search-generation.ts --apply`,
+      `${composeCommand} run --rm --no-deps server \\\n  bun /app/tools/manticore/start-search-generation.ts --apply`,
       `${composeCommand} --profile projector up -d --no-build projector`,
       `${composeCommand} up -d --no-build --wait server web`
     );
@@ -38,7 +39,7 @@ describe("docker-compose smoke orchestration", () => {
       `${composeCommand} --profile projector up -d --no-build projector`,
       "wait_for_projection_drain",
       `${composeCommand} --profile projector stop projector`,
-      `${composeCommand} run --rm --no-deps --no-build server \\\n  bun /app/tools/search/reconcile-projection.ts`,
+      `${composeCommand} run --rm --no-deps server \\\n  bun /app/tools/search/reconcile-projection.ts --fail-on-drift`,
       "curl --fail --silent --show-error --retry 10 --retry-delay 2 http://localhost:3000/readyz >/dev/null"
     );
     expect(script).toContain(
@@ -55,5 +56,18 @@ describe("docker-compose smoke orchestration", () => {
     expect(script).toContain(
       `${composeCommand} --profile projector up -d --no-build projector`
     );
+  });
+
+  it("keeps compose run invocations portable across Compose versions", () => {
+    expect(script).not.toContain(
+      `${composeCommand} run --rm --no-deps --no-build`
+    );
+    expect(script).toContain(`${composeCommand} run --rm --no-deps server`);
+  });
+
+  it("builds and cleans the opt-in projector profile explicitly", () => {
+    expect(script).toContain(`${composeCommand} --profile projector build`);
+    expect(script).not.toContain(`${composeCommand} build\n`);
+    expect(script).toContain(`${composeCommand} --profile projector down\n`);
   });
 });

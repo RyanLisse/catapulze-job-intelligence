@@ -28,11 +28,11 @@ volume_name="$({
 POSTGRES_DATA_VOLUME="$volume_name" bash tools/postgres/ensure-volume.sh
 
 cleanup() {
-  "${compose_command[@]}" down
+  "${compose_command[@]}" --profile projector down
 }
 trap cleanup EXIT
 
-"${compose_command[@]}" build
+"${compose_command[@]}" --profile projector build
 "${compose_command[@]}" up -d --wait postgres manticore redis
 bun run db:migrate
 
@@ -42,7 +42,7 @@ bun run db:migrate
 # unhealthy, web waits for server, and the replay command never gets a chance
 # to run. Bootstrap the durable generation through the built server image on
 # the Compose network while the API is still stopped.
-"${compose_command[@]}" run --rm --no-deps --no-build server \
+"${compose_command[@]}" run --rm --no-deps server \
   bun /app/tools/manticore/start-search-generation.ts --apply
 
 # The projector is opt-in in docker-compose.yml. Start it only after the
@@ -78,8 +78,8 @@ wait_for_projection_drain
 # and with the projector stopped so the inventory cannot change underneath the
 # scan. A non-zero result still fails the smoke via the command's own guards.
 "${compose_command[@]}" --profile projector stop projector
-"${compose_command[@]}" run --rm --no-deps --no-build server \
-  bun /app/tools/search/reconcile-projection.ts
+"${compose_command[@]}" run --rm --no-deps server \
+  bun /app/tools/search/reconcile-projection.ts --fail-on-drift
 
 curl --fail --silent --show-error --retry 10 --retry-delay 2 http://localhost:3000/readyz >/dev/null
 curl --fail --silent --show-error --retry 10 --retry-delay 2 http://localhost:3001/ >/dev/null
