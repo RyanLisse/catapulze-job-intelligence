@@ -118,12 +118,22 @@ describe("bounded markering readback", () => {
 
   it("keeps a polled revision over a late detail response and a clear", () => {
     let state = emptyMarkeringReadbackState();
-    state = mergeMarkeringReadback(state, marker(3));
-    state = mergeMarkeringReadback(state, null);
-    state = mergeMarkeringReadback(state, marker(2, "gevolgd"));
+    state = mergeMarkeringReadback(state, marker(3), "poll");
+    state = mergeMarkeringReadback(state, null, "poll");
+    state = mergeMarkeringReadback(state, marker(2, "gevolgd"), "detail");
     expect(state.markering).toBeNull();
-    state = mergeMarkeringReadback(state, marker(4, "gevolgd"));
+    state = mergeMarkeringReadback(state, marker(4, "gevolgd"), "poll");
     expect(state.markering).toMatchObject({ revision: 4, status: "gevolgd" });
+  });
+
+  it("does not let a late detail null erase a polled marker at the same revision", () => {
+    let state = emptyMarkeringReadbackState();
+    state = mergeMarkeringReadback(state, marker(3), "poll");
+    state = mergeMarkeringReadback(state, null, "detail");
+    expect(state.markering).toMatchObject(marker(3));
+
+    state = mergeMarkeringReadback(state, marker(3), "poll");
+    expect(state.markering).toMatchObject(marker(3));
   });
 });
 

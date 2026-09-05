@@ -423,7 +423,8 @@ const JobSearchPageContent = ({
           const merged = job
             ? mergeMarkeringReadback(
                 lastAppliedMarkering.current,
-                job.markering ?? null
+                job.markering ?? null,
+                "detail"
               )
             : lastAppliedMarkering.current;
           lastAppliedMarkering.current = merged;
@@ -454,7 +455,8 @@ const JobSearchPageContent = ({
     const applyMarkering = (markering: JobListing["markering"]) => {
       const merged = mergeMarkeringReadback(
         lastAppliedMarkering.current,
-        markering ?? null
+        markering ?? null,
+        "poll"
       );
       if (merged === lastAppliedMarkering.current) {
         return;

@@ -26,6 +26,8 @@ export interface MarkeringReadbackState {
   readonly revision: number | null;
 }
 
+export type MarkeringReadbackSource = "detail" | "poll";
+
 export const emptyMarkeringReadbackState = (): MarkeringReadbackState => ({
   initialized: false,
   markering: null,
@@ -34,14 +36,16 @@ export const emptyMarkeringReadbackState = (): MarkeringReadbackState => ({
 
 /**
  * Merge one resource-scoped read into the state already observed by the open
- * detail. A null read is a real clear, but it carries no row of its own; keep
- * the last revision as a floor so a late detail response cannot resurrect the
- * cleared marker. Recreated markers must therefore carry a strictly newer
- * durable revision.
+ * detail. A null poll read is a real clear, but it carries no row of its own;
+ * keep the last revision as a floor so a late detail response cannot
+ * resurrect the cleared marker. A null detail read has no tombstone revision
+ * and cannot prove that it is newer than an observed poll. Recreated markers
+ * must therefore carry a strictly newer durable revision.
  */
 export const mergeMarkeringReadback = (
   current: MarkeringReadbackState,
-  next: JobMarkering | null
+  next: JobMarkering | null,
+  source: MarkeringReadbackSource
 ): MarkeringReadbackState => {
   if (!current.initialized) {
     return {
@@ -61,6 +65,13 @@ export const mergeMarkeringReadback = (
   }
 
   if (next === null) {
+    // Detail responses contain no tombstone revision, so a late null cannot
+    // prove that it is newer than a durable marker already observed by poll.
+    // Let the versioned marker endpoint own clears; its null is the explicit
+    // readback of the current marker resource.
+    if (source === "detail" && current.revision !== null) {
+      return current;
+    }
     return current.markering === null
       ? current
       : { ...current, markering: null };
