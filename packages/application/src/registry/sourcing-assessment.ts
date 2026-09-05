@@ -23,15 +23,25 @@ const evidenceCapabilityIds = [
   "list_bronnen",
   "get_bron",
 ] as const;
-const secretLikeReferenceIdPattern =
-  /(?:^|[._:/-])(?:api[_-]?key|access[_-]?key|bearer|credential|password|passwd|private[_-]?key|secret|sk_(?:live|test)|token)(?:$|[._:/-])/iu;
+const secretLikeReferenceIdPatterns = [
+  /(?:^|[._:/-])(?:api[_-]?key|access[_-]?key|bearer|credential|password|passwd|private[_-]?key|secret|sk_(?:live|test)|token)(?:$|[._:/-])/iu,
+  /^(?:ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9]{20,}$/u,
+  /^github_pat_[A-Za-z0-9_]{20,}$/u,
+  /^AKIA[0-9A-Z]{16}$/u,
+  /^sk[-_](?:live|test)[-_][A-Za-z0-9_-]{16,}$/iu,
+  /^bearer[-_][A-Za-z0-9._~-]{16,}$/iu,
+  /^(?:-----)?BEGIN[-_ ](?:[A-Z]+[-_ ])?PRIVATE[-_ ]KEY/iu,
+] as const;
 const opaqueSourceReferenceIdSchema = z
   .string()
   .min(1)
   .max(256)
   .regex(/^[A-Za-z0-9][A-Za-z0-9._:/-]*$/u)
   .refine((reference) => !reference.includes("://"))
-  .refine((reference) => !secretLikeReferenceIdPattern.test(reference));
+  .refine(
+    (reference) =>
+      !secretLikeReferenceIdPatterns.some((pattern) => pattern.test(reference))
+  );
 const sha256Schema = z.string().regex(/^sha256:[a-f0-9]{64}$/u);
 const sourceReferenceSchema = z
   .object({
@@ -373,8 +383,8 @@ const evaluateFindings = (
   }
   const referenceEvaluation = evaluateReferenceFindings(attestation, asOf);
   findings.push(...referenceEvaluation.findings);
-  const claimsByKey = new Map<string, SourcingAssessmentInput["claims"]>();
-  for (const claim of input.claims) {
+  const claimsByKey = new Map<string, TrustedSourcingAttestation["claims"]>();
+  for (const claim of attestation.claims) {
     if (!selectedIds.has(claim.vacancyId)) {
       findings.push(
         finding("CLAIM_OUTSIDE_SELECTION", "Claim is outside the selection", {
@@ -451,33 +461,35 @@ export const evaluateSourcingAssessment = (
   asOf: Date,
   attestation: TrustedSourcingAttestation | null
 ): z.input<typeof sourcingAssessmentOutputSchema> => {
-  const findings = attestation
-    ? evaluateFindings(input, attestation, asOf)
+  const trustedAttestation = attestation
+    ? trustedAttestationSchema.safeParse(attestation)
+    : null;
+  const attested = trustedAttestation?.success ? trustedAttestation.data : null;
+  const findings = attested
+    ? evaluateFindings(input, attested, asOf)
     : [
         finding(
           "UPSTREAM_ATTESTATION_UNAVAILABLE",
           "Trusted query, selection, search, and provenance attestations are unavailable"
         ),
       ];
-  const status = determineEvaluationStatus(input, attestation, findings);
-  const sourceReferences = attestation?.sourceReferences ?? [];
+  const status = determineEvaluationStatus(input, attested, findings);
+  const sourceReferences = attested?.sourceReferences ?? [];
   return {
     binding: {
       actor,
-      queryDigest: attestation?.queryDigest ?? null,
+      queryDigest: attested?.queryDigest ?? null,
       scopeId,
-      searchStatus: attestation?.searchStatus ?? "unknown",
-      selectedIds: attestation ? [...attestation.selectedIds] : [],
-      selectionDigest: attestation
-        ? digestSourcingSelection(attestation)
-        : null,
-      trust: attestation ? "attested" : "unavailable",
+      searchStatus: attested?.searchStatus ?? "unknown",
+      selectedIds: attested ? [...attested.selectedIds] : [],
+      selectionDigest: attested ? digestSourcingSelection(attested) : null,
+      trust: attested ? "attested" : "unavailable",
     },
-    claims: attestation ? [...attestation.claims] : [],
+    claims: attested ? [...attested.claims] : [],
     dependencyGuards: dependencyRequirements.map(([issue, requirement]) => ({
       issue,
       requirement,
-      status: attestation ? "satisfied" : "upstream-required",
+      status: attested ? "satisfied" : "upstream-required",
     })),
     evaluation: {
       asOf: asOf.toISOString(),
@@ -494,8 +506,8 @@ export const evaluateSourcingAssessment = (
     sourceReferences: sourceReferences.map((reference) =>
       readFreshness(reference, asOf)
     ),
-    usedCapabilities: attestation
-      ? [...new Set(attestation.usedCapabilities)].toSorted()
+    usedCapabilities: attested
+      ? [...new Set(attested.usedCapabilities)].toSorted()
       : [],
   };
 };

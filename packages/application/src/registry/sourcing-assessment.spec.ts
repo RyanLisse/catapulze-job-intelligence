@@ -141,6 +141,7 @@ describe("evaluate_sourcing_assessment (RJC-447)", () => {
   it("keeps incomplete and missing conclusions in review", () => {
     const result = evaluate(partialSourcingFixture, {
       ...completeTrustedAttestation,
+      claims: partialSourcingFixture.claims,
       searchStatus: "incomplete",
     });
 
@@ -206,6 +207,23 @@ describe("evaluate_sourcing_assessment (RJC-447)", () => {
         code: "CONTRADICTORY_EVIDENCE",
         field: "deadline",
       })
+    );
+  });
+
+  it("evaluates trusted conclusions when caller claims are complete", () => {
+    const result = evaluate(
+      completeSourcingFixture,
+      contradictoryTrustedAttestation
+    );
+
+    expect(result.evaluation.findings).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ code: "CLAIM_ATTESTATION_MISMATCH" }),
+        expect.objectContaining({
+          code: "CONTRADICTORY_EVIDENCE",
+          field: "deadline",
+        }),
+      ])
     );
   });
 
@@ -335,6 +353,7 @@ describe("evaluate_sourcing_assessment (RJC-447)", () => {
     const unsafeIds = [
       "https://user:DO_NOT_EXPOSE@source.example/record",
       `reference-${"x".repeat(247)}`,
+      `ghp_${"A".repeat(36)}`,
       "sk_live_TOPSECRET_123",
       "secret",
       "token-DO_NOT_EXPOSE",
@@ -390,6 +409,31 @@ describe("evaluate_sourcing_assessment (RJC-447)", () => {
         expect(JSON.stringify(result)).not.toContain(secret);
       })
     );
+  });
+
+  it("fails closed when direct evaluation receives an invalid attestation", () => {
+    const unsafeReference = `ghp_${"A".repeat(36)}`;
+    // SAFETY: this synthetic invalid runtime value intentionally bypasses static typing to exercise the schema guard.
+    const result = evaluateSourcingAssessment(
+      completeSourcingFixture,
+      actor,
+      TEST_DEPLOYMENT_SCOPE_ID,
+      serverTime,
+      {
+        ...completeTrustedAttestation,
+        sourceReferences: [
+          { ...completeSearchReference, reference: unsafeReference },
+        ],
+      } as never
+    );
+
+    expect(result).toMatchObject({
+      binding: { trust: "unavailable" },
+      claims: [],
+      evaluation: { status: "blocked-upstream" },
+      sourceReferences: [],
+    });
+    expect(JSON.stringify(result)).not.toContain(unsafeReference);
   });
 
   it("registers as read-only MCP and REST", () => {
