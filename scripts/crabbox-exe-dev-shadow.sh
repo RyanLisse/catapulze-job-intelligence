@@ -12,6 +12,7 @@ readonly FINGERPRINT_FILE="${EVIDENCE_DIR}/execution-fingerprint.json"
 readonly REPORT_FILE="${EVIDENCE_DIR}/report.md"
 readonly JUNIT_FILE="${EVIDENCE_DIR}/junit.xml"
 readonly DATABASE_JUNIT_FILE="${EVIDENCE_DIR}/database-junit.xml"
+readonly VALIDATION_EXIT_STATUS_FILE="${EVIDENCE_DIR}/validation-exit-status.txt"
 readonly MANIFEST_FILE="${EVIDENCE_DIR}/manifest.sha256"
 readonly INPUT_MANIFEST_FILE=".crabbox-input-manifest.sha256"
 readonly COMPOSE_ENV_FILE="/tmp/catapulze-crabbox-compose-${$}.env"
@@ -277,7 +278,7 @@ write_manifest() {
   local artifact
 
   : >"$MANIFEST_FILE"
-  for artifact in "$PHASES_FILE" "$FINGERPRINT_FILE" "$REPORT_FILE" "$JUNIT_FILE" "$DATABASE_JUNIT_FILE"; do
+  for artifact in "$PHASES_FILE" "$FINGERPRINT_FILE" "$REPORT_FILE" "$JUNIT_FILE" "$DATABASE_JUNIT_FILE" "$VALIDATION_EXIT_STATUS_FILE"; do
     if [[ -f "$artifact" ]]; then
       sha256sum "$artifact" >>"$MANIFEST_FILE"
     fi
@@ -405,13 +406,17 @@ on_exit() {
   trap - EXIT
   cleanup_database
   rm -f "$COMPOSE_ENV_FILE"
+  printf '%d\n' "$exit_status" >"$VALIDATION_EXIT_STATUS_FILE"
   finalize_evidence
+  if [[ "${CRABBOX_CAPTURE_VALIDATION_STATUS:-}" == "1" ]]; then
+    exit 0
+  fi
   exit "$exit_status"
 }
 
 main() {
   mkdir -p "$EVIDENCE_DIR"
-  rm -f "$PHASES_FILE" "$FINGERPRINT_FILE" "$REPORT_FILE" "$JUNIT_FILE" "$DATABASE_JUNIT_FILE" "$MANIFEST_FILE"
+  rm -f "$PHASES_FILE" "$FINGERPRINT_FILE" "$REPORT_FILE" "$JUNIT_FILE" "$DATABASE_JUNIT_FILE" "$VALIDATION_EXIT_STATUS_FILE" "$MANIFEST_FILE"
   : >"$PHASES_FILE"
   write_not_reached_junit "$JUNIT_FILE" "unit"
   write_not_reached_junit "$DATABASE_JUNIT_FILE" "database-integration"

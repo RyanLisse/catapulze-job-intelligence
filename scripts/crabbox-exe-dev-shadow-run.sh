@@ -3,11 +3,15 @@ set -euo pipefail
 
 readonly EXPECTED_CRABBOX_VERSION="0.46.0"
 
+dry_run="false"
 for argument in "$@"; do
   case "$argument" in
     -id | --id | -id=* | --id=*)
       printf 'exe.dev shadow: existing-lease --id arguments are forbidden for a cold run\n' >&2
       exit 1
+      ;;
+    -dry-run | --dry-run)
+      dry_run="true"
       ;;
   esac
 done
@@ -239,6 +243,22 @@ set -e
 if [[ -d "$materialized_evidence" ]]; then
   mkdir -p "$workspace_evidence"
   rsync -a --delete "${materialized_evidence}/" "${workspace_evidence}/"
+fi
+
+if [[ "$dry_run" == "false" && "$run_exit_status" -eq 0 ]]; then
+  validation_status_file="${workspace_evidence}/validation-exit-status.txt"
+  if [[ ! -f "$validation_status_file" ]]; then
+    printf 'exe.dev shadow: successful artifact transport did not return validation status\n' >&2
+    run_exit_status=1
+  else
+    validation_exit_status="$(tr -d '[:space:]' <"$validation_status_file")"
+    if [[ ! "$validation_exit_status" =~ ^([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])$ ]]; then
+      printf 'exe.dev shadow: returned validation status is invalid\n' >&2
+      run_exit_status=1
+    else
+      run_exit_status="$validation_exit_status"
+    fi
+  fi
 fi
 
 if [[ -n "$received_signal" ]]; then

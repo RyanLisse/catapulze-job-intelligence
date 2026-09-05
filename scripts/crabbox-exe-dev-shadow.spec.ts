@@ -116,6 +116,10 @@ if [[ -n "\${MATERIALIZED_EVIDENCE_FIXTURE:-}" ]]; then
   mkdir -p .artifacts/crabbox/exe-dev-shadow
   printf 'fresh\\n' >.artifacts/crabbox/exe-dev-shadow/report.md
 fi
+if [[ -n "\${MATERIALIZED_VALIDATION_STATUS_FIXTURE:-}" ]]; then
+  mkdir -p .artifacts/crabbox/exe-dev-shadow
+  printf '%s\\n' "$MATERIALIZED_VALIDATION_STATUS_FIXTURE" >.artifacts/crabbox/exe-dev-shadow/validation-exit-status.txt
+fi
 if [[ -n "\${CAPTURE_GIT_STATE:-}" ]]; then
   # Git exports GIT_DIR/GIT_PREFIX to hooks (pre-push gate); inspect the
   # materialized repo, not the repo that launched the hook.
@@ -292,6 +296,12 @@ describe("exe.dev shadow scripts", () => {
     );
     expect(crabboxConfig).toContain(
       `artifactGlobs:\n      - ${remoteEvidencePath}/**`
+    );
+    expect(crabboxConfig).toContain(
+      `${remoteEvidencePath}/validation-exit-status.txt=.artifacts/crabbox/exe-dev-shadow/validation-exit-status.txt`
+    );
+    expect(crabboxConfig).toContain(
+      "command: CRABBOX_CAPTURE_VALIDATION_STATUS=1 bash scripts/crabbox-exe-dev-shadow.sh"
     );
   });
 
@@ -516,6 +526,33 @@ describe("exe.dev shadow scripts", () => {
     launcherFixtureTimeoutMs
   );
 
+  test("returns the downloaded validation status after artifact transport", () => {
+    const fixture = createLauncherFixture();
+    try {
+      const result = Bun.spawnSync(["bash", launcher], {
+        env: {
+          ...launcherEnvironment(fixture),
+          MATERIALIZED_VALIDATION_STATUS_FIXTURE: "23",
+        },
+        stderr: "pipe",
+        stdout: "pipe",
+      });
+
+      expect(result.exitCode).toBe(23);
+      expect(
+        readFileSync(
+          path.join(
+            fixture.workspace,
+            ".artifacts/crabbox/exe-dev-shadow/validation-exit-status.txt"
+          ),
+          "utf-8"
+        )
+      ).toBe("23\n");
+    } finally {
+      rmSync(fixture.workspace, { force: true, recursive: true });
+    }
+  });
+
   test("fails closed when Git status cannot determine source state", () => {
     const fixture = createLauncherFixture(sourceSha, 70);
     try {
@@ -703,10 +740,17 @@ exit 0
       expect(databaseJunit).toContain('skipped="1"');
       expect(databaseJunit).toContain('message="phase not reached"');
       expect(
+        readFileSync(
+          path.join(evidenceDirectory, "validation-exit-status.txt"),
+          "utf-8"
+        )
+      ).toBe("4\n");
+      expect(
         readFileSync(path.join(evidenceDirectory, "report.md"), "utf-8")
       ).toContain("- Status: `failed`");
       expect(manifest).toContain("junit.xml");
       expect(manifest).toContain("database-junit.xml");
+      expect(manifest).toContain("validation-exit-status.txt");
     } finally {
       rmSync(workspace, { force: true, recursive: true });
     }

@@ -178,7 +178,7 @@ jobs:
     ttl: 60m
     idleTimeout: 15m
     shell: true
-    command: bash scripts/crabbox-exe-dev-shadow.sh
+    command: CRABBOX_CAPTURE_VALIDATION_STATUS=1 bash scripts/crabbox-exe-dev-shadow.sh
     junit:
       - crabbox-output/exe-dev-shadow/junit.xml
       - crabbox-output/exe-dev-shadow/database-junit.xml
@@ -190,6 +190,7 @@ jobs:
       - crabbox-output/exe-dev-shadow/report.md
       - crabbox-output/exe-dev-shadow/junit.xml
       - crabbox-output/exe-dev-shadow/database-junit.xml
+      - crabbox-output/exe-dev-shadow/validation-exit-status.txt
       - crabbox-output/exe-dev-shadow/manifest.sha256
     downloads:
       - crabbox-output/exe-dev-shadow/phases.jsonl=.artifacts/crabbox/exe-dev-shadow/phases.jsonl
@@ -197,5 +198,6 @@ jobs:
       - crabbox-output/exe-dev-shadow/report.md=.artifacts/crabbox/exe-dev-shadow/report.md
       - crabbox-output/exe-dev-shadow/junit.xml=.artifacts/crabbox/exe-dev-shadow/junit.xml
       - crabbox-output/exe-dev-shadow/database-junit.xml=.artifacts/crabbox/exe-dev-shadow/database-junit.xml
+      - crabbox-output/exe-dev-shadow/validation-exit-status.txt=.artifacts/crabbox/exe-dev-shadow/validation-exit-status.txt
       - crabbox-output/exe-dev-shadow/manifest.sha256=.artifacts/crabbox/exe-dev-shadow/manifest.sha256
     stop: always
