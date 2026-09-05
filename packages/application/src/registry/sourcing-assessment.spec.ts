@@ -316,6 +316,9 @@ describe("evaluate_sourcing_assessment (RJC-447)", () => {
     const unsafeIds = [
       "https://user:DO_NOT_EXPOSE@source.example/record",
       `reference-${"x".repeat(247)}`,
+      "sk_live_TOPSECRET_123",
+      "secret",
+      "token-DO_NOT_EXPOSE",
     ];
     const unsafeAttestations = unsafeIds.flatMap((unsafeId) => [
       {

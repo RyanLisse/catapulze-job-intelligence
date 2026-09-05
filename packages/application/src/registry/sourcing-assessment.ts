@@ -23,12 +23,15 @@ const evidenceCapabilityIds = [
   "list_bronnen",
   "get_bron",
 ] as const;
+const secretLikeReferenceIdPattern =
+  /(?:^|[._:/-])(?:api[_-]?key|access[_-]?key|bearer|credential|password|passwd|private[_-]?key|secret|sk_(?:live|test)|token)(?:$|[._:/-])/iu;
 const opaqueSourceReferenceIdSchema = z
   .string()
   .min(1)
   .max(256)
   .regex(/^[A-Za-z0-9][A-Za-z0-9._:/-]*$/u)
-  .refine((reference) => !reference.includes("://"));
+  .refine((reference) => !reference.includes("://"))
+  .refine((reference) => !secretLikeReferenceIdPattern.test(reference));
 const sha256Schema = z.string().regex(/^sha256:[a-f0-9]{64}$/u);
 const sourceReferenceSchema = z
   .object({
