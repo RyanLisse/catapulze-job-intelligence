@@ -23,7 +23,7 @@ const evidenceCapabilityIds = [
   "list_bronnen",
   "get_bron",
 ] as const;
-const opaqueSourceReferenceSchema = z
+const opaqueSourceReferenceIdSchema = z
   .string()
   .min(1)
   .max(256)
@@ -33,10 +33,10 @@ const sha256Schema = z.string().regex(/^sha256:[a-f0-9]{64}$/u);
 const sourceReferenceSchema = z
   .object({
     capabilityId: z.enum(evidenceCapabilityIds),
-    id: z.string().min(1),
+    id: opaqueSourceReferenceIdSchema,
     maxAgeSeconds: z.number().int().positive().optional(),
     observedAt: z.string().datetime().nullable(),
-    reference: opaqueSourceReferenceSchema,
+    reference: opaqueSourceReferenceIdSchema,
   })
   .strict();
 const claimBaseSchema = z.object({
@@ -46,7 +46,7 @@ const claimBaseSchema = z.object({
 const sourcingClaimSchema = z.discriminatedUnion("status", [
   claimBaseSchema
     .extend({
-      sourceReferenceIds: z.array(z.string().min(1)).min(1),
+      sourceReferenceIds: z.array(opaqueSourceReferenceIdSchema).min(1),
       status: z.literal("known"),
       value: z
         .string()
@@ -56,14 +56,14 @@ const sourcingClaimSchema = z.discriminatedUnion("status", [
     .strict(),
   claimBaseSchema
     .extend({
-      sourceReferenceIds: z.array(z.string().min(1)).default([]),
+      sourceReferenceIds: z.array(opaqueSourceReferenceIdSchema).default([]),
       status: z.literal("unknown"),
       value: z.literal(UNKNOWN),
     })
     .strict(),
   claimBaseSchema
     .extend({
-      sourceReferenceIds: z.array(z.string().min(1)).default([]),
+      sourceReferenceIds: z.array(opaqueSourceReferenceIdSchema).default([]),
       status: z.literal("uncertain"),
       value: z.string().min(1).optional(),
     })

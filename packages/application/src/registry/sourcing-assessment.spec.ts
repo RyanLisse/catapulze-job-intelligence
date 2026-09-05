@@ -312,6 +312,64 @@ describe("evaluate_sourcing_assessment (RJC-447)", () => {
     );
   });
 
+  it("rejects unsafe trusted reference ids and claim citations without echoing them", async () => {
+    const unsafeIds = [
+      "https://user:DO_NOT_EXPOSE@source.example/record",
+      `reference-${"x".repeat(247)}`,
+    ];
+    const unsafeAttestations = unsafeIds.flatMap((unsafeId) => [
+      {
+        secret: unsafeId,
+        value: {
+          ...completeTrustedAttestation,
+          sourceReferences: completeTrustedAttestation.sourceReferences.map(
+            (reference) =>
+              reference.id === "detail-1"
+                ? { ...reference, id: unsafeId }
+                : reference
+          ),
+        },
+      },
+      {
+        secret: unsafeId,
+        value: {
+          ...completeTrustedAttestation,
+          claims: completeTrustedAttestation.claims.map((claim) =>
+            claim.status === "known"
+              ? { ...claim, sourceReferenceIds: [unsafeId] }
+              : claim
+          ),
+        },
+      },
+    ]);
+
+    await Promise.all(
+      unsafeAttestations.map(async ({ secret, value }) => {
+        const deps = createTestSliceADeps();
+        const bundle = createSliceARegistry({
+          ...deps,
+          now: () => serverTime,
+          sourcingAssessmentAuthority: { attest: () => value },
+        });
+        const invoke = bundle.registry.createInvoker({
+          capabilityId: "evaluate_sourcing_assessment",
+          operation: "POST /v1/sourcing/assessment",
+          transport: "rest",
+        });
+        const result = await invoke(completeSourcingFixture, {
+          principal,
+          requestId: "unsafe-reference-id",
+        });
+
+        expect(result).toHaveProperty(
+          "value.evaluation.status",
+          "blocked-upstream"
+        );
+        expect(JSON.stringify(result)).not.toContain(secret);
+      })
+    );
+  });
+
   it("registers as read-only MCP and REST", () => {
     const bundle = createTestSliceARegistry();
     const descriptor = bundle.registry.catalog.find(
