@@ -242,6 +242,43 @@ describe("MCP catalog cache policy", () => {
     ).toEqual(["alpha", "middle", "zeta"]);
   });
 
+  it("emits private catalog hints and advertises no change stream", async () => {
+    const environment = createFixtureEnvironment();
+    const client = await createFixtureClient({
+      cache: new InMemoryResponseCacheStore(),
+      environment,
+      token: "admin-a",
+    });
+
+    const discovery = await client.request({
+      method: "server/discover",
+      params: {},
+    });
+    expect(discovery).toMatchObject({
+      cacheScope: "private",
+      capabilities: { tools: {} },
+      ttlMs: MCP_CATALOG_CACHE_TTL_MS,
+    });
+    expect(discovery.capabilities).not.toHaveProperty("subscriptions");
+
+    const listed = await client.request({
+      method: "tools/list",
+      params: {},
+    });
+    expect(listed).toMatchObject({
+      cacheScope: "private",
+      ttlMs: MCP_CATALOG_CACHE_TTL_MS,
+    });
+
+    const called = await client.callTool({
+      arguments: {},
+      name: "list_bronnen",
+    });
+    expect(called).not.toHaveProperty("cacheScope");
+    expect(called).not.toHaveProperty("ttlMs");
+    await client.close();
+  });
+
   it("reuses the real Catapulze catalog within TTL and refetches after expiry", async () => {
     setSystemTime(fixtureEpoch);
     const baselineEnvironment = createFixtureEnvironment();
