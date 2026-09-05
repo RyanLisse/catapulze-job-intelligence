@@ -71,6 +71,12 @@ describe("MCP stateless edge Compose contract", () => {
     expect(config.services["server-b"]?.build?.dockerfile).toBe(
       "apps/server/Dockerfile"
     );
+    expect(config.services["server-a"]?.image).toBe(
+      `${config.name}-mcp-server:${expectedSourceSha}`
+    );
+    expect(config.services["server-b"]?.image).toBe(
+      config.services["server-a"]?.image
+    );
     expect(config.services.edge?.image).toBe(
       "nginx:1.29.1-alpine@sha256:42a516af16b852e33b7682d5ef8acbd5d13fe08fecadc7ed98605ba5e3b26ab8"
     );
@@ -131,7 +137,7 @@ describe("MCP stateless edge Compose contract", () => {
     const commandLogPath = path.join(fakeDirectory, "commands.log");
     await Bun.write(
       fakeDockerPath,
-      `#!/bin/sh\nprintf '%s\\n' "$*" >> '${commandLogPath}'\ncase "$*" in\n  *" config --quiet") exit 0 ;;\n  *" build server-a server-b migrator projector") exit 42 ;;\n  *) exit 0 ;;\nesac\n`
+      `#!/bin/sh\nprintf '%s\\n' "$*" >> '${commandLogPath}'\ncase "$*" in\n  *" config --quiet") exit 0 ;;\n  *" build server-a migrator projector") exit 42 ;;\n  *) exit 0 ;;\nesac\n`
     );
     await chmod(fakeDockerPath, 0o755);
     const child = Bun.spawn(["bash", "scripts/mcp-edge-smoke.sh"], {
@@ -147,7 +153,7 @@ describe("MCP stateless edge Compose contract", () => {
     const commands = await readFile(commandLogPath, "utf-8");
     await rm(fakeDirectory, { force: true, recursive: true });
     expect(exitCode).toBe(42);
-    expect(commands).toContain("build server-a server-b migrator projector");
+    expect(commands).toContain("build server-a migrator projector");
     expect(commands).toContain("down --volumes --remove-orphans");
   });
 });

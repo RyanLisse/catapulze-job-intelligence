@@ -4,6 +4,7 @@ x-mcp-edge-server: &mcp-edge-server
   build:
     context: .
     dockerfile: apps/server/Dockerfile
+  image: ${COMPOSE_PROJECT_NAME}-mcp-server:${MCP_EDGE_SOURCE_SHA}
   init: true
   env_file: !reset []
   environment:

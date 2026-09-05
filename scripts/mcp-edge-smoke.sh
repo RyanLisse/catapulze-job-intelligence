@@ -81,7 +81,7 @@ trap 'exit 130' INT
 trap 'exit 143' TERM
 
 "${compose_command[@]}" config --quiet
-"${compose_command[@]}" build server-a server-b migrator projector
+"${compose_command[@]}" build server-a migrator projector
 "${compose_command[@]}" pull edge
 "${compose_command[@]}" up -d --wait postgres redis manticore raw-storage-minio
 "${compose_command[@]}" run --rm migrator
