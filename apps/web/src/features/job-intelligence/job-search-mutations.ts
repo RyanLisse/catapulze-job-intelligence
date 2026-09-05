@@ -18,13 +18,14 @@ interface JobSearchMutationsInput {
   ) => void;
   readonly filters: JobSearchFilters;
   readonly getSelectedJobId: () => string | null;
-  readonly isMarkeringPending?: boolean;
+  readonly markeringMutationsInFlight: { current: Set<string> };
   readonly query: string;
   readonly results: readonly JobListing[];
   readonly resultsComplete: boolean;
   readonly scope: JobSearchScope;
   readonly selectedJob: JobListing | null;
   readonly setIsCreatingSnapshot: Dispatch<SetStateAction<boolean>>;
+  readonly setIsMarkeringMutationPending: Dispatch<SetStateAction<boolean>>;
   readonly setIsSavingSearch: Dispatch<SetStateAction<boolean>>;
   readonly setMarkeringSyncState?: Dispatch<SetStateAction<MarkeringSyncState>>;
   readonly setSavedSearchMessage: Dispatch<SetStateAction<string | null>>;
@@ -36,32 +37,37 @@ type MarkSelectedJobInput = Pick<
   | "actions"
   | "applyMarkeringResult"
   | "getSelectedJobId"
-  | "isMarkeringPending"
+  | "markeringMutationsInFlight"
   | "selectedJob"
+  | "setIsMarkeringMutationPending"
   | "setMarkeringSyncState"
   | "setSnapshotMessage"
 >;
 
-const createMarkSelectedJob = ({
-  actions,
-  applyMarkeringResult,
-  getSelectedJobId,
-  isMarkeringPending,
-  selectedJob,
-  setMarkeringSyncState,
-  setSnapshotMessage,
-}: MarkSelectedJobInput) => {
-  let mutationInFlight = false;
-
-  return async () => {
-    if (!actions || !selectedJob || isMarkeringPending || mutationInFlight) {
+const createMarkSelectedJob =
+  ({
+    actions,
+    applyMarkeringResult,
+    getSelectedJobId,
+    markeringMutationsInFlight,
+    selectedJob,
+    setIsMarkeringMutationPending,
+    setMarkeringSyncState,
+    setSnapshotMessage,
+  }: MarkSelectedJobInput) =>
+  async () => {
+    if (!actions || !selectedJob) {
       return;
     }
     const resourceId = selectedJob.id;
-    if (getSelectedJobId() !== resourceId) {
+    if (
+      getSelectedJobId() !== resourceId ||
+      markeringMutationsInFlight.current.has(resourceId)
+    ) {
       return;
     }
-    mutationInFlight = true;
+    markeringMutationsInFlight.current.add(resourceId);
+    setIsMarkeringMutationPending(true);
     setMarkeringSyncState?.("pending");
     try {
       const markering = await actions.markeerAanvraag({
@@ -85,23 +91,26 @@ const createMarkSelectedJob = ({
       );
       setSnapshotMessage("Markeren mislukt. Probeer het opnieuw.");
     } finally {
-      mutationInFlight = false;
+      markeringMutationsInFlight.current.delete(resourceId);
+      setIsMarkeringMutationPending(
+        markeringMutationsInFlight.current.size > 0
+      );
     }
   };
-};
 
 export const createJobSearchMutations = ({
   actions,
   applyMarkeringResult,
   filters,
   getSelectedJobId,
-  isMarkeringPending = false,
+  markeringMutationsInFlight,
   query,
   results,
   resultsComplete,
   scope,
   selectedJob,
   setIsCreatingSnapshot,
+  setIsMarkeringMutationPending,
   setIsSavingSearch,
   setMarkeringSyncState,
   setSavedSearchMessage,
@@ -150,8 +159,9 @@ export const createJobSearchMutations = ({
     actions,
     applyMarkeringResult,
     getSelectedJobId,
-    isMarkeringPending,
+    markeringMutationsInFlight,
     selectedJob,
+    setIsMarkeringMutationPending,
     setMarkeringSyncState,
     setSnapshotMessage,
   }),

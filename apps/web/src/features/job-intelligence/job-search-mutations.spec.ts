@@ -48,6 +48,11 @@ const fixtureJobAt = (index: number): JobListing => {
   return job;
 };
 
+const markeringMutationState = () => ({
+  markeringMutationsInFlight: { current: new Set<string>() },
+  setIsMarkeringMutationPending: captureConcreteState(() => {}),
+});
+
 describe("job-search mutation server truth", () => {
   it("shows saved-search success only after the server confirms persistence", async () => {
     const savedResult = Promise.withResolvers<{
@@ -62,6 +67,7 @@ describe("job-search mutation server truth", () => {
       applyMarkeringResult: () => {},
       filters: DEFAULT_JOB_SEARCH_STATE.filters,
       getSelectedJobId: () => selectedJob?.id ?? null,
+      ...markeringMutationState(),
       query: "Azure",
       results: [],
       resultsComplete: true,
@@ -103,6 +109,7 @@ describe("job-search mutation server truth", () => {
       applyMarkeringResult: () => {},
       filters: DEFAULT_JOB_SEARCH_STATE.filters,
       getSelectedJobId: () => selectedJob?.id ?? null,
+      ...markeringMutationState(),
       query: "Azure",
       results: [],
       resultsComplete: true,
@@ -181,6 +188,7 @@ describe("job-search mutation server truth", () => {
       },
       filters: DEFAULT_JOB_SEARCH_STATE.filters,
       getSelectedJobId: () => selectedJob?.id ?? null,
+      ...markeringMutationState(),
       query: "Azure",
       results: [],
       resultsComplete: true,
@@ -229,6 +237,7 @@ describe("job-search mutation server truth", () => {
       },
       filters: DEFAULT_JOB_SEARCH_STATE.filters,
       getSelectedJobId: () => selectedJob?.id ?? null,
+      ...markeringMutationState(),
       query: "Azure",
       results: [],
       scope: "active",
@@ -269,6 +278,7 @@ describe("job-search mutation server truth", () => {
           },
           filters: DEFAULT_JOB_SEARCH_STATE.filters,
           getSelectedJobId: () => selectedJobId,
+          ...markeringMutationState(),
           query: "Azure",
           results: [],
           scope: "active",
@@ -324,6 +334,7 @@ describe("job-search mutation server truth", () => {
       applyMarkeringResult: () => {},
       filters: DEFAULT_JOB_SEARCH_STATE.filters,
       getSelectedJobId: () => selectedJob.id,
+      ...markeringMutationState(),
       query: "Azure",
       results: [],
       scope: "active",
@@ -344,5 +355,54 @@ describe("job-search mutation server truth", () => {
     markResult.resolve(marker(1));
     await Promise.all([first, second]);
     expect(syncStates).toEqual(["pending", "commit"]);
+  });
+
+  it("keeps the resource locked across a poll-triggered rerender", async () => {
+    const selectedJob = fixtureJobAt(0);
+    const markResult = Promise.withResolvers<JobMarkering>();
+    const markeringMutationsInFlight = { current: new Set<string>() };
+    const mutationPendingStates: boolean[] = [];
+    let calls = 0;
+    const input = {
+      actions: {
+        ...baseActions(() => Promise.resolve({ id: "saved-1", naam: "Azure" })),
+        markeerAanvraag: () => {
+          calls += 1;
+          return markResult.promise;
+        },
+      },
+      applyMarkeringResult: () => {},
+      filters: DEFAULT_JOB_SEARCH_STATE.filters,
+      getSelectedJobId: () => selectedJob.id,
+      markeringMutationsInFlight,
+      query: "Azure",
+      results: [],
+      scope: "active" as const,
+      selectedJob,
+      setIsCreatingSnapshot: captureConcreteState(() => {}),
+      setIsMarkeringMutationPending: captureConcreteState((value) => {
+        mutationPendingStates.push(value);
+      }),
+      setIsSavingSearch: captureConcreteState(() => {}),
+      setMarkeringSyncState: captureConcreteState(() => {}),
+      setSavedSearchMessage: captureConcreteState(() => {}),
+      setSnapshotMessage: captureConcreteState(() => {}),
+    };
+
+    const beforePollRerender = createJobSearchMutations(input);
+    const first = beforePollRerender.markSelectedJob();
+
+    // A poll can update sync state and rerender while the POST is unresolved.
+    // The new callback must retain the resource lock from the prior render.
+    const afterPollRerender = createJobSearchMutations(input);
+    const attemptedSecond = afterPollRerender.markSelectedJob();
+    expect(calls).toBe(1);
+    expect(markeringMutationsInFlight.current.has(selectedJob.id)).toBe(true);
+
+    markResult.resolve(marker(1));
+    await Promise.all([first, attemptedSecond]);
+
+    expect(mutationPendingStates).toEqual([true, false]);
+    expect(markeringMutationsInFlight.current.size).toBe(0);
   });
 });

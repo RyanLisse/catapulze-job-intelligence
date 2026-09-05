@@ -395,6 +395,8 @@ const JobSearchPageContent = ({
   const [snapshotMessage, setSnapshotMessage] = useState<string | null>(null);
   const [isSavingSearch, setIsSavingSearch] = useState(false);
   const [isCreatingSnapshot, setIsCreatingSnapshot] = useState(false);
+  const [isMarkeringMutationPending, setIsMarkeringMutationPending] =
+    useState(false);
   const [markeringSyncState, setMarkeringSyncState] =
     useState<MarkeringSyncState>("idle");
   const [sources, setSources] = useState<readonly JobSourceOption[]>([]);
@@ -403,6 +405,7 @@ const JobSearchPageContent = ({
   const lastAppliedMarkering = useRef(emptyMarkeringReadbackState());
   const previousSelectedJobId = useRef<string | null>(state.selectedJobId);
   const selectedJobIdRef = useRef<string | null>(state.selectedJobId);
+  const markeringMutationsInFlight = useRef(new Set<string>());
   selectedJobIdRef.current = state.selectedJobId;
   const applyMarkeringReadback = useApplyMarkeringReadback(
     selectedJobIdRef,
@@ -618,13 +621,14 @@ const JobSearchPageContent = ({
       },
       filters: state.filters,
       getSelectedJobId: () => selectedJobIdRef.current,
-      isMarkeringPending: markeringSyncState === "pending",
+      markeringMutationsInFlight,
       query: state.query,
       results: response.items,
       resultsComplete: canCreateSnapshot,
       scope: state.scope,
       selectedJob,
       setIsCreatingSnapshot,
+      setIsMarkeringMutationPending,
       setIsSavingSearch,
       setMarkeringSyncState,
       setSavedSearchMessage,
@@ -786,6 +790,7 @@ const JobSearchPageContent = ({
               job={selectedJob}
               liveData={liveData}
               markering={selectedJob.markering ?? null}
+              isMarkeringMutationPending={isMarkeringMutationPending}
               markeringSyncState={markeringSyncState}
               onClose={closeJob}
               onMarkeer={actions ? () => runAsync(markSelectedJob) : undefined}
@@ -853,6 +858,7 @@ const JobSearchPageContent = ({
             job={selectedJob}
             liveData={liveData}
             markering={selectedJob.markering ?? null}
+            isMarkeringMutationPending={isMarkeringMutationPending}
             markeringSyncState={markeringSyncState}
             onClose={closeJob}
             onMarkeer={actions ? () => runAsync(markSelectedJob) : undefined}
