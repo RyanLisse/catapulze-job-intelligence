@@ -698,6 +698,19 @@ exit 0
     );
 
     try {
+      const spawnedEnvironment = {
+        ...process.env,
+        CRABBOX_CLIENT_VERSION: "0.46.0",
+        CRABBOX_SOURCE_GIT_SHA: sourceSha,
+        CRABBOX_SOURCE_GIT_STATE: "clean",
+        CRABBOX_SOURCE_MANIFEST_FILE_COUNT: "1",
+        CRABBOX_SOURCE_MANIFEST_SHA256: `sha256:${inputManifestDigest}`,
+        EXE_DEV_REGION: "FRA",
+        HOME: workspace,
+        PATH: `${binDirectory}:${process.env.PATH ?? "/usr/bin:/bin"}`,
+        SHADOW_SCRIPT: shadowScript,
+      };
+      delete spawnedEnvironment.CRABBOX_CAPTURE_VALIDATION_STATUS;
       const result = Bun.spawnSync(
         [
           "bash",
@@ -706,17 +719,7 @@ exit 0
         ],
         {
           cwd: workspace,
-          env: {
-            ...process.env,
-            CRABBOX_CLIENT_VERSION: "0.46.0",
-            CRABBOX_SOURCE_GIT_SHA: sourceSha,
-            CRABBOX_SOURCE_GIT_STATE: "clean",
-            CRABBOX_SOURCE_MANIFEST_FILE_COUNT: "1",
-            CRABBOX_SOURCE_MANIFEST_SHA256: `sha256:${inputManifestDigest}`,
-            EXE_DEV_REGION: "FRA",
-            PATH: `${binDirectory}:${process.env.PATH ?? "/usr/bin:/bin"}`,
-            SHADOW_SCRIPT: shadowScript,
-          },
+          env: spawnedEnvironment,
           stderr: "pipe",
           stdout: "pipe",
         }
