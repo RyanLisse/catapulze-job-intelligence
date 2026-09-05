@@ -7,7 +7,7 @@ import {
   formatRemote,
   sourceLabel,
 } from "./presentation";
-import type { JobListing, JobMarkering } from "./types";
+import type { JobListing, JobMarkering, MarkeringSyncState } from "./types";
 
 const RAW_PREVIEW_INDENT = 2;
 
@@ -111,6 +111,7 @@ interface JobDetailProps {
   readonly job: JobListing;
   readonly liveData?: boolean;
   readonly markering?: JobMarkering | null;
+  readonly markeringSyncState?: MarkeringSyncState;
   readonly onClose: () => void;
   readonly onMarkeer?: () => void;
   readonly titleId: string;
@@ -121,6 +122,7 @@ export const JobDetail = ({
   job,
   liveData = false,
   markering = null,
+  markeringSyncState = "idle",
   onClose,
   onMarkeer,
   titleId,
@@ -231,6 +233,11 @@ export const JobDetail = ({
       </div>
 
       <div className="border-t border-border bg-card p-3">
+        {markeringSyncState === "idle" ? null : (
+          <p className="mb-2 text-[11px] text-muted-foreground" role="status">
+            Synchronisatie: {markeringSyncState}
+          </p>
+        )}
         {markering ? (
           <p className="mb-2 text-[11px] text-muted-foreground">
             Markering:{" "}

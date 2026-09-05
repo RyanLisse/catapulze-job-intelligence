@@ -1,10 +1,12 @@
 import type { Dispatch, SetStateAction } from "react";
 
+import { markeringMutationOutcome } from "./markering-sync";
 import type {
   JobIntelligenceActions,
   JobListing,
   JobSearchFilters,
   JobSearchScope,
+  MarkeringSyncState,
 } from "./types";
 
 interface JobSearchMutationsInput {
@@ -17,6 +19,7 @@ interface JobSearchMutationsInput {
   readonly selectedJob: JobListing | null;
   readonly setIsCreatingSnapshot: Dispatch<SetStateAction<boolean>>;
   readonly setIsSavingSearch: Dispatch<SetStateAction<boolean>>;
+  readonly setMarkeringSyncState?: Dispatch<SetStateAction<MarkeringSyncState>>;
   readonly setSavedSearchMessage: Dispatch<SetStateAction<string | null>>;
   readonly setSelectedJob: Dispatch<SetStateAction<JobListing | null>>;
   readonly setSnapshotMessage: Dispatch<SetStateAction<string | null>>;
@@ -32,6 +35,7 @@ export const createJobSearchMutations = ({
   selectedJob,
   setIsCreatingSnapshot,
   setIsSavingSearch,
+  setMarkeringSyncState,
   setSavedSearchMessage,
   setSelectedJob,
   setSnapshotMessage,
@@ -79,13 +83,21 @@ export const createJobSearchMutations = ({
     if (!actions || !selectedJob) {
       return;
     }
+    setMarkeringSyncState?.("pending");
     try {
       const markering = await actions.markeerAanvraag({
         aanvraagId: selectedJob.id,
         status: "relevant",
       });
       setSelectedJob({ ...selectedJob, markering });
-    } catch {
+      setMarkeringSyncState?.("commit");
+    } catch (error) {
+      // A transport failure can happen after the server committed. Keep the
+      // open detail visibly uncertain so the bounded readback poll can settle
+      // it, instead of falsely claiming a rollback.
+      setMarkeringSyncState?.(
+        error instanceof Error ? markeringMutationOutcome(error) : "uncertain"
+      );
       setSnapshotMessage("Markeren mislukt. Probeer het opnieuw.");
     }
   },

@@ -83,7 +83,9 @@ interface SnapshotResponseBody {
 
 interface MarkeerResponseBody {
   readonly reden: string | null;
+  readonly revision: number;
   readonly status: JobMarkering["status"];
+  readonly updatedAt: string;
 }
 
 export interface RestJobIntelligenceBundle {
@@ -239,6 +241,29 @@ export const createRestJobIntelligence = ({
     });
   };
 
+  // RJC-445: this is deliberately a resource-scoped read, rather than a
+  // global event stream. An open detail can cheaply re-read its own marker
+  // and converge after an agent mutation, while auth keeps the actor/scope
+  // boundary on the server.
+  const getMarkering = async (id: string): Promise<JobMarkering | null> => {
+    try {
+      const result = await client.get<MarkeerResponseBody>(
+        `/v1/aanvragen/${id}/markering`
+      );
+      return {
+        reden: result.reden,
+        revision: result.revision,
+        status: result.status,
+        updatedAt: result.updatedAt,
+      };
+    } catch (error) {
+      if (error instanceof CapabilityRequestError && error.status === 404) {
+        return null;
+      }
+      throw error;
+    }
+  };
+
   // RJC-368: the bron filter list is derived from the live /v1/bronnen
   // catalog (actieve bronnen only — a deferred/inactive bron would only ever
   // show a permanent 0-count checkbox), independent of the current search's
@@ -318,6 +343,7 @@ export const createRestJobIntelligence = ({
 
   const adapter: JobDataAdapter = {
     getById: loadAanvraag,
+    getMarkering,
     listSources,
     search: async (request): Promise<JobSearchResponse> => {
       if (request.previewStatus === "loading") {
@@ -393,7 +419,12 @@ export const createRestJobIntelligence = ({
         `/v1/aanvragen/${aanvraagId}/markering`,
         { reden, status }
       );
-      return { reden: result.reden, status: result.status };
+      return {
+        reden: result.reden,
+        revision: result.revision,
+        status: result.status,
+        updatedAt: result.updatedAt,
+      };
     },
   };
 

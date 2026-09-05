@@ -20,6 +20,7 @@ import {
   JobSyntaxErrorState,
 } from "./job-search-states";
 import { JobSearchToolbar } from "./job-search-toolbar";
+import { hasNewerMarkering } from "./markering-sync";
 import { validateBooleanPreview } from "./presentation";
 import { runAsync } from "./run-async";
 import {
@@ -39,8 +40,11 @@ import type {
   JobSearchState,
   JobSource,
   JobSourceOption,
+  MarkeringSyncState,
   PreviewStatus,
 } from "./types";
+
+const MARKERING_POLL_INTERVAL_MS = 5000;
 
 const emptyFilters: JobSearchFilters = {
   contractTypes: [],
@@ -333,9 +337,12 @@ const JobSearchPageContent = ({
   const [snapshotMessage, setSnapshotMessage] = useState<string | null>(null);
   const [isSavingSearch, setIsSavingSearch] = useState(false);
   const [isCreatingSnapshot, setIsCreatingSnapshot] = useState(false);
+  const [markeringSyncState, setMarkeringSyncState] =
+    useState<MarkeringSyncState>("idle");
   const [sources, setSources] = useState<readonly JobSourceOption[]>([]);
   const isDetailOverlay = useMediaQuery("(max-width: 1199px)");
   const detailTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const lastAppliedMarkering = useRef<JobListing["markering"]>(null);
   const previousSelectedJobId = useRef<string | null>(state.selectedJobId);
 
   useEffect(() => {
@@ -397,6 +404,7 @@ const JobSearchPageContent = ({
   useEffect(() => {
     let isCurrent = true;
     const { selectedJobId } = state;
+    setMarkeringSyncState("idle");
     if (!selectedJobId) {
       setSelectedJob(null);
       return;
@@ -420,6 +428,77 @@ const JobSearchPageContent = ({
     void loadSelectedJob();
     return () => {
       isCurrent = false;
+    };
+  }, [adapter, state.selectedJobId]);
+
+  useEffect(() => {
+    const { selectedJobId } = state;
+    const { getMarkering } = adapter;
+    if (!selectedJobId || !getMarkering) {
+      return;
+    }
+
+    let isCurrent = true;
+    let inFlight = false;
+    lastAppliedMarkering.current = null;
+    const applyMarkering = (markering: JobListing["markering"]) => {
+      if (!isCurrent) {
+        return;
+      }
+      if (!hasNewerMarkering(lastAppliedMarkering.current, markering ?? null)) {
+        return;
+      }
+      lastAppliedMarkering.current = markering;
+      setSelectedJob((current) =>
+        current?.id === selectedJobId ? { ...current, markering } : current
+      );
+      setResponse((current) => ({
+        ...current,
+        items: current.items.map((job) =>
+          job.id === selectedJobId &&
+          hasNewerMarkering(job.markering, markering ?? null)
+            ? { ...job, markering }
+            : job
+        ),
+      }));
+      if (markering) {
+        setMarkeringSyncState("commit");
+      }
+    };
+    const poll = async () => {
+      if (inFlight || document.visibilityState === "hidden") {
+        return;
+      }
+      inFlight = true;
+      try {
+        const markering = await getMarkering(selectedJobId);
+        applyMarkering(markering);
+      } catch {
+        // A transient read failure leaves the last known marker visible. A
+        // later poll or a visibility reconnect will reconcile it.
+      } finally {
+        inFlight = false;
+      }
+    };
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        void poll();
+      }
+    };
+
+    const pollOnInterval = () => {
+      void poll();
+    };
+    void poll();
+    const interval = window.setInterval(
+      pollOnInterval,
+      MARKERING_POLL_INTERVAL_MS
+    );
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => {
+      isCurrent = false;
+      window.clearInterval(interval);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
     };
   }, [adapter, state.selectedJobId]);
 
@@ -515,6 +594,7 @@ const JobSearchPageContent = ({
       selectedJob,
       setIsCreatingSnapshot,
       setIsSavingSearch,
+      setMarkeringSyncState,
       setSavedSearchMessage,
       setSelectedJob,
       setSnapshotMessage,
@@ -675,6 +755,7 @@ const JobSearchPageContent = ({
               job={selectedJob}
               liveData={liveData}
               markering={selectedJob.markering ?? null}
+              markeringSyncState={markeringSyncState}
               onClose={closeJob}
               onMarkeer={actions ? () => runAsync(markSelectedJob) : undefined}
               titleId="desktop-job-detail-title"
@@ -741,6 +822,7 @@ const JobSearchPageContent = ({
             job={selectedJob}
             liveData={liveData}
             markering={selectedJob.markering ?? null}
+            markeringSyncState={markeringSyncState}
             onClose={closeJob}
             onMarkeer={actions ? () => runAsync(markSelectedJob) : undefined}
             titleId="overlay-job-detail-title"

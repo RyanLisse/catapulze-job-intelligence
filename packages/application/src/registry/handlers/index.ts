@@ -1133,7 +1133,9 @@ export const markeerAanvraagOutputSchema = z
     aanvraagId: z.string(),
     auditEventId: z.string(),
     reden: z.string().nullable(),
+    revision: z.number().int().positive(),
     status: z.enum(["relevant", "niet_relevant", "gevolgd"]),
+    updatedAt: z.string().datetime(),
   })
   .strict();
 
@@ -1171,7 +1173,9 @@ export const createMarkeerAanvraagHandler =
         aanvraagId: markering.aanvraagId,
         auditEventId: auditEvent.id,
         reden: markering.reden,
+        revision: markering.revision,
         status: markering.status,
+        updatedAt: markering.updatedAt.toISOString(),
       },
     };
   };
@@ -1200,7 +1204,9 @@ export const createGetMarkeringHandler =
           value: {
             aanvraagId: markering.aanvraagId,
             reden: markering.reden,
+            revision: markering.revision,
             status: markering.status,
+            updatedAt: markering.updatedAt.toISOString(),
           },
         }
       : domainFailure("NOT_FOUND", "Markering not found", {

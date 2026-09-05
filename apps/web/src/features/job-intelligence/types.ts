@@ -106,8 +106,18 @@ export type JobMarkeringStatus = (typeof JOB_MARKERING_STATUSES)[number];
 
 export interface JobMarkering {
   readonly reden: string | null;
+  /** Monotone server version used by the bounded detail poller. */
+  readonly revision?: number;
   readonly status: JobMarkeringStatus;
+  readonly updatedAt?: string;
 }
+
+export type MarkeringSyncState =
+  | "idle"
+  | "pending"
+  | "commit"
+  | "failure"
+  | "uncertain";
 
 export interface JobListing {
   readonly id: string;
@@ -181,6 +191,8 @@ export interface JobSearchResponse {
 
 export interface JobDataAdapter {
   readonly getById: (id: string) => Promise<JobListing | null>;
+  /** Read-only, actor and resource scoped marker readback for open details. */
+  readonly getMarkering?: (id: string) => Promise<JobMarkering | null>;
   readonly listSources: () => Promise<readonly JobSourceOption[]>;
   readonly search: (request: JobSearchRequest) => Promise<JobSearchResponse>;
 }
