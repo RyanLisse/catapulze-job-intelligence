@@ -28,7 +28,18 @@ volume_name="$({
 POSTGRES_DATA_VOLUME="$volume_name" bash tools/postgres/ensure-volume.sh
 
 cleanup() {
-  "${compose_command[@]}" --profile projector down
+  local exit_status=$?
+  local cleanup_status=0
+  if ((exit_status != 0)); then
+    echo "docker-compose smoke: collecting failure diagnostics (exit $exit_status)" >&2
+    "${compose_command[@]}" ps >&2 || true
+    "${compose_command[@]}" logs --no-color --tail 80 server projector >&2 || true
+  fi
+  "${compose_command[@]}" --profile projector down || cleanup_status=$?
+  if ((exit_status != 0)); then
+    return "$exit_status"
+  fi
+  return "$cleanup_status"
 }
 trap cleanup EXIT
 
