@@ -83,4 +83,39 @@ export class MemoryMarkeringStore implements MarkeringStore {
       throw error;
     }
   }
+
+  async clearWithAudit(
+    aanvraagId: string,
+    userId: string,
+    scopeId: string,
+    actorType: AuditActorType
+  ) {
+    const key = markeringKey(aanvraagId, userId, scopeId);
+    const cleared = this.records.get(key);
+    if (!cleared) {
+      return null;
+    }
+    this.records.delete(key);
+    try {
+      const auditEvent = await this.audit.append({
+        action: "clear_markering",
+        actorId: userId,
+        actorType,
+        auditClass: "effect",
+        entityId: aanvraagId,
+        entityType: "aanvraag",
+        metadata: {
+          cleared: true,
+          reden: cleared.reden,
+          revision: cleared.revision,
+          status: cleared.status,
+        },
+        scopeId,
+      });
+      return { auditEvent, cleared: structuredClone(cleared) };
+    } catch (error) {
+      this.records.set(key, cleared);
+      throw error;
+    }
+  }
 }

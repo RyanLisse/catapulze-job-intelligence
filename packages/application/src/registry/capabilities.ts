@@ -15,28 +15,40 @@ import {
   createBatchGetAanvragenHandler,
   createCompleteTaskHandler,
   createCommitExportHandler,
+  createClearMarkeringHandler,
+  createGetExportStatusHandler,
   createGetAanvraagHandler,
   createGetBronHandler,
   createGetBronHealthHandler,
   createGetSnapshotApprovalHandler,
+  createGetSnapshotHandler,
+  createGetMarkeringHandler,
+  createGetSavedSearchHandler,
+  createListSavedSearchesHandler,
   createListAlertsHandler,
   createListBronnenHandler,
   createListVersiesHandler,
   createMarkeerAanvraagHandler,
   createReadRawHandler,
   createSavedSearchHandler,
+  createRemoveSavedSearchHandler,
   createSavedSearchInputSchema,
   createSearchAanvragenHandler,
   createSnapshotHandler,
   createSnapshotInputSchema,
   createStartRunHandler,
   createStartTestImportHandler,
+  createUpdateSavedSearchHandler,
   createValidateSnapshotApprovalHandler,
   dualBindings,
   approveSnapshotInputSchema,
   approvalViewSchema,
   getSnapshotApprovalInputSchema,
   getSnapshotApprovalOutputSchema,
+  getSnapshotInputSchema,
+  getSnapshotOutputSchema,
+  getExportStatusInputSchema,
+  getExportStatusOutputSchema,
   validateSnapshotApprovalInputSchema,
   validateSnapshotApprovalOutputSchema,
   getAanvraagInputSchema,
@@ -51,16 +63,23 @@ import {
   listVersiesOutputSchema,
   markeerAanvraagInputSchema,
   markeerAanvraagOutputSchema,
+  getMarkeringInputSchema,
+  getMarkeringOutputSchema,
+  clearMarkeringOutputSchema,
   operatorRunOutputSchema,
   readRawInputSchema,
   readRawOutputSchema,
   savedSearchViewSchema,
+  savedSearchIdInputSchema,
+  listSavedSearchesOutputSchema,
+  removeSavedSearchOutputSchema,
   searchAanvragenInputSchema,
   searchAanvragenOutputSchema,
   sliceADomainFailureSchema,
   snapshotViewSchema,
   startRunInputSchema,
   startTestImportInputSchema,
+  updateSavedSearchInputSchema,
 } from "./handlers";
 import type { SliceAHandlerDeps } from "./handlers/deps";
 import { defineSliceACapabilityEntry } from "./metadata";
@@ -186,6 +205,70 @@ export const createSliceACapabilityCatalog = (deps: SliceAHandlerDeps) => {
     outputSchema: savedSearchViewSchema,
   });
 
+  const listSavedSearches = defineCapability({
+    authorization: { permission: ROLE_RECRUITER },
+    bindings: dualBindings("GET", "/v1/saved-searches", "list_saved_searches"),
+    effect: "read",
+    failureSchema: domainFailureSchema,
+    grounding: true,
+    handler: createListSavedSearchesHandler(deps),
+    id: "list_saved_searches",
+    inputSchema: z.object({}).strict(),
+    outcome: "Lijst eigen actieve opgeslagen zoekopdrachten",
+    outputSchema: listSavedSearchesOutputSchema,
+  });
+
+  const getSavedSearch = defineCapability({
+    authorization: { permission: ROLE_RECRUITER },
+    bindings: dualBindings(
+      "GET",
+      "/v1/saved-searches/{id}",
+      "get_saved_search"
+    ),
+    effect: "read",
+    failureSchema: domainFailureSchema,
+    grounding: true,
+    handler: createGetSavedSearchHandler(deps),
+    id: "get_saved_search",
+    inputSchema: savedSearchIdInputSchema,
+    outcome: "Lees een eigen opgeslagen zoekopdracht",
+    outputSchema: savedSearchViewSchema,
+  });
+
+  const updateSavedSearch = defineCapability({
+    authorization: { permission: ROLE_RECRUITER },
+    bindings: dualBindings(
+      "PUT",
+      "/v1/saved-searches/{id}",
+      "update_saved_search"
+    ),
+    effect: "internal-write",
+    failureSchema: domainFailureSchema,
+    grounding: true,
+    handler: createUpdateSavedSearchHandler(deps),
+    id: "update_saved_search",
+    inputSchema: updateSavedSearchInputSchema,
+    outcome: "Wijzig een eigen opgeslagen zoekopdracht met auditspoor",
+    outputSchema: savedSearchViewSchema,
+  });
+
+  const removeSavedSearch = defineCapability({
+    authorization: { permission: ROLE_RECRUITER },
+    bindings: dualBindings(
+      "DELETE",
+      "/v1/saved-searches/{id}",
+      "remove_saved_search"
+    ),
+    effect: "internal-write",
+    failureSchema: domainFailureSchema,
+    grounding: true,
+    handler: createRemoveSavedSearchHandler(deps),
+    id: "remove_saved_search",
+    inputSchema: savedSearchIdInputSchema,
+    outcome: "Verwijder een eigen opgeslagen zoekopdracht logisch",
+    outputSchema: removeSavedSearchOutputSchema,
+  });
+
   const createSnapshot = defineCapability({
     authorization: { permission: ROLE_RECRUITER },
     bindings: dualBindings("POST", "/v1/snapshots", "create_snapshot"),
@@ -197,6 +280,36 @@ export const createSliceACapabilityCatalog = (deps: SliceAHandlerDeps) => {
     inputSchema: createSnapshotInputSchema,
     outcome: "Maak immutable QuerySnapshot van huidige zoekresultaten",
     outputSchema: snapshotViewSchema,
+  });
+
+  const getSnapshot = defineCapability({
+    authorization: { permission: ROLE_RECRUITER },
+    bindings: dualBindings("GET", "/v1/snapshots/{id}", "get_snapshot"),
+    effect: "read",
+    failureSchema: domainFailureSchema,
+    grounding: true,
+    handler: createGetSnapshotHandler(deps),
+    id: "get_snapshot",
+    inputSchema: getSnapshotInputSchema,
+    outcome: "Lees eigen immutable snapshotcontext en approvalstatus",
+    outputSchema: getSnapshotOutputSchema,
+  });
+
+  const getExportStatus = defineCapability({
+    authorization: { permission: PERM_EXPORT },
+    bindings: dualBindings(
+      "GET",
+      "/v1/exports/{snapshotId}",
+      "get_export_status"
+    ),
+    effect: "read",
+    failureSchema: domainFailureSchema,
+    grounding: true,
+    handler: createGetExportStatusHandler(deps),
+    id: "get_export_status",
+    inputSchema: getExportStatusInputSchema,
+    outcome: "Lees exportpogingen en herstelstatus zonder exportwrite",
+    outputSchema: getExportStatusOutputSchema,
   });
 
   const approveSnapshot = defineCapability({
@@ -279,6 +392,40 @@ export const createSliceACapabilityCatalog = (deps: SliceAHandlerDeps) => {
     inputSchema: markeerAanvraagInputSchema,
     outcome: "Markeer aanvraag relevant, niet relevant of gevolgd",
     outputSchema: markeerAanvraagOutputSchema,
+  });
+
+  const getMarkering = defineCapability({
+    authorization: { permission: ROLE_RECRUITER },
+    bindings: dualBindings(
+      "GET",
+      "/v1/aanvragen/{id}/markering",
+      "get_markering"
+    ),
+    effect: "read",
+    failureSchema: domainFailureSchema,
+    grounding: true,
+    handler: createGetMarkeringHandler(deps),
+    id: "get_markering",
+    inputSchema: getMarkeringInputSchema,
+    outcome: "Lees eigen markering",
+    outputSchema: getMarkeringOutputSchema,
+  });
+
+  const clearMarkering = defineCapability({
+    authorization: { permission: ROLE_RECRUITER },
+    bindings: dualBindings(
+      "DELETE",
+      "/v1/aanvragen/{id}/markering",
+      "clear_markering"
+    ),
+    effect: "internal-write",
+    failureSchema: domainFailureSchema,
+    grounding: true,
+    handler: createClearMarkeringHandler(deps),
+    id: "clear_markering",
+    inputSchema: getMarkeringInputSchema,
+    outcome: "Wis eigen markering met behoud van immutable auditspoor",
+    outputSchema: clearMarkeringOutputSchema,
   });
 
   const listAlerts = defineCapability({
@@ -453,6 +600,46 @@ export const createSliceACapabilityCatalog = (deps: SliceAHandlerDeps) => {
         "ui:SearchPanel.SaveQuery",
       ],
     }),
+    defineSliceACapabilityEntry(listSavedSearches, {
+      auditClass: "access",
+      reversible: true,
+      sideEffectClass: "read",
+      target: "internal",
+      wiredTransports: [
+        "mcp:list_saved_searches",
+        "rest:GET /v1/saved-searches",
+      ],
+    }),
+    defineSliceACapabilityEntry(getSavedSearch, {
+      auditClass: "access",
+      reversible: true,
+      sideEffectClass: "read",
+      target: "internal",
+      wiredTransports: [
+        "mcp:get_saved_search",
+        "rest:GET /v1/saved-searches/{id}",
+      ],
+    }),
+    defineSliceACapabilityEntry(updateSavedSearch, {
+      auditClass: "effect",
+      reversible: true,
+      sideEffectClass: "commit",
+      target: "internal",
+      wiredTransports: [
+        "mcp:update_saved_search",
+        "rest:PUT /v1/saved-searches/{id}",
+      ],
+    }),
+    defineSliceACapabilityEntry(removeSavedSearch, {
+      auditClass: "effect",
+      reversible: false,
+      sideEffectClass: "commit",
+      target: "internal",
+      wiredTransports: [
+        "mcp:remove_saved_search",
+        "rest:DELETE /v1/saved-searches/{id}",
+      ],
+    }),
     defineSliceACapabilityEntry(createSnapshot, {
       auditClass: "effect",
       reversible: false,
@@ -463,6 +650,13 @@ export const createSliceACapabilityCatalog = (deps: SliceAHandlerDeps) => {
         "rest:POST /v1/snapshots",
         "ui:SearchPanel.CreateSnapshot",
       ],
+    }),
+    defineSliceACapabilityEntry(getSnapshot, {
+      auditClass: "access",
+      reversible: true,
+      sideEffectClass: "read",
+      target: "internal",
+      wiredTransports: ["mcp:get_snapshot", "rest:GET /v1/snapshots/{id}"],
     }),
     defineSliceACapabilityEntry(approveSnapshot, {
       auditClass: "effect",
@@ -506,6 +700,16 @@ export const createSliceACapabilityCatalog = (deps: SliceAHandlerDeps) => {
         "ui:DetailPanel.Doorzetten",
       ],
     }),
+    defineSliceACapabilityEntry(getExportStatus, {
+      auditClass: "access",
+      reversible: true,
+      sideEffectClass: "read",
+      target: "internal",
+      wiredTransports: [
+        "mcp:get_export_status",
+        "rest:GET /v1/exports/{snapshotId}",
+      ],
+    }),
     defineSliceACapabilityEntry(markeerAanvraag, {
       auditClass: "effect",
       reversible: true,
@@ -515,6 +719,26 @@ export const createSliceACapabilityCatalog = (deps: SliceAHandlerDeps) => {
         "mcp:markeer_aanvraag",
         "rest:POST /v1/aanvragen/{id}/markering",
         "ui:DetailPanel.Markeer",
+      ],
+    }),
+    defineSliceACapabilityEntry(getMarkering, {
+      auditClass: "access",
+      reversible: true,
+      sideEffectClass: "read",
+      target: "internal",
+      wiredTransports: [
+        "mcp:get_markering",
+        "rest:GET /v1/aanvragen/{id}/markering",
+      ],
+    }),
+    defineSliceACapabilityEntry(clearMarkering, {
+      auditClass: "effect",
+      reversible: true,
+      sideEffectClass: "commit",
+      target: "internal",
+      wiredTransports: [
+        "mcp:clear_markering",
+        "rest:DELETE /v1/aanvragen/{id}/markering",
       ],
     }),
     defineSliceACapabilityEntry(listAlerts, {
@@ -597,12 +821,20 @@ export const sliceACapabilityIds = [
   "list_bronnen",
   "get_bron",
   "create_saved_search",
+  "list_saved_searches",
+  "get_saved_search",
+  "update_saved_search",
+  "remove_saved_search",
   "create_snapshot",
+  "get_snapshot",
   "approve_snapshot",
   "get_snapshot_approval",
   "validate_snapshot_approval",
   "commit_export",
+  "get_export_status",
   "markeer_aanvraag",
+  "get_markering",
+  "clear_markering",
   "list_alerts",
   "get_bron_health",
   "ack_alert",

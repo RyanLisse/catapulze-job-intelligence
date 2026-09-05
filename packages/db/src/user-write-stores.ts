@@ -14,7 +14,7 @@ import type {
 } from "@ji/application/registry";
 import { searchFiltersSchema } from "@ji/application/registry";
 import type { ExtractTablesWithRelations } from "drizzle-orm";
-import { and, desc, eq, sql } from "drizzle-orm";
+import { and, asc, desc, eq, isNull, sql } from "drizzle-orm";
 import type {
   PostgresJsDatabase,
   PostgresJsTransaction,
@@ -69,6 +69,21 @@ const auditMetadataSchema: z.ZodType<AuditEventMetadata> = z.union([
       status: markeringStatusSchema,
     })
     .strict(),
+  z
+    .object({
+      cleared: z.literal(true),
+      reden: z.string().nullable(),
+      revision: z.number().int().positive(),
+      status: markeringStatusSchema,
+    })
+    .strict(),
+  z
+    .object({
+      deleted: z.boolean(),
+      naam: z.string(),
+      queryText: z.string(),
+    })
+    .strict(),
 ]);
 
 const requireRow = <Row>(rows: Row[], description: string): Row => {
@@ -83,6 +98,7 @@ const toSavedSearchRecord = (
   row: typeof savedSearch.$inferSelect
 ): SavedSearchRecord => ({
   createdAt: row.createdAt,
+  deletedAt: row.deletedAt,
   filters: searchFiltersSchema.parse(row.filters),
   id: row.id,
   naam: row.naam,
@@ -148,28 +164,45 @@ export const appendPostgresAuditEvent: PostgresAuditAppender = async (
 };
 
 export class PostgresSavedSearchStore implements SavedSearchStore {
+  private readonly appendAudit: PostgresAuditAppender;
   private readonly database: UserWriteDatabase;
 
-  constructor(database: UserWriteDatabase) {
+  constructor(
+    database: UserWriteDatabase,
+    appendAudit: PostgresAuditAppender = appendPostgresAuditEvent
+  ) {
+    this.appendAudit = appendAudit;
     this.database = database;
   }
 
-  async create(
-    record: Omit<SavedSearchRecord, "createdAt" | "id" | "updatedAt">
-  ): Promise<SavedSearchRecord> {
-    const rows = await this.database
-      .insert(savedSearch)
-      .values({
-        filters: record.filters,
-        naam: record.naam,
-        parserVersion: record.parserVersion,
-        queryText: record.queryText,
-        schemaVersion: record.schemaVersion,
+  createWithAudit(
+    record: Omit<SavedSearchRecord, "createdAt" | "id" | "updatedAt">,
+    actorType: AuditActorType
+  ) {
+    return this.database.transaction(async (transaction) => {
+      const rows = await transaction
+        .insert(savedSearch)
+        .values({ ...record })
+        .returning();
+      const saved = toSavedSearchRecord(
+        requireRow(rows, "create saved search")
+      );
+      const storedAuditEvent = await this.appendAudit(transaction, {
+        action: "create_saved_search",
+        actorId: record.userId,
+        actorType,
+        auditClass: "effect",
+        entityId: saved.id,
+        entityType: "saved_search",
+        metadata: {
+          deleted: false,
+          naam: saved.naam,
+          queryText: saved.queryText,
+        },
         scopeId: record.scopeId,
-        userId: record.userId,
-      })
-      .returning();
-    return toSavedSearchRecord(requireRow(rows, "create saved search"));
+      });
+      return { auditEvent: storedAuditEvent, savedSearch: saved };
+    });
   }
 
   async getById(
@@ -184,11 +217,115 @@ export class PostgresSavedSearchStore implements SavedSearchStore {
         and(
           eq(savedSearch.id, id),
           eq(savedSearch.userId, userId),
-          eq(savedSearch.scopeId, scopeId)
+          eq(savedSearch.scopeId, scopeId),
+          isNull(savedSearch.deletedAt)
         )
       )
       .limit(1);
     return row ? toSavedSearchRecord(row) : null;
+  }
+
+  async list(userId: string, scopeId: string) {
+    const rows = await this.database
+      .select()
+      .from(savedSearch)
+      .where(
+        and(
+          eq(savedSearch.userId, userId),
+          eq(savedSearch.scopeId, scopeId),
+          isNull(savedSearch.deletedAt)
+        )
+      )
+      .orderBy(asc(savedSearch.createdAt), asc(savedSearch.id));
+    return rows.map(toSavedSearchRecord);
+  }
+
+  removeWithAudit(
+    id: string,
+    userId: string,
+    scopeId: string,
+    actorType: AuditActorType
+  ) {
+    return this.database.transaction(async (transaction) => {
+      const rows = await transaction
+        .update(savedSearch)
+        .set({ deletedAt: new Date(), updatedAt: new Date() })
+        .where(
+          and(
+            eq(savedSearch.id, id),
+            eq(savedSearch.userId, userId),
+            eq(savedSearch.scopeId, scopeId),
+            isNull(savedSearch.deletedAt)
+          )
+        )
+        .returning();
+      const [row] = rows;
+      if (!row) {
+        return null;
+      }
+      const removed = toSavedSearchRecord(row);
+      const storedAuditEvent = await this.appendAudit(transaction, {
+        action: "remove_saved_search",
+        actorId: userId,
+        actorType,
+        auditClass: "effect",
+        entityId: id,
+        entityType: "saved_search",
+        metadata: {
+          deleted: true,
+          naam: removed.naam,
+          queryText: removed.queryText,
+        },
+        scopeId,
+      });
+      return { auditEvent: storedAuditEvent, savedSearch: removed };
+    });
+  }
+
+  updateWithAudit(
+    id: string,
+    userId: string,
+    scopeId: string,
+    patch: Pick<
+      SavedSearchRecord,
+      "filters" | "naam" | "parserVersion" | "queryText" | "schemaVersion"
+    >,
+    actorType: AuditActorType
+  ) {
+    return this.database.transaction(async (transaction) => {
+      const rows = await transaction
+        .update(savedSearch)
+        .set({ ...patch, updatedAt: new Date() })
+        .where(
+          and(
+            eq(savedSearch.id, id),
+            eq(savedSearch.userId, userId),
+            eq(savedSearch.scopeId, scopeId),
+            isNull(savedSearch.deletedAt)
+          )
+        )
+        .returning();
+      const [row] = rows;
+      if (!row) {
+        return null;
+      }
+      const updated = toSavedSearchRecord(row);
+      const storedAuditEvent = await this.appendAudit(transaction, {
+        action: "update_saved_search",
+        actorId: userId,
+        actorType,
+        auditClass: "effect",
+        entityId: id,
+        entityType: "saved_search",
+        metadata: {
+          deleted: false,
+          naam: updated.naam,
+          queryText: updated.queryText,
+        },
+        scopeId,
+      });
+      return { auditEvent: storedAuditEvent, savedSearch: updated };
+    });
   }
 }
 
@@ -305,6 +442,47 @@ export class PostgresMarkeringStore implements MarkeringStore {
         auditEvent: storedAuditEvent,
         markering: storedMarkering,
       };
+    });
+  }
+
+  clearWithAudit(
+    aanvraagId: string,
+    userId: string,
+    scopeId: string,
+    actorType: AuditActorType
+  ) {
+    return this.database.transaction(async (transaction) => {
+      const rows = await transaction
+        .delete(aanvraagMarkering)
+        .where(
+          and(
+            eq(aanvraagMarkering.aanvraagId, aanvraagId),
+            eq(aanvraagMarkering.userId, userId),
+            eq(aanvraagMarkering.scopeId, scopeId)
+          )
+        )
+        .returning();
+      const [row] = rows;
+      if (!row) {
+        return null;
+      }
+      const cleared = toMarkeringRecord(row);
+      const storedAuditEvent = await this.appendAudit(transaction, {
+        action: "clear_markering",
+        actorId: userId,
+        actorType,
+        auditClass: "effect",
+        entityId: aanvraagId,
+        entityType: "aanvraag",
+        metadata: {
+          cleared: true,
+          reden: cleared.reden,
+          revision: cleared.revision,
+          status: cleared.status,
+        },
+        scopeId,
+      });
+      return { auditEvent: storedAuditEvent, cleared };
     });
   }
 }

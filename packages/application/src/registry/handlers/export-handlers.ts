@@ -98,3 +98,137 @@ export const createCommitExportHandler =
       },
     };
   };
+
+export const getExportStatusInputSchema = z
+  .object({ snapshotId: z.string().uuid() })
+  .strict();
+
+const exportReadbackStatusSchema = z.enum([
+  "no_attempt",
+  "attempted",
+  "confirmed",
+  "failed",
+  "unknown",
+]);
+
+type ExportReadbackStatus = z.output<typeof exportReadbackStatusSchema>;
+
+const attemptReadbackStatus = (
+  attemptStatus: "created" | "failed" | "skipped",
+  confirmedEffect: boolean | undefined
+): ExportReadbackStatus => {
+  if (attemptStatus === "failed") {
+    return "failed";
+  }
+  if (confirmedEffect) {
+    return "unknown";
+  }
+  return "attempted";
+};
+
+const aggregateReadbackStatus = (
+  attempts: readonly { readonly status: ExportReadbackStatus }[]
+): ExportReadbackStatus => {
+  if (attempts.length === 0) {
+    return "no_attempt";
+  }
+  if (attempts.some((attempt) => attempt.status === "unknown")) {
+    return "unknown";
+  }
+  if (attempts.every((attempt) => attempt.status === "failed")) {
+    return "failed";
+  }
+  return "attempted";
+};
+
+export const getExportStatusOutputSchema = z
+  .object({
+    attempts: z.array(
+      z
+        .object({
+          canonicalVacancyId: z.string(),
+          createdAt: z.string(),
+          errorMessage: z.string().nullable(),
+          externalId: z.string().nullable(),
+          id: z.string(),
+          idempotencyKey: z.string(),
+          receipt: z
+            .object({
+              confirmedEffect: z.boolean(),
+              id: z.string(),
+              responseHash: z.string(),
+            })
+            .nullable(),
+          status: exportReadbackStatusSchema,
+        })
+        .strict()
+    ),
+    liveConfirmationAvailable: z.literal(false),
+    snapshotId: z.string(),
+    status: exportReadbackStatusSchema,
+  })
+  .strict();
+
+export const createGetExportStatusHandler =
+  (deps: SliceAHandlerDeps) =>
+  async (
+    input: z.output<typeof getExportStatusInputSchema>,
+    context: { principal: { subjectId: string } }
+  ) => {
+    const snapshot = await deps.stores.snapshots.getById(
+      input.snapshotId,
+      deps.scopeId
+    );
+    if (!snapshot || snapshot.userId !== context.principal.subjectId) {
+      return {
+        error: {
+          code: "NOT_FOUND" as const,
+          details: { id: input.snapshotId },
+          message: "QuerySnapshot not found",
+        },
+        ok: false as const,
+      };
+    }
+    const attempts = await deps.stores.exportAttempts.listBySnapshotId(
+      snapshot.id,
+      deps.scopeId
+    );
+    const views = await Promise.all(
+      attempts.map(async (attempt) => {
+        const receipt = await deps.stores.externalReceipts.getByExportAttemptId(
+          attempt.id,
+          deps.scopeId
+        );
+        const status = attemptReadbackStatus(
+          attempt.status,
+          receipt?.confirmedEffect
+        );
+        return {
+          canonicalVacancyId: attempt.canonicalVacancyId,
+          createdAt: attempt.createdAt.toISOString(),
+          errorMessage: attempt.errorMessage,
+          externalId: attempt.externalId,
+          id: attempt.id,
+          idempotencyKey: attempt.idempotencyKey,
+          receipt: receipt
+            ? {
+                confirmedEffect: receipt.confirmedEffect,
+                id: receipt.id,
+                responseHash: receipt.responseHash,
+              }
+            : null,
+          status,
+        };
+      })
+    );
+    const status = aggregateReadbackStatus(views);
+    return {
+      ok: true as const,
+      value: {
+        attempts: views,
+        liveConfirmationAvailable: false as const,
+        snapshotId: snapshot.id,
+        status,
+      },
+    };
+  };

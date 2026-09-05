@@ -11,6 +11,7 @@ export type AuditActorType = "agent" | "service" | "system" | "user";
 
 export interface SavedSearchRecord {
   readonly createdAt: Date;
+  readonly deletedAt: Date | null;
   readonly filters: SearchFilters;
   readonly id: string;
   readonly naam: string;
@@ -87,6 +88,17 @@ export interface MarkeerAuditMetadata {
   readonly status: "gevolgd" | "niet_relevant" | "relevant";
 }
 
+export interface ClearMarkeringAuditMetadata extends MarkeerAuditMetadata {
+  readonly cleared: true;
+  readonly revision: number;
+}
+
+export interface SavedSearchAuditMetadata {
+  readonly deleted: boolean;
+  readonly naam: string;
+  readonly queryText: string;
+}
+
 export interface ApprovalAuditMetadata {
   readonly expiresAt: string;
   readonly motivatie: string;
@@ -103,8 +115,10 @@ export interface CommitExportAuditMetadata {
 
 export type AuditEventMetadata =
   | ApprovalAuditMetadata
+  | ClearMarkeringAuditMetadata
   | CommitExportAuditMetadata
-  | MarkeerAuditMetadata;
+  | MarkeerAuditMetadata
+  | SavedSearchAuditMetadata;
 
 export type AlertEvidenceValue = boolean | null | number | string;
 
@@ -144,9 +158,13 @@ export interface BronHealthRecord {
 }
 
 export interface SavedSearchStore {
-  create: (
-    record: Omit<SavedSearchRecord, "createdAt" | "id" | "updatedAt">
-  ) => Promise<SavedSearchRecord>;
+  createWithAudit: (
+    record: Omit<SavedSearchRecord, "createdAt" | "id" | "updatedAt">,
+    actorType: AuditActorType
+  ) => Promise<{
+    readonly auditEvent: AuditEventRecord;
+    readonly savedSearch: SavedSearchRecord;
+  }>;
   /**
    * Owner-scoped lookup. Returning null for another user's record prevents a
    * caller from discovering or binding another tenant's saved search by id.
@@ -156,6 +174,32 @@ export interface SavedSearchStore {
     userId: string,
     scopeId: string
   ) => Promise<SavedSearchRecord | null>;
+  list: (
+    userId: string,
+    scopeId: string
+  ) => Promise<readonly SavedSearchRecord[]>;
+  removeWithAudit: (
+    id: string,
+    userId: string,
+    scopeId: string,
+    actorType: AuditActorType
+  ) => Promise<{
+    readonly auditEvent: AuditEventRecord;
+    readonly savedSearch: SavedSearchRecord;
+  } | null>;
+  updateWithAudit: (
+    id: string,
+    userId: string,
+    scopeId: string,
+    patch: Pick<
+      SavedSearchRecord,
+      "filters" | "naam" | "parserVersion" | "queryText" | "schemaVersion"
+    >,
+    actorType: AuditActorType
+  ) => Promise<{
+    readonly auditEvent: AuditEventRecord;
+    readonly savedSearch: SavedSearchRecord;
+  } | null>;
 }
 
 export interface QuerySnapshotStore {
@@ -231,6 +275,15 @@ export interface MarkeringStore {
     readonly auditEvent: AuditEventRecord;
     readonly markering: AanvraagMarkering;
   }>;
+  clearWithAudit: (
+    aanvraagId: string,
+    userId: string,
+    scopeId: string,
+    actorType: AuditActorType
+  ) => Promise<{
+    readonly auditEvent: AuditEventRecord;
+    readonly cleared: AanvraagMarkering;
+  } | null>;
 }
 
 export interface AuditStore {
@@ -313,6 +366,10 @@ export interface ExportAttemptStore {
   create: (
     record: Omit<ExportAttemptRecord, "createdAt" | "id">
   ) => Promise<ExportAttemptRecord>;
+  listBySnapshotId: (
+    snapshotId: string,
+    scopeId: string
+  ) => Promise<readonly ExportAttemptRecord[]>;
 }
 
 export interface ExternalReceiptRecord {

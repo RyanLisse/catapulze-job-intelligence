@@ -37,7 +37,7 @@ app.use(
       "Mcp-Method",
       "Mcp-Name",
     ],
-    allowMethods: ["GET", "POST", "OPTIONS"],
+    allowMethods: ["DELETE", "GET", "POST", "PUT", "OPTIONS"],
     credentials: true,
     origin: allowedWebOrigin,
   })

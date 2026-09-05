@@ -252,10 +252,11 @@ describe("MCP request metrics", () => {
     const bundle = createTestSliceARegistry();
     let effectCalls = 0;
     let recorderCalls = 0;
-    const originalCreate = bundle.deps.stores.savedSearches.create.bind(
-      bundle.deps.stores.savedSearches
-    );
-    Object.defineProperty(bundle.deps.stores.savedSearches, "create", {
+    const originalCreate =
+      bundle.deps.stores.savedSearches.createWithAudit.bind(
+        bundle.deps.stores.savedSearches
+      );
+    Object.defineProperty(bundle.deps.stores.savedSearches, "createWithAudit", {
       value: (...args: Parameters<typeof originalCreate>) => {
         effectCalls += 1;
         return originalCreate(...args);

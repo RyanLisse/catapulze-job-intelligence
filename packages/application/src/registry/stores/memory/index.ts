@@ -34,7 +34,7 @@ export const createMemorySliceAStores = (): SliceAStores & {
     markeringen: new MemoryMarkeringStore(audit),
     operatorRuns: new MemoryOperatorRunStore(),
     rawPayloads: new MemoryRawPayloadStore(),
-    savedSearches: new MemorySavedSearchStore(),
+    savedSearches: new MemorySavedSearchStore(audit),
     snapshots: new MemoryQuerySnapshotStore(),
   };
 };
