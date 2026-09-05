@@ -6,7 +6,10 @@ import type { Context } from "hono";
 
 import { createRequestId } from "./auth";
 import type { PrincipalResolver } from "./auth";
-import { capabilityAvailability } from "./capability-availability";
+import {
+  capabilityAvailability,
+  isCapabilityExecutable,
+} from "./capability-availability";
 import type { CapabilityAvailabilityPolicy } from "./capability-availability";
 import type { SliceARegistry } from "./registry-types";
 
@@ -50,7 +53,7 @@ export const createCapabilityDiscoveryDocument = (
     const allowed = principal.permissions.has(
       descriptor.authorization.permission
     );
-    const executable = allowed && availability.status === "implemented";
+    const executable = allowed && isCapabilityExecutable(availability);
     const actorAvailability = allowed
       ? availability
       : {
@@ -68,11 +71,11 @@ export const createCapabilityDiscoveryDocument = (
         auditClass: metadata.auditClass,
         class: metadata.sideEffectClass,
         evidence: effectEvidence(
-          availability.status === "implemented",
+          isCapabilityExecutable(availability),
           descriptor.grounding
         ),
         readback:
-          availability.status === "implemented" && descriptor.effect === "read"
+          isCapabilityExecutable(availability) && descriptor.effect === "read"
             ? "capability-output"
             : "not-proven",
         reversible: metadata.reversible,

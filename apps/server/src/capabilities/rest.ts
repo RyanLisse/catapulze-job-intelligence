@@ -10,6 +10,7 @@ import type { CookieAuthOriginPolicy, PrincipalResolver } from "./auth";
 import {
   CAPABILITY_UNAVAILABLE_CODE,
   capabilityAvailability,
+  isCapabilityExecutable,
   unavailableCapabilityReason,
 } from "./capability-availability";
 import type { CapabilityAvailabilityPolicy } from "./capability-availability";
@@ -416,20 +417,26 @@ export const mcpToolsFromRegistry = (
     }
     return descriptor.bindings
       .filter((binding) => binding.transport === "mcp")
-      .map((binding) => ({
-        availability: capabilityAvailability(
+      .map((binding) => {
+        const availability = capabilityAvailability(
           unavailableCapabilities,
           descriptor.id
-        ),
-        description: descriptor.outcome,
-        effect: metadata.sideEffectClass,
-        grounded: descriptor.grounding,
-        inputSchema: descriptor.inputJsonSchema,
-        name: binding.operation,
-        outputSchema: descriptor.outputJsonSchema,
-        readOnly: metadata.sideEffectClass === "read",
-        requiredPermission: descriptor.authorization.permission,
-      }));
+        );
+        return {
+          availability: {
+            ...availability,
+            executable: isCapabilityExecutable(availability),
+          },
+          description: descriptor.outcome,
+          effect: metadata.sideEffectClass,
+          grounded: descriptor.grounding,
+          inputSchema: descriptor.inputJsonSchema,
+          name: binding.operation,
+          outputSchema: descriptor.outputJsonSchema,
+          readOnly: metadata.sideEffectClass === "read",
+          requiredPermission: descriptor.authorization.permission,
+        };
+      });
   });
 };
 

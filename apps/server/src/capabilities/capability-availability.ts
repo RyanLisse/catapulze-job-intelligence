@@ -21,6 +21,10 @@ export type CapabilityAvailabilityPolicy = ReadonlyMap<
   CapabilityAvailability
 >;
 
+export const isCapabilityExecutable = (
+  availability: Pick<CapabilityAvailability, "status">
+): boolean => availability.status === "implemented";
+
 export const PRODUCTION_UNAVAILABLE_CAPABILITIES: CapabilityAvailabilityPolicy =
   new Map([
     [
@@ -70,7 +74,9 @@ export const unavailableCapabilityReason = (
   capabilityId: string
 ): string | undefined => {
   const availability = policy?.get(capabilityId);
-  return availability?.reason;
+  return availability && !isCapabilityExecutable(availability)
+    ? availability.reason
+    : undefined;
 };
 
 export const capabilityAvailability = (
