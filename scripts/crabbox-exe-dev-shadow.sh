@@ -16,6 +16,7 @@ readonly UNIT_DIAGNOSTICS_FILE="${EVIDENCE_DIR}/unit-diagnostics.log"
 readonly UNIT_DIAGNOSTICS_SUMMARY_FILE="${EVIDENCE_DIR}/unit-diagnostics.json"
 readonly VALIDATION_EXIT_STATUS_FILE="${EVIDENCE_DIR}/validation-exit-status.txt"
 readonly MANIFEST_FILE="${EVIDENCE_DIR}/manifest.sha256"
+readonly MCP_EDGE_EVIDENCE_DIR="${EVIDENCE_DIR}/mcp-edge-smoke"
 readonly INPUT_MANIFEST_FILE=".crabbox-input-manifest.sha256"
 readonly COMPOSE_ENV_FILE="/tmp/catapulze-crabbox-compose-${$}.env"
 readonly WORKLOAD="exe-dev-shadow-correctness"
@@ -287,6 +288,11 @@ write_manifest() {
       sha256sum "$artifact" >>"$MANIFEST_FILE"
     fi
   done
+  if [[ -d "$MCP_EDGE_EVIDENCE_DIR" ]]; then
+    while IFS= read -r -d '' artifact; do
+      sha256sum "$artifact" >>"$MANIFEST_FILE"
+    done < <(find "$MCP_EDGE_EVIDENCE_DIR" -type f -print0 | sort -z)
+  fi
 }
 
 cleanup_database() {
@@ -410,6 +416,21 @@ run_unit_suite() {
   return "$test_exit_status"
 }
 
+capture_mcp_edge_evidence() {
+  if [[ ! -d ".artifacts/mcp-edge-smoke" ]]; then
+    printf 'exe.dev shadow: MCP edge smoke did not produce its evidence directory\n' >&2
+    return 1
+  fi
+  rm -rf -- "$MCP_EDGE_EVIDENCE_DIR"
+  mkdir -p "$MCP_EDGE_EVIDENCE_DIR"
+  cp -R -- .artifacts/mcp-edge-smoke/. "$MCP_EDGE_EVIDENCE_DIR/"
+}
+
+run_mcp_edge_smoke() {
+  bun run docker:mcp-edge-smoke
+  capture_mcp_edge_evidence
+}
+
 write_not_reached_junit() {
   local file="$1"
   local suite_name="$2"
@@ -456,6 +477,7 @@ on_exit() {
 main() {
   mkdir -p "$EVIDENCE_DIR"
   rm -f "$PHASES_FILE" "$FINGERPRINT_FILE" "$REPORT_FILE" "$JUNIT_FILE" "$DATABASE_JUNIT_FILE" "$UNIT_DIAGNOSTICS_FILE" "$UNIT_DIAGNOSTICS_SUMMARY_FILE" "$VALIDATION_EXIT_STATUS_FILE" "$MANIFEST_FILE"
+  rm -rf -- "$MCP_EDGE_EVIDENCE_DIR" ".artifacts/mcp-edge-smoke"
   : >"$PHASES_FILE"
   write_not_reached_junit "$JUNIT_FILE" "unit"
   write_not_reached_junit "$DATABASE_JUNIT_FILE" "database-integration"
@@ -492,6 +514,7 @@ main() {
   run_phase "database-integration" "REQUIRE_DATABASE_TESTS=1 bun test packages/db/src/core.spec.ts packages/db/src/user-write-stores.spec.ts --reporter=junit" run_database_integration
   cleanup_database
   run_phase "integration" "bun run docker:smoke" bun run docker:smoke
+  run_phase "mcp-edge" "bun run docker:mcp-edge-smoke" run_mcp_edge_smoke
   run_phase "build" "bun run build -- --concurrency=2" bun run build -- --concurrency=2
 
   RUN_STATUS="success"

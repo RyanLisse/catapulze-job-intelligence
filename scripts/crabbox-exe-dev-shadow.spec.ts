@@ -316,6 +316,18 @@ describe("exe.dev shadow scripts", () => {
       `${remoteEvidencePath}/validation-exit-status.txt=.artifacts/crabbox/exe-dev-shadow/validation-exit-status.txt`
     );
     expect(crabboxConfig).toContain(
+      `${remoteEvidencePath}/mcp-edge-smoke/evidence.json`
+    );
+    expect(crabboxConfig).toContain(
+      `${remoteEvidencePath}/mcp-edge-smoke/runtime-identity.json`
+    );
+    expect(crabboxConfig).toContain(
+      `${remoteEvidencePath}/mcp-edge-smoke/route-config.conf`
+    );
+    expect(crabboxConfig).toContain(
+      `${remoteEvidencePath}/mcp-edge-smoke/container-status.txt`
+    );
+    expect(crabboxConfig).toContain(
       "command: CRABBOX_CAPTURE_VALIDATION_STATUS=1 bash scripts/crabbox-exe-dev-shadow.sh"
     );
   });
@@ -861,6 +873,20 @@ exit 0
     expect(script).toContain(
       'run_phase "database-integration" "REQUIRE_DATABASE_TESTS=1 bun test packages/db/src/core.spec.ts packages/db/src/user-write-stores.spec.ts --reporter=junit"'
     );
+  });
+
+  test("runs and retains the two-instance MCP edge smoke evidence", () => {
+    const script = readFileSync(shadowScript, "utf-8");
+    const evidenceDirectoryVariable = `${String.fromCodePoint(36)}{EVIDENCE_DIR}`;
+
+    expect(script).toContain(
+      'run_phase "mcp-edge" "bun run docker:mcp-edge-smoke" run_mcp_edge_smoke'
+    );
+    expect(script).toContain("capture_mcp_edge_evidence");
+    expect(script).toContain(
+      `MCP_EDGE_EVIDENCE_DIR="${evidenceDirectoryVariable}/mcp-edge-smoke"`
+    );
+    expect(script).toContain('find "$MCP_EDGE_EVIDENCE_DIR" -type f -print0');
   });
 
   test(

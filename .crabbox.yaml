@@ -194,6 +194,10 @@ jobs:
       - crabbox-output/exe-dev-shadow/unit-diagnostics.json
       - crabbox-output/exe-dev-shadow/validation-exit-status.txt
       - crabbox-output/exe-dev-shadow/manifest.sha256
+      - crabbox-output/exe-dev-shadow/mcp-edge-smoke/evidence.json
+      - crabbox-output/exe-dev-shadow/mcp-edge-smoke/runtime-identity.json
+      - crabbox-output/exe-dev-shadow/mcp-edge-smoke/route-config.conf
+      - crabbox-output/exe-dev-shadow/mcp-edge-smoke/container-status.txt
     downloads:
       - crabbox-output/exe-dev-shadow/phases.jsonl=.artifacts/crabbox/exe-dev-shadow/phases.jsonl
       - crabbox-output/exe-dev-shadow/execution-fingerprint.json=.artifacts/crabbox/exe-dev-shadow/execution-fingerprint.json
