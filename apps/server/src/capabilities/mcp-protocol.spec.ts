@@ -51,12 +51,23 @@ const listedToolsBodySchema = z.object({
           "catapulze/availability": z
             .object({ status: z.string() })
             .passthrough(),
+          "catapulze/effect": z.object({
+            class: z.enum(["internal-write", "read"]),
+            grounded: z.boolean(),
+          }),
           "catapulze/outputSchema": z
             .object({ type: z.string() })
             .passthrough(),
+          "catapulze/outputSchemaPolicy": z.string(),
+        }),
+        annotations: z.object({
+          destructiveHint: z.boolean().optional(),
+          idempotentHint: z.boolean().optional(),
+          readOnlyHint: z.boolean(),
         }),
         inputSchema: z.object({ type: z.literal("object") }).passthrough(),
         name: z.string(),
+        outputSchema: z.object({ type: z.literal("object") }).optional(),
       })
     ),
   }),
@@ -94,12 +105,32 @@ describe("MCP 2026-07-28 protocol boundary", () => {
     expect(names).toContain("search_aanvragen");
     expect(names).not.toContain("start_run");
     expect(names).not.toContain("complete_task");
-    expect(listedBody.result.tools[0]?.inputSchema).toMatchObject({
+    const searchTool = listedBody.result.tools.find(
+      (tool) => tool.name === "search_aanvragen"
+    );
+    expect(searchTool?.inputSchema).toMatchObject({
       type: "object",
     });
-    expect(listedBody.result.tools[0]?._meta).toMatchObject({
+    expect(searchTool?.outputSchema).toMatchObject({ type: "object" });
+    expect(searchTool?.annotations).toEqual({
+      destructiveHint: false,
+      idempotentHint: true,
+      readOnlyHint: true,
+    });
+    expect(searchTool?._meta).toMatchObject({
       "catapulze/availability": { status: "implemented" },
+      "catapulze/effect": { class: "read", grounded: true },
       "catapulze/outputSchema": { type: "object" },
+      "catapulze/outputSchemaPolicy": "standard-object-root",
+    });
+
+    const listBronnenTool = listedBody.result.tools.find(
+      (tool) => tool.name === "list_bronnen"
+    );
+    expect(listBronnenTool?.outputSchema).toBeUndefined();
+    expect(listBronnenTool?._meta).toMatchObject({
+      "catapulze/outputSchema": { type: "array" },
+      "catapulze/outputSchemaPolicy": "extension-only-non-object-root",
     });
   });
 
@@ -143,6 +174,10 @@ describe("MCP 2026-07-28 protocol boundary", () => {
       name: "search_aanvragen",
     });
     expect(search.isError).not.toBe(true);
+    expect(search.structuredContent).toMatchObject({
+      ids: [aanvraagId],
+      total: 1,
+    });
     const marked = await client.callTool({
       arguments: { aanvraagId, status: "relevant" },
       name: "markeer_aanvraag",

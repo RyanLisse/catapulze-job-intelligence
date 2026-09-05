@@ -51,10 +51,17 @@ export const createCapabilityDiscoveryDocument = (
       descriptor.authorization.permission
     );
     const executable = allowed && availability.status === "implemented";
+    const actorAvailability = allowed
+      ? availability
+      : {
+          ...availability,
+          reason: `Niet toegestaan zonder ${descriptor.authorization.permission}.`,
+          safeNextStep: `Vraag toegang tot ${descriptor.authorization.permission} aan.`,
+        };
     return {
       allowed,
       availability: {
-        ...availability,
+        ...actorAvailability,
         executable,
       },
       effect: {
@@ -89,17 +96,17 @@ export const createCapabilityDiscoveryDocument = (
     capabilities,
     generatedFrom: "slice-a-registry",
     statusCounts: {
+      denied: capabilities.filter((item) => !item.allowed).length,
       disabled: capabilities.filter(
-        (item) => item.availability.status === "disabled"
+        (item) => item.allowed && item.availability.status === "disabled"
       ).length,
+      executable: capabilities.filter((item) => item.availability.executable)
+        .length,
       fixtureStub: capabilities.filter(
-        (item) => item.availability.status === "fixture-stub"
-      ).length,
-      implemented: capabilities.filter(
-        (item) => item.availability.status === "implemented"
+        (item) => item.allowed && item.availability.status === "fixture-stub"
       ).length,
       planned: capabilities.filter(
-        (item) => item.availability.status === "planned"
+        (item) => item.allowed && item.availability.status === "planned"
       ).length,
     },
   } as const;

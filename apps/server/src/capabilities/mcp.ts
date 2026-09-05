@@ -36,8 +36,13 @@ import {
 } from "./mcp-metrics";
 import type { McpMetricRecorder } from "./mcp-metrics";
 import type { SliceARegistry } from "./registry-types";
-import { invokeMcpTool, mcpToolsFromRegistry } from "./rest";
+import {
+  invokeMcpTool,
+  mcpToolsFromRegistry,
+  serializeRegistryJson,
+} from "./rest";
 import { jsonValueSchema, restJsonBodySchema } from "./transport-boundary";
+import type { JsonValue } from "./transport-boundary";
 
 const SERVER_INFO = {
   name: "catapulze-job-intelligence",
@@ -108,6 +113,8 @@ const requestIdFromAuthInfo = (authInfo: AuthInfo | undefined): string => {
 
 type RegistryInputJsonSchema =
   SliceARegistry["catalog"][number]["inputJsonSchema"];
+type RegistryOutputJsonSchema =
+  SliceARegistry["catalog"][number]["outputJsonSchema"];
 
 const toMcpInputSchema = (
   schema: RegistryInputJsonSchema
@@ -118,6 +125,18 @@ const toMcpInputSchema = (
   // The registry validates the full JSON Schema when it registers an MCP binding.
   // SAFETY: The checked object discriminator and registry validation satisfy the SDK contract.
   return schema as Tool["inputSchema"];
+};
+
+const toMcpOutputSchema = (
+  schema: RegistryOutputJsonSchema
+): Tool["outputSchema"] | undefined => {
+  if (schema.type !== "object") {
+    return undefined;
+  }
+  // Older MCP clients require an object-root output schema. Non-object roots remain
+  // discoverable through Catapulze metadata without advertising a mismatched contract.
+  // SAFETY: The checked object discriminator satisfies the SDK's cross-version contract.
+  return schema as Tool["outputSchema"];
 };
 
 const metricRouteFromRequest = (
@@ -197,17 +216,38 @@ const createServer = (
   );
 
   server.setRequestHandler("tools/list", () => ({
-    tools: tools.map((tool) => ({
-      _meta: {
-        "catapulze/availability": tool.availability,
-        "catapulze/outputSchema": tool.outputSchema,
-        "catapulze/requiredPermission": tool.requiredPermission,
-      },
-      annotations: { readOnlyHint: tool.readOnly },
-      description: tool.description,
-      inputSchema: toMcpInputSchema(tool.inputSchema),
-      name: tool.name,
-    })),
+    tools: tools.map((tool) => {
+      const outputSchema = toMcpOutputSchema(tool.outputSchema);
+      const annotations = tool.readOnly
+        ? {
+            destructiveHint: false,
+            idempotentHint: true,
+            readOnlyHint: true,
+          }
+        : { readOnlyHint: false };
+      const listedTool = {
+        _meta: {
+          "catapulze/availability": tool.availability,
+          "catapulze/effect": {
+            class: tool.effect,
+            grounded: tool.grounded,
+          },
+          "catapulze/outputSchema": tool.outputSchema,
+          "catapulze/outputSchemaPolicy":
+            outputSchema === undefined
+              ? "extension-only-non-object-root"
+              : "standard-object-root",
+          "catapulze/requiredPermission": tool.requiredPermission,
+        },
+        annotations,
+        description: tool.description,
+        inputSchema: toMcpInputSchema(tool.inputSchema),
+        name: tool.name,
+      };
+      return outputSchema === undefined
+        ? listedTool
+        : { ...listedTool, outputSchema };
+    }),
   }));
   server.setRequestHandler(
     "tools/call",
@@ -265,10 +305,13 @@ const createServer = (
           isError: true,
         };
       }
+      // SAFETY: The registry validated the successful value against the capability output schema.
+      const serializedValue = serializeRegistryJson(result.value as JsonValue);
       const content = [
-        { text: JSON.stringify(result.value), type: "text" as const },
+        { text: JSON.stringify(serializedValue), type: "text" as const },
       ];
-      const structuredContent = structuredContentSchema.safeParse(result.value);
+      const structuredContent =
+        structuredContentSchema.safeParse(serializedValue);
       return structuredContent.success
         ? { content, structuredContent: structuredContent.data }
         : { content };

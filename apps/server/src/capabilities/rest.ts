@@ -28,7 +28,7 @@ import type {
 } from "./transport-boundary";
 
 /* oxlint-disable unicorn/prefer-structured-clone -- JSON round-trip strips undefined keys before JsonValue validation. */
-const serializeRegistryJson = (
+export const serializeRegistryJson = (
   value: RegistryInvocationResult | JsonValue
 ): JsonValue => jsonValueSchema.parse(JSON.parse(JSON.stringify(value)));
 /* oxlint-enable unicorn/prefer-structured-clone */
@@ -410,6 +410,8 @@ export const mcpToolsFromRegistry = (
           descriptor.id
         ),
         description: descriptor.outcome,
+        effect: descriptor.effect,
+        grounded: descriptor.grounding,
         inputSchema: descriptor.inputJsonSchema,
         name: binding.operation,
         outputSchema: descriptor.outputJsonSchema,

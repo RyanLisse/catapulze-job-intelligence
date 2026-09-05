@@ -4,9 +4,29 @@ import {
   createTestSliceARegistry,
   permissionsForRole,
 } from "@ji/application/registry";
+import { Hono } from "hono";
 
+import type { PrincipalResolver } from "./auth";
 import { PRODUCTION_UNAVAILABLE_CAPABILITIES } from "./capability-availability";
-import { createCapabilityDiscoveryDocument } from "./discovery";
+import {
+  createCapabilityDiscoveryDocument,
+  createCapabilityDiscoveryHandler,
+} from "./discovery";
+
+const discoveryPrincipalResolver: PrincipalResolver = (headers) => {
+  const role = headers.get("Authorization")?.replace("Bearer ", "");
+  if (role !== "admin" && role !== "recruiter") {
+    return Promise.resolve({ ok: true, principal: null });
+  }
+  return Promise.resolve({
+    ok: true,
+    principal: {
+      kind: "user",
+      permissions: permissionsForRole(role),
+      subjectId: `discovery-${role}`,
+    },
+  });
+};
 
 describe("capability discovery", () => {
   it("derives role-aware status and transport evidence from the real registry", () => {
@@ -25,6 +45,12 @@ describe("capability discovery", () => {
     expect(discovery.generatedFrom).toBe("slice-a-registry");
     expect(discovery.capabilities).toHaveLength(bundle.registry.catalog.length);
     expect(discovery.statusCounts.planned).toBe(0);
+    expect(discovery.statusCounts.executable).toBe(
+      discovery.capabilities.filter(
+        (capability) => capability.allowed && capability.availability.executable
+      ).length
+    );
+    expect(discovery.statusCounts.denied).toBeGreaterThan(0);
 
     const search = discovery.capabilities.find(
       (capability) => capability.id === "search_aanvragen"
@@ -50,7 +76,12 @@ describe("capability discovery", () => {
     );
     expect(operatorOnly).toMatchObject({
       allowed: false,
-      availability: { executable: false, status: "implemented" },
+      availability: {
+        executable: false,
+        reason: "Niet toegestaan zonder operator.",
+        safeNextStep: "Vraag toegang tot operator aan.",
+        status: "implemented",
+      },
     });
   });
 
@@ -88,5 +119,56 @@ describe("capability discovery", () => {
       availability: { executable: false, status: "disabled" },
       effect: { evidence: "none", readback: "not-proven" },
     });
+  });
+
+  it("protects GET /v1/capabilities and returns actor-scoped role counts", async () => {
+    const bundle = createTestSliceARegistry();
+    const app = new Hono();
+    app.get(
+      "/v1/capabilities",
+      createCapabilityDiscoveryHandler(
+        bundle.registry,
+        bundle.entries,
+        discoveryPrincipalResolver,
+        PRODUCTION_UNAVAILABLE_CAPABILITIES
+      )
+    );
+
+    const anonymousResponse = await app.request("/v1/capabilities");
+    expect(anonymousResponse.status).toBe(401);
+
+    const recruiterResponse = await app.request("/v1/capabilities", {
+      headers: { Authorization: "Bearer recruiter" },
+    });
+    expect(recruiterResponse.status).toBe(200);
+    expect(await recruiterResponse.json()).toEqual(
+      createCapabilityDiscoveryDocument(
+        bundle.registry,
+        bundle.entries,
+        {
+          kind: "user",
+          permissions: permissionsForRole("recruiter"),
+          subjectId: "discovery-recruiter",
+        },
+        PRODUCTION_UNAVAILABLE_CAPABILITIES
+      )
+    );
+
+    const adminResponse = await app.request("/v1/capabilities", {
+      headers: { Authorization: "Bearer admin" },
+    });
+    expect(adminResponse.status).toBe(200);
+    const adminDocument = createCapabilityDiscoveryDocument(
+      bundle.registry,
+      bundle.entries,
+      {
+        kind: "user",
+        permissions: permissionsForRole("admin"),
+        subjectId: "discovery-admin",
+      },
+      PRODUCTION_UNAVAILABLE_CAPABILITIES
+    );
+    expect(adminDocument.statusCounts.denied).toBe(0);
+    expect(await adminResponse.json()).toEqual(adminDocument);
   });
 });

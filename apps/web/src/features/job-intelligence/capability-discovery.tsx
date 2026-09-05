@@ -18,13 +18,21 @@ interface CapabilityDiscoveryProps {
 }
 
 const statusLabel = {
+  denied: "Geen toegang",
   disabled: "Uitgeschakeld",
   "fixture-stub": "Fixture / stub",
   implemented: "Beschikbaar",
   planned: "Gepland",
 } as const;
 
-const StatusIcon = ({ status }: { status: keyof typeof statusLabel }) => {
+type CapabilityDisplayStatus = keyof typeof statusLabel;
+
+export const capabilityDisplayStatus = (
+  capability: CapabilityDiscoveryDocument["capabilities"][number]
+): CapabilityDisplayStatus =>
+  capability.allowed ? capability.availability.status : "denied";
+
+const StatusIcon = ({ status }: { status: CapabilityDisplayStatus }) => {
   if (status === "implemented") {
     return (
       <CheckCircle2 aria-hidden="true" className="size-4 text-emerald-600" />
@@ -125,10 +133,11 @@ export const CapabilityDiscovery = ({ load }: CapabilityDiscoveryProps) => {
           {document ? (
             <>
               <p className="text-sm text-muted-foreground">
-                {document.statusCounts.implemented} beschikbaar ·{" "}
+                {document.statusCounts.executable} uitvoerbaar ·{" "}
                 {document.statusCounts.fixtureStub} fixture/stub ·{" "}
                 {document.statusCounts.disabled} uitgeschakeld ·{" "}
-                {document.statusCounts.planned} gepland
+                {document.statusCounts.planned} gepland ·{" "}
+                {document.statusCounts.denied} geen toegang
               </p>
               <ul className="grid gap-3 md:grid-cols-2">
                 {document.capabilities.map((capability) => (
@@ -144,8 +153,10 @@ export const CapabilityDiscovery = ({ load }: CapabilityDiscoveryProps) => {
                         </p>
                       </div>
                       <span className="flex shrink-0 items-center gap-1.5 text-xs font-medium">
-                        <StatusIcon status={capability.availability.status} />
-                        {statusLabel[capability.availability.status]}
+                        <StatusIcon
+                          status={capabilityDisplayStatus(capability)}
+                        />
+                        {statusLabel[capabilityDisplayStatus(capability)]}
                       </span>
                     </div>
                     <dl className="mt-3 grid gap-2 text-xs">

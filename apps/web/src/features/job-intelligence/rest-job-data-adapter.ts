@@ -107,9 +107,10 @@ export interface CapabilityDiscoveryDocument {
   }[];
   readonly generatedFrom: "slice-a-registry";
   readonly statusCounts: {
+    readonly denied: number;
     readonly disabled: number;
+    readonly executable: number;
     readonly fixtureStub: number;
-    readonly implemented: number;
     readonly planned: number;
   };
 }
