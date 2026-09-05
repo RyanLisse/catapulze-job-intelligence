@@ -6,6 +6,7 @@ import { createRequestId, hasAllowedCookieOrigin } from "./auth";
 import type { CookieAuthOriginPolicy, PrincipalResolver } from "./auth";
 import {
   CAPABILITY_UNAVAILABLE_CODE,
+  capabilityAvailability,
   unavailableCapabilityReason,
 } from "./capability-availability";
 import type { CapabilityAvailabilityPolicy } from "./capability-availability";
@@ -396,14 +397,22 @@ export const invokeMcpTool = (
     transport: "mcp",
   })(args, { principal, requestId });
 
-export const mcpToolsFromRegistry = (registry: SliceARegistry) =>
+export const mcpToolsFromRegistry = (
+  registry: SliceARegistry,
+  unavailableCapabilities?: CapabilityAvailabilityPolicy
+) =>
   registry.catalog.flatMap((descriptor) =>
     descriptor.bindings
       .filter((binding) => binding.transport === "mcp")
       .map((binding) => ({
+        availability: capabilityAvailability(
+          unavailableCapabilities,
+          descriptor.id
+        ),
         description: descriptor.outcome,
         inputSchema: descriptor.inputJsonSchema,
         name: binding.operation,
+        outputSchema: descriptor.outputJsonSchema,
         readOnly: descriptor.effect === "read",
         requiredPermission: descriptor.authorization.permission,
       }))

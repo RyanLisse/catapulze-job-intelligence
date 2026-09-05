@@ -47,6 +47,14 @@ const listedToolsBodySchema = z.object({
   result: z.object({
     tools: z.array(
       z.object({
+        _meta: z.object({
+          "catapulze/availability": z
+            .object({ status: z.string() })
+            .passthrough(),
+          "catapulze/outputSchema": z
+            .object({ type: z.string() })
+            .passthrough(),
+        }),
         inputSchema: z.object({ type: z.literal("object") }).passthrough(),
         name: z.string(),
       })
@@ -88,6 +96,10 @@ describe("MCP 2026-07-28 protocol boundary", () => {
     expect(names).not.toContain("complete_task");
     expect(listedBody.result.tools[0]?.inputSchema).toMatchObject({
       type: "object",
+    });
+    expect(listedBody.result.tools[0]?._meta).toMatchObject({
+      "catapulze/availability": { status: "implemented" },
+      "catapulze/outputSchema": { type: "object" },
     });
   });
 

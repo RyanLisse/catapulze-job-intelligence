@@ -58,6 +58,11 @@ export const JobSearchShell = () => {
   }
 
   return (
-    <JobSearchPage actions={wiring.actions} adapter={wiring.adapter} liveData />
+    <JobSearchPage
+      actions={wiring.actions}
+      adapter={wiring.adapter}
+      loadCapabilityDiscovery={wiring.loadCapabilityDiscovery}
+      liveData
+    />
   );
 };

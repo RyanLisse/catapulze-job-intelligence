@@ -89,6 +89,29 @@ interface MarkeerResponseBody {
 export interface RestJobIntelligenceBundle {
   readonly actions: JobIntelligenceActions;
   readonly adapter: JobDataAdapter;
+  readonly loadCapabilityDiscovery: () => Promise<CapabilityDiscoveryDocument>;
+}
+
+export interface CapabilityDiscoveryDocument {
+  readonly capabilities: readonly {
+    readonly allowed: boolean;
+    readonly availability: {
+      readonly executable: boolean;
+      readonly reason: string;
+      readonly safeNextStep: string;
+      readonly status: "disabled" | "fixture-stub" | "implemented" | "planned";
+    };
+    readonly id: string;
+    readonly outcome: string;
+    readonly requiredPermission: string;
+  }[];
+  readonly generatedFrom: "slice-a-registry";
+  readonly statusCounts: {
+    readonly disabled: number;
+    readonly fixtureStub: number;
+    readonly implemented: number;
+    readonly planned: number;
+  };
 }
 
 const syntaxFailureMessage = (error: CapabilityRequestError): string => {
@@ -397,7 +420,10 @@ export const createRestJobIntelligence = ({
     },
   };
 
-  return { actions, adapter };
+  const loadCapabilityDiscovery = () =>
+    client.get<CapabilityDiscoveryDocument>("/v1/capabilities");
+
+  return { actions, adapter, loadCapabilityDiscovery };
 };
 
 export const createRestJobDataAdapter = (

@@ -9,7 +9,11 @@ import { Hono } from "hono";
 import { z } from "zod";
 
 import type { PrincipalResolver } from "./auth";
-import { PRODUCTION_UNAVAILABLE_CAPABILITIES } from "./capability-availability";
+import {
+  PRODUCTION_UNAVAILABLE_CAPABILITIES,
+  unavailableCapabilityReason,
+} from "./capability-availability";
+import type { CapabilityAvailabilityPolicy } from "./capability-availability";
 import {
   createMcpProtocolFixture,
   MCP_ALLOWED_ORIGIN,
@@ -120,7 +124,7 @@ const createTrackedRegistry = () => {
 
 const createRestFixture = (
   registry: ReturnType<typeof createTrackedRegistry>["registry"],
-  unavailableCapabilities: ReadonlyMap<string, string>,
+  unavailableCapabilities: CapabilityAvailabilityPolicy,
   resolvePrincipal: PrincipalResolver = adminResolver
 ) => {
   const handler = createRestCapabilityHandler(
@@ -245,7 +249,8 @@ describe("production capability availability policy", () => {
     };
     const outcomes = await Promise.all(
       unavailableCases.map(async (unavailable) => {
-        const expectedMessage = PRODUCTION_UNAVAILABLE_CAPABILITIES.get(
+        const expectedMessage = unavailableCapabilityReason(
+          PRODUCTION_UNAVAILABLE_CAPABILITIES,
           unavailable.capabilityId
         );
         if (expectedMessage === undefined) {
@@ -323,8 +328,10 @@ describe("production capability availability policy", () => {
     });
     const outcomes = await Promise.all(
       deniedCases.map(async (denied) => {
-        const expectedOperationalReason =
-          PRODUCTION_UNAVAILABLE_CAPABILITIES.get(denied.capabilityId);
+        const expectedOperationalReason = unavailableCapabilityReason(
+          PRODUCTION_UNAVAILABLE_CAPABILITIES,
+          denied.capabilityId
+        );
         if (expectedOperationalReason === undefined) {
           throw new Error(
             `Missing production policy for ${denied.capabilityId}`
@@ -397,7 +404,7 @@ describe("production capability availability policy", () => {
 
   it("allows an explicitly wired capability when the policy is empty", async () => {
     const tracked = createTrackedRegistry();
-    const emptyPolicy = new Map<string, string>();
+    const emptyPolicy = new Map();
     const rest = createRestFixture(tracked.registry, emptyPolicy);
     const mcp = createMcpProtocolFixture(
       tracked.registry,

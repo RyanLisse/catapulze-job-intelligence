@@ -186,7 +186,7 @@ const createServer = (
     capabilities: { tools: {} },
   });
   const authorizedTools = sortMcpCatalogTools(
-    mcpToolsFromRegistry(registry).filter((tool) =>
+    mcpToolsFromRegistry(registry, unavailableCapabilities).filter((tool) =>
       principal?.permissions.has(tool.requiredPermission)
     )
   );
@@ -198,6 +198,11 @@ const createServer = (
 
   server.setRequestHandler("tools/list", () => ({
     tools: tools.map((tool) => ({
+      _meta: {
+        "catapulze/availability": tool.availability,
+        "catapulze/outputSchema": tool.outputSchema,
+        "catapulze/requiredPermission": tool.requiredPermission,
+      },
       annotations: { readOnlyHint: tool.readOnly },
       description: tool.description,
       inputSchema: toMcpInputSchema(tool.inputSchema),
@@ -356,7 +361,9 @@ export const createMcpHandler = (
       );
     }
     const knownToolNames = new Set(
-      mcpToolsFromRegistry(registry).map((tool) => tool.name)
+      mcpToolsFromRegistry(registry, options.unavailableCapabilities).map(
+        (tool) => tool.name
+      )
     );
     const metricRoute = metricRouteFromRequest(
       parsedMessage,

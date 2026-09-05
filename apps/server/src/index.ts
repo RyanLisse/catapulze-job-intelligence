@@ -10,6 +10,7 @@ import { logger } from "hono/logger";
 
 import { createSessionPrincipalResolver } from "./capabilities/auth";
 import { PRODUCTION_UNAVAILABLE_CAPABILITIES } from "./capabilities/capability-availability";
+import { createCapabilityDiscoveryHandler } from "./capabilities/discovery";
 import { createMcpHandler } from "./capabilities/mcp";
 import {
   createRestCapabilityHandler,
@@ -112,6 +113,12 @@ const restHandler = createRestCapabilityHandler(
     unavailableCapabilities: PRODUCTION_UNAVAILABLE_CAPABILITIES,
   }
 );
+const capabilityDiscoveryHandler = createCapabilityDiscoveryHandler(
+  sliceA.registry,
+  sliceA.entries,
+  resolvePrincipal,
+  PRODUCTION_UNAVAILABLE_CAPABILITIES
+);
 const mcpHandler = createMcpHandler(sliceA.registry, resolvePrincipal, {
   allowedCookieOrigin: allowedWebOrigin,
   allowedHost: new URL(env.BETTER_AUTH_URL).hostname,
@@ -121,6 +128,7 @@ const mcpHandler = createMcpHandler(sliceA.registry, resolvePrincipal, {
   unavailableCapabilities: PRODUCTION_UNAVAILABLE_CAPABILITIES,
 });
 
+app.get("/v1/capabilities", capabilityDiscoveryHandler);
 app.all("/v1/*", (context) => restHandler(context));
 app.post("/mcp", (context) => mcpHandler(context));
 
