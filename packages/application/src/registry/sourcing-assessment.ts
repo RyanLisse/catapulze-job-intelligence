@@ -186,14 +186,41 @@ export const sourcingAssessmentOutputSchema = z
 export type SourcingAssessmentInput = z.output<
   typeof sourcingAssessmentInputSchema
 >;
-type SourcingDigestPayload =
-  | SourcingAssessmentInput
+interface CanonicalClaim {
+  readonly field: (typeof sourcingFields)[number];
+  readonly sourceReferenceIds: readonly string[];
+  readonly status: "known" | "unknown" | "uncertain";
+  readonly vacancyId: string;
+  readonly value?: string;
+}
+interface CanonicalSourceReference {
+  readonly capabilityId: (typeof evidenceCapabilityIds)[number];
+  readonly id: string;
+  readonly maxAgeSeconds?: number;
+  readonly observedAt: string | null;
+  readonly reference: string;
+}
+interface CanonicalInput {
+  readonly claims: readonly CanonicalClaim[];
+  readonly queryDigest: string;
+  readonly selectedIds: readonly string[];
+  readonly selectionDigest: string;
+}
+interface CanonicalAttestation {
+  readonly claims: readonly CanonicalClaim[];
+  readonly queryDigest: string;
+  readonly searchStatus: "complete" | "incomplete" | "unknown";
+  readonly selectedIds: readonly string[];
+  readonly sourceReferences: readonly CanonicalSourceReference[];
+  readonly usedCapabilities: readonly (typeof evidenceCapabilityIds)[number][];
+}
+type DigestValue =
   | { readonly queryDigest: string; readonly selectedIds: readonly string[] }
   | {
-      readonly attestation: TrustedSourcingAttestation | null;
-      readonly input: SourcingAssessmentInput;
+      readonly attestation: CanonicalAttestation | null;
+      readonly input: CanonicalInput;
     };
-const digestJson = (value: SourcingDigestPayload): `sha256:${string}` =>
+const digestJson = (value: DigestValue): `sha256:${string}` =>
   `sha256:${createHash("sha256").update(JSON.stringify(value)).digest("hex")}`;
 export const digestSourcingSelection = (input: {
   readonly queryDigest: string;
@@ -226,25 +253,76 @@ const sameIds = (left: readonly string[], right: readonly string[]) =>
   left.toSorted().join("\0") === right.toSorted().join("\0");
 const canonicalClaim = (
   claim: SourcingAssessmentInput["claims"][number]
-): string =>
-  JSON.stringify({
+): CanonicalClaim =>
+  ({
     field: claim.field,
     sourceReferenceIds: claim.sourceReferenceIds.toSorted(),
     status: claim.status,
     vacancyId: claim.vacancyId,
     value: claim.value,
-  });
+  }) satisfies CanonicalClaim;
+const canonicalClaims = (
+  claims: readonly SourcingAssessmentInput["claims"][number][]
+) =>
+  claims
+    .map(canonicalClaim)
+    .toSorted((left, right) =>
+      JSON.stringify(left).localeCompare(JSON.stringify(right))
+    );
 const sameClaims = (
   left: readonly SourcingAssessmentInput["claims"][number][],
   right: readonly SourcingAssessmentInput["claims"][number][]
 ) => {
-  const leftCanonical = left.map(canonicalClaim).toSorted();
-  const rightCanonical = right.map(canonicalClaim).toSorted();
+  const leftCanonical = canonicalClaims(left).map((claim) =>
+    JSON.stringify(claim)
+  );
+  const rightCanonical = canonicalClaims(right).map((claim) =>
+    JSON.stringify(claim)
+  );
   return (
     leftCanonical.length === rightCanonical.length &&
     leftCanonical.every((claim, index) => claim === rightCanonical[index])
   );
 };
+const canonicalSourceReferences = (
+  references: readonly TrustedSourcingAttestation["sourceReferences"][number][]
+) =>
+  references
+    .map(
+      (reference) =>
+        ({
+          capabilityId: reference.capabilityId,
+          id: reference.id,
+          maxAgeSeconds: reference.maxAgeSeconds,
+          observedAt: reference.observedAt,
+          reference: reference.reference,
+        }) satisfies CanonicalSourceReference
+    )
+    .toSorted((left, right) =>
+      JSON.stringify(left).localeCompare(JSON.stringify(right))
+    );
+const canonicalInput = (input: SourcingAssessmentInput): CanonicalInput =>
+  ({
+    claims: canonicalClaims(input.claims),
+    queryDigest: input.queryDigest,
+    selectedIds: input.selectedIds.toSorted(),
+    selectionDigest: input.selectionDigest,
+  }) satisfies CanonicalInput;
+const canonicalAttestation = (
+  attestation: TrustedSourcingAttestation | null
+): CanonicalAttestation | null =>
+  attestation === null
+    ? null
+    : ({
+        claims: canonicalClaims(attestation.claims),
+        queryDigest: attestation.queryDigest,
+        searchStatus: attestation.searchStatus,
+        selectedIds: attestation.selectedIds.toSorted(),
+        sourceReferences: canonicalSourceReferences(
+          attestation.sourceReferences
+        ),
+        usedCapabilities: attestation.usedCapabilities.toSorted(),
+      } satisfies CanonicalAttestation);
 
 const readFreshness = (
   reference: z.output<typeof sourceReferenceSchema>,
@@ -494,7 +572,10 @@ export const evaluateSourcingAssessment = (
     evaluation: {
       asOf: asOf.toISOString(),
       findings,
-      inputDigest: digestJson({ attestation, input }),
+      inputDigest: digestJson({
+        attestation: canonicalAttestation(attested),
+        input: canonicalInput(input),
+      }),
       status,
     },
     prompt: {

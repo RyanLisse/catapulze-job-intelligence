@@ -123,6 +123,42 @@ describe("evaluate_sourcing_assessment (RJC-447)", () => {
     );
   });
 
+  it("keeps the evaluation digest stable for equivalent attestation and input ordering", () => {
+    const reorderedInput = {
+      ...completeSourcingFixture,
+      claims: completeSourcingFixture.claims
+        .map((claim) => ({
+          ...claim,
+          sourceReferenceIds: claim.sourceReferenceIds.toReversed(),
+        }))
+        .toReversed(),
+      selectedIds: completeSourcingFixture.selectedIds.toReversed(),
+    };
+    const reorderedAttestation = {
+      ...completeTrustedAttestation,
+      claims: completeTrustedAttestation.claims
+        .map((claim) => ({
+          ...claim,
+          sourceReferenceIds: claim.sourceReferenceIds.toReversed(),
+        }))
+        .toReversed(),
+      selectedIds: completeTrustedAttestation.selectedIds.toReversed(),
+      sourceReferences:
+        completeTrustedAttestation.sourceReferences.toReversed(),
+      usedCapabilities:
+        completeTrustedAttestation.usedCapabilities.toReversed(),
+    };
+
+    const original = evaluate();
+    const reordered = evaluate(reorderedInput, reorderedAttestation);
+
+    expect(reordered.evaluation.status).toBe("passed");
+    expect(reordered.evaluation.findings).toEqual([]);
+    expect(reordered.evaluation.inputDigest).toBe(
+      original.evaluation.inputDigest
+    );
+  });
+
   it("reports a trusted complete empty result as insufficient evidence", () => {
     const result = evaluate(emptySourcingFixture, emptyTrustedAttestation);
 
