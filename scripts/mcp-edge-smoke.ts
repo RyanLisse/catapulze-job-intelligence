@@ -8,6 +8,7 @@ import {
   StreamableHTTPClientTransport,
 } from "../apps/server/node_modules/@modelcontextprotocol/client";
 import type { JSONObject } from "../apps/server/node_modules/@modelcontextprotocol/client";
+import { readMcpToolPayload } from "./mcp-edge-result";
 
 const PROTOCOL_VERSION = "2026-07-28";
 const FIXTURE_ID = "00000000-0000-4000-8000-000000004481";
@@ -290,16 +291,15 @@ if (
 ) {
   throw new Error("Expected search_aanvragen in official client catalog");
 }
-const search = toolResultSchema.parse(
-  await client.callTool({
-    arguments: { query: "RJC448" },
-    name: "search_aanvragen",
-  })
+const searchContent = searchContentSchema.parse(
+  readMcpToolPayload(
+    await client.callTool({
+      arguments: { query: "RJC448" },
+      name: "search_aanvragen",
+    })
+  )
 );
-if (
-  search.isError === true ||
-  !searchContentSchema.parse(search.structuredContent).ids.includes(FIXTURE_ID)
-) {
+if (!searchContent.ids.includes(FIXTURE_ID)) {
   throw new Error("Official client search failed");
 }
 const marked = toolResultSchema.parse(
@@ -311,11 +311,15 @@ const marked = toolResultSchema.parse(
 if (marked.isError === true) {
   throw new TypeError("Official client mark failed");
 }
-const read = toolResultSchema.parse(
-  await client.callTool({ arguments: { id: FIXTURE_ID }, name: "get_aanvraag" })
+const readContent = readContentSchema.parse(
+  readMcpToolPayload(
+    await client.callTool({
+      arguments: { id: FIXTURE_ID },
+      name: "get_aanvraag",
+    })
+  )
 );
-const readContent = readContentSchema.parse(read.structuredContent);
-if (read.isError === true || readContent.aanvraag.id !== FIXTURE_ID) {
+if (readContent.aanvraag.id !== FIXTURE_ID) {
   throw new Error(
     "Official client read did not observe the cross-instance mark"
   );

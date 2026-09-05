@@ -4,5 +4,9 @@
     "noEmit": true,
     "types": ["bun"]
   },
-  "include": ["mcp-edge-smoke.ts"]
+  "include": [
+    "mcp-edge-result.spec.ts",
+    "mcp-edge-result.ts",
+    "mcp-edge-smoke.ts"
+  ]
 }
