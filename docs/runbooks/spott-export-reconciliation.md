@@ -24,10 +24,59 @@ There is no reservation expiry, automatic release, or retry-POST policy. A crash
 1. Keep export disabled for the affected key and preserve its reservation and all attempts/receipts. Do not delete the row, change the scope/key, approve a new snapshot to bypass it, or retry POST based on elapsed time or an HTTP error.
 2. Gather the scoped key, reservation and attempt timestamps, approval/snapshot IDs, and sanitized request/response evidence from the authorized environment. Do not copy credentials, vacancy payloads, or personal data into git or public evidence.
 3. Check the current official provider contract and obtain provider-side evidence for the original request. A matching title or a list result alone is not a unique correlation. Do not assume an undocumented idempotency header, or treat an empty list/404 as proof that create never happened.
-4. If the original external ID is established unambiguously, obtain a separately authorized, reviewed reconciliation action that binds that ID to the existing reservation with `manual_evidence` provenance. Preserve a reference to the evidence outside sensitive payloads. The store must reject a conflicting replacement ID. This internal operation does not itself create a confirmed receipt.
-5. Retry the normal approved export path to GET the bound ID. Only matching readback may finalize the effect. If no ID can be established, leave the reservation blocked and escalate to the provider. This release supplies no reset or re-create operation for that case.
+4. If the original external ID is established unambiguously, obtain separate authorization and use the reconciliation command below to review and bind that ID to the existing reservation with `manual_evidence` provenance. Supply references to the evidence and authorization. The command rejects an existing or conflicting binding. This internal operation does not itself create a confirmed receipt.
+5. Confirmation remains a separate step through the normal approved export path, which GETs the bound ID. Production export remains disabled in this release; reconciliation does not enable that path. After the provider integration is separately verified and enabled, only matching readback may finalize the effect. If no ID can be established, leave the reservation blocked and escalate to the provider. This release supplies no reset or re-create operation for that case.
 
 Production remediation is a separate change with read-only evidence and explicit authorization. Historical synthetic crosswalks must be investigated separately; this migration does not delete or reinterpret them.
+
+## Supported reconciliation command
+
+Run `bun run export:reconcile-spott` from the repository root. The command connects directly to the selected database; it does not call a server HTTP endpoint or the Spott API. Its scope is fixed to this deployment's `catapulze` scope, `spott` target, and `create` action. It can bind an externally verified ID only to an existing `reserved` effect with no ID or crosswalk.
+
+Before using an authorized environment:
+
+- Verify the original external ID and keep the supporting evidence in an appropriately restricted location. `--evidence-ref` and `--authorization-ref` are pointers the operator must verify. Each uses `namespace:identifier` format, at most 128 characters, with no URL or query string. They are not credentials, and accepting their text does not prove that the evidence or authorization exists.
+- Identify the current approved snapshot, its matching unexpired approval, and the canonical vacancy included in both. Reconciliation validates those records again during apply.
+- Use a signed Better Auth bearer for an authenticated administrator with both `ROLE_OPERATOR` and `PERM_EXPORT`. Actor identity and permissions come from authenticated records; the CLI accepts no actor or role arguments. The administrator session and valid snapshot approval establish the implemented authority. The command does not require two different approvers, and reference strings do not establish independent approval.
+- Inject `DATABASE_URL`, `BETTER_AUTH_SECRET`, `BETTER_AUTH_URL`, and `SPOTT_EXPORT_RECONCILIATION_BEARER_TOKEN` into this process using the environment's approved secret manager. Confirm the selected database before running. The bearer belongs only in the process environment, never argv, copied commands, shell history, `.env.example`, or captured evidence. Use the environment's actual secret references; this runbook assumes no vault/item path. Do not print environment values or enable shell tracing.
+
+The default operation performs a real database read in a read-only, repeatable-read transaction. It verifies the signed bearer and the current authentication records in that transaction, then returns one JSON line containing `mode: "dry-run"`, `applied: false`, `plan`, and `planHash`. It writes no reservation, receipt, or audit event. Snapshot and approval summaries contain bounded `resultCount` and `resultIdsHash` fields; the hash binds the ordered IDs without emitting the full lists. The approval summary also binds `actorId` and `motivationHash` without emitting the motivation text. Review the returned actor, scoped key, reservation state, selection summaries against the authorized snapshot, external ID, and both references before authorizing apply.
+
+These arguments are synthetic syntax examples, not production instructions or authorization. Replace them only with values from the reviewed recovery case in an explicitly authorized environment:
+
+```bash
+bun run export:reconcile-spott -- \
+  --scope catapulze \
+  --canonical-vacancy-id 00000000-0000-4000-8000-000000000101 \
+  --external-id spott-synthetic-recovered-001 \
+  --snapshot-id 00000000-0000-4000-8000-000000000102 \
+  --approval-id 00000000-0000-4000-8000-000000000103 \
+  --evidence-ref evidence:synthetic-recovery-001 \
+  --authorization-ref approval:synthetic-recovery-001
+```
+
+Apply requires explicit `--apply` and the exact 64-character `planHash` returned by that reviewed dry-run. Keep all other arguments unchanged. The placeholder below must be replaced by that returned hash; do not calculate or substitute a hash to bypass a stale plan:
+
+```bash
+bun run export:reconcile-spott -- \
+  --scope catapulze \
+  --canonical-vacancy-id 00000000-0000-4000-8000-000000000101 \
+  --external-id spott-synthetic-recovered-001 \
+  --snapshot-id 00000000-0000-4000-8000-000000000102 \
+  --approval-id 00000000-0000-4000-8000-000000000103 \
+  --evidence-ref evidence:synthetic-recovery-001 \
+  --authorization-ref approval:synthetic-recovery-001 \
+  --apply \
+  --plan-hash '<planHash-from-reviewed-dry-run>'
+```
+
+Apply rechecks authentication, current approval, reservation state, and the plan hash in a serializable transaction. It atomically records the external ID with `manual_evidence` provenance, changes the effect to `external_id_acquired`, and appends a `reconcile_spott_export_id` audit event with the authenticated actor and evidence/authorization references. Successful output contains `mode: "apply"`, `applied: true`, the plan and hash, and `auditEventId`. Keep this output with the restricted recovery record; it proves the local binding and audit, not a provider readback.
+
+If database connection cleanup fails after a successful dry-run or committed apply, the successful stdout result and exit code 0 are preserved. The CLI emits only the sanitized warning `{ "status": "warning", "code": "DATABASE_CLOSE_FAILED" }` on stderr. This warning does not undo the committed binding or authorize repeating the operation.
+
+A missing reservation, existing ID or crosswalk, wrong scope, revoked permissions, expired/mismatched approval, or changed plan refuses the operation. The proposed external ID is also rejected with `EXTERNAL_ID_CONFLICT` when already bound to another canonical vacancy in the same scope, `spott` target, and `create` action. Reconciliation and the supported effect/crosswalk stores perform the same reverse ownership checks against both effects and crosswalks inside serializable transactions. When supported writers race after observing no owner, PostgreSQL aborts an incompatible transaction rather than allowing both bindings to commit. Treat a serialization failure as an uncertain local operation: inspect durable state before deciding whether to retry, and never replay a provider POST because of it. This is an application-level invariant across these supported writers, not a universal database uniqueness constraint for arbitrary SQL.
+
+Refusals emit only `{ "status": "refused", "code": "..." }`. After a stale-plan refusal, inspect the changed state and obtain a new reviewed dry-run; never delete or reset the reservation to make apply succeed. The command provides no reset, replacement-ID, provider POST, or provider GET operation, and writes no crosswalk, export attempt, or confirmed receipt. Normal approved export confirmation remains separate and production export remains disabled.
 
 ## Public provider contract check
 

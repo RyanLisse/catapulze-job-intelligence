@@ -23,6 +23,7 @@ import type {
   PostgresJsTransaction,
 } from "drizzle-orm/postgres-js";
 
+import { assertExportIdOwnerAvailable } from "./export-id-ownership";
 import type * as schema from "./schema";
 import {
   exportAttempt,
@@ -170,9 +171,10 @@ const toExternalReceiptRecord = (
 });
 
 const insertCrosswalk = async (
-  executor: ExportExecutor,
+  executor: ExportTransaction,
   record: Omit<ExternalIdCrosswalkRecord, "createdAt">
 ): Promise<ExternalIdCrosswalkRecord> => {
+  await assertExportIdOwnerAvailable(executor, record);
   const inserted = await executor
     .insert(externalIdCrosswalk)
     .values(record)
@@ -273,37 +275,45 @@ export class PostgresExportEffectStore implements ExportEffectStore {
     }
   ): Promise<ExportEffectRecord> {
     const externalId = requireExternalId(input.externalId);
-    return this.database.transaction(async (transaction) => {
-      const [existing] = await transaction
-        .select()
-        .from(exportEffect)
-        .where(effectWhere(input))
-        .limit(1)
-        .for("update");
-      if (!existing) {
-        throw new Error("Export effect reservation not found");
-      }
-      if (existing.externalId && existing.externalId !== externalId) {
-        throw new Error("Export effect already has a different external ID");
-      }
-      if (existing.status === "confirmed") {
-        return toExportEffectRecord(existing);
-      }
+    return this.database.transaction(
+      async (transaction) => {
+        const [existing] = await transaction
+          .select()
+          .from(exportEffect)
+          .where(effectWhere(input))
+          .limit(1)
+          .for("update");
+        if (!existing) {
+          throw new Error("Export effect reservation not found");
+        }
+        if (existing.externalId && existing.externalId !== externalId) {
+          throw new Error("Export effect already has a different external ID");
+        }
+        if (existing.status === "confirmed") {
+          return toExportEffectRecord(existing);
+        }
 
-      const rows = await transaction
-        .update(exportEffect)
-        .set({
+        await assertExportIdOwnerAvailable(transaction, {
+          ...input,
           externalId,
-          externalIdSource: existing.externalIdSource ?? input.source,
-          status: "external_id_acquired",
-          updatedAt: new Date(),
-        })
-        .where(effectWhere(input))
-        .returning();
-      return toExportEffectRecord(
-        requireRow(rows, "record export effect external ID")
-      );
-    });
+        });
+
+        const rows = await transaction
+          .update(exportEffect)
+          .set({
+            externalId,
+            externalIdSource: existing.externalIdSource ?? input.source,
+            status: "external_id_acquired",
+            updatedAt: new Date(),
+          })
+          .where(effectWhere(input))
+          .returning();
+        return toExportEffectRecord(
+          requireRow(rows, "record export effect external ID")
+        );
+      },
+      { isolationLevel: "serializable" }
+    );
   }
 
   async finalizeConfirmed(
@@ -370,7 +380,8 @@ export class PostgresExportEffectStore implements ExportEffectStore {
             .set({ status: "confirmed", updatedAt: new Date() })
             .where(effectWhere(input));
           return { attempt, created: true, externalId, receipt };
-        }
+        },
+        { isolationLevel: "serializable" }
       );
     return result;
   }
@@ -403,7 +414,10 @@ export class PostgresExternalIdCrosswalkStore implements ExternalIdCrosswalkStor
   create(
     record: Omit<ExternalIdCrosswalkRecord, "createdAt">
   ): Promise<ExternalIdCrosswalkRecord> {
-    return insertCrosswalk(this.database, record);
+    return this.database.transaction(
+      (transaction) => insertCrosswalk(transaction, record),
+      { isolationLevel: "serializable" }
+    );
   }
 }
 

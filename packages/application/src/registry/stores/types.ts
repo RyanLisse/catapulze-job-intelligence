@@ -101,9 +101,22 @@ export interface CommitExportAuditMetadata {
   readonly snapshotId: string;
 }
 
+export interface ManualExportReconciliationAuditMetadata {
+  readonly actionType: "create";
+  readonly approvalId: string;
+  readonly authorizationRef: string;
+  readonly canonicalVacancyId: string;
+  readonly evidenceRef: string;
+  readonly externalId: string;
+  readonly planHash: string;
+  readonly snapshotId: string;
+  readonly target: "spott";
+}
+
 export type AuditEventMetadata =
   | ApprovalAuditMetadata
   | CommitExportAuditMetadata
+  | ManualExportReconciliationAuditMetadata
   | MarkeerAuditMetadata;
 
 export type AlertEvidenceValue = boolean | null | number | string;

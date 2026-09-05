@@ -7,7 +7,10 @@ import { drizzle } from "drizzle-orm/postgres-js";
 import { migrate } from "drizzle-orm/postgres-js/migrator";
 import postgres from "postgres";
 
-import { PostgresExportEffectStore } from "./export-stores";
+import {
+  PostgresExportEffectStore,
+  PostgresExternalIdCrosswalkStore,
+} from "./export-stores";
 import * as schema from "./schema";
 import {
   approvalRecord,
@@ -114,6 +117,8 @@ describe
     let databaseB: TestDatabase;
     let storeA: PostgresExportEffectStore;
     let storeB: PostgresExportEffectStore;
+    let crosswalkStoreA: PostgresExternalIdCrosswalkStore;
+    let crosswalkStoreB: PostgresExternalIdCrosswalkStore;
     const ownedScopeIds = new Set<string>();
 
     const createScopeId = (): string => {
@@ -208,6 +213,8 @@ describe
       databaseB = drizzle(clientB, { schema });
       storeA = new PostgresExportEffectStore(databaseA);
       storeB = new PostgresExportEffectStore(databaseB);
+      crosswalkStoreA = new PostgresExternalIdCrosswalkStore(databaseA);
+      crosswalkStoreB = new PostgresExternalIdCrosswalkStore(databaseB);
     });
 
     afterEach(async () => {
@@ -289,13 +296,89 @@ describe
       ).rejects.toThrow("already has a different external ID");
     });
 
+    it("rejects a crosswalk after another effect owns the external ID", async () => {
+      const scopeId = createScopeId();
+      const effectKey = createKey(scopeId);
+      const crosswalkKey = createKey(scopeId);
+      const externalId = `spott-${crypto.randomUUID()}`;
+      await storeA.reserve(effectKey);
+      await storeA.recordExternalId({
+        ...effectKey,
+        externalId,
+        source: "provider_response",
+      });
+
+      await expect(
+        crosswalkStoreB.create({ ...crosswalkKey, externalId })
+      ).rejects.toThrow("already bound to another scoped export");
+    });
+
+    it("rejects effect ownership after another crosswalk owns the external ID", async () => {
+      const scopeId = createScopeId();
+      const effectKey = createKey(scopeId);
+      const crosswalkKey = createKey(scopeId);
+      const externalId = `spott-${crypto.randomUUID()}`;
+      await storeA.reserve(effectKey);
+      await crosswalkStoreA.create({ ...crosswalkKey, externalId });
+
+      await expect(
+        storeB.recordExternalId({
+          ...effectKey,
+          externalId,
+          source: "provider_response",
+        })
+      ).rejects.toThrow("already bound to another scoped export");
+    });
+
+    it("allows only one owner when effect and crosswalk bindings race", async () => {
+      const scopeId = createScopeId();
+      const effectKey = createKey(scopeId);
+      const crosswalkKey = createKey(scopeId);
+      const externalId = `spott-${crypto.randomUUID()}`;
+      await storeA.reserve(effectKey);
+
+      const results = await Promise.allSettled([
+        storeA.recordExternalId({
+          ...effectKey,
+          externalId,
+          source: "provider_response",
+        }),
+        crosswalkStoreB.create({ ...crosswalkKey, externalId }),
+      ]);
+      const [effects, crosswalks] = await Promise.all([
+        databaseA
+          .select()
+          .from(exportEffect)
+          .where(
+            and(
+              eq(exportEffect.scopeId, scopeId),
+              eq(exportEffect.externalId, externalId)
+            )
+          ),
+        databaseA
+          .select()
+          .from(externalIdCrosswalk)
+          .where(
+            and(
+              eq(externalIdCrosswalk.scopeId, scopeId),
+              eq(externalIdCrosswalk.externalId, externalId)
+            )
+          ),
+      ]);
+
+      expect(
+        results.filter((result) => result.status === "fulfilled")
+      ).toHaveLength(1);
+      expect(effects.length + crosswalks.length).toBe(1);
+    });
+
     it("creates at most one confirmed effect during concurrent finalization", async () => {
       const key = createKey(createScopeId());
       const externalId = `spott-${crypto.randomUUID()}`;
       const { approvalId, snapshotId } = await seedConfirmationReferences(key);
       await prepareExternalEffect(key, externalId);
 
-      const results = await Promise.all([
+      const results = await Promise.allSettled([
         storeA.finalizeConfirmed({
           ...key,
           approvalId,
@@ -314,7 +397,21 @@ describe
         }),
       ]);
 
-      expect(results.filter((result) => result.created)).toHaveLength(1);
+      expect(
+        results.filter(
+          (result) => result.status === "fulfilled" && result.value.created
+        )
+      ).toHaveLength(1);
+
+      const retry = await storeA.finalizeConfirmed({
+        ...key,
+        approvalId,
+        externalId,
+        idempotencyKey: `export-effect-${crypto.randomUUID()}`,
+        responseHash: `sha256:${crypto.randomUUID()}`,
+        snapshotId,
+      });
+      expect(retry).toEqual({ created: false, externalId });
     });
 
     it("rolls back effect, crosswalk, attempt, and receipt changes after attempt failure", async () => {

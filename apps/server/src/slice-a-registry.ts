@@ -36,13 +36,14 @@ import {
 } from "@ji/search";
 
 import { assertProductionPersistence } from "./assert-production-persistence";
+import { CATAPULZE_DEPLOYMENT_SCOPE_ID } from "./deployment-scope";
 
 /**
  * Catapulze is single-tenant per deployment. This server-owned value is the
  * sole scope authority until identity-backed tenant membership is introduced;
  * request bodies, headers and roles cannot override it.
  */
-export const CATAPULZE_DEPLOYMENT_SCOPE_ID = "catapulze";
+export { CATAPULZE_DEPLOYMENT_SCOPE_ID } from "./deployment-scope";
 
 export interface ProductionSliceADepsInput {
   databaseUrl: string;

@@ -65,6 +65,19 @@ const auditMetadataSchema: z.ZodType<AuditEventMetadata> = z.union([
     .strict(),
   z
     .object({
+      actionType: z.literal("create"),
+      approvalId: z.string(),
+      authorizationRef: z.string(),
+      canonicalVacancyId: z.string(),
+      evidenceRef: z.string(),
+      externalId: z.string(),
+      planHash: z.string(),
+      snapshotId: z.string(),
+      target: z.literal("spott"),
+    })
+    .strict(),
+  z
+    .object({
       reden: z.string().nullable(),
       status: markeringStatusSchema,
     })
