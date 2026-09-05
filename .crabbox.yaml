@@ -190,6 +190,8 @@ jobs:
       - crabbox-output/exe-dev-shadow/report.md
       - crabbox-output/exe-dev-shadow/junit.xml
       - crabbox-output/exe-dev-shadow/database-junit.xml
+      - crabbox-output/exe-dev-shadow/unit-diagnostics.log
+      - crabbox-output/exe-dev-shadow/unit-diagnostics.json
       - crabbox-output/exe-dev-shadow/validation-exit-status.txt
       - crabbox-output/exe-dev-shadow/manifest.sha256
     downloads:
@@ -198,6 +200,8 @@ jobs:
       - crabbox-output/exe-dev-shadow/report.md=.artifacts/crabbox/exe-dev-shadow/report.md
       - crabbox-output/exe-dev-shadow/junit.xml=.artifacts/crabbox/exe-dev-shadow/junit.xml
       - crabbox-output/exe-dev-shadow/database-junit.xml=.artifacts/crabbox/exe-dev-shadow/database-junit.xml
+      - crabbox-output/exe-dev-shadow/unit-diagnostics.log=.artifacts/crabbox/exe-dev-shadow/unit-diagnostics.log
+      - crabbox-output/exe-dev-shadow/unit-diagnostics.json=.artifacts/crabbox/exe-dev-shadow/unit-diagnostics.json
       - crabbox-output/exe-dev-shadow/validation-exit-status.txt=.artifacts/crabbox/exe-dev-shadow/validation-exit-status.txt
       - crabbox-output/exe-dev-shadow/manifest.sha256=.artifacts/crabbox/exe-dev-shadow/manifest.sha256
     stop: always

@@ -11,6 +11,11 @@ import {
 import { tmpdir } from "node:os";
 import path from "node:path";
 
+import {
+  summarizeUnitDiagnostics,
+  writeUnitDiagnosticArtifacts,
+} from "./crabbox-unit-diagnostics";
+
 // These tests spawn the real bash launcher (git fixture, subprocesses). Under
 // the default 5s per-test budget they time out when several gates run in
 // parallel on one machine (observed 5.7s and 8.7s) — the launcher is not
@@ -21,6 +26,10 @@ setDefaultTimeout(LAUNCHER_TEST_TIMEOUT_MS);
 
 const launcher = path.join(import.meta.dir, "crabbox-exe-dev-shadow-run.sh");
 const shadowScript = path.join(import.meta.dir, "crabbox-exe-dev-shadow.sh");
+const unitDiagnosticsScript = path.join(
+  import.meta.dir,
+  "crabbox-unit-diagnostics.ts"
+);
 const sourceSha = "a".repeat(40);
 const realGit = Bun.which("git") ?? "";
 const launcherFixtureTimeoutMs = 30_000;
@@ -293,6 +302,12 @@ describe("exe.dev shadow scripts", () => {
     expect(dockerignore.split("\n")).toContain("**/.artifacts");
     expect(crabboxConfig).toContain(
       `${remoteEvidencePath}/junit.xml=.artifacts/crabbox/exe-dev-shadow/junit.xml`
+    );
+    expect(crabboxConfig).toContain(
+      `${remoteEvidencePath}/unit-diagnostics.log=.artifacts/crabbox/exe-dev-shadow/unit-diagnostics.log`
+    );
+    expect(crabboxConfig).toContain(
+      `${remoteEvidencePath}/unit-diagnostics.json=.artifacts/crabbox/exe-dev-shadow/unit-diagnostics.json`
     );
     expect(crabboxConfig).toContain(
       `artifactGlobs:\n      - ${remoteEvidencePath}/**`
@@ -628,6 +643,7 @@ grep -q '"exitStatus":23' "$PHASES_FILE"
       path.join(binDirectory, "bun"),
       `#!/usr/bin/env bash
 set -euo pipefail
+[[ "\${1:-}" == "test" ]] || exit 0
 printf '%s\\n' "\${DATABASE_URL-unset}" "\${DATABASE_TEST_URL-unset}" "\${DATABASE_APP_TEST_URL-unset}" "\${MIGRATION_DATABASE_URL-unset}" "\${REQUIRE_DATABASE_TESTS-unset}" >"$CAPTURE_FILE"
 `
     );
@@ -691,7 +707,12 @@ if [[ "\${1:-}" == "test" ]]; then
       printf '<testsuites tests="1" failures="1"><testsuite tests="1" failures="1"><testcase name="remote failure"><failure message="fixture" /></testcase></testsuite></testsuites>\\n' >"$output"
     fi
   done
+  printf '%s\\n' 'error: loader fixture failed' 'error: https://user:private@example.invalid/path?token=private' '2 errors'
   exit 4
+fi
+if [[ "\${1:-}" == "scripts/crabbox-unit-diagnostics.ts" ]]; then
+  shift
+  exec "$REAL_BUN" "$UNIT_DIAGNOSTICS_SCRIPT" "$@"
 fi
 exit 0
 `
@@ -708,7 +729,9 @@ exit 0
         EXE_DEV_REGION: "FRA",
         HOME: workspace,
         PATH: `${binDirectory}:${process.env.PATH ?? "/usr/bin:/bin"}`,
+        REAL_BUN: process.execPath,
         SHADOW_SCRIPT: shadowScript,
+        UNIT_DIAGNOSTICS_SCRIPT: unitDiagnosticsScript,
       };
       delete spawnedEnvironment.CRABBOX_CAPTURE_VALIDATION_STATUS;
       const result = Bun.spawnSync(
@@ -753,7 +776,76 @@ exit 0
       ).toContain("- Status: `failed`");
       expect(manifest).toContain("junit.xml");
       expect(manifest).toContain("database-junit.xml");
+      expect(manifest).toContain("unit-diagnostics.log");
+      expect(manifest).toContain("unit-diagnostics.json");
       expect(manifest).toContain("validation-exit-status.txt");
+      const unitDiagnostics = readFileSync(
+        path.join(evidenceDirectory, "unit-diagnostics.log"),
+        "utf-8"
+      );
+      const unitDiagnosticSummary = JSON.parse(
+        readFileSync(
+          path.join(evidenceDirectory, "unit-diagnostics.json"),
+          "utf-8"
+        )
+      );
+      expect(unitDiagnostics).toContain("error: loader fixture failed");
+      expect(unitDiagnostics).toContain("[REDACTED_URL]");
+      expect(unitDiagnostics).not.toContain("user:private");
+      expect(unitDiagnosticSummary).toEqual({
+        bunErrorLineCount: 2,
+        bunReportedErrorCount: 2,
+        junitErrorElementCount: 0,
+        nonJunitErrorCount: 2,
+        schemaVersion: 1,
+      });
+    } finally {
+      rmSync(workspace, { force: true, recursive: true });
+    }
+  });
+
+  test("counts setup errors that Bun omits from JUnit", async () => {
+    const workspace = mkdtempSync(path.join(tmpdir(), "ji-unit-diagnostics-"));
+    const inputPath = path.join(workspace, "raw.log");
+    const junitPath = path.join(workspace, "junit.xml");
+    const logPath = path.join(workspace, "unit-diagnostics.log");
+    const summaryPath = path.join(workspace, "unit-diagnostics.json");
+    try {
+      writeFileSync(
+        inputPath,
+        "error: loader one\nerror: https://user:pass@example.invalid/?token=private\n2 errors\n"
+      );
+      writeFileSync(
+        junitPath,
+        '<testsuites tests="1" failures="0" errors="0"><testcase name="pass" /></testsuites>\n'
+      );
+
+      await writeUnitDiagnosticArtifacts(
+        inputPath,
+        junitPath,
+        logPath,
+        summaryPath
+      );
+
+      expect(readFileSync(logPath, "utf-8")).toBe(
+        "error: loader one\nerror: [REDACTED_URL]\n2 errors\n"
+      );
+      expect(JSON.parse(readFileSync(summaryPath, "utf-8"))).toEqual({
+        bunErrorLineCount: 2,
+        bunReportedErrorCount: 2,
+        junitErrorElementCount: 0,
+        nonJunitErrorCount: 2,
+        schemaVersion: 1,
+      });
+      expect(
+        summarizeUnitDiagnostics("error: represented\n1 error\n", "<error />")
+      ).toEqual({
+        bunErrorLineCount: 1,
+        bunReportedErrorCount: 1,
+        junitErrorElementCount: 1,
+        nonJunitErrorCount: 0,
+        schemaVersion: 1,
+      });
     } finally {
       rmSync(workspace, { force: true, recursive: true });
     }

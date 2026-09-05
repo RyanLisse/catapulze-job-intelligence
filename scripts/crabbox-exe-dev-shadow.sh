@@ -12,6 +12,8 @@ readonly FINGERPRINT_FILE="${EVIDENCE_DIR}/execution-fingerprint.json"
 readonly REPORT_FILE="${EVIDENCE_DIR}/report.md"
 readonly JUNIT_FILE="${EVIDENCE_DIR}/junit.xml"
 readonly DATABASE_JUNIT_FILE="${EVIDENCE_DIR}/database-junit.xml"
+readonly UNIT_DIAGNOSTICS_FILE="${EVIDENCE_DIR}/unit-diagnostics.log"
+readonly UNIT_DIAGNOSTICS_SUMMARY_FILE="${EVIDENCE_DIR}/unit-diagnostics.json"
 readonly VALIDATION_EXIT_STATUS_FILE="${EVIDENCE_DIR}/validation-exit-status.txt"
 readonly MANIFEST_FILE="${EVIDENCE_DIR}/manifest.sha256"
 readonly INPUT_MANIFEST_FILE=".crabbox-input-manifest.sha256"
@@ -28,6 +30,7 @@ COMPOSE_DATABASE_STARTED="false"
 COMPOSE_COMMAND=()
 POSTGRES_IMAGE="unavailable"
 POSTGRES_VERSION="unavailable"
+UNIT_RAW_DIAGNOSTICS_FILE=""
 
 monotonic_ms() {
   awk '{printf "%.0f", $1 * 1000}' /proc/uptime
@@ -270,7 +273,7 @@ write_report() {
     printf -- "- Dataset profile: \`%s\`\n" "$DATASET_PROFILE"
     printf -- "- Recorded phases: \`%s\`\n" "$phase_count"
     printf -- "- Generated at: \`%s\`\n" "$(iso_timestamp)"
-    printf "\nSee \`phases.jsonl\`, \`execution-fingerprint.json\`, \`junit.xml\`, and \`database-junit.xml\` for machine-readable evidence.\n"
+    printf "\nSee \`phases.jsonl\`, \`execution-fingerprint.json\`, \`junit.xml\`, \`database-junit.xml\`, \`unit-diagnostics.log\`, and \`unit-diagnostics.json\` for machine-readable evidence.\n"
   } >"$REPORT_FILE"
 }
 
@@ -278,7 +281,7 @@ write_manifest() {
   local artifact
 
   : >"$MANIFEST_FILE"
-  for artifact in "$PHASES_FILE" "$FINGERPRINT_FILE" "$REPORT_FILE" "$JUNIT_FILE" "$DATABASE_JUNIT_FILE" "$VALIDATION_EXIT_STATUS_FILE"; do
+  for artifact in "$PHASES_FILE" "$FINGERPRINT_FILE" "$REPORT_FILE" "$JUNIT_FILE" "$DATABASE_JUNIT_FILE" "$UNIT_DIAGNOSTICS_FILE" "$UNIT_DIAGNOSTICS_SUMMARY_FILE" "$VALIDATION_EXIT_STATUS_FILE"; do
     if [[ -f "$artifact" ]]; then
       sha256sum "$artifact" >>"$MANIFEST_FILE"
     fi
@@ -361,6 +364,15 @@ run_database_integration() {
 }
 
 run_unit_suite() {
+  local diagnostics_exit_status
+  local restore_errexit="false"
+  local test_exit_status
+
+  if [[ $- == *e* ]]; then
+    restore_errexit="true"
+  fi
+  UNIT_RAW_DIAGNOSTICS_FILE="$(mktemp)"
+  set +e
   env \
     -u DATABASE_APP_TEST_URL \
     -u DATABASE_TEST_URL \
@@ -371,7 +383,30 @@ run_unit_suite() {
       --max-concurrency 2 \
       --path-ignore-patterns '**/dist/**' \
       --reporter=junit \
-      --reporter-outfile="$JUNIT_FILE"
+      --reporter-outfile="$JUNIT_FILE" 2>&1 | tee "$UNIT_RAW_DIAGNOSTICS_FILE"
+  test_exit_status="${PIPESTATUS[0]}"
+  if [[ "$restore_errexit" == "true" ]]; then
+    set -e
+  fi
+
+  set +e
+  bun scripts/crabbox-unit-diagnostics.ts \
+    "$UNIT_RAW_DIAGNOSTICS_FILE" \
+    "$JUNIT_FILE" \
+    "$UNIT_DIAGNOSTICS_FILE" \
+    "$UNIT_DIAGNOSTICS_SUMMARY_FILE"
+  diagnostics_exit_status=$?
+  if [[ "$restore_errexit" == "true" ]]; then
+    set -e
+  fi
+  rm -f "$UNIT_RAW_DIAGNOSTICS_FILE"
+  UNIT_RAW_DIAGNOSTICS_FILE=""
+
+  if [[ "$diagnostics_exit_status" -ne 0 ]]; then
+    printf 'exe.dev shadow: failed to create sanitized unit diagnostics\n' >&2
+    return "$diagnostics_exit_status"
+  fi
+  return "$test_exit_status"
 }
 
 write_not_reached_junit() {
@@ -406,6 +441,9 @@ on_exit() {
   trap - EXIT
   cleanup_database
   rm -f "$COMPOSE_ENV_FILE"
+  if [[ -n "$UNIT_RAW_DIAGNOSTICS_FILE" ]]; then
+    rm -f "$UNIT_RAW_DIAGNOSTICS_FILE"
+  fi
   printf '%d\n' "$exit_status" >"$VALIDATION_EXIT_STATUS_FILE"
   finalize_evidence
   if [[ "${CRABBOX_CAPTURE_VALIDATION_STATUS:-}" == "1" ]]; then
@@ -416,10 +454,12 @@ on_exit() {
 
 main() {
   mkdir -p "$EVIDENCE_DIR"
-  rm -f "$PHASES_FILE" "$FINGERPRINT_FILE" "$REPORT_FILE" "$JUNIT_FILE" "$DATABASE_JUNIT_FILE" "$VALIDATION_EXIT_STATUS_FILE" "$MANIFEST_FILE"
+  rm -f "$PHASES_FILE" "$FINGERPRINT_FILE" "$REPORT_FILE" "$JUNIT_FILE" "$DATABASE_JUNIT_FILE" "$UNIT_DIAGNOSTICS_FILE" "$UNIT_DIAGNOSTICS_SUMMARY_FILE" "$VALIDATION_EXIT_STATUS_FILE" "$MANIFEST_FILE"
   : >"$PHASES_FILE"
   write_not_reached_junit "$JUNIT_FILE" "unit"
   write_not_reached_junit "$DATABASE_JUNIT_FILE" "database-integration"
+  printf 'unit phase not reached\n' >"$UNIT_DIAGNOSTICS_FILE"
+  printf '%s\n' '{"schemaVersion":1,"bunErrorLineCount":0,"bunReportedErrorCount":0,"junitErrorElementCount":0,"nonJunitErrorCount":0}' >"$UNIT_DIAGNOSTICS_SUMMARY_FILE"
   trap on_exit EXIT
 
   if [[ "${EXE_DEV_REGION:-}" != "$EXPECTED_REGION" ]]; then
