@@ -4,6 +4,7 @@ import { markeringMutationOutcome } from "./markering-sync";
 import type {
   JobIntelligenceActions,
   JobListing,
+  JobMarkering,
   JobSearchFilters,
   JobSearchScope,
   MarkeringSyncState,
@@ -11,7 +12,13 @@ import type {
 
 interface JobSearchMutationsInput {
   readonly actions?: JobIntelligenceActions;
+  readonly applyMarkeringResult: (
+    resourceId: string,
+    markering: JobMarkering
+  ) => void;
   readonly filters: JobSearchFilters;
+  readonly getSelectedJobId: () => string | null;
+  readonly isMarkeringPending?: boolean;
   readonly query: string;
   readonly results: readonly JobListing[];
   readonly resultsComplete: boolean;
@@ -21,13 +28,74 @@ interface JobSearchMutationsInput {
   readonly setIsSavingSearch: Dispatch<SetStateAction<boolean>>;
   readonly setMarkeringSyncState?: Dispatch<SetStateAction<MarkeringSyncState>>;
   readonly setSavedSearchMessage: Dispatch<SetStateAction<string | null>>;
-  readonly setSelectedJob: Dispatch<SetStateAction<JobListing | null>>;
   readonly setSnapshotMessage: Dispatch<SetStateAction<string | null>>;
 }
 
+type MarkSelectedJobInput = Pick<
+  JobSearchMutationsInput,
+  | "actions"
+  | "applyMarkeringResult"
+  | "getSelectedJobId"
+  | "isMarkeringPending"
+  | "selectedJob"
+  | "setMarkeringSyncState"
+  | "setSnapshotMessage"
+>;
+
+const createMarkSelectedJob = ({
+  actions,
+  applyMarkeringResult,
+  getSelectedJobId,
+  isMarkeringPending,
+  selectedJob,
+  setMarkeringSyncState,
+  setSnapshotMessage,
+}: MarkSelectedJobInput) => {
+  let mutationInFlight = false;
+
+  return async () => {
+    if (!actions || !selectedJob || isMarkeringPending || mutationInFlight) {
+      return;
+    }
+    const resourceId = selectedJob.id;
+    if (getSelectedJobId() !== resourceId) {
+      return;
+    }
+    mutationInFlight = true;
+    setMarkeringSyncState?.("pending");
+    try {
+      const markering = await actions.markeerAanvraag({
+        aanvraagId: resourceId,
+        status: "relevant",
+      });
+      if (getSelectedJobId() !== resourceId) {
+        return;
+      }
+      applyMarkeringResult(resourceId, markering);
+      setMarkeringSyncState?.("commit");
+    } catch (error) {
+      if (getSelectedJobId() !== resourceId) {
+        return;
+      }
+      // A transport failure can happen after the server committed. Keep the
+      // open detail visibly uncertain so the bounded readback poll can settle
+      // it, instead of falsely claiming a rollback.
+      setMarkeringSyncState?.(
+        error instanceof Error ? markeringMutationOutcome(error) : "uncertain"
+      );
+      setSnapshotMessage("Markeren mislukt. Probeer het opnieuw.");
+    } finally {
+      mutationInFlight = false;
+    }
+  };
+};
+
 export const createJobSearchMutations = ({
   actions,
+  applyMarkeringResult,
   filters,
+  getSelectedJobId,
+  isMarkeringPending = false,
   query,
   results,
   resultsComplete,
@@ -37,7 +105,6 @@ export const createJobSearchMutations = ({
   setIsSavingSearch,
   setMarkeringSyncState,
   setSavedSearchMessage,
-  setSelectedJob,
   setSnapshotMessage,
 }: JobSearchMutationsInput) => ({
   createSnapshot: async () => {
@@ -79,30 +146,15 @@ export const createJobSearchMutations = ({
       setIsCreatingSnapshot(false);
     }
   },
-  markSelectedJob: async () => {
-    if (!actions || !selectedJob) {
-      return;
-    }
-    setMarkeringSyncState?.("pending");
-    try {
-      const markering = await actions.markeerAanvraag({
-        aanvraagId: selectedJob.id,
-        status: "relevant",
-      });
-      setSelectedJob((current) =>
-        current?.id === selectedJob.id ? { ...current, markering } : current
-      );
-      setMarkeringSyncState?.("commit");
-    } catch (error) {
-      // A transport failure can happen after the server committed. Keep the
-      // open detail visibly uncertain so the bounded readback poll can settle
-      // it, instead of falsely claiming a rollback.
-      setMarkeringSyncState?.(
-        error instanceof Error ? markeringMutationOutcome(error) : "uncertain"
-      );
-      setSnapshotMessage("Markeren mislukt. Probeer het opnieuw.");
-    }
-  },
+  markSelectedJob: createMarkSelectedJob({
+    actions,
+    applyMarkeringResult,
+    getSelectedJobId,
+    isMarkeringPending,
+    selectedJob,
+    setMarkeringSyncState,
+    setSnapshotMessage,
+  }),
   saveCurrentSearch: async () => {
     if (!actions) {
       return;

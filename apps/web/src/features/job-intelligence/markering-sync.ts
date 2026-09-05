@@ -28,7 +28,7 @@ export interface MarkeringReadbackState {
   readonly pollClearObserved: boolean;
 }
 
-export type MarkeringReadbackSource = "detail" | "poll";
+export type MarkeringReadbackSource = "detail" | "mutation" | "poll";
 
 export const emptyMarkeringReadbackState = (): MarkeringReadbackState => ({
   initialized: false,
