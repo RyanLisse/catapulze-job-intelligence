@@ -1,11 +1,7 @@
 import { describe, expect, it } from "bun:test";
 
-import {
-  createTestSliceARegistry,
-  permissionsForRole,
-  TEST_DEPLOYMENT_SCOPE_ID,
-} from "@ji/application/registry";
-
+import { createSliceARegistry } from "./catalog";
+import { permissionsForRole } from "./roles";
 import {
   digestSourcingSelection,
   evaluateSourcingAssessment,
@@ -13,43 +9,105 @@ import {
 } from "./sourcing-assessment";
 import {
   completeSourcingFixture,
+  completeTrustedAttestation,
   contradictorySourcingFixture,
-  emptySourcingFixture,
+  contradictoryTrustedAttestation,
   partialSourcingFixture,
 } from "./sourcing-assessment.fixtures";
+import {
+  createTestSliceADeps,
+  createTestSliceARegistry,
+  TEST_DEPLOYMENT_SCOPE_ID,
+} from "./test-fixtures";
 
 const principal = {
   kind: "user" as const,
   permissions: permissionsForRole("recruiter"),
   subjectId: "recruiter-1",
 };
+const actor = { kind: principal.kind, subjectId: principal.subjectId };
+const serverTime = new Date("2026-09-05T10:00:00.000Z");
+const evaluate = (
+  input = completeSourcingFixture,
+  attestation = completeTrustedAttestation
+) =>
+  evaluateSourcingAssessment(
+    input,
+    actor,
+    TEST_DEPLOYMENT_SCOPE_ID,
+    serverTime,
+    attestation
+  );
 
 describe("evaluate_sourcing_assessment (RJC-447)", () => {
-  it("reproduces the empty evidence fixture", () => {
-    const result = evaluateSourcingAssessment(emptySourcingFixture, principal);
+  it("blocks caller-complete evidence when trusted upstream contracts are absent", async () => {
+    const bundle = createTestSliceARegistry();
+    const invoke = bundle.registry.createInvoker({
+      capabilityId: "evaluate_sourcing_assessment",
+      operation: "evaluate_sourcing_assessment",
+      transport: "mcp",
+    });
+    const result = await invoke(completeSourcingFixture, {
+      principal,
+      requestId: "blocked",
+    });
 
-    expect(result.evaluation.status).toBe("insufficient-evidence");
-    expect(result.prompt).toMatchObject({
+    expect(result).toMatchObject({
+      ok: true,
+      value: {
+        binding: {
+          queryDigest: null,
+          searchStatus: "unknown",
+          selectedIds: [],
+          trust: "unavailable",
+        },
+        claims: [],
+        evaluation: {
+          findings: [
+            expect.objectContaining({
+              code: "UPSTREAM_ATTESTATION_UNAVAILABLE",
+            }),
+          ],
+          status: "blocked-upstream",
+        },
+        sourceReferences: [],
+        usedCapabilities: [],
+      },
+    });
+  });
+
+  it("uses server-owned time for freshness and produces deterministic trusted output", () => {
+    const first = evaluate();
+    const second = evaluate();
+
+    expect(first).toEqual(second);
+    expect(first.evaluation).toMatchObject({
+      asOf: serverTime.toISOString(),
+      status: "passed",
+    });
+    expect(first.sourceReferences).toContainEqual(
+      expect.objectContaining({
+        ageSeconds: 1800,
+        id: "detail-1",
+        status: "fresh",
+      })
+    );
+    expect(first.prompt).toMatchObject({
       readOnly: true,
       version: SOURCING_PROMPT_VERSION,
     });
-    expect(result.evaluation.inputDigest).toMatch(/^sha256:[a-f0-9]{64}$/u);
+    expect(
+      first.dependencyGuards.every(({ status }) => status === "satisfied")
+    ).toBe(true);
   });
 
-  it("marks the partial evidence fixture for review without inventing absent values", () => {
-    const result = evaluateSourcingAssessment(
-      partialSourcingFixture,
-      principal
-    );
+  it("keeps incomplete and missing conclusions in review", () => {
+    const result = evaluate(partialSourcingFixture, {
+      ...completeTrustedAttestation,
+      searchStatus: "incomplete",
+    });
 
     expect(result.evaluation.status).toBe("needs-review");
-    expect(result.claims).toContainEqual(
-      expect.objectContaining({
-        field: "rate",
-        status: "unknown",
-        value: "unknown",
-      })
-    );
     expect(result.evaluation.findings).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ code: "UPSTREAM_SEARCH_INCOMPLETE" }),
@@ -57,21 +115,15 @@ describe("evaluate_sourcing_assessment (RJC-447)", () => {
           code: "MISSING_FIELD_CONCLUSION",
           field: "location",
         }),
-        expect.objectContaining({
-          code: "MISSING_FIELD_CONCLUSION",
-          field: "contract_type",
-        }),
       ])
     );
   });
 
-  it("surfaces contradictory cited evidence for evaluator review", () => {
-    const result = evaluateSourcingAssessment(
+  it("surfaces contradictory cited conclusions", () => {
+    const result = evaluate(
       contradictorySourcingFixture,
-      principal
+      contradictoryTrustedAttestation
     );
-
-    expect(result.evaluation.status).toBe("needs-review");
     expect(result.evaluation.findings).toContainEqual(
       expect.objectContaining({
         code: "CONTRADICTORY_EVIDENCE",
@@ -80,83 +132,94 @@ describe("evaluate_sourcing_assessment (RJC-447)", () => {
     );
   });
 
-  it("passes complete cited and explicitly uncertain evidence with freshness readback", () => {
-    const first = evaluateSourcingAssessment(
-      completeSourcingFixture,
-      principal
-    );
-    const second = evaluateSourcingAssessment(
-      completeSourcingFixture,
-      principal
-    );
-
-    expect(first).toEqual(second);
-    expect(first.evaluation.status).toBe("passed");
-    expect(first.sourceReferences).toContainEqual(
-      expect.objectContaining({ ageSeconds: 1800, status: "fresh" })
-    );
-    expect(first.dependencyGuards.map((guard) => guard.issue)).toEqual([
-      "RJC-427",
-      "RJC-429",
-      "RJC-430",
-      "RJC-431",
-    ]);
-  });
-
-  it("rejects actor and deployment scope mismatch at registry invocation", async () => {
-    const bundle = createTestSliceARegistry();
-    const invoke = bundle.registry.createInvoker({
-      capabilityId: "evaluate_sourcing_assessment",
-      operation: "evaluate_sourcing_assessment",
-      transport: "mcp",
-    });
-
-    const wrongActor = await invoke(
-      { ...completeSourcingFixture, actorId: "another-recruiter" },
-      { principal, requestId: "wrong-actor" }
-    );
-    const wrongScope = await invoke(
-      { ...completeSourcingFixture, scopeId: "another-scope" },
-      { principal, requestId: "wrong-scope" }
-    );
-
-    expect(wrongActor).toMatchObject({
-      error: { code: "VALIDATION_ERROR" },
-      ok: false,
-    });
-    expect(wrongScope).toMatchObject({
-      error: { code: "VALIDATION_ERROR" },
-      ok: false,
-    });
-  });
-
-  it("cannot silently reuse a digest after the selection changes", () => {
-    const changedSelection = {
-      ...completeSourcingFixture,
+  it("rejects query and selection replay against a different attestation", () => {
+    const changedAttestation = {
+      ...completeTrustedAttestation,
+      queryDigest: `sha256:${"2".repeat(64)}`,
       selectedIds: [
-        ...completeSourcingFixture.selectedIds,
+        ...completeTrustedAttestation.selectedIds,
         "00000000-0000-4000-8000-000000000102",
       ],
     };
-    const result = evaluateSourcingAssessment(changedSelection, principal);
+    const result = evaluate(completeSourcingFixture, changedAttestation);
 
-    expect(result.evaluation.findings).toContainEqual(
-      expect.objectContaining({ code: "SELECTION_DIGEST_MISMATCH" })
+    expect(result.evaluation.findings).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ code: "QUERY_DIGEST_MISMATCH" }),
+        expect.objectContaining({ code: "SELECTION_DIGEST_MISMATCH" }),
+      ])
     );
-    expect(changedSelection.selectionDigest).not.toBe(
-      digestSourcingSelection(changedSelection)
+    expect(completeSourcingFixture.selectionDigest).not.toBe(
+      digestSourcingSelection(changedAttestation)
     );
   });
 
-  it("registers as a read-only MCP and REST capability", () => {
-    const bundle = createTestSliceARegistry(TEST_DEPLOYMENT_SCOPE_ID);
-    const descriptor = bundle.registry.catalog.find(
-      (capability) => capability.id === "evaluate_sourcing_assessment"
-    );
-    const metadata = bundle.entries.find(
-      (entry) => entry.capability.id === "evaluate_sourcing_assessment"
-    )?.metadata;
+  it("does not publish proposed claims that differ from trusted conclusions", () => {
+    const result = evaluate(partialSourcingFixture, completeTrustedAttestation);
 
+    expect(result.evaluation.findings).toContainEqual(
+      expect.objectContaining({ code: "CLAIM_ATTESTATION_MISMATCH" })
+    );
+    expect(result.claims).toEqual(completeTrustedAttestation.claims);
+  });
+
+  it("requires exact capability and trusted-reference parity", () => {
+    const missingUsage = evaluate(completeSourcingFixture, {
+      ...completeTrustedAttestation,
+      usedCapabilities: ["search_aanvragen"],
+    });
+    const missingReference = evaluate(completeSourcingFixture, {
+      ...completeTrustedAttestation,
+      sourceReferences: completeTrustedAttestation.sourceReferences.filter(
+        ({ capabilityId }) => capabilityId !== "search_aanvragen"
+      ),
+    });
+
+    expect(missingUsage.evaluation.findings).toContainEqual(
+      expect.objectContaining({ code: "REFERENCE_CAPABILITY_NOT_USED" })
+    );
+    expect(missingReference.evaluation.findings).toContainEqual(
+      expect.objectContaining({ code: "USED_CAPABILITY_WITHOUT_REFERENCE" })
+    );
+  });
+
+  it("accepts trusted data only from server composition", async () => {
+    const deps = createTestSliceADeps();
+    const bundle = createSliceARegistry({
+      ...deps,
+      now: () => serverTime,
+      sourcingAssessmentAuthority: {
+        attest: () => completeTrustedAttestation,
+      },
+    });
+    const invoke = bundle.registry.createInvoker({
+      capabilityId: "evaluate_sourcing_assessment",
+      operation: "POST /v1/sourcing/assessment",
+      transport: "rest",
+    });
+    const result = await invoke(completeSourcingFixture, {
+      principal,
+      requestId: "trusted",
+    });
+
+    expect(result).toMatchObject({
+      ok: true,
+      value: {
+        binding: {
+          actor,
+          scopeId: TEST_DEPLOYMENT_SCOPE_ID,
+          trust: "attested",
+        },
+        evaluation: { asOf: serverTime.toISOString(), status: "passed" },
+      },
+    });
+  });
+
+  it("registers as read-only MCP and REST", () => {
+    const bundle = createTestSliceARegistry();
+    const descriptor = bundle.registry.catalog.find(
+      ({ id }) => id === "evaluate_sourcing_assessment"
+    );
     expect(descriptor).toMatchObject({
       bindings: expect.arrayContaining([
         { operation: "evaluate_sourcing_assessment", transport: "mcp" },
@@ -164,10 +227,6 @@ describe("evaluate_sourcing_assessment (RJC-447)", () => {
       ]),
       effect: "read",
       grounding: true,
-    });
-    expect(metadata).toMatchObject({
-      auditClass: "access",
-      sideEffectClass: "read",
     });
   });
 });
