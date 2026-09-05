@@ -16,6 +16,14 @@ export interface SliceAHandlerDeps {
    * accepted from an HTTP/MCP request or derived from a user role.
    */
   readonly scopeId: string;
+  /** Trusted deployment policy; omitted means runtime availability is unknown. */
+  readonly capabilityAvailability?: {
+    readonly unavailableCapabilityIds: () =>
+      | Promise<ReadonlySet<string>>
+      | ReadonlySet<string>;
+  };
+  /** Clock injection affects freshness only and is excluded from the digest. */
+  readonly now?: () => Date;
   readonly spottWriteClient?: SpottWriteClient;
   readonly stores: SliceAStores;
 }

@@ -265,6 +265,12 @@ export interface AuditStore {
     actorId: string,
     scopeId: string
   ) => Promise<readonly AuditEventRecord[]>;
+  /** Bounded newest-first read ordered by createdAt and id within owner/scope. */
+  listRecentByActorId: (
+    actorId: string,
+    scopeId: string,
+    limit: number
+  ) => Promise<readonly AuditEventRecord[]>;
 }
 
 export interface AlertStore {
