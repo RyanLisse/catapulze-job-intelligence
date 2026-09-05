@@ -245,10 +245,14 @@ export const createRestJobIntelligence = ({
   // global event stream. An open detail can cheaply re-read its own marker
   // and converge after an agent mutation, while auth keeps the actor/scope
   // boundary on the server.
-  const getMarkering = async (id: string): Promise<JobMarkering | null> => {
+  const getMarkering = async (
+    id: string,
+    signal?: AbortSignal
+  ): Promise<JobMarkering | null> => {
     try {
       const result = await client.get<MarkeerResponseBody>(
-        `/v1/aanvragen/${id}/markering`
+        `/v1/aanvragen/${id}/markering`,
+        { signal }
       );
       return {
         reden: result.reden,

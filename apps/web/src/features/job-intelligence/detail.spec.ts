@@ -162,9 +162,11 @@ describe("AE5 markeren from UI is visible via MCP get_aanvraag", () => {
       return;
     }
 
-    expect(mcpGet.value.markering).toEqual({
+    expect(mcpGet.value.markering).toMatchObject({
       reden: null,
+      revision: 1,
       status: "relevant",
+      updatedAt: expect.any(String),
     });
   });
 });

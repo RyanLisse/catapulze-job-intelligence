@@ -316,6 +316,25 @@ describe
           )
         ).toBeNull();
 
+        const recreated = await restartedRegistry.markeringen.setWithAudit(
+          {
+            aanvraagId: fixture.aanvraagId,
+            reden: "Recreated after clear",
+            scopeId,
+            status: "gevolgd",
+            userId: actorId,
+          },
+          "user"
+        );
+        expect(recreated.markering.revision).toBe(2);
+        expect(
+          await restartedRegistry.markeringen.get(
+            fixture.aanvraagId,
+            actorId,
+            scopeId
+          )
+        ).toMatchObject({ revision: 2, status: "gevolgd" });
+
         const removedSearch =
           await restartedRegistry.savedSearches.removeWithAudit(
             savedSearchId,

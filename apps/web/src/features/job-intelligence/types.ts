@@ -192,7 +192,10 @@ export interface JobSearchResponse {
 export interface JobDataAdapter {
   readonly getById: (id: string) => Promise<JobListing | null>;
   /** Read-only, actor and resource scoped marker readback for open details. */
-  readonly getMarkering?: (id: string) => Promise<JobMarkering | null>;
+  readonly getMarkering?: (
+    id: string,
+    signal?: AbortSignal
+  ) => Promise<JobMarkering | null>;
   readonly listSources: () => Promise<readonly JobSourceOption[]>;
   readonly search: (request: JobSearchRequest) => Promise<JobSearchResponse>;
 }

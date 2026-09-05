@@ -204,15 +204,19 @@ export const getAanvraagInputSchema = z
   })
   .strict();
 
+const markeringReadbackSchema = z
+  .object({
+    reden: z.string().nullable(),
+    revision: z.number().int().positive(),
+    status: z.enum(["relevant", "niet_relevant", "gevolgd"]),
+    updatedAt: z.string().datetime(),
+  })
+  .strict();
+
 export const getAanvraagOutputSchema = z
   .object({
     aanvraag: z.record(z.string(), z.unknown()),
-    markering: z
-      .object({
-        reden: z.string().nullable(),
-        status: z.enum(["relevant", "niet_relevant", "gevolgd"]),
-      })
-      .nullable(),
+    markering: markeringReadbackSchema.nullable(),
   })
   .strict();
 
@@ -248,7 +252,12 @@ export const createGetAanvraagHandler =
         aanvraag:
           input.full === true ? fullAanvraag(record) : previewAanvraag(record),
         markering: markering
-          ? { reden: markering.reden, status: markering.status }
+          ? {
+              reden: markering.reden,
+              revision: markering.revision,
+              status: markering.status,
+              updatedAt: markering.updatedAt.toISOString(),
+            }
           : null,
       },
     };
@@ -316,12 +325,7 @@ export const batchGetAanvragenOutputSchema = z
         .object({
           aanvraag: z.record(z.string(), z.unknown()),
           id: z.string(),
-          markering: z
-            .object({
-              reden: z.string().nullable(),
-              status: z.enum(["relevant", "niet_relevant", "gevolgd"]),
-            })
-            .nullable(),
+          markering: markeringReadbackSchema.nullable(),
           versies: listVersiesOutputSchema,
         })
         .strict()
@@ -363,7 +367,12 @@ export const createBatchGetAanvragenHandler =
               : previewAanvraag(record),
           id: record.id,
           markering: markering
-            ? { reden: markering.reden, status: markering.status }
+            ? {
+                reden: markering.reden,
+                revision: markering.revision,
+                status: markering.status,
+                updatedAt: markering.updatedAt.toISOString(),
+              }
             : null,
           versies: record.versies.map(toVersieView),
         };

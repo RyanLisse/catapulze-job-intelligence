@@ -408,7 +408,8 @@ export class PostgresMarkeringStore implements MarkeringStore {
         and(
           eq(aanvraagMarkering.aanvraagId, aanvraagId),
           eq(aanvraagMarkering.userId, userId),
-          eq(aanvraagMarkering.scopeId, scopeId)
+          eq(aanvraagMarkering.scopeId, scopeId),
+          isNull(aanvraagMarkering.clearedAt)
         )
       )
       .limit(1);
@@ -427,6 +428,7 @@ export class PostgresMarkeringStore implements MarkeringStore {
         .insert(aanvraagMarkering)
         .values({
           aanvraagId: markering.aanvraagId,
+          clearedAt: null,
           reden: markering.reden,
           scopeId: markering.scopeId,
           status: markering.status,
@@ -434,6 +436,7 @@ export class PostgresMarkeringStore implements MarkeringStore {
         })
         .onConflictDoUpdate({
           set: {
+            clearedAt: null,
             reden: markering.reden,
             revision: sql`${aanvraagMarkering.revision} + 1`,
             status: markering.status,
@@ -482,12 +485,14 @@ export class PostgresMarkeringStore implements MarkeringStore {
   ) {
     return this.database.transaction(async (transaction) => {
       const rows = await transaction
-        .delete(aanvraagMarkering)
+        .update(aanvraagMarkering)
+        .set({ clearedAt: sql`clock_timestamp()` })
         .where(
           and(
             eq(aanvraagMarkering.aanvraagId, aanvraagId),
             eq(aanvraagMarkering.userId, userId),
-            eq(aanvraagMarkering.scopeId, scopeId)
+            eq(aanvraagMarkering.scopeId, scopeId),
+            isNull(aanvraagMarkering.clearedAt)
           )
         )
         .returning();

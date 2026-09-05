@@ -12,10 +12,17 @@ const markeringKey = (
   scopeId: string
 ): string => `${scopeId}:${userId}:${aanvraagId}`;
 
+type StoredMarkering = AanvraagMarkering & { readonly clearedAt: Date | null };
+
+const publicMarkering = (record: StoredMarkering): AanvraagMarkering => {
+  const { clearedAt: _clearedAt, ...markering } = record;
+  return structuredClone(markering);
+};
+
 export class MemoryMarkeringStore implements MarkeringStore {
-  private readonly records = new Map<string, AanvraagMarkering>();
+  private readonly records = new Map<string, StoredMarkering>();
   /** Last successfully audited state; rollback target for owning failures. */
-  private readonly committed = new Map<string, AanvraagMarkering>();
+  private readonly committed = new Map<string, StoredMarkering>();
   private readonly mutations = new MutationVersionGate();
   private readonly audit: AuditStore;
 
@@ -28,10 +35,9 @@ export class MemoryMarkeringStore implements MarkeringStore {
     userId: string,
     scopeId: string
   ): Promise<AanvraagMarkering | null> {
+    const record = this.records.get(markeringKey(aanvraagId, userId, scopeId));
     return Promise.resolve(
-      structuredClone(
-        this.records.get(markeringKey(aanvraagId, userId, scopeId)) ?? null
-      )
+      record && record.clearedAt === null ? publicMarkering(record) : null
     );
   }
 
@@ -54,8 +60,9 @@ export class MemoryMarkeringStore implements MarkeringStore {
     const updatedAt = new Date(
       Math.max(now, (previous?.updatedAt.getTime() ?? now - 1) + 1)
     );
-    const saved: AanvraagMarkering = {
+    const saved: StoredMarkering = {
       ...markering,
+      clearedAt: null,
       createdAt: previous?.createdAt ?? baseline?.createdAt ?? updatedAt,
       revision: (previous?.revision ?? baseline?.revision ?? 0) + 1,
       updatedAt,
@@ -81,7 +88,7 @@ export class MemoryMarkeringStore implements MarkeringStore {
       }
       return {
         auditEvent,
-        markering: structuredClone(saved),
+        markering: publicMarkering(saved),
       };
     } catch (error) {
       this.rollbackIfOwner(key, ownership);
@@ -97,11 +104,11 @@ export class MemoryMarkeringStore implements MarkeringStore {
   ) {
     const key = markeringKey(aanvraagId, userId, scopeId);
     const cleared = this.records.get(key) ?? this.committed.get(key);
-    if (!cleared) {
+    if (!cleared || cleared.clearedAt !== null) {
       return null;
     }
     const ownership = this.mutations.begin(key);
-    this.records.delete(key);
+    this.records.set(key, { ...cleared, clearedAt: new Date() });
     try {
       const auditEvent = await this.audit.append({
         action: "clear_markering",
@@ -119,9 +126,12 @@ export class MemoryMarkeringStore implements MarkeringStore {
         scopeId,
       });
       if (this.mutations.owns(ownership)) {
-        this.committed.delete(key);
+        this.committed.set(key, {
+          ...cleared,
+          clearedAt: this.records.get(key)?.clearedAt ?? new Date(),
+        });
       }
-      return { auditEvent, cleared: structuredClone(cleared) };
+      return { auditEvent, cleared: publicMarkering(cleared) };
     } catch (error) {
       this.rollbackIfOwner(key, ownership);
       throw error;

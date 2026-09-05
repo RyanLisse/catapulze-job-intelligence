@@ -26,6 +26,10 @@ export interface CapabilityClientOptions {
   readonly baseUrl: string;
 }
 
+export interface CapabilityRequestOptions {
+  readonly signal?: AbortSignal;
+}
+
 export interface CapabilityJsonObject {
   readonly [key: string]: CapabilityJsonValue | undefined;
 }
@@ -60,13 +64,17 @@ export const createCapabilityClient = (options: CapabilityClientOptions) => {
   const baseUrl = options.baseUrl.replace(/\/$/u, "");
 
   return {
-    get: async <T>(path: string): Promise<T> => {
+    get: async <T>(
+      path: string,
+      requestOptions: CapabilityRequestOptions = {}
+    ): Promise<T> => {
       const response = await fetch(`${baseUrl}${path}`, {
         credentials: "include",
         headers: {
           Accept: "application/json",
         },
         method: "GET",
+        signal: requestOptions.signal,
       });
       return parseJsonResponse<T>(response);
     },

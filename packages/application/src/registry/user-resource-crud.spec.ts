@@ -306,6 +306,17 @@ describe("user-owned resource CRUD parity (RJC-444)", () => {
         bundle.deps.scopeId
       )
     ).toBeNull();
+    const recreated = await invoke(
+      bundle,
+      "markeer_aanvraag",
+      "POST /v1/aanvragen/{id}/markering",
+      "rest",
+      { aanvraagId, status: "gevolgd" }
+    );
+    expect(recreated).toMatchObject({
+      ok: true,
+      value: { revision: 2, status: "gevolgd" },
+    });
     const audit = await bundle.deps.stores.audit.listByActorId(
       owner.subjectId,
       bundle.deps.scopeId
@@ -313,6 +324,7 @@ describe("user-owned resource CRUD parity (RJC-444)", () => {
     expect(audit.map((event) => event.action)).toEqual([
       "markeer_aanvraag",
       "clear_markering",
+      "markeer_aanvraag",
     ]);
   });
 

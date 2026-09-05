@@ -1,8 +1,10 @@
 import { describe, expect, it } from "bun:test";
 
 import {
+  emptyMarkeringReadbackState,
   hasNewerMarkering,
   markeringMutationOutcome,
+  mergeMarkeringReadback,
   startMarkeringPolling,
 } from "./markering-sync";
 import { CapabilityRequestError } from "./rest/capability-client";
@@ -28,11 +30,16 @@ const createEnvironment = () => {
   let visibilityState: Document["visibilityState"] = "visible";
   let listener: (() => void) | null = null;
   let nextInterval = 0;
+  let nextTimeout = 0;
   const intervals = new Map<number, () => void>();
+  const timeouts = new Map<number, () => void>();
   return {
     clock: {
       clearInterval: (interval: number) => {
         intervals.delete(interval);
+      },
+      clearTimeout: (timeout: number) => {
+        timeouts.delete(timeout);
       },
       setInterval: (handler: () => void) => {
         const interval = nextInterval;
@@ -40,15 +47,29 @@ const createEnvironment = () => {
         intervals.set(interval, handler);
         return interval;
       },
+      setTimeout: (handler: () => void) => {
+        const timeout = nextTimeout;
+        nextTimeout += 1;
+        timeouts.set(timeout, handler);
+        return timeout;
+      },
     },
     intervals,
     get listener() {
       return listener;
     },
+    runTimeout: () => {
+      const timeout = timeouts.entries().next().value;
+      if (timeout) {
+        timeouts.delete(timeout[0]);
+        timeout[1]();
+      }
+    },
     setVisibility: (next: Document["visibilityState"]) => {
       visibilityState = next;
       listener?.();
     },
+    timeouts,
     visibility: {
       addEventListener: (_type: "visibilitychange", next: () => void) => {
         listener = next;
@@ -93,6 +114,16 @@ describe("bounded markering readback", () => {
         )
       ).toBe("uncertain");
     }
+  });
+
+  it("keeps a polled revision over a late detail response and a clear", () => {
+    let state = emptyMarkeringReadbackState();
+    state = mergeMarkeringReadback(state, marker(3));
+    state = mergeMarkeringReadback(state, null);
+    state = mergeMarkeringReadback(state, marker(2, "gevolgd"));
+    expect(state.markering).toBeNull();
+    state = mergeMarkeringReadback(state, marker(4, "gevolgd"));
+    expect(state.markering).toMatchObject({ revision: 4, status: "gevolgd" });
   });
 });
 
@@ -180,6 +211,36 @@ describe("bounded markering polling", () => {
     expect(attempts).toBe(2);
     expect(applied).toEqual([marker(2)]);
     stop();
+  });
+
+  it("aborts a hanging read and releases the next poll slot after timeout", async () => {
+    const environment = createEnvironment();
+    const pending: PromiseWithResolvers<JobMarkering | null>[] = [];
+    const signals: AbortSignal[] = [];
+    const stop = startMarkeringPolling({
+      clock: environment.clock,
+      getMarkering: (_resourceId, signal) => {
+        signals.push(signal);
+        const next = Promise.withResolvers<JobMarkering | null>();
+        pending.push(next);
+        return next.promise;
+      },
+      onMarkering: () => {},
+      resourceId: "job-1",
+      timeoutMs: 10,
+      visibility: environment.visibility,
+    });
+
+    expect(signals).toHaveLength(1);
+    environment.runTimeout();
+    await flush();
+    expect(signals[0]?.aborted).toBe(true);
+
+    environment.intervals.values().next().value?.();
+    expect(signals).toHaveLength(2);
+    stop();
+    expect(signals[1]?.aborted).toBe(true);
+    expect(pending).toHaveLength(2);
   });
 
   it("keeps a newer revision when a later read is older", async () => {

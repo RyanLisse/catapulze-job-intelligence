@@ -20,7 +20,12 @@ import {
   JobSyntaxErrorState,
 } from "./job-search-states";
 import { JobSearchToolbar } from "./job-search-toolbar";
-import { hasNewerMarkering, startMarkeringPolling } from "./markering-sync";
+import {
+  emptyMarkeringReadbackState,
+  hasNewerMarkering,
+  mergeMarkeringReadback,
+  startMarkeringPolling,
+} from "./markering-sync";
 import { validateBooleanPreview } from "./presentation";
 import { runAsync } from "./run-async";
 import {
@@ -342,7 +347,7 @@ const JobSearchPageContent = ({
   const [sources, setSources] = useState<readonly JobSourceOption[]>([]);
   const isDetailOverlay = useMediaQuery("(max-width: 1199px)");
   const detailTriggerRef = useRef<HTMLButtonElement | null>(null);
-  const lastAppliedMarkering = useRef<JobListing["markering"]>(null);
+  const lastAppliedMarkering = useRef(emptyMarkeringReadbackState());
   const previousSelectedJobId = useRef<string | null>(state.selectedJobId);
 
   useEffect(() => {
@@ -415,7 +420,14 @@ const JobSearchPageContent = ({
       try {
         const job = await adapter.getById(selectedJobId);
         if (isCurrent) {
-          setSelectedJob(job);
+          const merged = job
+            ? mergeMarkeringReadback(
+                lastAppliedMarkering.current,
+                job.markering ?? null
+              )
+            : lastAppliedMarkering.current;
+          lastAppliedMarkering.current = merged;
+          setSelectedJob(job ? { ...job, markering: merged.markering } : null);
         }
       } catch {
         if (isCurrent) {
@@ -438,25 +450,32 @@ const JobSearchPageContent = ({
       return;
     }
 
-    lastAppliedMarkering.current = null;
+    lastAppliedMarkering.current = emptyMarkeringReadbackState();
     const applyMarkering = (markering: JobListing["markering"]) => {
-      if (!hasNewerMarkering(lastAppliedMarkering.current, markering ?? null)) {
+      const merged = mergeMarkeringReadback(
+        lastAppliedMarkering.current,
+        markering ?? null
+      );
+      if (merged === lastAppliedMarkering.current) {
         return;
       }
-      lastAppliedMarkering.current = markering;
+      lastAppliedMarkering.current = merged;
+      const nextMarkering = merged.markering;
       setSelectedJob((current) =>
-        current?.id === selectedJobId ? { ...current, markering } : current
+        current?.id === selectedJobId
+          ? { ...current, markering: nextMarkering }
+          : current
       );
       setResponse((current) => ({
         ...current,
         items: current.items.map((job) =>
           job.id === selectedJobId &&
-          hasNewerMarkering(job.markering, markering ?? null)
-            ? { ...job, markering }
+          hasNewerMarkering(job.markering, nextMarkering)
+            ? { ...job, markering: nextMarkering }
             : job
         ),
       }));
-      if (markering) {
+      if (nextMarkering) {
         setMarkeringSyncState("commit");
       }
     };

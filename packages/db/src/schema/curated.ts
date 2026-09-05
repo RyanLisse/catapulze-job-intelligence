@@ -353,6 +353,7 @@ export const aanvraagMarkering = curatedSchema.table(
     aanvraagId: uuid("aanvraag_id")
       .notNull()
       .references(() => aanvraag.id, { onDelete: "cascade" }),
+    clearedAt: timestamp("cleared_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true })
       .defaultNow()
       .notNull(),
