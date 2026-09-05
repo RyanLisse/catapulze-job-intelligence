@@ -39,6 +39,7 @@ Thumbs.db
 # Agent/session state
 .omc/
 .crabbox/
+/crabbox-output/
 .impeccable/hook.cache.json
 .openwiki/
 openwiki/.run.json

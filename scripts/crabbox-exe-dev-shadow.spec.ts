@@ -26,6 +26,7 @@ const realGit = Bun.which("git") ?? "";
 const launcherFixtureTimeoutMs = 30_000;
 const nodeImage =
   "node:24-slim@sha256:ba849c60be29959425b8734d57b8b4b7d56f98edd9504c9af091d5281095a71e";
+const remoteEvidencePath = "crabbox-output/exe-dev-shadow";
 
 const createExecutable = (filePath: string, contents: string): void => {
   writeFileSync(filePath, contents);
@@ -286,6 +287,12 @@ describe("exe.dev shadow scripts", () => {
     );
     expect(dockerignore.split("\n")).toContain(".artifacts");
     expect(dockerignore.split("\n")).toContain("**/.artifacts");
+    expect(crabboxConfig).toContain(
+      `${remoteEvidencePath}/junit.xml=.artifacts/crabbox/exe-dev-shadow/junit.xml`
+    );
+    expect(crabboxConfig).toContain(
+      `artifactGlobs:\n      - ${remoteEvidencePath}/**`
+    );
   });
 
   test("rejects every existing-lease id form before invoking Crabbox", () => {
@@ -543,8 +550,8 @@ describe("exe.dev shadow scripts", () => {
           "bash",
           "-c",
           `source "$SHADOW_SCRIPT"
-mkdir -p .artifacts/crabbox/exe-dev-shadow
-: >.artifacts/crabbox/exe-dev-shadow/phases.jsonl
+mkdir -p "$EVIDENCE_DIR"
+: >"$PHASES_FILE"
 monotonic_ms() { printf '1000\\n'; }
 iso_timestamp() { printf '2026-08-29T00:00:00Z\\n'; }
 failing_phase() {
@@ -557,7 +564,7 @@ status=$?
 set -e
 [[ $status -eq 23 ]]
 [[ ! -e continued-after-failure ]]
-grep -q '"exitStatus":23' .artifacts/crabbox/exe-dev-shadow/phases.jsonl
+grep -q '"exitStatus":23' "$PHASES_FILE"
 `,
         ],
         {
@@ -614,6 +621,92 @@ printf '%s\\n' "\${DATABASE_URL-unset}" "\${DATABASE_TEST_URL-unset}" "\${DATABA
       expect(readFileSync(captureFile, "utf-8")).toBe(
         "unset\nunset\nunset\nunset\nunset\n"
       );
+    } finally {
+      rmSync(workspace, { force: true, recursive: true });
+    }
+  });
+
+  test("preserves required diagnostics when the unit phase fails", () => {
+    const workspace = mkdtempSync(
+      path.join(tmpdir(), "ji-shadow-unit-failure-")
+    );
+    const binDirectory = path.join(workspace, "bin");
+    const evidenceDirectory = path.join(workspace, remoteEvidencePath);
+    mkdirSync(binDirectory);
+    writeFileSync(path.join(workspace, "bun.lock"), "lockfile");
+    const inputManifestPath = writeInputManifest(workspace, ["bun.lock"]);
+    const inputManifestDigest = new Bun.CryptoHasher("sha256")
+      .update(readFileSync(inputManifestPath))
+      .digest("hex");
+    createExecutable(
+      path.join(binDirectory, "bun"),
+      `#!/usr/bin/env bash
+set -euo pipefail
+if [[ "\${1:-}" == "--version" ]]; then
+  printf '1.3.14\\n'
+  exit 0
+fi
+if [[ "\${1:-}" == "test" ]]; then
+  for argument in "$@"; do
+    if [[ "$argument" == --reporter-outfile=* ]]; then
+      output="\${argument#--reporter-outfile=}"
+      mkdir -p "$(dirname "$output")"
+      printf '<testsuites tests="1" failures="1"><testsuite tests="1" failures="1"><testcase name="remote failure"><failure message="fixture" /></testcase></testsuite></testsuites>\\n' >"$output"
+    fi
+  done
+  exit 4
+fi
+exit 0
+`
+    );
+
+    try {
+      const result = Bun.spawnSync(
+        [
+          "bash",
+          "-c",
+          'source "$SHADOW_SCRIPT"; monotonic_ms() { date +%s000; }; main',
+        ],
+        {
+          cwd: workspace,
+          env: {
+            ...process.env,
+            CRABBOX_CLIENT_VERSION: "0.46.0",
+            CRABBOX_SOURCE_GIT_SHA: sourceSha,
+            CRABBOX_SOURCE_GIT_STATE: "clean",
+            CRABBOX_SOURCE_MANIFEST_FILE_COUNT: "1",
+            CRABBOX_SOURCE_MANIFEST_SHA256: `sha256:${inputManifestDigest}`,
+            EXE_DEV_REGION: "FRA",
+            PATH: `${binDirectory}:${process.env.PATH ?? "/usr/bin:/bin"}`,
+            SHADOW_SCRIPT: shadowScript,
+          },
+          stderr: "pipe",
+          stdout: "pipe",
+        }
+      );
+      const databaseJunit = readFileSync(
+        path.join(evidenceDirectory, "database-junit.xml"),
+        "utf-8"
+      );
+      const manifest = readFileSync(
+        path.join(evidenceDirectory, "manifest.sha256"),
+        "utf-8"
+      );
+
+      expect({
+        exitCode: result.exitCode,
+        stderr: result.stderr.toString(),
+      }).toEqual({ exitCode: 4, stderr: "" });
+      expect(
+        readFileSync(path.join(evidenceDirectory, "junit.xml"), "utf-8")
+      ).toContain('failures="1"');
+      expect(databaseJunit).toContain('skipped="1"');
+      expect(databaseJunit).toContain('message="phase not reached"');
+      expect(
+        readFileSync(path.join(evidenceDirectory, "report.md"), "utf-8")
+      ).toContain("- Status: `failed`");
+      expect(manifest).toContain("junit.xml");
+      expect(manifest).toContain("database-junit.xml");
     } finally {
       rmSync(workspace, { force: true, recursive: true });
     }
@@ -735,10 +828,7 @@ printf '%s\\n' "\${DATABASE_URL-unset}" "\${DATABASE_TEST_URL-unset}" "\${DATABA
 
   test("records the configured machine class and observed CPU model", () => {
     const workspace = mkdtempSync(path.join(tmpdir(), "ji-shadow-machine-"));
-    const evidenceDirectory = path.join(
-      workspace,
-      ".artifacts/crabbox/exe-dev-shadow"
-    );
+    const evidenceDirectory = path.join(workspace, remoteEvidencePath);
     mkdirSync(evidenceDirectory, { recursive: true });
     writeFileSync(path.join(workspace, "bun.lock"), "lockfile");
     writeInputManifest(workspace, ["bun.lock"]);
@@ -825,10 +915,7 @@ printf '%s\\n' "\${DATABASE_URL-unset}" "\${DATABASE_TEST_URL-unset}" "\${DATABA
 
   test("finalizes report and manifest when the input manifest is missing", () => {
     const workspace = mkdtempSync(path.join(tmpdir(), "ji-shadow-finalize-"));
-    const evidenceDirectory = path.join(
-      workspace,
-      ".artifacts/crabbox/exe-dev-shadow"
-    );
+    const evidenceDirectory = path.join(workspace, remoteEvidencePath);
     mkdirSync(evidenceDirectory, { recursive: true });
     writeFileSync(path.join(workspace, "bun.lock"), "lockfile");
 

@@ -6,7 +6,7 @@ readonly BUN_IMAGE="oven/bun:1.3.14@sha256:e10577f0db68676a7024391c6e5cb4b879ebd
 readonly NODE_IMAGE="node:24-slim@sha256:ba849c60be29959425b8734d57b8b4b7d56f98edd9504c9af091d5281095a71e"
 readonly EXECUTOR_IMAGE="ghcr.io/boldsoftware/exeuntu@sha256:a85bf5d50de2d3dbe079b0a4c5ee5ef03f5c806e88d36eaeb432dddbaca2017f"
 readonly EXPECTED_REGION="FRA"
-readonly EVIDENCE_DIR=".artifacts/crabbox/exe-dev-shadow"
+readonly EVIDENCE_DIR="crabbox-output/exe-dev-shadow"
 readonly PHASES_FILE="${EVIDENCE_DIR}/phases.jsonl"
 readonly FINGERPRINT_FILE="${EVIDENCE_DIR}/execution-fingerprint.json"
 readonly REPORT_FILE="${EVIDENCE_DIR}/report.md"
@@ -373,6 +373,21 @@ run_unit_suite() {
       --reporter-outfile="$JUNIT_FILE"
 }
 
+write_not_reached_junit() {
+  local file="$1"
+  local suite_name="$2"
+
+  printf '%s\n' \
+    '<?xml version="1.0" encoding="UTF-8"?>' \
+    "<testsuites name=\"${suite_name}\" tests=\"1\" failures=\"0\" errors=\"0\" skipped=\"1\" time=\"0\">" \
+    "  <testsuite name=\"${suite_name}\" tests=\"1\" failures=\"0\" errors=\"0\" skipped=\"1\" time=\"0\">" \
+    '    <testcase name="not reached" classname="crabbox.shadow" time="0">' \
+    '      <skipped message="phase not reached" />' \
+    '    </testcase>' \
+    '  </testsuite>' \
+    '</testsuites>' >"$file"
+}
+
 finalize_evidence() {
   # Runs from the EXIT trap under errexit. A fingerprint failure must not
   # suppress the report and manifest: they are the diagnostic evidence for
@@ -398,6 +413,8 @@ main() {
   mkdir -p "$EVIDENCE_DIR"
   rm -f "$PHASES_FILE" "$FINGERPRINT_FILE" "$REPORT_FILE" "$JUNIT_FILE" "$DATABASE_JUNIT_FILE" "$MANIFEST_FILE"
   : >"$PHASES_FILE"
+  write_not_reached_junit "$JUNIT_FILE" "unit"
+  write_not_reached_junit "$DATABASE_JUNIT_FILE" "database-integration"
   trap on_exit EXIT
 
   if [[ "${EXE_DEV_REGION:-}" != "$EXPECTED_REGION" ]]; then
