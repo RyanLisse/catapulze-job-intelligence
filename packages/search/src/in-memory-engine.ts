@@ -43,6 +43,19 @@ const matchesLocationFilter = (
   return location !== undefined && locations.includes(location);
 };
 
+const matchesCountryFilter = (
+  document: SearchDocument,
+  countries: SearchFilters["locatieLand"]
+): boolean => {
+  if (countries === undefined) {
+    return true;
+  }
+  if (document.locatie === null || document.locatieLand === null) {
+    return false;
+  }
+  return countries.includes(document.locatieLand);
+};
+
 const matchesFilters = (
   document: SearchDocument,
   filters: SearchFilters
@@ -55,10 +68,7 @@ const matchesFilters = (
     return false;
   }
 
-  if (
-    filters.locatieLand &&
-    !filters.locatieLand.includes(document.locatieLand)
-  ) {
+  if (!matchesCountryFilter(document, filters.locatieLand)) {
     return false;
   }
 
@@ -108,7 +118,7 @@ type FacetField =
 const facetValueForField = (
   document: SearchDocument,
   field: FacetField
-): string => {
+): string | undefined => {
   switch (field) {
     case "bronId": {
       return document.bronId;
@@ -117,7 +127,9 @@ const facetValueForField = (
       return documentLocatie(document) ?? "";
     }
     case "locatieLand": {
-      return document.locatieLand;
+      return document.locatie === null
+        ? undefined
+        : (document.locatieLand ?? undefined);
     }
     case "contracttype": {
       return document.contracttype ?? "unknown";
@@ -139,7 +151,10 @@ const countFacet = (
   const counts = new Map<string, number>();
   for (const document of documents) {
     const value = facetValueForField(document, field);
-    if (field === "locatie" && value === "") {
+    if (value === undefined) {
+      continue;
+    }
+    if ((field === "locatie" || field === "locatieLand") && value === "") {
       continue;
     }
     counts.set(value, (counts.get(value) ?? 0) + 1);

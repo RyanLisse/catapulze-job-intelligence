@@ -104,7 +104,6 @@ const documentToManticoreFields = (
     document_id: document.id,
     index_version: indexVersion,
     laatst_gezien_op: epochSeconds(document.laatstGezienOp),
-    locatie_land: document.locatieLand,
     sluitingsdatum: document.sluitingsdatum
       ? epochSeconds(document.sluitingsdatum)
       : SLUITINGSDATUM_MISSING_SENTINEL,
@@ -114,6 +113,9 @@ const documentToManticoreFields = (
     tarief_min: document.tariefMin ?? 0,
     titel: document.titel,
   };
+  if (document.locatie !== null && document.locatieLand !== null) {
+    fields.locatie_land = document.locatieLand;
+  }
   if (location !== undefined) {
     fields.locatie = location;
   }

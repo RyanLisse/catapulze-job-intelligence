@@ -189,7 +189,8 @@ describe("InMemorySearchEngine locatie", () => {
 
   it("does not turn an explicitly unknown location into a country facet", async () => {
     const engine = await seeded([
-      document("unknown", { locatie: null }),
+      document("unknown", { locatie: null, locatieLand: null }),
+      document("legacy-unknown", { locatie: null }),
       document("known", { locatie: "Amsterdam" }),
     ]);
 
@@ -201,7 +202,7 @@ describe("InMemorySearchEngine locatie", () => {
     });
 
     expect(result.facets.locatie).toEqual([{ count: 1, value: "Amsterdam" }]);
-    expect(result.facets.locatie_land).toEqual([{ count: 2, value: "NL" }]);
+    expect(result.facets.locatie_land).toEqual([{ count: 1, value: "NL" }]);
 
     const filtered = await engine.search({
       ast: null,
@@ -210,6 +211,15 @@ describe("InMemorySearchEngine locatie", () => {
       offset: 0,
     });
     expect(filtered.total).toBe(0);
+
+    const filteredByCountry = await engine.search({
+      ast: null,
+      filters: { locatieLand: ["NL"] },
+      limit: 10,
+      offset: 0,
+    });
+    expect(filteredByCountry.total).toBe(1);
+    expect(filteredByCountry.hits.map((hit) => hit.id)).toEqual(["known"]);
   });
 });
 

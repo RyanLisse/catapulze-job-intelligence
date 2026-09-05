@@ -160,7 +160,7 @@ describe.skipIf(!manticoreUrl)(
           id: `${prefix}-unknown`,
           laatstGezienOp: new Date("2026-08-01T00:00:00.000Z"),
           locatie: null,
-          locatieLand: "NL",
+          locatieLand: null,
           status: "active",
           tariefMax: 100,
           tariefMin: 80,
@@ -224,6 +224,18 @@ describe.skipIf(!manticoreUrl)(
           count: 1,
           value: "",
         });
+        expect(result.facets.locatie_land).toContainEqual({
+          count: 1,
+          value: "NL",
+        });
+        expect(result.facets.locatie_land).toContainEqual({
+          count: 1,
+          value: "BE",
+        });
+        expect(result.facets.locatie_land).not.toContainEqual({
+          count: 1,
+          value: "",
+        });
 
         const nlDisplayLocation = await engine.search({
           ast: parsed.ast,
@@ -232,6 +244,14 @@ describe.skipIf(!manticoreUrl)(
           offset: 0,
         });
         expect(nlDisplayLocation.total).toBe(0);
+
+        const nlCountry = await engine.search({
+          ast: parsed.ast,
+          filters: { locatieLand: ["NL"] },
+          limit: 10,
+          offset: 0,
+        });
+        expect(nlCountry.total).toBe(1);
       } finally {
         await cleanupLiveDocuments(
           engine,

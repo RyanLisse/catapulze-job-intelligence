@@ -358,7 +358,7 @@ describe("reconcileProjection (RJC-399 repair tool)", () => {
       "Brussel",
     ]);
     expect(singleDocuments.map((document) => document?.locatieLand)).toEqual([
-      "NL",
+      null,
       "NL",
       "BE",
     ]);
@@ -370,7 +370,7 @@ describe("reconcileProjection (RJC-399 repair tool)", () => {
     ]);
     expect(bulkDocuments.get(unknownId)).toMatchObject({
       locatie: null,
-      locatieLand: "NL",
+      locatieLand: null,
     });
     expect(bulkDocuments.get(dutchId)).toMatchObject({
       locatie: "Amsterdam",

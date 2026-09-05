@@ -120,7 +120,8 @@ export interface ManticoreIndexedDocument {
   // documentLocatie in ../types.ts for how it is derived.
   /** Omitted when the curated source did not publish a location. */
   locatie?: string;
-  locatie_land: string;
+  /** Omitted when the curated source did not publish a location. */
+  locatie_land?: string;
   // Epoch seconds; SLUITINGSDATUM_MISSING_SENTINEL when the bron publishes no
   // deadline, so `sluitingsdatum asc` puts missing deadlines last natively.
   sluitingsdatum: number;

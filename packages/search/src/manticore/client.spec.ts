@@ -224,6 +224,22 @@ describe("parseManticoreSearchResponse", () => {
     expect(response.total).toBe(3);
   });
 
+  it("removes Manticore's blank country bucket for unknown locations", () => {
+    const response = parseManticoreSearchResponse({
+      aggregations: {
+        locatie_land: {
+          buckets: [
+            { doc_count: 1, key: "" },
+            { doc_count: 2, key: "NL" },
+          ],
+        },
+      },
+      hits: { hits: [], total: 3 },
+    });
+
+    expect(response.facets.locatie_land).toEqual([{ count: 2, value: "NL" }]);
+  });
+
   it("uses hybrid score as the public hit weight", () => {
     const response = parseManticoreSearchResponse({
       hits: {
@@ -432,7 +448,7 @@ describe("ManticoreSearchEngine document mapping", () => {
       throw new Error("expected a /replace body");
     }
     expect(replace.doc.locatie).toBeUndefined();
-    expect(replace.doc.locatie_land).toBe("NL");
+    expect(replace.doc.locatie_land).toBeUndefined();
   });
 
   it("dual-writes and deletes the base table only when explicitly enabled", async () => {

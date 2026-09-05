@@ -188,9 +188,9 @@ const toSearchDocument = (row: AanvraagRow): SearchDocument => {
     laatstGezienOp: row.laatstGezienOp,
     // Preserve an explicitly unknown location. `locatieLand` defaults to NL
     // for the curated row and is not evidence that the source published a
-    // location; falling back to it here makes the location facet lie.
+    // location; carrying it here makes the country facet lie.
     locatie: row.locatieTekst,
-    locatieLand: row.locatieLand,
+    locatieLand: row.locatieTekst === null ? null : row.locatieLand,
     sluitingsdatum: row.sluitingsdatum ?? undefined,
     // SAFETY: curated.status is constrained to AanvraagLifecycle at write time.
     status: row.status as AanvraagLifecycle,

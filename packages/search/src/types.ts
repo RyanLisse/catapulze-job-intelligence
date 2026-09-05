@@ -41,7 +41,8 @@ export interface SearchDocument {
    * display value from `locatieLand`.
    */
   locatie?: string | null;
-  locatieLand: string;
+  /** Country code when the source also published a reliable location. */
+  locatieLand: string | null;
   /** Deadline; absent/null when the bron does not publish one. */
   sluitingsdatum?: Date | null;
   status: AanvraagLifecycle;
@@ -58,7 +59,7 @@ export const documentLocatie = (
   // persistence boundary's honest unknown and must not fall back to NL.
   document.locatie === null
     ? undefined
-    : (document.locatie ?? document.locatieLand);
+    : (document.locatie ?? document.locatieLand ?? undefined);
 
 export interface SearchFilters {
   bronIds?: readonly string[];
