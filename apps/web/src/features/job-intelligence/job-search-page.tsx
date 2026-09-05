@@ -20,7 +20,7 @@ import {
   JobSyntaxErrorState,
 } from "./job-search-states";
 import { JobSearchToolbar } from "./job-search-toolbar";
-import { hasNewerMarkering } from "./markering-sync";
+import { hasNewerMarkering, startMarkeringPolling } from "./markering-sync";
 import { validateBooleanPreview } from "./presentation";
 import { runAsync } from "./run-async";
 import {
@@ -438,13 +438,8 @@ const JobSearchPageContent = ({
       return;
     }
 
-    let isCurrent = true;
-    let inFlight = false;
     lastAppliedMarkering.current = null;
     const applyMarkering = (markering: JobListing["markering"]) => {
-      if (!isCurrent) {
-        return;
-      }
       if (!hasNewerMarkering(lastAppliedMarkering.current, markering ?? null)) {
         return;
       }
@@ -465,41 +460,12 @@ const JobSearchPageContent = ({
         setMarkeringSyncState("commit");
       }
     };
-    const poll = async () => {
-      if (inFlight || document.visibilityState === "hidden") {
-        return;
-      }
-      inFlight = true;
-      try {
-        const markering = await getMarkering(selectedJobId);
-        applyMarkering(markering);
-      } catch {
-        // A transient read failure leaves the last known marker visible. A
-        // later poll or a visibility reconnect will reconcile it.
-      } finally {
-        inFlight = false;
-      }
-    };
-    const onVisibilityChange = () => {
-      if (document.visibilityState === "visible") {
-        void poll();
-      }
-    };
-
-    const pollOnInterval = () => {
-      void poll();
-    };
-    void poll();
-    const interval = window.setInterval(
-      pollOnInterval,
-      MARKERING_POLL_INTERVAL_MS
-    );
-    document.addEventListener("visibilitychange", onVisibilityChange);
-    return () => {
-      isCurrent = false;
-      window.clearInterval(interval);
-      document.removeEventListener("visibilitychange", onVisibilityChange);
-    };
+    return startMarkeringPolling({
+      getMarkering,
+      intervalMs: MARKERING_POLL_INTERVAL_MS,
+      onMarkering: applyMarkering,
+      resourceId: selectedJobId,
+    });
   }, [adapter, state.selectedJobId]);
 
   useEffect(() => {
