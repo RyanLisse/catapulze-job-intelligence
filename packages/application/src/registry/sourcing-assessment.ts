@@ -14,6 +14,19 @@ export const sourcingFields = [
   "location",
   "contract_type",
 ] as const;
+/**
+ * Keep one assessment within one search hydration window. Four conclusions
+ * are possible per selected vacancy, so the claim cap follows the selection
+ * cap instead of becoming an unrelated second limit.
+ */
+export const SOURCING_ASSESSMENT_MAX_SELECTED_IDS = 100;
+export const SOURCING_ASSESSMENT_MAX_CLAIMS =
+  SOURCING_ASSESSMENT_MAX_SELECTED_IDS * sourcingFields.length;
+export const SOURCING_ASSESSMENT_MAX_CLAIM_VALUE_LENGTH = 512;
+export const SOURCING_ASSESSMENT_MAX_SOURCE_REFERENCE_IDS_PER_CLAIM = 8;
+export const SOURCING_ASSESSMENT_MAX_SOURCE_REFERENCES =
+  SOURCING_ASSESSMENT_MAX_CLAIMS *
+  SOURCING_ASSESSMENT_MAX_SOURCE_REFERENCE_IDS_PER_CLAIM;
 const evidenceCapabilityIds = [
   "search_aanvragen",
   "batch_get_aanvragen",
@@ -59,37 +72,57 @@ const claimBaseSchema = z.object({
 const sourcingClaimSchema = z.discriminatedUnion("status", [
   claimBaseSchema
     .extend({
-      sourceReferenceIds: z.array(opaqueSourceReferenceIdSchema).min(1),
+      sourceReferenceIds: z
+        .array(opaqueSourceReferenceIdSchema)
+        .min(1)
+        .max(SOURCING_ASSESSMENT_MAX_SOURCE_REFERENCE_IDS_PER_CLAIM),
       status: z.literal("known"),
       value: z
         .string()
         .min(1)
+        .max(SOURCING_ASSESSMENT_MAX_CLAIM_VALUE_LENGTH)
         .refine((value) => value !== UNKNOWN),
     })
     .strict(),
   claimBaseSchema
     .extend({
-      sourceReferenceIds: z.array(opaqueSourceReferenceIdSchema).default([]),
+      sourceReferenceIds: z
+        .array(opaqueSourceReferenceIdSchema)
+        .max(SOURCING_ASSESSMENT_MAX_SOURCE_REFERENCE_IDS_PER_CLAIM)
+        .default([]),
       status: z.literal("unknown"),
       value: z.literal(UNKNOWN),
     })
     .strict(),
   claimBaseSchema
     .extend({
-      sourceReferenceIds: z.array(opaqueSourceReferenceIdSchema).default([]),
+      sourceReferenceIds: z
+        .array(opaqueSourceReferenceIdSchema)
+        .max(SOURCING_ASSESSMENT_MAX_SOURCE_REFERENCE_IDS_PER_CLAIM)
+        .default([]),
       status: z.literal("uncertain"),
-      value: z.string().min(1).optional(),
+      value: z
+        .string()
+        .min(1)
+        .max(SOURCING_ASSESSMENT_MAX_CLAIM_VALUE_LENGTH)
+        .optional(),
     })
     .strict(),
 ]);
 const trustedAttestationSchema = z
   .object({
-    claims: z.array(sourcingClaimSchema),
+    claims: z.array(sourcingClaimSchema).max(SOURCING_ASSESSMENT_MAX_CLAIMS),
     queryDigest: sha256Schema,
     searchStatus: z.enum(["complete", "incomplete", "unknown"]),
-    selectedIds: z.array(z.string().uuid()).max(100),
-    sourceReferences: z.array(sourceReferenceSchema),
-    usedCapabilities: z.array(z.enum(evidenceCapabilityIds)),
+    selectedIds: z
+      .array(z.string().uuid())
+      .max(SOURCING_ASSESSMENT_MAX_SELECTED_IDS),
+    sourceReferences: z
+      .array(sourceReferenceSchema)
+      .max(SOURCING_ASSESSMENT_MAX_SOURCE_REFERENCES),
+    usedCapabilities: z
+      .array(z.enum(evidenceCapabilityIds))
+      .max(evidenceCapabilityIds.length),
   })
   .strict();
 export type TrustedSourcingAttestation = z.output<
@@ -97,9 +130,11 @@ export type TrustedSourcingAttestation = z.output<
 >;
 export const sourcingAssessmentInputSchema = z
   .object({
-    claims: z.array(sourcingClaimSchema),
+    claims: z.array(sourcingClaimSchema).max(SOURCING_ASSESSMENT_MAX_CLAIMS),
     queryDigest: sha256Schema,
-    selectedIds: z.array(z.string().uuid()).max(100),
+    selectedIds: z
+      .array(z.string().uuid())
+      .max(SOURCING_ASSESSMENT_MAX_SELECTED_IDS),
     selectionDigest: sha256Schema,
   })
   .strict();
@@ -151,12 +186,14 @@ export const sourcingAssessmentOutputSchema = z
         queryDigest: sha256Schema.nullable(),
         scopeId: z.string(),
         searchStatus: z.enum(["complete", "incomplete", "unknown"]),
-        selectedIds: z.array(z.string().uuid()),
+        selectedIds: z
+          .array(z.string().uuid())
+          .max(SOURCING_ASSESSMENT_MAX_SELECTED_IDS),
         selectionDigest: sha256Schema.nullable(),
         trust: z.enum(["attested", "unavailable"]),
       })
       .strict(),
-    claims: z.array(sourcingClaimSchema),
+    claims: z.array(sourcingClaimSchema).max(SOURCING_ASSESSMENT_MAX_CLAIMS),
     dependencyGuards: z.array(dependencyGuardSchema),
     evaluation: z
       .object({
@@ -179,8 +216,12 @@ export const sourcingAssessmentOutputSchema = z
         version: z.literal(SOURCING_PROMPT_VERSION),
       })
       .strict(),
-    sourceReferences: z.array(freshnessReadbackSchema),
-    usedCapabilities: z.array(z.enum(evidenceCapabilityIds)),
+    sourceReferences: z
+      .array(freshnessReadbackSchema)
+      .max(SOURCING_ASSESSMENT_MAX_SOURCE_REFERENCES),
+    usedCapabilities: z
+      .array(z.enum(evidenceCapabilityIds))
+      .max(evidenceCapabilityIds.length),
   })
   .strict();
 export type SourcingAssessmentInput = z.output<
@@ -610,9 +651,17 @@ export const createSourcingAssessmentHandler =
           actor
         );
         const parsed = trustedAttestationSchema.safeParse(raw);
-        attestation = parsed.success ? parsed.data : null;
+        if (!parsed.success) {
+          throw new Error(
+            "Sourcing assessment authority returned an invalid attestation"
+          );
+        }
+        attestation = parsed.data;
       } catch {
-        attestation = null;
+        // The registry converts this into a request-correlated, sanitized
+        // INTERNAL_ERROR and reports the handler phase for metrics. Do not
+        // downgrade a configured authority failure to blocked-upstream.
+        throw new Error("Sourcing assessment authority failed");
       }
     }
     return {

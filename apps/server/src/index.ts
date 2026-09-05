@@ -18,6 +18,7 @@ import {
 import { createHealthRoutes } from "./http/health";
 import { createReleaseHandler } from "./http/release";
 import { createReadinessDeps, createReadinessHandler } from "./readiness";
+import { jsonBodyLimit } from "./request-body-limit";
 import { createProductionSliceARegistry } from "./slice-a-registry";
 
 const DEFAULT_PORT = 3000;
@@ -42,6 +43,8 @@ app.use(
     origin: allowedWebOrigin,
   })
 );
+app.use("/v1/*", jsonBodyLimit());
+app.use("/mcp", jsonBodyLimit());
 
 app.on(["POST", "GET"], "/api/auth/*", (c) => auth.handler(c.req.raw));
 

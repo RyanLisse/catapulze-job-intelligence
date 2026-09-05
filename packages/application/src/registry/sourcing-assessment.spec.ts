@@ -5,6 +5,12 @@ import { permissionsForRole } from "./roles";
 import {
   digestSourcingSelection,
   evaluateSourcingAssessment,
+  sourcingAssessmentInputSchema,
+  SOURCING_ASSESSMENT_MAX_CLAIMS,
+  SOURCING_ASSESSMENT_MAX_CLAIM_VALUE_LENGTH,
+  SOURCING_ASSESSMENT_MAX_SELECTED_IDS,
+  SOURCING_ASSESSMENT_MAX_SOURCE_REFERENCES,
+  SOURCING_ASSESSMENT_MAX_SOURCE_REFERENCE_IDS_PER_CLAIM,
   SOURCING_PROMPT_VERSION,
 } from "./sourcing-assessment";
 import {
@@ -77,6 +83,171 @@ describe("evaluate_sourcing_assessment (RJC-447)", () => {
         usedCapabilities: [],
       },
     });
+  });
+
+  it("returns a sanitized correlated failure when configured authority throws", async () => {
+    const secret = "DO_NOT_EXPOSE_AUTHORITY_FAILURE";
+    const deps = createTestSliceADeps();
+    const bundle = createSliceARegistry({
+      ...deps,
+      sourcingAssessmentAuthority: {
+        attest: () => {
+          throw new Error(secret);
+        },
+      },
+    });
+    const invoke = bundle.registry.createInvoker({
+      capabilityId: "evaluate_sourcing_assessment",
+      operation: "evaluate_sourcing_assessment",
+      transport: "mcp",
+    });
+
+    const result = await invoke(completeSourcingFixture, {
+      principal,
+      requestId: "authority-throw",
+    });
+
+    expect(result).toEqual({
+      error: {
+        code: "INTERNAL_ERROR",
+        message: "The capability could not be completed",
+        requestId: "authority-throw",
+      },
+      ok: false,
+    });
+    expect(JSON.stringify(result)).not.toContain(secret);
+  });
+
+  it("returns a sanitized correlated failure when configured authority is malformed", async () => {
+    const secret = "https://user:DO_NOT_EXPOSE@source.example/record";
+    const deps = createTestSliceADeps();
+    const bundle = createSliceARegistry({
+      ...deps,
+      sourcingAssessmentAuthority: {
+        attest: () =>
+          // SAFETY: this synthetic invalid runtime value intentionally bypasses
+          // the trusted attestation type to exercise the schema guard.
+          ({
+            ...completeTrustedAttestation,
+            sourceReferences: [
+              { ...completeSearchReference, reference: secret },
+            ],
+          }) as never,
+      },
+    });
+    const invoke = bundle.registry.createInvoker({
+      capabilityId: "evaluate_sourcing_assessment",
+      operation: "evaluate_sourcing_assessment",
+      transport: "mcp",
+    });
+
+    const result = await invoke(completeSourcingFixture, {
+      principal,
+      requestId: "authority-malformed",
+    });
+
+    expect(result).toEqual({
+      error: {
+        code: "INTERNAL_ERROR",
+        message: "The capability could not be completed",
+        requestId: "authority-malformed",
+      },
+      ok: false,
+    });
+    expect(JSON.stringify(result)).not.toContain(secret);
+  });
+
+  it("rejects an authority attestation with too many source references", async () => {
+    const deps = createTestSliceADeps();
+    const bundle = createSliceARegistry({
+      ...deps,
+      sourcingAssessmentAuthority: {
+        attest: () => ({
+          ...completeTrustedAttestation,
+          sourceReferences: Array.from(
+            { length: SOURCING_ASSESSMENT_MAX_SOURCE_REFERENCES + 1 },
+            (_, index) => ({
+              ...completeSearchReference,
+              id: `reference-${index}`,
+              reference: `record-${index}`,
+            })
+          ),
+        }),
+      },
+    });
+    const invoke = bundle.registry.createInvoker({
+      capabilityId: "evaluate_sourcing_assessment",
+      operation: "evaluate_sourcing_assessment",
+      transport: "mcp",
+    });
+
+    const result = await invoke(completeSourcingFixture, {
+      principal,
+      requestId: "authority-reference-limit",
+    });
+
+    expect(result).toEqual({
+      error: {
+        code: "INTERNAL_ERROR",
+        message: "The capability could not be completed",
+        requestId: "authority-reference-limit",
+      },
+      ok: false,
+    });
+  });
+
+  it("bounds authenticated assessment claims, values, citations and selection", () => {
+    const [claim] = completeSourcingFixture.claims;
+    if (!claim) {
+      throw new Error("Expected a sourcing fixture claim");
+    }
+
+    expect(
+      sourcingAssessmentInputSchema.safeParse({
+        ...completeSourcingFixture,
+        claims: Array.from(
+          { length: SOURCING_ASSESSMENT_MAX_CLAIMS + 1 },
+          () => claim
+        ),
+      }).success
+    ).toBe(false);
+    expect(
+      sourcingAssessmentInputSchema.safeParse({
+        ...completeSourcingFixture,
+        claims: [
+          {
+            ...claim,
+            value: "x".repeat(SOURCING_ASSESSMENT_MAX_CLAIM_VALUE_LENGTH + 1),
+          },
+        ],
+      }).success
+    ).toBe(false);
+    expect(
+      sourcingAssessmentInputSchema.safeParse({
+        ...completeSourcingFixture,
+        claims: [
+          {
+            ...claim,
+            sourceReferenceIds: Array.from(
+              {
+                length:
+                  SOURCING_ASSESSMENT_MAX_SOURCE_REFERENCE_IDS_PER_CLAIM + 1,
+              },
+              (_, index) => `reference-${index}`
+            ),
+          },
+        ],
+      }).success
+    ).toBe(false);
+    expect(
+      sourcingAssessmentInputSchema.safeParse({
+        ...completeSourcingFixture,
+        selectedIds: Array.from(
+          { length: SOURCING_ASSESSMENT_MAX_SELECTED_IDS + 1 },
+          () => completeSourcingFixture.selectedIds[0]
+        ),
+      }).success
+    ).toBe(false);
   });
 
   it("uses server-owned time for freshness and produces deterministic trusted output", () => {
@@ -376,10 +547,14 @@ describe("evaluate_sourcing_assessment (RJC-447)", () => {
           requestId: "unsafe-reference",
         });
 
-        expect(result).toHaveProperty(
-          "value.evaluation.status",
-          "blocked-upstream"
-        );
+        expect(result).toMatchObject({
+          error: {
+            code: "INTERNAL_ERROR",
+            message: "The capability could not be completed",
+            requestId: "unsafe-reference",
+          },
+          ok: false,
+        });
         expect(JSON.stringify(result)).not.toContain(reference);
       })
     );
@@ -438,10 +613,14 @@ describe("evaluate_sourcing_assessment (RJC-447)", () => {
           requestId: "unsafe-reference-id",
         });
 
-        expect(result).toHaveProperty(
-          "value.evaluation.status",
-          "blocked-upstream"
-        );
+        expect(result).toMatchObject({
+          error: {
+            code: "INTERNAL_ERROR",
+            message: "The capability could not be completed",
+            requestId: "unsafe-reference-id",
+          },
+          ok: false,
+        });
         expect(JSON.stringify(result)).not.toContain(secret);
       })
     );
