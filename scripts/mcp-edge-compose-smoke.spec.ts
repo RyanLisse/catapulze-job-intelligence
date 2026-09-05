@@ -43,6 +43,7 @@ beforeAll(async () => {
       COMPOSE_PROJECT_NAME: "production-project",
       CRABBOX_SOURCE_GIT_SHA: expectedSourceSha,
       MCP_EDGE_CONFIG_OUTPUT: configPath,
+      MCP_EDGE_SOURCE_SHA: "0000000000000000000000000000000000000448",
       POSTGRES_DATA_VOLUME: "production-volume",
     },
     stderr: "pipe",
