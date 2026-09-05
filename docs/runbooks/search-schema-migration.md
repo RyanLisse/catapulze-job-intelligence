@@ -29,6 +29,64 @@ The projector must remain stopped while that marker exists. A running or
 in-flight projector can write an old batch after the new generation has
 started; Manticore cannot fence that late engine write.
 
+## Mapping-only refresh: `contracttype` / `contract_type` (RJC-442)
+
+RJC-442 changes how the existing `contracttype` search attribute is populated;
+it does not change `SEARCH_SCHEMA_HASH` or the Manticore table layout. The
+projector loader reads `bronSpecifiek.contracttype` first and falls back to
+`bronSpecifiek.contract_type`. Missing, `null`, non-string, and blank values
+remain `null`. Leave the schema hash and table definitions unchanged for this
+refresh.
+
+Deploying that loader does not rewrite documents whose outbox events were
+already processed. A caught-up outbox and version cursor only prove that the
+projector handled the events it saw; they do not cause an unchanged curated row
+to be loaded again. Existing indexed documents therefore need this explicit
+same-schema replay:
+
+1. Follow the environment, singleton ownership, and clean-stop requirements in
+   [search-projector.md](search-projector.md). Stop the projector and wait for
+   any in-flight drain to finish.
+2. Inspect the new generation without writing:
+
+   ```bash
+   bun run search:new-generation --force
+   ```
+
+   The command without `--force` reports `already-current` because the schema
+   hash is unchanged. Record the target, proposed generation, and planned row
+   count, then obtain the normal operator approval for that environment.
+3. For the first approved apply only, create the generation and enqueue the
+   full current corpus:
+
+   ```bash
+   bun run search:new-generation --apply --force
+   ```
+
+4. If the command is interrupted while the generation is pending, keep the
+   projector stopped and resume with `bun run search:new-generation --apply`
+   **without** `--force`. Replay event IDs are deterministic for the index,
+   generation, and aggregate; conflict-ignore inserts make committed pages
+   safe to revisit.
+5. After finalization, rerunning `bun run search:new-generation --apply`
+   without `--force` must report `already-current` with zero events enqueued.
+   Do not repeat `--apply --force`: after completion it deliberately starts a
+   different generation and is not an idempotent verification command.
+6. Start exactly one projector and drain the replay. Then quiesce it again and
+   follow [projection-repair.md](projection-repair.md) for report-only physical
+   Manticore reconciliation and any required repair cycle.
+
+Keep evidence for each boundary: the generation record and finalized (not
+pending) checkpoint; replay counts for scanned, planned, inserted, and existing
+events; projector drain, cursor, lag, and dead-letter state; a clean physical
+reconciliation against the configured Manticore engine; and search-path
+readback showing the expected `contracttype` filter hit and facet bucket. Use a
+preselected non-sensitive record for readback and record no payload, token, or
+real identifier in this runbook. Fixture coverage that uses real Postgres with
+the production in-memory search engine proves mapping/projector behaviour, but
+it is not physical Manticore evidence. This procedure alone is not evidence
+that a production refresh was run.
+
 ## Preconditions
 
 1. Deploy the code and ensure the target Manticore schema/tables exist first.

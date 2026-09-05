@@ -179,16 +179,11 @@ export class PostgresRawPayloadStore implements RawPayloadStore {
 }
 
 const toSearchDocument = (row: AanvraagRow): SearchDocument => {
-  const bronSpecifiek = row.bronSpecifiek as Record<string, unknown>;
-  const contracttype =
-    "contracttype" in bronSpecifiek &&
-    typeof bronSpecifiek.contracttype === "string"
-      ? bronSpecifiek.contracttype
-      : null;
+  const bronFacts = readAanvraagBronFacts(row.bronSpecifiek);
   return {
     beschrijving: row.beschrijving,
     bronId: row.bronId,
-    contracttype,
+    contracttype: bronFacts.contracttype,
     id: row.id,
     laatstGezienOp: row.laatstGezienOp,
     // RJC-394: falls back to the country code exactly as before when the
