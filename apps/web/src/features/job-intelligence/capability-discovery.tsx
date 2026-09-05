@@ -10,7 +10,10 @@ import {
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
-import type { CapabilityDiscoveryDocument } from "./rest-job-data-adapter";
+import type {
+  CapabilityDiscoveryDocument,
+  CapabilityDiscoverySchema,
+} from "./rest-job-data-adapter";
 import { runAsync } from "./run-async";
 
 interface CapabilityDiscoveryProps {
@@ -47,6 +50,103 @@ const StatusIcon = ({ status }: { status: CapabilityDisplayStatus }) => {
     <CircleOff aria-hidden="true" className="size-4 text-muted-foreground" />
   );
 };
+
+const effectClassLabel = {
+  commit: "Commit",
+  proposal: "Voorstel",
+  read: "Lezen",
+} as const;
+
+const effectEvidenceLabel = {
+  "grounded-handler-output": "handler-output is gegrond",
+  none: "geen uitvoerbewijs",
+  "validated-handler-output": "handler-output is gevalideerd",
+} as const;
+
+const readbackLabel = {
+  "capability-output": "capability-output",
+  "not-proven": "niet bewezen",
+} as const;
+
+const schemaRootType = (schema: CapabilityDiscoverySchema): string => {
+  const { type } = schema;
+  return Array.isArray(type) ? type.join(" | ") : (type ?? "JSON Schema");
+};
+
+const transportSummary = (
+  statusMap: CapabilityDiscoveryDocument["capabilities"][number]["statusMap"]
+): string => {
+  const transports = [
+    statusMap.mcpTools.length > 0
+      ? `MCP (${statusMap.mcpTools.join(", ")})`
+      : null,
+    statusMap.restOperations.length > 0
+      ? `REST (${statusMap.restOperations.join(", ")})`
+      : null,
+    statusMap.uiActions.length > 0
+      ? `UI (${statusMap.uiActions.join(", ")})`
+      : null,
+  ].filter((transport): transport is string => transport !== null);
+  return transports.length > 0 ? transports.join(" · ") : "Geen transport";
+};
+
+export const CapabilityMetadata = ({
+  capability,
+}: {
+  readonly capability: CapabilityDiscoveryDocument["capabilities"][number];
+}) => (
+  <dl className="mt-3 grid gap-2 text-xs">
+    <div>
+      <dt className="font-medium">Benodigde rol/scope</dt>
+      <dd className="text-muted-foreground">{capability.requiredPermission}</dd>
+    </div>
+    <div>
+      <dt className="font-medium">Status</dt>
+      <dd className="text-muted-foreground">
+        {capability.allowed
+          ? capability.availability.reason
+          : "Niet uitvoerbaar met jouw huidige rechten."}
+      </dd>
+    </div>
+    <div>
+      <dt className="font-medium">Veilige volgende stap</dt>
+      <dd className="text-muted-foreground">
+        {capability.availability.safeNextStep}
+      </dd>
+    </div>
+    <div>
+      <dt className="font-medium">Effect en bewijs</dt>
+      <dd className="text-muted-foreground">
+        {effectClassLabel[capability.effect.class]} · {capability.effect.target}{" "}
+        · {capability.effect.reversible ? "omkeerbaar" : "niet omkeerbaar"} ·{" "}
+        {effectEvidenceLabel[capability.effect.evidence]}
+      </dd>
+    </div>
+    <div>
+      <dt className="font-medium">Readback</dt>
+      <dd className="text-muted-foreground">
+        {readbackLabel[capability.effect.readback]}
+      </dd>
+    </div>
+    <div>
+      <dt className="font-medium">Schema</dt>
+      <dd className="text-muted-foreground">
+        Invoer: {schemaRootType(capability.inputSchema)} · uitvoer:{" "}
+        {schemaRootType(capability.outputSchema)}
+      </dd>
+    </div>
+    <div>
+      <dt className="font-medium">Handler en transport</dt>
+      <dd className="text-muted-foreground">
+        Handler{" "}
+        {capability.statusMap.handler === "registered"
+          ? "geregistreerd"
+          : "ontbreekt"}{" "}
+        · {transportSummary(capability.statusMap)}
+      </dd>
+    </div>
+  </dl>
+);
 
 export const CapabilityDiscovery = ({ load }: CapabilityDiscoveryProps) => {
   const dialogRef = useRef<HTMLDialogElement>(null);
@@ -159,28 +259,7 @@ export const CapabilityDiscovery = ({ load }: CapabilityDiscoveryProps) => {
                         {statusLabel[capabilityDisplayStatus(capability)]}
                       </span>
                     </div>
-                    <dl className="mt-3 grid gap-2 text-xs">
-                      <div>
-                        <dt className="font-medium">Benodigde rol/scope</dt>
-                        <dd className="text-muted-foreground">
-                          {capability.requiredPermission}
-                        </dd>
-                      </div>
-                      <div>
-                        <dt className="font-medium">Status</dt>
-                        <dd className="text-muted-foreground">
-                          {capability.allowed
-                            ? capability.availability.reason
-                            : "Niet uitvoerbaar met jouw huidige rechten."}
-                        </dd>
-                      </div>
-                      <div>
-                        <dt className="font-medium">Veilige volgende stap</dt>
-                        <dd className="text-muted-foreground">
-                          {capability.availability.safeNextStep}
-                        </dd>
-                      </div>
-                    </dl>
+                    <CapabilityMetadata capability={capability} />
                   </li>
                 ))}
               </ul>

@@ -105,8 +105,8 @@ describe("MCP 2026-07-28 protocol boundary", () => {
     const names = listedBody.result.tools.map((tool) => tool.name);
     expect(names).toEqual(names.toSorted());
     expect(names).toContain("search_aanvragen");
-    expect(names).not.toContain("start_run");
-    expect(names).not.toContain("complete_task");
+    expect(names).toContain("start_run");
+    expect(names).toContain("complete_task");
     const searchTool = listedBody.result.tools.find(
       (tool) => tool.name === "search_aanvragen"
     );
@@ -125,6 +125,18 @@ describe("MCP 2026-07-28 protocol boundary", () => {
       "catapulze/outputSchema": { type: "object" },
       "catapulze/outputSchemaPolicy": "standard-json-schema",
     });
+
+    for (const toolName of ["start_run", "complete_task"]) {
+      const unavailableTool = listedBody.result.tools.find(
+        (tool) => tool.name === toolName
+      );
+      expect(unavailableTool?._meta).toMatchObject({
+        "catapulze/availability": {
+          executable: false,
+          status: "fixture-stub",
+        },
+      });
+    }
 
     for (const toolName of ["list_alerts", "list_bronnen", "list_versies"]) {
       const listTool = listedBody.result.tools.find(

@@ -270,7 +270,7 @@ describe("production capability availability policy", () => {
     expect(tracked.invocationCount()).toBe(2);
   });
 
-  it("hides every unavailable capability from the admin MCP catalog", async () => {
+  it("advertises every authorized unavailable capability with a non-executable status", async () => {
     const tracked = createTrackedRegistry();
     const fixture = createMcpProtocolFixture(
       tracked,
@@ -292,7 +292,18 @@ describe("production capability availability policy", () => {
       unavailableNames
     );
     for (const unavailable of unavailableCases) {
-      expect(names).not.toContain(unavailable.capabilityId);
+      expect(names).toContain(unavailable.capabilityId);
+      const listed = body.result.tools.find(
+        (tool) => tool.name === unavailable.capabilityId
+      );
+      expect(listed).toMatchObject({
+        _meta: {
+          "catapulze/availability": {
+            executable: false,
+            status: expect.not.stringMatching(/^implemented$/u),
+          },
+        },
+      });
     }
     expect(tracked.invocationCount()).toBe(0);
   });

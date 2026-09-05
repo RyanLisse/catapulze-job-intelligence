@@ -208,11 +208,10 @@ const createServer = (
       (tool) => principal?.permissions.has(tool.requiredPermission)
     )
   );
-  const tools = authorizedTools.filter(
-    (tool) =>
-      unavailableCapabilityReason(unavailableCapabilities, tool.name) ===
-      undefined
-  );
+  // Keep authorized unavailable tools discoverable so agents can explain the
+  // capability status. `tools/call` still applies the availability guard
+  // below, so catalog visibility never grants execution.
+  const tools = authorizedTools;
 
   server.setRequestHandler("tools/list", () => ({
     tools: tools.map((tool) => {

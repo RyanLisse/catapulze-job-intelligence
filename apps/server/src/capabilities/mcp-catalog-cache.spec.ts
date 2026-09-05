@@ -366,7 +366,7 @@ describe("MCP catalog cache policy", () => {
     expect(initialNames).toContain("approve_snapshot");
     expect(initialNames).toContain("list_bronnen");
     expect(initialNames).toContain("search_aanvragen");
-    expect(initialNames).not.toContain("commit_export");
+    expect(initialNames).toContain("commit_export");
     const afterCachedCatalog = snapshotCounters(environment.counters);
 
     const adminSession = environment.sessions.get("admin-a");
@@ -446,6 +446,16 @@ describe("MCP catalog cache policy", () => {
     await client.close();
     const afterNames = afterPolicyChange.tools.map((tool) => tool.name);
     expect(afterNames).not.toContain("approve_snapshot");
-    expect(afterNames).not.toContain("search_aanvragen");
+    expect(afterNames).toContain("search_aanvragen");
+    expect(
+      afterPolicyChange.tools.find((tool) => tool.name === "search_aanvragen")
+    ).toMatchObject({
+      _meta: {
+        "catapulze/availability": {
+          executable: false,
+          status: "disabled",
+        },
+      },
+    });
   });
 });

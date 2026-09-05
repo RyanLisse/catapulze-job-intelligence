@@ -92,6 +92,10 @@ export interface RestJobIntelligenceBundle {
   readonly loadCapabilityDiscovery: () => Promise<CapabilityDiscoveryDocument>;
 }
 
+export interface CapabilityDiscoverySchema {
+  readonly type?: string;
+}
+
 export interface CapabilityDiscoveryDocument {
   readonly capabilities: readonly {
     readonly allowed: boolean;
@@ -101,9 +105,28 @@ export interface CapabilityDiscoveryDocument {
       readonly safeNextStep: string;
       readonly status: "disabled" | "fixture-stub" | "implemented" | "planned";
     };
+    readonly effect: {
+      readonly auditClass: "access" | "effect" | "none";
+      readonly class: "commit" | "proposal" | "read";
+      readonly evidence:
+        | "grounded-handler-output"
+        | "none"
+        | "validated-handler-output";
+      readonly readback: "capability-output" | "not-proven";
+      readonly reversible: boolean;
+      readonly target: "external" | "internal";
+    };
     readonly id: string;
+    readonly inputSchema: CapabilityDiscoverySchema;
     readonly outcome: string;
+    readonly outputSchema: CapabilityDiscoverySchema;
     readonly requiredPermission: string;
+    readonly statusMap: {
+      readonly handler: "registered" | "unregistered";
+      readonly mcpTools: readonly string[];
+      readonly restOperations: readonly string[];
+      readonly uiActions: readonly string[];
+    };
   }[];
   readonly generatedFrom: "slice-a-registry";
   readonly statusCounts: {
