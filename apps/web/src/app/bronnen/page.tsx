@@ -14,6 +14,16 @@ import { redirect } from "next/navigation";
 import { Suspense } from "react";
 
 import {
+  BronnenCardSparkline,
+  BronnenSparklineHost,
+  BronnenTrendPanel,
+} from "@/app/bronnen/bronnen-charts";
+import {
+  aggregateTotalTrend,
+  sparklineByBron,
+} from "@/app/bronnen/bronnen-timeseries";
+import type { BronTimeseriesPoint } from "@/app/bronnen/bronnen-timeseries";
+import {
   canAccessBronnen,
   parseBronnenWindow,
   sessionRoleSchema,
@@ -54,6 +64,7 @@ interface DashboardBron {
 
 interface DashboardOverview {
   readonly bronnen: readonly DashboardBron[];
+  readonly timeseries: readonly BronTimeseriesPoint[];
   readonly total: DashboardStats;
 }
 
@@ -139,6 +150,8 @@ const DashboardData = async ({
   const attentionCount = overview.bronnen.filter(
     (bron) => statusFor(bron).label !== "Gezond"
   ).length;
+  const trend = aggregateTotalTrend(overview.timeseries);
+  const sparklines = sparklineByBron(overview.timeseries);
 
   return (
     <>
@@ -167,6 +180,8 @@ const DashboardData = async ({
         />
       </div>
 
+      <BronnenTrendPanel data={trend} />
+
       <section aria-labelledby="bronnen-heading" className="space-y-3">
         <div>
           <h2
@@ -187,74 +202,82 @@ const DashboardData = async ({
             </CardContent>
           </Card>
         ) : (
-          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-            {overview.bronnen.map((bron) => {
-              const status = statusFor(bron);
-              const { stats } = bron;
+          <BronnenSparklineHost>
+            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+              {overview.bronnen.map((bron) => {
+                const status = statusFor(bron);
+                const { stats } = bron;
 
-              return (
-                <Card key={stats.bronId ?? stats.naam}>
-                  <CardHeader className="border-b">
-                    <div className="flex items-start justify-between gap-3">
-                      <CardTitle>{stats.naam ?? "Onbekende bron"}</CardTitle>
-                      <Badge variant={status.variant}>{status.label}</Badge>
-                    </div>
-                  </CardHeader>
-                  <CardContent className="grid gap-3 pt-4 text-xs">
-                    <div className="grid grid-cols-2 gap-3">
-                      <div>
-                        <p className="text-muted-foreground">Runs</p>
-                        <p className="font-mono font-semibold">
-                          {numberFormatter.format(stats.runs)}
-                        </p>
+                return (
+                  <Card data-bron-card key={stats.bronId ?? stats.naam}>
+                    <CardHeader className="border-b">
+                      <div className="flex items-start justify-between gap-3">
+                        <CardTitle>{stats.naam ?? "Onbekende bron"}</CardTitle>
+                        <Badge variant={status.variant}>{status.label}</Badge>
                       </div>
-                      <div>
-                        <p className="text-muted-foreground">Succes</p>
-                        <p className="font-mono font-semibold">
-                          {formatRate(stats.successRate)}
-                        </p>
+                    </CardHeader>
+                    <CardContent className="grid gap-3 pt-4 text-xs">
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <p className="text-muted-foreground">Runs</p>
+                          <p className="font-mono font-semibold">
+                            {numberFormatter.format(stats.runs)}
+                          </p>
+                        </div>
+                        <div>
+                          <p className="text-muted-foreground">Succes</p>
+                          <p className="font-mono font-semibold">
+                            {formatRate(stats.successRate)}
+                          </p>
+                        </div>
+                        <div>
+                          <p className="text-muted-foreground">Nieuw</p>
+                          <p className="font-mono font-semibold">
+                            {numberFormatter.format(stats.nieuw)}
+                          </p>
+                        </div>
+                        <div>
+                          <p className="text-muted-foreground">Gewijzigd</p>
+                          <p className="font-mono font-semibold">
+                            {numberFormatter.format(stats.gewijzigd)}
+                          </p>
+                        </div>
                       </div>
-                      <div>
-                        <p className="text-muted-foreground">Nieuw</p>
-                        <p className="font-mono font-semibold">
-                          {numberFormatter.format(stats.nieuw)}
-                        </p>
-                      </div>
-                      <div>
-                        <p className="text-muted-foreground">Gewijzigd</p>
-                        <p className="font-mono font-semibold">
-                          {numberFormatter.format(stats.gewijzigd)}
-                        </p>
-                      </div>
-                    </div>
-                    <dl className="space-y-1.5 border-t border-border pt-3">
-                      <div className="flex justify-between gap-3">
-                        <dt className="text-muted-foreground">Circuit</dt>
-                        <dd>{bron.health?.circuitStatus ?? "Onbekend"}</dd>
-                      </div>
-                      <div className="flex justify-between gap-3">
-                        <dt className="text-muted-foreground">Stilte</dt>
-                        <dd>
-                          {bron.health?.silenceAlertOpen ? "Open" : "Nee"}
-                        </dd>
-                      </div>
-                      <div className="flex justify-between gap-3">
-                        <dt className="text-muted-foreground">Laatste run</dt>
-                        <dd className="text-right">
-                          {formatDate(
-                            bron.health?.lastRunAt ?? stats.lastRunAt
-                          )}
-                        </dd>
-                      </div>
-                    </dl>
-                    {stats.runs === 0 ? (
-                      <p className="text-muted-foreground">Nog geen runs</p>
-                    ) : null}
-                  </CardContent>
-                </Card>
-              );
-            })}
-          </div>
+                      <dl className="space-y-1.5 border-t border-border pt-3">
+                        <div className="flex justify-between gap-3">
+                          <dt className="text-muted-foreground">Circuit</dt>
+                          <dd>{bron.health?.circuitStatus ?? "Onbekend"}</dd>
+                        </div>
+                        <div className="flex justify-between gap-3">
+                          <dt className="text-muted-foreground">Stilte</dt>
+                          <dd>
+                            {bron.health?.silenceAlertOpen ? "Open" : "Nee"}
+                          </dd>
+                        </div>
+                        <div className="flex justify-between gap-3">
+                          <dt className="text-muted-foreground">Laatste run</dt>
+                          <dd className="text-right">
+                            {formatDate(
+                              bron.health?.lastRunAt ?? stats.lastRunAt
+                            )}
+                          </dd>
+                        </div>
+                      </dl>
+                      {stats.runs === 0 ? (
+                        <p className="text-muted-foreground">Nog geen runs</p>
+                      ) : null}
+                      {stats.bronId ? (
+                        <BronnenCardSparkline
+                          bronName={stats.naam ?? "Onbekende bron"}
+                          data={sparklines.get(stats.bronId) ?? []}
+                        />
+                      ) : null}
+                    </CardContent>
+                  </Card>
+                );
+              })}
+            </div>
+          </BronnenSparklineHost>
         )}
       </section>
 
@@ -285,6 +308,7 @@ const LoadingState = () => (
         <Skeleton className="h-20" key={index} />
       ))}
     </div>
+    <Skeleton className="h-64 w-full" />
     <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
       {Array.from({ length: 6 }, (_, index) => (
         <Skeleton className="h-48" key={index} />
