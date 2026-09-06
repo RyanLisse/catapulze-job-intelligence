@@ -1,7 +1,11 @@
 import { describe, expect, it } from "bun:test";
 
+import { SEARCH_INDEX_NAME, SEARCH_TEST_INDEX_NAME } from "../types";
+import { InMemorySearchVersionStore } from "../version";
+import { ManticoreSearchEngine } from "./engine";
 import {
   cleanupLiveDocuments,
+  createLiveTestEngine,
   requireLiveManticoreUrl,
 } from "./live-test-hygiene";
 
@@ -14,6 +18,7 @@ describe("Manticore live fixture cleanup", () => {
       "http://manticore.test"
     );
   });
+
   it("attempts every run-owned id when one deletion fails", async () => {
     const deleted: string[] = [];
     const engine = {
@@ -30,5 +35,15 @@ describe("Manticore live fixture cleanup", () => {
       cleanupLiveDocuments(engine, ["run-a", "run-b", "run-c"])
     ).rejects.toThrow("fixture cleanup failed");
     expect(deleted.toSorted()).toEqual(["run-a", "run-b", "run-c"]);
+  });
+
+  it("keeps the live-test index name distinct from production", () => {
+    expect(SEARCH_TEST_INDEX_NAME).toBe("aanvragen_test");
+    expect(SEARCH_TEST_INDEX_NAME).not.toBe(SEARCH_INDEX_NAME);
+    const engine = createLiveTestEngine(
+      "http://manticore.test",
+      new InMemorySearchVersionStore()
+    );
+    expect(engine).toBeInstanceOf(ManticoreSearchEngine);
   });
 });

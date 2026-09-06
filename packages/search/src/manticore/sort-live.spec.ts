@@ -3,9 +3,10 @@ import { describe, expect, it } from "bun:test";
 import { InMemorySearchEngine } from "../in-memory-engine";
 import type { SearchDocument, SearchFilters, SearchSort } from "../types";
 import { InMemorySearchVersionStore } from "../version";
-import { ManticoreSearchEngine } from "./engine";
+import type { ManticoreSearchEngine } from "./engine";
 import {
   cleanupLiveDocuments,
+  createLiveTestEngine,
   requireLiveManticoreUrl,
 } from "./live-test-hygiene";
 
@@ -30,10 +31,9 @@ describe.skipIf(!manticoreUrl)(
       if (!manticoreUrl) {
         throw new Error("Live test was not skipped without MANTICORE_URL");
       }
-      const engine = ManticoreSearchEngine.fromUrl(
+      const engine = createLiveTestEngine(
         manticoreUrl,
         new InMemorySearchVersionStore(),
-        undefined,
         clock
       );
       const inMemory = new InMemorySearchEngine(undefined, clock);
@@ -144,10 +144,9 @@ describe.skipIf(!manticoreUrl)(
       if (!manticoreUrl) {
         throw new Error("Live test was not skipped without MANTICORE_URL");
       }
-      const engine = ManticoreSearchEngine.fromUrl(
+      const engine = createLiveTestEngine(
         manticoreUrl,
         new InMemorySearchVersionStore(),
-        undefined,
         clock
       );
       const runToken = `locationlive${crypto.randomUUID().replaceAll("-", "")}`;

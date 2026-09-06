@@ -96,4 +96,4 @@ ranking slots and skews BM25 statistics. Relevance numbers are only
 comparable when the target tables are empty (`SELECT count(*)` = 0) at the
 start of the run — recorded in `benchmarks/relevance/README.md`. The 505
 fixture rows on the shared instance come from specs; clearing them is an
-operator action, not something this branch does.
+operator action, not something this branch does. Structural fix (RJC-400): live specs now target dedicated `aanvragen_test_*` tables; benches keep `aanvragen_bench_*`; `bun run check:manticore-bench-empty` proves the bench tables empty before a relevance run when `MANTICORE_URL` is set.

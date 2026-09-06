@@ -8,6 +8,7 @@ import { InMemorySearchEngine } from "./in-memory-engine";
 import { hashDocumentId } from "./manticore/id-hash";
 import {
   cleanupLiveDocuments,
+  createLiveTestEngine,
   requireLiveManticoreUrl,
 } from "./manticore/live-test-hygiene";
 import type { SearchDocument, SearchEngine, SearchMode } from "./types";
@@ -712,9 +713,8 @@ describe.skipIf(!manticoreLiveUrl)(
         throw new Error("Live test was not skipped without MANTICORE_URL");
       }
 
-      const { ManticoreSearchEngine } = await import("./manticore");
       const { InMemorySearchVersionStore } = await import("./version");
-      const engine = ManticoreSearchEngine.fromUrl(
+      const engine = createLiveTestEngine(
         manticoreLiveUrl,
         new InMemorySearchVersionStore()
       );
@@ -790,9 +790,8 @@ describe.skipIf(!manticoreLiveUrl)(
       }
 
       const { parseBooleanQuery } = await import("@ji/domain");
-      const { ManticoreSearchEngine } = await import("./manticore");
       const { InMemorySearchVersionStore } = await import("./version");
-      const engine = ManticoreSearchEngine.fromUrl(
+      const engine = createLiveTestEngine(
         manticoreLiveUrl,
         new InMemorySearchVersionStore()
       );

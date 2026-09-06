@@ -67,6 +67,7 @@ export {
 } from "./projector";
 export {
   SEARCH_INDEX_NAME,
+  SEARCH_TEST_INDEX_NAME,
   SEARCH_SORT_OPTIONS,
   SEARCH_WINDOW_LIMIT,
   documentLocatie,
