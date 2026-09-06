@@ -30,6 +30,7 @@ export interface CapabilityDescriptor {
   readonly effect: AnyCapability["effect"];
   readonly grounding: boolean;
   readonly id: string;
+  readonly inputJsonSchema: Readonly<Record<string, unknown>>;
   readonly outcome: string;
 }
 
@@ -612,17 +613,117 @@ const snapshotCapability = (
   }
 };
 
-const toDescriptor = (capability: AnyCapability): CapabilityDescriptor =>
-  Object.freeze({
-    authorization: Object.freeze({
-      permission: capability.authorization.permission,
+const deepFreezeJsonSchema = <T>(value: T): T => {
+  if (value !== null && typeof value === "object" && !Object.isFrozen(value)) {
+    for (const nested of Object.values(value)) {
+      deepFreezeJsonSchema(nested);
+    }
+    Object.freeze(value);
+  }
+  return value;
+};
+
+const toPlainJsonSchema = (
+  schema: Record<string, unknown>
+): Record<string, unknown> | null => {
+  try {
+    const schemaWithoutVendorMetadata = Object.fromEntries(
+      Object.entries(schema).filter(([key]) => key !== "~standard")
+    );
+    const serialized = JSON.stringify(
+      schemaWithoutVendorMetadata,
+      (
+        _key: string,
+        value: unknown
+      ): boolean | null | number | object | string => {
+        if (
+          typeof value === "bigint" ||
+          typeof value === "function" ||
+          typeof value === "symbol" ||
+          value === undefined ||
+          (typeof value === "number" && !Number.isFinite(value))
+        ) {
+          throw new TypeError("JSON Schema metadata must be JSON-compatible");
+        }
+        return value;
+      }
+    );
+    if (serialized === undefined) {
+      return null;
+    }
+    const parsed: unknown = JSON.parse(serialized);
+    return isRecord(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+};
+
+const inputJsonSchemaFromCapability = (
+  capability: AnyCapability
+):
+  | {
+      readonly inputJsonSchema: CapabilityDescriptor["inputJsonSchema"];
+      readonly ok: true;
+    }
+  | { readonly error: RegistryConstructionError; readonly ok: false } => {
+  let convertedSchema: unknown;
+  try {
+    convertedSchema = z.toJSONSchema(capability.inputSchema, { io: "input" });
+  } catch {
+    return {
+      error: invalidCapabilityError(capability.id, "inputJsonSchema"),
+      ok: false,
+    };
+  }
+  if (!isRecord(convertedSchema)) {
+    return {
+      error: invalidCapabilityError(capability.id, "inputJsonSchema"),
+      ok: false,
+    };
+  }
+  const schema = toPlainJsonSchema(convertedSchema);
+  if (!schema) {
+    return {
+      error: invalidCapabilityError(capability.id, "inputJsonSchema"),
+      ok: false,
+    };
+  }
+  const hasMcpBinding = capability.bindings.some(
+    (binding) => binding.transport === "mcp"
+  );
+  if (hasMcpBinding && schema.type !== "object") {
+    return {
+      error: invalidCapabilityError(capability.id, "inputJsonSchema"),
+      ok: false,
+    };
+  }
+  return { inputJsonSchema: deepFreezeJsonSchema(schema), ok: true };
+};
+
+const toDescriptor = (
+  capability: AnyCapability
+):
+  | { readonly descriptor: CapabilityDescriptor; readonly ok: true }
+  | { readonly error: RegistryConstructionError; readonly ok: false } => {
+  const schemaResult = inputJsonSchemaFromCapability(capability);
+  if (!schemaResult.ok) {
+    return schemaResult;
+  }
+  return {
+    descriptor: Object.freeze({
+      authorization: Object.freeze({
+        permission: capability.authorization.permission,
+      }),
+      bindings: capability.bindings,
+      effect: capability.effect,
+      grounding: capability.grounding,
+      id: capability.id,
+      inputJsonSchema: schemaResult.inputJsonSchema,
+      outcome: capability.outcome,
     }),
-    bindings: capability.bindings,
-    effect: capability.effect,
-    grounding: capability.grounding,
-    id: capability.id,
-    outcome: capability.outcome,
-  });
+    ok: true,
+  };
+};
 
 const hasZodSchemaInterface = (value: unknown): boolean => {
   if (!isRecord(value)) {
@@ -711,7 +812,7 @@ export const createCapabilityRegistry = <
 
   const capabilities = new Map<string, AnyCapability>();
   const bindings = new Set<string>();
-  const capabilitySnapshots: AnyCapability[] = [];
+  const capabilityDescriptors: CapabilityDescriptor[] = [];
 
   for (const rawCapability of catalogEntries) {
     const snapshotResult = snapshotCapability(rawCapability);
@@ -733,8 +834,12 @@ export const createCapabilityRegistry = <
         ok: false,
       };
     }
+    const descriptorResult = toDescriptor(capability);
+    if (!descriptorResult.ok) {
+      return descriptorResult;
+    }
     capabilities.set(capability.id, capability);
-    capabilitySnapshots.push(capability);
+    capabilityDescriptors.push(descriptorResult.descriptor);
 
     for (const binding of capability.bindings) {
       const key = bindingKey(binding.transport, binding.operation);
@@ -753,7 +858,7 @@ export const createCapabilityRegistry = <
     }
   }
 
-  const publicCatalog = Object.freeze(capabilitySnapshots.map(toDescriptor));
+  const publicCatalog = Object.freeze(capabilityDescriptors);
   const health: MutableRegistryHealth = {
     reporterFailures: 0,
     reporterTimeouts: 0,

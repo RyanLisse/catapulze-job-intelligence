@@ -14,6 +14,10 @@ session boundary. A caller cannot choose its own subject or role.
   rejected with `403 CSRF_REJECTED` before the session lookup, body read, or
   capability invocation. Non-browser automation must use a signed Better Auth
   bearer; a cookie plus no origin is intentionally unsupported for writes.
+- Every request that sends an `Origin` header must match `CORS_ORIGIN`,
+  including bearer-authenticated MCP requests. A non-browser bearer client may
+  omit `Origin`; sending a foreign value is always rejected before parsing or
+  authentication.
 - REST and MCP resolve every request with `auth.api.getSession` and force a
   database-backed check. Expired, revoked, unknown, or malformed sessions fail
   closed.
@@ -32,6 +36,67 @@ enabled. Better Auth then resolves that token against the session store, which
 enforces expiry and revocation. Keep bearer tokens in 1Password, rotate/revoke
 them like passwords, and never place them in source control or command-line
 arguments.
+
+## Supported clients
+
+The supported MCP client model is first-party, operator-controlled automation
+that uses a signed Better Auth session bearer for an existing Catapulze user.
+The repository contains the browser UI plus REST and MCP server transports; it
+does not contain or certify a generic third-party MCP client integration. The
+browser UI continues to use its human cookie session and is not converted into
+an agent identity.
+
+The application-auth owner maintains Better Auth, session storage, role
+assignment, expiry, and revocation. The MCP transport owner accepts only the
+resolved principal and enforces the same capability permissions, approval,
+idempotency, and audit paths as REST. The operator who provisions a client owns
+the client version, credential storage, and prompt revocation when access is no
+longer needed.
+
+### Onboard and scope a first-party MCP client
+
+1. Provision a new named human user through the operator-only process below
+   with the least-privileged role needed for the automation. An existing user
+   may be selected only when it already has the required role; the provisioning
+   CLI refuses existing emails and cannot change roles. Otherwise stop until an
+   audited role-management path exists. Do not create a shared service-admin
+   identity.
+2. Establish a normal Better Auth session over HTTPS from a trusted first-party
+   client. Capture the signed session token from Better Auth's `set-auth-token`
+   response header directly into 1Password or process-scoped secret injection.
+   Never copy it into a shell argument, repository, issue, log, or screenshot.
+3. Send `Authorization: Bearer <signed-session>` to the canonical `/mcp`
+   resource. Omit `Origin` for non-browser automation, or send exactly the
+   configured `CORS_ORIGIN`. A bearer is scoped to the current user identity,
+   current server-owned role, session expiry, and the capability registry; it
+   is not a separately configurable OAuth scope.
+4. Verify an allowed read and a role-forbidden write with synthetic data. A
+   write that is otherwise authorized still passes through the registry's
+   idempotency, approval, snapshot, and audit rules.
+
+### Revoke client access
+
+The supported revocation unit is the individual Better Auth session used by
+the client. From that client, send an authenticated `POST /api/auth/sign-out`
+with the signed session bearer sourced from process-scoped secret injection;
+do not place the bearer in the URL or a command argument. Remove the token from
+the client's secret store after sign-out succeeds. The next MCP call performs
+a fresh database-backed session lookup and must fail, as covered by
+`packages/auth/src/security-config.spec.ts`.
+
+Repeat sign-out for each separately provisioned client session. Catapulze does
+not currently expose an audited account-disable, role-management, or
+all-sessions revocation operation, so this runbook does not claim one. If the
+operator no longer controls a session bearer, stop and add a reviewed
+administrative revocation path before claiming that session has been revoked.
+
+This first-party contract does not implement MCP OAuth protected-resource
+metadata, authorization-server discovery, OAuth scopes, Resource Indicators,
+or third-party consent. Those RJC-441 OAuth acceptance criteria are
+inapplicable while generic external MCP clients remain unsupported. Supporting
+such clients later requires a separate accepted design and end-to-end OAuth
+implementation; a signed Better Auth session bearer must not be advertised as
+OAuth compliance.
 
 ## Migration dependency
 

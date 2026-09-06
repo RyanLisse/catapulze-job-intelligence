@@ -4,6 +4,11 @@ import { z } from "zod";
 
 import { createRequestId, hasAllowedCookieOrigin } from "./auth";
 import type { CookieAuthOriginPolicy, PrincipalResolver } from "./auth";
+import {
+  CAPABILITY_UNAVAILABLE_CODE,
+  unavailableCapabilityReason,
+} from "./capability-availability";
+import type { CapabilityAvailabilityPolicy } from "./capability-availability";
 import type {
   RegistryInvocationResult,
   SliceARegistry,
@@ -80,6 +85,10 @@ export interface RestRouteSpec {
   readonly method: string;
   readonly operation: string;
   readonly pathPattern: string;
+}
+
+interface RestHandlerOptions extends CookieAuthOriginPolicy {
+  readonly unavailableCapabilities?: CapabilityAvailabilityPolicy;
 }
 
 const pathParamNames = (pattern: string): readonly string[] => {
@@ -243,7 +252,7 @@ export const createRestCapabilityHandler =
     registry: SliceARegistry,
     routes: readonly RestRouteSpec[],
     resolvePrincipal: PrincipalResolver,
-    security: CookieAuthOriginPolicy
+    options: RestHandlerOptions
   ) =>
   async (context: Context): Promise<Response> => {
     const requestId = createRequestId();
@@ -261,7 +270,7 @@ export const createRestCapabilityHandler =
       !hasAllowedCookieOrigin(
         context.req.method,
         requestHeaders,
-        security.allowedCookieOrigin
+        options.allowedCookieOrigin
       )
     ) {
       return jsonResponse(403, {
@@ -279,6 +288,46 @@ export const createRestCapabilityHandler =
       return jsonResponse(503, { error: principalResolution.error });
     }
     const { principal } = principalResolution;
+    if (!principal) {
+      return jsonResponse(401, {
+        error: {
+          code: "UNAUTHENTICATED",
+          message: "Authentication required",
+          requestId,
+        },
+        ok: false,
+      });
+    }
+    const descriptor = registry.catalog.find(
+      (candidate) => candidate.id === matched.capabilityId
+    );
+    if (
+      descriptor === undefined ||
+      !principal.permissions.has(descriptor.authorization.permission)
+    ) {
+      return jsonResponse(403, {
+        error: {
+          code: "FORBIDDEN",
+          message: "The principal is not allowed to invoke this capability",
+          requestId,
+        },
+        ok: false,
+      });
+    }
+    const unavailableReason = unavailableCapabilityReason(
+      options.unavailableCapabilities,
+      matched.capabilityId
+    );
+    if (unavailableReason !== undefined) {
+      return jsonResponse(503, {
+        error: {
+          code: CAPABILITY_UNAVAILABLE_CODE,
+          message: unavailableReason,
+          requestId,
+        },
+        ok: false,
+      });
+    }
     const params = matchPath(matched.pathPattern, pathname) ?? {};
     let body: RestJsonBody = {};
     if (context.req.method === "POST" || context.req.method === "PUT") {
@@ -335,8 +384,10 @@ export const mcpToolsFromRegistry = (registry: SliceARegistry) =>
       .filter((binding) => binding.transport === "mcp")
       .map((binding) => ({
         description: descriptor.outcome,
+        inputSchema: descriptor.inputJsonSchema,
         name: binding.operation,
         readOnly: descriptor.effect === "read",
+        requiredPermission: descriptor.authorization.permission,
       }))
   );
 

@@ -18,7 +18,10 @@
     "@ji/auth": "workspace:*",
     "@ji/db": "workspace:*",
     "@ji/env": "workspace:*",
+    "@ji/performance": "workspace:*",
     "@ji/search": "workspace:*",
+    "@modelcontextprotocol/hono": "2.0.0",
+    "@modelcontextprotocol/server": "2.0.0",
     "@trpc/server": "catalog:",
     "better-auth": "catalog:",
     "dotenv": "catalog:",
@@ -28,6 +31,7 @@
   },
   "devDependencies": {
     "@ji/config": "workspace:*",
+    "@modelcontextprotocol/client": "2.0.0",
     "@types/bun": "catalog:",
     "tsdown": "^0.22.14",
     "typescript": "catalog:"

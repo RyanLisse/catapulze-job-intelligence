@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 
-import { createSessionPrincipalResolver } from "./auth";
+import { createSessionPrincipalResolver, hasAllowedCookieOrigin } from "./auth";
 
 const now = new Date("2026-09-02T12:00:00.000Z");
 
@@ -9,7 +9,69 @@ const activeSession = (role: string, id = "user-1") => ({
   user: { id, role },
 });
 
+const activeSessionLookup = (role: string, id: string) => () =>
+  Promise.resolve(activeSession(role, id));
+
 describe("capability principal resolution", () => {
+  it("rejects every present foreign Origin, including bearer-only requests", () => {
+    const allowedOrigin = "https://app.catapulze.test";
+
+    expect(
+      hasAllowedCookieOrigin(
+        "POST",
+        new Headers({
+          Authorization: "Bearer opaque.signed-session",
+          Origin: "https://evil.example",
+        }),
+        allowedOrigin
+      )
+    ).toBe(false);
+    expect(
+      hasAllowedCookieOrigin(
+        "GET",
+        new Headers({ Origin: "https://evil.example" }),
+        allowedOrigin
+      )
+    ).toBe(false);
+    expect(
+      hasAllowedCookieOrigin(
+        "POST",
+        new Headers({
+          Authorization: "Bearer opaque.signed-session",
+          Origin: allowedOrigin,
+        }),
+        allowedOrigin
+      )
+    ).toBe(true);
+    expect(
+      hasAllowedCookieOrigin(
+        "POST",
+        new Headers({ Authorization: "Bearer opaque.signed-session" }),
+        allowedOrigin
+      )
+    ).toBe(true);
+  });
+
+  it("still requires an allowed Origin for unsafe cookie authentication", () => {
+    const allowedOrigin = "https://app.catapulze.test";
+    const cookie = "better-auth.session_token=signed-cookie";
+
+    expect(
+      hasAllowedCookieOrigin(
+        "POST",
+        new Headers({ Cookie: cookie }),
+        allowedOrigin
+      )
+    ).toBe(false);
+    expect(
+      hasAllowedCookieOrigin(
+        "POST",
+        new Headers({ Cookie: cookie, Origin: allowedOrigin }),
+        allowedOrigin
+      )
+    ).toBe(true);
+  });
+
   it("does not treat an anonymous request as a principal", async () => {
     const resolve = createSessionPrincipalResolver(
       () => Promise.resolve(null),
@@ -81,6 +143,63 @@ describe("capability principal resolution", () => {
     expect(principal?.subjectId).toBe("admin-1");
     expect(principal?.permissions.has("admin")).toBe(true);
     expect(principal?.permissions.has("operator")).toBe(true);
+  });
+
+  it("derives every supported role and permission set from the validated session", async () => {
+    const expectations = [
+      [
+        "recruiter",
+        ["slice-a:read", "recruiter"],
+        ["operator", "admin", "approval", "export"],
+      ],
+      [
+        "operator",
+        ["slice-a:read", "operator"],
+        ["recruiter", "admin", "approval", "export"],
+      ],
+      [
+        "approver",
+        ["slice-a:read", "approval", "export"],
+        ["recruiter", "operator", "admin"],
+      ],
+      [
+        "admin",
+        [
+          "slice-a:read",
+          "recruiter",
+          "operator",
+          "admin",
+          "approval",
+          "export",
+        ],
+        [],
+      ],
+    ] as const;
+
+    await Promise.all(
+      expectations.map(async ([role, allowed, denied]) => {
+        const resolve = createSessionPrincipalResolver(
+          activeSessionLookup(role, `${role}-1`),
+          () => now
+        );
+        const resolution = await resolve(
+          new Headers({ Authorization: "Bearer opaque.signed-session" }),
+          `req-${role}`
+        );
+
+        expect(resolution.ok).toBe(true);
+        if (!resolution.ok || !resolution.principal) {
+          return;
+        }
+        expect(resolution.principal.subjectId).toBe(`${role}-1`);
+        for (const permission of allowed) {
+          expect(resolution.principal.permissions.has(permission)).toBe(true);
+        }
+        for (const permission of denied) {
+          expect(resolution.principal.permissions.has(permission)).toBe(false);
+        }
+      })
+    );
   });
 
   it("does not let an invalid Authorization header fall back to a cookie", async () => {

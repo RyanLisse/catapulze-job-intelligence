@@ -56,13 +56,18 @@ export const hasAllowedCookieOrigin = (
   headers: Headers,
   allowedOrigin: string
 ): boolean => {
-  const requiresOrigin =
+  const origin = headers.get("Origin");
+  if (origin !== null) {
+    return origin === allowedOrigin;
+  }
+
+  const requiresCookieOrigin =
     method !== "GET" &&
     method !== "HEAD" &&
     method !== "OPTIONS" &&
     headers.has("Cookie") &&
     !headers.has("Authorization");
-  return !requiresOrigin || headers.get("Origin") === allowedOrigin;
+  return !requiresCookieOrigin;
 };
 
 const isSliceARole = (value: string | null | undefined): value is SliceARole =>

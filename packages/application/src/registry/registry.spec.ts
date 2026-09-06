@@ -1157,10 +1157,100 @@ describe("capability registry construction", () => {
 
     expect(Object.isFrozen(result.registry.catalog)).toBe(true);
     expect(Object.isFrozen(descriptor)).toBe(true);
+    expect(Object.isFrozen(descriptor?.inputJsonSchema)).toBe(true);
+    expect(descriptor?.inputJsonSchema).toMatchObject({ type: "object" });
     expect(descriptor).not.toHaveProperty("handler");
     expect(descriptor).not.toHaveProperty("inputSchema");
     expect(descriptor).not.toHaveProperty("outputSchema");
     expect(descriptor).not.toHaveProperty("failureSchema");
+  });
+
+  it("publishes generic JSON Schema metadata for non-MCP unknown input", () => {
+    const capability = defineCapability({
+      authorization: { permission: "records:read" },
+      bindings: [{ operation: "GET /generic", transport: "rest" }],
+      effect: "read",
+      failureSchema: missingRecordFailureSchema,
+      grounding: true,
+      handler: () => ({ ok: true, value: [] }),
+      id: "records.generic",
+      inputSchema: z.unknown(),
+      outcome: "Accept generic input",
+      outputSchema: z.array(z.string()),
+    });
+
+    const result = createCapabilityRegistry([capability] as const, {
+      reportInternalError: noOpReporter,
+    });
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.registry.catalog[0]?.inputJsonSchema).toEqual({
+        $schema: "https://json-schema.org/draft/2020-12/schema",
+      });
+      expect(result.registry.catalog[0]?.inputJsonSchema).not.toHaveProperty(
+        "~standard"
+      );
+      expect(Object.isFrozen(result.registry.catalog[0]?.inputJsonSchema)).toBe(
+        true
+      );
+    }
+  });
+
+  it("rejects non-object MCP input with a typed construction error", () => {
+    const capability = defineCapability({
+      authorization: { permission: "records:read" },
+      bindings: [{ operation: "records_text", transport: "mcp" }],
+      effect: "read",
+      failureSchema: missingRecordFailureSchema,
+      grounding: true,
+      handler: () => ({ ok: true, value: [] }),
+      id: "records.text",
+      inputSchema: z.string(),
+      outcome: "Accept text input",
+      outputSchema: z.array(z.string()),
+    });
+
+    const result = createCapabilityRegistry([capability] as const, {
+      reportInternalError: noOpReporter,
+    });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error).toMatchObject({
+        capabilityId: "records.text",
+        code: "INVALID_CAPABILITY",
+        field: "inputJsonSchema",
+      });
+    }
+  });
+
+  it("returns INVALID_CAPABILITY when JSON Schema conversion is unsupported", () => {
+    const capability = defineCapability({
+      authorization: { permission: "records:read" },
+      bindings: [{ operation: "POST /date", transport: "rest" }],
+      effect: "read",
+      failureSchema: missingRecordFailureSchema,
+      grounding: true,
+      handler: () => ({ ok: true, value: [] }),
+      id: "records.date",
+      inputSchema: z.date(),
+      outcome: "Accept date input",
+      outputSchema: z.array(z.string()),
+    });
+
+    const result = createCapabilityRegistry([capability] as const, {
+      reportInternalError: noOpReporter,
+    });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error).toMatchObject({
+        capabilityId: "records.date",
+        code: "INVALID_CAPABILITY",
+        field: "inputJsonSchema",
+      });
+    }
   });
 
   it("allows explicit zero bindings but exposes nothing", async () => {
