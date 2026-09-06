@@ -214,20 +214,17 @@ ffmpeg -i clip.webm \
   clip.mp4
 ```
 
-**Embed in the PR:** Upload to GitHub's attachment CDN and paste the returned URL on a **bare line** in the PR body (and Linear when an issue exists). Wrapping the URL in `![]()` prevents inline playback. Cloud-agent artifact paths and `gh attach` also work.
+**Embed in the PR:** Check the installed CLI and the actual attachment flag before posting:
 
 ```bash
-REPO_ID="$(gh repo view --json id -q .id)"
-curl -L -X POST \
-  -H "Accept: application/vnd.github+json" \
-  -H "Authorization: Bearer $(gh auth token)" \
-  -H "Content-Type: video/mp4" \
-  "https://uploads.github.com/user-attachments/assets?repository_id=${REPO_ID}&name=proof.mp4" \
-  --data-binary @proof.mp4
-# Paste browser_download_url from the JSON response on its own line in the PR body.
+gh --version
+gh pr comment --help | rg -- '--attach|--body-file'
+gh pr comment --body-file proof.md --attach proof.mp4
 ```
 
-Label each clip with what it proves and which code path. Use **Before / After** pairs for fixes.
+`proof.md` is an example body file containing the exact claim and code path; `proof.mp4` is an example artifact path. `gh pr comment` resolves the pull request from the current branch. GitHub CLI v2.99.0+ supports repeatable `--attach` for issue/PR create, edit, and comment commands. Use `--attach 'screenshot.png#Alt text'` for image alt text; video attachments have no alt-text suffix. The command uses the OAuth token from `gh auth login` or a classic PAT and requires repository write access; GitHub Enterprise Server is not supported. If the version or help check fails, upgrade `gh` through the approved package-management path or use GitHub's browser upload flow. Do not use undocumented CLI subcommands or hand-written upload requests. See [GitHub CLI: Media in issues, pull requests, and comments](https://github.blog/changelog/2026-09-01-github-cli-media-in-issues-pull-requests-and-comments/) for the supported behavior and limits. Reference the proof in the linked Linear issue when one exists, then read the posted PR or comment back and confirm the attachment renders in the intended context; command success alone is not proof.
+
+Label each clip with the exact claim it proves and which code path. Use **Before / After** pairs for fixes.
 
 **Refactors are not exempt.** A refactor claimed inert arguably needs footage more than a feature: tests can stay green while visible behavior moves. Never label passing test output as "Screenshots" or "Evidence" of user-visible behavior.
 

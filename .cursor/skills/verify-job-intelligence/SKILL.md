@@ -103,7 +103,15 @@ Captures run against seeded/fixture data only. Never screenshot Motian productio
 
 ### PR attachment
 
-Label each clip with what it proves and which code path. Use Before/After pairs for fixes. Upload MP4 to GitHub's attachment CDN and paste the URL on a **bare line** in the PR body (not wrapped in `![]()`). See AGENTS.md **Visual evidence** for the `repo_id` + `uploads.github.com/user-attachments` pattern. Cloud-agent artifacts and `gh attach` also work.
+Label each clip with the exact claim it proves and which code path. Use Before/After pairs for fixes. Check the installed CLI and the actual attachment flag before posting:
+
+```bash
+gh --version
+gh pr comment --help | rg -- '--attach|--body-file'
+gh pr comment --body-file proof.md --attach proof.mp4
+```
+
+`proof.md` is an example body file containing the exact claim and code path; `proof.mp4` is an example artifact path. Follow AGENTS.md **Visual evidence** for GitHub CLI version/support, image-only alt-text syntax (video attachments have none), authentication, fallback, and attachment readback guidance. Reference the proof in the linked Linear issue when one exists. Read the posted PR or comment back and confirm the attachment renders in the intended context; command success alone is not proof.
 
 If visual proof is infeasible, state the exact blocker in the PR — never skip silently.
 
