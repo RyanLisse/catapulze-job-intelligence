@@ -32,6 +32,7 @@ import {
 const serverUrl = new URL("http://server.test/mcp");
 const allowedOrigin = "https://app.catapulze.test";
 const fixtureEpoch = new Date("2026-09-05T00:00:00.000Z");
+const mcpProtocolVersion = "2026-07-28";
 
 interface FixtureSession {
   readonly subject: string;
@@ -190,7 +191,7 @@ const createFixtureClient = async (input: {
     {
       cachePartition: tokenPartition(input.token),
       responseCacheStore: input.cache,
-      versionNegotiation: { mode: { pin: "2026-07-28" } },
+      versionNegotiation: { mode: { pin: mcpProtocolVersion } },
     }
   );
   const transport = new StreamableHTTPClientTransport(serverUrl, {
@@ -240,6 +241,74 @@ describe("MCP catalog cache policy", () => {
         { name: "middle" },
       ]).map((tool) => tool.name)
     ).toEqual(["alpha", "middle", "zeta"]);
+  });
+
+  it("emits private catalog hints and advertises no change stream", async () => {
+    const environment = createFixtureEnvironment();
+    const client = await createFixtureClient({
+      cache: new InMemoryResponseCacheStore(),
+      environment,
+      token: "admin-a",
+    });
+
+    const rawDiscoveryResponse = await environment.fetch(serverUrl, {
+      body: JSON.stringify({
+        id: 1,
+        jsonrpc: "2.0",
+        method: "server/discover",
+        params: {
+          _meta: {
+            "io.modelcontextprotocol/clientCapabilities": {},
+            "io.modelcontextprotocol/protocolVersion": mcpProtocolVersion,
+          },
+        },
+      }),
+      headers: {
+        Accept: "application/json, text/event-stream",
+        Authorization: "Bearer admin-a",
+        "Content-Type": "application/json",
+        "MCP-Protocol-Version": mcpProtocolVersion,
+        "Mcp-Method": "server/discover",
+      },
+      method: "POST",
+    });
+    expect(rawDiscoveryResponse.status).toBe(200);
+    const rawDiscovery = await rawDiscoveryResponse.json();
+    expect(rawDiscovery).toMatchObject({
+      result: {
+        cacheScope: "private",
+        capabilities: { tools: {} },
+        resultType: "complete",
+        ttlMs: MCP_CATALOG_CACHE_TTL_MS,
+      },
+    });
+    expect(rawDiscovery).toHaveProperty("result.capabilities", { tools: {} });
+    expect(rawDiscovery).not.toHaveProperty(
+      "result.capabilities.tools.listChanged"
+    );
+    expect(rawDiscovery).not.toHaveProperty(
+      "result.capabilities.resources.subscribe"
+    );
+    expect(rawDiscovery).not.toHaveProperty(
+      "result.capabilities.resources.listChanged"
+    );
+
+    const listed = await client.request({
+      method: "tools/list",
+      params: {},
+    });
+    expect(listed).toMatchObject({
+      cacheScope: "private",
+      ttlMs: MCP_CATALOG_CACHE_TTL_MS,
+    });
+
+    const called = await client.callTool({
+      arguments: {},
+      name: "list_bronnen",
+    });
+    expect(called).not.toHaveProperty("cacheScope");
+    expect(called).not.toHaveProperty("ttlMs");
+    await client.close();
   });
 
   it("reuses the real Catapulze catalog within TTL and refetches after expiry", async () => {
