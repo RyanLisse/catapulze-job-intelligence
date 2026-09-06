@@ -40,7 +40,11 @@ interface SearchResponseBody {
   /** Present for scope "active" only (RJC-383); null when the API's count failed. */
   readonly archiveTotal?: number | null;
   readonly facets: ApiSearchFacets;
+  /** Compatibility signal from search handlers deployed before `incomplete`. */
+  readonly emptyReason?: "no_results" | "query_timeout" | null;
   readonly ids: readonly string[];
+  /** True when the engine timed out and returned zero or partial hits. */
+  readonly incomplete?: boolean;
   /** True hit count, may exceed what is retrievable. */
   readonly total: number;
   /** Deepest reachable offset + limit (RJC-378). */
@@ -106,6 +110,7 @@ const emptySearchResponse = (
   page = 1
 ): JobSearchResponse => ({
   archiveTotal: null,
+  complete: false,
   facets: { contractTypes: [], locations: [], sources: [] },
   items: [],
   message,
@@ -277,9 +282,14 @@ export const createRestJobIntelligence = ({
       searchResult.windowLimit,
       pageSize
     );
+    const complete =
+      searchResult.incomplete !== true &&
+      searchResult.emptyReason !== "query_timeout";
     // A page past the end (stale URL, results shrank) comes back empty while
-    // total says otherwise: fall back to the last page once, never loop.
-    if (searchResult.ids.length === 0 && page > totalPages) {
+    // total says otherwise: fall back to the last page once, never loop. An
+    // incomplete response cannot prove the page is stale, so it remains on
+    // the requested page and asks the user to retry.
+    if (complete && searchResult.ids.length === 0 && page > totalPages) {
       return searchPage(request, totalPages, pageSize, bronCatalog);
     }
 
@@ -291,6 +301,7 @@ export const createRestJobIntelligence = ({
 
     return {
       archiveTotal: searchResult.archiveTotal ?? null,
+      complete,
       facets: mapApiFacetsToUi(searchResult.facets, bronCatalog),
       items: status === "empty" ? [] : items,
       message:

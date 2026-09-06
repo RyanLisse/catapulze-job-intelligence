@@ -1,4 +1,10 @@
-import { Braces, CircleAlert, SearchX, ServerOff } from "lucide-react";
+import {
+  Braces,
+  CircleAlert,
+  RefreshCw,
+  SearchX,
+  ServerOff,
+} from "lucide-react";
 
 interface StateAction {
   readonly label: string;
@@ -111,6 +117,46 @@ export const JobEngineErrorState = ({
     action={{ label: "Opnieuw proberen", onClick: onRetry }}
     tone="error"
   />
+);
+
+export const JobIncompleteState = ({
+  onRetry,
+}: {
+  readonly onRetry: () => void;
+}) => (
+  <SearchStatePanel
+    icon={RefreshCw}
+    title="Zoekresultaat is onvolledig"
+    description="De zoekmachine bereikte de tijdslimiet voordat alle resultaten bekend waren. Probeer dezelfde zoekopdracht opnieuw; een snapshot blijft geblokkeerd."
+    action={{ label: "Opnieuw proberen", onClick: onRetry }}
+    tone="error"
+  />
+);
+
+export const JobIncompleteWarning = ({
+  onRetry,
+}: {
+  readonly onRetry: () => void;
+}) => (
+  <div
+    role="alert"
+    className="flex flex-wrap items-center justify-between gap-3 border-b border-chart-2/40 bg-chart-2/10 px-4 py-3"
+  >
+    <div>
+      <p className="text-sm font-medium">Zoekresultaat is onvolledig</p>
+      <p className="mt-0.5 text-xs text-muted-foreground">
+        De zoekmachine bereikte de tijdslimiet. De zichtbare opdrachten zijn
+        slechts een deel; een snapshot blijft geblokkeerd.
+      </p>
+    </div>
+    <button
+      type="button"
+      onClick={onRetry}
+      className="min-h-10 rounded-md border border-input bg-background px-3 text-xs font-medium outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring"
+    >
+      Opnieuw proberen
+    </button>
+  </div>
 );
 
 export const JobInitialState = ({

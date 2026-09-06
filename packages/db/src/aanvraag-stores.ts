@@ -12,6 +12,7 @@ import type { AanvraagLifecycle } from "@ji/domain";
 import type { BulkSearchDocumentLoader, SearchDocument } from "@ji/search";
 import { asc, eq, inArray } from "drizzle-orm";
 
+import { readAanvraagBronFacts } from "./aanvraag-read-mapping";
 import type { BronRuntimeDatabase } from "./bron-runtime";
 import { aanvraag, aanvraagVersie } from "./schema/curated";
 
@@ -21,6 +22,42 @@ const previewText = (body: Uint8Array, limit = 240): string => {
     return text;
   }
   return `${text.slice(0, limit - 1)}…`;
+};
+
+type AanvraagRow = typeof aanvraag.$inferSelect;
+
+const toAanvraagRecord = (
+  row: AanvraagRow,
+  versies: readonly AanvraagVersieRecord[]
+): AanvraagRecord => {
+  const bronFacts = readAanvraagBronFacts(row.bronSpecifiek);
+  return {
+    beschrijving: row.beschrijving,
+    bronId: row.bronId,
+    bronReferentie: row.bronReferentie,
+    contracttype: bronFacts.contracttype,
+    id: row.id,
+    // locatie_land defaults to NL and is therefore not proof of a published location.
+    locatie: row.locatieTekst,
+    opdrachtgeverNaam: bronFacts.opdrachtgeverNaam,
+    publicatiedatum: bronFacts.publicatiedatum,
+    rawPayloadRef: row.rawPayloadRef,
+    scrapeRunId: row.scrapeRunId,
+    sluitingsdatum: row.sluitingsdatum,
+    status: row.status,
+    tariefEenheid: row.tariefEenheid,
+    tariefMax: row.tariefMax === null ? null : Number(row.tariefMax),
+    tariefMin: row.tariefMin === null ? null : Number(row.tariefMin),
+    tariefValuta:
+      row.tariefEenheid === null &&
+      row.tariefMax === null &&
+      row.tariefMin === null
+        ? null
+        : row.tariefValuta,
+    titel: row.titel,
+    versies,
+    werkvorm: bronFacts.werkvorm,
+  };
 };
 
 export class PostgresAanvraagStore implements AanvraagStore {
@@ -40,17 +77,7 @@ export class PostgresAanvraagStore implements AanvraagStore {
       return null;
     }
     const versies = await this.listVersies(id);
-    return {
-      beschrijving: row.beschrijving,
-      bronId: row.bronId,
-      bronReferentie: row.bronReferentie,
-      id: row.id,
-      rawPayloadRef: row.rawPayloadRef,
-      scrapeRunId: row.scrapeRunId,
-      status: row.status,
-      titel: row.titel,
-      versies,
-    };
+    return toAanvraagRecord(row, versies);
   }
 
   async getByIds(ids: readonly string[]): Promise<readonly AanvraagRecord[]> {
@@ -90,17 +117,10 @@ export class PostgresAanvraagStore implements AanvraagStore {
     }
     const recordsById = new Map<string, AanvraagRecord>();
     for (const row of rows) {
-      recordsById.set(row.id, {
-        beschrijving: row.beschrijving,
-        bronId: row.bronId,
-        bronReferentie: row.bronReferentie,
-        id: row.id,
-        rawPayloadRef: row.rawPayloadRef,
-        scrapeRunId: row.scrapeRunId,
-        status: row.status,
-        titel: row.titel,
-        versies: versiesByAanvraagId.get(row.id) ?? [],
-      });
+      recordsById.set(
+        row.id,
+        toAanvraagRecord(row, versiesByAanvraagId.get(row.id) ?? [])
+      );
     }
     const records: AanvraagRecord[] = [];
     for (const id of uniqueIds) {
@@ -157,8 +177,6 @@ export class PostgresRawPayloadStore implements RawPayloadStore {
     };
   }
 }
-
-type AanvraagRow = typeof aanvraag.$inferSelect;
 
 const toSearchDocument = (row: AanvraagRow): SearchDocument => {
   const bronSpecifiek = row.bronSpecifiek as Record<string, unknown>;

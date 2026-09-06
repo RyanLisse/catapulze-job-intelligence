@@ -10,6 +10,7 @@ import {
   compareCodepoints,
   hasNegatedClause,
   hashAst,
+  hashSearchAst,
   isHybridSearchEligible,
 } from "./ast-hash";
 import {
@@ -27,6 +28,16 @@ const parseOk = (query: string) => {
 };
 
 const version = { appliedSequence: 1n, generation: 1 };
+
+const digestSha256 = async (input: string): Promise<string> => {
+  const bytes = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(input)
+  );
+  return [...new Uint8Array(bytes)]
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
+};
 
 describe("hybrid query eligibility", () => {
   it("accepts positive text and rejects any nested NOT clause", () => {
@@ -68,6 +79,52 @@ const assertNegationNeverPrecedesPositive = (node: BooleanNode): void => {
 };
 
 describe("canonicalizeAst (RJC-388)", () => {
+  it("keeps delimiter-bearing sibling structures distinct (RJC-427)", async () => {
+    const threeSiblings = parseOk("a AND b AND c");
+    const embeddedLegacyDelimiter = parseOk("a,term:b AND c");
+
+    expect(await hashAst(threeSiblings)).not.toBe(
+      await hashAst(embeddedLegacyDelimiter)
+    );
+  });
+
+  it("deduplicates only structurally identical delimiter-bearing siblings", () => {
+    const canonical = canonicalizeAst(parseOk("a,term:b AND c AND a,term:b"));
+
+    expect(canonical).toEqual(parseOk("a,term:b AND c"));
+  });
+
+  it("preserves sibling subtrees that only collided under delimiter serialization", () => {
+    const canonical = canonicalizeAst(
+      parseOk("(a AND b AND c) OR (a,term:b AND c)")
+    );
+
+    expect(canonical.kind).toBe("or");
+    if (canonical.kind !== "or") {
+      throw new Error("Expected an OR root");
+    }
+    expect(canonical.operands).toHaveLength(2);
+  });
+
+  it("encodes phrase punctuation, quotes, and backslashes as payload", async () => {
+    const punctuated: BooleanNode = {
+      kind: "phrase",
+      value: 'quoted "value" \\ path, (group)',
+    };
+    const adjacent: BooleanNode = {
+      kind: "phrase",
+      value: 'quoted "value" \\ path, (group).',
+    };
+
+    expect(await hashAst(punctuated)).not.toBe(await hashAst(adjacent));
+  });
+
+  it("gives browse a hash distinct from every Boolean AST", async () => {
+    expect(await hashSearchAst(null)).not.toBe(
+      await hashSearchAst(parseOk("match_all"))
+    );
+  });
+
   it("shares a hash across AND operand reordering", async () => {
     const left = await hashAst(parseOk("Azure AND platform AND senior"));
     const right = await hashAst(parseOk("senior AND Azure AND platform"));
@@ -166,6 +223,33 @@ describe("compareCodepoints (RJC-396)", () => {
 });
 
 describe("cache key prefixes (RJC-388)", () => {
+  it("retires result v7 and facet v4 entries after the AST encoding change (RJC-427)", async () => {
+    const astHash = await hashAst(parseOk("Azure"));
+    const resultKey = await buildCacheKey(
+      astHash,
+      version,
+      {},
+      {
+        limit: 20,
+        mode: "lexical",
+        offset: 0,
+        scope: "active",
+        sort: "relevance",
+      }
+    );
+    const facetKey = await buildFacetCacheKey(
+      astHash,
+      version,
+      {},
+      "active",
+      "lexical"
+    );
+    const previousResultInput = `search:v7:${astHash}:${version.generation}:${version.appliedSequence}:{}:lexical:active:relevance:0:20`;
+    const previousFacetInput = `search:facets:v4:${astHash}:${version.generation}:${version.appliedSequence}:{}:lexical:active`;
+    expect(resultKey).not.toBe(await digestSha256(previousResultInput));
+    expect(facetKey).not.toBe(await digestSha256(previousFacetInput));
+  });
+
   it("buildCacheKey produces a stable opaque key for a given astHash+page", async () => {
     const astHash = await hashAst(parseOk("Azure"));
     const key = await buildCacheKey(

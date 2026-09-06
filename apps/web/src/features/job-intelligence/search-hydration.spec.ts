@@ -65,6 +65,8 @@ const ARCHIVE_TOTAL = 7;
 const recordedRequests: RecordedRequest[] = [];
 let failBatch = false;
 let searchTotal = SEARCH_RESULT_COUNT;
+let searchEmptyReason: "no_results" | "query_timeout" | null = null;
+let searchIncomplete = false;
 let bronnenResponse: readonly (typeof REGISTERED_BRONNEN)[number][] = [
   { actief: true, bronId: BRON_ID, naam: "TenderNed" },
 ];
@@ -105,6 +107,7 @@ const fakeFetch = (
     return Promise.resolve(
       Response.json({
         ...archiveCount,
+        emptyReason: searchEmptyReason,
         facets: {
           bron_id: [],
           contracttype: [],
@@ -116,6 +119,7 @@ const fakeFetch = (
           status: [],
         },
         ids: allIds.slice(search.offset, search.offset + search.limit),
+        incomplete: searchIncomplete,
         scope: search.scope ?? "active",
         total: searchTotal,
         windowLimit: WINDOW_LIMIT,
@@ -239,6 +243,44 @@ describe("search hydration call count (RJC-379)", () => {
   });
 });
 
+describe("incomplete timeout results (RJC-431)", () => {
+  beforeAll(() => {
+    // SAFETY: this adapter only uses the standard fetch surface implemented
+    // by the deterministic fake server above.
+    globalThis.fetch = fakeFetch as typeof fetch;
+  });
+  afterAll(() => {
+    globalThis.fetch = originalFetch;
+    searchEmptyReason = null;
+    searchIncomplete = false;
+    searchTotal = SEARCH_RESULT_COUNT;
+  });
+
+  it("marks partial hits incomplete while retaining the visible rows", async () => {
+    searchIncomplete = true;
+    searchTotal = 3;
+    const adapter = createRestJobDataAdapter({ baseUrl: "http://server.test" });
+
+    const response = await adapter.search(parseJobSearchState({ q: "Azure" }));
+
+    expect(response.complete).toBe(false);
+    expect(response.status).toBe("ready");
+    expect(response.items).toHaveLength(3);
+  });
+
+  it("honors query_timeout compatibility for zero hits", async () => {
+    searchEmptyReason = "query_timeout";
+    searchTotal = 0;
+    const adapter = createRestJobDataAdapter({ baseUrl: "http://server.test" });
+
+    const response = await adapter.search(parseJobSearchState({}));
+
+    expect(response.complete).toBe(false);
+    expect(response.status).toBe("empty");
+    expect(response.items).toHaveLength(0);
+  });
+});
+
 // RJC-378: sort, location filter and pagination are the engine's job. The
 // adapter sends them and trusts the returned page and total; it never slices,
 // re-sorts or re-filters, and derives the page count from the true total
@@ -345,6 +387,26 @@ describe("server-side sort, filter and pagination (RJC-378)", () => {
         (request) => request.path === "/v1/aanvragen/search"
       )
     ).toHaveLength(2);
+  });
+
+  it("does not rewrite an incomplete empty page as a stale complete page", async () => {
+    recordedRequests.length = 0;
+    searchIncomplete = true;
+    searchTotal = 0;
+    try {
+      const response = await search("q=Azure&page=9");
+
+      expect(response.complete).toBe(false);
+      expect(response.page).toBe(9);
+      expect(response.items).toHaveLength(0);
+      expect(
+        recordedRequests.filter(
+          (request) => request.path === "/v1/aanvragen/search"
+        )
+      ).toHaveLength(1);
+    } finally {
+      searchIncomplete = false;
+    }
   });
 
   it("explains a page beyond the window instead of showing an engine error", async () => {

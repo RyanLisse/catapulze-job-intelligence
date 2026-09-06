@@ -56,12 +56,22 @@ export interface AanvraagRecord {
   readonly beschrijving: string;
   readonly bronId: string;
   readonly bronReferentie: string;
+  readonly contracttype?: string | null;
   readonly id: string;
+  readonly locatie?: string | null;
+  readonly opdrachtgeverNaam?: string | null;
+  readonly publicatiedatum?: string | null;
   readonly rawPayloadRef: string;
   readonly scrapeRunId: string;
+  readonly sluitingsdatum?: Date | null;
   readonly status: string;
+  readonly tariefEenheid?: string | null;
+  readonly tariefMax?: number | null;
+  readonly tariefMin?: number | null;
+  readonly tariefValuta?: string | null;
   readonly titel: string;
   readonly versies: readonly AanvraagVersieRecord[];
+  readonly werkvorm?: string | null;
 }
 
 export interface RawPayloadRecord {

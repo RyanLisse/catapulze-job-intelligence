@@ -177,6 +177,7 @@ class ScriptedEngine implements SearchEngine {
     return {
       facets: emptySearchFacets(),
       hits: [...this.documents.keys()].map((id) => ({ id, weight: 1 })),
+      incomplete: false,
       indexVersion: Number(version.appliedSequence),
       scope: params.scope ?? "active",
       total: this.documents.size,

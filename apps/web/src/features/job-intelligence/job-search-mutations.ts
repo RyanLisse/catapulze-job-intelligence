@@ -12,6 +12,7 @@ interface JobSearchMutationsInput {
   readonly filters: JobSearchFilters;
   readonly query: string;
   readonly results: readonly JobListing[];
+  readonly resultsComplete: boolean;
   readonly scope: JobSearchScope;
   readonly selectedJob: JobListing | null;
   readonly setIsCreatingSnapshot: Dispatch<SetStateAction<boolean>>;
@@ -26,6 +27,7 @@ export const createJobSearchMutations = ({
   filters,
   query,
   results,
+  resultsComplete,
   scope,
   selectedJob,
   setIsCreatingSnapshot,
@@ -36,6 +38,12 @@ export const createJobSearchMutations = ({
 }: JobSearchMutationsInput) => ({
   createSnapshot: async () => {
     if (!actions) {
+      return;
+    }
+    if (!resultsComplete) {
+      setSnapshotMessage(
+        "Snapshot geblokkeerd: wacht op een volledige zoekuitkomst."
+      );
       return;
     }
     // RJC-385: a snapshot covers an explicit selection. The UI snapshots the

@@ -103,6 +103,8 @@ export interface SearchEngineResult {
   emptyReason?: string;
   facets: SearchFacets;
   hits: SearchHit[];
+  /** True when the engine returned partial hits or facets (for example after a query timeout). */
+  incomplete: boolean;
   indexVersion: number;
   /** Partitions this result was read from (RJC-383). */
   scope: SearchScope;
@@ -227,6 +229,8 @@ export interface SearchAdapterSuccess {
   astHash: string;
   facets: SearchFacets;
   hits: SearchHit[];
+  /** Partial results remain visible but must not be treated as snapshot-safe or normally cached. */
+  incomplete: boolean;
   indexVersion: number;
   ok: true;
   parserVersion: number;

@@ -57,6 +57,64 @@ describe("AE3 detail provenance mapping", () => {
     );
     expect(job.sourceRecords[0]?.normalizationVersion).toBe("norm-v3");
     expect(job.rawPreview).toBe('{"title":"Azure engineer"}');
+    expect(job.contractType).toBeNull();
+    expect(job.location).toBeNull();
+    expect(job.organization).toBeNull();
+    expect(job.publishedAt).toBeNull();
+    expect(job.closingAt).toBeNull();
+    expect(job.remote).toBeNull();
+    expect(job.workArrangement).toBeNull();
+    expect(job.country).toBeNull();
+    expect(job.rate).toBeNull();
+    expect(job.sourceRecords[0]?.firstSeenAt).toBeNull();
+    expect(job.sourceRecords[0]?.lastSeenAt).toBeNull();
+    expect(job.sourceRecords[0]?.validFrom).toBe("2026-08-01T00:00:00.000Z");
+  });
+
+  it("maps only available curated commercial facts", () => {
+    const job = mapAanvraagToJobListing({
+      aanvraag: {
+        beschrijving: "Azure platform beschrijving",
+        bronId: "bron-1",
+        bronReferentie: "REF-1",
+        contracttype: "detachering",
+        id: "aanvraag-1",
+        locatie: "Amsterdam, Noord-Holland",
+        opdrachtgeverNaam: "Gemeente Amsterdam",
+        publicatiedatum: "2026-08-03T09:00:00.000Z",
+        rawPayloadRef: "raw/ref-1.json",
+        scrapeRunId: "run-1",
+        sluitingsdatum: "2026-09-01T12:00:00.000Z",
+        status: "active",
+        tariefEenheid: "uur",
+        tariefMax: 110,
+        tariefMin: 90,
+        tariefValuta: "EUR",
+        titel: "Azure engineer",
+        werkvorm: "Volledig remote",
+      },
+      bronCatalog: new Map(),
+      versies: [
+        {
+          geldigTot: "2026-08-04T00:00:00.000Z",
+          geldigVan: "2026-08-02T00:00:00.000Z",
+          id: "versie-1",
+          normalisatieversie: "norm-v3",
+          scrapeRunId: "run-1",
+        },
+      ],
+    });
+
+    expect(job).toMatchObject({
+      closingAt: "2026-09-01T12:00:00.000Z",
+      contractType: "detachering",
+      location: "Amsterdam, Noord-Holland",
+      organization: "Gemeente Amsterdam",
+      publishedAt: "2026-08-03T09:00:00.000Z",
+      rate: { currency: "EUR", max: 110, min: 90, period: "hour" },
+      remote: null,
+      workArrangement: "Volledig remote",
+    });
   });
 });
 

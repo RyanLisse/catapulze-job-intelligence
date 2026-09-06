@@ -54,8 +54,21 @@ const currencyFormatter = new Intl.NumberFormat("nl-NL", {
   style: "currency",
 });
 
-export const formatDate = (value: string): string =>
-  dateFormatter.format(new Date(value));
+export const formatDate = (value: string | null): string =>
+  value ? dateFormatter.format(new Date(value)) : "Onbekend";
+
+export const formatContract = (job: JobListing): string =>
+  job.contractType ? contractLabels[job.contractType] : "Onbekend";
+
+export const formatRemote = (job: JobListing): string => {
+  if (job.workArrangement) {
+    return job.workArrangement;
+  }
+  if (job.remote === null) {
+    return "Onbekend";
+  }
+  return job.remote ? "Hybride" : "Op locatie";
+};
 
 export const formatRate = (job: JobListing): string => {
   if (!job.rate) {

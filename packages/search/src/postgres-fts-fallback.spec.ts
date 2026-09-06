@@ -16,6 +16,40 @@ const makeDocument = (id: string): SearchDocument => ({
   titel: "titel",
 });
 
+describe("PostgresFtsFallbackEngine filter-only browse (RJC-430)", () => {
+  it("applies list and range filters before matching a null AST", async () => {
+    const engine = new PostgresFtsFallbackEngine(undefined, [
+      makeDocument("wrong-source"),
+      {
+        ...makeDocument("rate-too-low"),
+        bronId: "bron-2",
+        status: "stale",
+        tariefMax: 80,
+      },
+      {
+        ...makeDocument("wanted"),
+        bronId: "bron-2",
+        status: "active",
+        tariefMax: 120,
+      },
+    ]);
+
+    const result = await engine.search({
+      ast: null,
+      filters: {
+        bronIds: ["bron-2"],
+        status: ["active"],
+        tariefMin: 100,
+      },
+      limit: 10,
+      offset: 0,
+    });
+
+    expect(result.hits.map((hit) => hit.id)).toEqual(["wanted"]);
+    expect(result.total).toBe(1);
+  });
+});
+
 describe("PostgresFtsFallbackEngine tie order (RJC-396)", () => {
   it("breaks ties in codepoint order, not locale-aware collation order", async () => {
     // "a" (0x61) sorts after "A" (0x41) by codepoint, the OPPOSITE of

@@ -165,8 +165,9 @@ const Home = () => {
   const withRateCount = countJobsWithHourlyRate(JOB_FIXTURES);
   const closingSoonCount = JOB_FIXTURES.filter(
     ({ closingAt }) =>
+      closingAt !== null &&
       Date.parse(closingAt) - PREVIEW_REFERENCE_DATE <
-      CLOSING_SOON_DAYS * MILLISECONDS_PER_DAY
+        CLOSING_SOON_DAYS * MILLISECONDS_PER_DAY
   ).length;
   const savedSearchPreviews = savedSearches.map((savedSearch) => ({
     ...savedSearch,

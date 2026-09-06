@@ -39,6 +39,7 @@ describe("job-search mutation server truth", () => {
       filters: DEFAULT_JOB_SEARCH_STATE.filters,
       query: "Azure",
       results: [],
+      resultsComplete: true,
       scope: "active",
       selectedJob,
       setIsCreatingSnapshot: captureConcreteState(() => {}),
@@ -80,6 +81,7 @@ describe("job-search mutation server truth", () => {
       filters: DEFAULT_JOB_SEARCH_STATE.filters,
       query: "Azure",
       results: [],
+      resultsComplete: true,
       scope: "active",
       selectedJob,
       setIsCreatingSnapshot: captureConcreteState(() => {}),
@@ -106,5 +108,40 @@ describe("job-search mutation server truth", () => {
     await mutations.markSelectedJob();
     expect(snapshotMessage).toBe("Markeren mislukt. Probeer het opnieuw.");
     expect(selectedJob).toBe(originalSelectedJob);
+  });
+
+  it("blocks snapshots for incomplete or still-refreshing results", async () => {
+    let snapshotCalls = 0;
+    let snapshotMessage: string | null = null;
+    const actions: JobIntelligenceActions = {
+      ...baseActions(() => Promise.resolve({ id: "saved-1", naam: "Azure" })),
+      createSnapshot: () => {
+        snapshotCalls += 1;
+        return Promise.resolve({ id: "snapshot-1", resultCount: 1 });
+      },
+    };
+    const mutations = createJobSearchMutations({
+      actions,
+      filters: DEFAULT_JOB_SEARCH_STATE.filters,
+      query: "Azure",
+      results: [JOB_FIXTURES[0]].filter((job) => job !== undefined),
+      resultsComplete: false,
+      scope: "active",
+      selectedJob: null,
+      setIsCreatingSnapshot: captureConcreteState(() => {}),
+      setIsSavingSearch: captureConcreteState(() => {}),
+      setSavedSearchMessage: captureConcreteState(() => {}),
+      setSelectedJob: captureConcreteState(() => {}),
+      setSnapshotMessage: captureConcreteState((value) => {
+        snapshotMessage = value;
+      }),
+    });
+
+    await mutations.createSnapshot();
+
+    expect(snapshotCalls).toBe(0);
+    expect(snapshotMessage).toBe(
+      "Snapshot geblokkeerd: wacht op een volledige zoekuitkomst."
+    );
   });
 });
