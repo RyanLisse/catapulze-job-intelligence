@@ -1,11 +1,19 @@
 # Job Intelligence — agent-native architectuur
 
-Status: ontwerp v0.1, 27 augustus 2026 · kernelfundering gestart op 28 augustus 2026 · hoort bij `BUILD_BRIEF.md` (§4–§9) en `brainstorms/2026-08-27-techstack-brainstorm.md`
-Uitgangspunt: **agents zijn eersteklas burgers vanaf dag één.** Niet "eerst de app, dan MCP erop" — de tool-laag ís de app; de recruiter-UI is één rendering ervan.
+Status: ontwerp en implementatiestatus herijkt op `main@2049008` op 5 september 2026 · hoort bij `BUILD_BRIEF.md` (§4–§9) en `brainstorms/2026-08-27-techstack-brainstorm.md`
+Uitgangspunt: **agents zijn eersteklas burgers vanaf dag één.** De capability registry is de gedeelde applicatiegrens; UI, REST en MCP mogen daar geen tweede domeinimplementatie naast zetten.
 
-> Implementatiestatus: alleen de lege, deny-by-default kernel is gebouwd en getest. `packages/application/src/registry/registry.ts` bevat construction-time validatie, metadata-only discovery, gebonden invokers, per-call autorisatie, schema-validatie en begrensde interne foutrapportage; `packages/application/src/registry/registry.spec.ts` test die grenzen. `catalog.ts` houdt de productiecatalogus bewust leeg. Capability-map, coverage gate, `list_capabilities`/principal-filtering en een gedeelde UI/REST/MCP-transportpijplijn zijn doelarchitectuur en nog niet geïmplementeerd.
+> **Statusgrens.** De registry is niet meer leeg. `createSliceACapabilityCatalog` bouwt op deze baseline twintig capabilities met REST- en MCP-bindings; `createProductionSliceARegistry` koppelt ze aan de server. REST-routes en het huidige custom MCP-endpoint roepen dezelfde registry-invokers aan. Dit bewijst gedeelde handlers en gerichte transportpariteit, geen complete agentervaring of productie-uitrol. `productionCapabilityCatalog` in `catalog.ts` blijft een lege, niet gebruikte legacy-export; de server bouwt de echte catalogus via `createSliceARegistry(deps)`.
 
-## 0. De vijf principes, toegepast op deze slice
+De implementatiestatus valt in drie groepen:
+
+- **Gerealiseerd op deze `main`-basis:** registryconstructie, input-/output-/failure-schema's, per-call autorisatie, dual REST/MCP-bindings, gegenereerde REST-routes, een custom `tools/list`/`tools/call`-route en coverage-/registrychecks.
+- **Fixture of stub in de productiecompositie:** `start_run` en `start_test_import` maken alleen een proceslokale run-id en dispatchen geen worker; `complete_task` bevestigt alleen de aangeleverde samenvatting; `commit_export` gebruikt zonder expliciet geïnjecteerde live client de Spott-fixtureclient.
+- **Gepland of nog onbewezen:** standaard MCP 2026-07-28 via de officiële SDK (RJC-439), positieve private catalogus-TTL met meting (RJC-440), de alleen in een ongemergde RJC-441-conceptbeslissing geselecteerde first-party clientgrens, automatische UI-verversing na agentwrites en de prompt-/orchestratorflows uit §5–§7.
+
+## 0. De vijf ontwerpprincipes en hun acceptatietest
+
+Deze tabel beschrijft de gewenste eindtoestand en de test waarmee die later wordt beoordeeld. Alleen de gerealiseerde subset uit §2 en §12 mag als huidige implementatiestatus worden gelezen.
 
 | Principe | Wat het hier betekent | Test |
 |---|---|---|
@@ -15,11 +23,11 @@ Uitgangspunt: **agents zijn eersteklas burgers vanaf dag één.** Niet "eerst de
 | Emergente capaciteit | Open vragen in het domein worden opgelost door tool-compositie in een lus | "Vergelijk de tarieftrend van Azure-rollen in Utrecht met de rest van NL" zonder dashboard-feature |
 | Verbetering over tijd | Per-entiteit context, gelabelde menselijke besluiten als eval-set, promptversies zonder release | Werkt het na een maand beter zonder codewijziging? |
 
-Wat níet in de agent-lus hoort (hardgecodeerd, bewust): identiteit & rechten, de approval-matrix zelf, idempotency-keys, audit-events, retentie, robots/ToS-blokkade per bron. Dat zijn de rails; de agent rijdt erop.
+In de doelarchitectuur blijven identiteit en rechten, de approval-matrix, idempotencykeys, auditevents, retentie en robots-/ToS-blokkades buiten de agentlus. De applicatie moet deze rails afdwingen; §2–§4 benoemen welke delen daarvan al bestaan en welke gaten nog openstaan.
 
-## 1. Entiteiten en het tool-oppervlak
+## 1. Entiteiten en het beoogde tool-oppervlak
 
-Elke entiteit heeft volledige CRUD, tenzij de reden om dat níet te doen expliciet is vastgelegd. Tools accepteren **data, geen besluiten**; namen zijn gebruikersvocabulaire (`markeer_aanvraag`, niet `insert_annotation_record`). Elke tool geeft rijk terug (wat er nu staat, aantallen, id's) zodat de agent zijn werk kan verifiëren.
+De tabel hieronder is het doelcontract, geen inventaris van huidige handlers. Een entiteit krijgt volledige CRUD wanneer het domein dat toelaat; een afwijking moet expliciet zijn. Tools accepteren **data, geen besluiten**; namen zijn gebruikersvocabulaire (`markeer_aanvraag`, niet `insert_annotation_record`). De actuele, geïmplementeerde subset staat in §2.
 
 | Entiteit | Create | Read | Update | Delete | Bewust afwijkend |
 |---|---|---|---|---|---|
@@ -41,74 +49,46 @@ Elke entiteit heeft volledige CRUD, tenzij de reden om dat níet te doen explici
 | analytics | — | `list_tables`, `query_marts(sql)`, `query_lake(sql, snapshot?)` | — | — | Read-only DB-rol `bi`; **marts bevatten geen contactkolommen** (anders omzeilt dit de rolcheck op `get_aanvraag`); statement-timeout 10 s, max 10.000 rijen; DuckLake op gepinde snapshot (JI-DSH-07) |
 | loop | — | — | — | — | `complete_task(summary, status, evidence)`, `summarize_and_continue`, `refresh_context` |
 
-**Dynamische ontdekking i.p.v. statische mapping.** Voor de 28 bronnen bestaat geen tool per bron; `list_bronnen` + `get_bron` + `start_run(bron_id)` dekken elke bron, ook de 29e. Voor analytics: `list_tables` + `query_*` — nieuwe marts zijn direct bevraagbaar zonder tool-wijziging. Voor bronconfiguratie: `get_bron_config_schema(bron)` levert het JSON Schema; `update_bron_config` accepteert een string en laat het schema valideren.
+**Dynamische ontdekking i.p.v. statische mapping.** De huidige catalogus bevat generieke bronreads en een stub voor `start_run`; er bestaat geen aparte tool per bron. Het doelcontract breidt dit uit met werkelijk dispatchende bronacties, `list_tables` + `query_*` voor nieuwe marts en `get_bron_config_schema` + `update_bron_config` voor gevalideerde bronconfiguratie. Die uitbreidingen zijn nog gepland.
 
 **Context-begrenzing zit in de tools.** `get_aanvraag` en `read_raw` geven standaard een preview; `full: true` is opt-in. `search_aanvragen` geeft id's + kop, niet volledige beschrijvingen. Daardoor kan een agent 200 resultaten doorlopen zonder zijn venster te vullen.
 
-## 2. Capability map — UI ↔ agent (gepland)
+## 2. Capability map — actuele subset en doeldekking
 
-Doel: onderhouden als data (`packages/application/registry/capabilities.ts`), niet als tabel in een doc. Dat bestand en de drift-gates bestaan nog niet. De statussen hieronder beschrijven gewenste dekking, niet gerealiseerde bindings.
+De bron van waarheid is `packages/application/src/registry/capabilities.ts`. `scripts/check-capability-coverage.ts` en `scripts/check-capability-registry.ts` controleren de gedeclareerde bindings. Een `ui:*`-binding is metadata; pas een gerichte UI- of browsertest bewijst dat de gebruikersflow werkelijk aangesloten is.
 
-| Scherm | UI-actie | Tool | Status |
-|---|---|---|---|
-| Zoeken | vrije term + Boolean | `search_aanvragen` | gepland |
-| Zoeken | facetten, bereiken, datums, sortering | `search_aanvragen(filters, sort)` | gepland |
-| Zoeken | paginering / deelbare URL | `search_aanvragen(cursor)` — URL-staat = tool-argumenten | gepland |
-| Zoeken | opslaan als zoekopdracht (+ alert) | `create_saved_search`, `plan_saved_search` | gepland |
-| Zoeken | export CSV/XLSX | `export_selectie(snapshot, formaat)` → bestand in object storage | gepland |
-| Detail | velden, groep, versies, skills, score+reden, bronlink, raw | `get_aanvraag`, `list_versies`, `get_groep`, `read_raw` | gepland |
-| Detail | markeren relevant / niet / gevolgd | `markeer_aanvraag` | gepland |
-| Detail | doorzetten naar Spott.io | `propose_export` → (`accept_proposal`) → `commit_export` | gepland (gated) |
-| Detail | contactgegevens (rol recruiter) | `get_aanvraag(include_contact)` — zelfde rolcheck | gepland |
-| Groep | splitsen / samenvoegen / primaire bron | `split_groep`, `merge_groepen`, `zet_primaire_bron` | gepland |
-| Review-wachtrij | open voorstellen (veldcorrectie, organisatie-merge, deletes) accepteren/afwijzen | `list_proposals`, `accept_proposal`, `reject_proposal`, `withdraw_proposal` | gepland |
-| Bronbeheer | herverwerken van opgeslagen payloads (replay) | `replay_run(bron, periode)` | gepland |
-| Detail / Bron | notities voor agents ("context") lezen en bijwerken | `read_context`, `update_context` | gepland |
-| Bronbeheer | config bewerken met validatie | `get_bron_config_schema`, `update_bron_config` | gepland |
-| Bronbeheer | run now / pauzeer / test-import / circuit reset | `start_run`, `pauzeer_bron`, `start_test_import`, `reset_circuit` | gepland |
-| Bronbeheer | onboarding-voortgang, laatste fouten met payload | `get_bron`, `list_runs`, `read_raw` | gepland |
-| Dashboard | elke KPI en grafiek | `query_marts` — een KPI is een query die de agent ook kan stellen | gepland |
-| Dashboard | klik-door naar zoeklijst | zelfde `search_aanvragen`-argumenten | gepland |
-| Dashboard | bron-gezondheid, alerts | `get_bron_health`, `list_alerts`, `ack_alert` | gepland |
-| Beheer | approval-beleid wijzigen | `update_policy` (beheerder) | gepland |
-| Beheer | login met M365 | — | 🚫 mens-only |
-| Beheer | secrets invoeren | — | 🚫 mens-only (secret store, alleen `secret_ref` in config) |
+| Gebied | Capabilities op `main@2049008` | Status en grens |
+|---|---|---|
+| Zoeken en detail | `search_aanvragen`, `get_aanvraag`, `batch_get_aanvragen`, `list_versies`, `read_raw` | Gerealiseerde handlers met REST- en custom MCP-bindings; preview/full en autorisatie worden in de registry afgedwongen |
+| Bronnen | `list_bronnen`, `get_bron` | Gerealiseerde reads; bronconfiguratie, replay, pauzeren en circuit-reset uit §1 zijn nog gepland |
+| Gebruikersdata | `create_saved_search`, `create_snapshot`, `approve_snapshot`, `get_snapshot_approval`, `validate_snapshot_approval`, `markeer_aanvraag` | Gerealiseerde, grotendeels duurzame handlers; list/update/delete-readbacks en automatische UI-verversing zijn niet compleet |
+| Export | `commit_export` | Handler, approvalbinding, attempts/crosswalks/receipts en skip op een afgeronde crosswalk bestaan. Een effectkey wordt nog niet duurzaam vóór POST gereserveerd en een onzekere provideruitkomst wordt niet veilig hervat (RJC-435). De servercompositie valt zonder live client terug op fixtures |
+| Operatie | `list_alerts`, `get_bron_health`, `ack_alert` | Gerealiseerd en duurzaam in Postgres |
+| Operatie | `start_run`, `start_test_import` | Stub: maakt een proceslokale run-id, zonder workerdispatch of duurzame runstatus |
+| Agentloop | `complete_task` | Stub: valideert en echoot de eindstatus; geen orchestrator, checkpoint of taakopslag |
+| Mens-only | login en secretinvoer | Blijven buiten het capability-oppervlak |
 
-Geplande PR-regel: nieuwe UI-actie → tool in dezelfde PR, registry-entry, systeemprompt-zin, capability-map-rij. De nog te bouwen `check-capability-coverage` moet dit afdwingen.
+De catalogus bevat op deze baseline twintig entries. Gebruik de gegenereerde catalogus als inventaris; hardcode dit aantal niet in clients of tests. Nieuwe UI-acties horen in dezelfde wijziging een echte handler, relevante transportbindingen en gerichte pariteitsevidence te krijgen.
 
 ## 3. Capability registry — het contract
 
-Eén entry per gebruikersuitkomst, gebonden aan één handler. Transports (UI-actions, REST-routes, MCP-tools) refereren het id en bezitten nooit gedrag.
+Eén entry per gebruikersuitkomst is gebonden aan één handler en bevat Zod-schema's, permissie, effect, outcome en transportbindings. `createCapabilityRegistry` valideert dubbele of ongeldige capabilities en bindings bij constructie. De invoker valideert vervolgens trusted context, permissie, input, handlerresultaat, output en failures per call.
 
-```ts
-// packages/application/registry/capabilities.ts (Effect Schema)
-{
-  id: "export.commit",
-  outcome: "Goedgekeurde aanvragen aanmaken/bijwerken in Spott.io",
-  sideEffectClass: "commit",              // read | proposal | commit
-  target: "external",                     // internal | external
-  reversible: false,
-  approval: { required: true, mode: "policy", reason: "Extern, onomkeerbaar effect richting ATS" },
-  idempotency: { key: ["target", "canonical_vacancy_id", "action_type"] },  // stabiel over snapshots heen (brief §6); snapshot_id is bewijs in ApprovalRecord/ExportAttempt, geen sleutel — anders exporteert dezelfde aanvraag via twee snapshots twee keer (ISC-5)
-  auditClass: "effect",
-  permission: "recruiter",
-  handler: ExportService.commit,
-  wiredTransports: ["mcp:commit_export", "rest:POST /v1/exports", "ui:DetailPanel.Doorzetten"],
-  evidence: ["ExternalReceipt"],
-}
-```
+`createSliceACapabilityCatalog` voegt hier metadata aan toe voor `sideEffectClass`, target, omkeerbaarheid, auditklasse, idempotencyvelden en gedeclareerde UI-/REST-/MCP-bindings. REST-routes worden uit de catalogus opgebouwd. De MCP-adapter maakt zijn toolnamen en beschrijvingen uit dezelfde registry en roept via `invokeMcpTool` dezelfde invoker aan. Daarmee delen REST en MCP domeingedrag en autorisatie; transportcorrectheid blijft een afzonderlijke verantwoordelijkheid.
 
-De `approval`-union dwingt een **reden bij opt-out**: `{ required: false, mode: "none", reason: "…" }`. Je kunt geen gate vergeten die je moet beargumenteren.
+De huidige `commit_export`-metadata legt bijvoorbeeld de externe target, niet-omkeerbaarheid en de beoogde effectkeyvelden `target`, `canonical_vacancy_id` en `action_type` vast. De handler controleert de snapshotgebonden approval, slaat een create over wanneer al een afgeronde crosswalk bestaat en schrijft attempts, crosswalks, receipts en auditdata. Dit is nog geen veilige reservering over concurrency- en crashgrenzen: de key wordt niet duurzaam vóór de provider-POST gereserveerd en confirmation failure kan bij retry tot een tweede POST leiden. [RJC-435](https://linear.app/rcjt-studio/issue/RJC-435) is eigenaar van die reparatie. Een gedeclareerde binding of metadataregel bewijst op zichzelf geen live provider-effect.
 
-**Gepland: van registry naar MCP en REST — één bron, twee transports** (patroon uit openship, Apache-2.0, `apps/api/src/modules/mcp/mcp-tools.ts`):
+### MCP-status en actuele target
 
-- De MCP-toolcatalogus wordt **gegenereerd** uit de registry, niet met de hand geschreven: `mcp: { enabled: true }` is opt-in per capability; een hard-deny-lijst sluit credential- en auth-oppervlakken uit ongeacht de vlag.
-- Tool-annotaties (`readOnlyHint`, `destructiveHint`) komen uit de **gedeclareerde** `sideEffectClass`/`reversible`, niet uit keyword-heuristiek op de naam.
-- `inputSchema` wordt afgeleid uit het Effect Schema van de handler; beschrijvingen zijn de `outcome`-zin in gebruikersvocabulaire.
-- **Elke tool-call gaat als interne subrequest door de normale request-pijplijn** (auth, rol, rate-limit, audit). `tools/list` is gefilterd op de principal, maar de autorisatie gebeurt per call, niet bij het listen — agent en recruiter-UI delen letterlijk hetzelfde afdwingpad en kunnen niet uit elkaar drijven.
-- Een `proposal`-rij draagt `resolveWith[]`: de exacte commit-call(s) die hem sluiten (`{ tool: "commit_export", args: {…} }`), zodat een agent of de review-UI een voorstel afhandelt zonder out-of-band kennis.
+Op `main@2049008` is `/mcp` een handgeschreven Hono JSON-RPC-route met alleen `tools/list` en `tools/call`. `tools/list` retourneert dezelfde, stub-inclusieve catalogus voor anonieme en geauthenticeerde callers; filtering op principal of werkelijke beschikbaarheid ontbreekt. Autorisatie vindt wel opnieuw plaats bij iedere `tools/call`. De route declareert geen MCP-protocolversie, ondersteunt geen `server/discover`, verwerkt per-request `_meta` niet en publiceert geen volledige input-/resultschemas of cachehints. Een transitieve SDK-dependency bewijst geen servercompliance. Deze route is bruikbaar voor de gerichte custom paritytests, maar er is geen runtimebewijs met een standaard MCP-client.
 
-## 4. Approval-matrix — mens nu, score later, zelfde pijplijn
+[RJC-439](https://linear.app/rcjt-studio/issue/RJC-439) is eigenaar van de geplande officiële TypeScript/Hono-adapter voor de stabiele MCP-specificatie 2026-07-28. De ongemergde werklane pint `@modelcontextprotocol/client`, `@modelcontextprotocol/hono` en `@modelcontextprotocol/server` alle drie exact op `2.0.0`; deze pins en adapter zijn niet aanwezig op `main@2049008`. De target verwerkt per-request metadata en de routingheaders `MCP-Protocol-Version`, `Mcp-Method` en, wanneer de methode dat vereist, `Mcp-Name`; daarnaast ondersteunt zij `server/discover` en volledige tool-/resultschemas. `initialize`, `notifications/initialized`, protocolsessies en `Mcp-Session-Id` horen niet bij deze moderne core; hun afwezigheid is geen defect. [RJC-440](https://linear.app/rcjt-studio/issue/RJC-440) volgt daarna met meetbaar hergebruik van private cataloguscachehints; de conforme basis start met `ttlMs: 0`, niet met een onbewezen positieve TTL.
+
+De ongemergde conceptbeslissing voor [RJC-441](https://linear.app/rcjt-studio/issue/RJC-441) selecteert uitsluitend first-party, door de operator beheerde clients met een signed Better Auth-sessie van een bestaande Catapulze-gebruiker. Generieke externe clients blijven daarin niet ondersteund; de OAuth-criteria zijn daardoor niet van toepassing op het geselecteerde conceptmodel. Dit besluit en de bijbehorende hardening zijn nog niet geleverd op `main@2049008`. De huidige route valideert al per call een Better Auth-gebruikerssessie, inclusief signed bearer, maar dat is geen algemene MCP OAuth-flow. Als later toch generieke externe clients nodig zijn, vereist dat een nieuw besluit en een geteste resource-servergrens met discovery, issuer, audience/resource, scopes en revocation. Een Cloudflare-uitleg van MCP v2 verandert deze protocol- of hostingkeuze niet.
+
+## 4. Approval-matrix — gerealiseerde subset en doelbeleid
+
+De tabel is het doelbeleid voor P0 en later. Op deze baseline zijn snapshotapproval en de guarded `commit_export`-handler gerealiseerd; de overige proposal-, policy- en beheerflows zijn alleen van toepassing waar §2 een bestaande capability noemt.
 
 | sideEffectClass | target / reversible | Beleid P0 | Later |
 |---|---|---|---|
@@ -119,11 +99,11 @@ De `approval`-union dwingt een **reden bij opt-out**: `{ required: false, mode: 
 | commit | intern, gevoelig (bron activeren, policy wijzigen) | mens (beheerder) | mens |
 | commit | **extern / onomkeerbaar / geld** (export naar Spott.io, notificatie naar klant) | **mens** — approval gebonden aan snapshot | **`score ≥ drempel`** via `approval_policy`; < drempel → mens |
 
-Wat in beide fases identiek blijft: `QuerySnapshot` bindt goedkeuring aan exacte id's en `index_version`; `ApprovalRecord` bewaart actor (`mens:<id>` of `policy:<versie>`), reden, model- en promptversie én de snapshot als bewijs; `commit_export` is idempotent op `(target, canonical_vacancy_id, action_type)` — een bestaande crosswalk wordt standaard overgeslagen, dus dezelfde aanvraag in twee snapshots levert één effect; `ExternalReceipt` is het bewijs. De omslag naar `policy: score` is een data-wijziging, maar één met vorm: zonder `queryversie`, `doel`, `limieten`, `geldigheidsduur` en `stopcondities` accepteert `update_policy` het beleid niet (brief §10) — zo blijft ISC-6 ook ná de omslag herkenbaar. Menselijke besluiten uit fase 1 zijn de gelabelde eval-set die de drempel voor fase 2 onderbouwt (precisie per drempelwaarde vóór de omslag). AI Act-eisen (menselijk toezicht, zichtbare reden, technische documentatie) zijn hiermee in beide fases hetzelfde vervuld.
+In de gerealiseerde subset bindt `QuerySnapshot` goedkeuring aan exacte id's en de zoekversie; `ApprovalRecord` bewaart actor, motivatie, expiry en de snapshot als bewijs. `commit_export` gebruikt `(target, canonical_vacancy_id, action_type)` als beoogde idempotencybasis en slaat een create over bij een bestaande afgeronde crosswalk. Duurzame reservering vóór POST en herstel van onzekere provideruitkomsten zijn nog open onder RJC-435. Policy-gestuurde approval, model-/promptversies, `update_policy` en de omslag naar een scoredrempel zijn nog doelarchitectuur. Ze vereisen afzonderlijk bewijs van betekenisvolle menselijke controle, zichtbare redenen en technische documentatie voordat daar complianceclaims aan worden verbonden.
 
-## 5. Features als prompts — de eerste agents
+## 5. Geplande promptagents
 
-Elke agent = een prompt + een tool-subset + een modeltier + `complete_task`. Geen agent bezit gedrag in code.
+Dit is doelarchitectuur. Er draaien op deze baseline nog geen promptagents. Een toekomstige agent combineert een geversioneerde prompt, een beperkte toolset, een modeltier en expliciete voltooiing; domeingedrag blijft in capabilityhandlers.
 
 | Agent | Uitkomst (prompt-kern) | Tools | Tier | Trigger |
 |---|---|---|---|---|
@@ -134,19 +114,23 @@ Elke agent = een prompt + een tool-subset + een modeltier + `complete_task`. Gee
 | **Bron-onboarder** *(prompt later)* | "Analyseer een nieuwe vacaturebron; stel een `scrapingStrategy`/config voor; draai een test-import van ≥ 20 records; rapporteer veldmapping en blokkers" | `create_bron`, `get_bron_config_schema`, `update_bron_config`, `start_test_import`, `read_raw`, (Stagehand `observe` als tool, alleen hier), `complete_task` | powerful | beheerder vraagt |
 | **Marktvragen** (harness/chat) *(prompt later)* | "Beantwoord vragen over de markt met cijfers uit marts/lake; toon de query; verwijs naar aanvragen" | `list_tables`, `query_marts`, `query_lake`, `search_aanvragen`, `complete_task` | balanced | gebruiker |
 
-P0 bouwt de eerste twee (kwalificatie, bronbewaker); de overige vier zijn prompts die op hetzelfde oppervlak geschreven worden zodra de eval-set er is — geen extra code, dus goedkoop om nu al te benoemen. Wil je kwalificatie anders? Bewerk de prompt (versie in Langfuse), draai de eval-set, deploy — geen code.
+Het P0-doel omvat de eerste twee agents (kwalificatie en bronbewaker). De overige vier volgen pas wanneer hun capabilitydekking en eval-set bestaan. Promptversionering in Langfuse, het draaien van die eval-sets en deployments op basis van evalresultaten zijn eveneens gepland; deze baseline bevat daar geen runtime-integratie voor.
 
-## 6. Uitvoering — één orchestrator, expliciete voltooiing
+## 6. Geplande uitvoering — één orchestrator en expliciete voltooiing
 
-- **Eén orchestrator** (Trigger.dev-task `run_agent(config, event)`): lifecycle, tool-uitvoering via de registry, checkpoint per iteratie in `agent_run` / `agent_task` (Postgres), kosten- en tokenbudget per run, Langfuse-trace.
-- **Voltooiing is expliciet**: `complete_task(summary, status: success|partial|blocked, evidence[])`. Geen heuristiek ("geen tool-calls meer"). Een tool kan falen én doorgaan (`shouldContinue: true`); alleen `complete_task` stopt de lus.
-- **Deelvoltooiing**: taken met status pending/in_progress/completed/failed/skipped; hervatten vanaf checkpoint, niet vanaf nul; voortgang zichtbaar in UI.
-- **Context-limiet**: preview-standaard op leestools, `summarize_and_continue`, belangrijke bevindingen naar `update_context` (persisteert buiten het venster).
-- **Modeltier per agent** (tabel §5); begin balanced, escaleer alleen op gemeten kwaliteit.
+Alleen de `complete_task`-capability bestaat, en die valideert en echoot de aangeleverde status. `start_run` en `start_test_import` bewaren runinformatie uitsluitend proceslokaal. Er is nog geen agentlus, Trigger.dev-orchestrator, duurzame taakstatus, checkpointopslag of Langfuse-trace.
 
-## 7. Context-injectie — wat de agent weet vóór de eerste tool-call
+Het doelontwerp is:
 
-De systeemprompt wordt per run opgebouwd uit live staat, niet uit statische tekst:
+- **Eén orchestrator:** een geplande Trigger.dev-task `run_agent(config, event)` beheert de lifecycle, roept tools via de registry aan, bewaart checkpoints in geplande Postgres-tabellen `agent_run` en `agent_task`, begrenst kosten en tokens en schrijft een Langfuse-trace.
+- **Expliciete voltooiing:** de orchestrator stopt pas na `complete_task(summary, status: success|partial|blocked, evidence[])`, niet op de heuristiek dat er geen tool-calls meer zijn. De huidige stub bewijst alleen het invoer- en uitvoercontract.
+- **Deelvoltooiing:** geplande taken krijgen de status `pending`, `in_progress`, `completed`, `failed` of `skipped`; hervatten gebeurt vanaf een duurzaam checkpoint en voortgang wordt zichtbaar in de UI.
+- **Contextlimiet:** de bestaande previewstandaard op leestools wordt aangevuld met geplande capabilities `summarize_and_continue` en `update_context`; duurzame context buiten het modelvenster bestaat nog niet.
+- **Modeltier per agent:** de tabel in §5 beschrijft het beleid. Runtimebinding en escalatie op gemeten kwaliteit moeten nog worden gebouwd en geëvalueerd.
+
+## 7. Geplande contextinjectie vóór de eerste tool-call
+
+Een toekomstige orchestrator bouwt de systeemprompt per run op uit live staat. Deze contextassembler en `refresh_context` bestaan nog niet. Het doelcontract bevat:
 
 1. **Vocabulaire**: aanvraag, opdrachtgever, intermediair, broker/platform, plaatsing, functiegroep, dedup-groep — met één zin per term.
 2. **Beschikbare bronnen** (live uit `list_bronnen`): naam, categorie, status, SLA-staat.
@@ -154,56 +138,61 @@ De systeemprompt wordt per run opgebouwd uit live staat, niet uit statische teks
 4. **Tools in gebruikersvocabulaire**: "Markeer een aanvraag als relevant met `markeer_aanvraag`", niet "invoke annotation endpoint".
 5. **Entiteit-context**: `read_context` voor de betrokken opdrachtgever/functiegroep/bron wordt vooraf ingevoegd.
 6. **Voltooiingsregels**: wanneer `complete_task`, wanneer `blocked`, nooit eindeloos hetzelfde proberen.
-7. `refresh_context` voor lange sessies.
+7. de geplande capability `refresh_context` voor lange sessies.
 
-## 8. UI-integratie — geen stille acties (gepland)
+## 8. UI-integratie — geen stille acties (gedeeltelijk)
 
-Doel: UI en agents lopen door **dezelfde handlers** (registry). Elke commit schrijft dan een outbox-event (`aanvraag.gemarkeerd`, `export.voorgesteld`, `export.bevestigd`, `bron.gepauzeerd`); de UI abonneert via SSE op die events. Deze gedeelde transportpijplijn, outbox en SSE-koppeling zijn nog niet gerealiseerd.
+UI-metadata, REST en custom MCP verwijzen voor de huidige subset naar dezelfde registryhandlers. Dat is de gerealiseerde gedeelde applicatiegrens. De tweede helft van het doel ontbreekt nog: een agentwrite publiceert niet aantoonbaar een scoped UI-invalidation of SSE-event waarmee een al geopend scherm automatisch ververst. De geplande outbox-events (`aanvraag.gemarkeerd`, `export.voorgesteld`, `export.bevestigd`, `bron.gepauzeerd`) en de UI-abonnementslaag blijven toekomstwerk en vragen bewijs met twee geïsoleerde gebruikersclients.
 
-## 9. Verbetering over tijd
+## 9. Geplande verbetering over tijd
 
-- **Context per entiteit** (`context`-tool, tabel `agent_context`): voorkeuren per opdrachtgever, welke tarieven geaccepteerd werden, waarom professionals afvielen, bron-eigenaardigheden. Gelezen vóór handelen, bijgewerkt erna.
-- **Eval-set uit menselijke besluiten**: elke markering en elke approval/afwijzing is een gelabeld voorbeeld; per promptversie draait de eval (JI-BRN-09, JI-OPS-03: promptwijziging zonder eval-run is niet deploybaar).
-- **Promptniveaus**: developer (Langfuse-versie), gebruiker (per-recruiter voorkeuren in `context`), agent (voorstellen tot promptwijziging als proposal — geen zelfmodificatie in P0).
-- **Latente vraag**: log wat gebruikers de harness vragen en waar `complete_task(status: blocked)` valt; dat is de roadmap voor domein-tools.
+Deze leerlus is doelarchitectuur. De tabellen, contextcapabilities, evalrunner, Langfuse-integratie en harness-telemetrie hieronder zijn nog niet geïmplementeerd:
+
+- **Context per entiteit:** een geplande `context`-tool en tabel `agent_context` bewaren voorkeuren per opdrachtgever, geaccepteerde tarieven, afwijsredenen en bron-eigenaardigheden. De agent leest die context vóór handelen en werkt haar daarna bij.
+- **Eval-set uit menselijke besluiten:** markeringen en approvals/afwijzingen kunnen gelabelde voorbeelden worden. Een geplande evalrunner meet elke promptversie; pas dan kan de gate uit JI-BRN-09 en JI-OPS-03 promptwijzigingen zonder evalrun blokkeren.
+- **Promptniveaus:** het doel onderscheidt een developerprompt met Langfuse-versie, gebruikersvoorkeuren in context en agentvoorstellen voor promptwijzigingen. Zelfmodificatie blijft buiten P0.
+- **Latente vraag:** geplande harness-telemetrie registreert gebruikersvragen en `complete_task(status: blocked)` als input voor de roadmap van domeintools.
 
 ## 10. Domein-tools — wanneer wél
 
-Primitieven eerst. Een domein-tool komt er pas als (a) een patroon in de logs terugkomt, (b) de compositie meetbaar traag of foutgevoelig is, of (c) de stap deterministisch moet zijn (idempotente export, snapshot-creatie, retentie). `commit_export` en `create_snapshot` zijn zulke tools: geen gates-zonder-reden, maar bewuste rails.
+Primitieven eerst. Een domeintool komt er pas als (a) een patroon in de logs terugkomt, (b) de compositie meetbaar traag of foutgevoelig is, of (c) de stap deterministische rails nodig heeft, zoals export, snapshotcreatie of retentie. `commit_export` en `create_snapshot` zijn bestaande domeintools; de resterende idempotencygrens van export staat in §3 en RJC-435.
 
-## 11. Testen (kernel aanwezig, coverage gepland)
+## 11. Testen en coverage
 
 - **Aanwezig:** kernboundary-tests in `packages/application/src/registry/registry.spec.ts` voor immutable metadata discovery, vaste bindings, auth, schemas, duplicate detection, contractfouten en begrensde reporting.
-- **Gepland:** pariteitstest uit de registry: elke UI-actie heeft een `wiredTransports`-entry voor mcp én rest; `check-capability-coverage` faalt op een `'use server'`-actie zonder agent-pad; `check-capability-registry` faalt op een geregistreerd transport dat niet bestaat.
-- **Uitkomsttests** per agent op de eval-set (precisie kwalificatie, groep-correctheid, bron-diagnose).
-- **De ultieme test** (elk kwartaal): drie open vragen in het domein die nergens als feature bestaan — kan de harness ze beantwoorden door tools te componeren? Als het antwoord "daar heb ik geen functie voor" is, is het oppervlak te krap.
+- **Aanwezig:** `scripts/check-capability-coverage.ts` en `scripts/check-capability-registry.ts`, plus gerichte servertests voor REST/MCP-resultaatpariteit, transportauth en preview/full-autorisatie.
+- **Grens:** de huidige MCP-tests roepen het custom protocol en dezelfde invoker aan. Ze bewijzen geen MCP 2026-07-28-clientinteroperabiliteit; RJC-439 vereist daarvoor een officiële client tegen een geïsoleerde fixture-instance.
+- **Gepland:** echte user-flowdekking voor iedere gedeclareerde `ui:*`-binding en automatische readback/verversing na een agentwrite.
+- **Gepland:** uitkomsttests per agent op een vaste eval-set, waaronder precisie van kwalificatie, groepcorrectheid en brondiagnose.
+- **Gepland kwartaalritueel:** leg drie open domeinvragen vast die nergens als feature bestaan en test of de toekomstige harness ze door toolcompositie kan beantwoorden. Dit ritueel en de harness bestaan nog niet.
 
 ## 12. Ontwerp- en implementatiestatus
 
-Alleen de registrykernel hieronder is code-backed. De overige regels beschrijven
-de gekozen doelarchitectuur of geplande productcoverage; een vinkje in deze tabel
-mag dus niet als bewijs van een aangesloten capability, transport of user flow
-worden gelezen.
+Deze tabel benoemt de status op `main@2049008`. Geïmplementeerd betekent code-backed en gericht getest; het betekent niet automatisch gedeployed of in productie bewezen.
 
 | Onderdeel | Status | Waar |
 |---|---|---|
-| Lege deny-by-default registrykernel | ✅ geïmplementeerd en getest | `packages/application/src/registry/registry.ts`, `registry.spec.ts` |
-| Pariteit | gepland | §2, drift-gates §11 |
-| Granulariteit (primitieven, geen workflows) | ontwerp vastgelegd; productcapabilities gepland | §1, §10 |
+| Registrykernel en actieve servercatalogus | ✅ twintig entries gebouwd en getest; catalogusaantal is niet stabiel API-contract | `registry.ts`, `capabilities.ts`, `apps/server/src/slice-a-registry.ts` |
+| REST/handlerpariteit | ✅ routes en invokers uit dezelfde registry | `apps/server/src/capabilities/rest.ts`, §2–§3 |
+| MCP/handlerpariteit | ⚠️ custom `tools/list`/`tools/call` gebruikt dezelfde invoker; standaardclient niet bewezen | `apps/server/src/capabilities/mcp.ts`, `parity.spec.ts` |
+| MCP 2026-07-28 | niet op deze baseline; ongemergde RJC-439-lane pint client/Hono/server SDK 2.0.0 | §3 |
+| MCP private cachehints | `0/private` gepland in RJC-439; positieve TTL en meting in RJC-440 | §3 |
+| Clientmodel / OAuth | ongemergde RJC-441-conceptbeslissing selecteert first-party signed Better Auth-sessies; generieke externe clients niet ondersteund en OAuth n.v.t. binnen dat model | §3 |
+| Granulariteit (primitieven, geen workflows) | gedeeltelijk geïmplementeerd; bredere productdekking gepland | §1–§2, §10 |
 | Composability (features = prompts) | ontwerp vastgelegd; runtime-evidence gepland | §5 |
 | Emergente capaciteit | ⚠️ ontwerp maakt het mogelijk; de kwartaaltest in §11 is een ritueel, geen eval — pas ✅ na de eerste ronde met vastgelegde uitkomsten | §11 |
-| Capability discovery voor gebruikers (wat kan de agent?) | gepland: `list_capabilities`, principal-filtering en UI-paneel | §3 |
-| Agent en UI delen het afdwingpad | gepland: per-call subrequest door dezelfde pijplijn | §3, §8 |
-| Dynamische ontdekking (bronnen, analytics) | gepland | §1 |
-| CRUD-compleetheid | doelcontract beschreven; implementatie gepland | §1 |
-| Inputs = data, API valideert | kernel valideert schema's; domeinconfig gepland | §1 |
+| Capability discovery voor gebruikers | custom, ongefilterde en stub-inclusieve `tools/list` aanwezig; permission-aware discovery en moderne `server/discover` gepland | §2–§3 |
+| Agent en UI delen handlers | gedeeltelijk: registrymetadata en gedeelde handlers aanwezig; complete UI-flows/readback niet bewezen | §2, §8 |
+| Dynamische ontdekking (bronnen, analytics) | bronreads aanwezig; analytics en configuratieschema gepland | §1–§2 |
+| CRUD-compleetheid | gedeeltelijke subset; auditbaseline 6/18 complete resources | §1–§2 |
+| Inputs = data, API valideert | ✅ registry valideert input/output/failure; bredere domeinconfig gepland | §1, §3 |
 | Gedeelde werkruimte / geen stille acties | gepland | §8 |
 | `context.md`-patroon | gepland: `agent_context` per entiteit | §9 |
-| `complete_task`, geen heuristiek | gepland | §6 |
+| `complete_task`, geen heuristiek | stub aanwezig; orchestrator en duurzame taakstatus gepland | §2, §6 |
 | Deelvoltooiing / checkpoints | gepland | §6 |
-| Context-limieten | doelcontract beschreven: preview/full en summarize | §1, §6 |
+| Context-limieten | preview/full gerealiseerd voor detail/raw; summarize/contextworkflow gepland | §1–§2, §6 |
 | Context-injectie (resources, capabilities, dynamisch) | gepland | §7 |
-| Approval passend bij inzet en omkeerbaarheid | beleid beschreven; effectpad gepland | §4 |
+| Approval passend bij inzet en omkeerbaarheid | snapshotapproval en guarded exporthandler aanwezig; live Spott-effect niet bewezen | §2, §4 |
 | Modeltier per agent | beleid beschreven; runtimebinding gepland | §5 |
 | Mobile | n.v.t. | |
 
@@ -212,3 +201,10 @@ worden gelezen.
 - Naam en API/MCP-contract van Spott.io (DEC-006) bepaalt de `commit_export`-handler.
 - Welke bronnen krijgen `activeer_bron` via agent (beheerder-gate) en welke blijven mens-only.
 - Drempel en eval-criteria voor de omslag naar `policy: score` — vast te stellen op fase-1-data.
+
+## 14. Protocolreferenties
+
+- [MCP 2026-07-28-specificatie](https://modelcontextprotocol.io/specification/2026-07-28) en [officiële release](https://blog.modelcontextprotocol.io/posts/2026-07-28/).
+- [Server discovery](https://modelcontextprotocol.io/specification/2026-07-28/server/discover), [Streamable HTTP](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http), [tools](https://modelcontextprotocol.io/specification/2026-07-28/server/tools) en [caching](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/caching).
+- [Authorization](https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization), alleen van toepassing als een toekomstig geaccepteerd besluit generieke externe clienttoegang toevoegt.
+- [Cloudflare MCP v2](https://blog.cloudflare.com/mcp-v2/) is aanvullende uitleg bij dezelfde officiële release en geen hostingbesluit voor Catapulze.
