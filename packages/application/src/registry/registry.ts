@@ -32,6 +32,7 @@ export interface CapabilityDescriptor {
   readonly id: string;
   readonly inputJsonSchema: Readonly<Record<string, unknown>>;
   readonly outcome: string;
+  readonly outputJsonSchema: Readonly<Record<string, unknown>>;
 }
 
 export interface CapabilityBindingSpec {
@@ -658,46 +659,50 @@ const toPlainJsonSchema = (
   }
 };
 
-const inputJsonSchemaFromCapability = (
-  capability: AnyCapability
+const jsonSchemaFromZod = (
+  capability: AnyCapability,
+  schemaType: "input" | "output"
 ):
   | {
-      readonly inputJsonSchema: CapabilityDescriptor["inputJsonSchema"];
+      readonly jsonSchema: CapabilityDescriptor["inputJsonSchema"];
       readonly ok: true;
     }
   | { readonly error: RegistryConstructionError; readonly ok: false } => {
   let convertedSchema: unknown;
   try {
-    convertedSchema = z.toJSONSchema(capability.inputSchema, { io: "input" });
+    convertedSchema = z.toJSONSchema(
+      schemaType === "input" ? capability.inputSchema : capability.outputSchema,
+      { io: schemaType }
+    );
   } catch {
     return {
-      error: invalidCapabilityError(capability.id, "inputJsonSchema"),
+      error: invalidCapabilityError(capability.id, `${schemaType}JsonSchema`),
       ok: false,
     };
   }
   if (!isRecord(convertedSchema)) {
     return {
-      error: invalidCapabilityError(capability.id, "inputJsonSchema"),
+      error: invalidCapabilityError(capability.id, `${schemaType}JsonSchema`),
       ok: false,
     };
   }
   const schema = toPlainJsonSchema(convertedSchema);
   if (!schema) {
     return {
-      error: invalidCapabilityError(capability.id, "inputJsonSchema"),
+      error: invalidCapabilityError(capability.id, `${schemaType}JsonSchema`),
       ok: false,
     };
   }
-  const hasMcpBinding = capability.bindings.some(
-    (binding) => binding.transport === "mcp"
-  );
+  const hasMcpBinding =
+    schemaType === "input" &&
+    capability.bindings.some((binding) => binding.transport === "mcp");
   if (hasMcpBinding && schema.type !== "object") {
     return {
       error: invalidCapabilityError(capability.id, "inputJsonSchema"),
       ok: false,
     };
   }
-  return { inputJsonSchema: deepFreezeJsonSchema(schema), ok: true };
+  return { jsonSchema: deepFreezeJsonSchema(schema), ok: true };
 };
 
 const toDescriptor = (
@@ -705,9 +710,13 @@ const toDescriptor = (
 ):
   | { readonly descriptor: CapabilityDescriptor; readonly ok: true }
   | { readonly error: RegistryConstructionError; readonly ok: false } => {
-  const schemaResult = inputJsonSchemaFromCapability(capability);
-  if (!schemaResult.ok) {
-    return schemaResult;
+  const inputSchemaResult = jsonSchemaFromZod(capability, "input");
+  if (!inputSchemaResult.ok) {
+    return inputSchemaResult;
+  }
+  const outputSchemaResult = jsonSchemaFromZod(capability, "output");
+  if (!outputSchemaResult.ok) {
+    return outputSchemaResult;
   }
   return {
     descriptor: Object.freeze({
@@ -718,8 +727,9 @@ const toDescriptor = (
       effect: capability.effect,
       grounding: capability.grounding,
       id: capability.id,
-      inputJsonSchema: schemaResult.inputJsonSchema,
+      inputJsonSchema: inputSchemaResult.jsonSchema,
       outcome: capability.outcome,
+      outputJsonSchema: outputSchemaResult.jsonSchema,
     }),
     ok: true,
   };

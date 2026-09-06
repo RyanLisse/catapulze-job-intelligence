@@ -6,6 +6,7 @@ import { useMemo } from "react";
 
 import { authClient } from "@/lib/auth-client";
 
+import { loadFixtureCapabilityDiscovery } from "./capability-discovery-fixture";
 import { fixtureJobDataAdapter } from "./fixtures";
 import { JobSearchPage } from "./job-search-page";
 import { createRestJobIntelligence } from "./rest-job-data-adapter";
@@ -24,7 +25,12 @@ export const JobSearchShell = () => {
   );
 
   if (fixturesEnabled) {
-    return <JobSearchPage adapter={fixtureJobDataAdapter} />;
+    return (
+      <JobSearchPage
+        adapter={fixtureJobDataAdapter}
+        loadCapabilityDiscovery={loadFixtureCapabilityDiscovery}
+      />
+    );
   }
 
   if (isPending) {
@@ -58,6 +64,11 @@ export const JobSearchShell = () => {
   }
 
   return (
-    <JobSearchPage actions={wiring.actions} adapter={wiring.adapter} liveData />
+    <JobSearchPage
+      actions={wiring.actions}
+      adapter={wiring.adapter}
+      loadCapabilityDiscovery={wiring.loadCapabilityDiscovery}
+      liveData
+    />
   );
 };

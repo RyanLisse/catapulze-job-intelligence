@@ -1,4 +1,7 @@
-import type { InvocationPrincipal } from "@ji/application/registry";
+import type {
+  InvocationPrincipal,
+  SliceACapabilityCatalog,
+} from "@ji/application/registry";
 import { createMcpHonoApp } from "@modelcontextprotocol/hono";
 import {
   createMcpHandler as createSdkMcpHandler,
@@ -36,8 +39,13 @@ import {
 } from "./mcp-metrics";
 import type { McpMetricRecorder } from "./mcp-metrics";
 import type { SliceARegistry } from "./registry-types";
-import { invokeMcpTool, mcpToolsFromRegistry } from "./rest";
+import {
+  invokeMcpTool,
+  mcpToolsFromRegistry,
+  serializeRegistryJson,
+} from "./rest";
 import { jsonValueSchema, restJsonBodySchema } from "./transport-boundary";
+import type { JsonValue } from "./transport-boundary";
 
 const SERVER_INFO = {
   name: "catapulze-job-intelligence",
@@ -46,11 +54,11 @@ const SERVER_INFO = {
 
 interface McpHandlerOptions extends CookieAuthOriginPolicy {
   readonly allowedHost: string;
+  readonly entries: SliceACapabilityCatalog;
   readonly recordMetric?: McpMetricRecorder;
   readonly unavailableCapabilities?: CapabilityAvailabilityPolicy;
 }
 
-const structuredContentSchema = z.record(z.string(), jsonValueSchema);
 const principalSchema = z.object({
   kind: z.enum(["agent", "service", "user"]),
   permissions: z.instanceof(Set<string>),
@@ -108,6 +116,8 @@ const requestIdFromAuthInfo = (authInfo: AuthInfo | undefined): string => {
 
 type RegistryInputJsonSchema =
   SliceARegistry["catalog"][number]["inputJsonSchema"];
+type RegistryOutputJsonSchema =
+  SliceARegistry["catalog"][number]["outputJsonSchema"];
 
 const toMcpInputSchema = (
   schema: RegistryInputJsonSchema
@@ -119,6 +129,13 @@ const toMcpInputSchema = (
   // SAFETY: The checked object discriminator and registry validation satisfy the SDK contract.
   return schema as Tool["inputSchema"];
 };
+
+const toMcpOutputSchema = (
+  schema: RegistryOutputJsonSchema
+): Tool["outputSchema"] =>
+  // The registry validates the full JSON Schema before exposing the MCP binding.
+  // SAFETY: MCP 2026 accepts any JSON Schema root for tool output.
+  schema as Tool["outputSchema"];
 
 const metricRouteFromRequest = (
   request: JSONRPCRequest,
@@ -176,6 +193,7 @@ const inspectMcpResponse = async (response: Response) => {
 
 const createServer = (
   registry: SliceARegistry,
+  entries: SliceACapabilityCatalog,
   unavailableCapabilities: CapabilityAvailabilityPolicy | undefined,
   authInfo?: AuthInfo
 ): Server => {
@@ -186,23 +204,43 @@ const createServer = (
     capabilities: { tools: {} },
   });
   const authorizedTools = sortMcpCatalogTools(
-    mcpToolsFromRegistry(registry).filter((tool) =>
-      principal?.permissions.has(tool.requiredPermission)
+    mcpToolsFromRegistry(registry, entries, unavailableCapabilities).filter(
+      (tool) => principal?.permissions.has(tool.requiredPermission)
     )
   );
-  const tools = authorizedTools.filter(
-    (tool) =>
-      unavailableCapabilityReason(unavailableCapabilities, tool.name) ===
-      undefined
-  );
+  // Keep authorized unavailable tools discoverable so agents can explain the
+  // capability status. `tools/call` still applies the availability guard
+  // below, so catalog visibility never grants execution.
+  const tools = authorizedTools;
 
   server.setRequestHandler("tools/list", () => ({
-    tools: tools.map((tool) => ({
-      annotations: { readOnlyHint: tool.readOnly },
-      description: tool.description,
-      inputSchema: toMcpInputSchema(tool.inputSchema),
-      name: tool.name,
-    })),
+    tools: tools.map((tool) => {
+      const outputSchema = toMcpOutputSchema(tool.outputSchema);
+      const annotations = tool.readOnly
+        ? {
+            destructiveHint: false,
+            idempotentHint: true,
+            readOnlyHint: true,
+          }
+        : { readOnlyHint: false };
+      const listedTool = {
+        _meta: {
+          "catapulze/availability": tool.availability,
+          "catapulze/effect": {
+            class: tool.effect,
+            grounded: tool.grounded,
+          },
+          "catapulze/outputSchema": tool.outputSchema,
+          "catapulze/outputSchemaPolicy": "standard-json-schema",
+          "catapulze/requiredPermission": tool.requiredPermission,
+        },
+        annotations,
+        description: tool.description,
+        inputSchema: toMcpInputSchema(tool.inputSchema),
+        name: tool.name,
+      };
+      return { ...listedTool, outputSchema };
+    }),
   }));
   server.setRequestHandler(
     "tools/call",
@@ -260,13 +298,15 @@ const createServer = (
           isError: true,
         };
       }
+      // SAFETY: The registry validated the successful value against the capability output schema.
+      const serializedValue = serializeRegistryJson(result.value as JsonValue);
       const content = [
-        { text: JSON.stringify(result.value), type: "text" as const },
+        { text: JSON.stringify(serializedValue), type: "text" as const },
       ];
-      const structuredContent = structuredContentSchema.safeParse(result.value);
-      return structuredContent.success
-        ? { content, structuredContent: structuredContent.data }
-        : { content };
+      return {
+        content,
+        structuredContent: jsonValueSchema.parse(serializedValue),
+      };
     }
   );
   return server;
@@ -279,7 +319,12 @@ export const createMcpHandler = (
 ) => {
   const sdkHandler = createSdkMcpHandler(
     ({ authInfo }) =>
-      createServer(registry, options.unavailableCapabilities, authInfo),
+      createServer(
+        registry,
+        options.entries,
+        options.unavailableCapabilities,
+        authInfo
+      ),
     { legacy: "reject", responseMode: "json" }
   );
   const mcpApp = createMcpHonoApp({
@@ -356,7 +401,11 @@ export const createMcpHandler = (
       );
     }
     const knownToolNames = new Set(
-      mcpToolsFromRegistry(registry).map((tool) => tool.name)
+      mcpToolsFromRegistry(
+        registry,
+        options.entries,
+        options.unavailableCapabilities
+      ).map((tool) => tool.name)
     );
     const metricRoute = metricRouteFromRequest(
       parsedMessage,

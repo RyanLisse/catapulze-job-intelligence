@@ -22,6 +22,7 @@ import type {
 import { Hono } from "hono";
 
 import { createSessionPrincipalResolver } from "./auth";
+import type { CapabilityAvailability } from "./capability-availability";
 import { createMcpHandler } from "./mcp";
 import {
   MCP_CATALOG_CACHE_HINTS,
@@ -52,7 +53,7 @@ interface FixtureCounters {
 
 interface FixtureEnvironment {
   readonly counters: FixtureCounters;
-  readonly disableCapabilities: Map<string, string>;
+  readonly disableCapabilities: Map<string, CapabilityAvailability>;
   readonly fetch: FetchLike;
   readonly sessions: Map<string, FixtureSession>;
 }
@@ -107,8 +108,22 @@ const createFixtureEnvironment = (): FixtureEnvironment => {
     ["recruiter-b", { role: "recruiter", subject: "user-b" }],
   ]);
   const disableCapabilities = new Map([
-    ["commit_export", "Export unavailable in cache fixture"],
-    ["complete_task", "Completion unavailable in cache fixture"],
+    [
+      "commit_export",
+      {
+        reason: "Export unavailable in cache fixture",
+        safeNextStep: "Use fixture readback",
+        status: "disabled" as const,
+      },
+    ],
+    [
+      "complete_task",
+      {
+        reason: "Completion unavailable in cache fixture",
+        safeNextStep: "Use fixture readback",
+        status: "fixture-stub" as const,
+      },
+    ],
   ]);
   const bundle = createTestSliceARegistry();
   const originalSnapshotRead = bundle.deps.stores.snapshots.getById.bind(
@@ -145,6 +160,7 @@ const createFixtureEnvironment = (): FixtureEnvironment => {
   const handler = createMcpHandler(bundle.registry, resolvePrincipal, {
     allowedCookieOrigin: allowedOrigin,
     allowedHost: serverUrl.hostname,
+    entries: bundle.entries,
     unavailableCapabilities: disableCapabilities,
   });
   const app = new Hono();
@@ -419,7 +435,7 @@ describe("MCP catalog cache policy", () => {
     expect(initialNames).toContain("approve_snapshot");
     expect(initialNames).toContain("list_bronnen");
     expect(initialNames).toContain("search_aanvragen");
-    expect(initialNames).not.toContain("commit_export");
+    expect(initialNames).toContain("commit_export");
     const afterCachedCatalog = snapshotCounters(environment.counters);
 
     const adminSession = environment.sessions.get("admin-a");
@@ -444,10 +460,11 @@ describe("MCP catalog cache policy", () => {
     });
     expect(environment.counters.snapshotReads).toBe(0);
 
-    environment.disableCapabilities.set(
-      "search_aanvragen",
-      "Search unavailable after policy change"
-    );
+    environment.disableCapabilities.set("search_aanvragen", {
+      reason: "Search unavailable after policy change",
+      safeNextStep: "Retry the read-only search after recovery",
+      status: "disabled",
+    });
     const disabledResult = await client.callTool({
       arguments: { query: "Azure" },
       name: "search_aanvragen",
@@ -498,6 +515,16 @@ describe("MCP catalog cache policy", () => {
     await client.close();
     const afterNames = afterPolicyChange.tools.map((tool) => tool.name);
     expect(afterNames).not.toContain("approve_snapshot");
-    expect(afterNames).not.toContain("search_aanvragen");
+    expect(afterNames).toContain("search_aanvragen");
+    expect(
+      afterPolicyChange.tools.find((tool) => tool.name === "search_aanvragen")
+    ).toMatchObject({
+      _meta: {
+        "catapulze/availability": {
+          executable: false,
+          status: "disabled",
+        },
+      },
+    });
   });
 });

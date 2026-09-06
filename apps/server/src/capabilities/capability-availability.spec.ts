@@ -9,7 +9,12 @@ import { Hono } from "hono";
 import { z } from "zod";
 
 import type { PrincipalResolver } from "./auth";
-import { PRODUCTION_UNAVAILABLE_CAPABILITIES } from "./capability-availability";
+import {
+  PRODUCTION_UNAVAILABLE_CAPABILITIES,
+  unavailableCapabilityReason,
+  capabilityAvailability,
+} from "./capability-availability";
+import type { CapabilityAvailabilityPolicy } from "./capability-availability";
 import {
   createMcpProtocolFixture,
   MCP_ALLOWED_ORIGIN,
@@ -112,6 +117,7 @@ const createTrackedRegistry = () => {
     health: bundle.registry.health,
   };
   return {
+    entries: bundle.entries,
     invocationCount: () => invocationCount,
     operatorEffectCount: () => operatorEffectCount,
     registry,
@@ -120,7 +126,7 @@ const createTrackedRegistry = () => {
 
 const createRestFixture = (
   registry: ReturnType<typeof createTrackedRegistry>["registry"],
-  unavailableCapabilities: ReadonlyMap<string, string>,
+  unavailableCapabilities: CapabilityAvailabilityPolicy,
   resolvePrincipal: PrincipalResolver = adminResolver
 ) => {
   const handler = createRestCapabilityHandler(
@@ -182,7 +188,7 @@ const mcpDisabledResponseSchema = z.object({
 
 const mcpCatalogResponseSchema = z.object({
   result: z.object({
-    tools: z.array(z.object({ name: z.string() })),
+    tools: z.array(z.object({ name: z.string() }).passthrough()),
   }),
 });
 
@@ -201,10 +207,73 @@ const forbiddenMcpResponseSchema = z.object({
 });
 
 describe("production capability availability policy", () => {
-  it("hides every unavailable capability from the admin MCP catalog", async () => {
+  it("keeps an explicitly implemented capability executable when it has an explanatory reason", async () => {
+    const tracked = createTrackedRegistry();
+    const policy = new Map([
+      [
+        "complete_task",
+        {
+          reason: "The handler is enabled for this fixture",
+          safeNextStep: "Voer de capability uit met de getoonde invoer.",
+          status: "implemented" as const,
+        },
+      ],
+    ]);
+    const rest = createRestFixture(tracked.registry, policy);
+    const mcp = createMcpProtocolFixture(tracked, "admin", policy);
+    const input = {
+      evidence: ["synthetic-fixture"],
+      status: "success" as const,
+      summary: "Explicitly enabled",
+    };
+
+    expect(
+      unavailableCapabilityReason(policy, "complete_task")
+    ).toBeUndefined();
+    expect(capabilityAvailability(policy, "complete_task")).toMatchObject({
+      reason: "The handler is enabled for this fixture",
+      status: "implemented",
+    });
+
+    const [restResponse, mcpCatalogResponse, mcpCallResponse] =
+      await Promise.all([
+        sendRestRequest(rest, "/v1/agent/complete-task", input),
+        mcp.request("tools/list", rpcRequest("tools/list", modernParams())),
+        mcp.request(
+          "tools/call",
+          rpcRequest(
+            "tools/call",
+            modernParams({ arguments: input, name: "complete_task" })
+          ),
+          { "Mcp-Name": "complete_task" }
+        ),
+      ]);
+    const mcpCatalog = mcpCatalogResponseSchema.parse(
+      await mcpCatalogResponse.json()
+    );
+    const listed = mcpCatalog.result.tools.find(
+      (tool) => tool.name === "complete_task"
+    );
+
+    expect(restResponse.status).toBe(200);
+    expect(await restResponse.json()).toMatchObject({ accepted: true });
+    expect(mcpCallResponse.status).toBe(200);
+    expect(listed).toMatchObject({
+      _meta: {
+        "catapulze/availability": {
+          executable: true,
+          reason: "The handler is enabled for this fixture",
+          status: "implemented",
+        },
+      },
+    });
+    expect(tracked.invocationCount()).toBe(2);
+  });
+
+  it("advertises every authorized unavailable capability with a non-executable status", async () => {
     const tracked = createTrackedRegistry();
     const fixture = createMcpProtocolFixture(
-      tracked.registry,
+      tracked,
       "admin",
       PRODUCTION_UNAVAILABLE_CAPABILITIES
     );
@@ -223,7 +292,18 @@ describe("production capability availability policy", () => {
       unavailableNames
     );
     for (const unavailable of unavailableCases) {
-      expect(names).not.toContain(unavailable.capabilityId);
+      expect(names).toContain(unavailable.capabilityId);
+      const listed = body.result.tools.find(
+        (tool) => tool.name === unavailable.capabilityId
+      );
+      expect(listed).toMatchObject({
+        _meta: {
+          "catapulze/availability": {
+            executable: false,
+            status: expect.not.stringMatching(/^implemented$/u),
+          },
+        },
+      });
     }
     expect(tracked.invocationCount()).toBe(0);
   });
@@ -235,7 +315,7 @@ describe("production capability availability policy", () => {
       PRODUCTION_UNAVAILABLE_CAPABILITIES
     );
     const mcp = createMcpProtocolFixture(
-      tracked.registry,
+      tracked,
       "admin",
       PRODUCTION_UNAVAILABLE_CAPABILITIES
     );
@@ -245,7 +325,8 @@ describe("production capability availability policy", () => {
     };
     const outcomes = await Promise.all(
       unavailableCases.map(async (unavailable) => {
-        const expectedMessage = PRODUCTION_UNAVAILABLE_CAPABILITIES.get(
+        const expectedMessage = unavailableCapabilityReason(
+          PRODUCTION_UNAVAILABLE_CAPABILITIES,
           unavailable.capabilityId
         );
         if (expectedMessage === undefined) {
@@ -323,8 +404,10 @@ describe("production capability availability policy", () => {
     });
     const outcomes = await Promise.all(
       deniedCases.map(async (denied) => {
-        const expectedOperationalReason =
-          PRODUCTION_UNAVAILABLE_CAPABILITIES.get(denied.capabilityId);
+        const expectedOperationalReason = unavailableCapabilityReason(
+          PRODUCTION_UNAVAILABLE_CAPABILITIES,
+          denied.capabilityId
+        );
         if (expectedOperationalReason === undefined) {
           throw new Error(
             `Missing production policy for ${denied.capabilityId}`
@@ -336,7 +419,7 @@ describe("production capability availability policy", () => {
           resolverForRole(denied.role)
         );
         const mcp = createMcpProtocolFixture(
-          tracked.registry,
+          tracked,
           denied.role,
           PRODUCTION_UNAVAILABLE_CAPABILITIES
         );
@@ -397,13 +480,9 @@ describe("production capability availability policy", () => {
 
   it("allows an explicitly wired capability when the policy is empty", async () => {
     const tracked = createTrackedRegistry();
-    const emptyPolicy = new Map<string, string>();
+    const emptyPolicy = new Map();
     const rest = createRestFixture(tracked.registry, emptyPolicy);
-    const mcp = createMcpProtocolFixture(
-      tracked.registry,
-      "admin",
-      emptyPolicy
-    );
+    const mcp = createMcpProtocolFixture(tracked, "admin", emptyPolicy);
     const input = {
       evidence: ["fixture"],
       status: "success",

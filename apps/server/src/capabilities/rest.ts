@@ -1,4 +1,7 @@
-import type { InvocationPrincipal } from "@ji/application/registry";
+import type {
+  InvocationPrincipal,
+  SliceACapabilityCatalog,
+} from "@ji/application/registry";
 import type { Context } from "hono";
 import { z } from "zod";
 
@@ -6,6 +9,8 @@ import { createRequestId, hasAllowedCookieOrigin } from "./auth";
 import type { CookieAuthOriginPolicy, PrincipalResolver } from "./auth";
 import {
   CAPABILITY_UNAVAILABLE_CODE,
+  capabilityAvailability,
+  isCapabilityExecutable,
   unavailableCapabilityReason,
 } from "./capability-availability";
 import type { CapabilityAvailabilityPolicy } from "./capability-availability";
@@ -27,7 +32,7 @@ import type {
 } from "./transport-boundary";
 
 /* oxlint-disable unicorn/prefer-structured-clone -- JSON round-trip strips undefined keys before JsonValue validation. */
-const serializeRegistryJson = (
+export const serializeRegistryJson = (
   value: RegistryInvocationResult | JsonValue
 ): JsonValue => jsonValueSchema.parse(JSON.parse(JSON.stringify(value)));
 /* oxlint-enable unicorn/prefer-structured-clone */
@@ -396,17 +401,43 @@ export const invokeMcpTool = (
     transport: "mcp",
   })(args, { principal, requestId });
 
-export const mcpToolsFromRegistry = (registry: SliceARegistry) =>
-  registry.catalog.flatMap((descriptor) =>
-    descriptor.bindings
+export const mcpToolsFromRegistry = (
+  registry: SliceARegistry,
+  entries: SliceACapabilityCatalog,
+  unavailableCapabilities?: CapabilityAvailabilityPolicy
+) => {
+  const metadataById = new Map<
+    string,
+    SliceACapabilityCatalog[number]["metadata"]
+  >(entries.map((entry) => [entry.capability.id, entry.metadata]));
+  return registry.catalog.flatMap((descriptor) => {
+    const metadata = metadataById.get(descriptor.id);
+    if (!metadata) {
+      throw new Error(`Missing MCP metadata for ${descriptor.id}`);
+    }
+    return descriptor.bindings
       .filter((binding) => binding.transport === "mcp")
-      .map((binding) => ({
-        description: descriptor.outcome,
-        inputSchema: descriptor.inputJsonSchema,
-        name: binding.operation,
-        readOnly: descriptor.effect === "read",
-        requiredPermission: descriptor.authorization.permission,
-      }))
-  );
+      .map((binding) => {
+        const availability = capabilityAvailability(
+          unavailableCapabilities,
+          descriptor.id
+        );
+        return {
+          availability: {
+            ...availability,
+            executable: isCapabilityExecutable(availability),
+          },
+          description: descriptor.outcome,
+          effect: metadata.sideEffectClass,
+          grounded: descriptor.grounding,
+          inputSchema: descriptor.inputJsonSchema,
+          name: binding.operation,
+          outputSchema: descriptor.outputJsonSchema,
+          readOnly: metadata.sideEffectClass === "read",
+          requiredPermission: descriptor.authorization.permission,
+        };
+      });
+  });
+};
 
 export { matchPath, pathParamNames };

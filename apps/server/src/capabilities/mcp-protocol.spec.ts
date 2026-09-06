@@ -47,8 +47,29 @@ const listedToolsBodySchema = z.object({
   result: z.object({
     tools: z.array(
       z.object({
+        _meta: z.object({
+          "catapulze/availability": z
+            .object({ status: z.string() })
+            .passthrough(),
+          "catapulze/effect": z.object({
+            class: z.enum(["commit", "proposal", "read"]),
+            grounded: z.boolean(),
+          }),
+          "catapulze/outputSchema": z
+            .object({ type: z.string() })
+            .passthrough(),
+          "catapulze/outputSchemaPolicy": z.string(),
+        }),
+        annotations: z.object({
+          destructiveHint: z.boolean().optional(),
+          idempotentHint: z.boolean().optional(),
+          readOnlyHint: z.boolean(),
+        }),
         inputSchema: z.object({ type: z.literal("object") }).passthrough(),
         name: z.string(),
+        outputSchema: z
+          .object({ type: z.enum(["array", "object"]) })
+          .passthrough(),
       })
     ),
   }),
@@ -62,7 +83,7 @@ const readError = async (response: Response) => {
 describe("MCP 2026-07-28 protocol boundary", () => {
   it("discovers and lists a stable permission-filtered schema catalog", async () => {
     const bundle = createTestSliceARegistry();
-    const fixture = createMcpProtocolFixture(bundle.registry);
+    const fixture = createMcpProtocolFixture(bundle, "admin");
     const discovery = await fixture.request(
       "server/discover",
       rpcRequest("server/discover")
@@ -84,11 +105,50 @@ describe("MCP 2026-07-28 protocol boundary", () => {
     const names = listedBody.result.tools.map((tool) => tool.name);
     expect(names).toEqual(names.toSorted());
     expect(names).toContain("search_aanvragen");
-    expect(names).not.toContain("start_run");
-    expect(names).not.toContain("complete_task");
-    expect(listedBody.result.tools[0]?.inputSchema).toMatchObject({
+    expect(names).toContain("start_run");
+    expect(names).toContain("complete_task");
+    const searchTool = listedBody.result.tools.find(
+      (tool) => tool.name === "search_aanvragen"
+    );
+    expect(searchTool?.inputSchema).toMatchObject({
       type: "object",
     });
+    expect(searchTool?.outputSchema).toMatchObject({ type: "object" });
+    expect(searchTool?.annotations).toEqual({
+      destructiveHint: false,
+      idempotentHint: true,
+      readOnlyHint: true,
+    });
+    expect(searchTool?._meta).toMatchObject({
+      "catapulze/availability": { status: "implemented" },
+      "catapulze/effect": { class: "read", grounded: true },
+      "catapulze/outputSchema": { type: "object" },
+      "catapulze/outputSchemaPolicy": "standard-json-schema",
+    });
+
+    for (const toolName of ["start_run", "complete_task"]) {
+      const unavailableTool = listedBody.result.tools.find(
+        (tool) => tool.name === toolName
+      );
+      expect(unavailableTool?._meta).toMatchObject({
+        "catapulze/availability": {
+          executable: false,
+          status: "fixture-stub",
+        },
+      });
+    }
+
+    for (const toolName of ["list_alerts", "list_bronnen", "list_versies"]) {
+      const listTool = listedBody.result.tools.find(
+        (tool) => tool.name === toolName
+      );
+      expect(listTool?.outputSchema).toMatchObject({ type: "array" });
+      expect(listTool?._meta).toMatchObject({
+        "catapulze/effect": { class: "read" },
+        "catapulze/outputSchema": { type: "array" },
+        "catapulze/outputSchemaPolicy": "standard-json-schema",
+      });
+    }
   });
 
   it("uses the official pinned client for search, mark, read, and a direct call", async () => {
@@ -106,7 +166,7 @@ describe("MCP 2026-07-28 protocol boundary", () => {
       tariefMin: 100,
       titel: "Azure engineer",
     });
-    const fixture = createMcpProtocolFixture(bundle.registry);
+    const fixture = createMcpProtocolFixture(bundle, "admin");
     const client = new Client(
       { name: "catapulze-protocol-fixture", version: "1.0.0" },
       { versionNegotiation: { mode: { pin: MCP_PROTOCOL_VERSION } } }
@@ -131,6 +191,10 @@ describe("MCP 2026-07-28 protocol boundary", () => {
       name: "search_aanvragen",
     });
     expect(search.isError).not.toBe(true);
+    expect(search.structuredContent).toMatchObject({
+      ids: [aanvraagId],
+      total: 1,
+    });
     const marked = await client.callTool({
       arguments: { aanvraagId, status: "relevant" },
       name: "markeer_aanvraag",
@@ -143,6 +207,17 @@ describe("MCP 2026-07-28 protocol boundary", () => {
     expect(read.structuredContent).toMatchObject({
       markering: { status: "relevant" },
     });
+    const [bronnen, versies, alerts] = await Promise.all([
+      client.callTool({ arguments: {}, name: "list_bronnen" }),
+      client.callTool({
+        arguments: { aanvraagId },
+        name: "list_versies",
+      }),
+      client.callTool({ arguments: {}, name: "list_alerts" }),
+    ]);
+    expect(Array.isArray(bronnen.structuredContent)).toBe(true);
+    expect(versies.structuredContent).toEqual([]);
+    expect(alerts.structuredContent).toEqual([]);
     await client.close();
 
     const direct = await fixture.request(
@@ -159,9 +234,7 @@ describe("MCP 2026-07-28 protocol boundary", () => {
   });
 
   it("maps malformed JSON and invalid JSON-RPC shapes to protocol errors", async () => {
-    const fixture = createMcpProtocolFixture(
-      createTestSliceARegistry().registry
-    );
+    const fixture = createMcpProtocolFixture(createTestSliceARegistry());
     const malformed = await fixture.request("tools/list", "{");
     expect(malformed.status).toBe(400);
     const malformedError = await readError(malformed);
@@ -173,9 +246,7 @@ describe("MCP 2026-07-28 protocol boundary", () => {
   });
 
   it("rejects missing metadata, header mismatches, and unsupported versions", async () => {
-    const fixture = createMcpProtocolFixture(
-      createTestSliceARegistry().registry
-    );
+    const fixture = createMcpProtocolFixture(createTestSliceARegistry());
     const missingMeta = await fixture.request(
       "tools/list",
       rpcRequest("tools/list", {})
@@ -209,9 +280,7 @@ describe("MCP 2026-07-28 protocol boundary", () => {
   });
 
   it("rejects invalid media negotiation, batches, responses, and unknown methods", async () => {
-    const fixture = createMcpProtocolFixture(
-      createTestSliceARegistry().registry
-    );
+    const fixture = createMcpProtocolFixture(createTestSliceARegistry());
     const wrongType = await fixture.request(
       "tools/list",
       rpcRequest("tools/list"),
@@ -248,9 +317,7 @@ describe("MCP 2026-07-28 protocol boundary", () => {
   });
 
   it("rejects malformed and unauthorized tool calls as invalid params", async () => {
-    const fixture = createMcpProtocolFixture(
-      createTestSliceARegistry().registry
-    );
+    const fixture = createMcpProtocolFixture(createTestSliceARegistry());
     const invalidInput = await fixture.request(
       "tools/call",
       rpcRequest(

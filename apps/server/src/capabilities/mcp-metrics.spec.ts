@@ -95,6 +95,7 @@ const createMetricHandler = (
   createMcpHandler(bundle.registry, resolveMetricPrincipal, {
     allowedCookieOrigin: allowedOrigin,
     allowedHost: "server.test",
+    entries: bundle.entries,
     recordMetric,
   });
 
