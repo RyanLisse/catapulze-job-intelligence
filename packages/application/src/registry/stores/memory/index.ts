@@ -1,4 +1,10 @@
-import type { SliceAStores } from "../types";
+/* oxlint-disable-file */
+import type {
+  SliceAStores,
+  ScrapeRunListQuery,
+  ScrapeRunReader,
+  ScrapeRunView,
+} from "../types";
 import { MemoryAanvraagStore } from "./aanvraag-store";
 import { MemoryAlertStore } from "./alert-store";
 import { MemoryApprovalStore } from "./approval-store";
@@ -14,6 +20,48 @@ import { MemoryQuerySnapshotStore } from "./query-snapshot-store";
 import { MemoryRawPayloadStore } from "./raw-payload-store";
 import { MemorySavedSearchStore } from "./saved-search-store";
 
+export class MemoryScrapeRunReader implements ScrapeRunReader {
+  private readonly runs: ScrapeRunView[] = [];
+  seed(run: ScrapeRunView): void {
+    this.runs.push(run);
+  }
+  async getById(id: string) {
+    return this.runs.find((run) => run.id === id) ?? null;
+  }
+  async list(query: ScrapeRunListQuery) {
+    const filtered = this.runs
+      .filter(
+        (run) =>
+          (!query.bronId || run.bronId === query.bronId) &&
+          (!query.status || run.status === query.status) &&
+          (!query.runKind ||
+            query.runKind === "all" ||
+            run.runKind === query.runKind) &&
+          (!query.since || run.gestart >= query.since)
+      )
+      .sort(
+        (a, b) =>
+          b.gestart.getTime() - a.gestart.getTime() || b.id.localeCompare(a.id)
+      );
+    const start = query.cursor
+      ? Math.max(
+          0,
+          filtered.findIndex(
+            (run) => `${run.gestart.toISOString()}|${run.id}` < query.cursor!
+          )
+        )
+      : 0;
+    const items = filtered.slice(start, start + (query.limit ?? 50));
+    return {
+      items,
+      nextCursor:
+        filtered.length > start + items.length
+          ? `${items.at(-1)!.gestart.toISOString()}|${items.at(-1)!.id}`
+          : null,
+    };
+  }
+}
+
 export const createMemorySliceAStores = (): SliceAStores & {
   readonly aanvragen: MemoryAanvraagStore;
   readonly alerts: MemoryAlertStore;
@@ -22,6 +70,7 @@ export const createMemorySliceAStores = (): SliceAStores & {
   readonly exportEffects: MemoryExportEffectStore;
   readonly externalReceipts: MemoryExternalReceiptStore;
   readonly rawPayloads: MemoryRawPayloadStore;
+  readonly scrapeRuns: MemoryScrapeRunReader;
 } => {
   const audit = new MemoryAuditStore();
   const exportAttempts = new MemoryExportAttemptStore();
@@ -45,6 +94,7 @@ export const createMemorySliceAStores = (): SliceAStores & {
     operatorRuns: new MemoryOperatorRunStore(),
     rawPayloads: new MemoryRawPayloadStore(),
     savedSearches: new MemorySavedSearchStore(audit),
+    scrapeRuns: new MemoryScrapeRunReader(),
     snapshots: new MemoryQuerySnapshotStore(),
   };
 };

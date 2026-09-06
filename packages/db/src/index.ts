@@ -175,3 +175,8 @@ export const closeDb = async (): Promise<void> => {
   closePromise ??= sqlClient.end({ timeout: 5 });
   await closePromise;
 };
+
+export {
+  PostgresScrapeRunReader,
+  type ScrapeRunDatabase,
+} from "./scrape-run-reader";

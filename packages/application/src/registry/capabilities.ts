@@ -40,6 +40,18 @@ import {
   createStartRunHandler,
   createStartTestImportHandler,
   createUpdateSavedSearchHandler,
+  createGetDashboardOverviewHandler,
+  createGetBronStatsHandler,
+  createListScrapeRunsHandler,
+  createGetScrapeRunHandler,
+  getDashboardOverviewInputSchema,
+  getDashboardOverviewOutputSchema,
+  getBronStatsInputSchema,
+  getBronStatsOutputSchema,
+  listScrapeRunsInputSchema,
+  listScrapeRunsOutputSchema,
+  getScrapeRunInputSchema,
+  getScrapeRunOutputSchema,
   createValidateSnapshotApprovalHandler,
   dualBindings,
   approveSnapshotInputSchema,
@@ -542,6 +554,55 @@ export const createSliceACapabilityCatalog = (deps: SliceAHandlerDeps) => {
     outputSchema: operatorRunOutputSchema,
   });
 
+  const getDashboardOverview = defineCapability({
+    authorization: { permission: ROLE_OPERATOR },
+    bindings: dualBindings("GET", "/v1/dashboard", "get_dashboard_overview"),
+    effect: "read",
+    failureSchema: domainFailureSchema,
+    grounding: true,
+    handler: createGetDashboardOverviewHandler(deps),
+    id: "get_dashboard_overview",
+    inputSchema: getDashboardOverviewInputSchema,
+    outcome: "Lees dashboardoverzicht van ingestie",
+    outputSchema: getDashboardOverviewOutputSchema,
+  });
+  const getBronStats = defineCapability({
+    authorization: { permission: ROLE_OPERATOR },
+    bindings: dualBindings("GET", "/v1/bronnen/{id}/stats", "get_bron_stats"),
+    effect: "read",
+    failureSchema: domainFailureSchema,
+    grounding: true,
+    handler: createGetBronStatsHandler(deps),
+    id: "get_bron_stats",
+    inputSchema: getBronStatsInputSchema,
+    outcome: "Lees bronstatistieken",
+    outputSchema: getBronStatsOutputSchema,
+  });
+  const listScrapeRuns = defineCapability({
+    authorization: { permission: ROLE_OPERATOR },
+    bindings: dualBindings("GET", "/v1/scrape-runs", "list_scrape_runs"),
+    effect: "read",
+    failureSchema: domainFailureSchema,
+    grounding: true,
+    handler: createListScrapeRunsHandler(deps),
+    id: "list_scrape_runs",
+    inputSchema: listScrapeRunsInputSchema,
+    outcome: "Lijst scrape runs",
+    outputSchema: listScrapeRunsOutputSchema,
+  });
+  const getScrapeRun = defineCapability({
+    authorization: { permission: ROLE_OPERATOR },
+    bindings: dualBindings("GET", "/v1/scrape-runs/{id}", "get_scrape_run"),
+    effect: "read",
+    failureSchema: domainFailureSchema,
+    grounding: true,
+    handler: createGetScrapeRunHandler(deps),
+    id: "get_scrape_run",
+    inputSchema: getScrapeRunInputSchema,
+    outcome: "Lees scrape run detail",
+    outputSchema: getScrapeRunOutputSchema,
+  });
+
   const completeTask = defineCapability({
     authorization: { permission: ROLE_RECRUITER },
     bindings: dualBindings("POST", "/v1/agent/complete-task", "complete_task"),
@@ -861,6 +922,18 @@ export const createSliceACapabilityCatalog = (deps: SliceAHandlerDeps) => {
         "ui:BronPanel.StartTestImport",
       ],
     }),
+    ...[getDashboardOverview, getBronStats, listScrapeRuns, getScrapeRun].map(
+      (capability) =>
+        defineSliceACapabilityEntry(capability, {
+          auditClass: "access",
+          reversible: true,
+          sideEffectClass: "read",
+          target: "internal",
+          wiredTransports: capability.bindings.map((b) =>
+            b.transport === "mcp" ? `mcp:${b.operation}` : `rest:${b.operation}`
+          ) as any,
+        })
+    ),
     defineSliceACapabilityEntry(completeTask, {
       auditClass: "none",
       reversible: true,
@@ -888,6 +961,10 @@ export type SliceACapabilityCatalog = ReturnType<
 >;
 
 export const sliceACapabilityIds = [
+  "get_dashboard_overview",
+  "get_bron_stats",
+  "list_scrape_runs",
+  "get_scrape_run",
   "get_operator_context",
   "search_aanvragen",
   "get_aanvraag",

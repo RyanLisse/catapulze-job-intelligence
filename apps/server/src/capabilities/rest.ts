@@ -250,11 +250,8 @@ const normalizeRestInput = (
 
 const parseRestQuery = (url: string): RestQuery => {
   const params = Object.fromEntries(new URL(url).searchParams.entries());
-  if (params.full !== "true") {
-    return {};
-  }
-  const parsed = restQuerySchema.safeParse({ full: true });
-  return parsed.success ? parsed.data : {};
+  const parsed = restQuerySchema.safeParse(params);
+  return parsed.success ? parsed.data : params;
 };
 
 const invokeRest = (

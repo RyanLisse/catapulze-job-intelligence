@@ -2,7 +2,11 @@ import type { SearchAdapter } from "@ji/search";
 
 import type { PublicBronView } from "../../bronnen";
 import type { SpottWriteClient } from "../../export/spott/client";
-import type { SliceAStores } from "../stores/types";
+import type {
+  BronRunStatsReader,
+  ScrapeRunReader,
+  SliceAStores,
+} from "../stores/types";
 
 export interface SourcingAssessmentAttestationPayload {
   readonly claims: readonly {
@@ -26,6 +30,8 @@ export interface SourcingAssessmentAttestationPayload {
 }
 
 export interface SliceAHandlerDeps {
+  readonly bronRunStatsReader?: BronRunStatsReader;
+  readonly scrapeRunReader?: ScrapeRunReader;
   readonly bronnen: {
     getById: (bronId: string) => Promise<PublicBronView | null>;
     list: () => Promise<readonly PublicBronView[]>;

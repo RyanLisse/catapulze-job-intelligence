@@ -604,3 +604,43 @@ export interface BronRunStatsReader {
     query: BronRunTimeseriesQuery
   ) => Promise<readonly BronRunTimeseriesPoint[]>;
 }
+
+export interface ScrapeRunListQuery {
+  readonly bronId?: string;
+  readonly cursor?: string;
+  readonly limit?: number;
+  readonly runKind?: BronRunKindFilter;
+  readonly since?: Date;
+  readonly status?: "running" | "succeeded" | "failed" | "cancelled";
+}
+export interface ScrapeRunView {
+  readonly aantalGevonden: number;
+  readonly bronId: string;
+  readonly checkpoint: Readonly<Record<string, unknown>> | null;
+  readonly circuitStatus: string;
+  readonly createdAt: Date;
+  readonly fouten: number;
+  readonly failureClass: string | null;
+  readonly failureCode: string | null;
+  readonly failureMessage: string | null;
+  readonly failurePhase: string | null;
+  readonly geindigd: Date | null;
+  readonly gestart: Date;
+  readonly gesloten: number;
+  readonly gewijzigd: number;
+  readonly id: string;
+  readonly nieuw: number;
+  readonly lifecycleSummary: Readonly<Record<string, number>>;
+  readonly observationDistribution: Readonly<Record<string, number>>;
+  readonly rejected: number;
+  readonly runKind: BronRunKindFilter;
+  readonly status: string;
+  readonly versieAdapter: string | null;
+}
+export interface ScrapeRunReader {
+  getById: (id: string) => Promise<ScrapeRunView | null>;
+  list: (query: ScrapeRunListQuery) => Promise<{
+    readonly items: readonly ScrapeRunView[];
+    readonly nextCursor: string | null;
+  }>;
+}
