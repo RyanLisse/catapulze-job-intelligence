@@ -253,10 +253,13 @@ jobs:
     timeout-minutes: 30
     env:
       COMPOSE_PARALLEL_LIMIT: "2"
-      # Restore pre-#165 CI contract: smoke script now defaults to .env, but
-      # runners have no local .env. Point at the checked-in synthetic fixture
-      # and inject host migration URL matching that fixture's credentials.
+      # Disposable smoke contract: committed synthetic fixture (docker DNS +
+      # non-secret placeholders). Do not use `.env` (gitignored) or bare
+      # `.env.example` here — example URLs point at localhost and break
+      # server↔web smoke. mcp-edge-smoke uses the same fixture path.
       COMPOSE_ENV_FILE: scripts/fixtures/docker-smoke.env
+      # Host-side `bun run db:migrate` while Compose publishes Postgres on
+      # 127.0.0.1:5432. Credentials match the fixture above (not secrets).
       MIGRATION_DATABASE_URL: postgresql://ji_migrator:ji_migrator_smoke@127.0.0.1:5432/ji_smoke
     steps:
       - name: Check out repository

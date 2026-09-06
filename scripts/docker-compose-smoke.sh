@@ -6,7 +6,16 @@ if ! command -v docker >/dev/null 2>&1; then
   exit 1
 fi
 
-compose_env_file="${COMPOSE_ENV_FILE:-.env}"
+# Prefer an explicit COMPOSE_ENV_FILE. Otherwise use a local `.env` when
+# present; fall back to the committed disposable-smoke fixture so CI (and a
+# clean checkout) does not depend on a gitignored file.
+if [[ -n "${COMPOSE_ENV_FILE:-}" ]]; then
+  compose_env_file="$COMPOSE_ENV_FILE"
+elif [[ -f .env ]]; then
+  compose_env_file=".env"
+else
+  compose_env_file="scripts/fixtures/docker-smoke.env"
+fi
 if [[ ! -f "$compose_env_file" ]]; then
   echo "docker-compose smoke: Compose env file '$compose_env_file' does not exist" >&2
   exit 1
