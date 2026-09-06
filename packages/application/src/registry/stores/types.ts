@@ -604,3 +604,66 @@ export interface BronRunStatsReader {
     query: BronRunTimeseriesQuery
   ) => Promise<readonly BronRunTimeseriesPoint[]>;
 }
+
+export interface ScrapeRunListQuery {
+  readonly bronId?: string;
+  readonly cursor?: string;
+  readonly limit?: number;
+  readonly runKind?: BronRunKindFilter;
+  readonly since?: Date;
+  readonly status?: "cancelled" | "failed" | "running" | "succeeded";
+}
+
+export interface ScrapeRunCheckpoint {
+  readonly cursor?: number | string;
+  readonly hasMore?: boolean;
+  readonly offset?: number;
+  readonly page?: number;
+}
+
+export interface ScrapeRunLifecycleSummary {
+  readonly incremented: number;
+  readonly reopened: number;
+  readonly reset: number;
+  readonly staled: number;
+}
+
+export interface ScrapeRunObservationDistribution {
+  readonly created: number;
+  readonly rejected: number;
+  readonly unchanged: number;
+  readonly updated: number;
+}
+
+export interface ScrapeRunView {
+  readonly aantalGevonden: number;
+  readonly bronId: string;
+  readonly checkpoint: ScrapeRunCheckpoint | null;
+  readonly circuitStatus: string;
+  readonly createdAt: Date;
+  readonly failureClass: string | null;
+  readonly failureCode: string | null;
+  readonly failureMessage: string | null;
+  readonly failurePhase: string | null;
+  readonly fouten: number;
+  readonly geindigd: Date | null;
+  readonly gesloten: number;
+  readonly gestart: Date;
+  readonly gewijzigd: number;
+  readonly id: string;
+  readonly lifecycleSummary: ScrapeRunLifecycleSummary;
+  readonly nieuw: number;
+  readonly observationDistribution: ScrapeRunObservationDistribution;
+  readonly rejected: number;
+  readonly runKind: BronRunKindFilter;
+  readonly status: string;
+  readonly versieAdapter: string | null;
+}
+
+export interface ScrapeRunReader {
+  getById: (id: string) => Promise<ScrapeRunView | null>;
+  list: (query: ScrapeRunListQuery) => Promise<{
+    readonly items: readonly ScrapeRunView[];
+    readonly nextCursor: string | null;
+  }>;
+}

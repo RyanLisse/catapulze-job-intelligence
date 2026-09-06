@@ -16,6 +16,8 @@ import {
   PostgresApprovalStore,
   PostgresAuditStore,
   PostgresBronHealthStore,
+  PostgresBronRunStatsReader,
+  PostgresScrapeRunReader,
   PostgresExportEffectStore,
   PostgresExportAttemptStore,
   PostgresExternalIdCrosswalkStore,
@@ -145,6 +147,7 @@ export const createProductionSliceADeps = async (
 
   return {
     bronPersistence: runtime.bronPersistence,
+    bronRunStatsReader: new PostgresBronRunStatsReader(runtime.database),
     bronnen: {
       getById: async (bronId) => {
         const record = await runtime.bronPersistence.findById(bronId);
@@ -167,6 +170,7 @@ export const createProductionSliceADeps = async (
     objectStore,
     rawObjectStoreKind: rawObjectStore.kind,
     scopeId: CATAPULZE_DEPLOYMENT_SCOPE_ID,
+    scrapeRunReader: new PostgresScrapeRunReader(runtime.database),
     searchAdapter,
     stores,
   };

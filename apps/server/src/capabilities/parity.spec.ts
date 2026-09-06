@@ -79,6 +79,48 @@ describe("AE5 REST vs MCP parity", () => {
     expect(mcpValue.total).toBe(restValue.total);
     expect(mcpValue.facets).toEqual(restValue.facets);
   });
+
+  it("keeps REST and MCP byte-equal for dashboard and scrape-run capabilities", async () => {
+    const cases = [
+      {
+        capabilityId: "get_dashboard_overview",
+        input: { window: "7d" },
+        operation: "GET /v1/dashboard",
+      },
+      {
+        capabilityId: "get_bron_stats",
+        input: { bronId: "00000000-0000-4000-8000-000000000001", window: "7d" },
+        operation: "GET /v1/bronnen/{id}/stats",
+      },
+      {
+        capabilityId: "list_scrape_runs",
+        input: { limit: 10 },
+        operation: "GET /v1/scrape-runs",
+      },
+      {
+        capabilityId: "get_scrape_run",
+        input: { id: "00000000-0000-0000-0000-000000000099" },
+        operation: "GET /v1/scrape-runs/{id}",
+      },
+    ] as const;
+    await Promise.all(
+      cases.map(async (testCase) => {
+        const bundle = createTestSliceARegistry();
+        const rest = await bundle.registry.createInvoker({
+          ...testCase,
+          transport: "rest",
+        })(testCase.input, operatorAuth);
+        const mcp = await invokeMcpTool(
+          bundle.registry,
+          testCase.capabilityId,
+          testCase.input,
+          operatorAuth.principal,
+          operatorAuth.requestId
+        );
+        expect(mcp).toEqual(rest);
+      })
+    );
+  });
 });
 
 describe("preview vs full authorization", () => {

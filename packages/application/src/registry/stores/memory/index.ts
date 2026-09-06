@@ -64,3 +64,4 @@ export { MemoryExternalIdCrosswalkStore } from "./external-crosswalk-store";
 export { MemoryExternalReceiptStore } from "./external-receipt-store";
 export { MutationVersionGate } from "./mutation-queue";
 export { MemorySavedSearchStore } from "./saved-search-store";
+export { MemoryScrapeRunReader } from "./scrape-run-reader";
