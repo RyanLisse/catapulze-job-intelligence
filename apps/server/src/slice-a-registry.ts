@@ -16,6 +16,7 @@ import {
   PostgresApprovalStore,
   PostgresAuditStore,
   PostgresBronHealthStore,
+  PostgresExportEffectStore,
   PostgresExportAttemptStore,
   PostgresExternalIdCrosswalkStore,
   PostgresExternalReceiptStore,
@@ -35,13 +36,14 @@ import {
 } from "@ji/search";
 
 import { assertProductionPersistence } from "./assert-production-persistence";
+import { CATAPULZE_DEPLOYMENT_SCOPE_ID } from "./deployment-scope";
 
 /**
  * Catapulze is single-tenant per deployment. This server-owned value is the
  * sole scope authority until identity-backed tenant membership is introduced;
  * request bodies, headers and roles cannot override it.
  */
-export const CATAPULZE_DEPLOYMENT_SCOPE_ID = "catapulze";
+export { CATAPULZE_DEPLOYMENT_SCOPE_ID } from "./deployment-scope";
 
 export interface ProductionSliceADepsInput {
   databaseUrl: string;
@@ -107,8 +109,8 @@ export const createProductionSliceADeps = async (
     approvals: new PostgresApprovalStore(runtime.database),
     audit: new PostgresAuditStore(runtime.database),
     bronHealth: new PostgresBronHealthStore(runtime.database),
-
     exportAttempts: new PostgresExportAttemptStore(runtime.database),
+    exportEffects: new PostgresExportEffectStore(runtime.database),
     externalCrosswalk: new PostgresExternalIdCrosswalkStore(runtime.database),
     externalReceipts: new PostgresExternalReceiptStore(runtime.database),
     markeringen: new PostgresMarkeringStore(runtime.database),

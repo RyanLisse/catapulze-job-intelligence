@@ -1,6 +1,7 @@
 import { SearchAdapter, InMemorySearchEngine } from "@ji/search";
 
 import type { PublicBronView } from "../bronnen";
+import { createSpottWriteClient } from "../export/spott/client";
 import { createSliceARegistry } from "./catalog";
 import type { SliceAHandlerDeps } from "./handlers/deps";
 import { createMemorySliceAStores } from "./stores/memory";
@@ -47,6 +48,7 @@ export const createTestSliceADeps = (
     engine,
     scopeId,
     searchAdapter,
+    spottWriteClient: createSpottWriteClient({ liveEnabled: false }),
     stores,
   };
 };

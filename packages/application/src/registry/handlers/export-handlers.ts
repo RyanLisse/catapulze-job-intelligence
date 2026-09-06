@@ -1,8 +1,16 @@
 import { z } from "zod";
 
 import { commitExport } from "../../export/commit-export";
-import { createSpottWriteClient } from "../../export/spott/client";
 import type { SliceAHandlerDeps } from "./deps";
+
+type ExportEnabledDeps = Pick<SliceAHandlerDeps, "spottWriteClient"> & {
+  readonly spottWriteClient: NonNullable<SliceAHandlerDeps["spottWriteClient"]>;
+};
+
+export const isExportEnabled = (
+  deps: Pick<SliceAHandlerDeps, "spottWriteClient">
+): deps is ExportEnabledDeps =>
+  deps.spottWriteClient !== undefined && deps.spottWriteClient !== null;
 
 export const commitExportInputSchema = z
   .object({
@@ -47,8 +55,18 @@ export const createCommitExportHandler =
       };
     }
   ) => {
-    const spottWriteClient =
-      deps.spottWriteClient ?? createSpottWriteClient({ liveEnabled: false });
+    if (!isExportEnabled(deps)) {
+      return {
+        error: {
+          code: "EXPORT_DISABLED" as const,
+          details: { id: input.snapshotId },
+          message:
+            "Export is disabled because no Spott write client is configured",
+        },
+        ok: false as const,
+      };
+    }
+    const { spottWriteClient } = deps;
 
     const result = await commitExport(
       { snapshotId: input.snapshotId },

@@ -30,6 +30,7 @@ export const sliceADomainFailureSchema = z
       "APPROVAL_EXPIRED",
       "APPROVAL_MISMATCH",
       "APPROVAL_NOT_FOUND",
+      "EXPORT_DISABLED",
     ]),
     details: z.unknown().optional(),
     message: z.string(),

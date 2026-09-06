@@ -5,6 +5,7 @@ import { MemoryApprovalStore } from "./approval-store";
 import { MemoryAuditStore } from "./audit-store";
 import { MemoryBronHealthStore } from "./bron-health-store";
 import { MemoryExportAttemptStore } from "./export-attempt-store";
+import { MemoryExportEffectStore } from "./export-effect-store";
 import { MemoryExternalIdCrosswalkStore } from "./external-crosswalk-store";
 import { MemoryExternalReceiptStore } from "./external-receipt-store";
 import { MemoryMarkeringStore } from "./markering-store";
@@ -18,19 +19,28 @@ export const createMemorySliceAStores = (): SliceAStores & {
   readonly alerts: MemoryAlertStore;
   readonly bronHealth: MemoryBronHealthStore;
   readonly exportAttempts: MemoryExportAttemptStore;
+  readonly exportEffects: MemoryExportEffectStore;
   readonly externalReceipts: MemoryExternalReceiptStore;
   readonly rawPayloads: MemoryRawPayloadStore;
 } => {
   const audit = new MemoryAuditStore();
+  const exportAttempts = new MemoryExportAttemptStore();
+  const externalCrosswalk = new MemoryExternalIdCrosswalkStore();
+  const externalReceipts = new MemoryExternalReceiptStore();
   return {
     aanvragen: new MemoryAanvraagStore(),
     alerts: new MemoryAlertStore(),
     approvals: new MemoryApprovalStore(audit),
     audit,
     bronHealth: new MemoryBronHealthStore(),
-    exportAttempts: new MemoryExportAttemptStore(),
-    externalCrosswalk: new MemoryExternalIdCrosswalkStore(),
-    externalReceipts: new MemoryExternalReceiptStore(),
+    exportAttempts,
+    exportEffects: new MemoryExportEffectStore(
+      externalCrosswalk,
+      exportAttempts,
+      externalReceipts
+    ),
+    externalCrosswalk,
+    externalReceipts,
     markeringen: new MemoryMarkeringStore(audit),
     operatorRuns: new MemoryOperatorRunStore(),
     rawPayloads: new MemoryRawPayloadStore(),
@@ -49,6 +59,7 @@ export { MemoryOperatorRunStore } from "./operator-run-store";
 export { MemoryQuerySnapshotStore } from "./query-snapshot-store";
 export { MemoryRawPayloadStore } from "./raw-payload-store";
 export { MemoryExportAttemptStore } from "./export-attempt-store";
+export { MemoryExportEffectStore } from "./export-effect-store";
 export { MemoryExternalIdCrosswalkStore } from "./external-crosswalk-store";
 export { MemoryExternalReceiptStore } from "./external-receipt-store";
 export { MemorySavedSearchStore } from "./saved-search-store";

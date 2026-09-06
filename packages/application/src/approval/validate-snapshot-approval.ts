@@ -15,10 +15,16 @@ export interface SnapshotApprovalFailure {
 }
 
 export interface SnapshotApprovalValidationInput {
-  readonly approval: ApprovalRecord | null;
+  readonly approval: Pick<
+    ApprovalRecord,
+    "expiresAt" | "id" | "resultIds" | "scopeId" | "snapshotId"
+  > | null;
   readonly now?: Date;
   readonly scopeId: string;
-  readonly snapshot: QuerySnapshotRecord | null;
+  readonly snapshot: Pick<
+    QuerySnapshotRecord,
+    "id" | "resultIds" | "scopeId"
+  > | null;
   readonly snapshotId: string;
 }
 
@@ -40,7 +46,10 @@ const resultIdsMatch = (
 export const validateSnapshotApproval = (
   input: SnapshotApprovalValidationInput
 ):
-  | { readonly ok: true; readonly value: ApprovalRecord }
+  | {
+      readonly ok: true;
+      readonly value: NonNullable<SnapshotApprovalValidationInput["approval"]>;
+    }
   | { readonly error: SnapshotApprovalFailure; readonly ok: false } => {
   const { approval, scopeId, snapshot, snapshotId } = input;
   const now = input.now ?? new Date();

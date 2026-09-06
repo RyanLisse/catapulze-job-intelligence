@@ -50,6 +50,7 @@
     "e2e:live:jobs:discover": "PATH=\"./node_modules/.bin:$PATH\" playwright test --config=playwright.live.config.ts --list",
     "e2e:live:jobs:writes": "PATH=\"./node_modules/.bin:$PATH\" bun e2e/live-jobs/run.ts writes",
     "e2e:live:jobs:writes:discover": "PATH=\"./node_modules/.bin:$PATH\" playwright test --config=playwright.live-writes.config.ts --list",
+    "export:reconcile-spott": "bun apps/server/src/export/reconcile-spott-export.ts",
     "docker:up": "docker compose up -d --build",
     "docker:down": "docker compose down",
     "docker:logs": "docker compose logs -f",
