@@ -1,3 +1,5 @@
+import type { Route } from "next";
+
 export const RUN_STATUSES = [
   "running",
   "succeeded",
@@ -95,13 +97,19 @@ export const runsQueryToSearchParams = (
   return params;
 };
 
+/**
+ * Runtime-assembled `/bronnen/runs?...` cannot satisfy the typedRoutes literal
+ * union; narrow via `Route` (same pattern as charts.tsx RouterPushTarget).
+ */
 export const runsHref = (
   query: RunsQuery,
   overrides: Partial<RunsQuery> = {}
-): string => {
+): Route => {
   const params = runsQueryToSearchParams(query, overrides);
   const qs = params.toString();
-  return qs.length > 0 ? `/bronnen/runs?${qs}` : "/bronnen/runs";
+  // SAFETY: path is always `/bronnen/runs` (+ optional known query keys); typedRoutes
+  // cannot express runtime search strings, same as charts.tsx RouterPushTarget.
+  return (qs.length > 0 ? `/bronnen/runs?${qs}` : "/bronnen/runs") as Route;
 };
 
 /** Build GET /v1/scrape-runs query string (omit empty; no limit). */
