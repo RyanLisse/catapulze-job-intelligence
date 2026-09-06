@@ -34,8 +34,10 @@ jobs:
           filters: |
             code:
               - ".github/workflows/**"
+              - ".dockerignore"
               - "package.json"
               - "bun.lock"
+              - "turbo.json"
               - "apps/**"
               - "benchmarks/**"
               - "e2e/**"
@@ -239,6 +241,31 @@ jobs:
         with:
           name: ci-performance-build-${{ github.run_id }}-${{ github.run_attempt }}
           path: .artifacts/performance/ci
+          if-no-files-found: warn
+          retention-days: 7
+
+  application-image-smoke:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-latest
+    # Required application-image proof. Four image builds plus disposable
+    # services are bounded separately from the host build above.
+    timeout-minutes: 30
+    env:
+      COMPOSE_PARALLEL_LIMIT: "2"
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
+
+      - name: Build and smoke application images
+        run: bash scripts/docker-compose-smoke.sh
+
+      - name: Upload application-image smoke evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        with:
+          name: application-image-smoke-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .artifacts/docker-smoke
           if-no-files-found: warn
           retention-days: 7
 

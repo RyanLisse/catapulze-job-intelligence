@@ -399,7 +399,7 @@ main() {
   run_phase "runtime-setup" "install Bun ${EXPECTED_BUN_VERSION} from pinned image" ensure_bun
   run_phase "input-verification" "verify canonical materialized input manifest and secrets" verify_materialized_input
   run_phase "install" "bun install --frozen-lockfile --ignore-scripts" bun install --frozen-lockfile --ignore-scripts
-  run_phase "typecheck" "bun run check-types -- --concurrency=2" bun run check-types -- --concurrency=2
+  run_phase "typecheck" "bun run check-types" bun run check-types
   run_phase "layering" "bun run check-layering" bun run check-layering
   run_phase "unit" "bun test --max-concurrency 2 --reporter=junit" run_unit_suite
 
@@ -417,7 +417,7 @@ main() {
   prepare_database_integration
   run_phase "database-integration" "REQUIRE_DATABASE_TESTS=1 bun test packages/db/src/core.spec.ts packages/db/src/user-write-stores.spec.ts --reporter=junit" run_database_integration
   cleanup_database
-  run_phase "integration" "COMPOSE_ENV_FILE=<generated> bun run docker:smoke" env COMPOSE_ENV_FILE="$COMPOSE_ENV_FILE" bun run docker:smoke
+  run_phase "integration" "bun run docker:smoke" bun run docker:smoke
   run_phase "build" "bun run build -- --concurrency=2" bun run build -- --concurrency=2
 
   RUN_STATUS="success"
