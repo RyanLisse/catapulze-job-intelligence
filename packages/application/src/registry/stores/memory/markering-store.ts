@@ -4,6 +4,7 @@ import type {
   AuditStore,
   MarkeringStore,
 } from "../types";
+import { MutationVersionGate } from "./mutation-queue";
 
 const markeringKey = (
   aanvraagId: string,
@@ -13,6 +14,9 @@ const markeringKey = (
 
 export class MemoryMarkeringStore implements MarkeringStore {
   private readonly records = new Map<string, AanvraagMarkering>();
+  /** Last successfully audited state; rollback target for owning failures. */
+  private readonly committed = new Map<string, AanvraagMarkering>();
+  private readonly mutations = new MutationVersionGate();
   private readonly audit: AuditStore;
 
   constructor(audit: AuditStore) {
@@ -43,6 +47,8 @@ export class MemoryMarkeringStore implements MarkeringStore {
       markering.userId,
       markering.scopeId
     );
+    const ownership = this.mutations.begin(key);
+    const baseline = this.committed.get(key);
     const previous = this.records.get(key);
     const now = Date.now();
     const updatedAt = new Date(
@@ -50,8 +56,8 @@ export class MemoryMarkeringStore implements MarkeringStore {
     );
     const saved: AanvraagMarkering = {
       ...markering,
-      createdAt: previous?.createdAt ?? updatedAt,
-      revision: (previous?.revision ?? 0) + 1,
+      createdAt: previous?.createdAt ?? baseline?.createdAt ?? updatedAt,
+      revision: (previous?.revision ?? baseline?.revision ?? 0) + 1,
       updatedAt,
     };
     this.records.set(key, saved);
@@ -70,17 +76,70 @@ export class MemoryMarkeringStore implements MarkeringStore {
         },
         scopeId: markering.scopeId,
       });
+      if (this.mutations.owns(ownership)) {
+        this.committed.set(key, structuredClone(saved));
+      }
       return {
         auditEvent,
         markering: structuredClone(saved),
       };
     } catch (error) {
-      if (previous) {
-        this.records.set(key, previous);
-      } else {
-        this.records.delete(key);
-      }
+      this.rollbackIfOwner(key, ownership);
       throw error;
+    }
+  }
+
+  async clearWithAudit(
+    aanvraagId: string,
+    userId: string,
+    scopeId: string,
+    actorType: AuditActorType
+  ) {
+    const key = markeringKey(aanvraagId, userId, scopeId);
+    const cleared = this.records.get(key) ?? this.committed.get(key);
+    if (!cleared) {
+      return null;
+    }
+    const ownership = this.mutations.begin(key);
+    this.records.delete(key);
+    try {
+      const auditEvent = await this.audit.append({
+        action: "clear_markering",
+        actorId: userId,
+        actorType,
+        auditClass: "effect",
+        entityId: aanvraagId,
+        entityType: "aanvraag",
+        metadata: {
+          cleared: true,
+          reden: cleared.reden,
+          revision: cleared.revision,
+          status: cleared.status,
+        },
+        scopeId,
+      });
+      if (this.mutations.owns(ownership)) {
+        this.committed.delete(key);
+      }
+      return { auditEvent, cleared: structuredClone(cleared) };
+    } catch (error) {
+      this.rollbackIfOwner(key, ownership);
+      throw error;
+    }
+  }
+
+  private rollbackIfOwner(
+    key: string,
+    ownership: ReturnType<MutationVersionGate["begin"]>
+  ): void {
+    if (!this.mutations.owns(ownership)) {
+      return;
+    }
+    const baseline = this.committed.get(key);
+    if (baseline) {
+      this.records.set(key, structuredClone(baseline));
+    } else {
+      this.records.delete(key);
     }
   }
 }

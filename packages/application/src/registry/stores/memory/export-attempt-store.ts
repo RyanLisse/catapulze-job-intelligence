@@ -29,4 +29,15 @@ export class MemoryExportAttemptStore implements ExportAttemptStore {
   list(): readonly ExportAttemptRecord[] {
     return [...this.records];
   }
+
+  listBySnapshotId(snapshotId: string, scopeId: string) {
+    return Promise.resolve(
+      this.records
+        .filter(
+          (record) =>
+            record.snapshotId === snapshotId && record.scopeId === scopeId
+        )
+        .map((record) => ({ ...record }))
+    );
+  }
 }

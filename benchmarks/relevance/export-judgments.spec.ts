@@ -217,8 +217,9 @@ describe("export-judgments CLI (integration smoke — spawns bun)", () => {
             // while still succeeding.
             env: {
               ...process.env,
-              MANTICORE_29_URL: undefined,
-              MANTICORE_URL: undefined,
+              // Empty strings beat Bun auto-loading .env (delete/undefined inherits .env).
+              MANTICORE_29_URL: "",
+              MANTICORE_URL: "",
             },
             stderr: "pipe",
             stdout: "pipe",

@@ -176,16 +176,20 @@ describe
         const firstRegistry = createStoreRegistry(
           drizzle(firstClient, { schema })
         );
-        const saved = await firstRegistry.savedSearches.create({
-          filters: { locatieLand: ["NL"] },
-          naam: "Duurzame zoekopdracht",
-          parserVersion: "1",
-          queryText: "Azure AND engineer",
-          schemaVersion: "slice-a-v1",
-          scopeId,
-          userId: actorId,
-        });
-        savedSearchId = saved.id;
+        const saved = await firstRegistry.savedSearches.createWithAudit(
+          {
+            deletedAt: null,
+            filters: { locatieLand: ["NL"] },
+            naam: "Duurzame zoekopdracht",
+            parserVersion: "1",
+            queryText: "Azure AND engineer",
+            schemaVersion: "slice-a-v1",
+            scopeId,
+            userId: actorId,
+          },
+          "user"
+        );
+        savedSearchId = saved.savedSearch.id;
         const marked = await firstRegistry.markeringen.setWithAudit(
           {
             aanvraagId: fixture.aanvraagId,
@@ -233,6 +237,42 @@ describe
             scopeId
           )
         ).toBeNull();
+
+        const updatedSearch =
+          await restartedRegistry.savedSearches.updateWithAudit(
+            savedSearchId,
+            actorId,
+            scopeId,
+            {
+              filters: { locatieLand: ["BE"] },
+              naam: "Bijgewerkte zoekopdracht",
+              parserVersion: "1",
+              queryText: "Azure AND architect",
+              schemaVersion: "slice-a-v1",
+            },
+            "user"
+          );
+        expect(updatedSearch?.savedSearch.queryText).toBe(
+          "Azure AND architect"
+        );
+        expect(
+          await restartedRegistry.savedSearches.list(actorId, scopeId)
+        ).toHaveLength(1);
+        expect(
+          await restartedRegistry.savedSearches.updateWithAudit(
+            savedSearchId,
+            otherActorId,
+            scopeId,
+            {
+              filters: {},
+              naam: "Verboden",
+              parserVersion: "1",
+              queryText: "forbidden",
+              schemaVersion: "slice-a-v1",
+            },
+            "user"
+          )
+        ).toBeNull();
         expect(
           await restartedRegistry.savedSearches.getById(
             savedSearchId,
@@ -260,6 +300,37 @@ describe
             scopeId
           )
         ).toBeNull();
+
+        const cleared = await restartedRegistry.markeringen.clearWithAudit(
+          fixture.aanvraagId,
+          actorId,
+          scopeId,
+          "user"
+        );
+        expect(cleared?.cleared.revision).toBe(1);
+        expect(
+          await restartedRegistry.markeringen.get(
+            fixture.aanvraagId,
+            actorId,
+            scopeId
+          )
+        ).toBeNull();
+
+        const removedSearch =
+          await restartedRegistry.savedSearches.removeWithAudit(
+            savedSearchId,
+            actorId,
+            scopeId,
+            "user"
+          );
+        expect(removedSearch?.savedSearch.deletedAt).toBeInstanceOf(Date);
+        expect(
+          await restartedRegistry.savedSearches.getById(
+            savedSearchId,
+            actorId,
+            scopeId
+          )
+        ).toBeNull();
         expect(
           await restartedRegistry.markeringen.get(
             fixture.aanvraagId,
@@ -273,6 +344,15 @@ describe
           scopeId
         );
         expect(audit.map((event) => event.id)).toContain(auditEventId);
+        expect(audit.map((event) => event.action)).toEqual(
+          expect.arrayContaining([
+            "clear_markering",
+            "create_saved_search",
+            "markeer_aanvraag",
+            "remove_saved_search",
+            "update_saved_search",
+          ])
+        );
         expect(
           await restartedRegistry.audit.listByActorId(actorId, otherScopeId)
         ).toEqual([]);

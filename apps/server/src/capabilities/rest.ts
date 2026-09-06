@@ -171,6 +171,7 @@ const toRestJsonBody = (
 const readSnapshotId = (raw: RestJsonBody): string | undefined =>
   readString(raw, "id") ?? readString(raw, "snapshotId");
 
+// oxlint-disable-next-line complexity -- This closed transport adapter enumerates capability-specific path/body aliases.
 const normalizeRestInput = (
   capabilityId: string,
   raw: RestJsonBody
@@ -186,6 +187,20 @@ const normalizeRestInput = (
         ["aanvraagId", readString(raw, "id") ?? readString(raw, "aanvraagId")],
         ["reden", raw.reden ?? null],
         ["status", raw.status],
+      ]);
+    }
+    case "get_markering":
+    case "clear_markering": {
+      return toRestJsonBody([
+        ["aanvraagId", readString(raw, "id") ?? readString(raw, "aanvraagId")],
+      ]);
+    }
+    case "update_saved_search": {
+      return toRestJsonBody([
+        ["filters", raw.filters],
+        ["id", readString(raw, "id")],
+        ["naam", readString(raw, "naam")],
+        ["query", readString(raw, "query")],
       ]);
     }
     case "get_bron":
@@ -211,6 +226,9 @@ const normalizeRestInput = (
       ]);
     }
     case "commit_export": {
+      return toRestJsonBody([["snapshotId", readSnapshotId(raw)]]);
+    }
+    case "get_export_status": {
       return toRestJsonBody([["snapshotId", readSnapshotId(raw)]]);
     }
     case "read_raw": {

@@ -433,6 +433,16 @@ export class PostgresExportAttemptStore implements ExportAttemptStore {
   ): Promise<ExportAttemptRecord> {
     return insertAttempt(this.database, record);
   }
+
+  async listBySnapshotId(snapshotId: string, scopeId: string) {
+    const rows = await this.database.query.exportAttempt.findMany({
+      where: and(
+        eq(exportAttempt.snapshotId, snapshotId),
+        eq(exportAttempt.scopeId, scopeId)
+      ),
+    });
+    return rows.map(toExportAttemptRecord);
+  }
 }
 
 export class PostgresExternalReceiptStore implements ExternalReceiptStore {

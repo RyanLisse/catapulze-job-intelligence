@@ -323,6 +323,7 @@ export const savedSearch = curatedSchema.table(
     createdAt: timestamp("created_at", { withTimezone: true })
       .defaultNow()
       .notNull(),
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
     filters: jsonb("filters").default({}).notNull(),
     id: uuid("id").defaultRandom().primaryKey(),
     naam: text("naam").notNull(),

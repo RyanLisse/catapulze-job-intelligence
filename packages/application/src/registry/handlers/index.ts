@@ -492,8 +492,14 @@ export const createSavedSearchHandler =
   (deps: SliceAHandlerDeps) =>
   async (
     input: z.output<typeof createSavedSearchInputSchema>,
-    context: { principal: { subjectId: string } }
+    context: {
+      principal: {
+        kind: "agent" | "service" | "user";
+        subjectId: string;
+      };
+    }
   ) => {
+    let parserVersion = String(BOOLEAN_PARSER_VERSION);
     if (input.query.trim() !== "") {
       const parsed = parseBooleanQuery(input.query);
       if (!parsed.ok) {
@@ -503,17 +509,153 @@ export const createSavedSearchHandler =
           parsed.error
         );
       }
+      parserVersion = String(parsed.version);
     }
-    const saved = await deps.stores.savedSearches.create({
-      filters: input.filters ?? {},
-      naam: input.naam,
-      parserVersion: String(BOOLEAN_PARSER_VERSION),
-      queryText: input.query,
-      schemaVersion: SLICE_A_SCHEMA_VERSION,
-      scopeId: deps.scopeId,
-      userId: context.principal.subjectId,
-    });
-    return { ok: true as const, value: toSavedSearchView(saved) };
+    const { savedSearch } = await deps.stores.savedSearches.createWithAudit(
+      {
+        deletedAt: null,
+        filters: input.filters ?? {},
+        naam: input.naam,
+        parserVersion,
+        queryText: input.query,
+        schemaVersion: SLICE_A_SCHEMA_VERSION,
+        scopeId: deps.scopeId,
+        userId: context.principal.subjectId,
+      },
+      context.principal.kind
+    );
+    return { ok: true as const, value: toSavedSearchView(savedSearch) };
+  };
+
+export const savedSearchIdInputSchema = z
+  .object({ id: z.string().uuid() })
+  .strict();
+export const listSavedSearchesOutputSchema = z.array(savedSearchViewSchema);
+
+export const createGetSavedSearchHandler =
+  (deps: SliceAHandlerDeps) =>
+  async (
+    input: z.output<typeof savedSearchIdInputSchema>,
+    context: { principal: { subjectId: string } }
+  ) => {
+    const saved = await deps.stores.savedSearches.getById(
+      input.id,
+      context.principal.subjectId,
+      deps.scopeId
+    );
+    return saved
+      ? { ok: true as const, value: toSavedSearchView(saved) }
+      : domainFailure("NOT_FOUND", "Saved search not found", { id: input.id });
+  };
+
+export const createListSavedSearchesHandler =
+  (deps: SliceAHandlerDeps) =>
+  async (
+    _input: Record<string, never>,
+    context: { principal: { subjectId: string } }
+  ) => {
+    const saved = await deps.stores.savedSearches.list(
+      context.principal.subjectId,
+      deps.scopeId
+    );
+    return { ok: true as const, value: saved.map(toSavedSearchView) };
+  };
+
+export const updateSavedSearchInputSchema = z
+  .object({
+    filters: searchFiltersSchema.optional(),
+    id: z.string().uuid(),
+    naam: z.string().min(1).optional(),
+    query: z.string().optional(),
+  })
+  .strict()
+  .refine(
+    (input) =>
+      input.filters !== undefined ||
+      input.naam !== undefined ||
+      input.query !== undefined,
+    { message: "At least one saved-search field must be updated" }
+  );
+
+export const createUpdateSavedSearchHandler =
+  (deps: SliceAHandlerDeps) =>
+  async (
+    input: z.output<typeof updateSavedSearchInputSchema>,
+    context: {
+      principal: {
+        kind: "agent" | "service" | "user";
+        subjectId: string;
+      };
+    }
+  ) => {
+    const current = await deps.stores.savedSearches.getById(
+      input.id,
+      context.principal.subjectId,
+      deps.scopeId
+    );
+    if (!current) {
+      return domainFailure("NOT_FOUND", "Saved search not found", {
+        id: input.id,
+      });
+    }
+    const queryText = input.query ?? current.queryText;
+    const parsed = parseBooleanQuery(queryText);
+    if (!parsed.ok) {
+      return domainFailure("SYNTAX_ERROR", parsed.error.message, parsed.error);
+    }
+    const updated = await deps.stores.savedSearches.updateWithAudit(
+      input.id,
+      context.principal.subjectId,
+      deps.scopeId,
+      {
+        filters: input.filters ?? current.filters,
+        naam: input.naam ?? current.naam,
+        parserVersion: String(parsed.version),
+        queryText,
+        schemaVersion: SLICE_A_SCHEMA_VERSION,
+      },
+      context.principal.kind
+    );
+    return updated
+      ? { ok: true as const, value: toSavedSearchView(updated.savedSearch) }
+      : domainFailure("NOT_FOUND", "Saved search not found", { id: input.id });
+  };
+
+export const removeSavedSearchOutputSchema = z
+  .object({
+    auditEventId: z.string(),
+    id: z.string(),
+    removed: z.literal(true),
+  })
+  .strict();
+
+export const createRemoveSavedSearchHandler =
+  (deps: SliceAHandlerDeps) =>
+  async (
+    input: z.output<typeof savedSearchIdInputSchema>,
+    context: {
+      principal: {
+        kind: "agent" | "service" | "user";
+        subjectId: string;
+      };
+    }
+  ) => {
+    const removed = await deps.stores.savedSearches.removeWithAudit(
+      input.id,
+      context.principal.subjectId,
+      deps.scopeId,
+      context.principal.kind
+    );
+    return removed
+      ? {
+          ok: true as const,
+          value: {
+            auditEventId: removed.auditEvent.id,
+            id: input.id,
+            removed: true as const,
+          },
+        }
+      : domainFailure("NOT_FOUND", "Saved search not found", { id: input.id });
   };
 
 /**
@@ -578,6 +720,111 @@ const toSnapshotView = (record: QuerySnapshotRecord) => ({
   },
   userId: record.userId,
 });
+
+const sha256 = async (value: string): Promise<string> => {
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(value)
+  );
+  return [...new Uint8Array(digest)]
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
+};
+
+export const getSnapshotInputSchema = z
+  .object({ id: z.string().uuid() })
+  .strict();
+export const getSnapshotOutputSchema = z
+  .object({
+    approval: z
+      .object({
+        actorId: z.string(),
+        createdAt: z.string(),
+        expiresAt: z.string(),
+        id: z.string(),
+        status: z.enum(["approved", "expired"]),
+      })
+      .nullable(),
+    createdAt: z.string(),
+    freshness: z
+      .object({
+        searchAppliedSequence: z.string(),
+        searchGeneration: z.number().int().positive(),
+      })
+      .strict(),
+    id: z.string(),
+    provenance: z
+      .object({ parserVersion: z.string(), schemaVersion: z.string() })
+      .strict(),
+    queryDigest: z.string().regex(/^[a-f0-9]{64}$/u),
+    resultIds: z.array(z.string()),
+    savedSearchId: z.string().nullable(),
+    scope: z.enum(SEARCH_SCOPES),
+    selectionDigest: z.string().regex(/^[a-f0-9]{64}$/u),
+  })
+  .strict();
+
+export const createGetSnapshotHandler =
+  (deps: SliceAHandlerDeps) =>
+  async (
+    input: z.output<typeof getSnapshotInputSchema>,
+    context: { principal: { subjectId: string } }
+  ) => {
+    const snapshot = await deps.stores.snapshots.getById(
+      input.id,
+      deps.scopeId
+    );
+    if (!snapshot || snapshot.userId !== context.principal.subjectId) {
+      return domainFailure("NOT_FOUND", "QuerySnapshot not found", {
+        id: input.id,
+      });
+    }
+    const approval = await deps.stores.approvals.getBySnapshotId(
+      snapshot.id,
+      deps.scopeId
+    );
+    const queryDigest = await sha256(
+      JSON.stringify({
+        filters: snapshot.filters,
+        query: snapshot.queryText,
+        scope: snapshot.scope,
+      })
+    );
+    const selectionDigest = await sha256(JSON.stringify(snapshot.resultIds));
+    return {
+      ok: true as const,
+      value: {
+        approval: approval
+          ? {
+              actorId: approval.actorId,
+              createdAt: approval.createdAt.toISOString(),
+              expiresAt: approval.expiresAt.toISOString(),
+              id: approval.id,
+              status:
+                approval.expiresAt.getTime() > Date.now()
+                  ? ("approved" as const)
+                  : ("expired" as const),
+            }
+          : null,
+        createdAt: snapshot.createdAt.toISOString(),
+        freshness: {
+          searchAppliedSequence:
+            snapshot.searchVersion.appliedSequence.toString(),
+          searchGeneration: snapshot.searchVersion.generation,
+        },
+        id: snapshot.id,
+        provenance: {
+          parserVersion: snapshot.parserVersion,
+          schemaVersion: snapshot.schemaVersion,
+        },
+        queryDigest,
+        resultIds: [...snapshot.resultIds],
+        savedSearchId: snapshot.savedSearchId,
+        scope: snapshot.scope,
+        selectionDigest,
+      },
+    };
+  };
 
 /**
  * Selection-bound snapshot (RJC-385, Option A): the recruiter explicitly
@@ -921,6 +1168,77 @@ export const createMarkeerAanvraagHandler =
     };
   };
 
+export const getMarkeringInputSchema = z
+  .object({ aanvraagId: z.string().uuid() })
+  .strict();
+export const getMarkeringOutputSchema = markeerAanvraagOutputSchema.omit({
+  auditEventId: true,
+});
+
+export const createGetMarkeringHandler =
+  (deps: SliceAHandlerDeps) =>
+  async (
+    input: z.output<typeof getMarkeringInputSchema>,
+    context: { principal: { subjectId: string } }
+  ) => {
+    const markering = await deps.stores.markeringen.get(
+      input.aanvraagId,
+      context.principal.subjectId,
+      deps.scopeId
+    );
+    return markering
+      ? {
+          ok: true as const,
+          value: {
+            aanvraagId: markering.aanvraagId,
+            reden: markering.reden,
+            status: markering.status,
+          },
+        }
+      : domainFailure("NOT_FOUND", "Markering not found", {
+          id: input.aanvraagId,
+        });
+  };
+
+export const clearMarkeringOutputSchema = z
+  .object({
+    aanvraagId: z.string(),
+    auditEventId: z.string(),
+    cleared: z.literal(true),
+  })
+  .strict();
+
+export const createClearMarkeringHandler =
+  (deps: SliceAHandlerDeps) =>
+  async (
+    input: z.output<typeof getMarkeringInputSchema>,
+    context: {
+      principal: {
+        kind: "agent" | "service" | "user";
+        subjectId: string;
+      };
+    }
+  ) => {
+    const cleared = await deps.stores.markeringen.clearWithAudit(
+      input.aanvraagId,
+      context.principal.subjectId,
+      deps.scopeId,
+      context.principal.kind
+    );
+    return cleared
+      ? {
+          ok: true as const,
+          value: {
+            aanvraagId: input.aanvraagId,
+            auditEventId: cleared.auditEvent.id,
+            cleared: true as const,
+          },
+        }
+      : domainFailure("NOT_FOUND", "Markering not found", {
+          id: input.aanvraagId,
+        });
+  };
+
 export const listAlertsOutputSchema = z.array(
   z
     .object({
@@ -1110,4 +1428,7 @@ export {
   commitExportInputSchema,
   commitExportOutputSchema,
   createCommitExportHandler,
+  createGetExportStatusHandler,
+  getExportStatusInputSchema,
+  getExportStatusOutputSchema,
 } from "./export-handlers";
