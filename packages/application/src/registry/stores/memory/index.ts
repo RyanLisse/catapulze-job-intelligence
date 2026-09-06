@@ -51,4 +51,5 @@ export { MemoryRawPayloadStore } from "./raw-payload-store";
 export { MemoryExportAttemptStore } from "./export-attempt-store";
 export { MemoryExternalIdCrosswalkStore } from "./external-crosswalk-store";
 export { MemoryExternalReceiptStore } from "./external-receipt-store";
+export { MutationVersionGate } from "./mutation-queue";
 export { MemorySavedSearchStore } from "./saved-search-store";

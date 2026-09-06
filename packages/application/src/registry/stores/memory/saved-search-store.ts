@@ -4,6 +4,7 @@ import type {
   SavedSearchRecord,
   SavedSearchStore,
 } from "../types";
+import { MutationVersionGate } from "./mutation-queue";
 import { randomId } from "./random-id";
 
 type SavedSearchPatch = Pick<
@@ -23,6 +24,9 @@ const isOwnedActive = (
 export class MemorySavedSearchStore implements SavedSearchStore {
   private readonly audit: AuditStore;
   private readonly records = new Map<string, SavedSearchRecord>();
+  /** Last successfully audited state; rollback target for owning failures. */
+  private readonly committed = new Map<string, SavedSearchRecord>();
+  private readonly mutations = new MutationVersionGate();
 
   constructor(audit: AuditStore) {
     this.audit = audit;
@@ -39,7 +43,9 @@ export class MemorySavedSearchStore implements SavedSearchStore {
       id: randomId(),
       updatedAt: now,
     };
-    this.records.set(savedSearch.id, savedSearch);
+    const key = savedSearch.id;
+    const ownership = this.mutations.begin(key);
+    this.records.set(key, savedSearch);
     try {
       const auditEvent = await this.audit.append({
         action: "create_saved_search",
@@ -55,9 +61,12 @@ export class MemorySavedSearchStore implements SavedSearchStore {
         },
         scopeId: record.scopeId,
       });
+      if (this.mutations.owns(ownership)) {
+        this.committed.set(key, structuredClone(savedSearch));
+      }
       return { auditEvent, savedSearch: structuredClone(savedSearch) };
     } catch (error) {
-      this.records.delete(savedSearch.id);
+      this.rollbackIfOwner(key, ownership);
       throw error;
     }
   }
@@ -92,10 +101,11 @@ export class MemorySavedSearchStore implements SavedSearchStore {
     scopeId: string,
     actorType: AuditActorType
   ) {
-    const previous = this.records.get(id);
+    const previous = this.records.get(id) ?? this.committed.get(id);
     if (!isOwnedActive(previous, userId, scopeId)) {
       return null;
     }
+    const ownership = this.mutations.begin(id);
     const now = new Date();
     const removed: SavedSearchRecord = {
       ...previous,
@@ -118,9 +128,12 @@ export class MemorySavedSearchStore implements SavedSearchStore {
         },
         scopeId,
       });
+      if (this.mutations.owns(ownership)) {
+        this.committed.set(id, structuredClone(removed));
+      }
       return { auditEvent, savedSearch: structuredClone(removed) };
     } catch (error) {
-      this.records.set(id, previous);
+      this.rollbackIfOwner(id, ownership);
       throw error;
     }
   }
@@ -132,10 +145,11 @@ export class MemorySavedSearchStore implements SavedSearchStore {
     patch: SavedSearchPatch,
     actorType: AuditActorType
   ) {
-    const previous = this.records.get(id);
+    const previous = this.records.get(id) ?? this.committed.get(id);
     if (!isOwnedActive(previous, userId, scopeId)) {
       return null;
     }
+    const ownership = this.mutations.begin(id);
     const updated: SavedSearchRecord = {
       ...previous,
       ...patch,
@@ -157,10 +171,28 @@ export class MemorySavedSearchStore implements SavedSearchStore {
         },
         scopeId,
       });
+      if (this.mutations.owns(ownership)) {
+        this.committed.set(id, structuredClone(updated));
+      }
       return { auditEvent, savedSearch: structuredClone(updated) };
     } catch (error) {
-      this.records.set(id, previous);
+      this.rollbackIfOwner(id, ownership);
       throw error;
+    }
+  }
+
+  private rollbackIfOwner(
+    key: string,
+    ownership: ReturnType<MutationVersionGate["begin"]>
+  ): void {
+    if (!this.mutations.owns(ownership)) {
+      return;
+    }
+    const baseline = this.committed.get(key);
+    if (baseline) {
+      this.records.set(key, structuredClone(baseline));
+    } else {
+      this.records.delete(key);
     }
   }
 }
