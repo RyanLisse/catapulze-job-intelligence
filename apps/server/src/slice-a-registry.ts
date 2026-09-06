@@ -36,6 +36,7 @@ import {
 } from "@ji/search";
 
 import { assertProductionPersistence } from "./assert-production-persistence";
+import { PRODUCTION_UNAVAILABLE_CAPABILITIES } from "./capabilities/capability-availability";
 import { CATAPULZE_DEPLOYMENT_SCOPE_ID } from "./deployment-scope";
 
 /**
@@ -155,6 +156,10 @@ export const createProductionSliceADeps = async (
       list: () => listPublicBronnen(runtime.bronPersistence),
     },
     cacheBackend,
+    capabilityAvailability: {
+      unavailableCapabilityIds: () =>
+        new Set(PRODUCTION_UNAVAILABLE_CAPABILITIES.keys()),
+    },
     close: runtime.close,
     curateStore,
     database: runtime.database,

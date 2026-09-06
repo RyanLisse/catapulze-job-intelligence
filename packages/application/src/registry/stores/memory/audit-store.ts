@@ -4,6 +4,26 @@ import { randomId } from "./random-id";
 export class MemoryAuditStore implements AuditStore {
   readonly events: AuditEventRecord[] = [];
 
+  listRecentByActorId(
+    actorId: string,
+    scopeId: string,
+    limit: number
+  ): Promise<readonly AuditEventRecord[]> {
+    return Promise.resolve(
+      this.events
+        .filter(
+          (event) => event.actorId === actorId && event.scopeId === scopeId
+        )
+        .toSorted(
+          (left, right) =>
+            right.createdAt.getTime() - left.createdAt.getTime() ||
+            right.id.localeCompare(left.id)
+        )
+        .slice(0, limit)
+        .map((event) => structuredClone(event))
+    );
+  }
+
   append(
     event: Omit<AuditEventRecord, "createdAt" | "id">
   ): Promise<AuditEventRecord> {

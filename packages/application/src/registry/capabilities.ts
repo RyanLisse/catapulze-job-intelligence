@@ -20,6 +20,7 @@ import {
   createGetAanvraagHandler,
   createGetBronHandler,
   createGetBronHealthHandler,
+  createGetOperatorContextHandler,
   createGetSnapshotApprovalHandler,
   createGetSnapshotHandler,
   createGetMarkeringHandler,
@@ -57,6 +58,8 @@ import {
   getBronHealthOutputSchema,
   getBronInputSchema,
   getBronOutputSchema,
+  getOperatorContextInputSchema,
+  getOperatorContextOutputSchema,
   listAlertsOutputSchema,
   listBronnenOutputSchema,
   listVersiesInputSchema,
@@ -81,6 +84,7 @@ import {
   startTestImportInputSchema,
   updateSavedSearchInputSchema,
 } from "./handlers";
+import type { OperatorContextCapabilityDescriptor } from "./handlers";
 import type { SliceAHandlerDeps } from "./handlers/deps";
 import { defineSliceACapabilityEntry } from "./metadata";
 import {
@@ -93,6 +97,24 @@ import {
 
 export const createSliceACapabilityCatalog = (deps: SliceAHandlerDeps) => {
   const domainFailureSchema = sliceADomainFailureSchema;
+  let operatorContextCapabilities: readonly OperatorContextCapabilityDescriptor[] =
+    [];
+
+  const getOperatorContext = defineCapability({
+    authorization: { permission: ROLE_OPERATOR },
+    bindings: dualBindings("POST", "/v1/agent/context", "get_operator_context"),
+    effect: "read",
+    failureSchema: domainFailureSchema,
+    grounding: true,
+    handler: createGetOperatorContextHandler(
+      deps,
+      () => operatorContextCapabilities
+    ),
+    id: "get_operator_context",
+    inputSchema: getOperatorContextInputSchema,
+    outcome: "Lees veilige, permission-aware operatorcontext",
+    outputSchema: getOperatorContextOutputSchema,
+  });
 
   const searchAanvragen = defineCapability({
     authorization: { permission: ROLE_RECRUITER },
@@ -510,7 +532,17 @@ export const createSliceACapabilityCatalog = (deps: SliceAHandlerDeps) => {
     outputSchema: completeTaskOutputSchema,
   });
 
-  return [
+  const entries = [
+    defineSliceACapabilityEntry(getOperatorContext, {
+      auditClass: "access",
+      reversible: true,
+      sideEffectClass: "read",
+      target: "internal",
+      wiredTransports: [
+        "mcp:get_operator_context",
+        "rest:POST /v1/agent/context",
+      ],
+    }),
     defineSliceACapabilityEntry(searchAanvragen, {
       auditClass: "access",
       reversible: true,
@@ -807,6 +839,15 @@ export const createSliceACapabilityCatalog = (deps: SliceAHandlerDeps) => {
       ],
     }),
   ] as const;
+
+  operatorContextCapabilities = entries.map(({ capability }) => ({
+    effect: capability.effect,
+    id: capability.id,
+    outcome: capability.outcome,
+    permission: capability.authorization.permission,
+  }));
+
+  return entries;
 };
 
 export type SliceACapabilityCatalog = ReturnType<
@@ -814,6 +855,7 @@ export type SliceACapabilityCatalog = ReturnType<
 >;
 
 export const sliceACapabilityIds = [
+  "get_operator_context",
   "search_aanvragen",
   "get_aanvraag",
   "list_versies",

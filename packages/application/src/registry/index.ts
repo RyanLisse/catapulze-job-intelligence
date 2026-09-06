@@ -5,6 +5,7 @@ export * from "./capability";
 export * from "./catalog";
 export * from "./handlers/deps";
 export { isExportEnabled } from "./handlers/export-handlers";
+export * from "./handlers/operator-context";
 export * from "./metadata";
 export * from "./registry";
 export * from "./roles";

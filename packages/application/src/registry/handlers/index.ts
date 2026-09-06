@@ -38,6 +38,14 @@ import type { SliceAHandlerDeps } from "./deps";
 
 export { dualBindings, mcpBinding, restBinding } from "./bindings";
 export { sliceADomainFailureSchema } from "../schemas";
+export {
+  createGetOperatorContextHandler,
+  getOperatorContextInputSchema,
+  getOperatorContextOutputSchema,
+  OPERATOR_CONTEXT_CONTRACT_NAME,
+  OPERATOR_CONTEXT_CONTRACT_VERSION,
+  type OperatorContextCapabilityDescriptor,
+} from "./operator-context";
 
 const domainFailure = (
   code: SliceADomainFailure["code"],

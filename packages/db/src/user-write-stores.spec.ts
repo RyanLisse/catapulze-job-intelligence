@@ -362,6 +362,70 @@ describe
       }
     });
 
+    it("bounds recent audit reads within actor and scope with deterministic timestamp ties", async () => {
+      const scopeId = `recent-audit-${crypto.randomUUID()}`;
+      const otherScopeId = `${scopeId}-other`;
+      const actorId = "recent-audit-owner";
+      const applicationClient = postgres(applicationUrl, { max: 1 });
+      const createdAt = new Date("2026-09-05T12:00:00.000Z");
+      const ownRows = Array.from({ length: 12 }, () => ({
+        action: "markeer_aanvraag",
+        actorId,
+        actorType: "user",
+        auditClass: "effect",
+        createdAt,
+        entityId: "fixture-entity",
+        entityType: "aanvraag",
+        id: crypto.randomUUID(),
+        metadata: { reden: null, status: "relevant" },
+        scopeId,
+      }));
+      const [sample] = ownRows;
+      if (!sample) {
+        throw new Error("Expected an audit fixture");
+      }
+      try {
+        await migratorDatabase
+          .insert(auditEvent)
+          .values([
+            ...ownRows,
+            { ...sample, actorId: "another-actor", id: crypto.randomUUID() },
+            { ...sample, id: crypto.randomUUID(), scopeId: otherScopeId },
+          ]);
+        const store = new PostgresAuditStore(
+          drizzle(applicationClient, { schema })
+        );
+        const recent = await store.listRecentByActorId(actorId, scopeId, 3);
+        expect(recent).toHaveLength(3);
+        expect(recent.map((event) => event.id)).toEqual(
+          ownRows
+            .map((event) => event.id)
+            .toSorted()
+            .toReversed()
+            .slice(0, 3)
+        );
+        expect(
+          recent.every(
+            (event) => event.actorId === actorId && event.scopeId === scopeId
+          )
+        ).toBe(true);
+        const foreignScope = await store.listRecentByActorId(
+          actorId,
+          otherScopeId,
+          3
+        );
+        expect(foreignScope).toHaveLength(1);
+      } finally {
+        await applicationClient.end({ timeout: 5 });
+        await migratorDatabase
+          .delete(auditEvent)
+          .where(eq(auditEvent.scopeId, scopeId));
+        await migratorDatabase
+          .delete(auditEvent)
+          .where(eq(auditEvent.scopeId, otherScopeId));
+      }
+    });
+
     it("rolls markering inserts and updates back when the audit append fails", async () => {
       const fixture = await seedAanvraag();
       const scopeId = `rollback-markering-${crypto.randomUUID()}`;

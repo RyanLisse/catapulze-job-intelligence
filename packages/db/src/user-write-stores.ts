@@ -353,6 +353,22 @@ export class PostgresAuditStore implements AuditStore {
     return appendPostgresAuditEvent(this.database, event);
   }
 
+  async listRecentByActorId(
+    actorId: string,
+    scopeId: string,
+    limit: number
+  ): Promise<readonly AuditEventRecord[]> {
+    const rows = await this.database
+      .select()
+      .from(auditEvent)
+      .where(
+        and(eq(auditEvent.actorId, actorId), eq(auditEvent.scopeId, scopeId))
+      )
+      .orderBy(desc(auditEvent.createdAt), desc(auditEvent.id))
+      .limit(limit);
+    return rows.map(toAuditEventRecord);
+  }
+
   async listByActorId(
     actorId: string,
     scopeId: string
