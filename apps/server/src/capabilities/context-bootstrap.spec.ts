@@ -31,7 +31,7 @@ const createFixture = (scopeId = "bootstrap-scope-one") => {
     [credentialOne, { id: actorOne, role: "operator" }],
     [credentialTwo, { id: actorTwo, role: "operator" }],
   ]);
-  const { registry } = createSliceARegistry({
+  const { entries, registry } = createSliceARegistry({
     ...deps,
     capabilityAvailability: { unavailableCapabilityIds: () => unavailable },
     now: () => now,
@@ -50,7 +50,16 @@ const createFixture = (scopeId = "bootstrap-scope-one") => {
     },
     () => now
   );
-  const policy = new Map([["start_run", "Fixture dispatch unavailable"]]);
+  const policy = new Map([
+    [
+      "start_run",
+      {
+        reason: "Fixture dispatch unavailable",
+        safeNextStep: "Use fixture readback",
+        status: "disabled" as const,
+      },
+    ],
+  ]);
   const options = {
     allowedCookieOrigin: "https://app.catapulze.test",
     unavailableCapabilities: policy,
@@ -58,6 +67,7 @@ const createFixture = (scopeId = "bootstrap-scope-one") => {
   const mcp = createMcpHandler(registry, resolvePrincipal, {
     ...options,
     allowedHost: "server.test",
+    entries,
     recordMetric: (metric) => {
       metrics.push(metric);
     },

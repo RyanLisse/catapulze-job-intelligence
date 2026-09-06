@@ -313,7 +313,11 @@ describe("REST and MCP authentication boundary", () => {
     const trustedMcp = createMcpHandler(
       trustedBundle.registry,
       resolvePrincipal,
-      { allowedCookieOrigin: allowedOrigin, allowedHost: "server.test" }
+      {
+        allowedCookieOrigin: allowedOrigin,
+        allowedHost: "server.test",
+        entries: trustedBundle.entries,
+      }
     );
     const restResponse = await trustedRest(
       createRestContext(new Headers({ Authorization: validBearer }), {
