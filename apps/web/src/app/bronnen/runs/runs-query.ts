@@ -39,8 +39,23 @@ const isRunStatus = (value: string): value is RunStatusFilter =>
 const isRunKind = (value: string): value is RunKindFilter =>
   RUN_KIND_SET.has(value);
 
-const UUID_RE =
+export const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
+
+/** Cursor shape: `<ISO-8601>|<uuid>` — reject anything Postgres would cast-fail. */
+export const isValidRunsCursor = (value: string): boolean => {
+  const separator = value.indexOf("|");
+  if (separator <= 0) {
+    return false;
+  }
+  const gestartRaw = value.slice(0, separator);
+  const id = value.slice(separator + 1);
+  if (!UUID_RE.test(id)) {
+    return false;
+  }
+  const gestart = new Date(gestartRaw);
+  return !Number.isNaN(gestart.getTime());
+};
 
 export const parseRunsQuery = (params: {
   readonly bronId?: string | string[];
@@ -57,7 +72,7 @@ export const parseRunsQuery = (params: {
 
   return {
     bronId: bronIdRaw && UUID_RE.test(bronIdRaw) ? bronIdRaw : undefined,
-    cursor: cursorRaw && cursorRaw.length > 0 ? cursorRaw : undefined,
+    cursor: cursorRaw && isValidRunsCursor(cursorRaw) ? cursorRaw : undefined,
     failureCode:
       failureCodeRaw && failureCodeRaw.length > 0 ? failureCodeRaw : undefined,
     runKind:

@@ -16,6 +16,7 @@ import {
   canAccessBronnen,
   sessionRoleSchema,
 } from "@/app/bronnen/bronnen-window";
+import { UUID_RE } from "@/app/bronnen/runs/runs-query";
 import {
   CapabilityRequestError,
   createCapabilityClient,
@@ -72,6 +73,7 @@ const numberFormatter = new Intl.NumberFormat("nl-NL");
 const dateTimeFormatter = new Intl.DateTimeFormat("nl-NL", {
   dateStyle: "medium",
   timeStyle: "medium",
+  timeZone: "Europe/Amsterdam",
 });
 
 const formatDateTime = (value: string | null): string =>
@@ -95,6 +97,9 @@ const requireOperator = async (): Promise<void> => {
 };
 
 const loadRun = async (id: string): Promise<ScrapeRunDetail> => {
+  if (!UUID_RE.test(id)) {
+    notFound();
+  }
   const client = createCapabilityClient({
     baseUrl: getInternalServerUrl(),
   });
@@ -103,7 +108,10 @@ const loadRun = async (id: string): Promise<ScrapeRunDetail> => {
       headers: await headers(),
     });
   } catch (error) {
-    if (error instanceof CapabilityRequestError && error.status === 404) {
+    if (
+      error instanceof CapabilityRequestError &&
+      (error.status === 404 || error.status === 400)
+    ) {
       notFound();
     }
     throw error;
@@ -212,63 +220,31 @@ export default async function BronnenRunDetailPage({
         </CardContent>
       </Card>
 
-      <div className="grid gap-4 lg:grid-cols-2">
-        <Card>
-          <CardHeader className="border-b">
-            <CardTitle>Lifecycle</CardTitle>
-          </CardHeader>
-          <CardContent className="grid grid-cols-2 gap-4 pt-4">
-            <Stat
-              label="Incremented"
-              value={numberFormatter.format(run.lifecycleSummary.incremented)}
-            />
-            <Stat
-              label="Reopened"
-              value={numberFormatter.format(run.lifecycleSummary.reopened)}
-            />
-            <Stat
-              label="Reset"
-              value={numberFormatter.format(run.lifecycleSummary.reset)}
-            />
-            <Stat
-              label="Staled"
-              value={numberFormatter.format(run.lifecycleSummary.staled)}
-            />
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="border-b">
-            <CardTitle>Observaties</CardTitle>
-          </CardHeader>
-          <CardContent className="grid grid-cols-2 gap-4 pt-4">
-            <Stat
-              label="Created"
-              value={numberFormatter.format(
-                run.observationDistribution.created
-              )}
-            />
-            <Stat
-              label="Updated"
-              value={numberFormatter.format(
-                run.observationDistribution.updated
-              )}
-            />
-            <Stat
-              label="Unchanged"
-              value={numberFormatter.format(
-                run.observationDistribution.unchanged
-              )}
-            />
-            <Stat
-              label="Rejected"
-              value={numberFormatter.format(
-                run.observationDistribution.rejected
-              )}
-            />
-          </CardContent>
-        </Card>
-      </div>
+      <Card>
+        <CardHeader className="border-b">
+          <CardTitle>Observaties</CardTitle>
+        </CardHeader>
+        <CardContent className="grid grid-cols-2 gap-4 pt-4 sm:grid-cols-4">
+          <Stat
+            label="Created"
+            value={numberFormatter.format(run.observationDistribution.created)}
+          />
+          <Stat
+            label="Updated"
+            value={numberFormatter.format(run.observationDistribution.updated)}
+          />
+          <Stat
+            label="Unchanged"
+            value={numberFormatter.format(
+              run.observationDistribution.unchanged
+            )}
+          />
+          <Stat
+            label="Rejected"
+            value={numberFormatter.format(run.observationDistribution.rejected)}
+          />
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader className="border-b">

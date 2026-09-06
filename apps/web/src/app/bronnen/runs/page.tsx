@@ -86,6 +86,7 @@ const numberFormatter = new Intl.NumberFormat("nl-NL");
 const dateTimeFormatter = new Intl.DateTimeFormat("nl-NL", {
   dateStyle: "short",
   timeStyle: "medium",
+  timeZone: "Europe/Amsterdam",
 });
 
 const formatDateTime = (value: string): string =>
@@ -140,14 +141,46 @@ const requireOperator = async (): Promise<void> => {
   }
 };
 
+interface DashboardBronStats {
+  readonly bronId: string | null;
+  readonly naam: string | null;
+}
+
+interface DashboardOverviewForFilter {
+  readonly bronnen: readonly {
+    readonly stats: DashboardBronStats;
+  }[];
+}
+
+/**
+ * Operators cannot call GET /v1/bronnen (ROLE_RECRUITER). Reuse the operator
+ * dashboard overview (same as D5) and project bronId/naam for the filter.
+ */
 const loadBronnen = async (): Promise<readonly PublicBronView[]> => {
   const client = createCapabilityClient({
     baseUrl: getInternalServerUrl(),
   });
   try {
-    return await client.get<readonly PublicBronView[]>("/v1/bronnen", {
-      headers: await headers(),
-    });
+    const overview = await client.get<DashboardOverviewForFilter>(
+      "/v1/dashboard?window=7d",
+      {
+        headers: await headers(),
+      }
+    );
+    const seen = new Set<string>();
+    const items: PublicBronView[] = [];
+    for (const bron of overview.bronnen) {
+      const { bronId } = bron.stats;
+      const { naam } = bron.stats;
+      if (!bronId || !naam || seen.has(bronId)) {
+        continue;
+      }
+      seen.add(bronId);
+      items.push({ bronId, naam });
+    }
+    return items.toSorted((left, right) =>
+      left.naam.localeCompare(right.naam, "nl")
+    );
   } catch (error) {
     if (error instanceof CapabilityRequestError) {
       return [];

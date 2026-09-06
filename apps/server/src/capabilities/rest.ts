@@ -251,6 +251,7 @@ const normalizeRestInput = (
 const parseRestQuery = (url: string): RestQuery => {
   const params = Object.fromEntries(new URL(url).searchParams.entries());
   const parsed = restQuerySchema.safeParse(params);
+  // Prefer parsed data, but never drop keys if validation somehow fails.
   return parsed.success ? parsed.data : params;
 };
 
