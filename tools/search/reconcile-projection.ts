@@ -29,7 +29,10 @@ import { partitionTable, SEARCH_INDEX_NAME } from "@ji/search";
 import type { SearchPartition } from "@ji/search";
 import { z } from "zod";
 
+import { hasProjectionDrift } from "./reconcile-projection-status";
+
 const apply = process.argv.includes("--apply");
+const failOnDrift = process.argv.includes("--fail-on-drift");
 const projectorQuiesced = process.argv.includes("--projector-quiesced");
 const MANTICORE_TIMEOUT_MS = 10_000;
 
@@ -289,6 +292,12 @@ try {
     console.log(
       "Stop the projector, wait for any in-flight drain, then re-run with --apply --projector-quiesced."
     );
+  }
+  if (!apply && failOnDrift && hasProjectionDrift(result)) {
+    console.error(
+      "Projection reconciliation found drift; failing closed (--fail-on-drift)."
+    );
+    process.exitCode = 1;
   }
 } catch (error) {
   if (

@@ -6,142 +6,131 @@ if ! command -v docker >/dev/null 2>&1; then
   exit 1
 fi
 
-compose_env_file="scripts/fixtures/docker-smoke.env"
+compose_env_file="${COMPOSE_ENV_FILE:-.env}"
 if [[ ! -f "$compose_env_file" ]]; then
   echo "docker-compose smoke: Compose env file '$compose_env_file' does not exist" >&2
   exit 1
 fi
-
-run_id="${GITHUB_RUN_ID:-local}"
-run_attempt="${GITHUB_RUN_ATTEMPT:-local}"
-project_name="catapulze-smoke-${run_id//[^a-zA-Z0-9_-]/-}-${run_attempt//[^a-zA-Z0-9_-]/-}-$$"
-artifact_dir="${DOCKER_SMOKE_ARTIFACT_DIR:-.artifacts/docker-smoke}"
-compose_parallel_limit="${COMPOSE_PARALLEL_LIMIT:-2}"
-
-if [[ ! "$compose_parallel_limit" =~ ^[12]$ ]]; then
-  echo "docker-compose smoke: COMPOSE_PARALLEL_LIMIT must be 1 or 2" >&2
+raw_storage_enabled="${SMOKE_RAW_STORAGE:-0}"
+compose_command=(docker compose --env-file "$compose_env_file")
+compose_profiles=(--profile projector)
+diagnostic_services=(server projector)
+if [[ "$raw_storage_enabled" == "1" ]]; then
+  if [[ ! -f docker-compose.smoke.yml ]]; then
+    echo "docker-compose smoke: docker-compose.smoke.yml is required when SMOKE_RAW_STORAGE=1" >&2
+    exit 1
+  fi
+  # The override injects the synthetic MinIO S3 settings into the server only
+  # for this explicitly opted-in smoke lane. The base Compose file keeps its
+  # normal filesystem fallback and production deployment contract.
+  # Merge order: base Compose file first, then the smoke override.
+  compose_command+=(--file docker-compose.yml --file docker-compose.smoke.yml)
+  compose_profiles+=(--profile storage)
+  diagnostic_services+=(raw-storage-minio raw-storage-minio-init)
+fi
+if [[ ! -f apps/server/.env && -z "${MIGRATION_DATABASE_URL:-}" ]]; then
+  echo "docker-compose smoke: provide apps/server/.env or inject MIGRATION_DATABASE_URL" >&2
+  exit 1
+fi
+if [[ -n "$("${compose_command[@]}" ps -aq)" ]]; then
+  echo "docker-compose smoke: stop the existing Compose stack before running this isolated test" >&2
   exit 1
 fi
 
-mkdir -p "$artifact_dir"
-compose_command=(
-  env -i
-  "HOME=$HOME"
-  "PATH=$PATH"
-  "COMPOSE_PARALLEL_LIMIT=$compose_parallel_limit"
-  docker compose
-  --project-name "$project_name"
-  --env-file "$compose_env_file"
-  --file docker-compose.yml
-  --file docker-compose.smoke.yml
-  --profile storage
-  --profile projector
-  --profile smoke
-)
-
-if [[ -n "${DOCKER_SMOKE_CONFIG_OUTPUT:-}" ]]; then
-  "${compose_command[@]}" config --format json >"$DOCKER_SMOKE_CONFIG_OUTPUT"
-  exit 0
-fi
+volume_name="$({
+  "${compose_command[@]}" config --format json
+} | bun -e 'const config = JSON.parse(await Bun.stdin.text()); process.stdout.write(config.volumes.postgres_data.name);')"
+POSTGRES_DATA_VOLUME="$volume_name" bash tools/postgres/ensure-volume.sh
 
 cleanup() {
-  local status="$?"
-  local down_status
-  set +e
-  "${compose_command[@]}" ps --all >"$artifact_dir/containers.txt" 2>&1
-  "${compose_command[@]}" logs --no-color >"$artifact_dir/compose.log" 2>&1
-  "${compose_command[@]}" down --volumes --remove-orphans
-  down_status="$?"
-  trap - EXIT
-  if ((status == 0 && down_status != 0)); then
-    status="$down_status"
-    echo "docker-compose smoke: cleanup failed; inspect $artifact_dir" >&2
-  elif ((status != 0)); then
-    echo "docker-compose smoke: failed; inspect $artifact_dir" >&2
+  local exit_status=$?
+  local cleanup_status=0
+  if ((exit_status != 0)); then
+    echo "docker-compose smoke: collecting failure diagnostics (exit $exit_status)" >&2
+    "${compose_command[@]}" ps >&2 || true
+    "${compose_command[@]}" logs --no-color --tail 80 "${diagnostic_services[@]}" >&2 || true
   fi
-  exit "$status"
+  "${compose_command[@]}" "${compose_profiles[@]}" down || cleanup_status=$?
+  if ((exit_status != 0)); then
+    return "$exit_status"
+  fi
+  return "$cleanup_status"
 }
 trap cleanup EXIT
-trap 'exit 130' INT
-trap 'exit 143' TERM
 
-"${compose_command[@]}" config --quiet
-"${compose_command[@]}" build server web migrator projector
-"${compose_command[@]}" up -d --wait \
-  postgres redis manticore raw-storage-minio
-"${compose_command[@]}" run --rm migrator
-"${compose_command[@]}" up -d --no-build --wait server web projector
+"${compose_command[@]}" --profile projector build
+"${compose_command[@]}" up -d --wait postgres manticore redis
+if [[ "$raw_storage_enabled" == "1" ]]; then
+  # Start MinIO and wait for its healthcheck, then run the one-shot bucket
+  # bootstrap to completion before any server readiness check can run.
+  "${compose_command[@]}" --profile storage up -d --wait raw-storage-minio
+  "${compose_command[@]}" --profile storage run --rm --no-deps raw-storage-minio-init
+fi
+bun run db:migrate
 
-"${compose_command[@]}" exec -T postgres psql -v ON_ERROR_STOP=1 -U ji_admin -d ji_smoke <<'SQL'
-INSERT INTO curated.bron (
-  id, naam, categorie, ingestie_type, interval, rate_limit_per_minute,
-  crawl_delay_ms, status, voorwaarden_status, actief
-) VALUES (
-  '00000000-0000-4000-8000-000000000437', 'Docker smoke fixture',
-  'msp_broker', 'html', '*/15 * * * *', 60, 0, 'ready', 'toegestaan', true
-);
-INSERT INTO curated.scrape_run (id, bron_id) VALUES (
-  '00000000-0000-4000-8000-000000004370',
-  '00000000-0000-4000-8000-000000000437'
-);
-INSERT INTO curated.aanvraag (
-  id, titel, beschrijving, bron_id, bron_referentie, content_hash,
-  eerste_gezien_op, laatst_gezien_op, extractie_methode, raw_payload_ref,
-  scrape_run_id, status
-) VALUES (
-  '00000000-0000-4000-8000-000000004371',
-  'RJC437 Synthetic Platform Engineer',
-  'Disposable application image smoke fixture',
-  '00000000-0000-4000-8000-000000000437', 'rjc437-smoke',
-  'rjc437-smoke-hash', '2026-09-05T00:00:00Z', '2026-09-05T00:00:00Z',
-  'html_parser', 'raw/smoke/rjc437.html',
-  '00000000-0000-4000-8000-000000004370', 'active'
-);
-INSERT INTO curated.outbox_event (
-  aggregate_id, aggregate_type, event_type, payload
-) VALUES (
-  '00000000-0000-4000-8000-000000004371', 'aanvraag', 'aanvraag.nieuw', '{}'::jsonb
-);
-SQL
+# A persistent Postgres volume can carry a checkpoint from an older search
+# mapping. The server healthcheck deliberately uses /readyz, so starting the
+# normal app stack first would deadlock on that mismatch: server stays
+# unhealthy, web waits for server, and the replay command never gets a chance
+# to run. Bootstrap the durable generation through the built server image on
+# the Compose network while the API is still stopped.
+"${compose_command[@]}" run --rm --no-deps server \
+  bun /app/tools/manticore/start-search-generation.ts --apply
 
-projected="false"
-for _attempt in {1..30}; do
-  processed="$({
-    "${compose_command[@]}" exec -T postgres psql -v ON_ERROR_STOP=1 \
-      -U ji_admin -d ji_smoke -tAc \
-      "SELECT processed_at IS NOT NULL FROM curated.outbox_event WHERE aggregate_id = '00000000-0000-4000-8000-000000004371'"
-  } | tr -d '[:space:]')"
-  if [[ "$processed" == "t" ]]; then
-    projected="true"
-    break
-  fi
-  sleep 1
-done
-if [[ "$projected" != "true" ]]; then
-  echo "docker-compose smoke: projector did not acknowledge the synthetic outbox event" >&2
+# The projector is opt-in in docker-compose.yml. Start it only after the
+# generation is finalized, then start the healthchecked app services. This
+# drains the replay before reconciliation and keeps the default Compose
+# semantics unchanged for normal local development.
+"${compose_command[@]}" --profile projector up -d --no-build projector
+"${compose_command[@]}" up -d --no-build --wait server web
+
+wait_for_projection_drain() {
+  local readiness_attempts=60
+  local readiness_body
+  for ((attempt = 1; attempt <= readiness_attempts; attempt += 1)); do
+    readiness_body="$(curl --silent --show-error --max-time 5 http://localhost:3000/readyz 2>/dev/null || true)"
+    if [[ -n "$readiness_body" ]] && bun -e '
+      const report = JSON.parse(await Bun.stdin.text());
+      const projection = report.components?.searchProjection;
+      process.exit(
+        projection?.status === "ok" && projection.lagEvents === 0 ? 0 : 1
+      );
+    ' <<<"$readiness_body"; then
+      return 0
+    fi
+    sleep 2
+  done
+  echo "docker-compose smoke: search projection did not drain within 120 seconds" >&2
+  return 1
+}
+
+wait_for_projection_drain
+
+# Reconciliation is report-only here, but it must run after the replay drain
+# and with the projector stopped so the inventory cannot change underneath the
+# scan. A non-zero result still fails the smoke via the command's own guards.
+"${compose_command[@]}" --profile projector stop projector
+"${compose_command[@]}" run --rm --no-deps server \
+  bun /app/tools/search/reconcile-projection.ts --fail-on-drift
+
+curl --fail --silent --show-error --retry 10 --retry-delay 2 http://localhost:3000/readyz >/dev/null
+curl --fail --silent --show-error --retry 10 --retry-delay 2 http://localhost:3001/ >/dev/null
+# The SSR session lookup on /dashboard leaves the web container over
+# INTERNAL_SERVER_URL; without it every /dashboard was a 500 (ECONNREFUSED
+# 127.0.0.1:3000) while "/" stayed green. Assert the logged-out redirect.
+dashboard_status="$(curl --silent --output /dev/null --write-out '%{http_code}' http://localhost:3001/dashboard)"
+if [[ "$dashboard_status" != "307" ]]; then
+  echo "docker-compose smoke: GET /dashboard returned $dashboard_status, expected 307 to /login (check INTERNAL_SERVER_URL on web)" >&2
   exit 1
 fi
+echo "docker-compose smoke: postgres, server and web are healthy"
 
-"${compose_command[@]}" exec -T \
-  -e AUTH_BOOTSTRAP_ENABLED=1 \
-  -e AUTH_BOOTSTRAP_CONFIRM=PROVISION_AUTH_USER \
-  -e AUTH_BOOTSTRAP_EMAIL=smoke-user@example.invalid \
-  -e 'AUTH_BOOTSTRAP_NAME=Docker Smoke User' \
-  -e AUTH_BOOTSTRAP_PASSWORD=synthetic-smoke-password \
-  -e AUTH_BOOTSTRAP_ROLE=recruiter \
-  server bun src/auth/provision-user.ts
-
-"${compose_command[@]}" exec -T server bun -e \
-  "fetch('http://localhost:3000/readyz').then((response) => process.exit(response.ok ? 0 : 1)).catch(() => process.exit(1))"
-"${compose_command[@]}" exec -T server bun -e \
-  "const signIn = await fetch('http://localhost:3000/api/auth/sign-in/email', { body: JSON.stringify({ email: 'smoke-user@example.invalid', password: 'synthetic-smoke-password' }), headers: { 'content-type': 'application/json', origin: 'http://web:3001' }, method: 'POST' }); if (!signIn.ok) process.exit(1); const cookie = signIn.headers.getSetCookie()[0]?.split(';')[0]; if (!cookie) process.exit(1); const response = await fetch('http://localhost:3000/v1/aanvragen/search', { body: JSON.stringify({ query: 'RJC437' }), headers: { 'content-type': 'application/json', cookie, origin: 'http://web:3001' }, method: 'POST' }); if (!response.ok || !(await response.json()).ids?.includes('00000000-0000-4000-8000-000000004371')) process.exit(1);"
-"${compose_command[@]}" exec -T web node -e \
-  "Promise.all([fetch('http://localhost:3001/'), fetch('http://localhost:3001/dashboard', { redirect: 'manual' })]).then(([home, dashboard]) => process.exit(home.ok && dashboard.status === 307 && dashboard.headers.get('location')?.startsWith('/login') ? 0 : 1)).catch(() => process.exit(1))"
-"${compose_command[@]}" exec -T projector bun src/projector/heartbeat.ts --check
-
-"${compose_command[@]}" exec -T --workdir /app \
-  -e DATABASE_TEST_URL=postgresql://smoke:smoke@127.0.0.1:1/unreachable \
-  -e MANTICORE_REQUIRE_LIVE=1 server \
-  bun test --max-concurrency 2 packages/search/src/manticore/live.spec.ts
-
-echo "docker-compose smoke: migrator, authenticated search, web and projector checks passed"
+# RJC-356: exercise the live Manticore document-id integration test now that
+# a real Manticore instance is up as part of this stack. This script never
+# sources the compose env file into the shell, so ${MANTICORE_HTTP_PORT}
+# could disagree with the port compose actually published — ask compose for
+# the real published address instead of assuming the default.
+manticore_address="$("${compose_command[@]}" port manticore 9308)"
+MANTICORE_URL="http://${manticore_address}" \
+  MANTICORE_REQUIRE_LIVE=1 bun test packages/search/src/manticore/live.spec.ts
+echo "docker-compose smoke: Manticore document-id live test passed"

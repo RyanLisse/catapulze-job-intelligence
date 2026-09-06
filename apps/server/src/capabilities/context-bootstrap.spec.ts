@@ -176,15 +176,20 @@ describe("operator context transport contract", () => {
   it("refreshes an owned selection without returning sensitive resource fields", async () => {
     const fixture = createFixture();
     const client = await fixture.connect();
-    const saved = await fixture.deps.stores.savedSearches.create({
-      filters: {},
-      naam: "private-bootstrap-name",
-      parserVersion: "1.0.0",
-      queryText: "private-bootstrap-query",
-      schemaVersion: "1.0.0",
-      scopeId: fixture.deps.scopeId,
-      userId: actorOne,
-    });
+    const { savedSearch: saved } =
+      await fixture.deps.stores.savedSearches.createWithAudit(
+        {
+          deletedAt: null,
+          filters: {},
+          naam: "private-bootstrap-name",
+          parserVersion: "1.0.0",
+          queryText: "private-bootstrap-query",
+          schemaVersion: "1.0.0",
+          scopeId: fixture.deps.scopeId,
+          userId: actorOne,
+        },
+        "user"
+      );
     try {
       const before = await client.callTool({
         arguments: {},

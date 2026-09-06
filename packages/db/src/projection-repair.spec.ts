@@ -184,7 +184,8 @@ const lowUuid = (version: "4" | "7" = "4"): string =>
 
 const seedAanvraag = async (
   db: TestDatabase,
-  id: string = crypto.randomUUID()
+  id: string = crypto.randomUUID(),
+  location?: { land: string; tekst: string | null }
 ): Promise<string> => {
   const bronId = crypto.randomUUID();
   seededBronIds.push(bronId);
@@ -214,6 +215,8 @@ const seedAanvraag = async (
       extractieMethode: "html_parser",
       id,
       laatstGezienOp: NOW,
+      locatieLand: location?.land ?? "NL",
+      locatieTekst: location?.tekst ?? null,
       rawPayloadRef: "raw/hero/A.html",
       scrapeRunId: runId,
       status: "active",
@@ -325,6 +328,59 @@ describe("reconcileProjection (RJC-399 repair tool)", () => {
     }
     return isolatedDatabase;
   };
+
+  it("preserves unknown, Dutch and non-Dutch locations in single and bulk projector loads", async () => {
+    if (!available || !database) {
+      expect(available).toBe(false);
+      return;
+    }
+    const db = requireDatabase();
+    const unknownId = await seedAanvraag(db, crypto.randomUUID(), {
+      land: "NL",
+      tekst: null,
+    });
+    const dutchId = await seedAanvraag(db, crypto.randomUUID(), {
+      land: "NL",
+      tekst: "Amsterdam",
+    });
+    const belgianId = await seedAanvraag(db, crypto.randomUUID(), {
+      land: "BE",
+      tekst: "Brussel",
+    });
+    const loader = new PostgresSearchDocumentLoader(db);
+
+    const singleDocuments = await Promise.all(
+      [unknownId, dutchId, belgianId].map((id) => loader.loadByAggregateId(id))
+    );
+    expect(singleDocuments.map((document) => document?.locatie)).toEqual([
+      null,
+      "Amsterdam",
+      "Brussel",
+    ]);
+    expect(singleDocuments.map((document) => document?.locatieLand)).toEqual([
+      null,
+      "NL",
+      "BE",
+    ]);
+
+    const bulkDocuments = await loader.loadManyByAggregateIds([
+      unknownId,
+      dutchId,
+      belgianId,
+    ]);
+    expect(bulkDocuments.get(unknownId)).toMatchObject({
+      locatie: null,
+      locatieLand: null,
+    });
+    expect(bulkDocuments.get(dutchId)).toMatchObject({
+      locatie: "Amsterdam",
+      locatieLand: "NL",
+    });
+    expect(bulkDocuments.get(belgianId)).toMatchObject({
+      locatie: "Brussel",
+      locatieLand: "BE",
+    });
+  });
 
   it("fails closed before a bounded lookup can use duplicate numeric ids", () => {
     const firstDocumentId = crypto.randomUUID();

@@ -186,10 +186,11 @@ const toSearchDocument = (row: AanvraagRow): SearchDocument => {
     contracttype: bronFacts.contracttype,
     id: row.id,
     laatstGezienOp: row.laatstGezienOp,
-    // RJC-394: falls back to the country code exactly as before when the
-    // curated row carries no finer-grained location text yet.
-    locatie: row.locatieTekst ?? row.locatieLand,
-    locatieLand: row.locatieLand,
+    // Preserve an explicitly unknown location. `locatieLand` defaults to NL
+    // for the curated row and is not evidence that the source published a
+    // location; carrying it here makes the country facet lie.
+    locatie: row.locatieTekst,
+    locatieLand: row.locatieTekst === null ? null : row.locatieLand,
     sluitingsdatum: row.sluitingsdatum ?? undefined,
     // SAFETY: curated.status is constrained to AanvraagLifecycle at write time.
     status: row.status as AanvraagLifecycle,

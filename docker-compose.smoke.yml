@@ -1,68 +1,14 @@
 ---
-# RJC-437: CI-only overrides for an isolated application-image smoke.
-# Docker Compose 2.24+ supports !reset for removing merged ports/env_files.
+# Synthetic raw-object storage wiring for the opt-in remote Compose smoke.
+#
+# Keep this override separate from docker-compose.yml: local development keeps
+# its filesystem fallback unless the smoke lane explicitly enables
+# SMOKE_RAW_STORAGE=1, while the production startup guard remains unchanged.
 services:
-  postgres:
-    ports: !reset []
-    restart: "no"
-
-  redis:
-    ports: !reset []
-    restart: "no"
-
-  manticore:
-    ports: !reset []
-    restart: "no"
-
-  raw-storage-minio:
-    ports: !reset []
-    restart: "no"
-
-  raw-storage-minio-init:
-    restart: "no"
-
-  migrator:
-    build:
-      context: .
-      dockerfile: apps/server/Dockerfile.migrate
-    profiles: ["smoke"]
-    environment:
-      MIGRATION_DATABASE_URL: postgresql://${POSTGRES_MIGRATOR_USER}:${POSTGRES_MIGRATOR_PASSWORD}@postgres:5432/${POSTGRES_DB}
-    depends_on:
-      postgres:
-        condition: service_healthy
-    restart: "no"
-
   server:
-    ports: !reset []
-    env_file: !reset []
     environment:
-      RAW_S3_BUCKET: ji-raw-local
-      RAW_S3_ENDPOINT: http://raw-storage-minio:9000
-      RAW_S3_REGION: us-east-1
-      RAW_S3_ACCESS_KEY_ID: ${RAW_STORAGE_MINIO_ROOT_USER}
-      RAW_S3_SECRET_ACCESS_KEY: ${RAW_STORAGE_MINIO_ROOT_PASSWORD}
-    depends_on:
-      raw-storage-minio-init:
-        condition: service_completed_successfully
-    restart: "no"
-
-  web:
-    ports: !reset []
-    env_file: !reset []
-    restart: "no"
-
-  projector:
-    healthcheck:
-      disable: false
-      test: ["CMD", "bun", "src/projector/heartbeat.ts", "--check"]
-      interval: 5s
-      timeout: 5s
-      retries: 12
-      start_period: 10s
-    restart: "no"
-
-volumes:
-  postgres_data:
-    external: false
-    name: ${COMPOSE_PROJECT_NAME}_postgres_data
+      RAW_S3_BUCKET: ${RAW_S3_BUCKET:?RAW_S3_BUCKET is required for the smoke raw store}
+      RAW_S3_ENDPOINT: ${RAW_S3_ENDPOINT:?RAW_S3_ENDPOINT is required for the smoke raw store}
+      RAW_S3_REGION: ${RAW_S3_REGION:?RAW_S3_REGION is required for the smoke raw store}
+      RAW_S3_ACCESS_KEY_ID: ${RAW_S3_ACCESS_KEY_ID:?RAW_S3_ACCESS_KEY_ID is required for the smoke raw store}
+      RAW_S3_SECRET_ACCESS_KEY: ${RAW_S3_SECRET_ACCESS_KEY:?RAW_S3_SECRET_ACCESS_KEY is required for the smoke raw store}

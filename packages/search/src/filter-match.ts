@@ -1,6 +1,32 @@
 import type { SearchDocument, SearchFilters } from "./types";
 import { documentLocatie } from "./types";
 
+const matchesLocatieFilter = (
+  document: SearchDocument,
+  locations: SearchFilters["locatie"]
+): boolean => {
+  if (locations === undefined) {
+    return true;
+  }
+  const location = documentLocatie(document);
+  return location !== undefined && locations.includes(location);
+};
+
+const matchesLocatieLandFilter = (
+  document: SearchDocument,
+  lands: SearchFilters["locatieLand"]
+): boolean => {
+  if (lands === undefined) {
+    return true;
+  }
+  // Explicit unknown location must not match any country filter, even when
+  // legacy rows still carry a default locatieLand (RJC-449).
+  if (document.locatie === null || document.locatieLand === null) {
+    return false;
+  }
+  return lands.includes(document.locatieLand);
+};
+
 /** Shared in-process equivalent of Manticore's AND-ed attribute filters. */
 export const matchesSearchFilters = (
   document: SearchDocument,
@@ -14,14 +40,11 @@ export const matchesSearchFilters = (
     return false;
   }
 
-  if (
-    filters.locatieLand &&
-    !filters.locatieLand.includes(document.locatieLand)
-  ) {
+  if (!matchesLocatieLandFilter(document, filters.locatieLand)) {
     return false;
   }
 
-  if (filters.locatie && !filters.locatie.includes(documentLocatie(document))) {
+  if (!matchesLocatieFilter(document, filters.locatie)) {
     return false;
   }
 

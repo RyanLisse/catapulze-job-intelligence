@@ -207,6 +207,39 @@ describe("parseManticoreSearchResponse", () => {
     ]);
   });
 
+  it("removes Manticore's blank bucket for omitted locatie attributes", () => {
+    const response = parseManticoreSearchResponse({
+      aggregations: {
+        locatie: {
+          buckets: [
+            { doc_count: 1, key: "" },
+            { doc_count: 2, key: "Amsterdam" },
+          ],
+        },
+      },
+      hits: { hits: [], total: { value: 3 } },
+    });
+
+    expect(response.facets.locatie).toEqual([{ count: 2, value: "Amsterdam" }]);
+    expect(response.total).toBe(3);
+  });
+
+  it("removes Manticore's blank country bucket for unknown locations", () => {
+    const response = parseManticoreSearchResponse({
+      aggregations: {
+        locatie_land: {
+          buckets: [
+            { doc_count: 1, key: "" },
+            { doc_count: 2, key: "NL" },
+          ],
+        },
+      },
+      hits: { hits: [], total: 3 },
+    });
+
+    expect(response.facets.locatie_land).toEqual([{ count: 2, value: "NL" }]);
+  });
+
   it("uses hybrid score as the public hit weight", () => {
     const response = parseManticoreSearchResponse({
       hits: {
@@ -387,6 +420,35 @@ describe("ManticoreSearchEngine document mapping", () => {
     expect(replace.doc.sluitingsdatum).toBe(
       Math.floor(Date.parse("2026-09-05T12:00:00.000Z") / 1000)
     );
+  });
+
+  it("omits an explicitly unknown locatie instead of falling back to the country", async () => {
+    const client = new RecordingClient();
+    const engine = new ManticoreSearchEngine(
+      client,
+      new InMemorySearchVersionStore()
+    );
+
+    await engine.upsertDocument({
+      beschrijving: "b",
+      bronId: "bron-1",
+      contracttype: null,
+      id: "doc-unknown-location",
+      laatstGezienOp: new Date("2026-08-01T00:00:00.000Z"),
+      locatie: null,
+      locatieLand: "NL",
+      status: "active",
+      tariefMax: null,
+      tariefMin: null,
+      titel: "t",
+    });
+
+    const [replace] = client.bodies;
+    if (!replace || !("doc" in replace)) {
+      throw new Error("expected a /replace body");
+    }
+    expect(replace.doc.locatie).toBeUndefined();
+    expect(replace.doc.locatie_land).toBeUndefined();
   });
 
   it("dual-writes and deletes the base table only when explicitly enabled", async () => {

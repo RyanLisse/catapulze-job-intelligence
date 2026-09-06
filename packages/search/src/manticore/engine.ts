@@ -95,24 +95,41 @@ const epochSeconds = (value: Date): number =>
 const documentToManticoreFields = (
   document: SearchDocument,
   indexVersion: number
-): Omit<ManticoreIndexedDocument, "projection_hash"> => ({
-  beschrijving: document.beschrijving,
-  bron_id: document.bronId,
-  contracttype: document.contracttype ?? "",
-  document_id: document.id,
-  index_version: indexVersion,
-  laatst_gezien_op: epochSeconds(document.laatstGezienOp),
-  locatie: documentLocatie(document),
-  locatie_land: document.locatieLand,
-  sluitingsdatum: document.sluitingsdatum
-    ? epochSeconds(document.sluitingsdatum)
-    : SLUITINGSDATUM_MISSING_SENTINEL,
-  status: document.status,
-  // 0 doubles as "no rate": rate-high sorts tarief_max desc, so it lands last.
-  tarief_max: document.tariefMax ?? 0,
-  tarief_min: document.tariefMin ?? 0,
-  titel: document.titel,
-});
+): Omit<ManticoreIndexedDocument, "projection_hash"> => {
+  const location = documentLocatie(document);
+  const countryEntries: [string, string | number][] =
+    document.locatie !== null && document.locatieLand !== null
+      ? [["locatie_land", document.locatieLand]]
+      : [];
+  const locationEntries: [string, string | number][] =
+    location === undefined ? [] : [["locatie", location]];
+  const entries: [string, string | number][] = [
+    ["beschrijving", document.beschrijving],
+    ["bron_id", document.bronId],
+    ["contracttype", document.contracttype ?? ""],
+    ["document_id", document.id],
+    ["index_version", indexVersion],
+    ["laatst_gezien_op", epochSeconds(document.laatstGezienOp)],
+    ...countryEntries,
+    [
+      "sluitingsdatum",
+      document.sluitingsdatum
+        ? epochSeconds(document.sluitingsdatum)
+        : SLUITINGSDATUM_MISSING_SENTINEL,
+    ],
+    ["status", document.status],
+    ["tarief_max", document.tariefMax ?? 0],
+    ["tarief_min", document.tariefMin ?? 0],
+    ["titel", document.titel],
+    ...locationEntries,
+  ];
+  // SAFETY: entries contains every required Manticore field exactly once;
+  // optional location fields are added in the canonical projection order.
+  return Object.fromEntries(entries) as Omit<
+    ManticoreIndexedDocument,
+    "projection_hash"
+  >;
+};
 
 const documentToManticore = (
   document: SearchDocument,

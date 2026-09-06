@@ -52,15 +52,19 @@ describe("get_operator_context", () => {
 
   it("does not disclose explicit selections across actors or scopes", async () => {
     const deps = createTestSliceADeps("scope-a");
-    const savedSearch = await deps.stores.savedSearches.create({
-      filters: {},
-      naam: "Mijn zoekopdracht",
-      parserVersion: "1",
-      queryText: "private-query",
-      schemaVersion: "slice-a-v1",
-      scopeId: "scope-a",
-      userId: actorA,
-    });
+    const { savedSearch } = await deps.stores.savedSearches.createWithAudit(
+      {
+        deletedAt: null,
+        filters: {},
+        naam: "Mijn zoekopdracht",
+        parserVersion: "1",
+        queryText: "private-query",
+        schemaVersion: "slice-a-v1",
+        scopeId: "scope-a",
+        userId: actorA,
+      },
+      "user"
+    );
     const snapshot = await deps.stores.snapshots.create({
       filters: {},
       indexVersion: 7,
@@ -117,15 +121,19 @@ describe("get_operator_context", () => {
       },
       now: () => now,
     });
-    const savedSearch = await deps.stores.savedSearches.create({
-      filters: { locatie: ["secret-filter-value"] },
-      naam: "Veilige naam",
-      parserVersion: "1",
-      queryText: "secret-query-value",
-      schemaVersion: "slice-a-v1",
-      scopeId: deps.scopeId,
-      userId: actorA,
-    });
+    const { savedSearch } = await deps.stores.savedSearches.createWithAudit(
+      {
+        deletedAt: null,
+        filters: { locatie: ["secret-filter-value"] },
+        naam: "Veilige naam",
+        parserVersion: "1",
+        queryText: "secret-query-value",
+        schemaVersion: "slice-a-v1",
+        scopeId: deps.scopeId,
+        userId: actorA,
+      },
+      "user"
+    );
     const snapshot = await deps.stores.snapshots.create({
       filters: { locatie: ["secret-filter-value"] },
       indexVersion: 9,
@@ -206,15 +214,20 @@ describe("get_operator_context", () => {
     );
     expect(JSON.stringify(afterAudit.value)).not.toContain("private-entity-id");
 
-    const anotherSavedSearch = await deps.stores.savedSearches.create({
-      filters: {},
-      naam: "Andere veilige naam",
-      parserVersion: "1",
-      queryText: "another-private-query",
-      schemaVersion: "slice-a-v1",
-      scopeId: deps.scopeId,
-      userId: actorA,
-    });
+    const { savedSearch: anotherSavedSearch } =
+      await deps.stores.savedSearches.createWithAudit(
+        {
+          deletedAt: null,
+          filters: {},
+          naam: "Andere veilige naam",
+          parserVersion: "1",
+          queryText: "another-private-query",
+          schemaVersion: "slice-a-v1",
+          scopeId: deps.scopeId,
+          userId: actorA,
+        },
+        "user"
+      );
     const afterResource = await invokeOperatorContext(bundle, actorA, {
       savedSearchId: anotherSavedSearch.id,
       snapshotId: snapshot.id,

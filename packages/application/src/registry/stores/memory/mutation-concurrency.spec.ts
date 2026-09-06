@@ -35,6 +35,9 @@ const createGatedAudit = (): GatedAuditHarness => {
     listByActorId() {
       return Promise.resolve([]);
     },
+    listRecentByActorId() {
+      return Promise.resolve([]);
+    },
   };
   return { audit, gates };
 };
