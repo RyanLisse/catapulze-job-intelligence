@@ -10,7 +10,7 @@ export default defineConfig({
   reporter: "line",
   retries: 0,
   testDir: "./e2e/live-jobs",
-  testMatch: /anonymous\.playwright\.ts$/u,
+  testMatch: /(?:anonymous|bron-dashboard-anonymous)\.playwright\.ts$/u,
   timeout: 60_000,
   use: {
     ...readLiveJobsArtifactPolicy(),

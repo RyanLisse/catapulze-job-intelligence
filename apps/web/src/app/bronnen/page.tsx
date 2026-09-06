@@ -128,12 +128,14 @@ const statusFor = (bron: DashboardBron): BronCardStatus => {
 
 const Kpi = ({
   label,
+  testId,
   value,
 }: {
   readonly label: string;
+  readonly testId: string;
   readonly value: string | number;
 }) => (
-  <Card size="sm">
+  <Card data-testid={testId} size="sm">
     <CardContent className="space-y-1">
       <p className="text-muted-foreground">{label}</p>
       <p className="font-mono text-xl font-semibold tabular-nums">{value}</p>
@@ -156,26 +158,39 @@ const DashboardData = async ({
   return (
     <>
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-7">
-        <Kpi label="Runs" value={numberFormatter.format(overview.total.runs)} />
-        <Kpi label="Succes%" value={formatRate(overview.total.successRate)} />
+        <Kpi
+          label="Runs"
+          testId="bronnen-kpi-runs"
+          value={numberFormatter.format(overview.total.runs)}
+        />
+        <Kpi
+          label="Succes%"
+          testId="bronnen-kpi-success"
+          value={formatRate(overview.total.successRate)}
+        />
         <Kpi
           label="Nieuw"
+          testId="bronnen-kpi-nieuw"
           value={numberFormatter.format(overview.total.nieuw)}
         />
         <Kpi
           label="Gewijzigd"
+          testId="bronnen-kpi-gewijzigd"
           value={numberFormatter.format(overview.total.gewijzigd)}
         />
         <Kpi
           label="Ongewijzigd"
+          testId="bronnen-kpi-ongewijzigd"
           value={numberFormatter.format(overview.total.ongewijzigd)}
         />
         <Kpi
           label="Rejected"
+          testId="bronnen-kpi-rejected"
           value={numberFormatter.format(overview.total.rejected)}
         />
         <Kpi
           label="Bronnen met aandacht"
+          testId="bronnen-kpi-aandacht"
           value={numberFormatter.format(attentionCount)}
         />
       </div>
