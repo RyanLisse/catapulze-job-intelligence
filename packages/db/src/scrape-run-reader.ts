@@ -62,7 +62,7 @@ const checkpointSchema = z
     offset: z.number().optional(),
     page: z.number().optional(),
   })
-  .strict();
+  .strip();
 
 const mapRow = (row: ScrapeRunRow): ScrapeRunView => {
   const parsedCheckpoint = checkpointSchema.safeParse(row.checkpoint);
