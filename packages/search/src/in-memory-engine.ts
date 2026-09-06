@@ -337,6 +337,7 @@ export class InMemorySearchEngine implements SearchEngine {
         emptyReason,
         facets,
         hits: page.map((document) => ({ id: document.id, weight: 1 })),
+        incomplete: false,
         indexVersion: Number(version.appliedSequence),
         scope,
         total: matched.length,

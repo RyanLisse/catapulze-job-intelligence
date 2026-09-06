@@ -27,7 +27,8 @@ export const matchesSearchFilters = (
 
   if (
     filters.locatieLand &&
-    !filters.locatieLand.includes(document.locatieLand)
+    (document.locatieLand === null ||
+      !filters.locatieLand.includes(document.locatieLand))
   ) {
     return false;
   }
