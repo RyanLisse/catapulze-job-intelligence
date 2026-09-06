@@ -201,4 +201,28 @@ describe("load-compose-env.sh", () => {
     expect(result.loaded.get("POSTGRES_ADMIN_USER")).toBe("quoted_user");
     expect(result.loaded.get("POSTGRES_ADMIN_PASSWORD")).toBe("quoted_pass");
   });
+
+  it("percent-encodes reserved userinfo characters in derived URLs", async () => {
+    const result = await runLoader({
+      envFileContents: [
+        "POSTGRES_APP_USER=app@role",
+        "POSTGRES_APP_PASSWORD=p@ss:w/ord?#%",
+        "POSTGRES_MIGRATOR_USER=mig:user",
+        "POSTGRES_MIGRATOR_PASSWORD=mig/secret",
+        "POSTGRES_DB=ji_from_file",
+        "POSTGRES_HOST_PORT=5432",
+      ].join("\n"),
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(result.urls.get("DATABASE_URL")).toBe(
+      "postgresql://app%40role:p%40ss%3Aw%2Ford%3F%23%25@127.0.0.1:5432/ji_from_file"
+    );
+    expect(result.urls.get("MIGRATION_DATABASE_URL")).toBe(
+      "postgresql://mig%3Auser:mig%2Fsecret@127.0.0.1:5432/ji_from_file"
+    );
+    expect(result.urls.get("PROJECTOR_DATABASE_URL")).toBe(
+      "postgresql://app%40role:p%40ss%3Aw%2Ford%3F%23%25@127.0.0.1:5432/ji_from_file"
+    );
+  });
 });
