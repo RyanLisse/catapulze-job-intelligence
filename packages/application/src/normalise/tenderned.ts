@@ -61,6 +61,7 @@ export const parseTenderNedPayload = (
         nuts_codes: detail.nutsCodes ?? [],
         opdracht_aard: detail.opdrachtAardCode?.code ?? null,
         procedure: detail.procedureCode?.code ?? null,
+        publicatie_datum: detail.publicatieDatum ?? null,
         publicatie_id: publicatieId,
       },
       parserVersion,
@@ -82,11 +83,10 @@ export const parseTenderNedPayload = (
       "detail.opdrachtgeverNaam"
     ),
     parserVersion,
-    startDatum: field(
-      detail.publicatieDatum?.slice(0, 10) ?? UNKNOWN,
-      parserVersion,
-      "detail.publicatieDatum"
-    ),
+    // TenderNed's modelled API has no contract-start field. Its
+    // `publicatieDatum` is retained above as source-specific publication
+    // metadata and must not influence canonical contract-start identity.
+    startDatum: field(UNKNOWN, parserVersion, "n/a (not published by source)"),
     status: lifecycle,
     tarief: {
       eenheid: UNKNOWN,

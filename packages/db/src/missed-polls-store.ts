@@ -7,7 +7,6 @@ import type {
 import {
   and,
   eq,
-  gte,
   inArray,
   isNull,
   lte,
@@ -16,22 +15,31 @@ import {
   or,
   sql,
 } from "drizzle-orm";
-import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
+import type { ExtractTablesWithRelations } from "drizzle-orm";
+import type {
+  PostgresJsDatabase,
+  PostgresJsTransaction,
+} from "drizzle-orm/postgres-js";
 
 import { PostgresCurateStore } from "./postgres-curate-store";
 import type * as schema from "./schema";
-import { sourceRecord } from "./schema";
+import { bron, sourceRecord } from "./schema";
 
 export type MissedPollsDatabase = PostgresJsDatabase<typeof schema>;
+type MissedPollsTransaction = PostgresJsTransaction<
+  typeof schema,
+  ExtractTablesWithRelations<typeof schema>
+>;
+type MissedPollsExecutor = MissedPollsDatabase | MissedPollsTransaction;
 
 /**
  * `staging.source_record` miss counters (RJC-397). Both statements are keyed
  * on the existing `(bron_id, bron_referentie)` unique index; no extra index.
  */
 export class PostgresMissedPollsStore implements MissedPollsStore {
-  private readonly database: MissedPollsDatabase;
+  private readonly database: MissedPollsExecutor;
 
-  constructor(database: MissedPollsDatabase) {
+  constructor(database: MissedPollsExecutor) {
     this.database = database;
   }
 
@@ -44,15 +52,19 @@ export class PostgresMissedPollsStore implements MissedPollsStore {
     const observed = [...input.bronReferenties];
     return this.database.transaction(async (tx) => {
       const reappearedRows = await tx
-        .select({ bronReferentie: sourceRecord.bronReferentie })
+        .select({
+          bronReferentie: sourceRecord.bronReferentie,
+          missedPolls: sourceRecord.missedPolls,
+        })
         .from(sourceRecord)
         .where(
           and(
             eq(sourceRecord.bronId, input.bronId),
-            inArray(sourceRecord.bronReferentie, observed),
-            gte(sourceRecord.missedPolls, input.reappearedAtOrAbove)
+            inArray(sourceRecord.bronReferentie, observed)
           )
-        );
+        )
+        .orderBy(sourceRecord.bronReferentie)
+        .for("update");
       const resetRows = await tx
         .update(sourceRecord)
         .set({
@@ -68,7 +80,9 @@ export class PostgresMissedPollsStore implements MissedPollsStore {
         )
         .returning({ id: sourceRecord.id });
       return {
-        reappeared: reappearedRows.map((row) => row.bronReferentie),
+        reappeared: reappearedRows
+          .filter((row) => row.missedPolls >= input.reappearedAtOrAbove)
+          .map((row) => row.bronReferentie),
         reset: resetRows.length,
       };
     });
@@ -126,4 +140,19 @@ export const createPostgresLifecyclePorts = (
   curateStore: new PostgresCurateStore(database),
   missedPolls: new PostgresMissedPollsStore(database),
   missedPollsBeforeStale: options.missedPollsBeforeStale,
+  withTransaction: (bronId, fn) =>
+    database.transaction(async (tx) => {
+      // Canonical order: bron -> source_record (sorted) -> aanvraag/SCD2/outbox.
+      // Serialize reconciles for one bron before locking source_record rows.
+      // NO KEY UPDATE remains compatible with FK checks from concurrent curation.
+      await tx
+        .select({ id: bron.id })
+        .from(bron)
+        .where(eq(bron.id, bronId))
+        .for("no key update");
+      return fn({
+        curateStore: new PostgresCurateStore(tx),
+        missedPolls: new PostgresMissedPollsStore(tx),
+      });
+    }),
 });

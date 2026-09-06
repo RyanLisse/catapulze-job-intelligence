@@ -10,10 +10,11 @@ import type { AanvraagLifecycle, BronId, ScrapeRunId } from "@ji/domain";
 
 import { executeBronRun } from "../bronnen/execute";
 import type { BronPersistence } from "../bronnen/register";
-import type { StoredAanvraag } from "../identity/curate";
+import type { CurateStore, StoredAanvraag } from "../identity/curate";
 import { InMemoryCurateStore } from "../identity/store";
 import {
   AANVRAAG_STATUS_GEWIJZIGD_EVENT,
+  createInMemoryLifecyclePorts,
   InMemoryMissedPollsStore,
   reconcileMissedPolls,
 } from "./reconcile-missed-polls";
@@ -111,9 +112,31 @@ const world = async (
   return {
     curateStore,
     missedPolls,
-    ports: { curateStore, missedPolls, missedPollsBeforeStale: THRESHOLD },
+    ports: createInMemoryLifecyclePorts(curateStore, missedPolls, {
+      missedPollsBeforeStale: THRESHOLD,
+    }),
   };
 };
+
+const withFailingLookup = (base: CurateStore): CurateStore => ({
+  closeOpenVersie: (aanvraagId, closedAt) =>
+    base.closeOpenVersie(aanvraagId, closedAt),
+  ensureDedupGroep: (input) => base.ensureDedupGroep(input),
+  findAanvraagByIdentity: () =>
+    Promise.reject(new Error("forced failure after counter reset")),
+  findDedupGroepByKey: (dedupKey) => base.findDedupGroepByKey(dedupKey),
+  insertAanvraag: (input) => base.insertAanvraag(input),
+  insertOutboxEvent: (input) => base.insertOutboxEvent(input),
+  insertVersie: (input) => base.insertVersie(input),
+  linkAanvraagToDedupGroep: (aanvraagId, dedupGroepId) =>
+    base.linkAanvraagToDedupGroep(aanvraagId, dedupGroepId),
+  splitDedupGroep: (dedupGroepId) => base.splitDedupGroep(dedupGroepId),
+  updateAanvraag: (aanvraagId, patch) => base.updateAanvraag(aanvraagId, patch),
+  withTransaction: (fn) =>
+    base.withTransaction((transactionStore) =>
+      fn(withFailingLookup(transactionStore))
+    ),
+});
 
 const listingRun = (
   ports: LifecycleReconcilePorts,
@@ -272,6 +295,62 @@ describe("reconcileMissedPolls", () => {
       scrape_run_id: "run-4",
       status: "active",
     });
+  });
+
+  it("rolls back the reset when reopening fails and recovers on the next unchanged listing", async () => {
+    const { ports, curateStore, missedPolls } = await world([{ ref: "B" }]);
+    await listingRun(ports, 1, []);
+    await listingRun(ports, 2, []);
+    await listingRun(ports, 3, []);
+    const beforeFailure = await requireAanvraag(curateStore, "B");
+    const versionsBeforeFailure = curateStore.versies.length;
+    const eventsBeforeFailure = curateStore.outboxEvents.length;
+
+    let injectFailure = true;
+    const failingPorts: LifecycleReconcilePorts = {
+      ...ports,
+      withTransaction: (bronId, fn) =>
+        ports.withTransaction(bronId, (transactionPorts) =>
+          fn({
+            ...transactionPorts,
+            curateStore: injectFailure
+              ? withFailingLookup(transactionPorts.curateStore)
+              : transactionPorts.curateStore,
+          })
+        ),
+    };
+    await expect(listingRun(failingPorts, 4, ["B"])).rejects.toThrow(
+      "forced failure after counter reset"
+    );
+
+    expect(await requireAanvraag(curateStore, "B")).toMatchObject({
+      status: "stale",
+      versie: beforeFailure.versie,
+    });
+    expect(missedPolls.read(BRON, "B")).toMatchObject({
+      lastSeenScrapeRunId: null,
+      missedPolls: THRESHOLD,
+    });
+    expect(curateStore.versies).toHaveLength(versionsBeforeFailure);
+    expect(curateStore.outboxEvents).toHaveLength(eventsBeforeFailure);
+
+    injectFailure = false;
+    const recovered = await listingRun(failingPorts, 5, ["B"]);
+    const reopened = await requireAanvraag(curateStore, "B");
+    expect(recovered.reopened).toEqual([reopened.aanvraagId]);
+    expect(reopened).toMatchObject({ status: "active", versie: 3 });
+    expect(missedPolls.read(BRON, "B")).toMatchObject({
+      lastSeenScrapeRunId: "run-5",
+      missedPolls: 0,
+    });
+
+    const replay = await listingRun(failingPorts, 5, ["B"]);
+    expect(replay.reopened).toEqual([]);
+    expect(await requireAanvraag(curateStore, "B")).toMatchObject({
+      status: "active",
+      versie: 3,
+    });
+    expect(curateStore.outboxEvents).toHaveLength(eventsBeforeFailure + 1);
   });
 
   it("does not count misses on an incomplete run but still resets observed records", async () => {

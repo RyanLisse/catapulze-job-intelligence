@@ -63,6 +63,10 @@ Status: **klaar om te bouwen** — eerste nieuwe bron; rung 1 (officiële API, C
 
 Geverifieerd: alle URL's hierboven met HTTP-status; headless Chrome gebruikt voor de UI-call (`/aankondigingen/overzicht` roept `/v2/publicaties?page=0&size=50&publicatieDatumPreset=AF30` aan).
 
+## Contractstart (RJC-432)
+
+De gemodelleerde TenderNed-API publiceert geen contractstart. `publicatieDatum` is uitsluitend publicatiemetadata en blijft als `bron_specifiek.publicatie_datum` bewaard; de canonieke `startDatum` is `UNKNOWN` met provenance `n/a (not published by source)`. Parser `tenderned/v2` maakt deze semantische correctie herkenbaar voor gecontroleerde replay. De publicatiedatum mag nooit in de dedupidentiteit terechtkomen.
+
 ## Sluitingsdatum (RJC-377)
 
 TenderNed publiceert geen absolute sluitingsdatum in de gemodelleerde API-velden — alleen `numberOfDaysBeforeAanmeldenInschrijven`, een relatief dagaantal, geen datum (bevestigd tegen `fixtures/connectors/tenderned/detail-pub-001.json`; de RSS-feed zou de datum wél als tekst bevatten, maar dat is een ander discovery-pad, buiten scope van deze normaliser). `sluitingsdatumPassed` blijft daarom hard `false` — een eerlijke waarde, geen parse-gat. Dit laat TenderNed niet voor altijd open staan: `isTenderNedListingOpen` sluit de aanvraag al via `bronSaysClosed` zodra `aankondigingCode` `AGO`/`VBE` is of het dagaantal op nul staat — dat dagaantal is hier het echte sluitingssignaal.
