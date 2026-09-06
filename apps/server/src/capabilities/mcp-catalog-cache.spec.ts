@@ -149,7 +149,7 @@ const createFixtureEnvironment = (): FixtureEnvironment => {
       return Promise.resolve(
         session
           ? {
-              session: { expiresAt: "2026-09-06T00:00:00.000Z" },
+              session: { expiresAt: "2026-12-31T00:00:00.000Z" },
               user: { id: session.subject, role: session.role },
             }
           : null
@@ -446,7 +446,7 @@ describe("MCP catalog cache policy", () => {
     const roleLossError = await rejectedReason(
       client.callTool({
         arguments: {
-          expiresAt: "2026-09-06T00:00:00.000Z",
+          expiresAt: "2026-12-31T00:00:00.000Z",
           id: "00000000-0000-4000-8000-000000000030",
           motivatie: "Synthetic cache authorization fixture",
         },

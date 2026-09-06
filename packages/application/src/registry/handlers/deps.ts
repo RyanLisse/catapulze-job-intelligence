@@ -65,8 +65,6 @@ export interface SliceAHandlerDeps {
       | Promise<ReadonlySet<string>>
       | ReadonlySet<string>;
   };
-  /** Clock injection affects freshness only and is excluded from the digest. */
-  readonly now?: () => Date;
   readonly spottWriteClient?: SpottWriteClient;
   readonly stores: SliceAStores;
 }

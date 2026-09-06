@@ -27,7 +27,7 @@ Bun + TypeScript + Effect-TS + Drizzle · Postgres 16 on-box in Docker (zones st
 
 ## Status
 
-Discovery-consolidatie afgerond 27 augustus 2026. **DEC-005 is op 28 augustus 2026 definitief:** de nieuwe Catapulze-database is vanaf P0 Postgres 16 on-box in Docker; de bestaande Motian-Neon-database is uitsluitend een read-only importbron. Open: Spott.io-contract (DEC-006), leveranciersaccounts en ToS-besluiten per bron (zie `SOURCE_MATRIX.md`).
+Discovery-consolidatie afgerond 27 augustus 2026. **DEC-005 is op 28 augustus 2026 definitief** (Postgres on-box; Motian-Neon read-only import). Na een tijdelijke Neon-SoR-fase (ADR-0006) keert productie terug on-box via **ADR-0011 / RJC-418** (Coolify Postgres + Trigger.dev static egress-IP allowlist), omdat Neon Free de 512 MB-limiet raakte. Open: Spott.io-contract (DEC-006), leveranciersaccounts en ToS-besluiten per bron (zie `SOURCE_MATRIX.md`), en de RJC-418-cutover zelf.
 
 De inhoud is gebaseerd op de Ryan/Robbie-call van 27 augustus 2026, het bestaande Lovable/Neon-prototype, de gedeelde analyses en publieke bronverificatie. Transcriptuitspraken zijn requirements-input, geen automatisch genomen architectuurbesluiten.
 
@@ -63,7 +63,7 @@ De lokale Compose-service is de ontwikkel- en testbasis; een productie-uitrol is
 
 - Postgres gebruikt een vooraf aangemaakt, extern beschermd volume. `docker compose down` mag containers verwijderen, maar `docker compose down -v` is voor deze omgeving verboden.
 - Admin, migrator en runtime zijn afzonderlijke rollen. De runtime is geen superuser, kan geen rollen/databases/schema's aanmaken en krijgt alleen schema-gebruik plus DML op migrator-objecten.
-- Poort `5432` bindt niet publiek; alleen de private Docker-/hostnetwerkroute is bereikbaar.
+- Poort `5432` is niet publiek: lokaal alleen private Docker-/hostnetwerkroute; in productie alleen Coolify-intern netwerk plus Trigger.dev static egress-IP’s in de Hetzner-firewall (ADR-0011).
 - Continue WAL-archivering gaat naar off-site object storage en een restore naar een lege, geïsoleerde database is periodiek end-to-end getest.
 - Databasegezondheid, disk, WAL/back-uplag, verbindingen, locks, querylatency, CPU en geheugen zijn gemonitord en gealarmeerd.
 - CPU-, geheugen- en diskbudgetten zijn vastgelegd. Postgres krijgt voorrang; de Manticore-index is afgeleid en rebuildbaar uit Postgres plus raw storage.
@@ -88,6 +88,8 @@ Handige scripts: `bun run dev:web`, `bun run dev:server`, `bun run db:studio`, `
 `bun run check` en `bun run gate` vereisen de [Qlty CLI](https://docs.qlty.sh/cli/installation). Ze falen bewust wanneer Qlty ontbreekt, zodat een ontbrekende quality-owner nooit als groen wordt gerapporteerd.
 
 `bun run gate` vereist daarnaast een bereikbare test-Postgres en voert de migratie- en constrainttests echt uit. Maak het externe volume eenmalig met `bun run docker:volume:create`, start lokaal alleen de testservice met `docker compose up -d postgres` en stop die na de gate met `docker compose down`. Het externe volume blijft daarbij behouden; gebruik hier geen `docker compose down -v`. Een gewone `bun test` mag zonder Postgres draaien en slaat uitsluitend die integratiesuite over. Met een bereikbare Postgres maakt de gate ook, via `tools/postgres/ensure-migration-upgrade-db.ts`, automatisch een `ji_migration_upgrade_test_*`-database aan en voert daarmee `packages/db/src/migration-upgrade.spec.ts` (de 0000→0010 upgrade-paden) echt uit in plaats van die suite stilzwijgend over te slaan; zonder bereikbare Postgres meldt de gate dat expliciet en slaat alleen die suite over.
+
+De Claude Code **Stop**-hook en lefthook pre-push roepen dezelfde `bun run gate` aan. `tools/quality/gate.sh` laadt ontbrekende `POSTGRES_*` uit `.env` (anders `.env.example`) zodat die hooks dezelfde Compose-credentials zien als de draaiende Postgres — zonder al gezette env-vars (CI) te overschrijven.
 
 Een verse clone heeft voor de basisvalidatie alleen **bun** nodig (geen extra globale linters of test runners):
 

@@ -253,9 +253,37 @@ jobs:
     timeout-minutes: 30
     env:
       COMPOSE_PARALLEL_LIMIT: "2"
+      # Disposable smoke contract: committed synthetic fixture (docker DNS +
+      # non-secret placeholders). Do not use `.env` (gitignored) or bare
+      # `.env.example` here — example URLs point at localhost and break
+      # server↔web smoke. mcp-edge-smoke uses the same fixture path.
+      COMPOSE_ENV_FILE: scripts/fixtures/docker-smoke.env
+      # Host-side `bun run db:migrate` while Compose publishes Postgres on
+      # 127.0.0.1:5432. Credentials match the fixture above (not secrets).
+      MIGRATION_DATABASE_URL: postgresql://ji_migrator:ji_migrator_smoke@127.0.0.1:5432/ji_smoke
+      # Server images set NODE_ENV=production and refuse the filesystem raw
+      # store. Opt into the MinIO override (same synthetic values as the
+      # crabbox / mcp-edge smoke lanes — not secrets).
+      SMOKE_RAW_STORAGE: "1"
+      RAW_S3_BUCKET: ji-raw-local
+      RAW_S3_ENDPOINT: http://raw-storage-minio:9000
+      RAW_S3_REGION: us-east-1
+      RAW_S3_ACCESS_KEY_ID: minioadmin
+      RAW_S3_SECRET_ACCESS_KEY: minioadmin
     steps:
       - name: Check out repository
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6  # v2
+        with:
+          bun-version: "1.3.14"
+
+      - name: Install locked dependencies
+        # Host-side `bun -e` (volume name), `bun run db:migrate`, and the
+        # Manticore live spec need the toolchain + lockfile install. Images
+        # still build their own layers inside the smoke script.
+        run: bun install --frozen-lockfile --ignore-scripts
 
       - name: Build and smoke application images
         run: bash scripts/docker-compose-smoke.sh

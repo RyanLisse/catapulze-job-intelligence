@@ -6,7 +6,16 @@ if ! command -v docker >/dev/null 2>&1; then
   exit 1
 fi
 
-compose_env_file="${COMPOSE_ENV_FILE:-.env}"
+# Prefer an explicit COMPOSE_ENV_FILE. Otherwise use a local `.env` when
+# present; fall back to the committed disposable-smoke fixture so CI (and a
+# clean checkout) does not depend on a gitignored file.
+if [[ -n "${COMPOSE_ENV_FILE:-}" ]]; then
+  compose_env_file="$COMPOSE_ENV_FILE"
+elif [[ -f .env ]]; then
+  compose_env_file=".env"
+else
+  compose_env_file="scripts/fixtures/docker-smoke.env"
+fi
 if [[ ! -f "$compose_env_file" ]]; then
   echo "docker-compose smoke: Compose env file '$compose_env_file' does not exist" >&2
   exit 1
@@ -130,7 +139,15 @@ echo "docker-compose smoke: postgres, server and web are healthy"
 # sources the compose env file into the shell, so ${MANTICORE_HTTP_PORT}
 # could disagree with the port compose actually published — ask compose for
 # the real published address instead of assuming the default.
+#
+# Host `bun test` preloads tools/postgres/test-isolation.ts, which would
+# otherwise probe Postgres with .env.example defaults (ji_admin_local)
+# against the smoke fixture roles (ji_admin_smoke) and fail auth. This live
+# suite only needs Manticore — short-circuit isolation the same way the
+# pre-#165 in-container invocation did with an unreachable DATABASE_TEST_URL.
 manticore_address="$("${compose_command[@]}" port manticore 9308)"
-MANTICORE_URL="http://${manticore_address}" \
-  MANTICORE_REQUIRE_LIVE=1 bun test packages/search/src/manticore/live.spec.ts
+DATABASE_TEST_URL="postgresql://smoke:smoke@127.0.0.1:1/unreachable" \
+  MANTICORE_URL="http://${manticore_address}" \
+  MANTICORE_REQUIRE_LIVE=1 \
+  bun test packages/search/src/manticore/live.spec.ts
 echo "docker-compose smoke: Manticore document-id live test passed"

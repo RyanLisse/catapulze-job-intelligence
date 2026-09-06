@@ -252,6 +252,16 @@ describe("docker-compose smoke orchestration", () => {
     expect(script).toContain("down || cleanup_status");
   });
 
+  it("short-circuits test isolation for the host Manticore live suite", () => {
+    expect(script).toContain(
+      'DATABASE_TEST_URL="postgresql://smoke:smoke@127.0.0.1:1/unreachable"'
+    );
+    expect(script).toContain("MANTICORE_REQUIRE_LIVE=1");
+    expect(script).toContain(
+      "bun test packages/search/src/manticore/live.spec.ts"
+    );
+  });
+
   it("keeps synthetic S3 wiring behind an explicit smoke override", async () => {
     const override = await Bun.file(smokeComposeOverridePath).text();
 
