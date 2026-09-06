@@ -23,7 +23,7 @@ export default defineConfig({
   reporter: "line",
   retries: 0,
   testDir: "./e2e/live-jobs",
-  testMatch: /read-only\.playwright\.ts$/u,
+  testMatch: /(?:read-only|bron-dashboard)\.playwright\.ts$/u,
   timeout: 60_000,
   use,
   workers: 1,
