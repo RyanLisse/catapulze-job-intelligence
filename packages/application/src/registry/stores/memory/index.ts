@@ -13,7 +13,6 @@ import { MemoryOperatorRunStore } from "./operator-run-store";
 import { MemoryQuerySnapshotStore } from "./query-snapshot-store";
 import { MemoryRawPayloadStore } from "./raw-payload-store";
 import { MemorySavedSearchStore } from "./saved-search-store";
-import { MemoryScrapeRunReader } from "./scrape-run-reader";
 
 export const createMemorySliceAStores = (): SliceAStores & {
   readonly aanvragen: MemoryAanvraagStore;
@@ -23,7 +22,6 @@ export const createMemorySliceAStores = (): SliceAStores & {
   readonly exportEffects: MemoryExportEffectStore;
   readonly externalReceipts: MemoryExternalReceiptStore;
   readonly rawPayloads: MemoryRawPayloadStore;
-  readonly scrapeRuns: MemoryScrapeRunReader;
 } => {
   const audit = new MemoryAuditStore();
   const exportAttempts = new MemoryExportAttemptStore();
@@ -47,7 +45,6 @@ export const createMemorySliceAStores = (): SliceAStores & {
     operatorRuns: new MemoryOperatorRunStore(),
     rawPayloads: new MemoryRawPayloadStore(),
     savedSearches: new MemorySavedSearchStore(audit),
-    scrapeRuns: new MemoryScrapeRunReader(),
     snapshots: new MemoryQuerySnapshotStore(),
   };
 };

@@ -5,6 +5,7 @@ import { createSpottWriteClient } from "../export/spott/client";
 import { createSliceARegistry } from "./catalog";
 import type { SliceAHandlerDeps } from "./handlers/deps";
 import { createMemorySliceAStores } from "./stores/memory";
+import { MemoryScrapeRunReader } from "./stores/memory/scrape-run-reader";
 
 const testBronnen: PublicBronView[] = [
   {
@@ -85,7 +86,7 @@ export const createTestSliceADeps = (
     bronnen,
     engine,
     scopeId,
-    scrapeRunReader: stores.scrapeRuns,
+    scrapeRunReader: new MemoryScrapeRunReader(),
     searchAdapter,
     spottWriteClient: createSpottWriteClient({ liveEnabled: false }),
     stores,
