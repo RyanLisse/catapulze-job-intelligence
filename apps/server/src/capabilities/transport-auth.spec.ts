@@ -1,6 +1,11 @@
 import { describe, expect, it } from "bun:test";
 
-import { createTestSliceARegistry } from "@ji/application/registry";
+import {
+  createSliceARegistry,
+  createTestSliceADeps,
+  createTestSliceARegistry,
+  digestSourcingSelection,
+} from "@ji/application/registry";
 import type { Context } from "hono";
 import { Hono } from "hono";
 import { z } from "zod";
@@ -14,6 +19,79 @@ const allowedOrigin = "https://app.catapulze.test";
 const validBearer = "Bearer valid.signed-session";
 const expiredBearer = "Bearer expired.signed-session";
 const mcpProtocolVersion = "2026-07-28";
+const sourcingQueryDigest = `sha256:${"1".repeat(64)}`;
+const sourcingInput = {
+  claims: [],
+  queryDigest: sourcingQueryDigest,
+  selectedIds: [],
+  selectionDigest: digestSourcingSelection({
+    queryDigest: sourcingQueryDigest,
+    selectedIds: [],
+  }),
+};
+const sourcingVacancyId = "00000000-0000-4000-8000-000000000101";
+const trustedSourcingClaims = [
+  {
+    field: "deadline" as const,
+    sourceReferenceIds: ["detail-1"],
+    status: "known" as const,
+    vacancyId: sourcingVacancyId,
+    value: "2026-09-12",
+  },
+  {
+    field: "rate" as const,
+    sourceReferenceIds: [],
+    status: "unknown" as const,
+    vacancyId: sourcingVacancyId,
+    value: "unknown" as const,
+  },
+  {
+    field: "location" as const,
+    sourceReferenceIds: ["detail-1"],
+    status: "known" as const,
+    vacancyId: sourcingVacancyId,
+    value: "Amsterdam",
+  },
+  {
+    field: "contract_type" as const,
+    sourceReferenceIds: [],
+    status: "uncertain" as const,
+    vacancyId: sourcingVacancyId,
+    value: "temporary",
+  },
+];
+const trustedSourcingInput = {
+  claims: trustedSourcingClaims,
+  queryDigest: sourcingQueryDigest,
+  selectedIds: [sourcingVacancyId],
+  selectionDigest: digestSourcingSelection({
+    queryDigest: sourcingQueryDigest,
+    selectedIds: [sourcingVacancyId],
+  }),
+};
+const trustedSourcingAttestation = {
+  claims: trustedSourcingClaims,
+  queryDigest: sourcingQueryDigest,
+  searchStatus: "complete" as const,
+  selectedIds: [sourcingVacancyId],
+  sourceReferences: [
+    {
+      capabilityId: "search_aanvragen",
+      id: "search-1",
+      maxAgeSeconds: 3600,
+      observedAt: "2026-09-02T11:30:00.000Z",
+      reference: "query-snapshot:transport-fixture",
+    },
+    {
+      capabilityId: "get_aanvraag",
+      id: "detail-1",
+      maxAgeSeconds: 3600,
+      observedAt: "2026-09-02T11:30:00.000Z",
+      reference: `aanvraag:${sourcingVacancyId}`,
+    },
+  ],
+  usedCapabilities: ["search_aanvragen", "get_aanvraag"],
+};
 
 const resolvePrincipal = createSessionPrincipalResolver(
   (headers) => {
@@ -185,6 +263,95 @@ describe("REST and MCP authentication boundary", () => {
     expect(restResponse.status).toBe(200);
     expect(bearerRestResponse.status).toBe(200);
     expect(mcpResponse.status).toBe(200);
+  });
+
+  it("calls sourcing assessment through direct REST and MCP tools/call and fails closed upstream", async () => {
+    const restResponse = await rest(
+      createRestContext(new Headers({ Authorization: validBearer }), {
+        body: sourcingInput,
+        path: "/v1/sourcing/assessment",
+      })
+    );
+    const mcpResponse = await sendMcpRequest(
+      mcp,
+      new Headers({ Authorization: validBearer }),
+      "evaluate_sourcing_assessment",
+      { arguments: sourcingInput }
+    );
+    const restBody = await restResponse.json();
+    const mcpBody = await mcpResponse.json();
+
+    expect(restResponse.status).toBe(200);
+    expect(restBody).toHaveProperty("evaluation.status", "blocked-upstream");
+    expect(restBody).toHaveProperty("binding.trust", "unavailable");
+    expect(mcpResponse.status).toBe(200);
+    expect(mcpBody).toHaveProperty(
+      "result.structuredContent.evaluation.status",
+      "blocked-upstream"
+    );
+    expect(mcpBody).toHaveProperty(
+      "result.structuredContent.binding.trust",
+      "unavailable"
+    );
+  });
+
+  it("uses injected trusted authority through full REST and MCP transports", async () => {
+    const trustedDeps = createTestSliceADeps();
+    const trustedBundle = createSliceARegistry({
+      ...trustedDeps,
+      now: () => currentTime,
+      sourcingAssessmentAuthority: {
+        attest: () => trustedSourcingAttestation,
+      },
+    });
+    const trustedRest = createRestCapabilityHandler(
+      trustedBundle.registry,
+      restRoutesFromRegistry(trustedBundle.registry),
+      resolvePrincipal,
+      { allowedCookieOrigin: allowedOrigin }
+    );
+    const trustedMcp = createMcpHandler(
+      trustedBundle.registry,
+      resolvePrincipal,
+      { allowedCookieOrigin: allowedOrigin, allowedHost: "server.test" }
+    );
+    const restResponse = await trustedRest(
+      createRestContext(new Headers({ Authorization: validBearer }), {
+        body: trustedSourcingInput,
+        path: "/v1/sourcing/assessment",
+      })
+    );
+    const mcpResponse = await sendMcpRequest(
+      trustedMcp,
+      new Headers({ Authorization: validBearer }),
+      "evaluate_sourcing_assessment",
+      { arguments: trustedSourcingInput }
+    );
+    const restBody = await restResponse.json();
+    const mcpBody = await mcpResponse.json();
+
+    expect(restResponse.status).toBe(200);
+    expect(restBody).toHaveProperty("evaluation.status", "passed");
+    expect(restBody).toHaveProperty("binding.trust", "attested");
+    expect(restBody).toHaveProperty("binding.actor.subjectId", "recruiter-1");
+    expect(restBody).toHaveProperty("sourceReferences.0.status", "fresh");
+    expect(mcpResponse.status).toBe(200);
+    expect(mcpBody).toHaveProperty(
+      "result.structuredContent.evaluation.status",
+      "passed"
+    );
+    expect(mcpBody).toHaveProperty(
+      "result.structuredContent.binding.trust",
+      "attested"
+    );
+    expect(mcpBody).toHaveProperty(
+      "result.structuredContent.binding.actor.subjectId",
+      "recruiter-1"
+    );
+    expect(mcpBody).toHaveProperty(
+      "result.structuredContent.sourceReferences.0.status",
+      "fresh"
+    );
   });
 
   it("rejects untrusted or missing origins before cookie-authenticated write effects", async () => {
