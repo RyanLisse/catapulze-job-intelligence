@@ -1,8 +1,16 @@
 "use client";
 
-import { Database, LayoutDashboard, Search } from "lucide-react";
+import { Activity, Database, LayoutDashboard, Search } from "lucide-react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { useEffect } from "react";
+import { toast } from "sonner";
+
+import {
+  canAccessBronnen,
+  sessionRoleSchema,
+} from "@/app/bronnen/bronnen-window";
+import { authClient } from "@/lib/auth-client";
 
 import { ModeToggle } from "./mode-toggle";
 import UserMenu from "./user-menu";
@@ -18,18 +26,38 @@ const navigationItems = [
     icon: Search,
     label: "Zoeken",
   },
+  {
+    href: "/bronnen",
+    icon: Activity,
+    label: "Bronnen",
+  },
 ] as const;
 
 const Header = () => {
   const pathname = usePathname();
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const { data: session, isPending } = authClient.useSession();
+  const parsedSession = sessionRoleSchema.safeParse(session);
+  const canViewBronnen = canAccessBronnen(
+    parsedSession.success ? parsedSession.data.user.role : null
+  );
+
+  useEffect(() => {
+    if (searchParams.get("toast") !== "forbidden") {
+      return;
+    }
+    toast.error("Je hebt geen toegang tot de bronmonitor.");
+    router.replace("/");
+  }, [router, searchParams]);
 
   return (
     <header className="sticky top-0 z-40 border-b border-border bg-background/85 backdrop-blur">
       <div className="mx-auto flex min-h-16 w-full max-w-[1600px] items-center gap-2 px-3 sm:gap-6 sm:px-6">
         <Link
-          href="/"
-          className="flex min-h-11 items-center gap-2 rounded-md outline-none focus-visible:ring-2 focus-visible:ring-ring"
           aria-label="Catapulze Job Intelligence — overzicht"
+          className="flex min-h-11 items-center gap-2 rounded-md outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          href="/"
         >
           <span className="grid size-7 shrink-0 place-items-center rounded bg-primary/15 text-primary">
             <Database aria-hidden="true" className="size-4" />
@@ -44,19 +72,23 @@ const Header = () => {
 
         <nav aria-label="Hoofdnavigatie" className="flex items-center gap-1">
           {navigationItems.map(({ href, icon: Icon, label }) => {
+            if (href === "/bronnen" && (isPending || !canViewBronnen)) {
+              return null;
+            }
+
             const isActive =
               href === "/" ? pathname === href : pathname.startsWith(href);
 
             return (
               <Link
-                key={href}
-                href={href}
                 aria-current={isActive ? "page" : undefined}
                 className={`min-h-11 items-center gap-2 rounded-md px-3 text-sm outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring ${
                   isActive
                     ? "bg-accent text-foreground"
                     : "text-muted-foreground hover:bg-accent hover:text-foreground"
                 } ${href === "/" ? "hidden sm:flex" : "flex"}`}
+                href={href}
+                key={href}
               >
                 <Icon aria-hidden="true" className="size-4" />
                 <span>{label}</span>
