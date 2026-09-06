@@ -31,4 +31,18 @@ describe("browser capability authentication", () => {
       expect(new Headers(request.headers).has("Authorization")).toBe(false);
     }
   });
+
+  it("forwards caller headers on GET without dropping Accept", async () => {
+    requests.length = 0;
+    const client = createCapabilityClient({ baseUrl: "http://server.test" });
+
+    await client.get("/v1/dashboard?window=7d", {
+      headers: { Cookie: "session=test" },
+    });
+
+    expect(requests).toHaveLength(1);
+    const headers = new Headers(requests[0]?.headers);
+    expect(headers.get("Accept")).toBe("application/json");
+    expect(headers.get("Cookie")).toBe("session=test");
+  });
 });

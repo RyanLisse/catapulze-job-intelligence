@@ -27,6 +27,7 @@ export interface CapabilityClientOptions {
 }
 
 export interface CapabilityRequestOptions {
+  readonly headers?: HeadersInit;
   readonly signal?: AbortSignal;
 }
 
@@ -60,6 +61,17 @@ const parseJsonResponse = async <T>(response: Response): Promise<T> => {
   return raw as T;
 };
 
+const mergeHeaders = (extra?: HeadersInit): Headers => {
+  const headers = new Headers({ Accept: "application/json" });
+  if (!extra) {
+    return headers;
+  }
+  for (const [key, value] of new Headers(extra).entries()) {
+    headers.set(key, value);
+  }
+  return headers;
+};
+
 export const createCapabilityClient = (options: CapabilityClientOptions) => {
   const baseUrl = options.baseUrl.replace(/\/$/u, "");
 
@@ -70,9 +82,7 @@ export const createCapabilityClient = (options: CapabilityClientOptions) => {
     ): Promise<T> => {
       const response = await fetch(`${baseUrl}${path}`, {
         credentials: "include",
-        headers: {
-          Accept: "application/json",
-        },
+        headers: mergeHeaders(requestOptions.headers),
         method: "GET",
         signal: requestOptions.signal,
       });
@@ -83,10 +93,9 @@ export const createCapabilityClient = (options: CapabilityClientOptions) => {
       const response = await fetch(`${baseUrl}${path}`, {
         body: JSON.stringify(body),
         credentials: "include",
-        headers: {
-          Accept: "application/json",
+        headers: mergeHeaders({
           "Content-Type": "application/json",
-        },
+        }),
         method: "POST",
       });
       return parseJsonResponse<T>(response);
