@@ -267,6 +267,7 @@ describe("check-secrets-scan", () => {
       ".vercel",
       "build",
       "coverage",
+      "crabbox-output",
       "dist",
       "logs",
       "node_modules",
@@ -369,6 +370,12 @@ describe("check-secrets-scan", () => {
       writeFileSync(path.join(workspace, "input.ts"), "original\n");
       const { manifest } = await createScannedInputManifest(workspace);
 
+      expect(await verifyScannedInputManifest(workspace, manifest)).toEqual([]);
+      mkdirSync(path.join(workspace, "crabbox-output"));
+      writeFileSync(
+        path.join(workspace, "crabbox-output/runtime-evidence.txt"),
+        "generated\n"
+      );
       expect(await verifyScannedInputManifest(workspace, manifest)).toEqual([]);
 
       writeFileSync(path.join(workspace, "input.ts"), "mutated\n");

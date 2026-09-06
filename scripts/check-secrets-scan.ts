@@ -40,6 +40,7 @@ const GENERATED_DIRECTORY_NAMES = new Set([
   ".vercel",
   "build",
   "coverage",
+  "crabbox-output",
   "dist",
   "logs",
   "node_modules",
@@ -113,6 +114,7 @@ const isMaterializedInput = (relativePath: string): boolean => {
     relativePath === MATERIALIZED_INPUT_MANIFEST ||
     topLevelPath === ".artifacts" ||
     topLevelPath === ".crabbox" ||
+    topLevelPath === "crabbox-output" ||
     topLevelPath === ".git"
   );
 };

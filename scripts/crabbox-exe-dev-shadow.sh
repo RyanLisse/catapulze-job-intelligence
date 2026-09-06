@@ -6,13 +6,17 @@ readonly BUN_IMAGE="oven/bun:1.3.14@sha256:e10577f0db68676a7024391c6e5cb4b879ebd
 readonly NODE_IMAGE="node:24-slim@sha256:ba849c60be29959425b8734d57b8b4b7d56f98edd9504c9af091d5281095a71e"
 readonly EXECUTOR_IMAGE="ghcr.io/boldsoftware/exeuntu@sha256:a85bf5d50de2d3dbe079b0a4c5ee5ef03f5c806e88d36eaeb432dddbaca2017f"
 readonly EXPECTED_REGION="FRA"
-readonly EVIDENCE_DIR=".artifacts/crabbox/exe-dev-shadow"
+readonly EVIDENCE_DIR="crabbox-output/exe-dev-shadow"
 readonly PHASES_FILE="${EVIDENCE_DIR}/phases.jsonl"
 readonly FINGERPRINT_FILE="${EVIDENCE_DIR}/execution-fingerprint.json"
 readonly REPORT_FILE="${EVIDENCE_DIR}/report.md"
 readonly JUNIT_FILE="${EVIDENCE_DIR}/junit.xml"
 readonly DATABASE_JUNIT_FILE="${EVIDENCE_DIR}/database-junit.xml"
+readonly UNIT_DIAGNOSTICS_FILE="${EVIDENCE_DIR}/unit-diagnostics.log"
+readonly UNIT_DIAGNOSTICS_SUMMARY_FILE="${EVIDENCE_DIR}/unit-diagnostics.json"
+readonly VALIDATION_EXIT_STATUS_FILE="${EVIDENCE_DIR}/validation-exit-status.txt"
 readonly MANIFEST_FILE="${EVIDENCE_DIR}/manifest.sha256"
+readonly MCP_EDGE_EVIDENCE_DIR="${EVIDENCE_DIR}/mcp-edge-smoke"
 readonly INPUT_MANIFEST_FILE=".crabbox-input-manifest.sha256"
 readonly COMPOSE_ENV_FILE="/tmp/catapulze-crabbox-compose-${$}.env"
 readonly WORKLOAD="exe-dev-shadow-correctness"
@@ -21,12 +25,14 @@ readonly MACHINE_CLASS="2cpu-8gb-40gb"
 readonly RUN_KIND="cold"
 readonly CACHE_STATE="repository-unprimed-provider-image-unknown"
 readonly DATASET_PROFILE="repository-correctness-suite"
+readonly UNIT_DATABASE_URL="postgresql://127.0.0.1:1/unused"
 
 RUN_STATUS="failed"
 COMPOSE_DATABASE_STARTED="false"
 COMPOSE_COMMAND=()
 POSTGRES_IMAGE="unavailable"
 POSTGRES_VERSION="unavailable"
+UNIT_RAW_DIAGNOSTICS_FILE=""
 
 monotonic_ms() {
   awk '{printf "%.0f", $1 * 1000}' /proc/uptime
@@ -269,7 +275,7 @@ write_report() {
     printf -- "- Dataset profile: \`%s\`\n" "$DATASET_PROFILE"
     printf -- "- Recorded phases: \`%s\`\n" "$phase_count"
     printf -- "- Generated at: \`%s\`\n" "$(iso_timestamp)"
-    printf "\nSee \`phases.jsonl\`, \`execution-fingerprint.json\`, \`junit.xml\`, and \`database-junit.xml\` for machine-readable evidence.\n"
+    printf "\nSee \`phases.jsonl\`, \`execution-fingerprint.json\`, \`junit.xml\`, \`database-junit.xml\`, \`unit-diagnostics.log\`, and \`unit-diagnostics.json\` for machine-readable evidence.\n"
   } >"$REPORT_FILE"
 }
 
@@ -277,11 +283,16 @@ write_manifest() {
   local artifact
 
   : >"$MANIFEST_FILE"
-  for artifact in "$PHASES_FILE" "$FINGERPRINT_FILE" "$REPORT_FILE" "$JUNIT_FILE" "$DATABASE_JUNIT_FILE"; do
+  for artifact in "$PHASES_FILE" "$FINGERPRINT_FILE" "$REPORT_FILE" "$JUNIT_FILE" "$DATABASE_JUNIT_FILE" "$UNIT_DIAGNOSTICS_FILE" "$UNIT_DIAGNOSTICS_SUMMARY_FILE" "$VALIDATION_EXIT_STATUS_FILE"; do
     if [[ -f "$artifact" ]]; then
       sha256sum "$artifact" >>"$MANIFEST_FILE"
     fi
   done
+  if [[ -d "$MCP_EDGE_EVIDENCE_DIR" ]]; then
+    while IFS= read -r -d '' artifact; do
+      sha256sum "$artifact" >>"$MANIFEST_FILE"
+    done < <(find "$MCP_EDGE_EVIDENCE_DIR" -type f -print0 | sort -z)
+  fi
 }
 
 cleanup_database() {
@@ -360,17 +371,79 @@ run_database_integration() {
 }
 
 run_unit_suite() {
+  local diagnostics_exit_status
+  local restore_errexit="false"
+  local test_exit_status
+
+  if [[ $- == *e* ]]; then
+    restore_errexit="true"
+  fi
+  UNIT_RAW_DIAGNOSTICS_FILE="$(mktemp)"
+  set +e
   env \
     -u DATABASE_APP_TEST_URL \
     -u DATABASE_TEST_URL \
-    -u DATABASE_URL \
     -u MIGRATION_DATABASE_URL \
     -u REQUIRE_DATABASE_TESTS \
+    DATABASE_URL="$UNIT_DATABASE_URL" \
     bun test \
       --max-concurrency 2 \
       --path-ignore-patterns '**/dist/**' \
       --reporter=junit \
-      --reporter-outfile="$JUNIT_FILE"
+      --reporter-outfile="$JUNIT_FILE" 2>&1 | tee "$UNIT_RAW_DIAGNOSTICS_FILE"
+  test_exit_status="${PIPESTATUS[0]}"
+  if [[ "$restore_errexit" == "true" ]]; then
+    set -e
+  fi
+
+  set +e
+  bun scripts/crabbox-unit-diagnostics.ts \
+    "$UNIT_RAW_DIAGNOSTICS_FILE" \
+    "$JUNIT_FILE" \
+    "$UNIT_DIAGNOSTICS_FILE" \
+    "$UNIT_DIAGNOSTICS_SUMMARY_FILE"
+  diagnostics_exit_status=$?
+  if [[ "$restore_errexit" == "true" ]]; then
+    set -e
+  fi
+  rm -f "$UNIT_RAW_DIAGNOSTICS_FILE"
+  UNIT_RAW_DIAGNOSTICS_FILE=""
+
+  if [[ "$diagnostics_exit_status" -ne 0 ]]; then
+    printf 'exe.dev shadow: failed to create sanitized unit diagnostics\n' >&2
+    return "$diagnostics_exit_status"
+  fi
+  return "$test_exit_status"
+}
+
+capture_mcp_edge_evidence() {
+  if [[ ! -d ".artifacts/mcp-edge-smoke" ]]; then
+    printf 'exe.dev shadow: MCP edge smoke did not produce its evidence directory\n' >&2
+    return 1
+  fi
+  rm -rf -- "$MCP_EDGE_EVIDENCE_DIR"
+  mkdir -p "$MCP_EDGE_EVIDENCE_DIR"
+  cp -R -- .artifacts/mcp-edge-smoke/. "$MCP_EDGE_EVIDENCE_DIR/"
+}
+
+run_mcp_edge_smoke() {
+  bun run docker:mcp-edge-smoke
+  capture_mcp_edge_evidence
+}
+
+write_not_reached_junit() {
+  local file="$1"
+  local suite_name="$2"
+
+  printf '%s\n' \
+    '<?xml version="1.0" encoding="UTF-8"?>' \
+    "<testsuites name=\"${suite_name}\" tests=\"1\" failures=\"0\" errors=\"0\" skipped=\"1\" time=\"0\">" \
+    "  <testsuite name=\"${suite_name}\" tests=\"1\" failures=\"0\" errors=\"0\" skipped=\"1\" time=\"0\">" \
+    '    <testcase name="not reached" classname="crabbox.shadow" time="0">' \
+    '      <skipped message="phase not reached" />' \
+    '    </testcase>' \
+    '  </testsuite>' \
+    '</testsuites>' >"$file"
 }
 
 finalize_evidence() {
@@ -390,14 +463,26 @@ on_exit() {
   trap - EXIT
   cleanup_database
   rm -f "$COMPOSE_ENV_FILE"
+  if [[ -n "$UNIT_RAW_DIAGNOSTICS_FILE" ]]; then
+    rm -f "$UNIT_RAW_DIAGNOSTICS_FILE"
+  fi
+  printf '%d\n' "$exit_status" >"$VALIDATION_EXIT_STATUS_FILE"
   finalize_evidence
+  if [[ "${CRABBOX_CAPTURE_VALIDATION_STATUS:-}" == "1" ]]; then
+    exit 0
+  fi
   exit "$exit_status"
 }
 
 main() {
   mkdir -p "$EVIDENCE_DIR"
-  rm -f "$PHASES_FILE" "$FINGERPRINT_FILE" "$REPORT_FILE" "$JUNIT_FILE" "$DATABASE_JUNIT_FILE" "$MANIFEST_FILE"
+  rm -f "$PHASES_FILE" "$FINGERPRINT_FILE" "$REPORT_FILE" "$JUNIT_FILE" "$DATABASE_JUNIT_FILE" "$UNIT_DIAGNOSTICS_FILE" "$UNIT_DIAGNOSTICS_SUMMARY_FILE" "$VALIDATION_EXIT_STATUS_FILE" "$MANIFEST_FILE"
+  rm -rf -- "$MCP_EDGE_EVIDENCE_DIR" ".artifacts/mcp-edge-smoke"
   : >"$PHASES_FILE"
+  write_not_reached_junit "$JUNIT_FILE" "unit"
+  write_not_reached_junit "$DATABASE_JUNIT_FILE" "database-integration"
+  printf 'unit phase not reached\n' >"$UNIT_DIAGNOSTICS_FILE"
+  printf '%s\n' '{"schemaVersion":1,"bunErrorLineCount":0,"bunReportedErrorCount":0,"junitErrorElementCount":0,"nonJunitErrorCount":0}' >"$UNIT_DIAGNOSTICS_SUMMARY_FILE"
   trap on_exit EXIT
 
   if [[ "${EXE_DEV_REGION:-}" != "$EXPECTED_REGION" ]]; then
@@ -429,6 +514,7 @@ main() {
   run_phase "database-integration" "REQUIRE_DATABASE_TESTS=1 bun test packages/db/src/core.spec.ts packages/db/src/user-write-stores.spec.ts --reporter=junit" run_database_integration
   cleanup_database
   run_phase "integration" "bun run docker:smoke" bun run docker:smoke
+  run_phase "mcp-edge" "bun run docker:mcp-edge-smoke" run_mcp_edge_smoke
   run_phase "build" "bun run build -- --concurrency=2" bun run build -- --concurrency=2
 
   RUN_STATUS="success"

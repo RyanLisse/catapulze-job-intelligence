@@ -178,24 +178,38 @@ jobs:
     ttl: 60m
     idleTimeout: 15m
     shell: true
-    command: bash scripts/crabbox-exe-dev-shadow.sh
+    command: CRABBOX_CAPTURE_VALIDATION_STATUS=1 bash scripts/crabbox-exe-dev-shadow.sh
     junit:
-      - .artifacts/crabbox/exe-dev-shadow/junit.xml
-      - .artifacts/crabbox/exe-dev-shadow/database-junit.xml
+      - crabbox-output/exe-dev-shadow/junit.xml
+      - crabbox-output/exe-dev-shadow/database-junit.xml
     artifactGlobs:
-      - .artifacts/crabbox/exe-dev-shadow/**
+      - crabbox-output/exe-dev-shadow/**
     requiredArtifacts:
-      - .artifacts/crabbox/exe-dev-shadow/phases.jsonl
-      - .artifacts/crabbox/exe-dev-shadow/execution-fingerprint.json
-      - .artifacts/crabbox/exe-dev-shadow/report.md
-      - .artifacts/crabbox/exe-dev-shadow/junit.xml
-      - .artifacts/crabbox/exe-dev-shadow/database-junit.xml
-      - .artifacts/crabbox/exe-dev-shadow/manifest.sha256
+      - crabbox-output/exe-dev-shadow/phases.jsonl
+      - crabbox-output/exe-dev-shadow/execution-fingerprint.json
+      - crabbox-output/exe-dev-shadow/report.md
+      - crabbox-output/exe-dev-shadow/junit.xml
+      - crabbox-output/exe-dev-shadow/database-junit.xml
+      - crabbox-output/exe-dev-shadow/unit-diagnostics.log
+      - crabbox-output/exe-dev-shadow/unit-diagnostics.json
+      - crabbox-output/exe-dev-shadow/validation-exit-status.txt
+      - crabbox-output/exe-dev-shadow/manifest.sha256
+      - crabbox-output/exe-dev-shadow/mcp-edge-smoke/evidence.json
+      - crabbox-output/exe-dev-shadow/mcp-edge-smoke/runtime-identity.json
+      - crabbox-output/exe-dev-shadow/mcp-edge-smoke/route-config.conf
+      - crabbox-output/exe-dev-shadow/mcp-edge-smoke/container-status.txt
     downloads:
-      - .artifacts/crabbox/exe-dev-shadow/phases.jsonl=.artifacts/crabbox/exe-dev-shadow/phases.jsonl
-      - .artifacts/crabbox/exe-dev-shadow/execution-fingerprint.json=.artifacts/crabbox/exe-dev-shadow/execution-fingerprint.json
-      - .artifacts/crabbox/exe-dev-shadow/report.md=.artifacts/crabbox/exe-dev-shadow/report.md
-      - .artifacts/crabbox/exe-dev-shadow/junit.xml=.artifacts/crabbox/exe-dev-shadow/junit.xml
-      - .artifacts/crabbox/exe-dev-shadow/database-junit.xml=.artifacts/crabbox/exe-dev-shadow/database-junit.xml
-      - .artifacts/crabbox/exe-dev-shadow/manifest.sha256=.artifacts/crabbox/exe-dev-shadow/manifest.sha256
+      - crabbox-output/exe-dev-shadow/phases.jsonl=.artifacts/crabbox/exe-dev-shadow/phases.jsonl
+      - crabbox-output/exe-dev-shadow/execution-fingerprint.json=.artifacts/crabbox/exe-dev-shadow/execution-fingerprint.json
+      - crabbox-output/exe-dev-shadow/report.md=.artifacts/crabbox/exe-dev-shadow/report.md
+      - crabbox-output/exe-dev-shadow/junit.xml=.artifacts/crabbox/exe-dev-shadow/junit.xml
+      - crabbox-output/exe-dev-shadow/database-junit.xml=.artifacts/crabbox/exe-dev-shadow/database-junit.xml
+      - crabbox-output/exe-dev-shadow/unit-diagnostics.log=.artifacts/crabbox/exe-dev-shadow/unit-diagnostics.log
+      - crabbox-output/exe-dev-shadow/unit-diagnostics.json=.artifacts/crabbox/exe-dev-shadow/unit-diagnostics.json
+      - crabbox-output/exe-dev-shadow/validation-exit-status.txt=.artifacts/crabbox/exe-dev-shadow/validation-exit-status.txt
+      - crabbox-output/exe-dev-shadow/manifest.sha256=.artifacts/crabbox/exe-dev-shadow/manifest.sha256
+      - crabbox-output/exe-dev-shadow/mcp-edge-smoke/evidence.json=.artifacts/crabbox/exe-dev-shadow/mcp-edge-smoke/evidence.json
+      - crabbox-output/exe-dev-shadow/mcp-edge-smoke/runtime-identity.json=.artifacts/crabbox/exe-dev-shadow/mcp-edge-smoke/runtime-identity.json
+      - crabbox-output/exe-dev-shadow/mcp-edge-smoke/route-config.conf=.artifacts/crabbox/exe-dev-shadow/mcp-edge-smoke/route-config.conf
+      - crabbox-output/exe-dev-shadow/mcp-edge-smoke/container-status.txt=.artifacts/crabbox/exe-dev-shadow/mcp-edge-smoke/container-status.txt
     stop: always
