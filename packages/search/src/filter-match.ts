@@ -1,6 +1,17 @@
 import type { SearchDocument, SearchFilters } from "./types";
 import { documentLocatie } from "./types";
 
+const matchesLocatieFilter = (
+  document: SearchDocument,
+  locations: SearchFilters["locatie"]
+): boolean => {
+  if (locations === undefined) {
+    return true;
+  }
+  const location = documentLocatie(document);
+  return location !== undefined && locations.includes(location);
+};
+
 /** Shared in-process equivalent of Manticore's AND-ed attribute filters. */
 export const matchesSearchFilters = (
   document: SearchDocument,
@@ -21,7 +32,7 @@ export const matchesSearchFilters = (
     return false;
   }
 
-  if (filters.locatie && !filters.locatie.includes(documentLocatie(document))) {
+  if (!matchesLocatieFilter(document, filters.locatie)) {
     return false;
   }
 
