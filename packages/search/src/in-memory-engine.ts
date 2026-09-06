@@ -5,6 +5,7 @@ import {
 
 import { evaluateBooleanAst } from "./adapter";
 import { compareCodepoints } from "./ast-hash";
+import { matchesSearchFilters } from "./filter-match";
 import { hashDocumentId } from "./manticore/id-hash";
 import {
   DEFAULT_SEARCH_SCOPE,
@@ -19,7 +20,6 @@ import type {
   SearchEngineResult,
   SearchFacetBucket,
   SearchFacets,
-  SearchFilters,
   SearchIndexBatch,
   SearchIndexBatchResult,
   SearchSort,
@@ -31,82 +31,6 @@ import {
 } from "./types";
 import { InMemorySearchVersionStore } from "./version";
 import type { SearchVersion, SearchVersionStore } from "./version";
-
-const matchesLocationFilter = (
-  document: SearchDocument,
-  locations: SearchFilters["locatie"]
-): boolean => {
-  if (locations === undefined) {
-    return true;
-  }
-  const location = documentLocatie(document);
-  return location !== undefined && locations.includes(location);
-};
-
-const matchesCountryFilter = (
-  document: SearchDocument,
-  countries: SearchFilters["locatieLand"]
-): boolean => {
-  if (countries === undefined) {
-    return true;
-  }
-  if (document.locatie === null || document.locatieLand === null) {
-    return false;
-  }
-  return countries.includes(document.locatieLand);
-};
-
-const matchesFilters = (
-  document: SearchDocument,
-  filters: SearchFilters
-): boolean => {
-  if (filters.bronIds && !filters.bronIds.includes(document.bronId)) {
-    return false;
-  }
-
-  if (filters.status && !filters.status.includes(document.status)) {
-    return false;
-  }
-
-  if (!matchesCountryFilter(document, filters.locatieLand)) {
-    return false;
-  }
-
-  if (!matchesLocationFilter(document, filters.locatie)) {
-    return false;
-  }
-
-  if (
-    filters.contracttype &&
-    document.contracttype !== null &&
-    !filters.contracttype.includes(document.contracttype)
-  ) {
-    return false;
-  }
-
-  if (
-    filters.tariefMin !== undefined &&
-    (document.tariefMax === null || document.tariefMax < filters.tariefMin)
-  ) {
-    return false;
-  }
-
-  if (
-    filters.tariefMax !== undefined &&
-    (document.tariefMin === null || document.tariefMin > filters.tariefMax)
-  ) {
-    return false;
-  }
-
-  if (filters.freshnessDays !== undefined) {
-    const cutoff = Date.now() - filters.freshnessDays * 86_400_000;
-    if (document.laatstGezienOp.getTime() < cutoff) {
-      return false;
-    }
-  }
-
-  return true;
-};
 
 type FacetField =
   | "bronId"
@@ -288,7 +212,7 @@ export class InMemorySearchEngine implements SearchEngine {
     const scope = params.scope ?? DEFAULT_SEARCH_SCOPE;
     return timeCriticalPathPhase("search-serialization", () => {
       const matchesQuery = (document: SearchDocument): boolean => {
-        if (!matchesFilters(document, params.filters)) {
+        if (!matchesSearchFilters(document, params.filters)) {
           return false;
         }
 
