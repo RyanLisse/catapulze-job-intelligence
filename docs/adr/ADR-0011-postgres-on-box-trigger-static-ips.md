@@ -76,7 +76,10 @@ markeerde: Trigger.dev static IPs (paid plans).
 
 ## Open uitvoering (geen “done” tot bewezen)
 
-- Coolify-resource, firewallregels, static-IP-enablement, dump/restore,
-  `/readyz` + projector-lag 0, Trigger.dev `poll-bron` succeeded, R2 restore-
-  drill — alle DoD-items van RJC-418.
-- Hybrid corpus-rollout en Motian-full-copy blijven geblokkeerd op die DoD.
+- Coolify-resource + env-switch voor server/projector/migrator mag al groen
+  zijn (`/readyz` 200). Resterende poort: Trigger.dev static IPs + Hetzner
+  firewall `catapulze-prod` TCP 5432 + Trigger prod `DATABASE_URL` flip —
+  one-shot: [trigger-on-box-cutover.md](../runbooks/trigger-on-box-cutover.md).
+- Daarna: Trigger.dev `poll-bron` succeeded, projector-lag 0, R2 restore-
+  drill (RJC-405) — rest van RJC-418 DoD.
+- Hybrid corpus-rollout en Motian-full-copy blijven geblokkeerd tot die DoD.

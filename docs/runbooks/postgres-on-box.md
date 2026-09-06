@@ -6,6 +6,8 @@ Docker-lane én de Coolify on-box productie-instance. Uitvoering van de
 Neon→on-box cutover staat in RJC-418; hybrid corpus-rollout wacht daarop
 ([hybrid-corpus-rollout.md](hybrid-corpus-rollout.md)).
 
+**Trigger.dev remainder:** Coolify runtime may already be on-box while Trigger prod still uses Neon — finish static-IP firewall + Trigger `DATABASE_URL` flip via [trigger-on-box-cutover.md](trigger-on-box-cutover.md).
+
 Historisch: [ADR-0006](../adr/ADR-0006-neon-as-system-of-record.md) koos Neon
 als SoR (2026-08-31) en markeerde dit runbook tijdelijk “local/CI only”; dat is
 superseded. Motian-Neon blijft uitsluitend read-only importbron (DEC-005).
