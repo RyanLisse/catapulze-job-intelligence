@@ -2,7 +2,8 @@
 
 import { ChevronLeft, ChevronRight, X } from "lucide-react";
 import { useSearchParams } from "next/navigation";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { Dispatch, SetStateAction } from "react";
 
 import { CapabilityDiscovery } from "./capability-discovery";
 import { fixtureJobDataAdapter } from "./fixtures";
@@ -21,6 +22,16 @@ import {
   JobSyntaxErrorState,
 } from "./job-search-states";
 import { JobSearchToolbar } from "./job-search-toolbar";
+import {
+  emptyMarkeringReadbackState,
+  hasNewerMarkering,
+  mergeMarkeringReadback,
+  startMarkeringPolling,
+} from "./markering-sync";
+import type {
+  MarkeringReadbackSource,
+  MarkeringReadbackState,
+} from "./markering-sync";
 import { validateBooleanPreview } from "./presentation";
 import type { CapabilityDiscoveryDocument } from "./rest-job-data-adapter";
 import { runAsync } from "./run-async";
@@ -41,8 +52,11 @@ import type {
   JobSearchState,
   JobSource,
   JobSourceOption,
+  MarkeringSyncState,
   PreviewStatus,
 } from "./types";
+
+const MARKERING_POLL_INTERVAL_MS = 5000;
 
 const emptyFilters: JobSearchFilters = {
   contractTypes: [],
@@ -164,6 +178,54 @@ const jobSelectionHistoryMode = (
 
 const resultCountLabel = (total: number): "opdracht" | "opdrachten" =>
   total === 1 ? "opdracht" : "opdrachten";
+
+interface MutableValue<Value> {
+  current: Value;
+}
+
+const useApplyMarkeringReadback = (
+  selectedJobIdRef: MutableValue<string | null>,
+  lastAppliedMarkering: MutableValue<MarkeringReadbackState>,
+  setSelectedJob: Dispatch<SetStateAction<JobListing | null>>,
+  setResponse: Dispatch<SetStateAction<JobSearchResponse>>
+) =>
+  useCallback(
+    (
+      resourceId: string,
+      markering: JobListing["markering"],
+      source: MarkeringReadbackSource
+    ): boolean => {
+      if (selectedJobIdRef.current !== resourceId) {
+        return false;
+      }
+      const merged = mergeMarkeringReadback(
+        lastAppliedMarkering.current,
+        markering ?? null,
+        source
+      );
+      if (merged === lastAppliedMarkering.current) {
+        return false;
+      }
+      lastAppliedMarkering.current = merged;
+      const nextMarkering = merged.markering;
+      setSelectedJob((current) =>
+        current?.id === resourceId
+          ? { ...current, markering: nextMarkering }
+          : current
+      );
+      setResponse((current) => ({
+        ...current,
+        items: current.items.map((job) =>
+          job.id === resourceId &&
+          hasNewerMarkering(job.markering, nextMarkering)
+            ? { ...job, markering: nextMarkering }
+            : job
+        ),
+      }));
+      return true;
+    },
+    [lastAppliedMarkering, selectedJobIdRef, setResponse, setSelectedJob]
+  );
 
 // RJC-378: totalPages is capped by the engine's retrievable window, so when
 // the true total reaches past the last page the user is told to refine
@@ -349,10 +411,24 @@ const JobSearchPageContent = ({
   const [snapshotMessage, setSnapshotMessage] = useState<string | null>(null);
   const [isSavingSearch, setIsSavingSearch] = useState(false);
   const [isCreatingSnapshot, setIsCreatingSnapshot] = useState(false);
+  const [isMarkeringMutationPending, setIsMarkeringMutationPending] =
+    useState(false);
+  const [markeringSyncState, setMarkeringSyncState] =
+    useState<MarkeringSyncState>("idle");
   const [sources, setSources] = useState<readonly JobSourceOption[]>([]);
   const isDetailOverlay = useMediaQuery("(max-width: 1199px)");
   const detailTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const lastAppliedMarkering = useRef(emptyMarkeringReadbackState());
   const previousSelectedJobId = useRef<string | null>(state.selectedJobId);
+  const selectedJobIdRef = useRef<string | null>(state.selectedJobId);
+  const markeringMutationsInFlight = useRef(new Set<string>());
+  selectedJobIdRef.current = state.selectedJobId;
+  const applyMarkeringReadback = useApplyMarkeringReadback(
+    selectedJobIdRef,
+    lastAppliedMarkering,
+    setSelectedJob,
+    setResponse
+  );
 
   useEffect(() => {
     setQueryDraft(state.query);
@@ -413,6 +489,7 @@ const JobSearchPageContent = ({
   useEffect(() => {
     let isCurrent = true;
     const { selectedJobId } = state;
+    setMarkeringSyncState("idle");
     if (!selectedJobId) {
       setSelectedJob(null);
       return;
@@ -423,7 +500,15 @@ const JobSearchPageContent = ({
       try {
         const job = await adapter.getById(selectedJobId);
         if (isCurrent) {
-          setSelectedJob(job);
+          const merged = job
+            ? mergeMarkeringReadback(
+                lastAppliedMarkering.current,
+                job.markering ?? null,
+                "detail"
+              )
+            : lastAppliedMarkering.current;
+          lastAppliedMarkering.current = merged;
+          setSelectedJob(job ? { ...job, markering: merged.markering } : null);
         }
       } catch {
         if (isCurrent) {
@@ -438,6 +523,30 @@ const JobSearchPageContent = ({
       isCurrent = false;
     };
   }, [adapter, state.selectedJobId]);
+
+  useEffect(() => {
+    const { selectedJobId } = state;
+    const { getMarkering } = adapter;
+    if (!selectedJobId || !getMarkering) {
+      return;
+    }
+
+    lastAppliedMarkering.current = emptyMarkeringReadbackState();
+    const applyMarkering = (markering: JobListing["markering"]) => {
+      if (!applyMarkeringReadback(selectedJobId, markering, "poll")) {
+        return;
+      }
+      if (lastAppliedMarkering.current.markering) {
+        setMarkeringSyncState("commit");
+      }
+    };
+    return startMarkeringPolling({
+      getMarkering,
+      intervalMs: MARKERING_POLL_INTERVAL_MS,
+      onMarkering: applyMarkering,
+      resourceId: selectedJobId,
+    });
+  }, [adapter, applyMarkeringReadback, state.selectedJobId]);
 
   useEffect(() => {
     const wasSelected = previousSelectedJobId.current !== null;
@@ -523,16 +632,22 @@ const JobSearchPageContent = ({
   const { createSnapshot, markSelectedJob, saveCurrentSearch } =
     createJobSearchMutations({
       actions,
+      applyMarkeringResult: (resourceId, markering) => {
+        applyMarkeringReadback(resourceId, markering, "mutation");
+      },
       filters: state.filters,
+      getSelectedJobId: () => selectedJobIdRef.current,
+      markeringMutationsInFlight,
       query: state.query,
       results: response.items,
       resultsComplete: canCreateSnapshot,
       scope: state.scope,
       selectedJob,
       setIsCreatingSnapshot,
+      setIsMarkeringMutationPending,
       setIsSavingSearch,
+      setMarkeringSyncState,
       setSavedSearchMessage,
-      setSelectedJob,
       setSnapshotMessage,
     });
 
@@ -692,6 +807,8 @@ const JobSearchPageContent = ({
               job={selectedJob}
               liveData={liveData}
               markering={selectedJob.markering ?? null}
+              isMarkeringMutationPending={isMarkeringMutationPending}
+              markeringSyncState={markeringSyncState}
               onClose={closeJob}
               onMarkeer={actions ? () => runAsync(markSelectedJob) : undefined}
               titleId="desktop-job-detail-title"
@@ -758,6 +875,8 @@ const JobSearchPageContent = ({
             job={selectedJob}
             liveData={liveData}
             markering={selectedJob.markering ?? null}
+            isMarkeringMutationPending={isMarkeringMutationPending}
+            markeringSyncState={markeringSyncState}
             onClose={closeJob}
             onMarkeer={actions ? () => runAsync(markSelectedJob) : undefined}
             titleId="overlay-job-detail-title"

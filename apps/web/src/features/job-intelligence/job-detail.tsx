@@ -7,7 +7,7 @@ import {
   formatRemote,
   sourceLabel,
 } from "./presentation";
-import type { JobListing, JobMarkering } from "./types";
+import type { JobListing, JobMarkering, MarkeringSyncState } from "./types";
 
 const RAW_PREVIEW_INDENT = 2;
 
@@ -109,18 +109,44 @@ const ProvenanceCard = ({
 interface JobDetailProps {
   readonly descriptionId: string;
   readonly job: JobListing;
+  readonly isMarkeringMutationPending?: boolean;
   readonly liveData?: boolean;
   readonly markering?: JobMarkering | null;
+  readonly markeringSyncState?: MarkeringSyncState;
   readonly onClose: () => void;
   readonly onMarkeer?: () => void;
   readonly titleId: string;
 }
 
+const markeringActionLabel = (
+  markering: JobMarkering | null,
+  isPending: boolean
+): string => {
+  if (isPending) {
+    return "Markering opslaan…";
+  }
+  return markering ? "Opnieuw markeren als relevant" : "Markeren als relevant";
+};
+
+const markeringActionTitle = (
+  isPending: boolean,
+  isAvailable: boolean
+): string => {
+  if (isPending) {
+    return "Markering wordt opgeslagen";
+  }
+  return isAvailable
+    ? "Markeer als relevant"
+    : "Markeren vereist de U7 REST-capability";
+};
+
 export const JobDetail = ({
   descriptionId,
   job,
+  isMarkeringMutationPending = false,
   liveData = false,
   markering = null,
+  markeringSyncState = "idle",
   onClose,
   onMarkeer,
   titleId,
@@ -231,6 +257,11 @@ export const JobDetail = ({
       </div>
 
       <div className="border-t border-border bg-card p-3">
+        {markeringSyncState === "idle" ? null : (
+          <p className="mb-2 text-[11px] text-muted-foreground" role="status">
+            Synchronisatie: {markeringSyncState}
+          </p>
+        )}
         {markering ? (
           <p className="mb-2 text-[11px] text-muted-foreground">
             Markering:{" "}
@@ -241,18 +272,15 @@ export const JobDetail = ({
         ) : null}
         <button
           type="button"
-          disabled={!onMarkeer}
+          disabled={!onMarkeer || isMarkeringMutationPending}
           onClick={onMarkeer}
-          title={
-            onMarkeer
-              ? "Markeer als relevant"
-              : "Markeren vereist de U7 REST-capability"
-          }
+          title={markeringActionTitle(
+            isMarkeringMutationPending,
+            Boolean(onMarkeer)
+          )}
           className="min-h-11 w-full rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground outline-none transition-colors hover:bg-primary/90 focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:bg-muted disabled:text-muted-foreground"
         >
-          {markering
-            ? "Opnieuw markeren als relevant"
-            : "Markeren als relevant"}
+          {markeringActionLabel(markering, isMarkeringMutationPending)}
         </button>
       </div>
     </div>

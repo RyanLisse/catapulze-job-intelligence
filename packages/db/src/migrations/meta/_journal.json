@@ -134,6 +134,13 @@
       "when": 1789459200000,
       "tag": "0018_saved_search_soft_delete",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1789545600000,
+      "tag": "0019_markering_clear_tombstone",
+      "breakpoints": true
     }
   ]
 }

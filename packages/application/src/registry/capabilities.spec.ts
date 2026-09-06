@@ -420,9 +420,11 @@ describe("markeer_aanvraag writes audit event", () => {
     expect(owner.ok).toBe(true);
     expect(other.ok).toBe(true);
     if (owner.ok && other.ok) {
-      expect(owner.value.markering).toEqual({
+      expect(owner.value.markering).toMatchObject({
         reden: null,
+        revision: 1,
         status: "relevant",
+        updatedAt: expect.any(String),
       });
       expect(other.value.markering).toBeNull();
     }

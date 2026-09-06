@@ -1,39 +1,119 @@
 import type { Dispatch, SetStateAction } from "react";
 
+import { markeringMutationOutcome } from "./markering-sync";
 import type {
   JobIntelligenceActions,
   JobListing,
+  JobMarkering,
   JobSearchFilters,
   JobSearchScope,
+  MarkeringSyncState,
 } from "./types";
 
 interface JobSearchMutationsInput {
   readonly actions?: JobIntelligenceActions;
+  readonly applyMarkeringResult: (
+    resourceId: string,
+    markering: JobMarkering
+  ) => void;
   readonly filters: JobSearchFilters;
+  readonly getSelectedJobId: () => string | null;
+  readonly markeringMutationsInFlight: { current: Set<string> };
   readonly query: string;
   readonly results: readonly JobListing[];
   readonly resultsComplete: boolean;
   readonly scope: JobSearchScope;
   readonly selectedJob: JobListing | null;
   readonly setIsCreatingSnapshot: Dispatch<SetStateAction<boolean>>;
+  readonly setIsMarkeringMutationPending: Dispatch<SetStateAction<boolean>>;
   readonly setIsSavingSearch: Dispatch<SetStateAction<boolean>>;
+  readonly setMarkeringSyncState?: Dispatch<SetStateAction<MarkeringSyncState>>;
   readonly setSavedSearchMessage: Dispatch<SetStateAction<string | null>>;
-  readonly setSelectedJob: Dispatch<SetStateAction<JobListing | null>>;
   readonly setSnapshotMessage: Dispatch<SetStateAction<string | null>>;
 }
 
+type MarkSelectedJobInput = Pick<
+  JobSearchMutationsInput,
+  | "actions"
+  | "applyMarkeringResult"
+  | "getSelectedJobId"
+  | "markeringMutationsInFlight"
+  | "selectedJob"
+  | "setIsMarkeringMutationPending"
+  | "setMarkeringSyncState"
+  | "setSnapshotMessage"
+>;
+
+const createMarkSelectedJob =
+  ({
+    actions,
+    applyMarkeringResult,
+    getSelectedJobId,
+    markeringMutationsInFlight,
+    selectedJob,
+    setIsMarkeringMutationPending,
+    setMarkeringSyncState,
+    setSnapshotMessage,
+  }: MarkSelectedJobInput) =>
+  async () => {
+    if (!actions || !selectedJob) {
+      return;
+    }
+    const resourceId = selectedJob.id;
+    if (
+      getSelectedJobId() !== resourceId ||
+      markeringMutationsInFlight.current.has(resourceId)
+    ) {
+      return;
+    }
+    markeringMutationsInFlight.current.add(resourceId);
+    setIsMarkeringMutationPending(true);
+    setMarkeringSyncState?.("pending");
+    try {
+      const markering = await actions.markeerAanvraag({
+        aanvraagId: resourceId,
+        status: "relevant",
+      });
+      if (getSelectedJobId() !== resourceId) {
+        return;
+      }
+      applyMarkeringResult(resourceId, markering);
+      setMarkeringSyncState?.("commit");
+    } catch (error) {
+      if (getSelectedJobId() !== resourceId) {
+        return;
+      }
+      // A transport failure can happen after the server committed. Keep the
+      // open detail visibly uncertain so the bounded readback poll can settle
+      // it, instead of falsely claiming a rollback.
+      setMarkeringSyncState?.(
+        error instanceof Error ? markeringMutationOutcome(error) : "uncertain"
+      );
+      setSnapshotMessage("Markeren mislukt. Probeer het opnieuw.");
+    } finally {
+      markeringMutationsInFlight.current.delete(resourceId);
+      setIsMarkeringMutationPending(
+        markeringMutationsInFlight.current.size > 0
+      );
+    }
+  };
+
 export const createJobSearchMutations = ({
   actions,
+  applyMarkeringResult,
   filters,
+  getSelectedJobId,
+  markeringMutationsInFlight,
   query,
   results,
   resultsComplete,
   scope,
   selectedJob,
   setIsCreatingSnapshot,
+  setIsMarkeringMutationPending,
   setIsSavingSearch,
+  setMarkeringSyncState,
   setSavedSearchMessage,
-  setSelectedJob,
   setSnapshotMessage,
 }: JobSearchMutationsInput) => ({
   createSnapshot: async () => {
@@ -75,20 +155,16 @@ export const createJobSearchMutations = ({
       setIsCreatingSnapshot(false);
     }
   },
-  markSelectedJob: async () => {
-    if (!actions || !selectedJob) {
-      return;
-    }
-    try {
-      const markering = await actions.markeerAanvraag({
-        aanvraagId: selectedJob.id,
-        status: "relevant",
-      });
-      setSelectedJob({ ...selectedJob, markering });
-    } catch {
-      setSnapshotMessage("Markeren mislukt. Probeer het opnieuw.");
-    }
-  },
+  markSelectedJob: createMarkSelectedJob({
+    actions,
+    applyMarkeringResult,
+    getSelectedJobId,
+    markeringMutationsInFlight,
+    selectedJob,
+    setIsMarkeringMutationPending,
+    setMarkeringSyncState,
+    setSnapshotMessage,
+  }),
   saveCurrentSearch: async () => {
     if (!actions) {
       return;
