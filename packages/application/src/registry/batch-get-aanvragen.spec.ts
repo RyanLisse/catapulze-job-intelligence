@@ -131,18 +131,85 @@ describe("batch_get_aanvragen (RJC-379)", () => {
       "beschrijving",
       "bronId",
       "bronReferentie",
+      "contracttype",
       "id",
+      "locatie",
       "mode",
+      "opdrachtgeverNaam",
+      "publicatiedatum",
       "rawPayloadRef",
       "scrapeRunId",
+      "sluitingsdatum",
       "status",
+      "tariefEenheid",
+      "tariefMax",
+      "tariefMin",
+      "tariefValuta",
       "titel",
+      "werkvorm",
     ]);
+    expect(item?.aanvraag).toMatchObject({
+      contracttype: null,
+      locatie: null,
+      opdrachtgeverNaam: null,
+      publicatiedatum: null,
+      sluitingsdatum: null,
+      tariefEenheid: null,
+      tariefMax: null,
+      tariefMin: null,
+      tariefValuta: null,
+      werkvorm: null,
+    });
     // previewText truncation still applies to the 600+ char beschrijving
     // (500 chars + ellipsis).
     const beschrijving = z.string().parse(item?.aanvraag.beschrijving);
     expect(beschrijving.length).toBeLessThanOrEqual(501);
     expect(beschrijving.endsWith("…")).toBe(true);
+  });
+
+  it("preserves curated commercial fields without using SCD validity as dates", async () => {
+    const bundle = createTestSliceARegistry();
+    bundle.deps.stores.aanvragen.seed({
+      ...seedRecord(idA, "a"),
+      contracttype: "detachering",
+      locatie: "Amsterdam",
+      opdrachtgeverNaam: "Gemeente Amsterdam",
+      publicatiedatum: "2026-08-26T04:34:00+02:00",
+      sluitingsdatum: new Date("2026-09-15T10:00:00.000Z"),
+      tariefEenheid: "uur",
+      tariefMax: 110,
+      tariefMin: 90,
+      tariefValuta: "EUR",
+      werkvorm: "remote",
+    });
+    const invoker = bundle.registry.createInvoker({
+      capabilityId: "batch_get_aanvragen",
+      operation: "batch_get_aanvragen",
+      transport: "mcp",
+    });
+    const result = await invoker(
+      { ids: [idA] },
+      { principal: recruiterPrincipal, requestId: "batch-curated-fields" }
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(result.value.items[0]?.aanvraag).toMatchObject({
+      contracttype: "detachering",
+      locatie: "Amsterdam",
+      opdrachtgeverNaam: "Gemeente Amsterdam",
+      publicatiedatum: "2026-08-26T04:34:00+02:00",
+      sluitingsdatum: "2026-09-15T10:00:00.000Z",
+      tariefEenheid: "uur",
+      tariefMax: 110,
+      tariefMin: 90,
+      tariefValuta: "EUR",
+      werkvorm: "remote",
+    });
+    expect(result.value.items[0]?.versies[0]).toMatchObject({
+      geldigVan: "2026-08-01T00:00:00.000Z",
+    });
   });
 
   it("enforces the recruiter gate for full detail like get_aanvraag", async () => {

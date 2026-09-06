@@ -8,6 +8,7 @@
     "check-types": "PATH=\"./node_modules/.bin:$PATH\" tsc -b",
     "compile": "bun build --compile --minify --sourcemap --bytecode ./src/index.ts --outfile server",
     "dev": "bun run --hot src/index.ts",
+    "export:reconcile-spott": "bun src/export/reconcile-spott-export.ts",
     "projector": "bun src/projector/main.ts",
     "start": "bun run dist/index.mjs"
   },

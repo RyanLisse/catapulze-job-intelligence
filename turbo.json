@@ -24,7 +24,8 @@
         "DATABASE_URL",
         "MANTICORE_URL",
         "NODE_ENV",
-        "PROJECTOR_DATABASE_URL"
+        "PROJECTOR_DATABASE_URL",
+        "SEARCH_HYBRID"
       ],
       "persistent": true
     },

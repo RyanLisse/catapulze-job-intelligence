@@ -1,9 +1,10 @@
 import { ExternalLink, X } from "lucide-react";
 
 import {
-  contractLabels,
+  formatContract,
   formatDate,
   formatRate,
+  formatRemote,
   sourceLabel,
 } from "./presentation";
 import type { JobListing, JobMarkering } from "./types";
@@ -81,10 +82,26 @@ const ProvenanceCard = ({
         <dt>normalisatieversie</dt>
         <dd className="text-foreground/80">{record.normalizationVersion}</dd>
       </div>
-      <div className="flex justify-between gap-3">
-        <dt>laatst gezien</dt>
-        <dd className="text-foreground/80">{formatDate(record.lastSeenAt)}</dd>
-      </div>
+      {record.lastSeenAt ? (
+        <div className="flex justify-between gap-3">
+          <dt>laatst gezien</dt>
+          <dd className="text-foreground/80">
+            {formatDate(record.lastSeenAt)}
+          </dd>
+        </div>
+      ) : null}
+      {record.validFrom ? (
+        <div className="flex justify-between gap-3">
+          <dt>versie geldig vanaf</dt>
+          <dd className="text-foreground/80">{formatDate(record.validFrom)}</dd>
+        </div>
+      ) : null}
+      {record.validTo ? (
+        <div className="flex justify-between gap-3">
+          <dt>versie geldig tot</dt>
+          <dd className="text-foreground/80">{formatDate(record.validTo)}</dd>
+        </div>
+      ) : null}
     </dl>
   </article>
 );
@@ -134,20 +151,18 @@ export const JobDetail = ({
             {job.title}
           </h2>
           <p id={descriptionId} className="mt-1 text-xs text-muted-foreground">
-            {job.organization} · {job.location}
+            {job.organization ?? "Onbekend"} · {job.location ?? "Onbekend"}
           </p>
           <div className="mt-3 flex flex-wrap gap-1.5">
             <span className={`${badgeClass} border-primary/40 text-primary`}>
-              {contractLabels[job.contractType]}
+              {formatContract(job)}
             </span>
             {job.status === "closing-soon" ? (
               <span className={`${badgeClass} border-chart-2/40 text-chart-2`}>
                 Sluit binnenkort
               </span>
             ) : null}
-            <span className={badgeClass}>
-              {job.remote ? "Hybride" : "Op locatie"}
-            </span>
+            <span className={badgeClass}>{formatRemote(job)}</span>
           </div>
         </div>
         <button
@@ -162,13 +177,13 @@ export const JobDetail = ({
 
       <div className="min-h-0 flex-1 space-y-5 overflow-y-auto overscroll-contain px-4 py-4">
         <dl className="grid grid-cols-2 gap-x-4 gap-y-2.5">
-          <DetailField label="Organisatie" value={job.organization} />
-          <DetailField label="Locatie" value={job.location} />
-          <DetailField label="Tarief" value={formatRate(job)} />
           <DetailField
-            label="Contract"
-            value={contractLabels[job.contractType]}
+            label="Organisatie"
+            value={job.organization ?? "Onbekend"}
           />
+          <DetailField label="Locatie" value={job.location ?? "Onbekend"} />
+          <DetailField label="Tarief" value={formatRate(job)} />
+          <DetailField label="Contract" value={formatContract(job)} />
           <DetailField
             label="Gepubliceerd"
             value={formatDate(job.publishedAt)}

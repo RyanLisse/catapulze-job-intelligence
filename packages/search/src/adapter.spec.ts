@@ -154,6 +154,199 @@ describe("SearchAdapter", () => {
     expect(second.ok).toBe(true);
     expect(searchCalls).toBe(1);
   });
+
+  it("does not share cached hits between legacy-delimiter-colliding ASTs (RJC-427)", async () => {
+    const engine = new InMemorySearchEngine();
+    await engine.upsertDocument(
+      sampleDocument({ beschrijving: "a b c", id: "three-terms", titel: "" })
+    );
+    await engine.applyBatch({ appliedSequence: 1n, mutations: [] });
+
+    const cachedAdapter = new SearchAdapter({
+      cache: new MemoryResultCache(),
+      engine,
+    });
+    const first = await cachedAdapter.search({ query: "a AND b AND c" });
+    const cachedSecond = await cachedAdapter.search({
+      query: "a,term:b AND c",
+    });
+    const freshSecond = await new SearchAdapter({ engine }).search({
+      query: "a,term:b AND c",
+    });
+
+    if (!(first.ok && cachedSecond.ok && freshSecond.ok)) {
+      throw new Error("Expected successful searches");
+    }
+    expect(first.hits.map((hit) => hit.id)).toEqual(["three-terms"]);
+    expect(cachedSecond.cache).toBe("miss");
+    expect(cachedSecond.hits.map((hit) => hit.id)).toEqual(
+      freshSecond.hits.map((hit) => hit.id)
+    );
+    expect(cachedSecond.hits).toEqual([]);
+  });
+
+  it("treats empty and whitespace-only queries as cached match-all browse requests (RJC-430)", async () => {
+    const engine = new InMemorySearchEngine();
+    await engine.upsertDocument(sampleDocument({ id: "browse-a" }));
+    await engine.upsertDocument(
+      sampleDocument({ bronId: "bron-2", id: "browse-b" })
+    );
+    await engine.applyBatch({ appliedSequence: 1n, mutations: [] });
+    let searchCalls = 0;
+    const receivedAsts: (BooleanNode | null)[] = [];
+    const capturingEngine: SearchEngine = {
+      ...instrumentEngine(engine, () => {
+        searchCalls += 1;
+      }),
+      search: (params) => {
+        searchCalls += 1;
+        receivedAsts.push(params.ast);
+        return engine.search(params);
+      },
+    };
+    const adapter = new SearchAdapter({
+      cache: new MemoryResultCache(),
+      engine: capturingEngine,
+    });
+
+    const first = await adapter.search({
+      filters: { bronIds: ["bron-1"] },
+      query: "",
+    });
+    const second = await adapter.search({
+      filters: { bronIds: ["bron-1"] },
+      query: " \t\n ",
+    });
+
+    if (!(first.ok && second.ok)) {
+      throw new Error("Expected successful browse searches");
+    }
+    expect(receivedAsts).toEqual([null]);
+    expect(searchCalls).toBe(1);
+    expect(first.hits.map((hit) => hit.id)).toEqual(["browse-a"]);
+    expect(second.hits).toEqual(first.hits);
+    expect(second.cache).toBe("hit");
+  });
+
+  it("preserves incomplete hits and facets without caching them, then retries (RJC-431)", async () => {
+    const engine = new InMemorySearchEngine();
+    let searchCalls = 0;
+    const incompleteFacets = {
+      bron_id: [{ count: 1, value: "partial" }],
+      contracttype: [],
+      locatie: [],
+      locatie_land: [],
+      status: [],
+    };
+    const completeFacets = {
+      bron_id: [{ count: 2, value: "complete" }],
+      contracttype: [],
+      locatie: [],
+      locatie_land: [],
+      status: [],
+    };
+    const timeoutThenComplete: SearchEngine = {
+      ...engine,
+      applyBatch: (batch) => engine.applyBatch(batch),
+      deleteDocument: (id) => engine.deleteDocument(id),
+      getAppliedVersion: () => engine.getAppliedVersion(),
+      search: (params) => {
+        searchCalls += 1;
+        return Promise.resolve(
+          searchCalls === 1
+            ? {
+                emptyReason: "query_timeout",
+                facets: incompleteFacets,
+                hits: [{ id: "partial-hit", weight: 1 }],
+                incomplete: true,
+                indexVersion: 0,
+                scope: params.scope ?? "active",
+                total: 1,
+                windowLimit: 1000,
+              }
+            : {
+                facets: completeFacets,
+                hits: [
+                  { id: "partial-hit", weight: 1 },
+                  { id: "full-hit", weight: 1 },
+                ],
+                incomplete: false,
+                indexVersion: 0,
+                scope: params.scope ?? "active",
+                total: 2,
+                windowLimit: 1000,
+              }
+        );
+      },
+      upsertDocument: (document) => engine.upsertDocument(document),
+    };
+    const adapter = new SearchAdapter({
+      cache: new MemoryResultCache(),
+      engine: timeoutThenComplete,
+    });
+
+    const partial = await adapter.search({ query: "Azure" });
+    const retry = await adapter.search({ query: "Azure" });
+    const cached = await adapter.search({ query: "Azure" });
+
+    if (!(partial.ok && retry.ok && cached.ok)) {
+      throw new Error("Expected successful searches");
+    }
+    expect(partial.incomplete).toBe(true);
+    expect(partial.emptyReason).toBe("query_timeout");
+    expect(partial.hits).toEqual([{ id: "partial-hit", weight: 1 }]);
+    expect(partial.facets).toEqual(incompleteFacets);
+    expect(retry.incomplete).toBe(false);
+    expect(retry.hits).toHaveLength(2);
+    expect(retry.facets).toEqual(completeFacets);
+    expect(cached.cache).toBe("hit");
+    expect(searchCalls).toBe(2);
+  });
+
+  it("does not cache an incomplete timeout with zero hits (RJC-431)", async () => {
+    const engine = new InMemorySearchEngine();
+    let searchCalls = 0;
+    const timeoutThenEmpty: SearchEngine = {
+      applyBatch: (batch) => engine.applyBatch(batch),
+      deleteDocument: (id) => engine.deleteDocument(id),
+      getAppliedVersion: () => engine.getAppliedVersion(),
+      search: (params) => {
+        searchCalls += 1;
+        return Promise.resolve({
+          emptyReason: searchCalls === 1 ? "query_timeout" : undefined,
+          facets: {
+            bron_id: [],
+            contracttype: [],
+            locatie: [],
+            locatie_land: [],
+            status: [],
+          },
+          hits: [],
+          incomplete: searchCalls === 1,
+          indexVersion: 0,
+          scope: params.scope ?? "active",
+          total: 0,
+          windowLimit: 1000,
+        });
+      },
+      upsertDocument: (document) => engine.upsertDocument(document),
+    };
+    const adapter = new SearchAdapter({
+      cache: new MemoryResultCache(),
+      engine: timeoutThenEmpty,
+    });
+
+    const timedOut = await adapter.search({ query: "Azure" });
+    const retry = await adapter.search({ query: "Azure" });
+
+    if (!(timedOut.ok && retry.ok)) {
+      throw new Error("Expected successful searches");
+    }
+    expect(timedOut.incomplete).toBe(true);
+    expect(timedOut.hits).toEqual([]);
+    expect(retry.incomplete).toBe(false);
+    expect(searchCalls).toBe(2);
+  });
 });
 
 describe("SearchAdapter hybrid mode", () => {

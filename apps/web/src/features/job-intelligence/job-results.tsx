@@ -7,9 +7,10 @@ import {
 } from "lucide-react";
 
 import {
-  contractLabels,
+  formatContract,
   formatDate,
   formatRate,
+  formatRemote,
   primarySource,
 } from "./presentation";
 import type { JobListing } from "./types";
@@ -40,7 +41,7 @@ const ResultTitleButton = ({
       />
     </span>
     <span className="mt-0.5 block text-[11px] text-muted-foreground">
-      {job.organization}
+      {job.organization ?? "Onbekend"}
     </span>
   </button>
 );
@@ -99,14 +100,14 @@ const DesktopResults = ({ jobs, onSelect, selectedJobId }: JobResultsProps) => (
               <div className="mt-1.5 flex flex-wrap items-center gap-2">
                 <JobStatus job={job} />
                 <span className="text-[10px] text-muted-foreground">
-                  {contractLabels[job.contractType]}
+                  {formatContract(job)}
                 </span>
               </div>
             </td>
             <td className="hidden px-3 py-2.5 align-top text-muted-foreground xl:table-cell">
-              {job.location}
+              {job.location ?? "Onbekend"}
               <span className="mt-0.5 block text-[10px]">
-                {job.remote ? "Hybride" : "Op locatie"}
+                {formatRemote(job)}
               </span>
             </td>
             <td className="px-3 py-2.5 align-top font-mono text-muted-foreground">
@@ -119,7 +120,10 @@ const DesktopResults = ({ jobs, onSelect, selectedJobId }: JobResultsProps) => (
               </span>
             </td>
             <td className="px-3 py-2.5 align-top text-muted-foreground">
-              <time className="font-mono" dateTime={job.publishedAt}>
+              <time
+                className="font-mono"
+                dateTime={job.publishedAt ?? undefined}
+              >
                 {formatDate(job.publishedAt)}
               </time>
               <span className="mt-0.5 block text-[10px]">
@@ -145,7 +149,7 @@ const MobileResults = ({ jobs, onSelect, selectedJobId }: JobResultsProps) => (
         <div className="flex items-center justify-between gap-3">
           <JobStatus job={job} />
           <span className="text-[10px] text-muted-foreground">
-            {contractLabels[job.contractType]}
+            {formatContract(job)}
           </span>
         </div>
         <div className="mt-2">
@@ -162,8 +166,7 @@ const MobileResults = ({ jobs, onSelect, selectedJobId }: JobResultsProps) => (
             />
             <dt className="sr-only">Locatie</dt>
             <dd>
-              {job.location}
-              {job.remote ? " · hybride" : ""}
+              {job.location ?? "Onbekend"} · {formatRemote(job)}
             </dd>
           </div>
           <div className="flex items-start gap-2">

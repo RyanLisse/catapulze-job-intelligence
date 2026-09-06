@@ -2,6 +2,7 @@ import type { BooleanNode } from "@ji/domain";
 
 import { evaluateBooleanAst } from "./adapter";
 import { compareCodepoints } from "./ast-hash";
+import { matchesSearchFilters } from "./filter-match";
 import { DEFAULT_SEARCH_SCOPE } from "./partition";
 import type {
   EngineSearchParams,
@@ -101,6 +102,7 @@ export class PostgresFtsFallbackEngine implements SearchEngine {
       return {
         facets: emptySearchFacets(),
         hits: rows.map((row) => ({ id: row.id, weight: row.rank })),
+        incomplete: false,
         indexVersion: Number(version.appliedSequence),
         // ponytail: the fallback has no partitions; it reports the scope it
         // was asked for and searches everything it holds.
@@ -111,6 +113,10 @@ export class PostgresFtsFallbackEngine implements SearchEngine {
     }
 
     const matched = [...this.documents.values()].filter((document) => {
+      if (!matchesSearchFilters(document, params.filters)) {
+        return false;
+      }
+
       if (params.ast === null) {
         return true;
       }
@@ -134,6 +140,7 @@ export class PostgresFtsFallbackEngine implements SearchEngine {
       emptyReason: this.documents.size === 0 ? "empty_index" : undefined,
       facets: emptySearchFacets(),
       hits: page.map((document) => ({ id: document.id, weight: 1 })),
+      incomplete: false,
       indexVersion: Number(version.appliedSequence),
       scope: params.scope ?? DEFAULT_SEARCH_SCOPE,
       total: matched.length,

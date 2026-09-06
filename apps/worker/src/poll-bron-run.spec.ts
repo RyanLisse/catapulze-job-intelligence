@@ -305,7 +305,7 @@ describe("runPollBron missed-poll lifecycle wiring (RJC-397)", () => {
   it("passes the lifecycle port into the run and carries a JSON-safe summary on the result", async () => {
     const { runPollBron } = await import("./poll-bron-run");
     const { InMemoryCurateStore } = await import("@ji/application/identity");
-    const { InMemoryMissedPollsStore } =
+    const { createInMemoryLifecyclePorts, InMemoryMissedPollsStore } =
       await import("@ji/application/lifecycle");
     const {
       InMemoryKnownHashStore,
@@ -362,7 +362,10 @@ describe("runPollBron missed-poll lifecycle wiring (RJC-397)", () => {
         return untouched("database");
       },
       knownHashStore: new InMemoryKnownHashStore(),
-      lifecycle: { curateStore: new InMemoryCurateStore(), missedPolls },
+      lifecycle: createInMemoryLifecyclePorts(
+        new InMemoryCurateStore(),
+        missedPolls
+      ),
       objectStore: new InMemoryObjectStore(),
       observationRecorder: new InMemoryObservationRecorder(),
       runLifecycleStore: new InMemoryRunLifecycleStore(),
@@ -689,7 +692,7 @@ describe("runPollBron scrape_run.gesloten and unchanged metrics (RJC-414)", () =
   it("writes scrape_run.gesloten from lifecycle.staled and exposes unchanged on PollBronRunResult", async () => {
     const { runPollBron } = await import("./poll-bron-run");
     const { InMemoryCurateStore } = await import("@ji/application/identity");
-    const { InMemoryMissedPollsStore } =
+    const { createInMemoryLifecyclePorts, InMemoryMissedPollsStore } =
       await import("@ji/application/lifecycle");
     const { SOURCES } = await import("@ji/application/sources");
     const {
@@ -810,7 +813,7 @@ describe("runPollBron scrape_run.gesloten and unchanged metrics (RJC-414)", () =
       },
       database,
       knownHashStore: new InMemoryKnownHashStore(),
-      lifecycle: { curateStore, missedPolls },
+      lifecycle: createInMemoryLifecyclePorts(curateStore, missedPolls),
       objectStore: new InMemoryObjectStore(),
       observationRecorder: new InMemoryObservationRecorder(),
       runLifecycleStore: new InMemoryRunLifecycleStore(),

@@ -14,6 +14,8 @@ import { JobSearchQueryBar } from "./job-search-query-bar";
 import {
   JobEmptyState,
   JobEngineErrorState,
+  JobIncompleteState,
+  JobIncompleteWarning,
   JobLoadingState,
   JobSyntaxErrorState,
 } from "./job-search-states";
@@ -176,6 +178,7 @@ const emptyResponse = (
   status: "engine-error" | "loading"
 ): JobSearchResponse => ({
   archiveTotal: null,
+  complete: false,
   facets: { contractTypes: [], locations: [], sources: [] },
   items: [],
   message:
@@ -188,6 +191,105 @@ const emptyResponse = (
   total: 0,
   totalPages: 1,
 });
+
+interface JobResultsPanelProps {
+  readonly displayStatus: PreviewStatus;
+  readonly isRefreshing: boolean;
+  readonly onReset: () => void;
+  readonly onRetryEngine: () => void;
+  readonly onRetryIncomplete: () => void;
+  readonly onSelect: (job: JobListing, trigger: HTMLButtonElement) => void;
+  readonly response: JobSearchResponse;
+  readonly selectedJobId: string | null;
+  readonly syntaxError: string | null;
+}
+
+const IncompleteEmptyResult = ({
+  complete,
+  displayStatus,
+  onRetry,
+}: {
+  readonly complete: boolean;
+  readonly displayStatus: PreviewStatus;
+  readonly onRetry: () => void;
+}) => {
+  if (complete || displayStatus !== "empty") {
+    return null;
+  }
+  return <JobIncompleteState onRetry={onRetry} />;
+};
+
+const IncompleteResultWarning = ({
+  complete,
+  onRetry,
+}: {
+  readonly complete: boolean;
+  readonly onRetry: () => void;
+}) => {
+  if (complete) {
+    return null;
+  }
+  return <JobIncompleteWarning onRetry={onRetry} />;
+};
+
+const JobResultsPanel = ({
+  displayStatus,
+  isRefreshing,
+  onReset,
+  onRetryEngine,
+  onRetryIncomplete,
+  onSelect,
+  response,
+  selectedJobId,
+  syntaxError,
+}: JobResultsPanelProps) => (
+  <section
+    aria-label="Zoekresultaten"
+    className="relative min-w-0 overflow-hidden rounded-lg border border-border bg-card"
+  >
+    {isRefreshing ? (
+      <div
+        className="absolute inset-x-0 top-0 z-10 h-0.5 animate-pulse bg-primary"
+        aria-hidden="true"
+      />
+    ) : null}
+    {displayStatus === "loading" ? <JobLoadingState /> : null}
+    {displayStatus === "syntax-error" ? (
+      <JobSyntaxErrorState
+        message={
+          syntaxError ??
+          response.message ??
+          "Controleer de Boolean-syntax en probeer opnieuw."
+        }
+        onReset={onReset}
+      />
+    ) : null}
+    {displayStatus === "engine-error" ? (
+      <JobEngineErrorState onRetry={onRetryEngine} />
+    ) : null}
+    <IncompleteEmptyResult
+      complete={response.complete}
+      displayStatus={displayStatus}
+      onRetry={onRetryIncomplete}
+    />
+    {response.complete && displayStatus === "empty" ? (
+      <JobEmptyState onReset={onReset} />
+    ) : null}
+    {displayStatus === "ready" ? (
+      <>
+        <IncompleteResultWarning
+          complete={response.complete}
+          onRetry={onRetryIncomplete}
+        />
+        <JobResults
+          jobs={response.items}
+          selectedJobId={selectedJobId}
+          onSelect={onSelect}
+        />
+      </>
+    ) : null}
+  </section>
+);
 
 interface JobSearchPageProps {
   readonly actions?: JobIntelligenceActions;
@@ -216,6 +318,9 @@ const JobSearchPageContent = ({
   );
   const [response, setResponse] = useState<JobSearchResponse>(() =>
     emptyResponse("loading")
+  );
+  const [responseRequestKey, setResponseRequestKey] = useState<string | null>(
+    null
   );
   const [selectedJob, setSelectedJob] = useState<JobListing | null>(null);
   const [queryDraft, setQueryDraft] = useState(state.query);
@@ -269,10 +374,12 @@ const JobSearchPageContent = ({
         const nextResponse = await adapter.search(searchRequest);
         if (isCurrent) {
           setResponse(nextResponse);
+          setResponseRequestKey(requestKey);
         }
       } catch {
         if (isCurrent) {
           setResponse(emptyResponse("engine-error"));
+          setResponseRequestKey(requestKey);
         }
       } finally {
         if (isCurrent) {
@@ -285,7 +392,7 @@ const JobSearchPageContent = ({
     return () => {
       isCurrent = false;
     };
-  }, [adapter, searchRequest, retryNonce]);
+  }, [adapter, requestKey, searchRequest, retryNonce]);
 
   useEffect(() => {
     let isCurrent = true;
@@ -391,6 +498,8 @@ const JobSearchPageContent = ({
   const displayStatus = resolveDisplayStatus(syntaxError, response.status);
   const activeFilterCount = countActiveFilters(state.filters);
   const countLabel = resultCountLabel(response.total);
+  const canCreateSnapshot =
+    response.complete && !isRefreshing && responseRequestKey === requestKey;
   const gridColumns = selectedJob
     ? "min-[800px]:grid-cols-[280px_minmax(0,1fr)] min-[1200px]:grid-cols-[280px_minmax(0,1fr)_400px]"
     : "min-[800px]:grid-cols-[280px_minmax(0,1fr)]";
@@ -401,6 +510,7 @@ const JobSearchPageContent = ({
       filters: state.filters,
       query: state.query,
       results: response.items,
+      resultsComplete: canCreateSnapshot,
       scope: state.scope,
       selectedJob,
       setIsCreatingSnapshot,
@@ -446,6 +556,7 @@ const JobSearchPageContent = ({
         isCreatingSnapshot={isCreatingSnapshot}
         isSavingSearch={isSavingSearch}
         liveData={liveData}
+        canCreateSnapshot={canCreateSnapshot}
         onCreateSnapshot={createSnapshot}
         onPreviewStatusChange={(previewStatus) =>
           writeState({
@@ -502,47 +613,20 @@ const JobSearchPageContent = ({
             sources={sources}
           />
 
-          <section
-            aria-label="Zoekresultaten"
-            className="relative min-w-0 overflow-hidden rounded-lg border border-border bg-card"
-          >
-            {isRefreshing ? (
-              <div
-                className="absolute inset-x-0 top-0 z-10 h-0.5 animate-pulse bg-primary"
-                aria-hidden="true"
-              />
-            ) : null}
-
-            {displayStatus === "loading" ? <JobLoadingState /> : null}
-            {displayStatus === "syntax-error" ? (
-              <JobSyntaxErrorState
-                message={
-                  syntaxError ??
-                  response.message ??
-                  "Controleer de Boolean-syntax en probeer opnieuw."
-                }
-                onReset={clearEverything}
-              />
-            ) : null}
-            {displayStatus === "engine-error" ? (
-              <JobEngineErrorState
-                onRetry={() => {
-                  writeState({ ...state, previewStatus: "ready" });
-                  setRetryNonce((value) => value + 1);
-                }}
-              />
-            ) : null}
-            {displayStatus === "empty" ? (
-              <JobEmptyState onReset={clearEverything} />
-            ) : null}
-            {displayStatus === "ready" ? (
-              <JobResults
-                jobs={response.items}
-                selectedJobId={state.selectedJobId}
-                onSelect={openJob}
-              />
-            ) : null}
-          </section>
+          <JobResultsPanel
+            displayStatus={displayStatus}
+            isRefreshing={isRefreshing}
+            onReset={clearEverything}
+            onRetryEngine={() => {
+              writeState({ ...state, previewStatus: "ready" });
+              setRetryNonce((value) => value + 1);
+            }}
+            onRetryIncomplete={() => setRetryNonce((value) => value + 1)}
+            onSelect={openJob}
+            response={response}
+            selectedJobId={state.selectedJobId}
+            syntaxError={syntaxError}
+          />
 
           {displayStatus === "ready" ? (
             <div className="flex items-center justify-between gap-4">

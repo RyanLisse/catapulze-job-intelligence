@@ -51,8 +51,15 @@ export const weeklyPublicationVolume = (
 
   const counts = new Map<number, number>();
   for (const { publishedAt } of jobs) {
+    if (!publishedAt) {
+      continue;
+    }
     const week = startOfWeekUtc(publishedAt);
     counts.set(week, (counts.get(week) ?? 0) + 1);
+  }
+
+  if (counts.size === 0) {
+    return [];
   }
 
   const weeks = [...counts.keys()];
@@ -90,6 +97,9 @@ export const jobsPerLocation = (
 ): readonly CountedValue[] => {
   const counts = new Map<string, number>();
   for (const { location } of jobs) {
+    if (!location) {
+      continue;
+    }
     counts.set(location, (counts.get(location) ?? 0) + 1);
   }
   return [...counts.entries()]

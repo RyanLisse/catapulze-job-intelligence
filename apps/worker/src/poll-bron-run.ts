@@ -17,6 +17,7 @@ import { fullJitter } from "@ji/connectors";
 import type {
   Connector,
   ConnectorRunKind,
+  ConnectorRunMetrics,
   RunIncompleteReason,
   KnownHashStore,
   ObjectStore,
@@ -38,9 +39,10 @@ import {
 import type { BronRuntimeDatabase } from "@ji/db";
 import { curateScrapeRun } from "@ji/db/curate-scrape-run";
 import { PostgresCurateStore } from "@ji/db/postgres-curate-store";
+import { aanvraagObservation } from "@ji/db/schema/staging";
 import type { BronId, ScrapeRunId } from "@ji/domain";
 import { ManticoreSearchEngine } from "@ji/search";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 
 import { readSearchProjectorMode, requireManticoreUrl } from "./poll-bron-env";
 import type { SliceABronSlug } from "./slice-a-bronnen";
@@ -63,27 +65,26 @@ export interface PollBronRunResult {
   bronId: BronId;
   bronSlug: SliceABronSlug;
   lifecycle: PollBronLifecycleSummary | null;
-  metrics: {
-    changed: number;
-    error: number;
-    found: number;
-    new: number;
-    rejected: number;
-    unchanged: number;
-  };
+  metrics: ConnectorRunMetrics;
   scrapeRunId: ScrapeRunId;
   status: "succeeded";
   writtenRecords: number;
 }
 
 export interface BronIngestPipelineResult extends PollBronRunResult {
+  alreadyCommitted: number;
+  attemptedObservationIds: string[];
+  blockedOrdering: number;
   curated: number;
   drained: number;
   /** Null in "onbox" mode: this process never drains, so it has no version to report. */
   indexVersion: number | null;
   quarantined: number;
+  pending: number;
+  remaining: number;
   silenceAlert?: { alertId?: string; created: boolean } | null;
   unchanged: number;
+  superseded: number;
 }
 
 export interface PollBronRuntime {
@@ -350,7 +351,64 @@ export const runBronIngestPipeline = async (
   runtime: PollBronRuntime,
   runKind: ConnectorRunKind = "poll"
 ): Promise<BronIngestPipelineResult> => {
-  const pollResult = await runPollBron(payload, runtime, runKind);
+  const [persistedRun] = await runtime.database
+    .select({
+      bronId: scrapeRun.bronId,
+      changed: scrapeRun.gewijzigd,
+      error: scrapeRun.fouten,
+      found: scrapeRun.aantalGevonden,
+      new: scrapeRun.nieuw,
+      rejected: scrapeRun.rejected,
+      runKind: scrapeRun.runKind,
+      status: scrapeRun.status,
+    })
+    .from(scrapeRun)
+    .where(eq(scrapeRun.id, payload.scrapeRunId))
+    .limit(1);
+  if (
+    persistedRun &&
+    (persistedRun.bronId !== payload.bronId || persistedRun.runKind !== runKind)
+  ) {
+    throw new Error("Cannot resume mismatched scrape run");
+  }
+  const source = SOURCES[payload.bronSlug];
+  if (!source || source.bronId !== payload.bronId) {
+    throw new Error("Poll source slug does not match bronId");
+  }
+  const unchangedRows =
+    persistedRun?.status === "succeeded"
+      ? await runtime.database
+          .select({ id: aanvraagObservation.id })
+          .from(aanvraagObservation)
+          .where(
+            and(
+              eq(aanvraagObservation.scrapeRunId, payload.scrapeRunId),
+              eq(aanvraagObservation.outcome, "unchanged")
+            )
+          )
+      : [];
+  const persistedUnchanged = unchangedRows.length;
+  const pollResult: PollBronRunResult =
+    persistedRun?.status === "succeeded"
+      ? {
+          // SAFETY: poll-bron payload validation requires UUID-shaped bron ids.
+          bronId: payload.bronId as BronId,
+          bronSlug: payload.bronSlug,
+          lifecycle: null,
+          metrics: {
+            changed: persistedRun.changed,
+            error: persistedRun.error,
+            found: persistedRun.found,
+            new: persistedRun.new,
+            rejected: persistedRun.rejected,
+            unchanged: persistedUnchanged,
+          },
+          // SAFETY: poll-bron payload validation requires UUID-shaped run ids.
+          scrapeRunId: payload.scrapeRunId as ScrapeRunId,
+          status: "succeeded",
+          writtenRecords: persistedRun.new + persistedRun.changed,
+        }
+      : await runPollBron(payload, runtime, runKind);
   const silenceAlert = await handleSilenceAndHealth(
     pollResult,
     runtime,
@@ -359,7 +417,6 @@ export const runBronIngestPipeline = async (
   const curateResult = await curateScrapeRun({
     bronId: pollResult.bronId,
     bronSlug: pollResult.bronSlug,
-    curateStore: runtime.curateStore,
     database: runtime.database,
     objectStore: runtime.objectStore,
     scrapeRunId: pollResult.scrapeRunId,
@@ -369,11 +426,17 @@ export const runBronIngestPipeline = async (
 
   return {
     ...pollResult,
+    alreadyCommitted: curateResult.alreadyCommitted,
+    attemptedObservationIds: curateResult.attemptedObservationIds,
+    blockedOrdering: curateResult.blockedOrdering,
     curated: curateResult.curated,
     drained: drainSummary.drained,
     indexVersion: drainSummary.indexVersion,
+    pending: curateResult.pending,
     quarantined: curateResult.quarantined,
+    remaining: curateResult.remaining,
     silenceAlert,
+    superseded: curateResult.superseded,
     unchanged: curateResult.unchanged,
   };
 };

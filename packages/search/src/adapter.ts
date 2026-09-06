@@ -1,4 +1,4 @@
-import { parseBooleanQuery } from "@ji/domain";
+import { BOOLEAN_PARSER_VERSION, parseBooleanQuery } from "@ji/domain";
 import type { BooleanNode, BooleanParseResult } from "@ji/domain";
 import {
   createCriticalPathSession,
@@ -18,7 +18,7 @@ import {
   buildCacheKey,
   buildFacetCacheKey,
   canonicalizeAst,
-  hashAst,
+  hashSearchAst,
   isHybridSearchEligible,
 } from "./ast-hash";
 import { MemoryFacetCache } from "./cache/facets-cache";
@@ -105,7 +105,7 @@ export class SearchAdapter {
 
   /** Isolated from search() so the singleflight task closure stays small. */
   private async computeAndCache(
-    ast: BooleanNode,
+    ast: BooleanNode | null,
     astHash: string,
     parserVersion: number,
     filters: SearchFilters,
@@ -134,7 +134,7 @@ export class SearchAdapter {
     );
 
     const facets = cachedFacets ?? engineResult.facets;
-    if (!cachedFacets) {
+    if (!(cachedFacets || engineResult.incomplete)) {
       await this.facetsCache.set(
         facetKey,
         engineResult.facets,
@@ -148,6 +148,7 @@ export class SearchAdapter {
       emptyReason: engineResult.emptyReason,
       facets,
       hits: engineResult.hits,
+      incomplete: engineResult.incomplete,
       indexVersion: engineResult.indexVersion,
       ok: true,
       parserVersion,
@@ -156,7 +157,7 @@ export class SearchAdapter {
       windowLimit: engineResult.windowLimit,
     };
 
-    if (this.cache) {
+    if (this.cache && !engineResult.incomplete) {
       await this.cache.set(
         cacheKey,
         {
@@ -180,12 +181,20 @@ export class SearchAdapter {
 
   async search(input: SearchAdapterInput): Promise<SearchAdapterResult> {
     const execute = (): Promise<SearchAdapterResult> => {
-      const parsed = this.parseWithCache(input.query);
-      if (!parsed.ok) {
-        return Promise.resolve({
-          error: parsed.error,
-          ok: false,
-        });
+      const browse = input.query.trim().length === 0;
+      let ast: BooleanNode | null = null;
+      let parserVersion = BOOLEAN_PARSER_VERSION;
+      if (!browse) {
+        const parsed = this.parseWithCache(input.query);
+        if (!parsed.ok) {
+          return Promise.resolve({
+            error: parsed.error,
+            ok: false,
+          });
+        }
+        const { ast: parsedAst, version: parsedVersion } = parsed;
+        ast = parsedAst;
+        parserVersion = parsedVersion;
       }
 
       const filters = normalizeFilters(input.filters);
@@ -194,12 +203,12 @@ export class SearchAdapter {
       const sort = input.sort ?? DEFAULT_SORT;
       const scope = input.scope ?? DEFAULT_SEARCH_SCOPE;
       const mode: SearchMode =
-        this.hybridEnabled && isHybridSearchEligible(parsed.ast)
+        ast !== null && this.hybridEnabled && isHybridSearchEligible(ast)
           ? "hybrid"
           : "lexical";
 
       return timeCriticalPathPhase("search-adapter", async () => {
-        const astHash = await hashAst(parsed.ast);
+        const astHash = await hashSearchAst(ast);
         const version = await this.engine.getAppliedVersion();
         const cacheKey = await buildCacheKey(astHash, version, filters, {
           limit,
@@ -219,9 +228,10 @@ export class SearchAdapter {
               emptyReason: cached.emptyReason,
               facets: cached.facets,
               hits: cached.hits,
+              incomplete: false,
               indexVersion: cached.indexVersion,
               ok: true,
-              parserVersion: parsed.version,
+              parserVersion,
               scope: cached.scope,
               total: cached.total,
               windowLimit: cached.windowLimit,
@@ -239,9 +249,9 @@ export class SearchAdapter {
         );
         const { coalesced, promise } = this.singleflight.run(cacheKey, () =>
           this.computeAndCache(
-            canonicalizeAst(parsed.ast),
+            ast === null ? null : canonicalizeAst(ast),
             astHash,
-            parsed.version,
+            parserVersion,
             filters,
             mode,
             cacheKey,

@@ -7,13 +7,23 @@ export class MemoryExportAttemptStore implements ExportAttemptStore {
   create(
     record: Omit<ExportAttemptRecord, "createdAt" | "id">
   ): Promise<ExportAttemptRecord> {
-    const stored: ExportAttemptRecord = {
+    const stored = MemoryExportAttemptStore.prepare(record);
+    this.commitPrepared(stored);
+    return Promise.resolve({ ...stored });
+  }
+
+  static prepare(
+    record: Omit<ExportAttemptRecord, "createdAt" | "id">
+  ): ExportAttemptRecord {
+    return {
       ...record,
       createdAt: new Date(),
       id: randomId(),
     };
+  }
+
+  commitPrepared(stored: ExportAttemptRecord): void {
     this.records.push(stored);
-    return Promise.resolve({ ...stored });
   }
 
   list(): readonly ExportAttemptRecord[] {

@@ -41,6 +41,33 @@ describe("job search URL state", () => {
     expect(state.previewStatus).toBe("ready");
   });
 
+  it("preserves commas and quotes in scalar queries and repeated free-form locations", () => {
+    const state = parseJobSearchState(
+      new URLSearchParams(
+        "q=%22Amsterdam%2C+Noord-Holland%22&location=Amsterdam%2C+Noord-Holland&location=Utrecht"
+      )
+    );
+
+    expect(state.query).toBe('"Amsterdam, Noord-Holland"');
+    expect(state.filters.locations).toEqual([
+      "Amsterdam, Noord-Holland",
+      "Utrecht",
+    ]);
+    expect(serializeJobSearchState(state).getAll("location")).toEqual([
+      "Amsterdam, Noord-Holland",
+      "Utrecht",
+    ]);
+  });
+
+  it("supports comma-separated compatibility only for the contract enum", () => {
+    const state = parseJobSearchState(
+      new URLSearchParams("contract=interim%2Cdetachering&source=alpha%2Cbeta")
+    );
+
+    expect(state.filters.contractTypes).toEqual(["interim", "detachering"]);
+    expect(state.filters.sources).toEqual(["alpha,beta"]);
+  });
+
   it("defaults to the active scope and only serialises the archive opt-in (RJC-383)", () => {
     const active = parseJobSearchState(new URLSearchParams("q=data"));
     expect(active.scope).toBe("active");

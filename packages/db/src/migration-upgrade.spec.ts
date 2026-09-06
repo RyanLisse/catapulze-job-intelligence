@@ -1,14 +1,18 @@
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import path from "node:path";
 
-import postgres from "postgres";
+import type postgres from "postgres";
 
-const upgradeDatabaseUrl = process.env.DATABASE_UPGRADE_TEST_URL;
+import {
+  createMigrationUpgradeClient,
+  requireMigrationUpgradeDatabaseUrl,
+} from "./migration-upgrade-guard";
+
+const upgradeDatabaseUrl = requireMigrationUpgradeDatabaseUrl(
+  process.env.DATABASE_UPGRADE_TEST_URL
+);
 const upgradeDatabaseRequired =
   process.env.REQUIRE_DATABASE_UPGRADE_TESTS === "1";
-const upgradeDatabaseName = upgradeDatabaseUrl
-  ? new URL(upgradeDatabaseUrl).pathname.slice(1)
-  : null;
 const migrationsFolder = path.join(import.meta.dir, "migrations");
 
 const readMigrationStatements = async (name: string): Promise<string[]> => {
@@ -31,14 +35,7 @@ describe.serial("0000 to 0001 observation migration", () => {
       }
       return;
     }
-    if (
-      !/^ji_migration_upgrade_test_[a-z0-9_]+$/u.test(upgradeDatabaseName ?? "")
-    ) {
-      throw new Error(
-        "Upgrade fixtures require a dedicated ji_migration_upgrade_test_* database"
-      );
-    }
-    client = postgres(upgradeDatabaseUrl, { max: 1 });
+    client = createMigrationUpgradeClient(upgradeDatabaseUrl);
     coreStatements = await readMigrationStatements("0000_core.sql");
     ingestionStatements = await readMigrationStatements(
       "0001_u3_durable_ingestion.sql"
@@ -416,7 +413,7 @@ describe.serial("0006 to 0007 snapshot search version migration", () => {
       }
       return;
     }
-    client = postgres(upgradeDatabaseUrl, { max: 1 });
+    client = createMigrationUpgradeClient(upgradeDatabaseUrl);
     const perMigration = await Promise.all(
       priorMigrations.map((name) => readMigrationStatements(name))
     );
@@ -529,7 +526,7 @@ describe.serial("0007 to 0008 bulk projector claims migration", () => {
       }
       return;
     }
-    client = postgres(upgradeDatabaseUrl, { max: 1 });
+    client = createMigrationUpgradeClient(upgradeDatabaseUrl);
     const perMigration = await Promise.all(
       priorMigrations.map((name) => readMigrationStatements(name))
     );
@@ -657,7 +654,7 @@ describe.serial("0008 to 0009 source_record missed polls migration", () => {
       }
       return;
     }
-    client = postgres(upgradeDatabaseUrl, { max: 1 });
+    client = createMigrationUpgradeClient(upgradeDatabaseUrl);
     const perMigration = await Promise.all(
       priorMigrations.map((name) => readMigrationStatements(name))
     );
@@ -810,7 +807,7 @@ describe.serial("0009 to 0010 query_snapshot search scope migration", () => {
       }
       return;
     }
-    client = postgres(upgradeDatabaseUrl, { max: 1 });
+    client = createMigrationUpgradeClient(upgradeDatabaseUrl);
     const perMigration = await Promise.all(
       priorMigrations.map((name) => readMigrationStatements(name))
     );
@@ -919,7 +916,7 @@ describe.serial(
         }
         return;
       }
-      client = postgres(upgradeDatabaseUrl, { max: 1 });
+      client = createMigrationUpgradeClient(upgradeDatabaseUrl);
       const perMigration = await Promise.all(
         priorMigrations.map((name) => readMigrationStatements(name))
       );
@@ -1030,7 +1027,7 @@ describe.serial("0011 to 0012 source_record listing_hash migration", () => {
       }
       return;
     }
-    client = postgres(upgradeDatabaseUrl, { max: 1 });
+    client = createMigrationUpgradeClient(upgradeDatabaseUrl);
     const perMigration = await Promise.all(
       priorMigrations.map((name) => readMigrationStatements(name))
     );
@@ -1140,7 +1137,7 @@ describe.serial("0014 to 0015 dedup_groep dedup_key migration", () => {
       }
       return;
     }
-    client = postgres(upgradeDatabaseUrl, { max: 1 });
+    client = createMigrationUpgradeClient(upgradeDatabaseUrl);
     const perMigration = await Promise.all(
       priorMigrations.map((name) => readMigrationStatements(name))
     );
@@ -1331,7 +1328,7 @@ describe.serial("0015 to 0016 bron_health and alert migration", () => {
       }
       return;
     }
-    client = postgres(upgradeDatabaseUrl, { max: 1 });
+    client = createMigrationUpgradeClient(upgradeDatabaseUrl);
     const perMigration = await Promise.all(
       priorMigrations.map((name) => readMigrationStatements(name))
     );

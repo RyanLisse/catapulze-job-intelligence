@@ -28,6 +28,7 @@ Voor Opdrachtoverheid is dit een ongedocumenteerd, privé endpoint; het kan zond
 | `tender_min_hours/max_hours` | `uren_per_week_min/max` | JSON-API. |
 | `tender_maximum_tariff`, `tender_no_max_tariff` | `tarief_max`, `tarief_max_afwezig` | JSON-API; numeriek wanneer aanwezig. |
 | `tender_start_date`, `tender_end_date`, `tender_offline_date` | `startdatum`, `einddatum`, `sluitingsdatum` | JSON-API. |
+| `tender_first_seen` | `bron_specifiek.tender_first_seen` | Eerste waarneming door de aggregator; nooit contractstart. |
 | `tender_source`, `tender_url` | `bron_specifiek.oorspronkelijke_bron/url` | Verplicht voor cross-source deduplicatie. |
 | `tender_description_html/_tk` | `beschrijving` | HTML-/Textkernel-varianten. |
 
@@ -47,6 +48,10 @@ Voor Opdrachtoverheid is dit een ongedocumenteerd, privé endpoint; het kan zond
 1. Het private endpoint kan zonder aankondiging wijzigen of verdwijnen.
 2. De bron republish't andere brokers; zonder bronattributie ontstaat dubbele inhoud.
 3. Detail-JSON-LD staat dubbel in de pagina en moet worden gededupliceerd.
+
+## Contractstart (RJC-432)
+
+Alleen een niet-lege `tender_start_date` vult de canonieke `startDatum`, met provenance `tender.tender_start_date`. Een ontbrekende of lege waarde blijft `UNKNOWN`; `tender_first_seen` is afzonderlijke waarnemingsmetadata in `bron_specifiek` en mag de dedupidentiteit niet beïnvloeden. Parser `opdrachtoverheid/v2` maakt deze semantische correctie herkenbaar voor gecontroleerde replay.
 
 ## Known-hash short-circuit (RJC-357 / RJC-401)
 

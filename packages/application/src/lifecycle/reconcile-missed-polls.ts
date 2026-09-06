@@ -56,6 +56,16 @@ export interface LifecycleReconcilePorts {
   curateStore: CurateStore;
   missedPolls: MissedPollsStore;
   missedPollsBeforeStale?: number;
+  /** Serializes this bron and binds both stores to one rollback boundary. */
+  withTransaction: <T>(
+    bronId: BronId,
+    fn: (ports: LifecycleReconcileTransactionPorts) => Promise<T>
+  ) => Promise<T>;
+}
+
+export interface LifecycleReconcileTransactionPorts {
+  curateStore: CurateStore;
+  missedPolls: MissedPollsStore;
 }
 
 export interface ReconcileMissedPollsInput {
@@ -80,7 +90,7 @@ export interface ReconcileMissedPollsResult {
 }
 
 const writeStatusTransition = async (
-  ports: LifecycleReconcilePorts,
+  ports: LifecycleReconcileTransactionPorts,
   input: ReconcileMissedPollsInput,
   existing: StoredAanvraag,
   status: AanvraagLifecycle,
@@ -92,56 +102,43 @@ const writeStatusTransition = async (
   // commit together, so a crash can never leave the DB stale while the
   // search index keeps active — the projection hash would skip a later
   // same-content event, so that split does not self-heal.
-  await ports.curateStore.withTransaction(async (tx) => {
-    await tx.closeOpenVersie(existing.aanvraagId, input.observedAt);
-    const updated = await tx.updateAanvraag(existing.aanvraagId, {
+  await ports.curateStore.closeOpenVersie(
+    existing.aanvraagId,
+    input.observedAt
+  );
+  const updated = await ports.curateStore.updateAanvraag(existing.aanvraagId, {
+    status,
+    versie,
+  });
+  await ports.curateStore.insertVersie({
+    aanvraagId: updated.aanvraagId,
+    contentHash: updated.contentHash,
+    geldigTot: null,
+    geldigVan: input.observedAt,
+    rawPayloadRef: updated.rawPayloadRef,
+    scrapeRunId: input.scrapeRunId,
+    snapshot: buildSnapshot(updated),
+    versie,
+  });
+  await ports.curateStore.insertOutboxEvent({
+    aggregateId: updated.aanvraagId,
+    aggregateType: "aanvraag",
+    eventType: AANVRAAG_STATUS_GEWIJZIGD_EVENT,
+    payload: {
+      missed_polls: missedPolls,
+      reden,
+      scrape_run_id: input.scrapeRunId,
       status,
-      versie,
-    });
-    await tx.insertVersie({
-      aanvraagId: updated.aanvraagId,
-      contentHash: updated.contentHash,
-      geldigTot: null,
-      geldigVan: input.observedAt,
-      rawPayloadRef: updated.rawPayloadRef,
-      scrapeRunId: input.scrapeRunId,
-      snapshot: buildSnapshot(updated),
-      versie,
-    });
-    await tx.insertOutboxEvent({
-      aggregateId: updated.aanvraagId,
-      aggregateType: "aanvraag",
-      eventType: AANVRAAG_STATUS_GEWIJZIGD_EVENT,
-      payload: {
-        missed_polls: missedPolls,
-        reden,
-        scrape_run_id: input.scrapeRunId,
-        status,
-      },
-    });
+    },
   });
 };
 
-/**
- * Run-boundary step after a listing run of one bron (RJC-397): every source
- * record the listing showed gets `missed_polls = 0`; when the run was
- * complete, every record it did not show gets `+1`. Records that reach the
- * threshold go `stale` and records that reappear while `stale` go `active`,
- * both written through the same SCD2 + outbox path a content change uses,
- * so RJC-389's projector re-indexes the status.
- *
- * Only `stale` reopens. A `closed` record is closed by the source or its
- * closing date (RJC-377); observation resets its counter but never its
- * status -- see the docblock on `resolveLifecycleStatus`.
- */
-export const reconcileMissedPolls = async (
-  ports: LifecycleReconcilePorts,
-  input: ReconcileMissedPollsInput
+const reconcileInTransaction = async (
+  ports: LifecycleReconcileTransactionPorts,
+  input: ReconcileMissedPollsInput,
+  threshold: number,
+  observed: string[]
 ): Promise<ReconcileMissedPollsResult> => {
-  const threshold =
-    ports.missedPollsBeforeStale ?? DEFAULT_MISSED_POLLS_BEFORE_STALE;
-  const observed = [...new Set(input.observedBronReferenties)];
-
   const seen = await ports.missedPolls.markSeen({
     bronId: input.bronId,
     bronReferenties: observed,
@@ -151,7 +148,7 @@ export const reconcileMissedPolls = async (
   });
   const reopened: AanvraagId[] = [];
   for (const bronReferentie of seen.reappeared) {
-    // oxlint-disable-next-line no-await-in-loop -- each transition is its own SCD2 write
+    // oxlint-disable-next-line no-await-in-loop -- serialized SCD2 transitions share the outer transaction
     const existing = await ports.curateStore.findAanvraagByIdentity(
       input.bronId,
       bronReferentie
@@ -167,7 +164,7 @@ export const reconcileMissedPolls = async (
       seenOpen: true,
       sluitingsdatumPassed: false,
     });
-    // oxlint-disable-next-line no-await-in-loop -- each transition is its own SCD2 write
+    // oxlint-disable-next-line no-await-in-loop -- serialized SCD2 transitions share the outer transaction
     await writeStatusTransition(
       ports,
       input,
@@ -197,7 +194,7 @@ export const reconcileMissedPolls = async (
   });
   const staled: AanvraagId[] = [];
   for (const bronReferentie of missed.atThreshold) {
-    // oxlint-disable-next-line no-await-in-loop -- each transition is its own SCD2 write
+    // oxlint-disable-next-line no-await-in-loop -- serialized SCD2 transitions share the outer transaction
     const existing = await ports.curateStore.findAanvraagByIdentity(
       input.bronId,
       bronReferentie
@@ -216,7 +213,7 @@ export const reconcileMissedPolls = async (
     if (next === existing.status) {
       continue;
     }
-    // oxlint-disable-next-line no-await-in-loop -- each transition is its own SCD2 write
+    // oxlint-disable-next-line no-await-in-loop -- serialized SCD2 transitions share the outer transaction
     await writeStatusTransition(
       ports,
       input,
@@ -235,6 +232,30 @@ export const reconcileMissedPolls = async (
     skippedIncrementReason: null,
     staled,
   };
+};
+
+/**
+ * Run-boundary step after a listing run of one bron (RJC-397): every source
+ * record the listing showed gets `missed_polls = 0`; when the run was
+ * complete, every record it did not show gets `+1`. Records that reach the
+ * threshold go `stale` and records that reappear while `stale` go `active`,
+ * both written through the same SCD2 + outbox path a content change uses,
+ * so RJC-389's projector re-indexes the status.
+ *
+ * Only `stale` reopens. A `closed` record is closed by the source or its
+ * closing date (RJC-377); observation resets its counter but never its
+ * status -- see the docblock on `resolveLifecycleStatus`.
+ */
+export const reconcileMissedPolls = (
+  ports: LifecycleReconcilePorts,
+  input: ReconcileMissedPollsInput
+): Promise<ReconcileMissedPollsResult> => {
+  const threshold =
+    ports.missedPollsBeforeStale ?? DEFAULT_MISSED_POLLS_BEFORE_STALE;
+  const observed = [...new Set(input.observedBronReferenties)].toSorted();
+  return ports.withTransaction(input.bronId, (transactionPorts) =>
+    reconcileInTransaction(transactionPorts, input, threshold, observed)
+  );
 };
 
 interface InMemoryMissedPollsRow {
@@ -320,4 +341,37 @@ export class InMemoryMissedPollsStore implements MissedPollsStore {
     }
     return Promise.resolve({ atThreshold, incremented });
   }
+
+  async withTransaction<T>(fn: () => Promise<T>): Promise<T> {
+    const backup = structuredClone([...this.rows.entries()]);
+    try {
+      return await fn();
+    } catch (error) {
+      this.rows.clear();
+      for (const [key, row] of backup) {
+        this.rows.set(key, row);
+      }
+      throw error;
+    }
+  }
 }
+
+/** In-memory lifecycle ports with the same joint rollback boundary as Postgres. */
+export const createInMemoryLifecyclePorts = (
+  curateStore: CurateStore,
+  missedPolls: InMemoryMissedPollsStore,
+  options: { missedPollsBeforeStale?: number } = {}
+): LifecycleReconcilePorts => ({
+  curateStore,
+  missedPolls,
+  missedPollsBeforeStale: options.missedPollsBeforeStale,
+  withTransaction: (_bronId, fn) =>
+    missedPolls.withTransaction(() =>
+      curateStore.withTransaction((transactionCurateStore) =>
+        fn({
+          curateStore: transactionCurateStore,
+          missedPolls,
+        })
+      )
+    ),
+});

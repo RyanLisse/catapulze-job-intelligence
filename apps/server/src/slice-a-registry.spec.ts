@@ -1,5 +1,11 @@
 import { describe, expect, it } from "bun:test";
 
+import {
+  createSliceARegistry,
+  permissionsForRole,
+} from "@ji/application/registry";
+import type { SliceAStores } from "@ji/application/registry";
+
 // `@ji/db`'s barrel module eagerly builds a postgres-js client from
 // `@ji/env/database` at import time, which requires DATABASE_URL to be set
 // in process.env before that module (or anything importing it, including
@@ -23,6 +29,58 @@ const baseInput = {
 };
 
 describe("createProductionSliceADeps", () => {
+  it("keeps production export disabled before any store access without an explicit client", async () => {
+    const deps = await createProductionSliceADeps({
+      databaseUrl: "postgres://unused:unused@127.0.0.1:1/unused",
+      manticoreUrl: "http://127.0.0.1:1",
+      nodeEnv: "production",
+      rawS3Bucket: "ji-raw-prod",
+    });
+    let storeReads = 0;
+    // SAFETY: This proxy preserves the SliceAStores surface solely to fail on
+    // every property read; the cast does not narrow or accept external data.
+    const guardedStores = new Proxy(deps.stores, {
+      get: () => {
+        storeReads += 1;
+        throw new Error("Disabled production export must not read a store");
+      },
+    }) as SliceAStores;
+
+    try {
+      expect(deps.spottWriteClient).toBeUndefined();
+      const registry = createSliceARegistry({ ...deps, stores: guardedStores });
+      const commit = registry.registry.createInvoker({
+        capabilityId: "commit_export",
+        operation: "POST /v1/exports",
+        transport: "rest",
+      });
+      const result = await commit(
+        { snapshotId: "00000000-0000-4000-8000-000000000426" },
+        {
+          principal: {
+            kind: "user",
+            permissions: permissionsForRole("approver"),
+            subjectId: "approver-1",
+          },
+          requestId: "export-disabled",
+        }
+      );
+
+      expect(result).toEqual({
+        error: {
+          code: "EXPORT_DISABLED",
+          details: { id: "00000000-0000-4000-8000-000000000426" },
+          message:
+            "Export is disabled because no Spott write client is configured",
+        },
+        ok: false,
+      });
+      expect(storeReads).toBe(0);
+    } finally {
+      await deps.close();
+    }
+  });
+
   it("wires the Postgres-backed ExternalReceiptStore, not the in-memory one", async () => {
     const deps = await createProductionSliceADeps({
       ...baseInput,

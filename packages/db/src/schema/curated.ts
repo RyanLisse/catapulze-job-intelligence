@@ -831,6 +831,65 @@ export const externalIdCrosswalk = curatedSchema.table(
   ]
 );
 
+export const exportEffect = curatedSchema.table(
+  "export_effect",
+  {
+    actionType: text("action_type").notNull(),
+    canonicalVacancyId: uuid("canonical_vacancy_id").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    externalId: text("external_id"),
+    externalIdSource: text("external_id_source"),
+    id: uuid("id").defaultRandom().primaryKey(),
+    scopeId: text("scope_id").notNull(),
+    status: text("status").default("reserved").notNull(),
+    target: text("target").notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .$onUpdate(() => new Date())
+      .notNull(),
+  },
+  (table) => [
+    uniqueIndex("export_effect_key_uidx").on(
+      table.scopeId,
+      table.target,
+      table.canonicalVacancyId,
+      table.actionType
+    ),
+    check(
+      "export_effect_action_type_check",
+      sql`${table.actionType} IN ('create')`
+    ),
+    check("export_effect_target_check", sql`${table.target} IN ('spott')`),
+    check(
+      "export_effect_status_check",
+      sql`${table.status} IN ('reserved', 'external_id_acquired', 'confirmed')`
+    ),
+    check(
+      "export_effect_external_id_source_check",
+      sql`${table.externalIdSource} IS NULL OR ${table.externalIdSource} IN ('provider_response', 'manual_evidence')`
+    ),
+    check(
+      "export_effect_evidence_check",
+      sql`(
+        ${table.status} = 'reserved'
+        AND ${table.externalId} IS NULL
+        AND ${table.externalIdSource} IS NULL
+      ) OR (
+        ${table.status} IN ('external_id_acquired', 'confirmed')
+        AND ${table.externalId} IS NOT NULL
+        AND length(trim(${table.externalId})) > 0
+        AND ${table.externalIdSource} IS NOT NULL
+      )`
+    ),
+    check(
+      "export_effect_scope_id_check",
+      sql`length(trim(${table.scopeId})) > 0`
+    ),
+  ]
+);
+
 export const exportAttempt = curatedSchema.table(
   "export_attempt",
   {

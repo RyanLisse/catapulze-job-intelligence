@@ -24,8 +24,22 @@ const isPreviewStatus = (value: string): value is PreviewStatus =>
 const toolbarButtonClass =
   "hidden min-h-11 items-center gap-2 rounded-md border border-input bg-background px-3 text-xs font-medium outline-none transition-colors hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-45 sm:inline-flex";
 
+const snapshotButtonTitle = (
+  actions: JobIntelligenceActions | undefined,
+  canCreateSnapshot: boolean
+): string => {
+  if (!actions) {
+    return "Snapshot vereist de U7 REST-capability";
+  }
+  if (!canCreateSnapshot) {
+    return "Snapshot is beschikbaar zodra de zoekuitkomst volledig geladen is";
+  }
+  return "Maak een immutable QuerySnapshot van deze resultaten";
+};
+
 interface JobSearchToolbarProps {
   readonly actions?: JobIntelligenceActions;
+  readonly canCreateSnapshot: boolean;
   readonly isCreatingSnapshot: boolean;
   readonly isSavingSearch: boolean;
   readonly liveData: boolean;
@@ -39,6 +53,7 @@ interface JobSearchToolbarProps {
 
 export const JobSearchToolbar = ({
   actions,
+  canCreateSnapshot,
   isCreatingSnapshot,
   isSavingSearch,
   liveData,
@@ -101,13 +116,9 @@ export const JobSearchToolbar = ({
       </button>
       <button
         type="button"
-        disabled={!actions || isCreatingSnapshot}
+        disabled={!actions || !canCreateSnapshot || isCreatingSnapshot}
         onClick={() => runAsync(onCreateSnapshot)}
-        title={
-          actions
-            ? "Maak een immutable QuerySnapshot van deze resultaten"
-            : "Snapshot vereist de U7 REST-capability"
-        }
+        title={snapshotButtonTitle(actions, canCreateSnapshot)}
         className={toolbarButtonClass}
       >
         <Camera aria-hidden="true" className="size-3.5" />

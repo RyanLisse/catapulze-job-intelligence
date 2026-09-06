@@ -5,6 +5,7 @@ import type { CurateStore } from "@ji/application/identity";
 import { curateObservation } from "@ji/application/identity";
 import {
   AANVRAAG_STATUS_GEWIJZIGD_EVENT,
+  createInMemoryLifecyclePorts,
   InMemoryMissedPollsStore,
   reconcileMissedPolls,
 } from "@ji/application/lifecycle";
@@ -277,11 +278,9 @@ describe("PostgresCurateStore transaction boundary (RJC-399)", () => {
     // Outbox failure first: the transition must leave no trace.
     await expect(
       reconcileMissedPolls(
-        {
-          curateStore: withFailingOutbox(store),
-          missedPolls,
+        createInMemoryLifecyclePorts(withFailingOutbox(store), missedPolls, {
           missedPollsBeforeStale: THRESHOLD,
-        },
+        }),
         {
           bronId,
           completeness: { complete: true },
@@ -310,7 +309,9 @@ describe("PostgresCurateStore transaction boundary (RJC-399)", () => {
       retried.lastMissedScrapeRunId = null;
     }
     const result = await reconcileMissedPolls(
-      { curateStore: store, missedPolls, missedPollsBeforeStale: THRESHOLD },
+      createInMemoryLifecyclePorts(store, missedPolls, {
+        missedPollsBeforeStale: THRESHOLD,
+      }),
       {
         bronId,
         completeness: { complete: true },

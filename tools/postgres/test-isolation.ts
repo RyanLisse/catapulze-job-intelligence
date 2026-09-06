@@ -52,6 +52,13 @@ import { drizzle } from "drizzle-orm/postgres-js";
 import { migrate } from "drizzle-orm/postgres-js/migrator";
 import postgres from "postgres";
 
+import { requireMigrationUpgradeDatabaseUrl } from "../../packages/db/src/migration-upgrade-guard";
+
+// This preload runs before every test file. Validate an explicitly supplied
+// migration-upgrade target before this module creates even its admin probe
+// client, including when the caller selects only one sibling suite.
+requireMigrationUpgradeDatabaseUrl(process.env.DATABASE_UPGRADE_TEST_URL);
+
 const ROLE_NAME_PATTERN = /^[a-zA-Z_][a-zA-Z0-9_]*$/u;
 
 const adminUser = process.env.POSTGRES_ADMIN_USER ?? "ji_admin";
