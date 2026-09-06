@@ -18,7 +18,7 @@ import {
   TableHeader,
   TableRow,
 } from "@ji/ui/components/table";
-import type { Metadata } from "next";
+import type { Metadata, Route } from "next";
 import { headers } from "next/headers";
 import Link from "next/link";
 import { redirect } from "next/navigation";
@@ -251,7 +251,10 @@ const FilterBar = ({
           <Button type="submit">Toepassen</Button>
           <Button
             nativeButton={false}
-            render={<Link href={runsHref({ runKind: DEFAULT_RUN_KIND })} />}
+            render={
+              // SAFETY: runsHref always builds /bronnen/runs (+ known query keys); typedRoutes cannot express runtime search strings.
+              <Link href={runsHref({ runKind: DEFAULT_RUN_KIND }) as Route} />
+            }
             variant="outline"
           >
             Reset
@@ -377,7 +380,10 @@ const RunsTable = async ({
           {query.cursor ? (
             <Button
               nativeButton={false}
-              render={<Link href={runsHref(query, { cursor: undefined })} />}
+              render={
+                // SAFETY: runsHref always builds /bronnen/runs (+ known query keys); typedRoutes cannot express runtime search strings.
+                <Link href={runsHref(query, { cursor: undefined }) as Route} />
+              }
               size="sm"
               variant="outline"
             >
@@ -388,7 +394,10 @@ const RunsTable = async ({
             <Button
               nativeButton={false}
               render={
-                <Link href={runsHref(query, { cursor: listed.nextCursor })} />
+                // SAFETY: runsHref always builds /bronnen/runs (+ known query keys); typedRoutes cannot express runtime search strings.
+                <Link
+                  href={runsHref(query, { cursor: listed.nextCursor }) as Route}
+                />
               }
               size="sm"
             >
