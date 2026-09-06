@@ -14,7 +14,8 @@ instead of every DB spec sharing the long-lived `ji_test` database.
      completely unreachable: no-ops when `REQUIRE_DATABASE_TESTS` isn't
      `"1"` (every DB spec already skips gracefully in that case); throws
      when it is `"1"` — this never silently falls back to the shared
-     database, the same guarantee RJC-395 gave the migration-upgrade suite.
+     database, the same guarantee RJC-395 intended for the migration-upgrade
+     suite.
   3. Otherwise creates a fresh `ji_test_iso_<pid>_<random>` database,
      re-applies the same least-privilege role grants
      `tools/postgres/init/10-bootstrap-roles.sh` applies at container init
@@ -55,11 +56,30 @@ querying the always-growing shared one).
 
 ## What isolation does NOT change
 
-- `packages/db/src/migration-upgrade.spec.ts` already used its own isolated
-  `ji_migration_upgrade_test_*` database (RJC-395) — untouched.
+- `packages/db/src/migration-upgrade.spec.ts` uses its own isolated
+  `ji_migration_upgrade_test_*` database (RJC-395). RJC-425 added a shared,
+  eager guard: the global preload validates an explicit
+  `DATABASE_UPGRADE_TEST_URL` before any Postgres constructor, and every
+  migration-upgrade suite constructs its client through the same guarded
+  helper. That helper fixes its own connection options and exposes no database
+  override. The validator also rejects `database`/`db` constructor override
+  input and query parameters. This closes the former gap where only the first
+  sibling suite's `beforeAll` checked the URL pathname.
 - `scripts/crabbox-exe-dev-shadow.sh` sets `DATABASE_TEST_URL` explicitly
   before running its own suite — untouched (isolation no-ops whenever
   `DATABASE_TEST_URL` is already set).
+
+### Migration-upgrade gate target
+
+Leave `DATABASE_UPGRADE_TEST_URL` unset for the normal gate. The gate then
+runs `tools/postgres/ensure-migration-upgrade-db.ts` and provisions its
+dedicated disposable default. An explicit value is accepted only as a
+`postgres://` or `postgresql://` URL whose single database pathname matches
+`ji_migration_upgrade_test_<suffix>` using lowercase letters, digits, and
+underscores. It must point to a disposable database reserved solely for this
+suite, never a development or production database. Invalid explicit values
+fail in the global test preload before its admin probe constructs a Postgres
+client.
 
 ## The residue guard
 
