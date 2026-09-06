@@ -76,6 +76,7 @@
     "check:capability-registry": "PATH=\"./node_modules/.bin:$PATH\" bun scripts/check-capability-registry.ts",
     "check:postgres-compose": "PATH=\"./node_modules/.bin:$PATH\" bun scripts/check-postgres-compose.ts",
     "check:production-compose-guard": "PATH=\"./node_modules/.bin:$PATH\" bun scripts/check-production-compose-guard.ts",
+    "check:manticore-bench-empty": "PATH=\"./node_modules/.bin:$PATH\" bun tools/quality/assert-manticore-bench-empty.ts",
     "postgres:restore-drill": "bash tools/postgres/restore-drill.sh",
     "bench:search": "PATH=\"./node_modules/.bin:$PATH\" bun benchmarks/search/run.ts",
     "relevance": "PATH=\"./node_modules/.bin:$PATH\" bun benchmarks/relevance/run.ts",

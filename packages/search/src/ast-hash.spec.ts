@@ -15,6 +15,7 @@ import {
 } from "./ast-hash";
 import {
   cleanupLiveDocuments,
+  createLiveTestEngine,
   requireLiveManticoreUrl,
 } from "./manticore/live-test-hygiene";
 import { InMemorySearchVersionStore } from "./version";
@@ -391,8 +392,7 @@ describe.skipIf(!manticoreLiveUrl)(
         throw new Error("Live test was not skipped without MANTICORE_URL");
       }
 
-      const { ManticoreSearchEngine } = await import("./manticore");
-      const engine = ManticoreSearchEngine.fromUrl(
+      const engine = createLiveTestEngine(
         manticoreLiveUrl,
         new InMemorySearchVersionStore()
       );

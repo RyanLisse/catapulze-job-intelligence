@@ -4,9 +4,9 @@ import { parseBooleanQuery } from "@ji/domain";
 
 import type { SearchDocument } from "../types";
 import { InMemorySearchVersionStore } from "../version";
-import { ManticoreSearchEngine } from "./engine";
 import {
   cleanupLiveDocuments,
+  createLiveTestEngine,
   requireLiveManticoreUrl,
 } from "./live-test-hygiene";
 
@@ -25,7 +25,7 @@ describe.skipIf(!manticoreUrl)(
         throw new Error("Live test was not skipped without MANTICORE_URL");
       }
       const store = new InMemorySearchVersionStore();
-      const engine = ManticoreSearchEngine.fromUrl(manticoreUrl, store);
+      const engine = createLiveTestEngine(manticoreUrl, store);
       const runToken = `bulklive${crypto.randomUUID().replaceAll("-", "")}`;
       const parsed = parseBooleanQuery(runToken);
       if (!parsed.ok) {
@@ -80,7 +80,7 @@ describe.skipIf(!manticoreUrl)(
         throw new Error("Live test was not skipped without MANTICORE_URL");
       }
       const store = new InMemorySearchVersionStore();
-      const engine = ManticoreSearchEngine.fromUrl(manticoreUrl, store);
+      const engine = createLiveTestEngine(manticoreUrl, store);
       const runToken = `movelive${crypto.randomUUID().replaceAll("-", "")}`;
       const parsed = parseBooleanQuery(runToken);
       if (!parsed.ok) {

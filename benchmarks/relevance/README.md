@@ -1,5 +1,7 @@
 # Golden relevance benchmark
 
+> **RJC-400 table roles.** Live `MANTICORE_URL` specs write only to `aanvragen_test_active` / `aanvragen_test_archive`. Relevance and search benches use `aanvragen_bench_*`. Production `aanvragen*` tables are never test scratch space. Gate/CI can prove the bench tables empty via `bun run check:manticore-bench-empty` (SELECT COUNT(*), never `/search` limit:0).
+
 Measures **search relevance** (does the engine return the right assignments?) for any `SearchEngine` implementation, on real documents. This is the gate in front of any engine migration (`.isa/search-quality.md`, ISC-7): no engine migrates until this benchmark points at a winner. It is deliberately separate from `benchmarks/search/`, which measures **latency only** on a synthetic, meaningless corpus — that corpus must never be used for relevance claims.
 
 ## Run it

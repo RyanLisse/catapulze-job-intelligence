@@ -92,6 +92,13 @@ run_phase layering bun run check-layering
 echo "gate: check-secrets"
 run_phase secrets bun run check-secrets
 
+# RJC-400: when a local Manticore is configured, prove bench tables are empty
+# before the rest of the gate (relevance/bench hygiene). Skips if unset.
+if [[ -n "${MANTICORE_URL:-}" ]]; then
+  echo "gate: check:manticore-bench-empty"
+  run_phase manticore-bench-empty bun run check:manticore-bench-empty
+fi
+
 # RJC-395: point the migration-upgrade suite (packages/db/src/migration-upgrade.spec.ts)
 # at a dedicated database instead of letting it skip silently. Every merged
 # migration between 0006 and 0010 passed CI without this suite ever running.

@@ -6,6 +6,9 @@ import type { SearchVersion } from "./version";
 
 export const SEARCH_INDEX_NAME = "aanvragen" as const;
 
+/** Logical index for MANTICORE_URL-gated live specs (RJC-400). */
+export const SEARCH_TEST_INDEX_NAME = "aanvragen_test" as const;
+
 /**
  * Deepest reachable `offset + limit` for any search (RJC-378). Manticore runs
  * with `max_matches` set to this value, so hits past it are silently absent

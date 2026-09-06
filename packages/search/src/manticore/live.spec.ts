@@ -3,9 +3,9 @@ import { describe, expect, it } from "bun:test";
 import { parseBooleanQuery } from "@ji/domain";
 
 import { InMemorySearchVersionStore } from "../version";
-import { ManticoreSearchEngine } from "./engine";
 import {
   cleanupLiveDocuments,
+  createLiveTestEngine,
   requireLiveManticoreUrl,
 } from "./live-test-hygiene";
 
@@ -26,7 +26,7 @@ describe.skipIf(!manticoreUrl)(
       if (!manticoreUrl) {
         throw new Error("Live test was not skipped without MANTICORE_URL");
       }
-      const engine = ManticoreSearchEngine.fromUrl(
+      const engine = createLiveTestEngine(
         manticoreUrl,
         new InMemorySearchVersionStore()
       );
