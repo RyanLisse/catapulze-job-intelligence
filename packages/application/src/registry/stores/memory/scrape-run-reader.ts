@@ -27,6 +27,7 @@ export class MemoryScrapeRunReader implements ScrapeRunReader {
         (run) =>
           (!query.bronId || run.bronId === query.bronId) &&
           (!query.status || run.status === query.status) &&
+          (!query.failureCode || run.failureCode === query.failureCode) &&
           (!query.runKind ||
             query.runKind === "all" ||
             run.runKind === query.runKind) &&

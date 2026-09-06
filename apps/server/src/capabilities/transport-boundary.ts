@@ -27,8 +27,7 @@ export const pathParamsSchema = z.record(z.string(), z.string());
 
 export type PathParams = z.infer<typeof pathParamsSchema>;
 
-export const restQuerySchema = z.object({
-  full: z.boolean().optional(),
-});
+/** REST query strings are always strings; keep unknown keys (filters/cursors). */
+export const restQuerySchema = z.record(z.string(), z.string());
 
 export type RestQuery = z.infer<typeof restQuerySchema>;

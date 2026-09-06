@@ -608,6 +608,7 @@ export interface BronRunStatsReader {
 export interface ScrapeRunListQuery {
   readonly bronId?: string;
   readonly cursor?: string;
+  readonly failureCode?: string;
   readonly limit?: number;
   readonly runKind?: BronRunKindFilter;
   readonly since?: Date;

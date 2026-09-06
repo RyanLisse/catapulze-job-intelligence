@@ -355,7 +355,13 @@ export default async function BronnenPage({
             Bronnen
           </h1>
           <p className="mt-2 text-sm text-muted-foreground">
-            Gezondheid, runs en opbrengst van je ingestiebronnen.
+            Gezondheid, runs en opbrengst van je ingestiebronnen.{" "}
+            <Link
+              className="text-primary underline-offset-2 hover:underline"
+              href="/bronnen/runs"
+            >
+              Bekijk scrape-runs
+            </Link>
           </p>
         </div>
         <nav

@@ -98,6 +98,9 @@ const mapRow = (row: ScrapeRunRow): ScrapeRunView => {
 const encodeCursor = (gestart: Date, id: string): string =>
   `${gestart.toISOString()}|${id}`;
 
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
+
 const decodeCursor = (
   cursor: string | undefined
 ): { gestart: Date; id: string } | null => {
@@ -111,11 +114,63 @@ const decodeCursor = (
   const gestartRaw = cursor.slice(0, separator);
   const id = cursor.slice(separator + 1);
   const gestart = new Date(gestartRaw);
-  if (Number.isNaN(gestart.getTime()) || id.length === 0) {
+  if (Number.isNaN(gestart.getTime()) || !UUID_RE.test(id)) {
     return null;
   }
   return { gestart, id };
 };
+
+interface ObservationAggRow extends Record<string, unknown> {
+  readonly created: number | string;
+  readonly rejected: number | string;
+  readonly scrape_run_id: string;
+  readonly unchanged: number | string;
+  readonly updated: number | string;
+}
+
+const toCount = (value: number | string): number =>
+  Number.isFinite(Number(value)) ? Number(value) : 0;
+
+const loadObservationDistributions = async (
+  database: ScrapeRunDatabase,
+  runIds: readonly string[]
+): Promise<Map<string, ScrapeRunObservationDistribution>> => {
+  const result = new Map<string, ScrapeRunObservationDistribution>();
+  if (runIds.length === 0) {
+    return result;
+  }
+  const rows = await database.execute<ObservationAggRow>(sql`
+    SELECT
+      o.scrape_run_id,
+      count(*) FILTER (WHERE o.outcome = 'new') AS created,
+      count(*) FILTER (WHERE o.outcome = 'changed') AS updated,
+      count(*) FILTER (WHERE o.outcome = 'unchanged') AS unchanged,
+      0::int AS rejected
+    FROM staging.aanvraag_observation o
+    WHERE o.scrape_run_id IN (${sql.join(
+      runIds.map((id) => sql`${id}::uuid`),
+      sql`, `
+    )})
+    GROUP BY o.scrape_run_id
+  `);
+  for (const row of rows) {
+    result.set(row.scrape_run_id, {
+      created: toCount(row.created),
+      rejected: toCount(row.rejected),
+      unchanged: toCount(row.unchanged),
+      updated: toCount(row.updated),
+    });
+  }
+  return result;
+};
+
+const withObservations = (
+  run: ScrapeRunView,
+  distributions: Map<string, ScrapeRunObservationDistribution>
+): ScrapeRunView => ({
+  ...run,
+  observationDistribution: distributions.get(run.id) ?? EMPTY_OBSERVATIONS,
+});
 
 export class PostgresScrapeRunReader implements ScrapeRunReader {
   private readonly database: ScrapeRunDatabase;
@@ -152,7 +207,13 @@ export class PostgresScrapeRunReader implements ScrapeRunReader {
       LIMIT 1
     `);
     const [row] = rows;
-    return row ? mapRow(row) : null;
+    if (!row) {
+      return null;
+    }
+    const distributions = await loadObservationDistributions(this.database, [
+      row.id,
+    ]);
+    return withObservations(mapRow(row), distributions);
   }
 
   async list(query: ScrapeRunListQuery): Promise<{
@@ -166,6 +227,9 @@ export class PostgresScrapeRunReader implements ScrapeRunReader {
     }
     if (query.status) {
       predicates.push(sql`status = ${query.status}`);
+    }
+    if (query.failureCode) {
+      predicates.push(sql`failure_code = ${query.failureCode}`);
     }
     if (query.runKind && query.runKind !== "all") {
       predicates.push(sql`run_kind = ${query.runKind}`);
@@ -213,7 +277,12 @@ export class PostgresScrapeRunReader implements ScrapeRunReader {
       LIMIT ${limit + 1}
     `);
     const mapped = rows.map(mapRow);
-    const items = mapped.slice(0, limit);
+    const page = mapped.slice(0, limit);
+    const distributions = await loadObservationDistributions(
+      this.database,
+      page.map((run) => run.id)
+    );
+    const items = page.map((run) => withObservations(run, distributions));
     const last = items.at(-1);
     const nextCursor =
       mapped.length > items.length && last
