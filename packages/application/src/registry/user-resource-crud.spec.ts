@@ -139,11 +139,10 @@ describe("user-owned resource CRUD parity (RJC-444)", () => {
       error: { code: "SYNTAX_ERROR" },
       ok: false,
     });
-    expect(empty).toMatchObject({ ok: true });
-    if (empty.ok) {
-      expect(empty.value.queryText).toBe("");
-      expect(empty.value.parserVersion).toBe("1");
-    }
+    expect(empty).toMatchObject({
+      ok: true,
+      value: { parserVersion: "1", queryText: "" },
+    });
     expect(
       await bundle.deps.stores.savedSearches.list(
         owner.subjectId,
