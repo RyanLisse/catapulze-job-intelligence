@@ -23,7 +23,8 @@ if [[ "$raw_storage_enabled" == "1" ]]; then
   # The override injects the synthetic MinIO S3 settings into the server only
   # for this explicitly opted-in smoke lane. The base Compose file keeps its
   # normal filesystem fallback and production deployment contract.
-  compose_command+=(--file docker-compose.smoke.yml)
+  # Merge order: base Compose file first, then the smoke override.
+  compose_command+=(--file docker-compose.yml --file docker-compose.smoke.yml)
   compose_profiles+=(--profile storage)
   diagnostic_services+=(raw-storage-minio raw-storage-minio-init)
 fi

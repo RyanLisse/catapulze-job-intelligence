@@ -274,14 +274,14 @@ describe("docker-compose smoke orchestration", () => {
     expect(result.exitCode).toBe(0);
     expectCommandsInOrder(
       result.commands,
-      "docker compose --env-file .env --file docker-compose.smoke.yml up -d --wait postgres manticore redis",
-      "docker compose --env-file .env --file docker-compose.smoke.yml --profile storage up -d --wait raw-storage-minio",
-      "docker compose --env-file .env --file docker-compose.smoke.yml --profile storage run --rm --no-deps raw-storage-minio-init",
-      "docker compose --env-file .env --file docker-compose.smoke.yml up -d --no-build --wait server web",
+      "docker compose --env-file .env --file docker-compose.yml --file docker-compose.smoke.yml up -d --wait postgres manticore redis",
+      "docker compose --env-file .env --file docker-compose.yml --file docker-compose.smoke.yml --profile storage up -d --wait raw-storage-minio",
+      "docker compose --env-file .env --file docker-compose.yml --file docker-compose.smoke.yml --profile storage run --rm --no-deps raw-storage-minio-init",
+      "docker compose --env-file .env --file docker-compose.yml --file docker-compose.smoke.yml up -d --no-build --wait server web",
       "curl --silent --show-error --max-time 5 http://localhost:3000/readyz"
     );
     expect(result.commands.at(-1)).toBe(
-      "docker compose --env-file .env --file docker-compose.smoke.yml --profile projector --profile storage down"
+      "docker compose --env-file .env --file docker-compose.yml --file docker-compose.smoke.yml --profile projector --profile storage down"
     );
   }, 20_000);
 
@@ -371,9 +371,9 @@ describe("docker-compose smoke orchestration", () => {
     );
     expect(storageInitIndex).toBeGreaterThan(-1);
     expect(result.commands.slice(storageInitIndex + 1)).toEqual([
-      "docker compose --env-file .env --file docker-compose.smoke.yml ps",
-      "docker compose --env-file .env --file docker-compose.smoke.yml logs --no-color --tail 80 server projector raw-storage-minio raw-storage-minio-init",
-      "docker compose --env-file .env --file docker-compose.smoke.yml --profile projector --profile storage down",
+      "docker compose --env-file .env --file docker-compose.yml --file docker-compose.smoke.yml ps",
+      "docker compose --env-file .env --file docker-compose.yml --file docker-compose.smoke.yml logs --no-color --tail 80 server projector raw-storage-minio raw-storage-minio-init",
+      "docker compose --env-file .env --file docker-compose.yml --file docker-compose.smoke.yml --profile projector --profile storage down",
     ]);
   }, 20_000);
 });
