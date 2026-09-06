@@ -1,4 +1,4 @@
-import { parseBooleanQuery } from "@ji/domain";
+import { BOOLEAN_PARSER_VERSION, parseBooleanQuery } from "@ji/domain";
 import {
   createCriticalPathSession,
   isCriticalPathEnabled,
