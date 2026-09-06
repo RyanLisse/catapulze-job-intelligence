@@ -1,7 +1,15 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useMemo } from "react";
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import type { ReactNode } from "react";
 import {
   Area,
   AreaChart,
@@ -9,6 +17,8 @@ import {
   BarChart,
   CartesianGrid,
   Cell,
+  ComposedChart,
+  Line,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -265,5 +275,223 @@ export const RateHistogram = ({
         />
       </BarChart>
     </ResponsiveContainer>
+  );
+};
+
+const TREND_CHART_HEIGHT = 260;
+const SPARKLINE_HEIGHT = 36;
+const dayLabelFormatter = new Intl.DateTimeFormat("nl-NL", {
+  day: "2-digit",
+  month: "short",
+});
+
+export interface BronTrendPoint {
+  readonly bucket: string;
+  readonly failed: number;
+  readonly gewijzigd: number;
+  readonly nieuw: number;
+  readonly rejected: number;
+}
+
+export interface BronSparkPoint {
+  readonly bucket: string;
+  readonly nieuw: number;
+}
+
+const SparklineWidthContext = createContext<number>(0);
+
+/**
+ * One shared width measurement for every bronkaart sparkline.
+ * Observes the grid host and reads the first card column width so we do not
+ * mount a ResponsiveContainer (and ResizeObserver) per card.
+ */
+export const SparklineWidthProvider = ({
+  children,
+}: {
+  readonly children: ReactNode;
+}) => {
+  const hostRef = useRef<HTMLDivElement | null>(null);
+  const [width, setWidth] = useState(0);
+
+  useEffect(() => {
+    const host = hostRef.current;
+    if (!host || globalThis.ResizeObserver === undefined) {
+      return;
+    }
+    const readWidth = () => {
+      const card = host.querySelector<HTMLElement>("[data-bron-card]");
+      const next = card?.clientWidth ?? 0;
+      if (next > 0) {
+        // CardContent uses px-(--card-spacing); default --spacing(4) => 16px each side.
+        setWidth(Math.max(0, next - 32));
+      }
+    };
+    readWidth();
+    const observer = new ResizeObserver(() => {
+      readWidth();
+    });
+    observer.observe(host);
+    return () => observer.disconnect();
+  }, []);
+
+  return (
+    <div ref={hostRef} className="w-full">
+      <SparklineWidthContext.Provider value={width}>
+        {children}
+      </SparklineWidthContext.Provider>
+    </div>
+  );
+};
+
+/**
+ * Total trend: stacked nieuw/gewijzigd/rejected areas + failed line.
+ * Reuses WeeklyVolumeChart tooltip/axis tokens (`--chart-*`, dark-mode popover).
+ */
+export const BronTrendChart = ({
+  data,
+}: {
+  readonly data: readonly BronTrendPoint[];
+}) => {
+  const formatted = useMemo(
+    () =>
+      data.map((point) => ({
+        ...point,
+        label: dayLabelFormatter.format(new Date(point.bucket)),
+      })),
+    [data]
+  );
+
+  if (formatted.length === 0) {
+    return (
+      <p className="py-8 text-center text-sm text-muted-foreground">
+        Nog geen trenddata in dit venster.
+      </p>
+    );
+  }
+
+  return (
+    <ResponsiveContainer width="100%" height={TREND_CHART_HEIGHT}>
+      <ComposedChart
+        data={formatted}
+        margin={{ bottom: 0, left: -18, right: 4, top: 8 }}
+      >
+        <defs>
+          <linearGradient id="ji-bron-nieuw" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="var(--chart-1)" stopOpacity={0.55} />
+            <stop offset="100%" stopColor="var(--chart-1)" stopOpacity={0.05} />
+          </linearGradient>
+          <linearGradient id="ji-bron-gewijzigd" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="var(--chart-2)" stopOpacity={0.5} />
+            <stop offset="100%" stopColor="var(--chart-2)" stopOpacity={0.05} />
+          </linearGradient>
+          <linearGradient id="ji-bron-rejected" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="var(--chart-4)" stopOpacity={0.45} />
+            <stop offset="100%" stopColor="var(--chart-4)" stopOpacity={0.04} />
+          </linearGradient>
+        </defs>
+        <CartesianGrid
+          strokeDasharray="3 3"
+          stroke="var(--border)"
+          vertical={false}
+        />
+        <XAxis dataKey="label" {...axis} minTickGap={16} />
+        <YAxis {...axis} width={VALUE_AXIS_WIDTH} allowDecimals={false} />
+        <Tooltip
+          contentStyle={tooltipStyle}
+          cursor={{ stroke: "var(--border)" }}
+        />
+        <Area
+          type="monotone"
+          dataKey="nieuw"
+          name="Nieuw"
+          stackId="volume"
+          stroke="var(--chart-1)"
+          strokeWidth={1.5}
+          fill="url(#ji-bron-nieuw)"
+        />
+        <Area
+          type="monotone"
+          dataKey="gewijzigd"
+          name="Gewijzigd"
+          stackId="volume"
+          stroke="var(--chart-2)"
+          strokeWidth={1.5}
+          fill="url(#ji-bron-gewijzigd)"
+        />
+        <Area
+          type="monotone"
+          dataKey="rejected"
+          name="Rejected"
+          stackId="volume"
+          stroke="var(--chart-4)"
+          strokeWidth={1.5}
+          fill="url(#ji-bron-rejected)"
+        />
+        <Line
+          type="monotone"
+          dataKey="failed"
+          name="Failed"
+          stroke="var(--chart-5)"
+          strokeWidth={2}
+          dot={false}
+        />
+      </ComposedChart>
+    </ResponsiveContainer>
+  );
+};
+
+/**
+ * Compact per-bron sparkline. Width comes from SparklineWidthProvider so a
+ * 12-card grid does not mount 12 ResponsiveContainers (layout thrash).
+ */
+export const BronSparkline = ({
+  data,
+  label,
+}: {
+  readonly data: readonly BronSparkPoint[];
+  readonly label: string;
+}) => {
+  const width = useContext(SparklineWidthContext);
+
+  if (data.length === 0) {
+    return <p className="text-[11px] text-muted-foreground">Geen sparkline</p>;
+  }
+
+  if (width <= 0) {
+    return (
+      <div
+        aria-hidden
+        className="h-9 w-full rounded bg-muted/40"
+        style={{ height: SPARKLINE_HEIGHT }}
+      />
+    );
+  }
+
+  const gradientId = `ji-spark-${label.replaceAll(/[^a-zA-Z0-9_-]+/gu, "-")}`;
+
+  return (
+    <div aria-label={label} role="img">
+      <AreaChart
+        width={width}
+        height={SPARKLINE_HEIGHT}
+        data={[...data]}
+        margin={{ bottom: 0, left: 0, right: 0, top: 2 }}
+      >
+        <defs>
+          <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="var(--chart-1)" stopOpacity={0.45} />
+            <stop offset="100%" stopColor="var(--chart-1)" stopOpacity={0.02} />
+          </linearGradient>
+        </defs>
+        <Area
+          type="monotone"
+          dataKey="nieuw"
+          stroke="var(--chart-1)"
+          strokeWidth={1.25}
+          fill={`url(#${gradientId})`}
+          isAnimationActive={false}
+        />
+      </AreaChart>
+    </div>
   );
 };
