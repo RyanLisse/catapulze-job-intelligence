@@ -40,18 +40,6 @@ import {
   createStartRunHandler,
   createStartTestImportHandler,
   createUpdateSavedSearchHandler,
-  createGetDashboardOverviewHandler,
-  createGetBronStatsHandler,
-  createListScrapeRunsHandler,
-  createGetScrapeRunHandler,
-  getDashboardOverviewInputSchema,
-  getDashboardOverviewOutputSchema,
-  getBronStatsInputSchema,
-  getBronStatsOutputSchema,
-  listScrapeRunsInputSchema,
-  listScrapeRunsOutputSchema,
-  getScrapeRunInputSchema,
-  getScrapeRunOutputSchema,
   createValidateSnapshotApprovalHandler,
   dualBindings,
   approveSnapshotInputSchema,
@@ -97,6 +85,20 @@ import {
   updateSavedSearchInputSchema,
 } from "./handlers";
 import type { OperatorContextCapabilityDescriptor } from "./handlers";
+import {
+  createGetBronStatsHandler,
+  createGetDashboardOverviewHandler,
+  createGetScrapeRunHandler,
+  createListScrapeRunsHandler,
+  getBronStatsInputSchema,
+  getBronStatsOutputSchema,
+  getDashboardOverviewInputSchema,
+  getDashboardOverviewOutputSchema,
+  getScrapeRunInputSchema,
+  getScrapeRunOutputSchema,
+  listScrapeRunsInputSchema,
+  listScrapeRunsOutputSchema,
+} from "./handlers/dashboard";
 import type { SliceAHandlerDeps } from "./handlers/deps";
 import { defineSliceACapabilityEntry } from "./metadata";
 import {
@@ -922,18 +924,37 @@ export const createSliceACapabilityCatalog = (deps: SliceAHandlerDeps) => {
         "ui:BronPanel.StartTestImport",
       ],
     }),
-    ...[getDashboardOverview, getBronStats, listScrapeRuns, getScrapeRun].map(
-      (capability) =>
-        defineSliceACapabilityEntry(capability, {
-          auditClass: "access",
-          reversible: true,
-          sideEffectClass: "read",
-          target: "internal",
-          wiredTransports: capability.bindings.map((b) =>
-            b.transport === "mcp" ? `mcp:${b.operation}` : `rest:${b.operation}`
-          ) as any,
-        })
-    ),
+    defineSliceACapabilityEntry(getDashboardOverview, {
+      auditClass: "access",
+      reversible: true,
+      sideEffectClass: "read",
+      target: "internal",
+      wiredTransports: ["mcp:get_dashboard_overview", "rest:GET /v1/dashboard"],
+    }),
+    defineSliceACapabilityEntry(getBronStats, {
+      auditClass: "access",
+      reversible: true,
+      sideEffectClass: "read",
+      target: "internal",
+      wiredTransports: [
+        "mcp:get_bron_stats",
+        "rest:GET /v1/bronnen/{id}/stats",
+      ],
+    }),
+    defineSliceACapabilityEntry(listScrapeRuns, {
+      auditClass: "access",
+      reversible: true,
+      sideEffectClass: "read",
+      target: "internal",
+      wiredTransports: ["mcp:list_scrape_runs", "rest:GET /v1/scrape-runs"],
+    }),
+    defineSliceACapabilityEntry(getScrapeRun, {
+      auditClass: "access",
+      reversible: true,
+      sideEffectClass: "read",
+      target: "internal",
+      wiredTransports: ["mcp:get_scrape_run", "rest:GET /v1/scrape-runs/{id}"],
+    }),
     defineSliceACapabilityEntry(completeTask, {
       auditClass: "none",
       reversible: true,

@@ -1,12 +1,34 @@
-/* oxlint-disable-file */
 import { z } from "zod";
 
+import type {
+  SliceADomainFailure,
+  SliceADomainFailureDetails,
+} from "../schemas";
+import type {
+  BronRunStatsRow,
+  BronRunTimeseriesPoint,
+  ScrapeRunView,
+} from "../stores/types";
 import type { SliceAHandlerDeps } from "./deps";
+
+const domainFailure = (
+  code: SliceADomainFailure["code"],
+  message: string,
+  details?: SliceADomainFailureDetails
+) => ({ error: { code, details, message }, ok: false as const });
 
 export const dashboardWindowSchema = z
   .enum(["24u", "24h", "7d", "30d"])
   .default("7d")
-  .transform((v) => (v === "24h" ? "24u" : v));
+  .transform((value) => (value === "24h" ? "24u" : value));
+
+const failureCountSchema = z
+  .object({
+    code: z.string(),
+    count: z.number(),
+  })
+  .strict();
+
 const statsSchema = z
   .object({
     aantalGevonden: z.number(),
@@ -34,11 +56,10 @@ const statsSchema = z
     runs: z.number(),
     succeeded: z.number(),
     successRate: z.number().nullable(),
-    topFailures: z.array(
-      z.object({ code: z.string(), count: z.number() }).strict()
-    ),
+    topFailures: z.array(failureCountSchema),
   })
   .strict();
+
 const pointSchema = z
   .object({
     aantalGevonden: z.number(),
@@ -55,6 +76,7 @@ const pointSchema = z
     succeeded: z.number(),
   })
   .strict();
+
 const healthSchema = z
   .object({
     bronId: z.string(),
@@ -64,41 +86,92 @@ const healthSchema = z
     silenceAlertOpen: z.boolean(),
   })
   .strict();
-const health = (deps: SliceAHandlerDeps, id: string) =>
-  deps.stores.bronHealth.getByBronId(id).then((h) =>
-    h
-      ? {
-          bronId: h.bronId,
-          circuitStatus: h.circuitStatus,
-          lastRunAt: h.lastRunAt?.toISOString() ?? null,
-          lastRunStatus: h.lastRunStatus,
-          silenceAlertOpen: h.silenceAlertOpen,
-        }
-      : null
-  );
-const row = (r: any) => ({
-  ...r,
-  lastRunAt: r.lastRunAt?.toISOString() ?? null,
-});
-export const getDashboardOverviewInputSchema = z
-  .object({ window: dashboardWindowSchema })
+
+const alertSchema = z
+  .object({
+    ackedAt: z.string().nullable(),
+    bronId: z.string(),
+    createdAt: z.string(),
+    id: z.string(),
+    kind: z.string(),
+    message: z.string(),
+  })
   .strict();
+
+const serializeStatsRow = (row: BronRunStatsRow) => ({
+  aantalGevonden: row.aantalGevonden,
+  actief: row.actief,
+  avgDurationMs: row.avgDurationMs,
+  bronId: row.bronId,
+  cancelled: row.cancelled,
+  failed: row.failed,
+  fouten: row.fouten,
+  gesloten: row.gesloten,
+  gewijzigd: row.gewijzigd,
+  interval: row.interval,
+  lastFailureClass: row.lastFailureClass,
+  lastFailureCode: row.lastFailureCode,
+  lastFailureMessage: row.lastFailureMessage,
+  lastFailurePhase: row.lastFailurePhase,
+  lastRunAt: row.lastRunAt?.toISOString() ?? null,
+  lastRunStatus: row.lastRunStatus,
+  naam: row.naam,
+  nieuw: row.nieuw,
+  ongewijzigd: row.ongewijzigd,
+  p95DurationMs: row.p95DurationMs,
+  rejected: row.rejected,
+  running: row.running,
+  runs: row.runs,
+  succeeded: row.succeeded,
+  successRate: row.successRate,
+  topFailures: [...row.topFailures],
+});
+
+const serializeTimeseriesPoint = (point: BronRunTimeseriesPoint) => ({
+  aantalGevonden: point.aantalGevonden,
+  avgDurationMs: point.avgDurationMs,
+  bronId: point.bronId,
+  bucket: point.bucket.toISOString(),
+  failed: point.failed,
+  fouten: point.fouten,
+  gewijzigd: point.gewijzigd,
+  nieuw: point.nieuw,
+  ongewijzigd: point.ongewijzigd,
+  rejected: point.rejected,
+  runs: point.runs,
+  succeeded: point.succeeded,
+});
+
+const loadHealth = async (deps: SliceAHandlerDeps, bronId: string) => {
+  const health = await deps.stores.bronHealth.getByBronId(bronId);
+  if (!health) {
+    return null;
+  }
+  return {
+    bronId: health.bronId,
+    circuitStatus: health.circuitStatus,
+    lastRunAt: health.lastRunAt?.toISOString() ?? null,
+    lastRunStatus: health.lastRunStatus,
+    silenceAlertOpen: health.silenceAlertOpen,
+  };
+};
+
+export const getDashboardOverviewInputSchema = z
+  .object({
+    window: dashboardWindowSchema,
+  })
+  .strict();
+
 export const getDashboardOverviewOutputSchema = z
   .object({
-    alerts: z.array(
+    alerts: z.array(alertSchema),
+    bronnen: z.array(
       z
         .object({
-          ackedAt: z.string().nullable(),
-          bronId: z.string(),
-          createdAt: z.string(),
-          id: z.string(),
-          kind: z.string(),
-          message: z.string(),
+          health: healthSchema.nullable(),
+          stats: statsSchema,
         })
         .strict()
-    ),
-    bronnen: z.array(
-      z.object({ health: healthSchema.nullable(), stats: statsSchema }).strict()
     ),
     health: z.array(healthSchema),
     timeseries: z.array(pointSchema),
@@ -106,6 +179,7 @@ export const getDashboardOverviewOutputSchema = z
     window: z.enum(["24u", "7d", "30d"]),
   })
   .strict();
+
 export const createGetDashboardOverviewHandler =
   (deps: SliceAHandlerDeps) =>
   async (input: z.output<typeof getDashboardOverviewInputSchema>) => {
@@ -118,48 +192,56 @@ export const createGetDashboardOverviewHandler =
     const timeseries = await deps.bronRunStatsReader.bronRunTimeseries({
       window: input.window,
     });
-    const hs = await Promise.all(
-      stats.bronnen.map((s) => health(deps, s.bronId!))
+    const sourceRows = stats.bronnen.filter(
+      (row): row is typeof row & { bronId: string } => row.bronId !== null
     );
+    const bronnen = await Promise.all(
+      sourceRows.map(async (row) => ({
+        health: await loadHealth(deps, row.bronId),
+        stats: serializeStatsRow(row),
+      }))
+    );
+    const healthRows = bronnen.flatMap(({ health }) =>
+      health ? [health] : []
+    );
+    const openAlerts = await deps.stores.alerts.listOpen();
     return {
       ok: true as const,
       value: {
-        alerts: (await deps.stores.alerts.listOpen()).map((a) => ({
-          ackedAt: a.ackedAt?.toISOString() ?? null,
-          bronId: a.bronId,
-          createdAt: a.createdAt.toISOString(),
-          id: a.id,
-          kind: a.kind,
-          message: a.message,
+        alerts: openAlerts.map((alert) => ({
+          ackedAt: alert.ackedAt?.toISOString() ?? null,
+          bronId: alert.bronId,
+          createdAt: alert.createdAt.toISOString(),
+          id: alert.id,
+          kind: alert.kind,
+          message: alert.message,
         })),
-        bronnen: stats.bronnen.map((s, i) => ({
-          health: hs[i],
-          stats: row(s),
-        })),
-        health: hs.filter((h): h is NonNullable<typeof h> => h !== null),
-        timeseries: timeseries.map((p) => ({
-          ...p,
-          bucket: p.bucket.toISOString(),
-        })),
-        total: row(stats.totaal),
+        bronnen,
+        health: healthRows,
+        timeseries: timeseries.map(serializeTimeseriesPoint),
+        total: serializeStatsRow(stats.totaal),
         window: input.window,
       },
     };
   };
+
 export const getBronStatsInputSchema = z
-  .object({ bronId: z.string().uuid(), window: dashboardWindowSchema })
+  .object({
+    bronId: z.string().uuid(),
+    window: dashboardWindowSchema,
+  })
   .strict();
+
 export const getBronStatsOutputSchema = z
   .object({
     health: healthSchema.nullable(),
     stats: statsSchema,
     timeseries: z.array(pointSchema),
-    topFailures: z.array(
-      z.object({ code: z.string(), count: z.number() }).strict()
-    ),
+    topFailures: z.array(failureCountSchema),
     window: z.enum(["24u", "7d", "30d"]),
   })
   .strict();
+
 export const createGetBronStatsHandler =
   (deps: SliceAHandlerDeps) =>
   async (input: z.output<typeof getBronStatsInputSchema>) => {
@@ -170,40 +252,42 @@ export const createGetBronStatsHandler =
       bronIds: [input.bronId],
       window: input.window,
     });
-    const source = stats.bronnen[0];
+    const [source] = stats.bronnen;
     if (!source) {
-      return {
-        error: {
-          code: "NOT_FOUND",
-          details: { bronId: input.bronId },
-          message: "Bron not found",
-        },
-        ok: false as const,
-      };
+      return domainFailure("NOT_FOUND", "Bron not found", {
+        bronId: input.bronId,
+      });
     }
-    const [ts, h] = await Promise.all([
-      deps.bronRunStatsReader.bronRunTimeseries({
-        bronIds: [input.bronId],
-        window: input.window,
-      }),
-      health(deps, input.bronId),
-    ]);
+    const timeseries = await deps.bronRunStatsReader.bronRunTimeseries({
+      bronIds: [input.bronId],
+      window: input.window,
+    });
+    const health = await loadHealth(deps, input.bronId);
     return {
       ok: true as const,
       value: {
-        health: h,
-        stats: row(source),
-        timeseries: ts.map((p) => ({ ...p, bucket: p.bucket.toISOString() })),
-        topFailures: source.topFailures,
+        health,
+        stats: serializeStatsRow(source),
+        timeseries: timeseries.map(serializeTimeseriesPoint),
+        topFailures: [...source.topFailures],
         window: input.window,
       },
     };
   };
+
 const runViewSchema = z
   .object({
     aantalGevonden: z.number(),
     bronId: z.string(),
-    checkpoint: z.record(z.string(), z.unknown()).nullable(),
+    checkpoint: z
+      .object({
+        cursor: z.union([z.string(), z.number()]).optional(),
+        hasMore: z.boolean().optional(),
+        offset: z.number().optional(),
+        page: z.number().optional(),
+      })
+      .strict()
+      .nullable(),
     circuitStatus: z.string(),
     createdAt: z.string(),
     failureClass: z.string().nullable(),
@@ -216,22 +300,55 @@ const runViewSchema = z
     gestart: z.string(),
     gewijzigd: z.number(),
     id: z.string(),
+    lifecycleSummary: z
+      .object({
+        incremented: z.number(),
+        reopened: z.number(),
+        reset: z.number(),
+        staled: z.number(),
+      })
+      .strict(),
     nieuw: z.number(),
-    observationDistribution: z.record(z.string(), z.number()),
+    observationDistribution: z
+      .object({
+        created: z.number(),
+        rejected: z.number(),
+        unchanged: z.number(),
+        updated: z.number(),
+      })
+      .strict(),
     rejected: z.number(),
     runKind: z.string(),
     status: z.string(),
     versionAdapter: z.string().nullable(),
   })
   .strict();
-const view = (r: any) => ({
-  ...r,
-  createdAt: r.createdAt.toISOString(),
-  geindigd: r.geindigd?.toISOString() ?? null,
-  gestart: r.gestart.toISOString(),
-  lifecycleSummary: r.lifecycleSummary,
-  versionAdapter: r.versieAdapter,
+
+const serializeRunView = (run: ScrapeRunView) => ({
+  aantalGevonden: run.aantalGevonden,
+  bronId: run.bronId,
+  checkpoint: run.checkpoint,
+  circuitStatus: run.circuitStatus,
+  createdAt: run.createdAt.toISOString(),
+  failureClass: run.failureClass,
+  failureCode: run.failureCode,
+  failureMessage: run.failureMessage,
+  failurePhase: run.failurePhase,
+  fouten: run.fouten,
+  geindigd: run.geindigd?.toISOString() ?? null,
+  gesloten: run.gesloten,
+  gestart: run.gestart.toISOString(),
+  gewijzigd: run.gewijzigd,
+  id: run.id,
+  lifecycleSummary: run.lifecycleSummary,
+  nieuw: run.nieuw,
+  observationDistribution: run.observationDistribution,
+  rejected: run.rejected,
+  runKind: run.runKind,
+  status: run.status,
+  versionAdapter: run.versieAdapter,
 });
+
 export const listScrapeRunsInputSchema = z
   .object({
     bronId: z.string().uuid().optional(),
@@ -242,43 +359,59 @@ export const listScrapeRunsInputSchema = z
     status: z.enum(["running", "succeeded", "failed", "cancelled"]).optional(),
   })
   .strict();
+
 export const listScrapeRunsOutputSchema = z
-  .object({ items: z.array(runViewSchema), nextCursor: z.string().nullable() })
+  .object({
+    items: z.array(runViewSchema),
+    nextCursor: z.string().nullable(),
+  })
   .strict();
+
 export const createListScrapeRunsHandler =
   (deps: SliceAHandlerDeps) =>
   async (input: z.output<typeof listScrapeRunsInputSchema>) => {
     if (!deps.scrapeRunReader) {
       throw new Error("ScrapeRunReader unavailable");
     }
-    const r = await deps.scrapeRunReader.list({
-      ...input,
+    const listed = await deps.scrapeRunReader.list({
+      bronId: input.bronId,
+      cursor: input.cursor,
+      limit: input.limit,
+      runKind: input.runKind,
       since: input.since ? new Date(input.since) : undefined,
+      status: input.status,
     });
     return {
       ok: true as const,
-      value: { items: r.items.map(view), nextCursor: r.nextCursor },
+      value: {
+        items: listed.items.map(serializeRunView),
+        nextCursor: listed.nextCursor,
+      },
     };
   };
+
 export const getScrapeRunInputSchema = z
-  .object({ id: z.string().uuid() })
+  .object({
+    id: z.string().uuid(),
+  })
   .strict();
+
 export const getScrapeRunOutputSchema = runViewSchema;
+
 export const createGetScrapeRunHandler =
   (deps: SliceAHandlerDeps) =>
   async (input: z.output<typeof getScrapeRunInputSchema>) => {
     if (!deps.scrapeRunReader) {
       throw new Error("ScrapeRunReader unavailable");
     }
-    const r = await deps.scrapeRunReader.getById(input.id);
-    return r
-      ? { ok: true as const, value: view(r) }
-      : {
-          error: {
-            code: "NOT_FOUND",
-            details: { id: input.id },
-            message: "Scrape run not found",
-          },
-          ok: false as const,
-        };
+    const run = await deps.scrapeRunReader.getById(input.id);
+    if (!run) {
+      return domainFailure("NOT_FOUND", "Scrape run not found", {
+        id: input.id,
+      });
+    }
+    return {
+      ok: true as const,
+      value: serializeRunView(run),
+    };
   };

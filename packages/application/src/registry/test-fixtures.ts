@@ -79,8 +79,8 @@ export const createTestSliceADeps = (
   };
   return {
     bronRunStatsReader: {
-      bronRunStats: async () => emptyStats,
-      bronRunTimeseries: async () => [],
+      bronRunStats: () => Promise.resolve(emptyStats),
+      bronRunTimeseries: () => Promise.resolve([]),
     },
     bronnen,
     engine,
