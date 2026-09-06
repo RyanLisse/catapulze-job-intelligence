@@ -29,6 +29,9 @@ Failed en cancelled runs, timeouts en iedere retry/attempt blijven afzonderlijke
 
 ## Absolute grenzen
 
+- `/bronnen` / `get_dashboard_overview` (RJC-415 / D9): p95 server path < 1 s and each read-model query p95 < 300 ms on a 50k-run / 12-bron / 60-day fixture; ≤4 Postgres round-trips and zero external HTTP in the request path. Evidence: `docs/evidence/rjc-415/`.
+
+
 - De bestaande GitHub CI-job behoudt voorlopig de harde timeout van 20 minuten.
 - Delivery-fasetijden zijn aanvankelijk observe-only; na 10/20 `main`-runs worden de budgets met de gemeten verdeling gekalibreerd.
 - De SearchAdapter-doelwaarde van p95 ≤ 100 ms op het versioned 200k-profiel is nog niet een algemene harde gate. De verhouding tot de voorgestelde end-to-end-doelwaarden van 750 ms en 1500 ms blijft pending RJC-320/DEC-004. Dat besluit moet ook queryset, concurrency, warm/cold en de exacte meetgrens vastleggen.

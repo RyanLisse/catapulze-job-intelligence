@@ -195,12 +195,27 @@ export const createGetDashboardOverviewHandler =
     const sourceRows = stats.bronnen.filter(
       (row): row is typeof row & { bronId: string } => row.bronId !== null
     );
-    const bronnen = await Promise.all(
-      sourceRows.map(async (row) => ({
-        health: await loadHealth(deps, row.bronId),
-        stats: serializeStatsRow(row),
-      }))
+    // One list() instead of N getByBronId — keeps overview ≤4 Postgres round-trips
+    // (stats + timeseries + health list + alerts.listOpen).
+    const healthRecords = await deps.stores.bronHealth.list();
+    const healthByBronId = new Map(
+      healthRecords.map((record) => [record.bronId, record] as const)
     );
+    const bronnen = sourceRows.map((row) => {
+      const record = healthByBronId.get(row.bronId) ?? null;
+      return {
+        health: record
+          ? {
+              bronId: record.bronId,
+              circuitStatus: record.circuitStatus,
+              lastRunAt: record.lastRunAt?.toISOString() ?? null,
+              lastRunStatus: record.lastRunStatus,
+              silenceAlertOpen: record.silenceAlertOpen,
+            }
+          : null,
+        stats: serializeStatsRow(row),
+      };
+    });
     const healthRows = bronnen.flatMap(({ health }) =>
       health ? [health] : []
     );
