@@ -3,7 +3,7 @@
 import { Activity, Database, LayoutDashboard, Search } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useEffect } from "react";
+import { Suspense, useEffect } from "react";
 import { toast } from "sonner";
 
 import {
@@ -33,15 +33,9 @@ const navigationItems = [
   },
 ] as const;
 
-const Header = () => {
-  const pathname = usePathname();
+const ForbiddenToastListener = () => {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { data: session, isPending } = authClient.useSession();
-  const parsedSession = sessionRoleSchema.safeParse(session);
-  const canViewBronnen = canAccessBronnen(
-    parsedSession.success ? parsedSession.data.user.role : null
-  );
 
   useEffect(() => {
     if (searchParams.get("toast") !== "forbidden") {
@@ -51,8 +45,22 @@ const Header = () => {
     router.replace("/");
   }, [router, searchParams]);
 
+  return null;
+};
+
+const Header = () => {
+  const pathname = usePathname();
+  const { data: session, isPending } = authClient.useSession();
+  const parsedSession = sessionRoleSchema.safeParse(session);
+  const canViewBronnen = canAccessBronnen(
+    parsedSession.success ? parsedSession.data.user.role : null
+  );
+
   return (
     <header className="sticky top-0 z-40 border-b border-border bg-background/85 backdrop-blur">
+      <Suspense fallback={null}>
+        <ForbiddenToastListener />
+      </Suspense>
       <div className="mx-auto flex min-h-16 w-full max-w-[1600px] items-center gap-2 px-3 sm:gap-6 sm:px-6">
         <Link
           aria-label="Catapulze Job Intelligence — overzicht"
