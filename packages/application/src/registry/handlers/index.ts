@@ -499,16 +499,24 @@ export const createSavedSearchHandler =
       };
     }
   ) => {
-    const parsed = parseBooleanQuery(input.query);
-    if (!parsed.ok) {
-      return domainFailure("SYNTAX_ERROR", parsed.error.message, parsed.error);
+    let parserVersion = String(BOOLEAN_PARSER_VERSION);
+    if (input.query.trim() !== "") {
+      const parsed = parseBooleanQuery(input.query);
+      if (!parsed.ok) {
+        return domainFailure(
+          "SYNTAX_ERROR",
+          parsed.error.message,
+          parsed.error
+        );
+      }
+      parserVersion = String(parsed.version);
     }
     const { savedSearch } = await deps.stores.savedSearches.createWithAudit(
       {
         deletedAt: null,
         filters: input.filters ?? {},
         naam: input.naam,
-        parserVersion: String(parsed.version),
+        parserVersion,
         queryText: input.query,
         schemaVersion: SLICE_A_SCHEMA_VERSION,
         scopeId: deps.scopeId,
