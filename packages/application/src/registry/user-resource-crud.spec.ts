@@ -118,7 +118,7 @@ describe("user-owned resource CRUD parity (RJC-444)", () => {
     ]);
   });
 
-  it("rejects malformed and empty saved-search queries without persistence", async () => {
+  it("rejects malformed saved-search queries without persistence; empty browse is allowed", async () => {
     const bundle = createTestSliceARegistry();
     const malformed = await invoke(
       bundle,
@@ -139,22 +139,23 @@ describe("user-owned resource CRUD parity (RJC-444)", () => {
       error: { code: "SYNTAX_ERROR" },
       ok: false,
     });
-    expect(empty).toMatchObject({
-      error: { code: "SYNTAX_ERROR" },
-      ok: false,
-    });
+    expect(empty).toMatchObject({ ok: true });
+    if (empty.ok) {
+      expect(empty.value.queryText).toBe("");
+      expect(empty.value.parserVersion).toBe("1");
+    }
     expect(
       await bundle.deps.stores.savedSearches.list(
         owner.subjectId,
         bundle.deps.scopeId
       )
-    ).toEqual([]);
+    ).toHaveLength(1);
     expect(
       await bundle.deps.stores.audit.listByActorId(
         owner.subjectId,
         bundle.deps.scopeId
       )
-    ).toEqual([]);
+    ).toHaveLength(1);
   });
 
   it("reads and clears only the caller's markering while retaining audit", async () => {
