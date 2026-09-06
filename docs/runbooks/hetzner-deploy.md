@@ -75,7 +75,7 @@ git of in chat.**
 
 | Variabele | Verplicht | Zonder deze | Wie levert |
 |---|---|---|---|
-| `DATABASE_URL` | ja | boot faalt (zod `min(1)`); compose mapt hem van `CATAPULZE_DATABASE_URL` | Neon pooled TLS-URL, app-rol; via 1Password (ADR-0006, "Credentialbeheer") |
+| `DATABASE_URL` | ja | boot faalt (zod `min(1)`); compose mapt hem van `CATAPULZE_DATABASE_URL` | **Productie (ADR-0011):** on-box Coolify Postgres app-rol (`ji_app`) op intern netwerk. Neon alleen als tijdelijke pre-cutover / rollback. Secrets via 1Password / Coolify UI — nooit in git. |
 | `BETTER_AUTH_SECRET` | ja (min. 32 tekens) | boot faalt | operator/1Password |
 | `BETTER_AUTH_URL` | ja (URL) | boot faalt | operator: publieke API-URL |
 | `CORS_ORIGIN` | ja (URL) | boot faalt | operator: publieke web-URL |
@@ -96,9 +96,11 @@ git of in chat.**
 
 ### Worker (apps/worker, Trigger.dev) — leest `process.env` direct
 
+One-shot na Coolify on-box: [trigger-on-box-cutover.md](trigger-on-box-cutover.md) (static IPs + firewall + Trigger `DATABASE_URL`).
+
 | Variabele | Verplicht | Zonder deze | Wie levert |
 |---|---|---|---|
-| `DATABASE_URL` | ja (`packages/env/src/database.ts`) | taken falen bij import | Neon pooled TLS-URL |
+| `DATABASE_URL` | ja (`packages/env/src/database.ts`) | taken falen bij import | **Na RJC-418:** on-box `ji_app` URL via Trigger static-IP allowlist ([trigger-on-box-cutover.md](trigger-on-box-cutover.md)). Tot die flip: Neon pooled TLS-URL (tijdelijk). |
 | `SEARCH_PROJECTOR` | productie: `onbox` | default `worker` = inline drain, en dan eist de worker Manticore-toegang die hij in de cloud niet heeft ([search-projector.md](search-projector.md)) | deploy-configuratie |
 | `MANTICORE_URL` | alleen in `worker`-modus | in `onbox`-modus bewust afwezig | — |
 | `RAW_S3_*` (zelfde vijf als server) | in productie ja | met `NODE_ENV=production` weigert de gewone poll-worker de filesystem-backend; de productiebackfill weigert onafhankelijk alles behalve `kind: "s3"` (RJC-386) | exact dezelfde bucket, endpoint, regio en credentials als de server |
@@ -110,16 +112,15 @@ git of in chat.**
 
 ### Projector (on-box proces)
 
-- `DATABASE_URL`: Neon pooled TLS-URL voor gewone dataqueries;
-- `PROJECTOR_DATABASE_URL`: directe Neon-URL (zelfde branch/database en
-  app-rol, geen `-pooler`) voor de session-level advisory lock;
+- `DATABASE_URL`: on-box `ji_app` op het Coolify-interne netwerk (Neon alleen pre-cutover);
+- `PROJECTOR_DATABASE_URL`: dezelfde on-box database, **directe** session-URL voor de advisory lock (geen pooler-host). Lokaal mag dat dezelfde Compose-URL zijn;
 - `MANTICORE_URL=http://manticore29-<service-uuid>:9308` via hetzelfde
   predefined Coolify-network als Manticore. Alleen een handmatige host-run
   gebruikt voor productie-Manticore 29 `http://127.0.0.1:9312`.
 
-De getypeerde projector-env weigert te starten als een variabele ontbreekt of
-als `PROJECTOR_DATABASE_URL` een bekende Neon-poolerhost is
-([search-projector.md](search-projector.md)).
+De getypeerde projector-env weigert te starten als een variabele ontbreekt.
+Als je tijdelijk nog Neon gebruikt, weigert hij ook een bekende Neon-poolerhost
+als `PROJECTOR_DATABASE_URL` ([search-projector.md](search-projector.md)).
 
 ### Migraties
 
@@ -718,8 +719,8 @@ without the other"):
    Dockerfile-buildpack negeert een geconfigureerd
    `start_command`; deze role-Dockerfile zet daarom zelf exact
    `CMD ["bun","run","projector"]`. Verbind de application met hetzelfde
-   predefined network als Manticore. Env: pooled Neon-`DATABASE_URL` voor
-   dataqueries + directe Neon-`PROJECTOR_DATABASE_URL` voor de lock +
+   predefined network als Manticore. Env: on-box `DATABASE_URL` (`ji_app`) voor
+   dataqueries + directe on-box `PROJECTOR_DATABASE_URL` voor de lock +
    `MANTICORE_URL=http://manticore29-<service-uuid>:9308`, met de UUID live uit
    Coolify gelezen. Alleen een handmatige host-run gebruikt in plaats daarvan
    de loopbackroute `http://127.0.0.1:9312`; Compose gebruikt
