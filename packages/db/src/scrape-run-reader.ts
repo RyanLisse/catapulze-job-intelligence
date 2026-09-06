@@ -167,6 +167,9 @@ export class PostgresScrapeRunReader implements ScrapeRunReader {
     if (query.status) {
       predicates.push(sql`status = ${query.status}`);
     }
+    if (query.failureCode) {
+      predicates.push(sql`failure_code = ${query.failureCode}`);
+    }
     if (query.runKind && query.runKind !== "all") {
       predicates.push(sql`run_kind = ${query.runKind}`);
     }

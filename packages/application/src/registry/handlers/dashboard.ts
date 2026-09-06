@@ -353,6 +353,7 @@ export const listScrapeRunsInputSchema = z
   .object({
     bronId: z.string().uuid().optional(),
     cursor: z.string().optional(),
+    failureCode: z.string().min(1).optional(),
     limit: z.number().int().positive().max(100).default(50),
     runKind: z.enum(["all", "poll", "backfill", "test"]).optional(),
     since: z.string().datetime().optional(),
@@ -376,6 +377,7 @@ export const createListScrapeRunsHandler =
     const listed = await deps.scrapeRunReader.list({
       bronId: input.bronId,
       cursor: input.cursor,
+      failureCode: input.failureCode,
       limit: input.limit,
       runKind: input.runKind,
       since: input.since ? new Date(input.since) : undefined,
