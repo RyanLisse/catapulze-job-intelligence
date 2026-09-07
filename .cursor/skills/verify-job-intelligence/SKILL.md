@@ -58,7 +58,7 @@ Harness:
 - Browser (Cursor browser tools, or Playwright headless) for client-rendered auth UI and job-search interactions — curl only sees SSR shells on `/login`
 - Stable handles:
   - Home H1 `Vind de juiste opdracht vóór de rest.`, link `Open job search` → `/jobs`, brand `Job Intelligence`
-  - Header nav `Overzicht` → `/`, `Zoeken` → `/jobs`, button `Inloggen` → `/login`, menu item `Uitloggen`
+  - Header nav `Overzicht` → `/`, `Zoeken` → `/jobs`, role-gated `Bronnen` → `/bronnen` (`operator`|`admin` only), button `Inloggen` → `/login`, menu item `Uitloggen`
   - Jobs search label `Zoek opdrachten met Boolean-logica`, results `aria-label="Zoekresultaten"`
   - Jobs active-filter chips: each chip removes one filter, `Alles wissen` resets query and filters
   - Jobs pagination buttons `Vorige` / `Volgende` with accessible names `Vorige pagina` / `Volgende pagina`

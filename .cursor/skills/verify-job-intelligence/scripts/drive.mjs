@@ -134,6 +134,47 @@ const driveSignInShell = async (page) => {
   }
 };
 
+const driveBronnenGuard = async (page, context) => {
+  const operatorUnreachable = {
+    bronnenNavVisible: "verified-unreachable",
+    bronnenOverviewOpen: "verified-unreachable",
+    bronnenKpis: "verified-unreachable",
+    bronnenWindowLinks: "verified-unreachable",
+    bronnenRunsLink: "verified-unreachable",
+    unreachablePrerequisite:
+      "provisioned operator or admin account via auth:provision or AUTH_BOOTSTRAP — none in local DB for this run",
+  };
+  const dir = await writeMeta("bronnen-operator-dashboard", {
+    runId: RUN_ID,
+    ...operatorUnreachable,
+  });
+  await context.clearCookies();
+  const response = await page.goto(`${WEB}/bronnen`);
+  const finalUrl = page.url();
+  await writeFile(
+    join(dir, "redirect.txt"),
+    `status=${response?.status()}\nfinalUrl=${finalUrl}\n`
+  );
+  if (!finalUrl.includes("toast=forbidden")) {
+    throw new Error(
+      `bronnen-guard: expected /?toast=forbidden redirect, got ${finalUrl}`
+    );
+  }
+  await page.getByText("Vind de juiste opdracht").waitFor({ state: "visible" });
+  const nav = page.getByRole("navigation", { name: "Hoofdnavigatie" });
+  await nav.getByRole("link", { name: "Overzicht" }).waitFor();
+  await nav.getByRole("link", { name: "Zoeken" }).waitFor();
+  if (await nav.getByRole("link", { name: "Bronnen" }).count()) {
+    throw new Error("bronnen-guard: Bronnen nav visible while signed out");
+  }
+  await saveShot(page, dir, "forbidden-home.png");
+  const toast = page.getByText("Je hebt geen toegang tot de bronmonitor.");
+  if (await toast.count()) {
+    await toast.first().waitFor({ state: "visible", timeout: 5000 });
+    await saveShot(page, dir, "forbidden-toast.png");
+  }
+};
+
 const main = async () => {
   await mkdir(ARTIFACTS, { recursive: true });
   const browser = await chromium.launch({ headless: true });
@@ -145,6 +186,7 @@ const main = async () => {
     await driveDashboardGuard(page, context);
     await driveSignUpDisabled(page);
     await driveSignInShell(page);
+    await driveBronnenGuard(page, context);
     console.log("Drive complete. Artifacts under", ARTIFACTS);
   } finally {
     await browser.close();
