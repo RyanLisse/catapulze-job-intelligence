@@ -1,3 +1,4 @@
+import type { AanvraagVersieView, MarkeringReadback } from "../contracts";
 import type {
   JobContractType,
   JobLifecycleStatus,
@@ -8,6 +9,12 @@ import type {
 import { bronNameToSource } from "./bron-catalog";
 import type { BronCatalogEntry } from "./bron-catalog";
 
+/**
+ * Preview shape returned inside get/batch aanvraag envelopes.
+ * Wire envelope SoT: getAanvraagOutputSchema / batchGetAanvragenOutputSchema
+ * (`aanvraag` is UnknownRecord on the wire; this is the curated preview the
+ * handlers put there).
+ */
 export interface AanvraagPreview {
   readonly beschrijving: string;
   readonly bronId: string;
@@ -29,13 +36,8 @@ export interface AanvraagPreview {
   readonly werkvorm?: string | null;
 }
 
-export interface AanvraagVersieView {
-  readonly geldigTot: string | null;
-  readonly geldigVan: string;
-  readonly id: string;
-  readonly normalisatieversie: string;
-  readonly scrapeRunId: string;
-}
+/** Wire markering readback — SoT markeringReadbackSchema (CTP-475). */
+export type AanvraagMarkeringView = MarkeringReadback;
 
 const mapApiStatus = (status: string): JobLifecycleStatus => {
   switch (status) {

@@ -1,3 +1,17 @@
+/* oxlint-disable prefer-export-from -- JOB_* aliases keep existing UI import paths while SoT lives in ./contracts (CTP-475). */
+import {
+  MARKERING_STATUSES,
+  SEARCH_SCOPES,
+  SEARCH_SORT_OPTIONS,
+} from "./contracts";
+import type { MarkeringStatus, SearchScope, SearchSort } from "./contracts";
+
+export const JOB_MARKERING_STATUSES = MARKERING_STATUSES;
+export const JOB_SEARCH_SCOPES = SEARCH_SCOPES;
+export const JOB_SORT_OPTIONS = SEARCH_SORT_OPTIONS;
+export type JobMarkeringStatus = MarkeringStatus;
+export type JobSearchScope = SearchScope;
+export type JobSort = SearchSort;
 export const JOB_PAGE_SIZE = 8;
 
 export const JOB_CONTRACT_TYPES = [
@@ -17,15 +31,6 @@ export const JOB_LIFECYCLE_STATUSES = [
 
 export type JobLifecycleStatus = (typeof JOB_LIFECYCLE_STATUSES)[number];
 
-export const JOB_SORT_OPTIONS = [
-  "relevance",
-  "newest",
-  "rate-high",
-  "closing-soon",
-] as const;
-
-export type JobSort = (typeof JOB_SORT_OPTIONS)[number];
-
 /**
  * RJC-394/RJC-449: the production search loader
  * (packages/db PostgresSearchDocumentLoader) fills `locatie` from the
@@ -40,8 +45,8 @@ export const selectableJobSortOptions = (
   enrichedDataAvailable: boolean
 ): readonly JobSort[] =>
   enrichedDataAvailable
-    ? JOB_SORT_OPTIONS
-    : JOB_SORT_OPTIONS.filter((option) => option !== "closing-soon");
+    ? SEARCH_SORT_OPTIONS
+    : SEARCH_SORT_OPTIONS.filter((option) => option !== "closing-soon");
 
 export const FRESHNESS_FILTERS = ["all", "24h", "7d", "30d"] as const;
 
@@ -50,10 +55,6 @@ export const FRESHNESS_FILTERS = ["all", "24h", "7d", "30d"] as const;
  * stock and the default; "all" also searches the archive (closed, stale and
  * expired work) — the "ook in archief zoeken" toggle.
  */
-export const JOB_SEARCH_SCOPES = ["active", "all"] as const;
-
-export type JobSearchScope = (typeof JOB_SEARCH_SCOPES)[number];
-
 export type FreshnessFilter = (typeof FRESHNESS_FILTERS)[number];
 
 export const PREVIEW_STATUSES = [
@@ -95,14 +96,6 @@ export interface JobRate {
   readonly currency: "EUR";
   readonly period: "hour" | "year";
 }
-
-export const JOB_MARKERING_STATUSES = [
-  "relevant",
-  "niet_relevant",
-  "gevolgd",
-] as const;
-
-export type JobMarkeringStatus = (typeof JOB_MARKERING_STATUSES)[number];
 
 export interface JobMarkering {
   readonly reden: string | null;

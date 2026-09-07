@@ -33,6 +33,8 @@ import {
   UuidString,
 } from "../schema-helpers";
 import {
+  MarkeringStatusSchema,
+  markeringReadbackSchema,
   previewText,
   searchFiltersSchema,
   SLICE_A_SCHEMA_VERSION,
@@ -223,23 +225,10 @@ export const getAanvraagInputSchema = toCapabilitySchema(
   })
 );
 
-const markeringStatus = Schema.Literals([
-  "relevant",
-  "niet_relevant",
-  "gevolgd",
-]);
-
-const markeringReadback = Schema.Struct({
-  reden: Schema.NullOr(Schema.String),
-  revision: PositiveInteger,
-  status: markeringStatus,
-  updatedAt: IsoDateTimeString,
-});
-
 export const getAanvraagOutputSchema = toCapabilitySchema(
   Schema.Struct({
     aanvraag: UnknownRecord,
-    markering: Schema.NullOr(markeringReadback),
+    markering: Schema.NullOr(markeringReadbackSchema.effect),
   })
 );
 
@@ -350,7 +339,7 @@ export const batchGetAanvragenOutputSchema = toCapabilitySchema(
       Schema.Struct({
         aanvraag: UnknownRecord,
         id: Schema.String,
-        markering: Schema.NullOr(markeringReadback),
+        markering: Schema.NullOr(markeringReadbackSchema.effect),
         versies: Schema.Array(versieView),
       })
     ),
@@ -1155,7 +1144,7 @@ export const markeerAanvraagInputSchema = toCapabilitySchema(
   Schema.Struct({
     aanvraagId: UuidString,
     reden: optionalField(Schema.NullOr(Schema.String)),
-    status: markeringStatus,
+    status: MarkeringStatusSchema,
   })
 );
 
@@ -1163,7 +1152,7 @@ const markeringViewFields = {
   aanvraagId: Schema.String,
   reden: Schema.NullOr(Schema.String),
   revision: PositiveInteger,
-  status: markeringStatus,
+  status: MarkeringStatusSchema,
   updatedAt: IsoDateTimeString,
 } as const;
 

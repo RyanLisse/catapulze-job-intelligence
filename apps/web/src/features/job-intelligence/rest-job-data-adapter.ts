@@ -1,12 +1,10 @@
 import { env } from "@ji/env/web";
-import { z } from "zod";
 
+import { syntaxErrorDetailsSchema } from "./contracts";
+import type { AanvraagVersieView } from "./contracts";
 import { describeApiSyntaxError } from "./presentation";
 import { mapAanvraagToJobListing } from "./rest/aanvraag-mapping";
-import type {
-  AanvraagPreview,
-  AanvraagVersieView,
-} from "./rest/aanvraag-mapping";
+import type { AanvraagPreview } from "./rest/aanvraag-mapping";
 import { bronNameToSource, buildBronCatalog } from "./rest/bron-catalog";
 import type { BronCatalogEntry } from "./rest/bron-catalog";
 import {
@@ -30,11 +28,6 @@ import type {
   JobSourceOption,
 } from "./types";
 import { JOB_PAGE_SIZE } from "./types";
-
-const syntaxErrorDetailsSchema = z.object({
-  message: z.string(),
-  offset: z.number().optional(),
-});
 
 interface SearchResponseBody {
   /** Present for scope "active" only (RJC-383); null when the API's count failed. */

@@ -5,6 +5,7 @@ import { Schema } from "effect";
 import type { CapabilitySchema, SchemaType } from "./schema-helpers";
 import {
   FiniteNumber,
+  IsoDateTimeString,
   optionalField,
   PositiveInteger,
   toCapabilitySchema,
@@ -92,6 +93,48 @@ export type SliceADomainFailureDetails =
   | SchemaType<typeof notFoundByIdDetailsSchema>
   | SchemaType<typeof notFoundByRefDetailsSchema>
   | SchemaType<typeof syntaxErrorDetailsSchema>;
+
+/** Markering status literals — shared SoT for handlers + web (CTP-475). */
+export const MARKERING_STATUSES = [
+  "relevant",
+  "niet_relevant",
+  "gevolgd",
+] as const;
+
+export const MarkeringStatusSchema = Schema.Literals(MARKERING_STATUSES);
+
+export type MarkeringStatus = typeof MarkeringStatusSchema.Type;
+
+/** Markering readback fields returned by get/markeer capabilities. */
+export const markeringReadbackSchema = toCapabilitySchema(
+  Schema.Struct({
+    reden: Schema.NullOr(Schema.String),
+    revision: PositiveInteger,
+    status: MarkeringStatusSchema,
+    updatedAt: IsoDateTimeString,
+  })
+);
+
+export type MarkeringReadback = SchemaType<typeof markeringReadbackSchema>;
+
+/**
+ * REST capability error envelope (`apps/server` transport).
+ * Wider than {@link sliceADomainFailureSchema}: includes transport codes
+ * (UNAUTHENTICATED, CSRF_REJECTED, …) as plain strings.
+ */
+export const restCapabilityFailureSchema = toCapabilitySchema(
+  Schema.Struct({
+    error: Schema.Struct({
+      code: Schema.String,
+      details: optionalField(Schema.Unknown),
+      message: Schema.String,
+    }),
+  })
+);
+
+export type RestCapabilityFailure = SchemaType<
+  typeof restCapabilityFailureSchema
+>;
 
 export const previewText = (value: string, maxLength = 500): string =>
   value.length <= maxLength ? value : `${value.slice(0, maxLength)}…`;

@@ -1,3 +1,4 @@
+import type { SearchFilters } from "../contracts";
 import { ENRICHED_SEARCH_DATA_AVAILABLE } from "../types";
 import type {
   FacetCount,
@@ -13,14 +14,8 @@ import { bronNameToSource } from "./bron-catalog";
 import type { BronCatalogEntry } from "./bron-catalog";
 import type { CapabilityJsonObject } from "./capability-client";
 
-export interface ApiSearchFilters {
-  readonly bronIds?: readonly string[];
-  readonly contracttype?: readonly string[];
-  readonly freshnessDays?: number;
-  readonly locatie?: readonly string[];
-  readonly locatieLand?: readonly string[];
-  readonly tariefMin?: number;
-}
+/** Wire search filters — SoT `@ji/search` / registry searchFiltersSchema (CTP-475). */
+export type ApiSearchFilters = SearchFilters;
 
 export interface ApiFacetBucket {
   readonly count: number;

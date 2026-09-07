@@ -199,6 +199,7 @@ Slices zijn strikt geordend op leerrendement en dependency-richting. Elke slice 
 | AC | UI bouwt; layering gate; geen DB imports |
 | Testbewijs | web unit/feature specs + `check-layering` |
 | Rollback | type-import revert |
+| Status (CTP-475) | Web serialisable contracts from SoT landed (`packages/application/src/registry/web-contracts.ts` + `apps/web/.../contracts`); capability-client REST failure envelope, search scope/sort, markering statuses, SearchFilters, versie/markering readback types derived from Effect Schema / `@ji/search`; no Effect Runtime in browser; prod Effect OFF; Motian ongewijzigd |
 
 ### Slice 12 — Performance / tracing alignering
 
