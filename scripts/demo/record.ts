@@ -238,13 +238,20 @@ const runTour = async (
   await moveCursor(page, 1180, 40);
   await dwell(cueGapMs("dashboard", "signout"));
 
-  await page
-    .locator("header")
-    .getByRole("button")
-    .filter({ hasNotText: "Inloggen" })
-    .first()
-    .click();
-  await page.getByText("Uitloggen").click();
+  // UserMenu trigger is the account name — not the theme toggle.
+  const account = page.getByRole("button", { name: "Demo Operator" });
+  await account.waitFor({ state: "visible", timeout: 15_000 });
+  const menuBox = await account.boundingBox();
+  await (menuBox
+    ? clickWithCursor(
+        page,
+        menuBox.x + menuBox.width / 2,
+        menuBox.y + menuBox.height / 2
+      )
+    : account.click());
+  const signOut = page.getByRole("menuitem", { name: "Uitloggen" });
+  await signOut.waitFor({ state: "visible", timeout: 10_000 });
+  await signOut.click();
   await page.waitForURL(/\/(?:\?.*)?$/u, { timeout: 15_000 });
   await page.getByRole("button", { name: "Inloggen" }).waitFor({
     state: "visible",
