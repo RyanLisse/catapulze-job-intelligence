@@ -304,6 +304,8 @@ const muxVoiceover = (
       "aac",
       "-b:a",
       "192k",
+      "-af",
+      "apad",
       "-shortest",
       "-movflags",
       "+faststart",
