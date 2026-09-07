@@ -26,11 +26,13 @@ Deze map bevat de canonieke architectuurbesluiten die meerdere packages, uitvoer
 | [ADR-0011](ADR-0011-postgres-on-box-trigger-static-ips.md) | Accepted (uitvoering RJC-418 open) | Postgres on-box in Coolify; Trigger.dev static egress-IP allowlist; supersedeert ADR-0006 |
 | [ADR-0012](ADR-0012-first-party-mcp-client-auth.md) | Accepted | First-party signed Better Auth sessions for MCP client access |
 | [ADR-0013](ADR-0013-effectts-platform-baseline.md) | Proposed | EffectTS platformbaseline, foutsemantiek en meetcriteria (CTP-454) |
+| [ADR-0014](ADR-0014-effectts-project-wide-adoption.md) | Accepted | Projectbrede EffectTS-adoptie, Effect Schema-eigenaarschap en fasering (CTP-456) |
 
 ## Runbooks
 
 - [Performance-evidence uitvoeren](../runbooks/performance-evidence.md) — lokale timings, GitHub-artifacts en de opt-in Crabbox/exe.dev-lane veilig uitvoeren en vergelijken.
 - [JSON-LD/Spott wire-contract (EffectTS baseline)](../effectts/json-ld-spott-wire-contract.md) — identiek read-contract + reviewrubric voor CTP-454/455.
+- [EffectTS migratiekaart (projectbreed)](../effectts/migration-map.md) — slices, ownership, deps, rollback; productie blijft uit tot aparte enablement.
 - [Postgres on-box beheren](../runbooks/postgres-on-box.md) — beschermde persistentie, private networking, WAL/backups en restoregates (productie opnieuw via ADR-0011 / RJC-418).
 - [Search projector beheren](../runbooks/search-projector.md) — on-box outbox-drain naar Manticore: deploy-contract, supervisie, advisory lock, gedrag bij storingen.
 - [Raw object storage](../runbooks/raw-object-storage.md) — S3-vs-filesystem raw store, content-addressing, digest-validatie, lokale MinIO-compose.
