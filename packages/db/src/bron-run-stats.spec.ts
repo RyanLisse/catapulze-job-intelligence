@@ -415,15 +415,30 @@ describe("PostgresBronRunStatsReader", () => {
     }
     const database = drizzle(sqlClient, { schema });
     const duplicateId = crypto.randomUUID();
-    await expect(
-      database.insert(bron).values({
+    let rejection = "";
+    try {
+      await database.insert(bron).values({
         categorie: "overheidsportaal",
         id: duplicateId,
         naam: NAAM_A.toUpperCase(),
         status: "ready",
         voorwaardenStatus: "toegestaan",
-      })
-    ).rejects.toThrow(/bron_naam_lower_uidx|unique/iu);
+      });
+    } catch (error) {
+      // Drizzle wraps the Postgres error as "Failed query: …"; constraint /
+      // SQLSTATE live on Error.cause.
+      const chunks: string[] = [];
+      let current: Error | undefined =
+        error instanceof Error ? error : undefined;
+      for (let depth = 0; depth < 4 && current !== undefined; depth += 1) {
+        chunks.push(current.message);
+        current = current.cause instanceof Error ? current.cause : undefined;
+      }
+      rejection = chunks.join("\n");
+    }
+    expect(rejection).toMatch(
+      /bron_naam_lower_uidx|unique|duplicate key|23505/iu
+    );
   });
 
   it("scopes each window rather than reporting lifetime totals", async () => {
