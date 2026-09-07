@@ -8,6 +8,7 @@ import {
   loadTemplate,
   validateBaselineArtifact,
 } from "./harness";
+import { measureNativeCohort } from "./measure";
 import { readToolchainPins } from "./versions";
 
 const ROOT = path.resolve(import.meta.dir, "../..");
@@ -71,4 +72,24 @@ describe("effect-baseline harness", () => {
       })
     ).toThrow(/refuses live providers/u);
   });
+});
+
+describe("effect-baseline measure (native fixtures)", () => {
+  test("measured warm cohort fills metrics and keeps production off", async () => {
+    const artifact = await measureNativeCohort({
+      iterations: 2,
+      runKind: "warm",
+      warmup: 1,
+    });
+    expect(artifact.status).toBe("measured");
+    expect(artifact.workload.fixtureOnly).toBe(true);
+    expect(artifact.workload.liveProviders).toBe(false);
+    expect(artifact.metrics.latencyMs.n).toBeGreaterThanOrEqual(2);
+    expect(artifact.metrics.latencyMs.p50).not.toBeNull();
+    expect(artifact.metrics.directDependencyCount).toBeGreaterThan(0);
+    expect(artifact.metrics.adapterLocObserve).toBeGreaterThan(0);
+    expect(artifact.reviewRubric.retryOwnerIdentifiable).toBe(true);
+    expect(artifact.notes).toContain("blocked");
+    validateBaselineArtifact(artifact);
+  }, 120_000);
 });

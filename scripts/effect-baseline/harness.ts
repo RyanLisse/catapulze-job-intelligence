@@ -214,29 +214,109 @@ export const writeArtifact = (
   return filePath;
 };
 
-const main = (): void => {
+const parseRunKind = (
+  args: string[],
+  allowUnknown: boolean
+): "cold" | "unknown" | "warm" => {
+  const runKindIndex = args.indexOf("--run-kind");
+  if (runKindIndex === -1) {
+    return allowUnknown ? "unknown" : "warm";
+  }
+  const value = args[runKindIndex + 1];
+  if (value !== "cold" && value !== "warm" && value !== "unknown") {
+    throw new Error("--run-kind must be cold, warm, or unknown");
+  }
+  if (!allowUnknown && value === "unknown") {
+    throw new Error("--measure requires --run-kind cold|warm");
+  }
+  return value;
+};
+
+const parseNonNegativeInt = (
+  args: string[],
+  flag: string,
+  fallback: number
+): number => {
+  const index = args.indexOf(flag);
+  if (index === -1) {
+    return fallback;
+  }
+  const raw = args[index + 1];
+  const value = Number(raw);
+  if (!Number.isInteger(value) || value < 0) {
+    throw new Error(`${flag} must be a non-negative integer`);
+  }
+  return value;
+};
+
+const main = async (): Promise<void> => {
   const args = process.argv.slice(2);
-  if (!args.includes("--dry-run")) {
+  const dryRun = args.includes("--dry-run");
+  const measure = args.includes("--measure");
+  if (dryRun === measure) {
     throw new Error(
-      "Usage: bun scripts/effect-baseline/harness.ts --dry-run [--run-kind cold|warm|unknown]"
+      "Usage: bun scripts/effect-baseline/harness.ts (--dry-run|--measure) [--run-kind cold|warm|unknown] [--iterations N] [--warmup N] [--evidence-dir path]"
     );
   }
-  let runKind: "cold" | "unknown" | "warm" = "unknown";
-  const runKindIndex = args.indexOf("--run-kind");
-  if (runKindIndex !== -1) {
-    const value = args[runKindIndex + 1];
-    if (value !== "cold" && value !== "warm" && value !== "unknown") {
-      throw new Error("--run-kind must be cold, warm, or unknown");
-    }
-    runKind = value;
+
+  if (dryRun) {
+    const runKind = parseRunKind(args, true);
+    const artifact = buildDryRunArtifact(runKind);
+    const outputPath = writeArtifact(artifact);
+    process.stdout.write(
+      `${JSON.stringify({ ok: true, outputPath, status: artifact.status }, null, 2)}\n`
+    );
+    return;
   }
-  const artifact = buildDryRunArtifact(runKind);
+
+  const runKind = parseRunKind(args, false);
+  if (runKind === "unknown") {
+    throw new Error("--measure requires --run-kind cold|warm");
+  }
+  const iterations = parseNonNegativeInt(args, "--iterations", 12);
+  if (iterations < 1) {
+    throw new Error("--iterations must be >= 1");
+  }
+  const warmup = parseNonNegativeInt(args, "--warmup", 3);
+  const { measureNativeCohort } = await import("./measure");
+  const artifact = await measureNativeCohort({
+    iterations,
+    runKind,
+    warmup: runKind === "warm" ? warmup : 0,
+  });
   const outputPath = writeArtifact(artifact);
+  const evidenceIndex = args.indexOf("--evidence-dir");
+  let evidencePath: string | null = null;
+  if (evidenceIndex !== -1) {
+    const evidenceDir = args[evidenceIndex + 1];
+    if (!evidenceDir) {
+      throw new Error("--evidence-dir requires a path");
+    }
+    evidencePath = writeArtifact(artifact, path.resolve(ROOT, evidenceDir));
+  }
   process.stdout.write(
-    `${JSON.stringify({ ok: true, outputPath, status: artifact.status }, null, 2)}\n`
+    `${JSON.stringify(
+      {
+        evidencePath,
+        ok: true,
+        outputPath,
+        status: artifact.status,
+      },
+      null,
+      2
+    )}\n`
   );
 };
 
 if (import.meta.main) {
-  main();
+  const run = async (): Promise<void> => {
+    try {
+      await main();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      process.stderr.write(`${message}\n`);
+      process.exitCode = 1;
+    }
+  };
+  void run();
 }

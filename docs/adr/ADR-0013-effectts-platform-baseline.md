@@ -10,7 +10,7 @@
 
 Op 5 september 2026 is EffectTS gekozen als richting voor nieuwe en gefaseerd te migreren TypeScript-code in Catapulze. Metingen bepalen veilige migratie en regressiegrenzen; ze heropenen de adoptiekeuze niet. Op peildatum `origin/main` @ `189ea0d4e48230b7cb3ebedbcc86db2a950f9266` is `effect` **geen** first-party dependency: de lockfile bevat alleen een transitieve `effect@3.21.0` via `@prisma/config`. JSON-LD listing/detail (`packages/connectors/src/json-ld`) en Spott REST list/get (`packages/application/src/export/spott`) zijn de representatieve read-adapters voor de eerste vergelijking (CTP-455).
 
-Zonder vastgepinde toolchain, foutsemantiek, retry-eigenaarschap en meetprocedure kunnen oude timings of hetergene cohorts als “baseline” worden misbruikt. Dit ADR legt die vooraf vast. Live cohortmetingen blijven een aparte uitvoeringsstap onder CTP-454; dit document + harness/schema zijn de verifieerbare eenheid vóór productieactivatie.
+Zonder vastgepinde toolchain, foutsemantiek, retry-eigenaarschap en meetprocedure kunnen oude timings of hetergene cohorts als “baseline” worden misbruikt. Dit ADR legt die vooraf vast. Live cohortmetingen horen bij CTP-454: native warm/cold evidence staat onder `docs/evidence/ctp-454/`; Effect-vergelijking volgt na first-party pin (CTP-455). Productieactivatie blijft uit.
 
 ## Besluit
 
@@ -114,10 +114,12 @@ Te meten (herhaalde fixturecohorten, sandbox only):
 - First-party `effect`/`@effect/*`-pins horen in de migratie-PRs (niet stilzwijgend via Prisma-transitief).
 - Harness dry-run bewijst scaffolding, niet de product-SLO.
 
-## Verificatie (deze PR)
+## Verificatie
 
-- ADR + wire-checklist + schema/template + dry-run harness + gerichte tests.
-- Live warm/cold meetronde: **follow-up onder CTP-454** (niet geclaimd Done door merge van enkel docs/harness).
+- ADR + wire-checklist + schema/template + dry-run harness + gerichte tests (PR #190).
+- Live warm/cold fixturecohort-meting (native path): `bun scripts/effect-baseline/harness.ts --measure --run-kind cold|warm` met evidence onder [`docs/evidence/ctp-454/`](../evidence/ctp-454/).
+- Effect dual-path vergelijking: **blocked-on-CTP-455** (geen first-party `effect` pin); native baseline + reviewrubric wel vastgelegd.
+- Productieactivatie blijft uit; fixtures/sandbox only.
 
 ## Referenties
 
