@@ -149,9 +149,55 @@ const bytesEqual = (left: Uint8Array, right: Uint8Array): boolean => {
   return left.every((byte, index) => byte === right[index]);
 };
 
-const RAW_WRITE_RETRY_DELAYS_MS = [250, 1000, 4000] as const;
+// Base backoff budget ~31.75s (plus up to ~25% jitter) so Cloudflare/R2
+// same-object rate limits and short network blips can recover mid-backfill
+// without failing the Motian→on-box run. Seven delays ⇒ eight put attempts.
+export const RAW_WRITE_RETRY_DELAYS_MS = [
+  250, 500, 1000, 2000, 4000, 8000, 16_000,
+] as const;
 const R2_SAME_OBJECT_RATE_MESSAGE =
   "Reduce your concurrent request rate for the same object.";
+const PERMANENT_OBJECT_STORE_HTTP_STATUSES = new Set<number | string>([
+  400,
+  401,
+  403,
+  404,
+  "400",
+  "401",
+  "403",
+  "404",
+]);
+const TRANSIENT_OBJECT_STORE_HTTP_STATUSES = new Set<number | string>([
+  429,
+  500,
+  502,
+  503,
+  504,
+  "429",
+  "500",
+  "502",
+  "503",
+  "504",
+]);
+const TRANSIENT_OBJECT_STORE_ERROR_CODES = new Set([
+  "ECONNREFUSED",
+  "ECONNRESET",
+  "EAI_AGAIN",
+  "ENETUNREACH",
+  "ETIMEDOUT",
+  "NetworkingError",
+  "RequestTimeout",
+  "ServiceUnavailable",
+  "SlowDown",
+  "Throttling",
+  "ThrottlingException",
+  "Timeout",
+  "TimeoutError",
+  "TooManyRequests",
+  "TooManyRequestsException",
+]);
+const TRANSIENT_OBJECT_STORE_MESSAGE_RE =
+  /SlowDown|ECONNRESET|ETIMEDOUT|EAI_AGAIN|ENETUNREACH|ECONNREFUSED|socket hang up|TooManyRequests|throttl|timed?\s*out|TimeoutError|network|Rate exceeded|Service Unavailable/iu;
 
 interface ObjectStoreErrorDetails extends Error {
   readonly $metadata?: { readonly httpStatusCode?: number };
@@ -160,6 +206,16 @@ interface ObjectStoreErrorDetails extends Error {
   readonly status?: number;
   readonly statusCode?: number;
 }
+
+type RawWriteSleep = (ms: number) => Promise<void>;
+let rawWriteSleep: RawWriteSleep = sleep;
+
+/** Test-only seam so retry budgets do not burn wall-clock in CI. */
+export const setRawWriteRetrySleepForTests = (
+  fn: RawWriteSleep | undefined
+): void => {
+  rawWriteSleep = fn ?? sleep;
+};
 
 const isTransientObjectStoreError = (error?: Error): boolean => {
   if (!error) {
@@ -172,17 +228,30 @@ const isTransientObjectStoreError = (error?: Error): boolean => {
     details.status ??
     details.statusCode ??
     details.httpStatusCode ??
-    details.$metadata?.httpStatusCode ??
-    details.code;
+    details.$metadata?.httpStatusCode;
   if (
     status !== undefined &&
-    [429, 500, 502, 503, 504, "429", "500", "502", "503", "504"].includes(
-      status
-    )
+    PERMANENT_OBJECT_STORE_HTTP_STATUSES.has(status)
+  ) {
+    return false;
+  }
+  if (
+    status !== undefined &&
+    TRANSIENT_OBJECT_STORE_HTTP_STATUSES.has(status)
   ) {
     return true;
   }
-  return error.message.includes(R2_SAME_OBJECT_RATE_MESSAGE);
+  const { code } = details;
+  if (code !== undefined && TRANSIENT_OBJECT_STORE_ERROR_CODES.has(`${code}`)) {
+    return true;
+  }
+  if (TRANSIENT_OBJECT_STORE_ERROR_CODES.has(error.name)) {
+    return true;
+  }
+  return (
+    error.message.includes(R2_SAME_OBJECT_RATE_MESSAGE) ||
+    TRANSIENT_OBJECT_STORE_MESSAGE_RE.test(error.message)
+  );
 };
 
 const putRawWithRetry = async (
@@ -207,7 +276,7 @@ const putRawWithRetry = async (
       const jitteredDelayMs =
         delayMs + Math.floor(Math.random() * delayMs * 0.25);
       // oxlint-disable-next-line no-await-in-loop -- backoff separates sequential retry attempts
-      await sleep(jitteredDelayMs);
+      await rawWriteSleep(jitteredDelayMs);
     }
   }
 };
