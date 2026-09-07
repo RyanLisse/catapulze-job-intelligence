@@ -225,6 +225,7 @@ Slices zijn strikt geordend op leerrendement en dependency-richting. Elke slice 
 | AC | lint groen; geen false positives in non-Effect packages |
 | Testbewijs | `ultracite check` / CI lint |
 | Rollback | rule flag off |
+| Status (CTP-477) | Scoped `anti-slop-effect` oxlint rules enabled only in packages/apps with a direct `effect` dependency (`apps/server`, `apps/worker`, `packages/{api,application,connectors,db,domain,env,search}`); non-Effect packages untouched; Motian ongewijzigd; prod Effect OFF; CTP-479 not started |
 
 ### Slice 14 — Gecontroleerde productieactivatie (geen auto)
 
