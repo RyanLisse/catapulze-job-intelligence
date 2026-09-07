@@ -102,3 +102,9 @@ temp
 .playwright-mcp/
 .data/
 apps/*/.data/
+
+# Demo reel captures (never commit footage)
+/demos/
+/demos/**/*.mp4
+/demos/**/*.webm
+/demos/**/*.meta.txt

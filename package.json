@@ -53,6 +53,8 @@
     "e2e:live:jobs:writes": "PATH=\"./node_modules/.bin:$PATH\" bun e2e/live-jobs/run.ts writes",
     "e2e:live:jobs:writes:discover": "PATH=\"./node_modules/.bin:$PATH\" playwright test --config=playwright.live-writes.config.ts --list",
     "e2e:live:bron-dashboard:discover": "PATH=\"./node_modules/.bin:$PATH\" playwright test --config=playwright.live.config.ts --list e2e/live-jobs/bron-dashboard.playwright.ts",
+    "demo:preflight": "PATH=\"./node_modules/.bin:$PATH\" bun scripts/demo/preflight.ts",
+    "demo:record": "PATH=\"./node_modules/.bin:$PATH\" bun scripts/demo/record.ts",
     "export:reconcile-spott": "bun apps/server/src/export/reconcile-spott-export.ts",
     "docker:up": "docker compose up -d --build",
     "docker:down": "docker compose down",
