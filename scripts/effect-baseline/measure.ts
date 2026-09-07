@@ -79,8 +79,9 @@ const abortError = (): DOMException =>
   new DOMException("Aborted", "AbortError");
 
 const waitForAbort = async (signal: AbortSignal): Promise<never> => {
+  // Short ceiling so a losing race cannot pin the event loop open.
   try {
-    await delay(2 ** 31 - 1, undefined, { signal });
+    await delay(250, undefined, { signal });
   } catch {
     throw abortError();
   }
@@ -131,6 +132,8 @@ const measureCancellation = async (
   const started = performance.now();
   let sawAbort = false;
   try {
+    // Intentionally delay the fixture pass so the abort wins the race.
+    await delay(5);
     const fixtureRace = async (): Promise<never> => {
       await runFixturePass(clients);
       throw new Error("fixture pass completed before abort race");
@@ -143,6 +146,9 @@ const measureCancellation = async (
         : error instanceof Error && /abort/iu.test(error.message);
   } finally {
     clearTimeout(timer);
+    if (!controller.signal.aborted) {
+      controller.abort();
+    }
   }
   return {
     latencyMs: roundMs(performance.now() - started),
