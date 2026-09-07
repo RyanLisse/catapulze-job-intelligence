@@ -4,8 +4,9 @@
 -- everything currently runs as the project owner role (`neondb_owner`).
 -- Idempotent: safe to re-run. Mirrors the pattern already used for the local/CI
 -- Docker lane in tools/postgres/init/10-bootstrap-roles.sh, generalised from
--- the single `public` schema there to this project's four schemas
--- (`public` for Better Auth tables, `curated`, `staging`, `marts`).
+-- the single `public` schema there to this project's app schemas
+-- (`public` for Better Auth tables, `curated`, `staging`, `marts`) plus
+-- `drizzle` for the migration journal that `/readyz` probes as `ji_app` (CTP-465).
 --
 -- Usage (operator, against Neon):
 --   psql "$NEON_OWNER_DATABASE_URL" \
@@ -108,6 +109,26 @@ BEGIN
       schema_name
     );
   END LOOP;
+END $$;
+
+-- 3b. Drizzle migration journal (CTP-465).
+--    `/readyz` runs as `ji_app` and SELECTs `drizzle.__drizzle_migrations`.
+--    The schema is normally created by `drizzle-kit migrate` as `ji_migrator`,
+--    but new DBs must not regress if roles are bootstrapped before/after the
+--    first migrate: ensure the schema exists, grant USAGE + SELECT for the
+--    probe, and default-privilege SELECT for future journal tables.
+--    Matches the live on-box grants (ji_app USAGE on schema + SELECT on the
+--    journal table; ji_readonly intentionally has no drizzle access).
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_namespace WHERE nspname = 'drizzle') THEN
+    EXECUTE 'CREATE SCHEMA drizzle AUTHORIZATION ji_migrator';
+  END IF;
+
+  EXECUTE 'GRANT USAGE, CREATE ON SCHEMA drizzle TO ji_migrator';
+  EXECUTE 'GRANT USAGE ON SCHEMA drizzle TO ji_app';
+  EXECUTE 'GRANT SELECT ON ALL TABLES IN SCHEMA drizzle TO ji_app';
+  EXECUTE 'ALTER DEFAULT PRIVILEGES FOR ROLE ji_migrator IN SCHEMA drizzle GRANT SELECT ON TABLES TO ji_app';
 END $$;
 
 -- 4. Verification query (also documented in docs/runbooks/neon-restore.md).
