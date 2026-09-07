@@ -325,6 +325,9 @@ const muxVoiceover = (
       "aac",
       "-b:a",
       "192k",
+      // Pad VO with silence so -shortest keeps the full x11grab (incl. detail).
+      "-af",
+      "apad",
       "-shortest",
       "-movflags",
       "+faststart",
