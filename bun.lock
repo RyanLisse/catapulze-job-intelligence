@@ -69,6 +69,7 @@
       "version": "0.1.0",
       "dependencies": {
         "@ji/api": "workspace:*",
+        "@ji/application": "workspace:*",
         "@ji/domain": "workspace:*",
         "@ji/env": "workspace:*",
         "@ji/ui": "workspace:*",

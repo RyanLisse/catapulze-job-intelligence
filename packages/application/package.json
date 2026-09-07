@@ -20,7 +20,8 @@
     "./sources": "./src/sources/index.ts",
     "./export/spott/effect": "./src/export/spott/client-effect.ts",
     "./effect": "./src/effect/index.ts",
-    "./ingest": "./src/ingest/index.ts"
+    "./ingest": "./src/ingest/index.ts",
+    "./registry/web-contracts": "./src/registry/web-contracts.ts"
   },
   "scripts": {
     "check-types": "PATH=\"./node_modules/.bin:$PATH\" tsc --noEmit"

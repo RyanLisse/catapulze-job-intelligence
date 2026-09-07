@@ -7,16 +7,18 @@ import {
   timeCriticalPathPhase,
   withCriticalPathSession,
 } from "@ji/performance";
-import {
-  DEFAULT_SEARCH_SCOPE,
-  SEARCH_SCOPES,
-  SEARCH_SORT_OPTIONS,
-  SEARCH_WINDOW_LIMIT,
-} from "@ji/search";
 import { Effect, Schema } from "effect";
 
 import { validateSnapshotApproval } from "../../approval/validate-snapshot-approval";
 import type { PublicBronView } from "../../bronnen";
+import type {
+  batchGetAanvragenInputSchema,
+  getAanvraagInputSchema,
+  getMarkeringInputSchema,
+  listVersiesInputSchema,
+  markeerAanvraagInputSchema,
+  searchAanvragenInputSchema,
+} from "../capability-io";
 import { hasRecruiterPermission } from "../roles";
 import type { SchemaType } from "../schema-helpers";
 import {
@@ -24,7 +26,6 @@ import {
   IntegerNumber,
   IsoDateTimeString,
   NonEmptyString,
-  NonNegativeInteger,
   optionalField,
   PositiveInteger,
   toCapabilitySchema,
@@ -33,7 +34,9 @@ import {
   UuidString,
 } from "../schema-helpers";
 import {
+  DEFAULT_SEARCH_SCOPE,
   previewText,
+  SEARCH_SCOPES,
   searchFiltersSchema,
   SLICE_A_SCHEMA_VERSION,
 } from "../schemas";
@@ -94,75 +97,23 @@ const fullAanvraag = (record: AanvraagRecord) => ({
   mode: "full" as const,
 });
 
-const facetBuckets = Schema.Array(
-  Schema.Struct({ count: FiniteNumber, value: Schema.String })
-);
-
-export const SEARCH_MAX_LIMIT = 100;
-
-const DEFAULT_SEARCH_PAGE_SIZE = 20;
-
-export const searchAanvragenInputSchema = toCapabilitySchema(
-  Schema.Struct({
-    filters: optionalField(searchFiltersSchema.effect),
-    limit: optionalField(
-      PositiveInteger.check(Schema.isLessThanOrEqualTo(SEARCH_MAX_LIMIT))
-    ),
-    offset: optionalField(
-      NonNegativeInteger.check(
-        Schema.isLessThanOrEqualTo(SEARCH_WINDOW_LIMIT - 1)
-      )
-    ),
-    query: Schema.String,
-    /**
-     * Partitions to read (RJC-383). Default "active": the placeable stock.
-     * "all" also searches the archive (closed / stale / expired work) —
-     * the "ook in archief zoeken" toggle.
-     */
-    scope: optionalField(Schema.Literals(SEARCH_SCOPES)),
-    sort: optionalField(Schema.Literals(SEARCH_SORT_OPTIONS)),
-  }).check(
-    // offset + limit must stay inside Manticore's max_matches window (RJC-380,
-    // SEARCH_WINDOW_LIMIT): past it a request silently comes back with fewer or
-    // no hits while `total` still reports the true count. Rejecting here keeps
-    // the last navigable page exactly floor(windowLimit / pageSize) for every
-    // page size, which is what the web derives `totalPages` from (RJC-378).
-    Schema.makeFilter((input) =>
-      (input.offset ?? 0) + (input.limit ?? DEFAULT_SEARCH_PAGE_SIZE) >
-      SEARCH_WINDOW_LIMIT
-        ? `offset + limit must not exceed ${SEARCH_WINDOW_LIMIT}`
-        : undefined
-    )
-  )
-);
-
-export const searchAanvragenOutputSchema = toCapabilitySchema(
-  Schema.Struct({
-    /** Matches the same search has in the archive; present for scope "active" only (RJC-383), null when the count failed. */
-    archiveTotal: optionalField(Schema.NullOr(NonNegativeInteger)),
-    emptyReason: optionalField(Schema.String),
-    facets: Schema.Struct({
-      bron_id: facetBuckets,
-      contracttype: facetBuckets,
-      locatie: facetBuckets,
-      locatie_land: facetBuckets,
-      status: facetBuckets,
-    }),
-    hits: Schema.Array(
-      Schema.Struct({ id: Schema.String, weight: FiniteNumber })
-    ),
-    ids: Schema.Array(Schema.String),
-    incomplete: Schema.Boolean,
-    indexVersion: FiniteNumber,
-    parserVersion: FiniteNumber,
-    /** Partitions this result was read from (RJC-383). */
-    scope: Schema.Literals(SEARCH_SCOPES),
-    /** True hit count — may exceed what is retrievable (see windowLimit). */
-    total: FiniteNumber,
-    /** Deepest reachable offset + limit; pages beyond it cannot be requested. */
-    windowLimit: PositiveInteger,
-  })
-);
+// Wire I/O schemas live in ../capability-io (browser-safe SoT for CTP-475).
+export {
+  BATCH_GET_AANVRAGEN_MAX_IDS,
+  SEARCH_MAX_LIMIT,
+  batchGetAanvragenInputSchema,
+  batchGetAanvragenOutputSchema,
+  getAanvraagInputSchema,
+  getAanvraagOutputSchema,
+  getMarkeringInputSchema,
+  getMarkeringOutputSchema,
+  listVersiesInputSchema,
+  listVersiesOutputSchema,
+  markeerAanvraagInputSchema,
+  markeerAanvraagOutputSchema,
+  searchAanvragenInputSchema,
+  searchAanvragenOutputSchema,
+} from "../capability-io";
 
 export const createSearchAanvragenHandler =
   (deps: SliceAHandlerDeps) =>
@@ -216,33 +167,6 @@ export const createSearchAanvragenHandler =
     });
   };
 
-export const getAanvraagInputSchema = toCapabilitySchema(
-  Schema.Struct({
-    full: optionalField(Schema.Boolean),
-    id: UuidString,
-  })
-);
-
-const markeringStatus = Schema.Literals([
-  "relevant",
-  "niet_relevant",
-  "gevolgd",
-]);
-
-const markeringReadback = Schema.Struct({
-  reden: Schema.NullOr(Schema.String),
-  revision: PositiveInteger,
-  status: markeringStatus,
-  updatedAt: IsoDateTimeString,
-});
-
-export const getAanvraagOutputSchema = toCapabilitySchema(
-  Schema.Struct({
-    aanvraag: UnknownRecord,
-    markering: Schema.NullOr(markeringReadback),
-  })
-);
-
 export const createGetAanvraagHandler =
   (deps: SliceAHandlerDeps) =>
   async (
@@ -286,22 +210,6 @@ export const createGetAanvraagHandler =
     };
   };
 
-export const listVersiesInputSchema = toCapabilitySchema(
-  Schema.Struct({ aanvraagId: UuidString })
-);
-
-const versieView = Schema.Struct({
-  geldigTot: Schema.NullOr(Schema.String),
-  geldigVan: Schema.String,
-  id: Schema.String,
-  normalisatieversie: Schema.String,
-  scrapeRunId: Schema.String,
-});
-
-export const listVersiesOutputSchema = toCapabilitySchema(
-  Schema.Array(versieView)
-);
-
 const toVersieView = (versie: AanvraagRecord["versies"][number]) => ({
   geldigTot: versie.geldigTot?.toISOString() ?? null,
   geldigVan: versie.geldigVan.toISOString(),
@@ -332,31 +240,6 @@ export const createListVersiesHandler =
 // get_aanvraag + list_versies fan-out. The cap matches the largest search
 // page (SEARCH_MAX_LIMIT) so any single page hydrates in a single request;
 // larger id lists are a validation error, never accepted.
-export const BATCH_GET_AANVRAGEN_MAX_IDS = SEARCH_MAX_LIMIT;
-
-export const batchGetAanvragenInputSchema = toCapabilitySchema(
-  Schema.Struct({
-    full: optionalField(Schema.Boolean),
-    ids: Schema.Array(UuidString).check(
-      Schema.isMinLength(1),
-      Schema.isMaxLength(BATCH_GET_AANVRAGEN_MAX_IDS)
-    ),
-  })
-);
-
-export const batchGetAanvragenOutputSchema = toCapabilitySchema(
-  Schema.Struct({
-    items: Schema.Array(
-      Schema.Struct({
-        aanvraag: UnknownRecord,
-        id: Schema.String,
-        markering: Schema.NullOr(markeringReadback),
-        versies: Schema.Array(versieView),
-      })
-    ),
-  })
-);
-
 export const createBatchGetAanvragenHandler =
   (deps: SliceAHandlerDeps) =>
   async (
@@ -1151,26 +1034,6 @@ export const createValidateSnapshotApprovalHandler =
     };
   };
 
-export const markeerAanvraagInputSchema = toCapabilitySchema(
-  Schema.Struct({
-    aanvraagId: UuidString,
-    reden: optionalField(Schema.NullOr(Schema.String)),
-    status: markeringStatus,
-  })
-);
-
-const markeringViewFields = {
-  aanvraagId: Schema.String,
-  reden: Schema.NullOr(Schema.String),
-  revision: PositiveInteger,
-  status: markeringStatus,
-  updatedAt: IsoDateTimeString,
-} as const;
-
-export const markeerAanvraagOutputSchema = toCapabilitySchema(
-  Schema.Struct({ ...markeringViewFields, auditEventId: Schema.String })
-);
-
 export const createMarkeerAanvraagHandler =
   (deps: SliceAHandlerDeps) =>
   async (
@@ -1211,13 +1074,6 @@ export const createMarkeerAanvraagHandler =
       },
     };
   };
-
-export const getMarkeringInputSchema = toCapabilitySchema(
-  Schema.Struct({ aanvraagId: UuidString })
-);
-export const getMarkeringOutputSchema = toCapabilitySchema(
-  Schema.Struct(markeringViewFields)
-);
 
 export const createGetMarkeringHandler =
   (deps: SliceAHandlerDeps) =>

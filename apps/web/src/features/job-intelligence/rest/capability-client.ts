@@ -1,14 +1,7 @@
-import { z } from "zod";
+import { restCapabilityFailureSchema } from "../contracts";
+import type { RestCapabilityFailure } from "../contracts";
 
-const capabilityFailureSchema = z.object({
-  error: z.object({
-    code: z.string(),
-    details: z.unknown().optional(),
-    message: z.string(),
-  }),
-});
-
-export type CapabilityFailureBody = z.output<typeof capabilityFailureSchema>;
+export type CapabilityFailureBody = RestCapabilityFailure;
 
 export class CapabilityRequestError extends Error {
   readonly body: CapabilityFailureBody;
@@ -46,7 +39,7 @@ export type CapabilityJsonValue =
 const parseJsonResponse = async <T>(response: Response): Promise<T> => {
   const raw: unknown = await response.json();
   if (!response.ok) {
-    const parsedFailure = capabilityFailureSchema.safeParse(raw);
+    const parsedFailure = restCapabilityFailureSchema.safeParse(raw);
     const body = parsedFailure.success
       ? parsedFailure.data
       : {
