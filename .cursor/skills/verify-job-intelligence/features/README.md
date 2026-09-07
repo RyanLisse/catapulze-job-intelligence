@@ -2,7 +2,7 @@
 
 This directory is the maintained source for verifying the user-facing Catapulze Job Intelligence web app and its Hono/tRPC API. Read this index before driving the app, then use the matching feature file as the recipe.
 
-The checked-in app includes authentication, a recruiter home command center, Boolean job search (fixture or REST adapter), and a private dashboard. Vacancy ingest pipelines, approvals, and Spott export remain planning docs without dedicated feature files here.
+The checked-in app includes authentication, a recruiter home command center, Boolean job search (fixture or REST adapter), a private dashboard, and the operator-only `/bronnen` ingest monitor. Vacancy ingest workers, approvals, and Spott export remain planning docs without dedicated feature files here.
 
 ## Baseline preconditions
 
@@ -43,3 +43,4 @@ Each feature file starts with an H1 and one paragraph, then exactly four H2s: `S
 - [Dashboard guard](./dashboard-guard.md) covers unauthenticated `/dashboard` redirect to `/login`.
 - [Sign up](./sign-up.md) covers disabled public sign-up (no UI path; Better Auth rejects email sign-up).
 - [Sign in and sign out](./sign-in-and-sign-out.md) covers returning users and clearing the session.
+- [Bronnen operator dashboard](./bronnen-operator-dashboard.md) covers the role-gated `/bronnen` operator monitor (overview KPIs, window links, runs navigation).

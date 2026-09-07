@@ -1,6 +1,6 @@
 # Dashboard guard
 
-Visiting the dashboard without a session sends the user to login. The guard is implemented as a page-level `redirect("/login")` in `apps/web/src/app/dashboard/page.tsx`, not Next.js middleware. The dashboard is not a public page and has no header nav link (only `Overzicht` and `Zoeken` appear in the main nav).
+Visiting the dashboard without a session sends the user to login. The guard is implemented as a page-level `redirect("/login")` in `apps/web/src/app/dashboard/page.tsx`, not Next.js middleware. The dashboard is not a public page and has no header nav link. Signed-out header nav shows `Overzicht` and `Zoeken` only; `Bronnen` appears for signed-in `operator` or `admin` (see [Bronnen operator dashboard](./bronnen-operator-dashboard.md)).
 
 ## Sub-features
 
