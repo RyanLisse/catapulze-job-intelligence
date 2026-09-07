@@ -1,4 +1,5 @@
 import type { AanvraagVersieView, MarkeringReadback } from "../contracts";
+import { stripHtmlToText } from "../sanitize-job-html";
 import type {
   JobContractType,
   JobLifecycleStatus,
@@ -76,8 +77,10 @@ const latestVersie = (
           Date.parse(right.geldigVan) - Date.parse(left.geldigVan)
       )[0] ?? null);
 
-const previewSummary = (value: string): string =>
-  value.length <= 220 ? value : `${value.slice(0, 217)}…`;
+const previewSummary = (value: string): string => {
+  const plain = stripHtmlToText(value) || value.trim();
+  return plain.length <= 220 ? plain : `${plain.slice(0, 217)}…`;
+};
 
 const mapContractType = (value: string | null): JobContractType | null => {
   switch (value) {

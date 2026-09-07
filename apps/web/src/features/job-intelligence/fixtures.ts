@@ -264,6 +264,33 @@ export const JOB_FIXTURES: readonly JobListing[] = [
     summary: "Vernieuw een hoogvolume berichtenplatform.",
     title: "Backend Developer Java",
   },
+  {
+    closingAt: "2026-09-12T12:00:00.000Z",
+    contractType: "vast",
+    country: "NL",
+    description:
+      "<p>Wij zoeken een <b>TypeScript</b> engineer.</p><ul><li>React</li><li>Node.js</li></ul>",
+    id: "job-html-nvb",
+    location: "Rotterdam",
+    organization: "Nationale Vacaturebank Fixture",
+    publishedAt: "2026-08-27T09:00:00.000Z",
+    rate: { currency: "EUR", max: 90, min: 70, period: "hour" },
+    rawPreview:
+      '{\n  "platform": "nationalevacaturebank",\n  "description": "<p>Wij zoeken een <b>TypeScript</b> engineer.</p>"\n}',
+    remote: false,
+    skills: ["TypeScript", "React"],
+    sourceRecords: [
+      sourceRecord(
+        "nationale-vacaturebank",
+        "NVB-HTML-1",
+        "2026-08-27T09:15:00.000Z"
+      ),
+    ],
+    status: "open",
+    summary:
+      "<p>Wij zoeken een <b>TypeScript</b> engineer.</p><ul><li>React</li><li>Node.js</li></ul>",
+    title: "TypeScript Engineer (HTML body fixture)",
+  },
 ] as const;
 
 // RJC-368: mirrors the live adapter's contract — derived from the fixture

@@ -1,5 +1,6 @@
 import { ExternalLink, X } from "lucide-react";
 
+import { JobBodyContent } from "./job-body-content";
 import {
   formatContract,
   formatDate,
@@ -218,10 +219,19 @@ export const JobDetail = ({
         </dl>
 
         <DetailSection title="Opdracht">
-          <p className="text-xs leading-relaxed">{job.summary}</p>
-          <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
-            {job.description}
-          </p>
+          <JobBodyContent
+            bronSlug={job.sourceRecords[0]?.name}
+            content={job.summary}
+            className="text-foreground"
+          />
+          {job.description.trim() &&
+          job.description.trim() !== job.summary.trim() ? (
+            <JobBodyContent
+              bronSlug={job.sourceRecords[0]?.name}
+              content={job.description}
+              className="mt-2 text-muted-foreground"
+            />
+          ) : null}
         </DetailSection>
 
         {job.skills.length > 0 ? (
@@ -250,9 +260,14 @@ export const JobDetail = ({
               ? "Immutable bronpayload via read_raw (preview)."
               : "Veilige voorbeeldpayload. De volledige immutable bronpayload volgt via de U7 read-raw capability."}
           </p>
-          <pre className="mt-2 max-h-72 overflow-auto rounded-lg border border-border bg-[var(--ji-ink)] p-3 font-mono text-[10px] leading-relaxed text-[var(--ji-paper-muted)]">
-            {rawPreview}
-          </pre>
+          <div
+            className="mt-2 min-h-0 max-h-72 overflow-y-auto overscroll-contain rounded-lg border border-border bg-[var(--ji-ink)]"
+            data-testid="job-raw-preview-scroll"
+          >
+            <pre className="min-h-0 whitespace-pre-wrap break-words p-3 font-mono text-[10px] leading-relaxed text-[var(--ji-paper-muted)]">
+              {rawPreview}
+            </pre>
+          </div>
         </DetailSection>
       </div>
 
