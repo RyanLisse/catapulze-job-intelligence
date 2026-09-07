@@ -4,7 +4,7 @@ import type {
   AuditStore,
   MarkeringStore,
 } from "../types";
-import { MutationVersionGate } from "./mutation-queue";
+import { MutationKeyQueue } from "./mutation-queue";
 
 const markeringKey = (
   aanvraagId: string,
@@ -21,9 +21,9 @@ const publicMarkering = (record: StoredMarkering): AanvraagMarkering => {
 
 export class MemoryMarkeringStore implements MarkeringStore {
   private readonly records = new Map<string, StoredMarkering>();
-  /** Last successfully audited state; rollback target for owning failures. */
+  /** Last successfully audited state; rollback target for failures. */
   private readonly committed = new Map<string, StoredMarkering>();
-  private readonly mutations = new MutationVersionGate();
+  private readonly queue = new MutationKeyQueue();
   private readonly audit: AuditStore;
 
   constructor(audit: AuditStore) {
@@ -41,7 +41,7 @@ export class MemoryMarkeringStore implements MarkeringStore {
     );
   }
 
-  async setWithAudit(
+  setWithAudit(
     markering: Omit<AanvraagMarkering, "createdAt" | "revision" | "updatedAt">,
     actorType: AuditActorType
   ): Promise<{
@@ -53,7 +53,19 @@ export class MemoryMarkeringStore implements MarkeringStore {
       markering.userId,
       markering.scopeId
     );
-    const ownership = this.mutations.begin(key);
+    return this.queue.run(key, () =>
+      this.setWithAuditExclusive(key, markering, actorType)
+    );
+  }
+
+  private async setWithAuditExclusive(
+    key: string,
+    markering: Omit<AanvraagMarkering, "createdAt" | "revision" | "updatedAt">,
+    actorType: AuditActorType
+  ): Promise<{
+    readonly auditEvent: Awaited<ReturnType<AuditStore["append"]>>;
+    readonly markering: AanvraagMarkering;
+  }> {
     const baseline = this.committed.get(key);
     const previous = this.records.get(key);
     const now = Date.now();
@@ -83,31 +95,40 @@ export class MemoryMarkeringStore implements MarkeringStore {
         },
         scopeId: markering.scopeId,
       });
-      if (this.mutations.owns(ownership)) {
-        this.committed.set(key, structuredClone(saved));
-      }
+      this.committed.set(key, structuredClone(saved));
       return {
         auditEvent,
         markering: publicMarkering(saved),
       };
     } catch (error) {
-      this.rollbackIfOwner(key, ownership);
+      this.rollback(key);
       throw error;
     }
   }
 
-  async clearWithAudit(
+  clearWithAudit(
     aanvraagId: string,
     userId: string,
     scopeId: string,
     actorType: AuditActorType
   ) {
     const key = markeringKey(aanvraagId, userId, scopeId);
+    return this.queue.run(key, () =>
+      this.clearWithAuditExclusive(key, aanvraagId, userId, scopeId, actorType)
+    );
+  }
+
+  private async clearWithAuditExclusive(
+    key: string,
+    aanvraagId: string,
+    userId: string,
+    scopeId: string,
+    actorType: AuditActorType
+  ) {
     const cleared = this.records.get(key) ?? this.committed.get(key);
     if (!cleared || cleared.clearedAt !== null) {
       return null;
     }
-    const ownership = this.mutations.begin(key);
     this.records.set(key, { ...cleared, clearedAt: new Date() });
     try {
       const auditEvent = await this.audit.append({
@@ -125,26 +146,18 @@ export class MemoryMarkeringStore implements MarkeringStore {
         },
         scopeId,
       });
-      if (this.mutations.owns(ownership)) {
-        this.committed.set(key, {
-          ...cleared,
-          clearedAt: this.records.get(key)?.clearedAt ?? new Date(),
-        });
-      }
+      this.committed.set(key, {
+        ...cleared,
+        clearedAt: this.records.get(key)?.clearedAt ?? new Date(),
+      });
       return { auditEvent, cleared: publicMarkering(cleared) };
     } catch (error) {
-      this.rollbackIfOwner(key, ownership);
+      this.rollback(key);
       throw error;
     }
   }
 
-  private rollbackIfOwner(
-    key: string,
-    ownership: ReturnType<MutationVersionGate["begin"]>
-  ): void {
-    if (!this.mutations.owns(ownership)) {
-      return;
-    }
+  private rollback(key: string): void {
     const baseline = this.committed.get(key);
     if (baseline) {
       this.records.set(key, structuredClone(baseline));
