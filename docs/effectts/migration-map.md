@@ -122,6 +122,7 @@ Slices zijn strikt geordend op leerrendement en dependency-richting. Elke slice 
 | AC | domain exporteert SoT; application/connectors importeren types uit domain |
 | Testbewijs | domain specs + typecheck |
 | Rollback | git revert domain schema module |
+| Status (CTP-470) | Effect Schema SoT landed voor publieke domain-modellen (`aanvraag`, ids/statussen, lifecycle, bron-config, money); types afgeleid van Schema; Boolean parser + pure validators/transitions Effect-vrij; registry importeert `AanvraagLifecycleSchema` i.p.v. gedupliceerde literals; prod Effect runtime OFF; Motian ongewijzigd |
 
 ### Slice 6 — Env parsing
 

@@ -1,8 +1,13 @@
 export {
   AANVRAAG_LIFECYCLE,
+  AanvraagLifecycleSchema,
   BRON_CATEGORIEEN,
+  BronCategorieSchema,
   EXTRACTIE_METHODEN,
+  ExtractieMethodeSchema,
+  MoneyFieldsSchema,
   TARIEF_EENHEDEN,
+  TariefEenheidSchema,
   defaultMoneyCurrency,
   isUnknownLifecycle,
   type AanvraagLifecycle,
@@ -26,6 +31,8 @@ export {
 } from "./boolean";
 export {
   CONNECTOR_METHODS,
+  ConnectorMethodSchema,
+  BronConfigSchema,
   activateBron,
   canTransitionBronStatus,
   requiresSecretRef,
@@ -40,7 +47,10 @@ export {
 } from "./bron-config";
 export {
   BRON_STATUSES,
+  BronStatusSchema,
+  DomainIdSchema,
   VOORWAARDEN_STATUSES,
+  VoorwaardenStatusSchema,
   type AgentContextId,
   type AanvraagId,
   type ApprovalRecordId,
@@ -55,10 +65,27 @@ export {
   type SourceRecordId,
   type VoorwaardenStatus,
 } from "./ids";
-export { UNKNOWN, isUnknown, type UnknownValue } from "./unknown";
+export {
+  DomainIdString,
+  FiniteNumber,
+  IntegerNumber,
+  NonEmptyString,
+  NonNegativeInteger,
+  PositiveInteger,
+  Schema,
+  TrimmedNonEmptyString,
+} from "./schema-helpers";
+export {
+  UNKNOWN,
+  UnknownValueSchema,
+  isUnknown,
+  type UnknownValue,
+} from "./unknown";
 export {
   DEFAULT_MISSED_POLLS_BEFORE_STALE,
   LIFECYCLE_REDENEN,
+  LifecycleRedenSchema,
+  LifecycleTransitionInputSchema,
   canReopenFromClosed,
   resolveLifecycleStatus,
   type LifecycleReden,

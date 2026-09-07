@@ -1,5 +1,23 @@
-import { BRON_STATUSES, VOORWAARDEN_STATUSES } from "./ids";
+import {
+  BRON_STATUSES,
+  BronStatusSchema,
+  VOORWAARDEN_STATUSES,
+  VoorwaardenStatusSchema,
+} from "./ids";
 import type { BronId, BronStatus, VoorwaardenStatus } from "./ids";
+import {
+  DomainIdString,
+  NonNegativeInteger,
+  PositiveInteger,
+  Schema,
+} from "./schema-helpers";
+
+/**
+ * Bron configuration public schemas (ADR-0014 Slice 5 / CTP-470).
+ *
+ * Effect Schema is the SoT for shape + enums. Domain rules
+ * (`validateBronConfig`, activation, scheduling) stay pure / Effect-free.
+ */
 
 export const CONNECTOR_METHODS = [
   "feed",
@@ -9,21 +27,27 @@ export const CONNECTOR_METHODS = [
   "playwright",
 ] as const;
 
-export type ConnectorMethod = (typeof CONNECTOR_METHODS)[number];
+/** Effect Schema SoT for connector method. */
+export const ConnectorMethodSchema = Schema.Literals(CONNECTOR_METHODS);
 
-export interface BronConfig {
-  bronId: BronId;
-  naam: string;
-  method: ConnectorMethod;
-  interval: string;
-  rateLimitPerMinute: number;
-  crawlDelayMs: number;
-  status: BronStatus;
-  voorwaardenStatus: VoorwaardenStatus;
-  secretRef: string | null;
-  mappingRef: string | null;
-  loginVereist: boolean;
-}
+export type ConnectorMethod = typeof ConnectorMethodSchema.Type;
+
+/** Effect Schema SoT for a bron configuration record. */
+export const BronConfigSchema = Schema.Struct({
+  bronId: DomainIdString,
+  crawlDelayMs: NonNegativeInteger,
+  interval: Schema.String,
+  loginVereist: Schema.Boolean,
+  mappingRef: Schema.NullOr(Schema.String),
+  method: ConnectorMethodSchema,
+  naam: Schema.String,
+  rateLimitPerMinute: PositiveInteger,
+  secretRef: Schema.NullOr(Schema.String),
+  status: BronStatusSchema,
+  voorwaardenStatus: VoorwaardenStatusSchema,
+});
+
+export type BronConfig = typeof BronConfigSchema.Type;
 
 export type BronConfigInput = Omit<BronConfig, "bronId"> & {
   bronId?: BronId;
@@ -67,6 +91,10 @@ export const isVoorwaardenStatus = (
   return false;
 };
 
+/**
+ * Domain-rule validation (Effect-free). Complements {@link BronConfigSchema}
+ * with messages and cross-field rules (secret_ref for login connectors).
+ */
 export const validateBronConfig = (
   input: BronConfigInput
 ): BronConfigValidationIssue[] => {
