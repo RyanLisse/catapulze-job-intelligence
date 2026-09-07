@@ -149,7 +149,7 @@ const submitQuery = async (page: Page, query: string): Promise<void> => {
 };
 
 const ensureFacetOpen = async (page: Page, title: string): Promise<void> => {
-  const heading = page.getByRole("button", { name: title });
+  const heading = page.getByRole("button", { exact: true, name: title });
   await heading.waitFor({ state: "visible", timeout: 15_000 });
   const expanded = await heading.getAttribute("aria-expanded");
   if (expanded === "false") {
@@ -163,7 +163,7 @@ const checkFirstFacetOption = async (
 ): Promise<boolean> => {
   await ensureFacetOpen(page, groupTitle);
   const group = page.locator("fieldset").filter({
-    has: page.getByRole("button", { name: groupTitle }),
+    has: page.getByRole("button", { exact: true, name: groupTitle }),
   });
   const option = group.locator('label:has(input[type="checkbox"])').first();
   if ((await option.count()) === 0) {
