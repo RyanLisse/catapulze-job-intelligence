@@ -1,6 +1,6 @@
 import { resolveBodyContentFormat } from "./body-content-format";
 import type { BodyContentFormat } from "./body-content-format";
-import { sanitizeJobHtml } from "./sanitize-job-html";
+import { normalizeJobHtml, sanitizeJobHtml } from "./sanitize-job-html";
 import type { JobSource } from "./types";
 
 interface JobBodyContentProps {
@@ -18,6 +18,9 @@ const bodyClassName = (className?: string): string =>
  * Shared Opdracht / description renderer with per-bron sanitize policy.
  * HTML → allowlist sanitize + render; plain → escaped text; markdown → plain
  * until a markdown pipeline is needed (no bron uses it in the audit yet).
+ *
+ * CTP-483: normalize entity-encoded markup before format detection / sanitize
+ * so `&lt;p&gt;` does not render as visible tags via innerHTML entity decode.
  */
 export const JobBodyContent = ({
   bronSlug = null,
@@ -25,19 +28,21 @@ export const JobBodyContent = ({
   content,
   format,
 }: JobBodyContentProps) => {
-  const resolved = format ?? resolveBodyContentFormat({ bronSlug, content });
+  const normalized = normalizeJobHtml(content);
+  const resolved =
+    format ?? resolveBodyContentFormat({ bronSlug, content: normalized });
 
-  if (!content.trim()) {
+  if (!normalized.trim()) {
     return <p className={bodyClassName(className)}>Geen beschrijving.</p>;
   }
 
   if (resolved === "html") {
-    const safe = sanitizeJobHtml(content);
+    const safe = sanitizeJobHtml(normalized);
     return (
       <div
         className={`${bodyClassName(className)} [&_a]:text-primary [&_a]:underline [&_li]:my-0.5 [&_ol]:my-2 [&_ol]:list-decimal [&_ol]:pl-5 [&_p]:my-2 [&_ul]:my-2 [&_ul]:list-disc [&_ul]:pl-5`}
         data-body-format="html"
-        // Sanitized via sanitizeJobHtml allowlist (CTP-481).
+        // Sanitized via sanitizeJobHtml allowlist (CTP-481 / CTP-483).
         dangerouslySetInnerHTML={{ __html: safe }}
       />
     );
@@ -46,7 +51,7 @@ export const JobBodyContent = ({
   // plain + markdown (markdown rendered as escaped text until a pipeline lands)
   return (
     <p className={bodyClassName(className)} data-body-format={resolved}>
-      {content}
+      {normalized}
     </p>
   );
 };

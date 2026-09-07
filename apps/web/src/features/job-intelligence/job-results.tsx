@@ -13,6 +13,7 @@ import {
   formatRemote,
   primarySource,
 } from "./presentation";
+import { stripHtmlToText } from "./sanitize-job-html";
 import type { JobListing } from "./types";
 
 interface JobResultsProps {
@@ -156,7 +157,7 @@ const MobileResults = ({ jobs, onSelect, selectedJobId }: JobResultsProps) => (
           <ResultTitleButton job={job} onSelect={onSelect} />
         </div>
         <p className="mt-2 line-clamp-2 text-xs leading-relaxed text-muted-foreground">
-          {job.summary}
+          {stripHtmlToText(job.summary) || job.summary}
         </p>
         <dl className="mt-3 grid gap-1.5 border-t border-border pt-2.5 text-xs">
           <div className="flex items-start gap-2">

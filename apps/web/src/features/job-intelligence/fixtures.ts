@@ -287,8 +287,7 @@ export const JOB_FIXTURES: readonly JobListing[] = [
       ),
     ],
     status: "open",
-    summary:
-      "<p>Wij zoeken een <b>TypeScript</b> engineer.</p><ul><li>React</li><li>Node.js</li></ul>",
+    summary: "Wij zoeken een TypeScript engineer. React Node.js",
     title: "TypeScript Engineer (HTML body fixture)",
   },
 ] as const;

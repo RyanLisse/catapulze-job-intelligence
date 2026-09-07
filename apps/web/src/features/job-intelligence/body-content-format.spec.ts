@@ -26,6 +26,16 @@ describe("per-bron body content format audit (CTP-481)", () => {
     expect(looksLikeHtml("Geen markup, alleen tekst.")).toBe(false);
   });
 
+  it("detects entity-encoded HTML markers (CTP-483)", () => {
+    expect(looksLikeHtml("&lt;p&gt;Hallo&lt;/p&gt;")).toBe(true);
+    expect(
+      resolveBodyContentFormat({
+        bronSlug: "unknown-board",
+        content: "&lt;b&gt;bold&lt;/b&gt;",
+      })
+    ).toBe("html");
+  });
+
   it("resolves NVB HTML via bron policy", () => {
     expect(
       resolveBodyContentFormat({
