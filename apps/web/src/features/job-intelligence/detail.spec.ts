@@ -170,3 +170,33 @@ describe("AE5 markeren from UI is visible via MCP get_aanvraag", () => {
     });
   });
 });
+
+describe("AE3 HTML beschrijving summary (CTP-481)", () => {
+  it("strips HTML tags from the list/detail summary while keeping description", () => {
+    const job = mapAanvraagToJobListing({
+      aanvraag: {
+        beschrijving:
+          "<p>Wij zoeken een <b>TypeScript</b> engineer.</p><ul><li>React</li></ul>",
+        bronId: "bron-nvb",
+        bronReferentie: "NVB-1",
+        id: "aanvraag-html",
+        rawPayloadRef: "raw/nvb-1.json",
+        scrapeRunId: "run-nvb",
+        status: "active",
+        titel: "TypeScript engineer",
+      },
+      bronCatalog: buildBronCatalog([
+        {
+          bronId: "bron-nvb",
+          naam: "Nationale Vacaturebank",
+        },
+      ]),
+      versies: [],
+    });
+
+    expect(job.sourceRecords[0]?.name).toBe("nationale-vacaturebank");
+    expect(job.description).toContain("<p>");
+    expect(job.summary).toBe("Wij zoeken een TypeScript engineer. React");
+    expect(job.summary).not.toContain("<");
+  });
+});
