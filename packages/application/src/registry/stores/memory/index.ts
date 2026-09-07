@@ -62,6 +62,6 @@ export { MemoryExportAttemptStore } from "./export-attempt-store";
 export { MemoryExportEffectStore } from "./export-effect-store";
 export { MemoryExternalIdCrosswalkStore } from "./external-crosswalk-store";
 export { MemoryExternalReceiptStore } from "./external-receipt-store";
-export { MutationVersionGate } from "./mutation-queue";
+export { MutationKeyQueue } from "./mutation-queue";
 export { MemorySavedSearchStore } from "./saved-search-store";
 export { MemoryScrapeRunReader } from "./scrape-run-reader";
