@@ -205,10 +205,10 @@ const runSearchTour = async (
   await checkFirstFacetOption(page, "Bron");
   await checkFirstFacetOption(page, "Contract");
   await ensureFacetOpen(page, "Gepubliceerd");
-  await page.locator("#freshness-filter").selectOption("30d");
+  await page.getByLabel("Filter op publicatiedatum").selectOption("30d");
   await waitForResults(page);
-  const rate = page.getByLabel("Minimum uurtarief");
-  if ((await rate.count()) > 0) {
+  const rate = page.getByLabel("Minimum uurtarief").first();
+  if ((await rate.count()) > 0 && (await rate.isVisible().catch(() => false))) {
     await clickLocator(page, rate);
     await rate.fill("80");
     await rate.blur();
@@ -218,27 +218,40 @@ const runSearchTour = async (
   await dwell(cueGapMs("filters", "sort"));
 
   // Sort
-  await page.getByLabel("Resultaten sorteren").selectOption("newest");
+  await page.getByLabel("Resultaten sorteren").first().selectOption("newest");
   await waitForResults(page);
   await dwell(cueGapMs("sort", "archive"));
 
   // Archive
-  const archive = page.getByLabel("Ook in archief zoeken");
+  const archive = page.getByLabel("Ook in archief zoeken").first();
   await clickLocator(page, archive);
   await page.waitForURL(/archief=1/u, { timeout: 15_000 });
   await waitForResults(page);
   await dwell(cueGapMs("archive", "clear-detail"));
 
-  // Clear + open one result
-  const clearAll = page.getByRole("button", { name: "Alles wissen" }).first();
-  await clickLocator(page, clearAll);
+  // Clear filters via clean /jobs, then open one result with provenance
+  await page.goto("/jobs", { waitUntil: "domcontentloaded" });
   await waitForResults(page);
   await submitQuery(page, "java OR devops");
   const result = page
     .locator('[aria-label="Zoekresultaten"] table tbody button')
     .first();
-  await clickLocator(page, result);
-  await page.waitForURL(/[?&]job=/u, { timeout: 15_000 });
+  await result.waitFor({ state: "visible", timeout: 45_000 });
+  await result.scrollIntoViewIfNeeded();
+  const box = await result.boundingBox();
+  if (box) {
+    await moveCursor(page, box.x + box.width / 2, box.y + box.height / 2);
+    await dwell(200);
+  }
+  // Prefer Playwright click: mouse coordinates can miss after long tours / scroll.
+  await result.click();
+  await Promise.race([
+    page.waitForURL(/[?&]job=/u, { timeout: 20_000 }),
+    page.locator("#desktop-job-detail-title").waitFor({
+      state: "visible",
+      timeout: 20_000,
+    }),
+  ]);
   await page.locator("#desktop-job-detail-title").waitFor({
     state: "visible",
     timeout: 15_000,
