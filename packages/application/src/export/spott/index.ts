@@ -27,3 +27,10 @@ export {
   type SpottVacancyDetail,
   type SpottVacancySummary,
 } from "./types";
+
+export {
+  createSpottEffectClient,
+  getVacancyEffect,
+  listVacanciesEffect,
+  type SpottEffectClientOptions,
+} from "./client-effect";

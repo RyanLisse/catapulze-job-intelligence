@@ -15,7 +15,9 @@ interface PackageJsonPins {
   dependencies?: { effect?: string };
   devDependencies?: { effect?: string };
   packageManager?: string;
-  workspaces?: { catalog?: { typescript?: string } };
+  workspaces?: {
+    catalog?: { effect?: string; typescript?: string };
+  };
 }
 
 const ROOT = path.resolve(import.meta.dir, "../..");
@@ -47,7 +49,12 @@ const lockPackageVersion = (packageName: string): string | null => {
 
 const directEffectDeclared = (): string | null => {
   const pkg = readPackageJson();
-  return pkg.dependencies?.effect ?? pkg.devDependencies?.effect ?? null;
+  return (
+    pkg.dependencies?.effect ??
+    pkg.devDependencies?.effect ??
+    pkg.workspaces?.catalog?.effect ??
+    null
+  );
 };
 
 const hostBunVersion = (override?: string): string => {
@@ -63,16 +70,23 @@ const hostBunVersion = (override?: string): string => {
 /** Reads peildatum pins from package.json + bun.lock + host Bun. No network. */
 export const readToolchainPins = (
   bunHostVersion?: string
-): EffectBaselineToolchainPins => ({
-  bunHost: hostBunVersion(bunHostVersion),
-  bunPackageManager: packageManagerPin(),
-  compatibilityNotes: [
-    "Effect is not a first-party dependency on peildatum main; transitive via @prisma/config only.",
-    "Official Effect v4 RC: bun add effect@rc (https://effect.website/blog/effect-v4-rc-august-recap).",
-    "Do not reuse unrelated historical timings as this baseline (ADR-0001/ADR-0013).",
-  ],
-  effectDirect: directEffectDeclared(),
-  effectTransitive: lockPackageVersion("effect"),
-  typesBun: lockPackageVersion("@types/bun") ?? "unknown",
-  typescript: lockPackageVersion("typescript") ?? catalogTypescript(),
-});
+): EffectBaselineToolchainPins => {
+  const effectDirect = directEffectDeclared();
+  const effectResolved = lockPackageVersion("effect");
+  return {
+    bunHost: hostBunVersion(bunHostVersion),
+    bunPackageManager: packageManagerPin(),
+    compatibilityNotes: [
+      effectDirect
+        ? `First-party Effect pin present (${effectDirect}; resolved ${effectResolved ?? "unknown"}) via CTP-455 shared runtime.`
+        : "Effect is not a first-party dependency on peildatum main; transitive via @prisma/config only.",
+      "Official Effect v4 RC: bun add effect@rc (https://effect.website/blog/effect-v4-rc-august-recap).",
+      "Do not reuse unrelated historical timings as this baseline (ADR-0001/ADR-0013).",
+      "Production Effect activation remains OFF until a controlled release (CTP-455/CTP-479).",
+    ],
+    effectDirect,
+    effectTransitive: effectResolved,
+    typesBun: lockPackageVersion("@types/bun") ?? "unknown",
+    typescript: lockPackageVersion("typescript") ?? catalogTypescript(),
+  };
+};

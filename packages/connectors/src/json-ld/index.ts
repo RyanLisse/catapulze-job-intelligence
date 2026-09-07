@@ -31,3 +31,10 @@ export type {
   JsonLdPrimitive,
   JsonLdValue,
 } from "./types";
+
+export {
+  createJsonLdEffectClient,
+  fetchDetailEffect,
+  fetchListingEffect,
+  type JsonLdEffectClientOptions,
+} from "./client-effect";

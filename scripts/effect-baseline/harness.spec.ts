@@ -24,14 +24,14 @@ describe("effect-baseline harness", () => {
     assertFixtureOnly(template);
   });
 
-  test("toolchain pins reflect lockfile reality without inventing a direct Effect dep", () => {
+  test("toolchain pins reflect first-party Effect RC pin after CTP-455", () => {
     const pins = readToolchainPins("1.4.0");
     expect(pins.bunPackageManager).toBe("bun@1.3.14");
     expect(pins.typescript).toBe("6.0.3");
     expect(pins.typesBun).toBe("1.4.0");
-    expect(pins.effectDirect).toBeNull();
-    expect(pins.effectTransitive).toBe("3.21.0");
-    expect(pins.compatibilityNotes.length).toBeGreaterThan(0);
+    expect(pins.effectDirect).toBe("catalog:");
+    expect(pins.effectTransitive).toMatch(/^4\.0\.0-rc\./u);
+    expect(pins.compatibilityNotes.some((n) => /CTP-455/u.test(n))).toBe(true);
   });
 
   test("dry-run artifact validates and keeps metrics unmeasured", () => {

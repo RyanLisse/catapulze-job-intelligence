@@ -15,6 +15,7 @@
   "dependencies": {
     "@ji/domain": "workspace:*",
     "@ji/performance": "workspace:*",
+    "effect": "catalog:",
     "fast-xml-parser": "^5.11.1"
   },
   "devDependencies": {
