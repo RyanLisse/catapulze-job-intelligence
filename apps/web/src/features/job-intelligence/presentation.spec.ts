@@ -2,10 +2,12 @@ import { describe, expect, it } from "bun:test";
 
 import { JOB_FIXTURES } from "./fixtures";
 import {
+  aangevuldLabel,
   formatRate,
   formatRemote,
   validateBooleanPreview,
   describeApiSyntaxError,
+  isFieldAangevuld,
 } from "./presentation";
 
 describe("Boolean query preview validation", () => {
@@ -59,5 +61,36 @@ describe("job presentation", () => {
       formatRemote({ ...fixture, remote: null, workArrangement: null })
     ).toBe("Onbekend");
     expect(formatRemote({ ...fixture, remote: true })).toBe("Hybride");
+  });
+
+  it("shows aangevuld only above the UI confidence threshold", () => {
+    const [fixture] = JOB_FIXTURES;
+    if (!fixture) {
+      throw new Error("Expected a job fixture");
+    }
+
+    expect(
+      isFieldAangevuld(
+        {
+          ...fixture,
+          enrichedFields: [
+            { confidence: 0.79, field: "locatie", source: "deterministic" },
+          ],
+        },
+        "locatie"
+      )
+    ).toBe(false);
+    expect(
+      isFieldAangevuld(
+        {
+          ...fixture,
+          enrichedFields: [
+            { confidence: 0.8, field: "locatie", source: "deterministic" },
+          ],
+        },
+        "locatie"
+      )
+    ).toBe(true);
+    expect(aangevuldLabel("tarief")).toBe("aangevuld (tarief)");
   });
 });

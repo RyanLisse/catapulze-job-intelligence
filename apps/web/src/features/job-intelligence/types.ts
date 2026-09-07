@@ -105,6 +105,16 @@ export interface JobMarkering {
   readonly updatedAt?: string;
 }
 
+export type JobEnrichedFieldName = "locatie" | "tarief" | "contract" | "remote";
+
+export interface JobEnrichedField {
+  readonly confidence: number;
+  readonly field: JobEnrichedFieldName;
+  readonly source: "deterministic" | "llm";
+}
+
+export const AANGEVULD_MIN_CONFIDENCE = 0.8;
+
 export type MarkeringSyncState =
   | "idle"
   | "pending"
@@ -131,6 +141,7 @@ export interface JobListing {
   /** Curated source wording when a bron explicitly publishes the work form. */
   readonly workArrangement?: string | null;
   readonly markering?: JobMarkering | null;
+  readonly enrichedFields?: readonly JobEnrichedField[];
   readonly rawPreview?: string;
 }
 

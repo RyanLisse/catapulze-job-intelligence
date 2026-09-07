@@ -6,6 +6,7 @@ import {
   formatDate,
   formatRate,
   formatRemote,
+  isFieldAangevuld,
   sourceLabel,
 } from "./presentation";
 import type { JobListing, JobMarkering, MarkeringSyncState } from "./types";
@@ -16,9 +17,11 @@ const badgeClass =
   "rounded-full border border-border bg-secondary px-2.5 py-0.5 text-[11px] font-medium";
 
 const DetailField = ({
+  aangevuld = false,
   label,
   value,
 }: {
+  readonly aangevuld?: boolean;
   readonly label: string;
   readonly value: string;
 }) => (
@@ -26,7 +29,14 @@ const DetailField = ({
     <dt className="text-[10px] tracking-wide text-muted-foreground uppercase">
       {label}
     </dt>
-    <dd className="mt-0.5 text-xs break-words">{value}</dd>
+    <dd className="mt-0.5 flex flex-wrap items-center gap-1.5 text-xs break-words">
+      <span>{value}</span>
+      {aangevuld ? (
+        <span className="rounded-full border border-chart-2/40 bg-chart-2/10 px-2 py-0.5 text-[10px] font-medium text-chart-2">
+          aangevuld
+        </span>
+      ) : null}
+    </dd>
   </div>
 );
 
@@ -208,9 +218,21 @@ export const JobDetail = ({
             label="Organisatie"
             value={job.organization ?? "Onbekend"}
           />
-          <DetailField label="Locatie" value={job.location ?? "Onbekend"} />
-          <DetailField label="Tarief" value={formatRate(job)} />
-          <DetailField label="Contract" value={formatContract(job)} />
+          <DetailField
+            label="Locatie"
+            value={job.location ?? "Onbekend"}
+            aangevuld={isFieldAangevuld(job, "locatie")}
+          />
+          <DetailField
+            label="Tarief"
+            value={formatRate(job)}
+            aangevuld={isFieldAangevuld(job, "tarief")}
+          />
+          <DetailField
+            label="Contract"
+            value={formatContract(job)}
+            aangevuld={isFieldAangevuld(job, "contract")}
+          />
           <DetailField
             label="Gepubliceerd"
             value={formatDate(job.publishedAt)}
