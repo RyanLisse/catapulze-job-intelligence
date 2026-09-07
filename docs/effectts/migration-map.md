@@ -187,6 +187,7 @@ Slices zijn strikt geordend op leerrendement en dependency-richting. Elke slice 
 | AC | poll/drain/backfill sandbox parity; geen retry-plafond↑ |
 | Testbewijs | worker specs |
 | Rollback | task body revert; Trigger config untouched |
+| Status (CTP-476) | Opt-in worker Effect task-body boundary landed (`apps/worker/src/effect`); native `runPollBron` / `runDrainOutbox` remain default Trigger `schemaTask` runs; Trigger `maxAttempts` / queue concurrency unchanged; Motian backfill untouched; prod Effect runtime OFF |
 
 ### Slice 11 — Web DTO / client types
 
