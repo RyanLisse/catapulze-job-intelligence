@@ -1,5 +1,15 @@
-import { z } from "zod";
+import { Effect, Schema, SchemaTransformation } from "effect";
 
+import type { SchemaType } from "../schema-helpers";
+import {
+  FiniteNumber,
+  IsoDateTimeString,
+  NonEmptyString,
+  optionalField,
+  PositiveInteger,
+  toCapabilitySchema,
+  UuidString,
+} from "../schema-helpers";
 import type {
   SliceADomainFailure,
   SliceADomainFailureDetails,
@@ -17,86 +27,91 @@ const domainFailure = (
   details?: SliceADomainFailureDetails
 ) => ({ error: { code, details, message }, ok: false as const });
 
-export const dashboardWindowSchema = z
-  .enum(["24u", "24h", "7d", "30d"])
-  .default("7d")
-  .transform((value) => (value === "24h" ? "24u" : value));
+const dashboardWindowValues = Schema.Literals(["24u", "7d", "30d"]);
 
-const failureCountSchema = z
-  .object({
-    code: z.string(),
-    count: z.number(),
-  })
-  .strict();
+/**
+ * `"24h"` stays accepted on the wire and normalises to `"24u"`; the key may be
+ * absent and then defaults to `"7d"` (prior Zod `.default().transform()`).
+ */
+export const dashboardWindow = Schema.Literals(["24u", "24h", "7d", "30d"])
+  .pipe(
+    Schema.decodeTo(
+      dashboardWindowValues,
+      SchemaTransformation.transform({
+        decode: (value) => (value === "24h" ? ("24u" as const) : value),
+        encode: (value) => value,
+      })
+    )
+  )
+  .pipe(Schema.withDecodingDefaultKey(Effect.succeed("7d" as const)));
 
-const statsSchema = z
-  .object({
-    aantalGevonden: z.number(),
-    actief: z.boolean().nullable(),
-    avgDurationMs: z.number().nullable(),
-    bronId: z.string().nullable(),
-    cancelled: z.number(),
-    failed: z.number(),
-    fouten: z.number(),
-    gesloten: z.number(),
-    gewijzigd: z.number(),
-    interval: z.string().nullable(),
-    lastFailureClass: z.string().nullable(),
-    lastFailureCode: z.string().nullable(),
-    lastFailureMessage: z.string().nullable(),
-    lastFailurePhase: z.string().nullable(),
-    lastRunAt: z.string().nullable(),
-    lastRunStatus: z.string().nullable(),
-    naam: z.string().nullable(),
-    nieuw: z.number(),
-    ongewijzigd: z.number(),
-    p95DurationMs: z.number().nullable(),
-    rejected: z.number(),
-    running: z.number(),
-    runs: z.number(),
-    succeeded: z.number(),
-    successRate: z.number().nullable(),
-    topFailures: z.array(failureCountSchema),
-  })
-  .strict();
+export const dashboardWindowSchema = toCapabilitySchema(dashboardWindow);
 
-const pointSchema = z
-  .object({
-    aantalGevonden: z.number(),
-    avgDurationMs: z.number().nullable(),
-    bronId: z.string(),
-    bucket: z.string(),
-    failed: z.number(),
-    fouten: z.number(),
-    gewijzigd: z.number(),
-    nieuw: z.number(),
-    ongewijzigd: z.number(),
-    rejected: z.number(),
-    runs: z.number(),
-    succeeded: z.number(),
-  })
-  .strict();
+const failureCount = Schema.Struct({
+  code: Schema.String,
+  count: FiniteNumber,
+});
 
-const healthSchema = z
-  .object({
-    bronId: z.string(),
-    circuitStatus: z.string(),
-    lastRunAt: z.string().nullable(),
-    lastRunStatus: z.string().nullable(),
-    silenceAlertOpen: z.boolean(),
-  })
-  .strict();
+const statsView = Schema.Struct({
+  aantalGevonden: FiniteNumber,
+  actief: Schema.NullOr(Schema.Boolean),
+  avgDurationMs: Schema.NullOr(FiniteNumber),
+  bronId: Schema.NullOr(Schema.String),
+  cancelled: FiniteNumber,
+  failed: FiniteNumber,
+  fouten: FiniteNumber,
+  gesloten: FiniteNumber,
+  gewijzigd: FiniteNumber,
+  interval: Schema.NullOr(Schema.String),
+  lastFailureClass: Schema.NullOr(Schema.String),
+  lastFailureCode: Schema.NullOr(Schema.String),
+  lastFailureMessage: Schema.NullOr(Schema.String),
+  lastFailurePhase: Schema.NullOr(Schema.String),
+  lastRunAt: Schema.NullOr(Schema.String),
+  lastRunStatus: Schema.NullOr(Schema.String),
+  naam: Schema.NullOr(Schema.String),
+  nieuw: FiniteNumber,
+  ongewijzigd: FiniteNumber,
+  p95DurationMs: Schema.NullOr(FiniteNumber),
+  rejected: FiniteNumber,
+  running: FiniteNumber,
+  runs: FiniteNumber,
+  succeeded: FiniteNumber,
+  successRate: Schema.NullOr(FiniteNumber),
+  topFailures: Schema.Array(failureCount),
+});
 
-const alertSchema = z
-  .object({
-    ackedAt: z.string().nullable(),
-    bronId: z.string(),
-    createdAt: z.string(),
-    id: z.string(),
-    kind: z.string(),
-    message: z.string(),
-  })
-  .strict();
+const pointView = Schema.Struct({
+  aantalGevonden: FiniteNumber,
+  avgDurationMs: Schema.NullOr(FiniteNumber),
+  bronId: Schema.String,
+  bucket: Schema.String,
+  failed: FiniteNumber,
+  fouten: FiniteNumber,
+  gewijzigd: FiniteNumber,
+  nieuw: FiniteNumber,
+  ongewijzigd: FiniteNumber,
+  rejected: FiniteNumber,
+  runs: FiniteNumber,
+  succeeded: FiniteNumber,
+});
+
+const healthView = Schema.Struct({
+  bronId: Schema.String,
+  circuitStatus: Schema.String,
+  lastRunAt: Schema.NullOr(Schema.String),
+  lastRunStatus: Schema.NullOr(Schema.String),
+  silenceAlertOpen: Schema.Boolean,
+});
+
+const alertView = Schema.Struct({
+  ackedAt: Schema.NullOr(Schema.String),
+  bronId: Schema.String,
+  createdAt: Schema.String,
+  id: Schema.String,
+  kind: Schema.String,
+  message: Schema.String,
+});
 
 const serializeStatsRow = (row: BronRunStatsRow) => ({
   aantalGevonden: row.aantalGevonden,
@@ -156,33 +171,31 @@ const loadHealth = async (deps: SliceAHandlerDeps, bronId: string) => {
   };
 };
 
-export const getDashboardOverviewInputSchema = z
-  .object({
-    window: dashboardWindowSchema,
+export const getDashboardOverviewInputSchema = toCapabilitySchema(
+  Schema.Struct({
+    window: dashboardWindow,
   })
-  .strict();
+);
 
-export const getDashboardOverviewOutputSchema = z
-  .object({
-    alerts: z.array(alertSchema),
-    bronnen: z.array(
-      z
-        .object({
-          health: healthSchema.nullable(),
-          stats: statsSchema,
-        })
-        .strict()
+export const getDashboardOverviewOutputSchema = toCapabilitySchema(
+  Schema.Struct({
+    alerts: Schema.Array(alertView),
+    bronnen: Schema.Array(
+      Schema.Struct({
+        health: Schema.NullOr(healthView),
+        stats: statsView,
+      })
     ),
-    health: z.array(healthSchema),
-    timeseries: z.array(pointSchema),
-    total: statsSchema,
-    window: z.enum(["24u", "7d", "30d"]),
+    health: Schema.Array(healthView),
+    timeseries: Schema.Array(pointView),
+    total: statsView,
+    window: dashboardWindowValues,
   })
-  .strict();
+);
 
 export const createGetDashboardOverviewHandler =
   (deps: SliceAHandlerDeps) =>
-  async (input: z.output<typeof getDashboardOverviewInputSchema>) => {
+  async (input: SchemaType<typeof getDashboardOverviewInputSchema>) => {
     if (!deps.bronRunStatsReader) {
       throw new Error("BronRunStatsReader unavailable");
     }
@@ -240,26 +253,26 @@ export const createGetDashboardOverviewHandler =
     };
   };
 
-export const getBronStatsInputSchema = z
-  .object({
-    bronId: z.string().uuid(),
-    window: dashboardWindowSchema,
+export const getBronStatsInputSchema = toCapabilitySchema(
+  Schema.Struct({
+    bronId: UuidString,
+    window: dashboardWindow,
   })
-  .strict();
+);
 
-export const getBronStatsOutputSchema = z
-  .object({
-    health: healthSchema.nullable(),
-    stats: statsSchema,
-    timeseries: z.array(pointSchema),
-    topFailures: z.array(failureCountSchema),
-    window: z.enum(["24u", "7d", "30d"]),
+export const getBronStatsOutputSchema = toCapabilitySchema(
+  Schema.Struct({
+    health: Schema.NullOr(healthView),
+    stats: statsView,
+    timeseries: Schema.Array(pointView),
+    topFailures: Schema.Array(failureCount),
+    window: dashboardWindowValues,
   })
-  .strict();
+);
 
 export const createGetBronStatsHandler =
   (deps: SliceAHandlerDeps) =>
-  async (input: z.output<typeof getBronStatsInputSchema>) => {
+  async (input: SchemaType<typeof getBronStatsInputSchema>) => {
     if (!deps.bronRunStatsReader) {
       throw new Error("BronRunStatsReader unavailable");
     }
@@ -290,54 +303,47 @@ export const createGetBronStatsHandler =
     };
   };
 
-const runViewSchema = z
-  .object({
-    aantalGevonden: z.number(),
-    bronId: z.string(),
-    checkpoint: z
-      .object({
-        cursor: z.union([z.string(), z.number()]).optional(),
-        hasMore: z.boolean().optional(),
-        offset: z.number().optional(),
-        page: z.number().optional(),
-      })
-      .strict()
-      .nullable(),
-    circuitStatus: z.string(),
-    createdAt: z.string(),
-    failureClass: z.string().nullable(),
-    failureCode: z.string().nullable(),
-    failureMessage: z.string().nullable(),
-    failurePhase: z.string().nullable(),
-    fouten: z.number(),
-    geindigd: z.string().nullable(),
-    gesloten: z.number(),
-    gestart: z.string(),
-    gewijzigd: z.number(),
-    id: z.string(),
-    lifecycleSummary: z
-      .object({
-        incremented: z.number(),
-        reopened: z.number(),
-        reset: z.number(),
-        staled: z.number(),
-      })
-      .strict(),
-    nieuw: z.number(),
-    observationDistribution: z
-      .object({
-        created: z.number(),
-        rejected: z.number(),
-        unchanged: z.number(),
-        updated: z.number(),
-      })
-      .strict(),
-    rejected: z.number(),
-    runKind: z.string(),
-    status: z.string(),
-    versionAdapter: z.string().nullable(),
-  })
-  .strict();
+const runView = Schema.Struct({
+  aantalGevonden: FiniteNumber,
+  bronId: Schema.String,
+  checkpoint: Schema.NullOr(
+    Schema.Struct({
+      cursor: optionalField(Schema.Union([Schema.String, FiniteNumber])),
+      hasMore: optionalField(Schema.Boolean),
+      offset: optionalField(FiniteNumber),
+      page: optionalField(FiniteNumber),
+    })
+  ),
+  circuitStatus: Schema.String,
+  createdAt: Schema.String,
+  failureClass: Schema.NullOr(Schema.String),
+  failureCode: Schema.NullOr(Schema.String),
+  failureMessage: Schema.NullOr(Schema.String),
+  failurePhase: Schema.NullOr(Schema.String),
+  fouten: FiniteNumber,
+  geindigd: Schema.NullOr(Schema.String),
+  gesloten: FiniteNumber,
+  gestart: Schema.String,
+  gewijzigd: FiniteNumber,
+  id: Schema.String,
+  lifecycleSummary: Schema.Struct({
+    incremented: FiniteNumber,
+    reopened: FiniteNumber,
+    reset: FiniteNumber,
+    staled: FiniteNumber,
+  }),
+  nieuw: FiniteNumber,
+  observationDistribution: Schema.Struct({
+    created: FiniteNumber,
+    rejected: FiniteNumber,
+    unchanged: FiniteNumber,
+    updated: FiniteNumber,
+  }),
+  rejected: FiniteNumber,
+  runKind: Schema.String,
+  status: Schema.String,
+  versionAdapter: Schema.NullOr(Schema.String),
+});
 
 const serializeRunView = (run: ScrapeRunView) => ({
   aantalGevonden: run.aantalGevonden,
@@ -364,28 +370,39 @@ const serializeRunView = (run: ScrapeRunView) => ({
   versionAdapter: run.versieAdapter,
 });
 
-export const listScrapeRunsInputSchema = z
-  .object({
-    bronId: z.string().uuid().optional(),
-    cursor: z.string().optional(),
-    failureCode: z.string().min(1).optional(),
-    limit: z.number().int().positive().max(100).default(50),
-    runKind: z.enum(["all", "poll", "backfill", "test"]).optional(),
-    since: z.string().datetime().optional(),
-    status: z.enum(["running", "succeeded", "failed", "cancelled"]).optional(),
-  })
-  .strict();
+const SCRAPE_RUNS_MAX_LIMIT = 100;
+const SCRAPE_RUNS_DEFAULT_LIMIT = 50;
 
-export const listScrapeRunsOutputSchema = z
-  .object({
-    items: z.array(runViewSchema),
-    nextCursor: z.string().nullable(),
+export const listScrapeRunsInputSchema = toCapabilitySchema(
+  Schema.Struct({
+    bronId: optionalField(UuidString),
+    cursor: optionalField(Schema.String),
+    failureCode: optionalField(NonEmptyString),
+    limit: PositiveInteger.check(
+      Schema.isLessThanOrEqualTo(SCRAPE_RUNS_MAX_LIMIT)
+    ).pipe(
+      Schema.withDecodingDefaultKey(Effect.succeed(SCRAPE_RUNS_DEFAULT_LIMIT))
+    ),
+    runKind: optionalField(
+      Schema.Literals(["all", "poll", "backfill", "test"])
+    ),
+    since: optionalField(IsoDateTimeString),
+    status: optionalField(
+      Schema.Literals(["running", "succeeded", "failed", "cancelled"])
+    ),
   })
-  .strict();
+);
+
+export const listScrapeRunsOutputSchema = toCapabilitySchema(
+  Schema.Struct({
+    items: Schema.Array(runView),
+    nextCursor: Schema.NullOr(Schema.String),
+  })
+);
 
 export const createListScrapeRunsHandler =
   (deps: SliceAHandlerDeps) =>
-  async (input: z.output<typeof listScrapeRunsInputSchema>) => {
+  async (input: SchemaType<typeof listScrapeRunsInputSchema>) => {
     if (!deps.scrapeRunReader) {
       throw new Error("ScrapeRunReader unavailable");
     }
@@ -407,17 +424,17 @@ export const createListScrapeRunsHandler =
     };
   };
 
-export const getScrapeRunInputSchema = z
-  .object({
-    id: z.string().uuid(),
+export const getScrapeRunInputSchema = toCapabilitySchema(
+  Schema.Struct({
+    id: UuidString,
   })
-  .strict();
+);
 
-export const getScrapeRunOutputSchema = runViewSchema;
+export const getScrapeRunOutputSchema = toCapabilitySchema(runView);
 
 export const createGetScrapeRunHandler =
   (deps: SliceAHandlerDeps) =>
-  async (input: z.output<typeof getScrapeRunInputSchema>) => {
+  async (input: SchemaType<typeof getScrapeRunInputSchema>) => {
     if (!deps.scrapeRunReader) {
       throw new Error("ScrapeRunReader unavailable");
     }

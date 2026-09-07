@@ -1,6 +1,12 @@
-import { z } from "zod";
+import { Schema } from "effect";
 
 import { commitExport } from "../../export/commit-export";
+import type { SchemaType } from "../schema-helpers";
+import {
+  NonNegativeInteger,
+  toCapabilitySchema,
+  UuidString,
+} from "../schema-helpers";
 import type { SliceAHandlerDeps } from "./deps";
 
 type ExportEnabledDeps = Pick<SliceAHandlerDeps, "spottWriteClient"> & {
@@ -12,42 +18,40 @@ export const isExportEnabled = (
 ): deps is ExportEnabledDeps =>
   deps.spottWriteClient !== undefined && deps.spottWriteClient !== null;
 
-export const commitExportInputSchema = z
-  .object({
-    snapshotId: z.string().uuid(),
+export const commitExportInputSchema = toCapabilitySchema(
+  Schema.Struct({
+    snapshotId: UuidString,
   })
-  .strict();
+);
 
-export const commitExportItemSchema = z
-  .object({
-    canonicalVacancyId: z.string(),
-    externalId: z.string().nullable(),
-    idempotencyKey: z.string(),
-    receiptId: z.string(),
-    status: z.enum(["created", "failed", "skipped"]),
-  })
-  .strict();
+const commitExportItem = Schema.Struct({
+  canonicalVacancyId: Schema.String,
+  externalId: Schema.NullOr(Schema.String),
+  idempotencyKey: Schema.String,
+  receiptId: Schema.String,
+  status: Schema.Literals(["created", "failed", "skipped"]),
+});
 
-export const commitExportOutputSchema = z
-  .object({
-    approvalId: z.string(),
-    auditEventId: z.string(),
-    results: z.array(commitExportItemSchema),
-    snapshotId: z.string(),
-    summary: z
-      .object({
-        created: z.number().int().nonnegative(),
-        failed: z.number().int().nonnegative(),
-        skipped: z.number().int().nonnegative(),
-      })
-      .strict(),
+export const commitExportItemSchema = toCapabilitySchema(commitExportItem);
+
+export const commitExportOutputSchema = toCapabilitySchema(
+  Schema.Struct({
+    approvalId: Schema.String,
+    auditEventId: Schema.String,
+    results: Schema.Array(commitExportItem),
+    snapshotId: Schema.String,
+    summary: Schema.Struct({
+      created: NonNegativeInteger,
+      failed: NonNegativeInteger,
+      skipped: NonNegativeInteger,
+    }),
   })
-  .strict();
+);
 
 export const createCommitExportHandler =
   (deps: SliceAHandlerDeps) =>
   async (
-    input: z.output<typeof commitExportInputSchema>,
+    input: SchemaType<typeof commitExportInputSchema>,
     context: {
       principal: {
         kind: "agent" | "service" | "user";
@@ -117,11 +121,11 @@ export const createCommitExportHandler =
     };
   };
 
-export const getExportStatusInputSchema = z
-  .object({ snapshotId: z.string().uuid() })
-  .strict();
+export const getExportStatusInputSchema = toCapabilitySchema(
+  Schema.Struct({ snapshotId: UuidString })
+);
 
-const exportReadbackStatusSchema = z.enum([
+const exportReadbackStatus = Schema.Literals([
   "no_attempt",
   "attempted",
   "confirmed",
@@ -129,7 +133,7 @@ const exportReadbackStatusSchema = z.enum([
   "unknown",
 ]);
 
-type ExportReadbackStatus = z.output<typeof exportReadbackStatusSchema>;
+type ExportReadbackStatus = typeof exportReadbackStatus.Type;
 
 const attemptReadbackStatus = (
   attemptStatus: "created" | "failed" | "skipped",
@@ -159,37 +163,35 @@ const aggregateReadbackStatus = (
   return "attempted";
 };
 
-export const getExportStatusOutputSchema = z
-  .object({
-    attempts: z.array(
-      z
-        .object({
-          canonicalVacancyId: z.string(),
-          createdAt: z.string(),
-          errorMessage: z.string().nullable(),
-          externalId: z.string().nullable(),
-          id: z.string(),
-          idempotencyKey: z.string(),
-          receipt: z
-            .object({
-              id: z.string(),
-              responseHash: z.string(),
-            })
-            .nullable(),
-          status: exportReadbackStatusSchema,
-        })
-        .strict()
+export const getExportStatusOutputSchema = toCapabilitySchema(
+  Schema.Struct({
+    attempts: Schema.Array(
+      Schema.Struct({
+        canonicalVacancyId: Schema.String,
+        createdAt: Schema.String,
+        errorMessage: Schema.NullOr(Schema.String),
+        externalId: Schema.NullOr(Schema.String),
+        id: Schema.String,
+        idempotencyKey: Schema.String,
+        receipt: Schema.NullOr(
+          Schema.Struct({
+            id: Schema.String,
+            responseHash: Schema.String,
+          })
+        ),
+        status: exportReadbackStatus,
+      })
     ),
-    liveConfirmationAvailable: z.literal(false),
-    snapshotId: z.string(),
-    status: exportReadbackStatusSchema,
+    liveConfirmationAvailable: Schema.Literal(false),
+    snapshotId: Schema.String,
+    status: exportReadbackStatus,
   })
-  .strict();
+);
 
 export const createGetExportStatusHandler =
   (deps: SliceAHandlerDeps) =>
   async (
-    input: z.output<typeof getExportStatusInputSchema>,
+    input: SchemaType<typeof getExportStatusInputSchema>,
     context: { principal: { subjectId: string } }
   ) => {
     const snapshot = await deps.stores.snapshots.getById(

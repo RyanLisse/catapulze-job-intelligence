@@ -1,79 +1,98 @@
 import type { SearchFilters } from "@ji/search";
-import { z } from "zod";
+import { Schema } from "effect";
+
+import type { CapabilitySchema, SchemaType } from "./schema-helpers";
+import {
+  FiniteNumber,
+  optionalField,
+  PositiveInteger,
+  toCapabilitySchema,
+  UuidString,
+} from "./schema-helpers";
+
+/**
+ * Slice A capability contracts (ADR-0014 / CTP-469).
+ *
+ * Effect Schema is the hand-maintained source of truth; the exported
+ * `*Schema` values are the derived adapters registry, `@ji/db` and the
+ * MCP/REST descriptors consume. See `./schema-helpers.ts`.
+ */
 
 export const SLICE_A_SCHEMA_VERSION = "slice-a-v1" as const;
 
-export const searchFiltersSchema: z.ZodType<SearchFilters> = z
-  .object({
-    bronIds: z.array(z.string().uuid()).optional(),
-    contracttype: z.array(z.string()).optional(),
-    freshnessDays: z.number().int().positive().optional(),
-    locatie: z.array(z.string()).optional(),
-    locatieLand: z.array(z.string()).optional(),
-    status: z
-      .array(z.enum(["active", "stale", "closed", "unknown"]))
-      .optional(),
-    tariefMax: z.number().optional(),
-    tariefMin: z.number().optional(),
+const searchFilters = Schema.Struct({
+  bronIds: optionalField(Schema.Array(UuidString)),
+  contracttype: optionalField(Schema.Array(Schema.String)),
+  freshnessDays: optionalField(PositiveInteger),
+  locatie: optionalField(Schema.Array(Schema.String)),
+  locatieLand: optionalField(Schema.Array(Schema.String)),
+  status: optionalField(
+    Schema.Array(Schema.Literals(["active", "stale", "closed", "unknown"]))
+  ),
+  tariefMax: optionalField(FiniteNumber),
+  tariefMin: optionalField(FiniteNumber),
+});
+
+export const searchFiltersSchema: CapabilitySchema<SearchFilters> =
+  toCapabilitySchema(searchFilters);
+
+const sliceADomainFailure = Schema.Struct({
+  code: Schema.Literals([
+    "NOT_FOUND",
+    "FORBIDDEN_FULL",
+    "SYNTAX_ERROR",
+    "VALIDATION_ERROR",
+    "ALREADY_ACKED",
+    "ALREADY_APPROVED",
+    "APPROVAL_EXPIRED",
+    "APPROVAL_MISMATCH",
+    "APPROVAL_NOT_FOUND",
+    "EXPORT_DISABLED",
+  ]),
+  details: optionalField(Schema.Unknown),
+  message: Schema.String,
+});
+
+export const sliceADomainFailureSchema =
+  toCapabilitySchema(sliceADomainFailure);
+
+export type SliceADomainFailure = SchemaType<typeof sliceADomainFailureSchema>;
+
+export const notFoundByIdDetailsSchema = toCapabilitySchema(
+  Schema.Struct({ id: UuidString })
+);
+
+export const notFoundByRefDetailsSchema = toCapabilitySchema(
+  Schema.Struct({ ref: Schema.String })
+);
+
+export const notFoundByBronIdDetailsSchema = toCapabilitySchema(
+  Schema.Struct({ bronId: UuidString })
+);
+
+export const notFoundByAlertIdDetailsSchema = toCapabilitySchema(
+  Schema.Struct({ alertId: UuidString })
+);
+
+export const syntaxErrorDetailsSchema = toCapabilitySchema(
+  Schema.Struct({
+    code: Schema.Literal("syntax_error"),
+    message: Schema.String,
+    offset: FiniteNumber,
   })
-  .strict();
+);
 
-export const sliceADomainFailureSchema = z
-  .object({
-    code: z.enum([
-      "NOT_FOUND",
-      "FORBIDDEN_FULL",
-      "SYNTAX_ERROR",
-      "VALIDATION_ERROR",
-      "ALREADY_ACKED",
-      "ALREADY_APPROVED",
-      "APPROVAL_EXPIRED",
-      "APPROVAL_MISMATCH",
-      "APPROVAL_NOT_FOUND",
-      "EXPORT_DISABLED",
-    ]),
-    details: z.unknown().optional(),
-    message: z.string(),
-  })
-  .strict();
-
-export type SliceADomainFailure = z.infer<typeof sliceADomainFailureSchema>;
-
-export const notFoundByIdDetailsSchema = z
-  .object({ id: z.string().uuid() })
-  .strict();
-
-export const notFoundByRefDetailsSchema = z
-  .object({ ref: z.string() })
-  .strict();
-
-export const notFoundByBronIdDetailsSchema = z
-  .object({ bronId: z.string().uuid() })
-  .strict();
-
-export const notFoundByAlertIdDetailsSchema = z
-  .object({ alertId: z.string().uuid() })
-  .strict();
-
-export const syntaxErrorDetailsSchema = z
-  .object({
-    code: z.literal("syntax_error"),
-    message: z.string(),
-    offset: z.number(),
-  })
-  .strict();
-
-export const invalidSnapshotSelectionDetailsSchema = z
-  .object({ unknownIds: z.array(z.string().uuid()) })
-  .strict();
+export const invalidSnapshotSelectionDetailsSchema = toCapabilitySchema(
+  Schema.Struct({ unknownIds: Schema.Array(UuidString) })
+);
 
 export type SliceADomainFailureDetails =
-  | z.infer<typeof invalidSnapshotSelectionDetailsSchema>
-  | z.infer<typeof notFoundByAlertIdDetailsSchema>
-  | z.infer<typeof notFoundByBronIdDetailsSchema>
-  | z.infer<typeof notFoundByIdDetailsSchema>
-  | z.infer<typeof notFoundByRefDetailsSchema>
-  | z.infer<typeof syntaxErrorDetailsSchema>;
+  | SchemaType<typeof invalidSnapshotSelectionDetailsSchema>
+  | SchemaType<typeof notFoundByAlertIdDetailsSchema>
+  | SchemaType<typeof notFoundByBronIdDetailsSchema>
+  | SchemaType<typeof notFoundByIdDetailsSchema>
+  | SchemaType<typeof notFoundByRefDetailsSchema>
+  | SchemaType<typeof syntaxErrorDetailsSchema>;
 
 export const previewText = (value: string, maxLength = 500): string =>
   value.length <= maxLength ? value : `${value.slice(0, maxLength)}…`;

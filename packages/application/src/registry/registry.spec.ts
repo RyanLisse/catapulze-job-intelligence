@@ -1,17 +1,21 @@
+/* oxlint-disable anti-slop/no-unsafe-dictionary-type -- Test-only JSON Schema stub mirrors the derived descriptor type. */
 import { describe, expect, it } from "bun:test";
 
-import { z } from "zod";
+import { Schema } from "effect";
 
 import {
   createCapabilityRegistry,
   defineCapability,
   productionCapabilityCatalog,
+  toCapabilitySchema,
 } from ".";
 import type {
   BoundCapabilityInvoker,
   CapabilityBinding,
   CapabilityBindingSpec,
   CapabilityError,
+  CapabilityParseResult,
+  CapabilitySchema,
   InternalErrorReport,
   InvocationContext,
 } from ".";
@@ -26,37 +30,51 @@ interface MissingRecordFailure extends CapabilityError<"RECORD_NOT_FOUND"> {
   readonly details: { readonly recordId: string };
 }
 
-const missingRecordFailureSchema: z.ZodType<MissingRecordFailure> = z
-  .object({
-    code: z.literal("RECORD_NOT_FOUND"),
-    details: z.object({ recordId: z.string() }).strict(),
-    message: z.string(),
-  })
-  .strict();
+const missingRecordFailureSchema: CapabilitySchema<MissingRecordFailure> =
+  toCapabilitySchema(
+    Schema.Struct({
+      code: Schema.Literal("RECORD_NOT_FOUND"),
+      details: Schema.Struct({ recordId: Schema.String }),
+      message: Schema.String,
+    })
+  );
+
+/**
+ * Test-only adapter: replaces one member of a derived capability schema so the
+ * registry's fail-closed guards can be exercised without a second schema
+ * library (ADR-0014 / CTP-469).
+ */
+const overrideSchema = <Type>(
+  schema: CapabilitySchema<Type, Type>,
+  overrides: Partial<CapabilitySchema<Type, Type>>
+): CapabilitySchema<Type, Type> => ({ ...schema, ...overrides });
 
 const boundOperation = "GET /v1/records/search";
 const noOpReporter = (): void => undefined;
 const reporterExitProbeReady = "reporter-exit-probe-ready";
 const reporterExitProbe = String.raw`
-  import { z } from "zod";
+  import { Schema } from "effect";
   import {
     createCapabilityRegistry,
     defineCapability,
+    toCapabilitySchema,
   } from "./packages/application/src/registry/index.ts";
 
   const capability = defineCapability({
     authorization: { permission: "records:read" },
     bindings: [{ operation: "GET /probe", transport: "rest" }],
     effect: "read",
-    failureSchema: z.object({ code: z.string(), message: z.string() }),
+    failureSchema: toCapabilitySchema(
+      Schema.Struct({ code: Schema.String, message: Schema.String })
+    ),
     grounding: true,
     handler: () => {
       throw new Error("probe failure");
     },
     id: "records.probe",
-    inputSchema: z.unknown(),
+    inputSchema: toCapabilitySchema(Schema.Unknown),
     outcome: "Probe reporter cleanup",
-    outputSchema: z.unknown(),
+    outputSchema: toCapabilitySchema(Schema.Unknown),
   });
   let reportCalls = 0;
   const result = createCapabilityRegistry([capability], {
@@ -129,9 +147,11 @@ const createReadCapability = (
     grounding: true,
     handler,
     id: "records.search",
-    inputSchema: z.object({ query: z.string().min(1) }).strict(),
+    inputSchema: toCapabilitySchema(
+      Schema.Struct({ query: Schema.String.check(Schema.isMinLength(1)) })
+    ),
     outcome: "Search records",
-    outputSchema: z.array(z.string()),
+    outputSchema: toCapabilitySchema(Schema.Array(Schema.String)),
   });
 
 const registryFor = (
@@ -297,13 +317,13 @@ describe("trusted invocation context", () => {
     });
     const capability = defineCapability({
       ...base,
-      inputSchema: z
-        .object({
-          operation: z.string(),
-          query: z.string(),
-          transport: z.string(),
+      inputSchema: toCapabilitySchema(
+        Schema.Struct({
+          operation: Schema.String,
+          query: Schema.String,
+          transport: Schema.String,
         })
-        .strict(),
+      ),
     });
     const registry = registryFor(capability);
     const binding = {
@@ -583,9 +603,13 @@ describe("capability handler contract", () => {
       grounding: true,
       handler: () => ({ ok: true, value: ["not-accepted"] }),
       id: "records.search",
-      inputSchema: z.object({ query: z.string() }),
+      inputSchema: toCapabilitySchema(Schema.Struct({ query: Schema.String })),
       outcome: "Search records",
-      outputSchema: z.array(z.string()).refine(() => false),
+      outputSchema: toCapabilitySchema(
+        Schema.Array(Schema.String).check(
+          Schema.makeFilter(() => "Never accepted")
+        )
+      ),
     });
     const reports: InternalErrorReport[] = [];
     const registryResult = createCapabilityRegistry([capability] as const, {
@@ -612,12 +636,14 @@ describe("capability handler contract", () => {
   });
 
   it("reports malformed domain failures as contract violations", async () => {
-    const rejectingFailureSchema = missingRecordFailureSchema.refine(
-      async () => {
+    const rejectingFailureSchema = overrideSchema(missingRecordFailureSchema, {
+      safeParseAsync: async (): Promise<
+        CapabilityParseResult<MissingRecordFailure>
+      > => {
         await Promise.resolve();
-        return false;
-      }
-    );
+        return missingRecordFailureSchema.safeParse({});
+      },
+    });
     const failure: MissingRecordFailure = {
       code: "RECORD_NOT_FOUND",
       details: { recordId: "record-404" },
@@ -631,9 +657,9 @@ describe("capability handler contract", () => {
       grounding: true,
       handler: () => ({ error: failure, ok: false }),
       id: "records.search",
-      inputSchema: z.object({ query: z.string() }),
+      inputSchema: toCapabilitySchema(Schema.Struct({ query: Schema.String })),
       outcome: "Search records",
-      outputSchema: z.array(z.string()),
+      outputSchema: toCapabilitySchema(Schema.Array(Schema.String)),
     });
     const reports: InternalErrorReport[] = [];
     const registryResult = createCapabilityRegistry([capability] as const, {
@@ -660,15 +686,37 @@ describe("capability handler contract", () => {
   });
 
   it("awaits asynchronous input and output schemas", async () => {
-    const asyncInputSchema = z
-      .object({ query: z.string() })
-      .refine(async ({ query }) => {
+    const inputSchema = toCapabilitySchema(
+      Schema.Struct({
+        query: Schema.String.check(
+          Schema.makeFilter((query) =>
+            query === "async" ? undefined : "Expected the async probe query"
+          )
+        ),
+      })
+    );
+    const outputSchema = toCapabilitySchema(
+      Schema.Array(Schema.String).check(
+        Schema.makeFilter((records) =>
+          records.length === 1 ? undefined : "Expected exactly one record"
+        )
+      )
+    );
+    // The registry must await schema validation: both adapters resolve on a
+    // later tick, mirroring a schema with an asynchronous check.
+    const asyncInputSchema = overrideSchema(inputSchema, {
+      // oxlint-disable-next-line anti-slop/no-unknown-parameters -- The adapter interface accepts unparsed boundary values by contract.
+      safeParseAsync: async (value: unknown) => {
         await Promise.resolve();
-        return query === "async";
-      });
-    const asyncOutputSchema = z.array(z.string()).refine(async (records) => {
-      await Promise.resolve();
-      return records.length === 1;
+        return inputSchema.safeParse(value);
+      },
+    });
+    const asyncOutputSchema = overrideSchema(outputSchema, {
+      // oxlint-disable-next-line anti-slop/no-unknown-parameters -- The adapter interface accepts unparsed boundary values by contract.
+      safeParseAsync: async (value: unknown) => {
+        await Promise.resolve();
+        return outputSchema.safeParse(value);
+      },
     });
     const capability = defineCapability({
       authorization: { permission: "records:read" },
@@ -1174,9 +1222,9 @@ describe("capability registry construction", () => {
       grounding: true,
       handler: () => ({ ok: true, value: [] }),
       id: "records.generic",
-      inputSchema: z.unknown(),
+      inputSchema: toCapabilitySchema(Schema.Unknown),
       outcome: "Accept generic input",
-      outputSchema: z.array(z.string()),
+      outputSchema: toCapabilitySchema(Schema.Array(Schema.String)),
     });
 
     const result = createCapabilityRegistry([capability] as const, {
@@ -1206,9 +1254,9 @@ describe("capability registry construction", () => {
       grounding: true,
       handler: () => ({ ok: true, value: [] }),
       id: "records.text",
-      inputSchema: z.string(),
+      inputSchema: toCapabilitySchema(Schema.String),
       outcome: "Accept text input",
-      outputSchema: z.array(z.string()),
+      outputSchema: toCapabilitySchema(Schema.Array(Schema.String)),
     });
 
     const result = createCapabilityRegistry([capability] as const, {
@@ -1234,9 +1282,13 @@ describe("capability registry construction", () => {
       grounding: true,
       handler: () => ({ ok: true, value: [] }),
       id: "records.date",
-      inputSchema: z.date(),
+      inputSchema: overrideSchema(toCapabilitySchema(Schema.Unknown), {
+        toJsonSchema: (): Record<string, unknown> => {
+          throw new TypeError("JSON Schema conversion is unsupported");
+        },
+      }),
       outcome: "Accept date input",
-      outputSchema: z.array(z.string()),
+      outputSchema: toCapabilitySchema(Schema.Array(Schema.String)),
     });
 
     const result = createCapabilityRegistry([capability] as const, {

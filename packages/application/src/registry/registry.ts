@@ -1,4 +1,4 @@
-import { z } from "zod";
+import { Schema } from "effect";
 
 import { invocationTransports } from "./capability";
 import type {
@@ -9,6 +9,12 @@ import type {
   InvocationContext,
   InvocationPrincipal,
 } from "./capability";
+import type {
+  CapabilityParseResult,
+  CapabilitySchema,
+  SchemaType,
+} from "./schema-helpers";
+import { toCapabilitySchema } from "./schema-helpers";
 
 /* oxlint-disable anti-slop/no-unknown-parameters -- This registry is the I/O boundary that validates untrusted input and context. */
 /* oxlint-disable anti-slop/no-runtime-typeof -- Runtime checks are part of fail-closed validation at this untrusted boundary. */
@@ -16,8 +22,8 @@ import type {
 
 type AnyCapability = CapabilityDefinition<
   string,
-  z.ZodType,
-  z.ZodType,
+  CapabilitySchema,
+  CapabilitySchema,
   CapabilityError
 >;
 
@@ -57,18 +63,18 @@ type CapabilityById<
 type OutputOf<Capability> =
   Capability extends CapabilityDefinition<
     string,
-    z.ZodType,
+    CapabilitySchema,
     infer OutputSchema,
     CapabilityError
   >
-    ? z.output<OutputSchema>
+    ? SchemaType<OutputSchema>
     : never;
 
 type DomainFailureOf<Capability> =
   Capability extends CapabilityDefinition<
     string,
-    z.ZodType,
-    z.ZodType,
+    CapabilitySchema,
+    CapabilitySchema,
     infer DomainFailure
   >
     ? DomainFailure
@@ -315,10 +321,14 @@ const isBound = (
       binding.operation === context.operation
   );
 
-const handlerEnvelopeSchema = z.discriminatedUnion("ok", [
-  z.object({ ok: z.literal(true), value: z.unknown() }).strict(),
-  z.object({ error: z.unknown(), ok: z.literal(false) }).strict(),
-]);
+// Internal contract, not a published capability schema — derived from the same
+// Effect Schema SoT as every public contract (ADR-0014 / CTP-469).
+const handlerEnvelopeSchema = toCapabilitySchema(
+  Schema.Union([
+    Schema.Struct({ ok: Schema.Literal(true), value: Schema.Unknown }),
+    Schema.Struct({ error: Schema.Unknown, ok: Schema.Literal(false) }),
+  ])
+);
 
 interface MutableRegistryHealth {
   reporterFailures: number;
@@ -417,7 +427,7 @@ const invokeCapability = async (
     );
   }
 
-  let parsedInput: z.ZodSafeParseResult<unknown>;
+  let parsedInput: CapabilityParseResult<unknown>;
   try {
     parsedInput = await capability.inputSchema.safeParseAsync(rawInput);
   } catch (error) {
@@ -457,7 +467,7 @@ const invokeCapability = async (
     );
   }
 
-  let parsedEnvelope: z.ZodSafeParseResult<
+  let parsedEnvelope: CapabilityParseResult<
     | { readonly ok: true; readonly value: unknown }
     | { readonly error: unknown; readonly ok: false }
   >;
@@ -487,7 +497,7 @@ const invokeCapability = async (
   }
 
   if (parsedEnvelope.data.ok) {
-    let parsedOutput: z.ZodSafeParseResult<unknown>;
+    let parsedOutput: CapabilityParseResult<unknown>;
     try {
       parsedOutput = await capability.outputSchema.safeParseAsync(
         parsedEnvelope.data.value
@@ -517,7 +527,7 @@ const invokeCapability = async (
     return { ok: true, value: parsedOutput.data };
   }
 
-  let parsedFailure: z.ZodSafeParseResult<CapabilityError>;
+  let parsedFailure: CapabilityParseResult<CapabilityError>;
   try {
     parsedFailure = await capability.failureSchema.safeParseAsync(
       parsedEnvelope.data.error
@@ -659,7 +669,7 @@ const toPlainJsonSchema = (
   }
 };
 
-const jsonSchemaFromZod = (
+const jsonSchemaFromCapabilitySchema = (
   capability: AnyCapability,
   schemaType: "input" | "output"
 ):
@@ -670,10 +680,10 @@ const jsonSchemaFromZod = (
   | { readonly error: RegistryConstructionError; readonly ok: false } => {
   let convertedSchema: unknown;
   try {
-    convertedSchema = z.toJSONSchema(
-      schemaType === "input" ? capability.inputSchema : capability.outputSchema,
-      { io: schemaType }
-    );
+    // Derived from the Effect Schema SoT — never a hand-maintained descriptor.
+    convertedSchema = (
+      schemaType === "input" ? capability.inputSchema : capability.outputSchema
+    ).toJsonSchema(schemaType);
   } catch {
     return {
       error: invalidCapabilityError(capability.id, `${schemaType}JsonSchema`),
@@ -710,11 +720,14 @@ const toDescriptor = (
 ):
   | { readonly descriptor: CapabilityDescriptor; readonly ok: true }
   | { readonly error: RegistryConstructionError; readonly ok: false } => {
-  const inputSchemaResult = jsonSchemaFromZod(capability, "input");
+  const inputSchemaResult = jsonSchemaFromCapabilitySchema(capability, "input");
   if (!inputSchemaResult.ok) {
     return inputSchemaResult;
   }
-  const outputSchemaResult = jsonSchemaFromZod(capability, "output");
+  const outputSchemaResult = jsonSchemaFromCapabilitySchema(
+    capability,
+    "output"
+  );
   if (!outputSchemaResult.ok) {
     return outputSchemaResult;
   }
@@ -735,7 +748,14 @@ const toDescriptor = (
   };
 };
 
-const hasZodSchemaInterface = (value: unknown): boolean => {
+/**
+ * Recognises a derived capability schema adapter (ADR-0014 / CTP-469).
+ *
+ * `safeParseAsync` is what every validation phase below calls, so it is the
+ * checked contract; the same adapter also exposes `~standard` and
+ * `toJsonSchema` for the transports.
+ */
+const hasCapabilitySchemaInterface = (value: unknown): boolean => {
   if (!isRecord(value)) {
     return false;
   }
@@ -771,7 +791,7 @@ const validateCapability = (
     ["failureSchema", capability.failureSchema],
   ];
   for (const [field, schema] of schemas) {
-    if (!hasZodSchemaInterface(schema)) {
+    if (!hasCapabilitySchemaInterface(schema)) {
       return invalidCapabilityError(capability.id, field);
     }
   }
