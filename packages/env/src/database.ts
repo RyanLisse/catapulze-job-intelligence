@@ -1,6 +1,12 @@
 import "dotenv/config";
 import { createEnv } from "@t3-oss/env-core";
-import { z } from "zod";
+
+import {
+  NonEmptyString,
+  onEnvValidationError,
+  skipEnvValidation,
+  toEnvSchema,
+} from "./schema-helpers";
 
 /**
  * Scoped env validation for database-only consumers (`@ji/db` and anything
@@ -17,12 +23,19 @@ import { z } from "zod";
  * reads. Do not add `apps/server`-only fields here, and do not loosen
  * `./server.ts` to work around a DB-only consumer — that would remove a real
  * guard for `apps/server`.
+ *
+ * Effect Schema SoT (CTP-471 / ADR-0014 Slice 6).
  */
+export const databaseEnvEffectSchemas = {
+  DATABASE_URL: NonEmptyString,
+} as const;
+
 export const env = createEnv({
   emptyStringAsUndefined: true,
+  onValidationError: onEnvValidationError,
   runtimeEnv: process.env,
   server: {
-    DATABASE_URL: z.string().min(1),
+    DATABASE_URL: toEnvSchema(databaseEnvEffectSchemas.DATABASE_URL),
   },
-  skipValidation: !!process.env.SKIP_ENV_VALIDATION,
+  skipValidation: skipEnvValidation(),
 });

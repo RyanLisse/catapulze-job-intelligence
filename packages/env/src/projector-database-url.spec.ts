@@ -49,4 +49,19 @@ describe("projector database URL", () => {
       parseProjectorDatabaseUrl("https://ep-blue-tree.eu.neon.tech/catapulze")
     ).toThrow("postgres:// or postgresql://");
   });
+
+  it("never echoes credentials in rejection messages", () => {
+    const password = "super-secret-projector-password-xyzzy";
+    try {
+      parseProjectorDatabaseUrl(
+        `postgresql://ji_app:${password}@ep-blue-tree-pooler.eu-central-1.aws.neon.tech/catapulze`
+      );
+      throw new Error("expected throw");
+    } catch (error) {
+      const text = error instanceof Error ? error.message : String(error);
+      expect(text).toBe(PROJECTOR_DATABASE_URL_DIRECT_MESSAGE);
+      expect(text).not.toContain(password);
+      expect(text).not.toContain("ji_app");
+    }
+  });
 });

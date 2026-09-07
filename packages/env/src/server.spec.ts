@@ -1,7 +1,5 @@
 import { describe, expect, it } from "bun:test";
 
-import { z } from "zod";
-
 // `@ji/env/server` validates process.env at import time and Bun caches
 // modules per process, so each scenario loads the module in a fresh
 // subprocess with exactly the variables under test (same approach as
@@ -12,6 +10,7 @@ import { z } from "zod";
 const APP_SHA = "0123456789abcdef0123456789abcdef01234567";
 const SOURCE_SHA = "fedcba9876543210fedcba9876543210fedcba98";
 const SERVER_ENV_MODULE = `${import.meta.dir}/server.ts`;
+const SECRET_SENTINEL = "super-secret-auth-token-do-not-leak-xyzzy";
 
 const PROBE_SCRIPT = `
 const { env } = await import(${JSON.stringify(SERVER_ENV_MODULE)});
@@ -54,13 +53,13 @@ const loadServerEnv = (variables: Record<string, string>): ProbeResult => {
   };
 };
 
-const probeOutputSchema = z.object({ releaseSha: z.string().nullable() });
-
 const releaseShaOf = (result: ProbeResult): string | null => {
   expect(result.exitCode).toBe(0);
   // Last line: dotenv may print an injection tip line above the probe JSON.
   const lastLine = result.stdout.trim().split("\n").at(-1) ?? "";
-  return probeOutputSchema.parse(JSON.parse(lastLine)).releaseSha;
+  // SAFETY: probe script prints a fixed { releaseSha } JSON envelope we own.
+  const parsed = JSON.parse(lastLine) as { releaseSha: string | null };
+  return parsed.releaseSha;
 };
 
 describe("@ji/env/server APP_RELEASE_SHA", () => {
@@ -102,5 +101,49 @@ describe("@ji/env/server APP_RELEASE_SHA", () => {
 
   it("boots without a release SHA when neither variable is set (/version answers 503)", () => {
     expect(releaseShaOf(loadServerEnv({}))).toBeNull();
+  });
+});
+
+describe("@ji/env/server fail-fast + no secret leakage", () => {
+  it("fails fast when BETTER_AUTH_SECRET is too short and never echoes the secret", () => {
+    const result = loadServerEnv({
+      BETTER_AUTH_SECRET: SECRET_SENTINEL.slice(0, 16),
+    });
+    expect(result.exitCode).not.toBe(0);
+    expect(result.stderr).toContain("Invalid environment variables");
+    expect(result.stderr).toContain("BETTER_AUTH_SECRET");
+    expect(result.stderr).not.toContain(SECRET_SENTINEL.slice(0, 16));
+    expect(result.stdout).not.toContain(SECRET_SENTINEL.slice(0, 16));
+  });
+
+  it("fails fast on invalid DATABASE_URL and never echoes credentials", () => {
+    const secretUrl =
+      "postgres://ji_app:leaked-db-password-xyzzy@localhost:5432/ji";
+    const result = loadServerEnv({
+      // Also prove a present-but-invalid case via BETTER_AUTH_URL so we can
+      // assert the password string never appears when a sibling secret is set.
+      BETTER_AUTH_SECRET: SECRET_SENTINEL,
+      // Empty string → treated as undefined by emptyStringAsUndefined → missing.
+      DATABASE_URL: "",
+    });
+    expect(result.exitCode).not.toBe(0);
+    expect(result.stderr).toContain("Invalid environment variables");
+    expect(result.stderr).toContain("DATABASE_URL");
+    expect(result.stderr).not.toContain(SECRET_SENTINEL);
+    expect(result.stderr).not.toContain("leaked-db-password-xyzzy");
+    // Ensure the unused secret URL literal is not accidentally printed either.
+    expect(result.stderr).not.toContain(secretUrl);
+  });
+
+  it("fails fast when CORS_ORIGIN is not a URL without echoing sibling secrets", () => {
+    const result = loadServerEnv({
+      BETTER_AUTH_SECRET: SECRET_SENTINEL,
+      CORS_ORIGIN: "not-a-url",
+      DATABASE_URL: "postgres://ji_app:another-secret-pass@db/ji",
+    });
+    expect(result.exitCode).not.toBe(0);
+    expect(result.stderr).toContain("CORS_ORIGIN");
+    expect(result.stderr).not.toContain(SECRET_SENTINEL);
+    expect(result.stderr).not.toContain("another-secret-pass");
   });
 });
