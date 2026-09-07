@@ -1,4 +1,12 @@
+import { Schema } from "./schema-helpers";
 import { UNKNOWN } from "./unknown";
+
+/**
+ * Public aanvraag / bron taxonomy schemas (ADR-0014 Slice 5 / CTP-470).
+ *
+ * Effect Schema is the hand-maintained SoT; TypeScript types are derived.
+ * Const tuples remain for iteration and message formatting.
+ */
 
 export const AANVRAAG_LIFECYCLE = [
   "active",
@@ -7,7 +15,10 @@ export const AANVRAAG_LIFECYCLE = [
   "unknown",
 ] as const;
 
-export type AanvraagLifecycle = (typeof AANVRAAG_LIFECYCLE)[number];
+/** Effect Schema SoT for aanvraag lifecycle status. */
+export const AanvraagLifecycleSchema = Schema.Literals(AANVRAAG_LIFECYCLE);
+
+export type AanvraagLifecycle = typeof AanvraagLifecycleSchema.Type;
 
 export const BRON_CATEGORIEEN = [
   "msp_broker",
@@ -18,7 +29,10 @@ export const BRON_CATEGORIEEN = [
   "werkenbij",
 ] as const;
 
-export type BronCategorie = (typeof BRON_CATEGORIEEN)[number];
+/** Effect Schema SoT for bron categorie. */
+export const BronCategorieSchema = Schema.Literals(BRON_CATEGORIEEN);
+
+export type BronCategorie = typeof BronCategorieSchema.Type;
 
 export const EXTRACTIE_METHODEN = [
   "api",
@@ -27,15 +41,25 @@ export const EXTRACTIE_METHODEN = [
   "llm",
 ] as const;
 
-export type ExtractieMethode = (typeof EXTRACTIE_METHODEN)[number];
+/** Effect Schema SoT for extractie methode. */
+export const ExtractieMethodeSchema = Schema.Literals(EXTRACTIE_METHODEN);
+
+export type ExtractieMethode = typeof ExtractieMethodeSchema.Type;
 
 export const TARIEF_EENHEDEN = ["uur", "dag", "maand"] as const;
-export type TariefEenheid = (typeof TARIEF_EENHEDEN)[number];
 
-export interface MoneyFields {
-  amount: string | null;
-  currency: string;
-}
+/** Effect Schema SoT for tarief eenheid. */
+export const TariefEenheidSchema = Schema.Literals(TARIEF_EENHEDEN);
+
+export type TariefEenheid = typeof TariefEenheidSchema.Type;
+
+/** Effect Schema SoT for money fields on aanvragen. */
+export const MoneyFieldsSchema = Schema.Struct({
+  amount: Schema.NullOr(Schema.String),
+  currency: Schema.String,
+});
+
+export type MoneyFields = typeof MoneyFieldsSchema.Type;
 
 export const defaultMoneyCurrency = "EUR";
 

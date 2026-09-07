@@ -10,6 +10,9 @@
   "scripts": {
     "check-types": "PATH=\"./node_modules/.bin:$PATH\" tsc --noEmit"
   },
+  "dependencies": {
+    "effect": "catalog:"
+  },
   "devDependencies": {
     "@ji/config": "workspace:*",
     "@types/bun": "catalog:",

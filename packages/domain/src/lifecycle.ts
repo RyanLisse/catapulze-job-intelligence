@@ -1,4 +1,6 @@
+import { AanvraagLifecycleSchema } from "./aanvraag";
 import type { AanvraagLifecycle } from "./aanvraag";
+import { NonNegativeInteger, PositiveInteger, Schema } from "./schema-helpers";
 
 export const DEFAULT_MISSED_POLLS_BEFORE_STALE = 3;
 
@@ -6,6 +8,9 @@ export const DEFAULT_MISSED_POLLS_BEFORE_STALE = 3;
  * Why a lifecycle status changed without the source saying so (RJC-397).
  * Carried in the outbox payload (`reden`) and the SCD2 snapshot so an
  * operator can tell a listing-disappearance close from a date-based one.
+ *
+ * Effect Schema SoT (ADR-0014 Slice 5 / CTP-470). Pure transition helpers
+ * below stay Effect-free.
  */
 export const LIFECYCLE_REDENEN = [
   /** Missed `missedPollsBeforeStale` complete listing runs in a row. */
@@ -14,16 +19,23 @@ export const LIFECYCLE_REDENEN = [
   "listing_teruggekeerd",
 ] as const;
 
-export type LifecycleReden = (typeof LIFECYCLE_REDENEN)[number];
+/** Effect Schema SoT for lifecycle reden. */
+export const LifecycleRedenSchema = Schema.Literals(LIFECYCLE_REDENEN);
 
-export interface LifecycleTransitionInput {
-  current: AanvraagLifecycle;
-  bronSaysClosed: boolean;
-  sluitingsdatumPassed: boolean;
-  seenOpen: boolean;
-  missedPolls: number;
-  missedPollsBeforeStale?: number;
-}
+export type LifecycleReden = typeof LifecycleRedenSchema.Type;
+
+/** Effect Schema SoT for lifecycle transition inputs. */
+export const LifecycleTransitionInputSchema = Schema.Struct({
+  bronSaysClosed: Schema.Boolean,
+  current: AanvraagLifecycleSchema,
+  missedPolls: NonNegativeInteger,
+  missedPollsBeforeStale: Schema.optionalKey(PositiveInteger),
+  seenOpen: Schema.Boolean,
+  sluitingsdatumPassed: Schema.Boolean,
+});
+
+export type LifecycleTransitionInput =
+  typeof LifecycleTransitionInputSchema.Type;
 
 /**
  * Two independent close signals feed this derivation, and they are owned by

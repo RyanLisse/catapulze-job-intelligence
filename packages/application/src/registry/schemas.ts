@@ -1,3 +1,4 @@
+import { AanvraagLifecycleSchema } from "@ji/domain";
 import type { SearchFilters } from "@ji/search";
 import { Schema } from "effect";
 
@@ -26,9 +27,7 @@ const searchFilters = Schema.Struct({
   freshnessDays: optionalField(PositiveInteger),
   locatie: optionalField(Schema.Array(Schema.String)),
   locatieLand: optionalField(Schema.Array(Schema.String)),
-  status: optionalField(
-    Schema.Array(Schema.Literals(["active", "stale", "closed", "unknown"]))
-  ),
+  status: optionalField(Schema.Array(AanvraagLifecycleSchema)),
   tariefMax: optionalField(FiniteNumber),
   tariefMin: optionalField(FiniteNumber),
 });
