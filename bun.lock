@@ -113,6 +113,7 @@
         "@ji/search": "workspace:*",
         "@trigger.dev/sdk": "4.5.13",
         "dotenv": "catalog:",
+        "effect": "catalog:",
         "zod": "catalog:",
       },
       "devDependencies": {
