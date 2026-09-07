@@ -16,3 +16,9 @@ export {
   type InhuurdeskFetchedPayload,
   type InhuurdeskListingPage,
 } from "./types";
+
+export {
+  createInhuurdeskEffectClient,
+  fetchListingEffect,
+  type InhuurdeskEffectClientOptions,
+} from "./client-effect";

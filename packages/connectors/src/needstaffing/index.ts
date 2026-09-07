@@ -24,3 +24,10 @@ export {
   type NeedstaffingListingItem,
   type NeedstaffingListingPage,
 } from "./types";
+
+export {
+  createNeedstaffingEffectClient,
+  fetchDetailHtmlEffect,
+  fetchListingEffect,
+  type NeedstaffingEffectClientOptions,
+} from "./client-effect";

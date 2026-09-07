@@ -82,6 +82,7 @@ Slices zijn strikt geordend op leerrendement en dependency-richting. Elke slice 
 | Testbewijs | per-connector specs + poll-bron sandbox |
 | Rollback | per-bron flag of file-level revert |
 | Prod | OFF tot bron-specifieke release |
+| Status (CTP-467) | Opt-in create*EffectClient per bron landed; native factories remain default; shared retry/limiter/run unchanged (Effect uses @ji/connectors/effect-runtime) |
 
 ### Slice 3 — Application use-cases (excl. capability schema cutover)
 

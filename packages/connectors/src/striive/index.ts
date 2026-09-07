@@ -19,3 +19,9 @@ export {
   type StriiveJob,
   type StriiveListingResponse,
 } from "./types";
+
+export {
+  createStriiveEffectClient,
+  fetchListingEffect,
+  type StriiveEffectClientOptions,
+} from "./client-effect";

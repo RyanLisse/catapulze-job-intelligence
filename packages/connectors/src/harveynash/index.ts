@@ -26,3 +26,10 @@ export {
   type HarveyNashSearchResponse,
   type HarveyNashSearchResult,
 } from "./types";
+
+export {
+  createHarveyNashEffectClient,
+  fetchDetailEffect,
+  fetchListingEffect,
+  type HarveyNashEffectClientOptions,
+} from "./client-effect";
