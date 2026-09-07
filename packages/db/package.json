@@ -28,6 +28,7 @@
     "@ji/performance": "workspace:*",
     "dotenv": "catalog:",
     "drizzle-orm": "^0.45.2",
+    "effect": "catalog:",
     "postgres": "^3.4.7",
     "zod": "catalog:"
   },

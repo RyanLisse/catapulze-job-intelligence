@@ -161,6 +161,7 @@ Slices zijn strikt geordend op leerrendement en dependency-richting. Elke slice 
 | Testbewijs | db specs / read-path tests |
 | Rollback | wrapper bypass |
 | Stop | elke PR die authz, leases, outbox-semantics of migraties “meeneemt” |
+| Status (CTP-473) | Opt-in `wrap*StoreEffect` helpers + representative `*Effect` helpers landed voor `QuerySnapshotStore`, `AanvraagStore`, `RawPayloadStore`, `ScrapeRunReader`, `BronHealthStore`, `AlertStore`, `SavedSearchStore`, `MissedPollsStore`, `KnownHashStore`, `SearchVersionStore`; native `Postgres*Store`/readers blijven default; prod Effect runtime OFF; Motian/outbox/leases/migraties ongemoeid |
 
 ### Slice 9 — Server/API boundary
 
