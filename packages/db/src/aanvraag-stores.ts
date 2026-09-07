@@ -1,5 +1,9 @@
 /* oxlint-disable max-classes-per-file -- cohesive Postgres adapters share schema mapping */
 /* oxlint-disable anti-slop/require-safety-comment-for-type-assertion, anti-slop/no-runtime-typeof, anti-slop/no-unsafe-dictionary-type -- curated JSON is normalised before persistence */
+import {
+  applyEnrichmentOverlayToAanvraagFacts,
+  applyEnrichmentOverlayToSearchFacts,
+} from "@ji/application/enrichment";
 import type {
   AanvraagRecord,
   AanvraagStore,
@@ -14,6 +18,7 @@ import { asc, eq, inArray } from "drizzle-orm";
 
 import { readAanvraagBronFacts } from "./aanvraag-read-mapping";
 import type { BronRuntimeDatabase } from "./bron-runtime";
+import { PostgresEnrichmentStore } from "./enrichment-store";
 import { aanvraag, aanvraagVersie } from "./schema/curated";
 
 const previewText = (body: Uint8Array, limit = 240): string => {
@@ -36,6 +41,7 @@ const toAanvraagRecord = (
     bronId: row.bronId,
     bronReferentie: row.bronReferentie,
     contracttype: bronFacts.contracttype,
+    enrichedFields: [],
     id: row.id,
     // locatie_land defaults to NL and is therefore not proof of a published location.
     locatie: row.locatieTekst,
@@ -62,9 +68,40 @@ const toAanvraagRecord = (
 
 export class PostgresAanvraagStore implements AanvraagStore {
   private readonly database: BronRuntimeDatabase;
+  private readonly enrichmentStore: PostgresEnrichmentStore;
 
   constructor(database: BronRuntimeDatabase) {
     this.database = database;
+    this.enrichmentStore = new PostgresEnrichmentStore(database);
+  }
+
+  private async applyOverlays(
+    records: readonly AanvraagRecord[]
+  ): Promise<readonly AanvraagRecord[]> {
+    if (records.length === 0) {
+      return records;
+    }
+    const overlays = await this.enrichmentStore.listOverlayRowsForAanvraagIds(
+      records.map((record) => record.id)
+    );
+    return records.map((record) => {
+      const rows = overlays.get(record.id) ?? [];
+      if (rows.length === 0) {
+        return record;
+      }
+      const overlaid = applyEnrichmentOverlayToAanvraagFacts(record, rows);
+      return {
+        ...record,
+        contracttype: overlaid.contracttype,
+        enrichedFields: [...overlaid.enrichedFields],
+        locatie: overlaid.locatie,
+        tariefEenheid: overlaid.tariefEenheid,
+        tariefMax: overlaid.tariefMax,
+        tariefMin: overlaid.tariefMin,
+        tariefValuta: overlaid.tariefValuta,
+        werkvorm: overlaid.werkvorm,
+      };
+    });
   }
 
   async getById(id: string): Promise<AanvraagRecord | null> {
@@ -77,7 +114,8 @@ export class PostgresAanvraagStore implements AanvraagStore {
       return null;
     }
     const versies = await this.listVersies(id);
-    return toAanvraagRecord(row, versies);
+    const [record] = await this.applyOverlays([toAanvraagRecord(row, versies)]);
+    return record ?? null;
   }
 
   async getByIds(ids: readonly string[]): Promise<readonly AanvraagRecord[]> {
@@ -129,7 +167,7 @@ export class PostgresAanvraagStore implements AanvraagStore {
         records.push(record);
       }
     }
-    return records;
+    return this.applyOverlays(records);
   }
 
   async listVersies(
@@ -202,9 +240,37 @@ const toSearchDocument = (row: AanvraagRow): SearchDocument => {
 
 export class PostgresSearchDocumentLoader implements BulkSearchDocumentLoader {
   private readonly database: BronRuntimeDatabase;
+  private readonly enrichmentStore: PostgresEnrichmentStore;
 
   constructor(database: BronRuntimeDatabase) {
     this.database = database;
+    this.enrichmentStore = new PostgresEnrichmentStore(database);
+  }
+
+  private async withSearchOverlays(
+    documents: Map<string, SearchDocument>
+  ): Promise<Map<string, SearchDocument>> {
+    if (documents.size === 0) {
+      return documents;
+    }
+    const overlays = await this.enrichmentStore.listOverlayRowsForAanvraagIds([
+      ...documents.keys(),
+    ]);
+    for (const [id, document] of documents) {
+      const rows = overlays.get(id) ?? [];
+      if (rows.length === 0) {
+        continue;
+      }
+      const overlaid = applyEnrichmentOverlayToSearchFacts(document, rows);
+      documents.set(id, {
+        ...document,
+        contracttype: overlaid.contracttype,
+        locatie: overlaid.locatie,
+        tariefMax: overlaid.tariefMax,
+        tariefMin: overlaid.tariefMin,
+      });
+    }
+    return documents;
   }
 
   async loadByAggregateId(aggregateId: string): Promise<SearchDocument | null> {
@@ -213,7 +279,13 @@ export class PostgresSearchDocumentLoader implements BulkSearchDocumentLoader {
       .from(aanvraag)
       .where(eq(aanvraag.id, aggregateId))
       .limit(1);
-    return row ? toSearchDocument(row) : null;
+    if (!row) {
+      return null;
+    }
+    const documents = await this.withSearchOverlays(
+      new Map([[row.id, toSearchDocument(row)]])
+    );
+    return documents.get(row.id) ?? null;
   }
 
   /** One `WHERE id IN (...)` for the whole batch (RJC-389). */
@@ -231,6 +303,6 @@ export class PostgresSearchDocumentLoader implements BulkSearchDocumentLoader {
     for (const row of rows) {
       documents.set(row.id, toSearchDocument(row));
     }
-    return documents;
+    return this.withSearchOverlays(documents);
   }
 }

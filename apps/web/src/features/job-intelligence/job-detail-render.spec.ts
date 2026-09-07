@@ -125,3 +125,33 @@ describe("JobResults list card summary (CTP-483)", () => {
     expect(markup).not.toContain("<b>TypeScript</b>");
   });
 });
+
+describe("CTP-482 aangevuld provenance badge", () => {
+  it("renders aangevuld badge with tooltip above UI threshold only", () => {
+    if (!plainJob) {
+      throw new Error("Expected job-001 fixture");
+    }
+    const enrichedJob: JobListing = {
+      ...plainJob,
+      enrichedFields: [
+        { confidence: 0.8, field: "locatie", source: "deterministic" },
+        { confidence: 0.79, field: "tarief", source: "deterministic" },
+      ],
+      location: "Utrecht",
+      rate: null,
+    };
+    const markup = renderToStaticMarkup(
+      createElement(JobDetail, {
+        descriptionId: "d",
+        job: enrichedJob,
+        onClose: () => {},
+        titleId: "t",
+      })
+    );
+    expect(markup).toContain('title="aangevuld (locatie)"');
+    expect(markup).toContain(">aangevuld<");
+    expect(markup).not.toContain('title="aangevuld (tarief)"');
+    expect(markup).toContain("Tarief onbekend");
+    expect(markup).toContain("Werkvorm");
+  });
+});

@@ -1,5 +1,5 @@
 import {
-  enqueueEnrichmentOutboxStub,
+  enqueueEnrichmentOutbox,
   runEnrichment,
 } from "@ji/application/enrichment";
 import { PostgresEnrichmentStore } from "@ji/db";
@@ -15,6 +15,7 @@ import type { EnrichIncompletePayload } from "./enrich-incomplete-schema";
 export interface EnrichIncompleteResult {
   readonly dryRun: boolean;
   readonly enriched: number;
+  readonly outboxEnqueued: number;
   readonly processed: number;
   readonly proposals: number;
   readonly skipped: number;
@@ -34,7 +35,7 @@ export const runEnrichIncomplete = async (
     const candidates = await store.listIncomplete(batchSize);
 
     // Sequential reduce keeps enrichment rate-limited; parallel Promise.all would violate worker concurrency intent.
-    // oxlint-disable-next-line unicorn/no-array-reduce -- intentional serial fold (see CTP-482 Slice 1)
+    // oxlint-disable-next-line unicorn/no-array-reduce -- intentional serial fold (see CTP-482)
     const summary = await candidates.reduce<Promise<EnrichIncompleteResult>>(
       async (accumulatorPromise, candidate) => {
         const accumulator = await accumulatorPromise;
@@ -53,12 +54,14 @@ export const runEnrichIncomplete = async (
           return {
             dryRun,
             enriched: accumulator.enriched,
+            outboxEnqueued: accumulator.outboxEnqueued,
             processed: accumulator.processed + 1,
             proposals: accumulator.proposals,
             skipped: accumulator.skipped + 1,
           };
         }
 
+        let outboxEnqueued = 0;
         if (!dryRun) {
           // oxlint-disable-next-line unicorn/no-array-reduce -- persist proposals serially for the same candidate
           await result.proposals.reduce<Promise<void>>(
@@ -68,17 +71,19 @@ export const runEnrichIncomplete = async (
               }),
             Promise.resolve()
           );
-          enqueueEnrichmentOutboxStub({
+          const outbox = await enqueueEnrichmentOutbox(store, {
             aanvraagId: candidate.id,
             dryRun,
-            fieldCount: result.proposals.length,
+            fields: result.proposals.map((proposal) => proposal.field),
           });
+          outboxEnqueued = outbox.enqueued ? 1 : 0;
         }
 
         return {
           dryRun,
           enriched:
             accumulator.enriched + (dryRun ? 0 : result.proposals.length),
+          outboxEnqueued: accumulator.outboxEnqueued + outboxEnqueued,
           processed: accumulator.processed + 1,
           proposals: accumulator.proposals + result.proposals.length,
           skipped: accumulator.skipped,
@@ -87,6 +92,7 @@ export const runEnrichIncomplete = async (
       Promise.resolve({
         dryRun,
         enriched: 0,
+        outboxEnqueued: 0,
         processed: 0,
         proposals: 0,
         skipped: 0,
@@ -99,7 +105,7 @@ export const runEnrichIncomplete = async (
   }
 };
 
-/** Dequeues incomplete curated aanvragen and applies deterministic enrichment (Slice 1). */
+/** Dequeues incomplete curated aanvragen and applies deterministic enrichment. */
 export const enrichIncompleteTask = schemaTask({
   id: "enrich-incomplete",
   queue: {
