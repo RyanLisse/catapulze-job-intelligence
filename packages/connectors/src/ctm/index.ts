@@ -15,3 +15,9 @@ export {
   type CtmFetchedPayload,
   type CtmListingPage,
 } from "./types";
+
+export {
+  createCtmEffectClient,
+  fetchListingEffect,
+  type CtmEffectClientOptions,
+} from "./client-effect";

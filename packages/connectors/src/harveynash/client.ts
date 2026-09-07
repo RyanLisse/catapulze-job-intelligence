@@ -118,7 +118,9 @@ const extractDescriptionFacts = (
   return facts;
 };
 
-const parseDetailHtml = (html: string): HarveyNashDetailFragment => {
+export const parseHarveyNashDetailHtml = (
+  html: string
+): HarveyNashDetailFragment => {
   const jobPosting = findJsonLdByType(html, "JobPosting");
   const description = jobPosting
     ? asOptionalString(jobPosting.description)
@@ -176,10 +178,10 @@ export const createHarveyNashClient = (
           throw new Error(`Missing Harvey Nash detail fixture for ${jobId}`);
         }
         const fixture = await loadConnectorFixture<string>(relativePath);
-        return parseDetailHtml(fixture.payload);
+        return parseHarveyNashDetailHtml(fixture.payload);
       }
       const response = readOk(await fetchImpl(detailUrl), "detail");
-      return parseDetailHtml(await response.text());
+      return parseHarveyNashDetailHtml(await response.text());
     },
     fetchListing: async (page) => {
       if (!liveEnabled) {

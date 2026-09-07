@@ -24,3 +24,10 @@ export {
   type OpdrachtoverheidLocationDetail,
   type OpdrachtoverheidTender,
 } from "./types";
+
+export {
+  createOpdrachtoverheidEffectClient,
+  fetchDetailJsonLdEffect,
+  fetchListingEffect,
+  type OpdrachtoverheidEffectClientOptions,
+} from "./client-effect";

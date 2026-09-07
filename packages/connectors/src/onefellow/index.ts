@@ -17,3 +17,9 @@ export {
   type OnefellowJob,
   type OnefellowListingResponse,
 } from "./types";
+
+export {
+  createOnefellowEffectClient,
+  fetchListingEffect,
+  type OnefellowEffectClientOptions,
+} from "./client-effect";
