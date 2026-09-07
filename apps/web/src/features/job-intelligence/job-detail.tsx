@@ -221,17 +221,9 @@ export const JobDetail = ({
         <DetailSection title="Opdracht">
           <JobBodyContent
             bronSlug={job.sourceRecords[0]?.name}
-            content={job.summary}
+            content={job.description.trim() || job.summary}
             className="text-foreground"
           />
-          {job.description.trim() &&
-          job.description.trim() !== job.summary.trim() ? (
-            <JobBodyContent
-              bronSlug={job.sourceRecords[0]?.name}
-              content={job.description}
-              className="mt-2 text-muted-foreground"
-            />
-          ) : null}
         </DetailSection>
 
         {job.skills.length > 0 ? (

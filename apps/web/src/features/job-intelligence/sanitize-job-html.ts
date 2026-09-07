@@ -1,7 +1,11 @@
 /**
- * Allowlist sanitizer for Opdracht HTML bodies (CTP-481).
+ * Allowlist sanitizer for Opdracht HTML bodies (CTP-481 / CTP-483).
  * Keeps formatting from Motian/HTML brons while stripping scripts, handlers,
  * and unsafe URLs. No DOMPurify dependency — works in Bun SSR + browser.
+ *
+ * CTP-483: Motian/OneFellow-style payloads may arrive entity-encoded
+ * (`&lt;p&gt;…`). Decode before strip/sanitize so tags are not shown as text
+ * and summaries never re-introduce markup via strip-then-decode.
  */
 
 const ALLOWED_TAGS = new Set([
@@ -38,19 +42,53 @@ const ATTR_PATTERN =
 
 const SAFE_HREF_PATTERN = /^(?:https?:|mailto:|\/|#)/iu;
 
+/** Markers that mean the payload is markup escaped as entities, not live tags. */
+const ENTITY_ENCODED_HTML_MARKER =
+  /&lt;\/?(?:p|br|b|strong|i|em|ul|ol|li|h[1-6]|div|span|a|table|tr|td|th|section|article)\b/iu;
+
+const MAX_ENTITY_DECODE_PASSES = 3;
+
 const stripDangerousSequences = (html: string): string =>
   html
     .replaceAll(/<script\b[^>]*>[\s\S]*?<\/script>/giu, "")
     .replaceAll(/<style\b[^>]*>[\s\S]*?<\/style>/giu, "")
     .replaceAll(/<!--[\s\S]*?-->/gu, "");
 
-const decodeBasicEntities = (value: string): string =>
+const decodeBasicEntitiesOnce = (value: string): string =>
   value
+    .replaceAll(/&nbsp;/giu, " ")
+    .replaceAll(/&#0*39;/gu, "'")
+    .replaceAll(/&#x0*27;/giu, "'")
+    .replaceAll("&quot;", '"')
     .replaceAll("&lt;", "<")
     .replaceAll("&gt;", ">")
-    .replaceAll("&quot;", '"')
-    .replaceAll("&#39;", "'")
     .replaceAll("&amp;", "&");
+
+/**
+ * Multi-pass entity decode for `&amp;lt;p&amp;gt;` style double-escaping.
+ * Caps passes so pathological input cannot loop.
+ */
+export const decodeJobHtmlEntities = (value: string): string => {
+  let current = value;
+  for (let pass = 0; pass < MAX_ENTITY_DECODE_PASSES; pass += 1) {
+    const next = decodeBasicEntitiesOnce(current);
+    if (next === current) {
+      break;
+    }
+    current = next;
+  }
+  return current;
+};
+
+export const looksLikeEntityEncodedHtml = (value: string): boolean =>
+  ENTITY_ENCODED_HTML_MARKER.test(value) || value.includes("&amp;lt;");
+
+/**
+ * When the body is entity-encoded markup, decode so sanitizer/strip see real
+ * tags. Real HTML (`<p>…`) is returned unchanged.
+ */
+export const normalizeJobHtml = (value: string): string =>
+  looksLikeEntityEncodedHtml(value) ? decodeJobHtmlEntities(value) : value;
 
 const escapeAttribute = (value: string): string =>
   value
@@ -64,7 +102,7 @@ const isSafeHref = (value: string): boolean => {
   if (trimmed.length === 0) {
     return false;
   }
-  const decoded = decodeBasicEntities(trimmed);
+  const decoded = decodeJobHtmlEntities(trimmed);
   if (/^[a-z0-9+.-]+:/iu.test(decoded) && !SAFE_HREF_PATTERN.test(decoded)) {
     return false;
   }
@@ -97,23 +135,20 @@ const sanitizeAttributes = (tagName: string, attrs: string): string => {
   return kept.length > 0 ? ` ${kept.join(" ")}` : "";
 };
 
-/** Collapse markup to a single-line plain excerpt (summaries / list cards). */
+/**
+ * Collapse markup to a single-line plain excerpt (summaries / list cards).
+ * Decode first, then strip — never strip-then-decode (CTP-483).
+ */
 export const stripHtmlToText = (html: string): string =>
-  html
+  decodeJobHtmlEntities(html)
     .replaceAll(/<script\b[^>]*>[\s\S]*?<\/script>/giu, " ")
     .replaceAll(/<style\b[^>]*>[\s\S]*?<\/style>/giu, " ")
     .replaceAll(/<[^>]+>/gu, " ")
-    .replaceAll(/&nbsp;/giu, " ")
-    .replaceAll(/&amp;/giu, "&")
-    .replaceAll(/&lt;/giu, "<")
-    .replaceAll(/&gt;/giu, ">")
-    .replaceAll(/&quot;/giu, '"')
-    .replaceAll(/&#39;/giu, "'")
     .replaceAll(/\s+/gu, " ")
     .trim();
 
 export const sanitizeJobHtml = (dirty: string): string => {
-  const withoutDanger = stripDangerousSequences(dirty);
+  const withoutDanger = stripDangerousSequences(normalizeJobHtml(dirty));
   let output = "";
   let cursor = 0;
 

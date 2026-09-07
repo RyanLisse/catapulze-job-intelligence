@@ -200,3 +200,32 @@ describe("AE3 HTML beschrijving summary (CTP-481)", () => {
     expect(job.summary).not.toContain("<");
   });
 });
+
+describe("AE3 entity-encoded beschrijving summary (CTP-483)", () => {
+  it("decodes then strips entity-encoded HTML for list summaries", () => {
+    const job = mapAanvraagToJobListing({
+      aanvraag: {
+        beschrijving:
+          "&lt;p&gt;Wij zoeken een &lt;b&gt;TypeScript&lt;/b&gt; engineer.&lt;/p&gt;&lt;ul&gt;&lt;li&gt;React&lt;/li&gt;&lt;/ul&gt;",
+        bronId: "bron-nvb",
+        bronReferentie: "NVB-1",
+        id: "aanvraag-html-encoded",
+        rawPayloadRef: "raw/nvb-1.json",
+        scrapeRunId: "run-nvb",
+        status: "active",
+        titel: "TypeScript engineer",
+      },
+      bronCatalog: buildBronCatalog([
+        {
+          bronId: "bron-nvb",
+          naam: "Nationale Vacaturebank",
+        },
+      ]),
+      versies: [],
+    });
+
+    expect(job.summary).toBe("Wij zoeken een TypeScript engineer. React");
+    expect(job.summary).not.toContain("<");
+    expect(job.description).toContain("&lt;p&gt;");
+  });
+});

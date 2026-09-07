@@ -49,8 +49,12 @@ export const BRON_BODY_CONTENT_FORMAT: ReadonlyMap<string, BodyContentFormat> =
 const HTML_MARKER_PATTERN =
   /<\/?(?:p|br|b|strong|i|em|ul|ol|li|h[1-6]|div|span|a|table|tr|td|th|section|article)\b/iu;
 
+/** Entity-encoded markup (`&lt;p&gt;`) — Motian/OneFellow residual (CTP-483). */
+const ENTITY_ENCODED_HTML_MARKER =
+  /&lt;\/?(?:p|br|b|strong|i|em|ul|ol|li|h[1-6]|div|span|a|table|tr|td|th|section|article)\b/iu;
+
 export const looksLikeHtml = (value: string): boolean =>
-  HTML_MARKER_PATTERN.test(value);
+  HTML_MARKER_PATTERN.test(value) || ENTITY_ENCODED_HTML_MARKER.test(value);
 
 export const bodyContentFormatForBron = (
   bronSlug: string | null | undefined
