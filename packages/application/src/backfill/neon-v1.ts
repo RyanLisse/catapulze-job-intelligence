@@ -632,6 +632,14 @@ const provenanceMatches = (
   );
 };
 
+const provenanceIdentityMatches = (
+  actual: BackfillProvenanceRecord,
+  expected: Omit<BackfillProvenanceRecord, "aanvraagId">
+): boolean =>
+  actual.v1Id === expected.v1Id &&
+  actual.bronId === expected.bronId &&
+  actual.bronReferentie === expected.bronReferentie;
+
 const readProvenance = async (
   provenanceStore: RunNeonV1BackfillInput["provenanceStore"],
   v1Id: string
@@ -879,13 +887,14 @@ const importNeonV1Job = async (input: {
       v1Id: input.job.id,
     };
     const existing = await readProvenance(input.provenanceStore, input.job.id);
-    if (existing) {
-      if (!provenanceMatches(existing, expectedProvenance)) {
-        throw new BackfillFailureError({
-          code: "PROVENANCE_MISMATCH",
-          phase: "provenance",
-        });
-      }
+    if (existing && !provenanceIdentityMatches(existing, expectedProvenance)) {
+      throw new BackfillFailureError({
+        code: "PROVENANCE_MISMATCH",
+        phase: "provenance",
+      });
+    }
+
+    if (existing && provenanceMatches(existing, expectedProvenance)) {
       await requireRawReadback({
         body: rawBody,
         contentHash,
@@ -896,6 +905,8 @@ const importNeonV1Job = async (input: {
       incrementMetric(input.metrics, platform, "skipped");
       return existing;
     }
+
+    const isContentDrift = existing !== null;
 
     await requireIdentityUnboundOrOwn({
       bronId: platformBinding.bronId,
@@ -972,7 +983,7 @@ const importNeonV1Job = async (input: {
       });
     }
     incrementMetric(input.metrics, platform, "matched");
-    if (curated.status === "curated") {
+    if (curated.status === "curated" || isContentDrift) {
       incrementMetric(input.metrics, platform, "imported");
     } else {
       incrementMetric(input.metrics, platform, "skipped");

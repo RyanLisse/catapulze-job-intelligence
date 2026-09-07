@@ -549,6 +549,56 @@ describe("Neon v1 backfill run", () => {
     );
   });
 
+  it("re-imports same-identity jobs when source content drifts", async () => {
+    const firstJob = sampleJob();
+    const secondJob = {
+      ...firstJob,
+      description: "Updated description from Motian.",
+    };
+    const curateStore = new InMemoryCurateStore();
+    const provenanceStore = new InMemoryBackfillProvenanceStore();
+    const objectStore = new InMemoryObjectStore();
+    const runStore = new InMemoryBackfillRunStore();
+    const run = (job: NeonV1JobRow) =>
+      runNeonV1Backfill({
+        bindings,
+        curateStore,
+        objectStore,
+        provenanceStore,
+        runStore,
+        source: createFixtureNeonV1Source({
+          capturedAt: "2026-08-29T10:00:00.000Z",
+          contractVersion: NEON_V1_BACKFILL_CONTRACT_VERSION,
+          jobs: [job],
+        }),
+        startedAt: new Date("2026-08-29T10:00:00.000Z"),
+      });
+
+    const first = await run(firstJob);
+    const firstProvenance = await provenanceStore.findByV1Id(firstJob.id);
+    const second = await run(secondJob);
+    const secondProvenance = await provenanceStore.findByV1Id(secondJob.id);
+
+    expect(first.status).toBe("succeeded");
+    expect(second.status).toBe("succeeded");
+    expect(second.metrics).toMatchObject({
+      errors: 0,
+      imported: 1,
+      matched: 1,
+      skipped: 0,
+    });
+    expect(secondProvenance?.contentHash).not.toBe(
+      firstProvenance?.contentHash
+    );
+    expect(secondProvenance?.rawPayloadRef).not.toBe(
+      firstProvenance?.rawPayloadRef
+    );
+    expect(
+      await objectStore.get(secondProvenance?.rawPayloadRef ?? "")
+    ).not.toBeNull();
+    expect(curateStore.aanvragen[0]?.beschrijving).toBe(secondJob.description);
+  });
+
   it("writes the complete Motian source row to raw storage", async () => {
     const sourceRow = {
       archived_at: null,

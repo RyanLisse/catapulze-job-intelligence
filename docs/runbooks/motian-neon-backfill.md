@@ -303,12 +303,12 @@ Provenance: `v1_id` on `curated.aanvraag` plus `BackfillProvenanceStore` verifie
 ## Idempotency
 
 Een herstart slaat een al geregistreerde Motian-`jobs.id` alleen over na exacte
-provenance- en object-store-readback. Dat is alleen idempotent zolang de
-bronrij sinds de eerste import bytegelijk is. Motian wijzigt `status` zonder
-`scraped_at` bij te werken. Zodra zo'n al geïmporteerde rij muteert, kan een
-onderbroken import niet rechtstreeks worden hervat: de rerun stopt terecht
-met `PROVENANCE_MISMATCH`. Veronderstel dus niet meer dat iedere gestopte run
-automatisch met `skipped` kan doorgaan.
+provenance- en object-store-readback. Als dezelfde `v1_id` dezelfde identiteit
+(`bronId` + `bronReferentie`) houdt maar de broninhoud verandert, wordt de rij
+opnieuw geïmporteerd: het content-addressed raw object, de aanvraag en de
+provenance worden bijgewerkt. Alleen echte identiteitsconflicten blijven
+fail-closed met `PROVENANCE_MISMATCH`. Veronderstel dus niet dat iedere
+gestopte run automatisch met `skipped` kan doorgaan.
 
 Een hard gestopte run kan bovendien een `running`-rij in
 `curated.scrape_run` achterlaten, waardoor nieuwe runs worden geblokkeerd.
