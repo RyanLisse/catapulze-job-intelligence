@@ -56,6 +56,7 @@
     "demo:preflight": "PATH=\"./node_modules/.bin:$PATH\" bun scripts/demo/preflight.ts",
     "demo:record": "PATH=\"./node_modules/.bin:$PATH\" bun scripts/demo/record.ts",
     "demo:smoke-cursor-vo": "PATH=\"./node_modules/.bin:$PATH\" bun scripts/demo/smoke-cursor-vo.ts",
+    "demo:record-search": "PATH=\"./node_modules/.bin:$PATH\" bun scripts/demo/record-search-tour.ts",
     "export:reconcile-spott": "bun apps/server/src/export/reconcile-spott-export.ts",
     "docker:up": "docker compose up -d --build",
     "docker:down": "docker compose down",

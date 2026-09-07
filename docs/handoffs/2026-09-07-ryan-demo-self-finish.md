@@ -23,24 +23,36 @@ Defaults: app `https://app.23-88-60-222.sslip.io`, API `https://api.23-88-60-222
 
 ## Record (cursor + voiceover)
 
-Voiceover WAV (HeyGen Sharon, nl) ships as a local artifact under `demos/.tmp/ji-demo-voiceover-nl.wav` (gitignored). Script text: `scripts/demo/narration.ts`.
+Voiceover WAV (HeyGen Sharon, nl) lives under `demos/.tmp/` (gitignored). Scripts: `scripts/demo/narration.ts`, `scripts/demo/narration-search.ts`.
 
 ```bash
 # Optional: prove cursor + VO mux without login (~18s home smoke)
-bun scripts/demo/smoke-cursor-vo.ts
+bun run demo:smoke-cursor-vo
 
-# Full client tour (needs secrets via 1Password inject)
+# Full product tour (needs secrets)
 JI_DEMO_EMAIL='…' JI_DEMO_PASSWORD='…' bun run demo:record
+
+# Search methods + filters overview (Boolean OR/AND, facets, sort, archive, chips)
+JI_DEMO_EMAIL='…' JI_DEMO_PASSWORD='…' bun run demo:record-search
 ```
 
-What `demo:record` does:
+What the recorders do:
 
 1. Live preflight (tip SHA + `/readyz` ready, lag 0).
-2. Starts **ffmpeg x11grab** at 1280×800 with **`-draw_mouse 1`** on `DISPLAY` (default `:1`).
-3. Opens headed Chromium pinned to `0,0`, injects an **orange ring overlay** that tracks the pointer, and drives the tour with deliberate `mouse.move` steps so the cursor reads on phone.
-4. Muxes the Dutch voiceover (AAC) into `demos/ji-feature-demo-ryan-YYYYMMDD.mp4` and writes `.meta.txt` (`cursor=x11grab+overlay`).
+2. **ffmpeg x11grab** at 1280×800 with **`-draw_mouse 1`** on `DISPLAY` (default `:1`).
+3. Headed Chromium at `0,0` with an **orange ring overlay** and deliberate `mouse.move` steps.
+4. Mux Dutch voiceover (AAC) into `demos/*.mp4` + `.meta.txt`.
 
-Overrides: `JI_DEMO_APP_URL`, `JI_DEMO_API_URL`, `JI_DEMO_QUERY`, `JI_DEMO_OUT_DIR`, `JI_DEMO_VOICEOVER`, `DISPLAY`.
+`demo:record-search` specifically shows:
+
+1. Boolean OR + phrase + NOT — `(Azure OR "Power BI") NOT junior`
+2. Boolean AND — `Azure AND data`
+3. Facets — Bron, Contract, Gepubliceerd (30d), optional minimumtarief → chips
+4. Sort — Nieuwste eerst
+5. Archive — **Ook in archief zoeken** (`archief=1`)
+6. **Alles wissen** → one result detail with provenance
+
+Overrides: `JI_DEMO_APP_URL`, `JI_DEMO_API_URL`, `JI_DEMO_OUT_DIR`, `JI_DEMO_VOICEOVER`, `JI_DEMO_SEARCH_VOICEOVER`, `DISPLAY`.
 
 ---
 
