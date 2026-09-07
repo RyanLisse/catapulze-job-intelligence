@@ -1,8 +1,7 @@
 import { AanvraagLifecycleSchema } from "@ji/domain";
-import type { SearchFilters } from "@ji/search";
 import { Schema } from "effect";
 
-import type { CapabilitySchema, SchemaType } from "./schema-helpers";
+import type { SchemaType } from "./schema-helpers";
 import {
   FiniteNumber,
   IsoDateTimeString,
@@ -33,8 +32,10 @@ const searchFilters = Schema.Struct({
   tariefMin: optionalField(FiniteNumber),
 });
 
-export const searchFiltersSchema: CapabilitySchema<SearchFilters> =
-  toCapabilitySchema(searchFilters);
+export const searchFiltersSchema = toCapabilitySchema(searchFilters);
+
+/** Wire SearchFilters DTO — serialisable SoT for web + handlers (CTP-475). */
+export type SearchFilters = SchemaType<typeof searchFiltersSchema>;
 
 const sliceADomainFailure = Schema.Struct({
   code: Schema.Literals([
@@ -104,6 +105,26 @@ export const MARKERING_STATUSES = [
 export const MarkeringStatusSchema = Schema.Literals(MARKERING_STATUSES);
 
 export type MarkeringStatus = typeof MarkeringStatusSchema.Type;
+
+/**
+ * Search scope / sort literals — shared SoT for handlers + web (CTP-475).
+ * Values must stay lockstep with `@ji/search` (partition.ts / types.ts);
+ * web must not import `@ji/search` (pulls Node builtins via @ji/performance).
+ */
+export const SEARCH_SCOPES = ["active", "all"] as const;
+export type SearchScope = (typeof SEARCH_SCOPES)[number];
+export const DEFAULT_SEARCH_SCOPE: SearchScope = "active";
+
+export const SEARCH_SORT_OPTIONS = [
+  "relevance",
+  "newest",
+  "rate-high",
+  "closing-soon",
+] as const;
+export type SearchSort = (typeof SEARCH_SORT_OPTIONS)[number];
+
+/** Manticore max_matches window — lockstep with `@ji/search` SEARCH_WINDOW_LIMIT. */
+export const SEARCH_WINDOW_LIMIT = 1000;
 
 /** Markering readback fields returned by get/markeer capabilities. */
 export const markeringReadbackSchema = toCapabilitySchema(

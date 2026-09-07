@@ -7,6 +7,10 @@
  * here — Schema decode via CapabilitySchema.safeParse is allowed; production
  * Effect runtime activation stays OFF.
  *
+ * Browser-safe entry: `@ji/application/registry/web-contracts`.
+ * Do not re-export `@ji/search` or the full `./registry` barrel (those pull
+ * Node builtins via `@ji/performance` / handler runtime).
+ *
  * Motian rematch/backfill and ADR-0012 auth are untouched.
  */
 
@@ -14,14 +18,18 @@ import type {
   listVersiesOutputSchema,
   searchAanvragenInputSchema,
   searchAanvragenOutputSchema,
-} from "./handlers";
+} from "./capability-io";
 import type { SchemaType } from "./schema-helpers";
 import type { MarkeringReadback } from "./schemas";
 
 export type { SchemaEncoded, SchemaType } from "./schema-helpers";
 export {
+  DEFAULT_SEARCH_SCOPE,
   MARKERING_STATUSES,
   MarkeringStatusSchema,
+  SEARCH_SCOPES,
+  SEARCH_SORT_OPTIONS,
+  SEARCH_WINDOW_LIMIT,
   markeringReadbackSchema,
   restCapabilityFailureSchema,
   searchFiltersSchema,
@@ -30,10 +38,15 @@ export {
   type MarkeringReadback,
   type MarkeringStatus,
   type RestCapabilityFailure,
+  type SearchFilters,
+  type SearchScope,
+  type SearchSort,
   type SliceADomainFailure,
   type SliceADomainFailureDetails,
 } from "./schemas";
 export {
+  BATCH_GET_AANVRAGEN_MAX_IDS,
+  SEARCH_MAX_LIMIT,
   batchGetAanvragenInputSchema,
   batchGetAanvragenOutputSchema,
   getAanvraagInputSchema,
@@ -46,7 +59,7 @@ export {
   markeerAanvraagOutputSchema,
   searchAanvragenInputSchema,
   searchAanvragenOutputSchema,
-} from "./handlers";
+} from "./capability-io";
 
 /** Element of list_versies output — serialisable web DTO. */
 export type AanvraagVersieView = SchemaType<

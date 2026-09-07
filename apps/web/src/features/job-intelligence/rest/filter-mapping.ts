@@ -14,7 +14,7 @@ import { bronNameToSource } from "./bron-catalog";
 import type { BronCatalogEntry } from "./bron-catalog";
 import type { CapabilityJsonObject } from "./capability-client";
 
-/** Wire search filters — SoT `@ji/search` / registry searchFiltersSchema (CTP-475). */
+/** Wire search filters — SoT registry searchFiltersSchema / web-contracts (CTP-475). */
 export type ApiSearchFilters = SearchFilters;
 
 export interface ApiFacetBucket {

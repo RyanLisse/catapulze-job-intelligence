@@ -63,6 +63,15 @@ describe("web contracts from SoT (CTP-475)", () => {
     );
   });
 
+  it("does not re-export @ji/search or the full registry barrel", () => {
+    const source = readFileSync(path.join(contractsDir, "index.ts"), "utf-8");
+    expect(source).not.toMatch(/from\s+["']@ji\/search["']/u);
+    expect(source).not.toMatch(/from\s+["']@ji\/application\/registry["']/u);
+    expect(source).toMatch(
+      /from\s+["']@ji\/application\/registry\/web-contracts["']/u
+    );
+  });
+
   it("keeps the capability client free of Effect Runtime imports", () => {
     const source = readFileSync(
       path.join(featureRoot, "rest/capability-client.ts"),
