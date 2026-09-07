@@ -26,6 +26,7 @@
     "@trpc/server": "catalog:",
     "better-auth": "catalog:",
     "dotenv": "catalog:",
+    "effect": "catalog:",
     "hono": "catalog:",
     "postgres": "^3.4.7",
     "zod": "catalog:"

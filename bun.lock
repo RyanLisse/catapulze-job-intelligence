@@ -51,6 +51,7 @@
         "@trpc/server": "catalog:",
         "better-auth": "catalog:",
         "dotenv": "catalog:",
+        "effect": "catalog:",
         "hono": "catalog:",
         "postgres": "^3.4.7",
         "zod": "catalog:",
@@ -129,6 +130,7 @@
         "@trpc/client": "catalog:",
         "@trpc/server": "catalog:",
         "dotenv": "catalog:",
+        "effect": "catalog:",
         "zod": "catalog:",
       },
       "devDependencies": {

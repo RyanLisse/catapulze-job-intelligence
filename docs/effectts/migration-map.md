@@ -174,6 +174,7 @@ Slices zijn strikt geordend op leerrendement en dependency-richting. Elke slice 
 | AC | transport-auth specs groen; origin/bearer regels intact |
 | Testbewijs | mcp/rest/transport specs + `check-types` |
 | Rollback | boundary helper revert |
+| Status (CTP-474) | Opt-in Server/REST/MCP/tRPC Effect run boundary landed (`apps/server/src/effect`, `packages/api/src/effect`); native REST/MCP/tRPC handlers remain default; TransportFault/ApiFault → HTTP/MCP/tRPC mappers; prod Effect runtime OFF; ADR-0012 auth untouched; Motian ongewijzigd |
 
 ### Slice 10 — Worker / Trigger task bodies
 
