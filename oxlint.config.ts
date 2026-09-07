@@ -22,11 +22,36 @@ const agentAndVendorIgnores = [
   "tools/oxlint/anti-slop/**",
 ] as const;
 
+/** Packages/apps with a direct `effect` dependency — Effect anti-slop rules stay scoped here. */
+const effectPackageGlobs = [
+  "apps/server/**/*.{ts,tsx}",
+  "apps/worker/**/*.{ts,tsx}",
+  "packages/api/**/*.{ts,tsx}",
+  "packages/application/**/*.{ts,tsx}",
+  "packages/connectors/**/*.{ts,tsx}",
+  "packages/db/**/*.{ts,tsx}",
+  "packages/domain/**/*.{ts,tsx}",
+  "packages/env/**/*.{ts,tsx}",
+  "packages/search/**/*.{ts,tsx}",
+] as const;
+
 export default defineConfig({
   extends: [core, next],
   ignorePatterns: [...core.ignorePatterns, ...agentAndVendorIgnores],
   jsPlugins: [
     { name: "anti-slop", specifier: "./tools/oxlint/anti-slop/index.ts" },
+    {
+      name: "anti-slop-effect",
+      specifier: "./tools/oxlint/anti-slop/effect/index.ts",
+    },
+  ],
+  overrides: [
+    {
+      files: [...effectPackageGlobs],
+      rules: {
+        "anti-slop-effect/no-service-constructor-imports": "error",
+      },
+    },
   ],
   rules: {
     "anti-slop/no-chained-type-assertions": "error",
