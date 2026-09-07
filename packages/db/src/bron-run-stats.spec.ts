@@ -44,11 +44,11 @@ const plusMs = (start: Date, ms: number): Date =>
   new Date(start.getTime() + ms);
 
 /**
- * Two sources deliberately share a display name. The register carries seven
- * legacy Motian rows whose `naam` collides with a live source, so anything
- * that groups on the name silently merges a dead source into a healthy one.
+ * Source display names must stay unique after bron_naam_lower_uidx (Onbekend
+ * audit §4). Stats still key by bron_id so two distinct sources never merge.
  */
-const SHARED_NAAM = "RJC407 Gedeelde Naam";
+const NAAM_A = "RJC407 Bron A";
+const NAAM_B = "RJC407 Bron B";
 
 interface Fixture {
   readonly bronIdA: string;
@@ -71,7 +71,7 @@ const seed = async (
       categorie: "overheidsportaal",
       id: bronIdA,
       interval: "*/15 * * * *",
-      naam: SHARED_NAAM,
+      naam: NAAM_A,
       status: "ready",
       voorwaardenStatus: "toegestaan",
     },
@@ -79,7 +79,7 @@ const seed = async (
       categorie: "overheidsportaal",
       id: bronIdB,
       interval: "0 * * * *",
-      naam: SHARED_NAAM,
+      naam: NAAM_B,
       status: "ready",
       voorwaardenStatus: "toegestaan",
     },
@@ -395,19 +395,35 @@ describe("PostgresBronRunStatsReader", () => {
     expect(allView.totaal.aantalGevonden).toBe(1015);
   });
 
-  it("keeps two sources with the same naam apart by bron_id", async () => {
+  it("keeps sources with distinct namen keyed by bron_id", async () => {
     const result = await stats();
     if (!(result && fixture)) {
       expect(fixture).toBeNull();
       return;
     }
 
-    const shared = result.bronnen.filter((row) => row.naam === SHARED_NAAM);
-    expect(shared).toHaveLength(2);
-    expect(new Set(shared.map((row) => row.bronId)).size).toBe(2);
-    // Same name, different volumes: proof they were never merged.
+    expect(rowFor(result, fixture.bronIdA).naam).toBe(NAAM_A);
+    expect(rowFor(result, fixture.bronIdB).naam).toBe(NAAM_B);
     expect(rowFor(result, fixture.bronIdA).runs).toBe(3);
     expect(rowFor(result, fixture.bronIdB).runs).toBe(1);
+  });
+
+  it("rejects a second bron row with the same lower(naam)", async () => {
+    if (!sqlClient) {
+      expect(sqlClient).toBeNull();
+      return;
+    }
+    const database = drizzle(sqlClient, { schema });
+    const duplicateId = crypto.randomUUID();
+    await expect(
+      database.insert(bron).values({
+        categorie: "overheidsportaal",
+        id: duplicateId,
+        naam: NAAM_A.toUpperCase(),
+        status: "ready",
+        voorwaardenStatus: "toegestaan",
+      })
+    ).rejects.toThrow(/bron_naam_lower_uidx|unique/iu);
   });
 
   it("scopes each window rather than reporting lifetime totals", async () => {
@@ -451,7 +467,7 @@ describe("PostgresBronRunStatsReader", () => {
     }
 
     const rowA = rowFor(result, fixture.bronIdA);
-    expect(rowA.naam).toBe(SHARED_NAAM);
+    expect(rowA.naam).toBe(NAAM_A);
     expect(rowA.interval).toBe("*/15 * * * *");
     expect(rowA.actief).toBe(false);
     expect(rowA.lastRunAt).toBeInstanceOf(Date);
