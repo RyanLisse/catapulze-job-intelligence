@@ -41,6 +41,8 @@ routing — the product still serves search), `unavailable` → 503.
 process-only (200 while the event loop runs), independent of every check
 below.
 
+**Docker/Coolify HEALTHCHECK must probe `/livez`, not `/readyz`.** Coolify treats a failing image HEALTHCHECK as deploy rollback, which removes the Traefik backend even when the process is up (outage after tip `aca8478`). Keep `/readyz` as the app readiness contract for operators and routing decisions; see `apps/server/Dockerfile`.
+
 The composite result is cached for `READINESS_CACHE_MS` (2000ms) so a probe
 storm — a load balancer or k8s readiness/liveness probe hitting `/readyz`
 every few seconds — cannot itself DoS Manticore or S3. Each individual check

@@ -44,7 +44,7 @@ De smoke-test bouwt de images, wacht eerst alleen op Postgres, voert daarna de D
 
 Maak in een lokale Linux-VM of lokale Coolify-installatie één project en importeer deze GitHub-repository. Configureer drie langlevende Docker-applications:
 
-1. `server`: Dockerfile `apps/server/Dockerfile`, poort `3000`, healthcheck `/readyz`. Zet geen `APP_RELEASE_SHA`: de server leest het release-SHA uit `SOURCE_COMMIT`, dat Coolify zelf in iedere container injecteert; een handmatige niet-SHA-waarde laat de boot falen.
+1. `server`: Dockerfile `apps/server/Dockerfile`, poort `3000`, Docker HEALTHCHECK `/livez` (process liveness). Do not point Coolify/Docker HEALTHCHECK at `/readyz` — a 503 readiness response caused tip-deploy rollback after `aca8478`. Keep `/readyz` as the app readiness contract for Traefik/ops probes. Zet geen `APP_RELEASE_SHA`: de server leest het release-SHA uit `SOURCE_COMMIT`, dat Coolify zelf in iedere container injecteert; een handmatige niet-SHA-waarde laat de boot falen.
 2. `web`: Dockerfile `apps/web/Dockerfile`, poort `3001`, build argument `NEXT_PUBLIC_SERVER_URL` met de publieke API-URL en runtimevariabele `INTERNAL_SERVER_URL` met de interne URL van de `server`-application.
 3. `projector`: Dockerfile `apps/server/Dockerfile.projector`, zonder publieke poort of domain. Schakel de van de byte-identieke server-image overgenomen API-HTTP-healthcheck in Coolify uit, want de projector luistert niet op poort 3000. Geef alleen `DATABASE_URL`, `PROJECTOR_DATABASE_URL` en `MANTICORE_URL` mee en verbind de application met hetzelfde predefined network als Manticore.
 
