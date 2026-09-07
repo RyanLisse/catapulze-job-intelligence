@@ -9,7 +9,9 @@ import {
   AUTH_BEARER_OPTIONS,
   AUTH_EMAIL_PASSWORD_OPTIONS,
   AUTH_USER_ROLE_FIELD,
+  resolveCrossSubDomainCookieDomain,
 } from "./security-config";
+import type { AuthAdvancedCookieConfig } from "./security-config";
 
 export {
   AUTH_BEARER_OPTIONS,
@@ -17,21 +19,35 @@ export {
   AUTH_USER_ROLES,
   AUTH_USER_ROLE_FIELD,
   DEFAULT_AUTH_USER_ROLE,
+  resolveCrossSubDomainCookieDomain,
   type AuthUserRole,
 } from "./security-config";
 
 export const createAuth = () => {
   const isProduction = env.NODE_ENV === "production";
   const trustedOrigin = new URL(env.CORS_ORIGIN).origin;
+  const crossSubDomainCookieDomain = resolveCrossSubDomainCookieDomain(
+    env.BETTER_AUTH_URL,
+    env.CORS_ORIGIN
+  );
+
+  const advanced: AuthAdvancedCookieConfig = {
+    defaultCookieAttributes: {
+      httpOnly: true,
+      sameSite: "lax",
+      secure: isProduction,
+    },
+  };
+
+  if (crossSubDomainCookieDomain) {
+    advanced.crossSubDomainCookies = {
+      domain: crossSubDomainCookieDomain,
+      enabled: true,
+    };
+  }
 
   return betterAuth({
-    advanced: {
-      defaultCookieAttributes: {
-        httpOnly: true,
-        sameSite: "lax",
-        secure: isProduction,
-      },
-    },
+    advanced,
     appName: "Catapulze Job Intelligence",
     baseURL: env.BETTER_AUTH_URL,
     database: drizzleAdapter(db, {
