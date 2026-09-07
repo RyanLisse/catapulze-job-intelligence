@@ -147,6 +147,7 @@ Slices zijn strikt geordend op leerrendement en dependency-richting. Elke slice 
 | AC | projector/search fixtures; schema-hash invarianten intact |
 | Testbewijs | search specs |
 | Rollback | client module swap |
+| Status (CTP-472) | Opt-in `FetchManticoreEffectClient` + describe Effect helpers landed; native `FetchManticoreClient` / `fromUrl` remain default; prod OFF; Motian ongewijzigd; ADR-0007/0009 ongemoeid |
 
 ### Slice 8 — DB store wrappers (geen migratie-/auth-herbouw)
 
