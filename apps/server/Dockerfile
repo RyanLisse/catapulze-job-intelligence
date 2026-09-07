@@ -17,6 +17,9 @@ EXPOSE 3000
 
 WORKDIR /app/apps/server
 USER bun
+# Coolify treats Docker HEALTHCHECK failure as deploy rollback. Use /livez
+# (process up) here; keep /readyz as the app readiness contract (Traefik/ops),
+# not the container liveness gate — see docs/runbooks/readiness.md.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-  CMD bun -e "fetch('http://localhost:3000/readyz').then((response) => process.exit(response.ok ? 0 : 1)).catch(() => process.exit(1))"
+  CMD bun -e "fetch('http://localhost:3000/livez').then((response) => process.exit(response.ok ? 0 : 1)).catch(() => process.exit(1))"
 CMD ["bun", "dist/index.mjs"]
