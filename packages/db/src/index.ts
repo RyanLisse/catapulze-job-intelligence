@@ -116,6 +116,12 @@ export {
 } from "./bron-run-stats";
 export { PostgresKnownHashStore } from "./known-hash-store";
 export {
+  PostgresEnrichmentStore,
+  type AanvraagEnrichmentRow,
+  type EnrichmentDatabase,
+  type IncompleteAanvraagCandidate,
+} from "./enrichment-store";
+export {
   createPostgresLifecyclePorts,
   PostgresMissedPollsStore,
   type MissedPollsDatabase,

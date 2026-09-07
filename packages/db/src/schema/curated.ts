@@ -347,6 +347,47 @@ export const savedSearch = curatedSchema.table(
   ]
 );
 
+export const aanvraagEnrichment = curatedSchema.table(
+  "aanvraag_enrichment",
+  {
+    aanvraagId: uuid("aanvraag_id")
+      .notNull()
+      .references(() => aanvraag.id, { onDelete: "cascade" }),
+    confidence: numeric("confidence").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    field: text("field").notNull(),
+    id: uuid("id").defaultRandom().primaryKey(),
+    rawRefs: jsonb("raw_refs").default([]).notNull(),
+    source: text("source").notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .$onUpdate(() => new Date())
+      .notNull(),
+    value: jsonb("value").notNull(),
+  },
+  (table) => [
+    uniqueIndex("aanvraag_enrichment_aanvraag_field_uidx").on(
+      table.aanvraagId,
+      table.field
+    ),
+    index("aanvraag_enrichment_aanvraag_id_idx").on(table.aanvraagId),
+    check(
+      "aanvraag_enrichment_field_check",
+      sql`${table.field} IN ('locatie', 'tarief', 'contract', 'remote')`
+    ),
+    check(
+      "aanvraag_enrichment_source_check",
+      sql`${table.source} IN ('deterministic', 'llm')`
+    ),
+    check(
+      "aanvraag_enrichment_confidence_check",
+      sql`${table.confidence} >= 0 AND ${table.confidence} <= 1`
+    ),
+  ]
+);
+
 export const aanvraagMarkering = curatedSchema.table(
   "aanvraag_markering",
   {
@@ -691,6 +732,7 @@ export const aanvraagRelations = relations(aanvraag, ({ one, many }) => ({
     fields: [aanvraag.dedupGroepId],
     references: [dedupGroep.id],
   }),
+  enrichments: many(aanvraagEnrichment),
   scrapeRun: one(scrapeRun, {
     fields: [aanvraag.scrapeRunId],
     references: [scrapeRun.id],
@@ -732,6 +774,16 @@ export const aanvraagMarkeringRelations = relations(
   ({ one }) => ({
     aanvraag: one(aanvraag, {
       fields: [aanvraagMarkering.aanvraagId],
+      references: [aanvraag.id],
+    }),
+  })
+);
+
+export const aanvraagEnrichmentRelations = relations(
+  aanvraagEnrichment,
+  ({ one }) => ({
+    aanvraag: one(aanvraag, {
+      fields: [aanvraagEnrichment.aanvraagId],
       references: [aanvraag.id],
     }),
   })

@@ -3,10 +3,12 @@ import { parseBooleanQuery } from "@ji/domain";
 import type {
   FreshnessFilter,
   JobContractType,
+  JobEnrichedField,
   JobListing,
   JobSort,
   JobSource,
 } from "./types";
+import { AANGEVULD_MIN_CONFIDENCE } from "./types";
 
 // RJC-368: fallback labels for the fixture demo sources only. Real bronnen
 // get their label from the live /v1/bronnen catalog (see JobSourceOption);
@@ -116,3 +118,16 @@ export const describeApiSyntaxError = (
   }
   return describeBooleanError(message, offset);
 };
+
+export const isFieldAangevuld = (
+  job: JobListing,
+  field: JobEnrichedField["field"]
+): boolean => {
+  const enriched = job.enrichedFields?.find((entry) => entry.field === field);
+  return (
+    enriched !== undefined && enriched.confidence >= AANGEVULD_MIN_CONFIDENCE
+  );
+};
+
+export const aangevuldLabel = (field: JobEnrichedField["field"]): string =>
+  `aangevuld (${field})`;

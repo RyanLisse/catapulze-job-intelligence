@@ -21,6 +21,7 @@
     "./export/spott/effect": "./src/export/spott/client-effect.ts",
     "./effect": "./src/effect/index.ts",
     "./ingest": "./src/ingest/index.ts",
+    "./enrichment": "./src/enrichment/index.ts",
     "./registry/web-contracts": "./src/registry/web-contracts.ts"
   },
   "scripts": {
