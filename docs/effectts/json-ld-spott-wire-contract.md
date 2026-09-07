@@ -39,3 +39,5 @@ Per variant (huidige Promise-adapter vs toekomstige Effect-adapter) moet de revi
 3. **Cleanup-eigenaar** — wie released timers/fetch/limiter state?
 
 Vastgelegde uitkomst per variant hoort in het baseline-artifact (`reviewRubric`).
+
+Gemeten native uitkomst + Effect-blocked notitie: [`docs/evidence/ctp-454/review-rubric.md`](../evidence/ctp-454/review-rubric.md).
