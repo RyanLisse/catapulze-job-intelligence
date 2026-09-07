@@ -229,3 +229,40 @@ describe("AE3 entity-encoded beschrijving summary (CTP-483)", () => {
     expect(job.description).toContain("&lt;p&gt;");
   });
 });
+
+describe("CTP-482 enrichment provenance mapping", () => {
+  it("passes enrichedFields through to JobListing for aangevuld UI", () => {
+    const bronCatalog = buildBronCatalog([
+      {
+        bronId: "bron-1",
+        naam: "TenderNed",
+      },
+    ]);
+    const job = mapAanvraagToJobListing({
+      aanvraag: {
+        beschrijving: "Locatie onbekend in bron",
+        bronId: "bron-1",
+        bronReferentie: "REF-ENRICH",
+        contracttype: "detachering",
+        enrichedFields: [
+          { confidence: 0.9, field: "locatie", source: "deterministic" },
+          { confidence: 0.79, field: "tarief", source: "deterministic" },
+        ],
+        id: "aanvraag-enrich-1",
+        locatie: "Utrecht",
+        rawPayloadRef: "raw/x.json",
+        scrapeRunId: "run-1",
+        status: "active",
+        titel: "Enriched opdracht",
+      },
+      bronCatalog,
+      versies: [],
+    });
+
+    expect(job.location).toBe("Utrecht");
+    expect(job.enrichedFields).toEqual([
+      { confidence: 0.9, field: "locatie", source: "deterministic" },
+      { confidence: 0.79, field: "tarief", source: "deterministic" },
+    ]);
+  });
+});

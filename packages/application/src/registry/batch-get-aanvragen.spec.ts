@@ -132,6 +132,7 @@ describe("batch_get_aanvragen (RJC-379)", () => {
       "bronId",
       "bronReferentie",
       "contracttype",
+      "enrichedFields",
       "id",
       "locatie",
       "mode",

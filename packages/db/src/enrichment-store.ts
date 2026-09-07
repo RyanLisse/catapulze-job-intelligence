@@ -4,13 +4,15 @@ import {
 } from "@ji/application/enrichment";
 import type {
   EnrichmentField,
+  EnrichmentOutboxInsertInput,
+  EnrichmentOverlayRow,
   EnrichmentProposal,
 } from "@ji/application/enrichment";
-import { eq, sql } from "drizzle-orm";
+import { inArray, sql } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 
 import type * as schema from "./schema";
-import { aanvraag, aanvraagEnrichment } from "./schema/curated";
+import { aanvraag, aanvraagEnrichment, outboxEvent } from "./schema/curated";
 
 export type EnrichmentDatabase = PostgresJsDatabase<typeof schema>;
 
@@ -50,6 +52,15 @@ const toEnrichmentField = (field: string): EnrichmentField => {
   }
   throw new Error(`Unexpected enrichment field: ${field}`);
 };
+
+const toOverlayRow = (row: AanvraagEnrichmentRow): EnrichmentOverlayRow => ({
+  confidence: row.confidence,
+  field: row.field,
+  // SAFETY: source column is constrained to EnrichmentSource at write time.
+  source: row.source as EnrichmentOverlayRow["source"],
+  // SAFETY: jsonb value matches EnrichmentFieldValue at write time.
+  value: row.value as EnrichmentOverlayRow["value"],
+});
 
 export class PostgresEnrichmentStore {
   private readonly database: EnrichmentDatabase;
@@ -174,21 +185,72 @@ export class PostgresEnrichmentStore {
   async listForAanvraag(
     aanvraagId: string
   ): Promise<readonly AanvraagEnrichmentRow[]> {
+    const byId = await this.listForAanvraagIds([aanvraagId]);
+    return byId.get(aanvraagId) ?? [];
+  }
+
+  async listForAanvraagIds(
+    aanvraagIds: readonly string[]
+  ): Promise<ReadonlyMap<string, readonly AanvraagEnrichmentRow[]>> {
+    const result = new Map<string, AanvraagEnrichmentRow[]>();
+    if (aanvraagIds.length === 0) {
+      return result;
+    }
+    const uniqueIds = [...new Set(aanvraagIds)];
     const rows = await this.database
       .select()
       .from(aanvraagEnrichment)
-      .where(eq(aanvraagEnrichment.aanvraagId, aanvraagId));
+      .where(inArray(aanvraagEnrichment.aanvraagId, uniqueIds));
 
-    return rows.map((row) => ({
-      aanvraagId: row.aanvraagId,
-      confidence: Number(row.confidence),
-      createdAt: row.createdAt,
-      field: toEnrichmentField(row.field),
-      id: row.id,
-      rawRefs: row.rawRefs,
-      source: row.source,
-      updatedAt: row.updatedAt,
-      value: row.value,
-    }));
+    for (const row of rows) {
+      const mapped: AanvraagEnrichmentRow = {
+        aanvraagId: row.aanvraagId,
+        confidence: Number(row.confidence),
+        createdAt: row.createdAt,
+        field: toEnrichmentField(row.field),
+        id: row.id,
+        rawRefs: row.rawRefs,
+        source: row.source,
+        updatedAt: row.updatedAt,
+        value: row.value,
+      };
+      const existing = result.get(row.aanvraagId) ?? [];
+      existing.push(mapped);
+      result.set(row.aanvraagId, existing);
+    }
+    return result;
+  }
+
+  async listOverlayRowsForAanvraagIds(
+    aanvraagIds: readonly string[]
+  ): Promise<ReadonlyMap<string, readonly EnrichmentOverlayRow[]>> {
+    const rowsById = await this.listForAanvraagIds(aanvraagIds);
+    const overlays = new Map<string, readonly EnrichmentOverlayRow[]>();
+    for (const [aanvraagId, rows] of rowsById) {
+      overlays.set(aanvraagId, rows.map(toOverlayRow));
+    }
+    return overlays;
+  }
+
+  async insertOutboxEvent(
+    input: EnrichmentOutboxInsertInput
+  ): Promise<{ readonly id: string }> {
+    const [row] = await this.database
+      .insert(outboxEvent)
+      .values({
+        aggregateId: input.aggregateId,
+        aggregateType: input.aggregateType,
+        eventType: input.eventType,
+        payload: {
+          field_count: input.payload.field_count,
+          fields: [...input.payload.fields],
+        },
+      })
+      .returning({ id: outboxEvent.id });
+
+    if (!row) {
+      throw new Error("Enrichment outbox insert returned no row");
+    }
+    return { id: row.id };
   }
 }

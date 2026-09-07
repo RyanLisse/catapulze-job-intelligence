@@ -75,6 +75,7 @@ const previewAanvraag = (record: AanvraagRecord) => ({
   bronId: record.bronId,
   bronReferentie: record.bronReferentie,
   contracttype: record.contracttype ?? null,
+  enrichedFields: record.enrichedFields ?? [],
   id: record.id,
   locatie: record.locatie ?? null,
   mode: "preview" as const,

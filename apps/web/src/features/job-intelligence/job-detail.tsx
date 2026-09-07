@@ -2,6 +2,7 @@ import { ExternalLink, X } from "lucide-react";
 
 import { JobBodyContent } from "./job-body-content";
 import {
+  aangevuldLabel,
   formatContract,
   formatDate,
   formatRate,
@@ -9,7 +10,12 @@ import {
   isFieldAangevuld,
   sourceLabel,
 } from "./presentation";
-import type { JobListing, JobMarkering, MarkeringSyncState } from "./types";
+import type {
+  JobEnrichedField,
+  JobListing,
+  JobMarkering,
+  MarkeringSyncState,
+} from "./types";
 
 const RAW_PREVIEW_INDENT = 2;
 
@@ -18,10 +24,12 @@ const badgeClass =
 
 const DetailField = ({
   aangevuld = false,
+  aangevuldField,
   label,
   value,
 }: {
   readonly aangevuld?: boolean;
+  readonly aangevuldField?: JobEnrichedField["field"];
   readonly label: string;
   readonly value: string;
 }) => (
@@ -31,8 +39,11 @@ const DetailField = ({
     </dt>
     <dd className="mt-0.5 flex flex-wrap items-center gap-1.5 text-xs break-words">
       <span>{value}</span>
-      {aangevuld ? (
-        <span className="rounded-full border border-chart-2/40 bg-chart-2/10 px-2 py-0.5 text-[10px] font-medium text-chart-2">
+      {aangevuld && aangevuldField ? (
+        <span
+          className="rounded-full border border-chart-2/40 bg-chart-2/10 px-2 py-0.5 text-[10px] font-medium text-chart-2"
+          title={aangevuldLabel(aangevuldField)}
+        >
           aangevuld
         </span>
       ) : null}
@@ -222,16 +233,25 @@ export const JobDetail = ({
             label="Locatie"
             value={job.location ?? "Onbekend"}
             aangevuld={isFieldAangevuld(job, "locatie")}
+            aangevuldField="locatie"
           />
           <DetailField
             label="Tarief"
             value={formatRate(job)}
             aangevuld={isFieldAangevuld(job, "tarief")}
+            aangevuldField="tarief"
           />
           <DetailField
             label="Contract"
             value={formatContract(job)}
             aangevuld={isFieldAangevuld(job, "contract")}
+            aangevuldField="contract"
+          />
+          <DetailField
+            label="Werkvorm"
+            value={formatRemote(job)}
+            aangevuld={isFieldAangevuld(job, "remote")}
+            aangevuldField="remote"
           />
           <DetailField
             label="Gepubliceerd"

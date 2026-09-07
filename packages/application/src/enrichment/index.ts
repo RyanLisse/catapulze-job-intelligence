@@ -26,7 +26,22 @@ export {
 } from "./llm-hook";
 export { runEnrichment } from "./run-enrichment";
 export {
+  ENRICHMENT_OUTBOX_EVENT_TYPE,
+  enqueueEnrichmentOutbox,
   enqueueEnrichmentOutboxStub,
-  type EnrichmentOutboxStubInput,
-  type EnrichmentOutboxStubResult,
-} from "./outbox-stub";
+  type EnrichmentOutboxInput,
+  type EnrichmentOutboxInsertInput,
+  type EnrichmentOutboxPayload,
+  type EnrichmentOutboxPort,
+  type EnrichmentOutboxResult,
+} from "./outbox";
+export type { EnrichmentOutboxStubInput } from "./outbox-stub";
+export {
+  applyEnrichmentOverlayToAanvraagFacts,
+  applyEnrichmentOverlayToSearchFacts,
+  toEnrichedFieldMeta,
+  type AanvraagEnrichmentFacts,
+  type EnrichedFieldMeta,
+  type EnrichmentOverlayRow,
+  type SearchEnrichmentFacts,
+} from "./apply-overlay";

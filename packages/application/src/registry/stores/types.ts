@@ -53,11 +53,19 @@ export interface AanvraagVersieRecord {
   readonly scrapeRunId: string;
 }
 
+export interface AanvraagEnrichedField {
+  readonly confidence: number;
+  readonly field: "contract" | "locatie" | "remote" | "tarief";
+  readonly source: "deterministic" | "llm";
+}
+
 export interface AanvraagRecord {
   readonly beschrijving: string;
   readonly bronId: string;
   readonly bronReferentie: string;
   readonly contracttype?: string | null;
+  /** Provenance for fields filled by the enrichment worker (CTP-482). */
+  readonly enrichedFields?: readonly AanvraagEnrichedField[];
   readonly id: string;
   readonly locatie?: string | null;
   readonly opdrachtgeverNaam?: string | null;
