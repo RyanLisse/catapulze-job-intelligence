@@ -16,33 +16,34 @@ export type BodyContentFormat = (typeof BODY_CONTENT_FORMATS)[number];
  * Explicit audit of how each bron's beschrijving typically arrives in curated
  * storage / UI mapping. Slugs match `bronNameToSource` (naam lowercased).
  */
-export const BRON_BODY_CONTENT_FORMAT = {
-  bluetrail: "plain",
-  ctm: "plain",
-  flextender: "html",
-  flinter: "plain",
-  "harvey-nash": "plain",
-  harveynash: "plain",
-  hero: "plain",
-  "hero-eu": "plain",
-  indeed: "plain",
-  inhuurdesk: "plain",
-  mipublic: "html",
-  "nationale-vacaturebank": "html",
-  nationalevacaturebank: "html",
-  "need-staffing": "plain",
-  needstaffing: "plain",
-  onefellow: "plain",
-  opdrachtoverheid: "plain",
-  "pro-act": "plain",
-  "pro-act-it": "plain",
-  starapple: "html",
-  "starapple-nl": "html",
-  striive: "plain",
-  tenderned: "plain",
-  werkenvoor: "plain",
-  werkzoeken: "html",
-} satisfies Record<string, BodyContentFormat>;
+export const BRON_BODY_CONTENT_FORMAT: ReadonlyMap<string, BodyContentFormat> =
+  new Map([
+    ["bluetrail", "plain"],
+    ["ctm", "plain"],
+    ["flextender", "html"],
+    ["flinter", "plain"],
+    ["harvey-nash", "plain"],
+    ["harveynash", "plain"],
+    ["hero", "plain"],
+    ["hero-eu", "plain"],
+    ["indeed", "plain"],
+    ["inhuurdesk", "plain"],
+    ["mipublic", "html"],
+    ["nationale-vacaturebank", "html"],
+    ["nationalevacaturebank", "html"],
+    ["need-staffing", "plain"],
+    ["needstaffing", "plain"],
+    ["onefellow", "plain"],
+    ["opdrachtoverheid", "plain"],
+    ["pro-act", "plain"],
+    ["pro-act-it", "plain"],
+    ["starapple", "html"],
+    ["starapple-nl", "html"],
+    ["striive", "plain"],
+    ["tenderned", "plain"],
+    ["werkenvoor", "plain"],
+    ["werkzoeken", "html"],
+  ]);
 
 /** Tags that indicate the payload is markup rather than escaped plain text. */
 const HTML_MARKER_PATTERN =
@@ -57,7 +58,7 @@ export const bodyContentFormatForBron = (
   if (!bronSlug) {
     return null;
   }
-  return BRON_BODY_CONTENT_FORMAT[bronSlug] ?? null;
+  return BRON_BODY_CONTENT_FORMAT.get(bronSlug) ?? null;
 };
 
 /**

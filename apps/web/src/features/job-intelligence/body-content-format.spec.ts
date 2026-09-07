@@ -8,16 +8,16 @@ import {
 
 describe("per-bron body content format audit (CTP-481)", () => {
   it("marks Motian v1 HTML boards as html", () => {
-    expect(BRON_BODY_CONTENT_FORMAT["nationale-vacaturebank"]).toBe("html");
-    expect(BRON_BODY_CONTENT_FORMAT.nationalevacaturebank).toBe("html");
-    expect(BRON_BODY_CONTENT_FORMAT.werkzoeken).toBe("html");
+    expect(BRON_BODY_CONTENT_FORMAT.get("nationale-vacaturebank")).toBe("html");
+    expect(BRON_BODY_CONTENT_FORMAT.get("nationalevacaturebank")).toBe("html");
+    expect(BRON_BODY_CONTENT_FORMAT.get("werkzoeken")).toBe("html");
   });
 
   it("marks live stripper brons as plain", () => {
-    expect(BRON_BODY_CONTENT_FORMAT.tenderned).toBe("plain");
-    expect(BRON_BODY_CONTENT_FORMAT.inhuurdesk).toBe("plain");
-    expect(BRON_BODY_CONTENT_FORMAT.flinter).toBe("plain");
-    expect(BRON_BODY_CONTENT_FORMAT.opdrachtoverheid).toBe("plain");
+    expect(BRON_BODY_CONTENT_FORMAT.get("tenderned")).toBe("plain");
+    expect(BRON_BODY_CONTENT_FORMAT.get("inhuurdesk")).toBe("plain");
+    expect(BRON_BODY_CONTENT_FORMAT.get("flinter")).toBe("plain");
+    expect(BRON_BODY_CONTENT_FORMAT.get("opdrachtoverheid")).toBe("plain");
   });
 
   it("detects leftover HTML markers", () => {
