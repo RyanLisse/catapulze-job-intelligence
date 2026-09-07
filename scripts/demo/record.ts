@@ -1,18 +1,27 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { setTimeout as delay } from "node:timers/promises";
 
 import { chromium } from "@playwright/test";
 import type { Page } from "@playwright/test";
 
+import { DEMO_NARRATION_CUES } from "./narration";
 import { resolveDemoTargets, runDemoPreflight } from "./preflight";
 import type { DemoPreflightResult } from "./preflight";
 
 const VIEWPORT = { height: 800, width: 1280 } as const;
 const DEFAULT_QUERY = "java OR devops";
+const DEFAULT_VOICEOVER = "demos/.tmp/ji-demo-voiceover-nl.wav";
 
 interface DemoCredentials {
   readonly email: string;
   readonly password: string;
+}
+
+interface GrabSession {
+  readonly pid: number;
+  readonly rawPath: string;
+  readonly kill: () => void;
 }
 
 const requireCredentials = (
@@ -34,6 +43,82 @@ const stamp = (): string => {
   const mm = String(now.getUTCMonth() + 1).padStart(2, "0");
   const dd = String(now.getUTCDate()).padStart(2, "0");
   return `${yyyy}${mm}${dd}`;
+};
+
+const dwell = async (ms: number): Promise<void> => {
+  await delay(ms);
+};
+
+/**
+ * Oversized ring cursor so the pointer stays readable on phone-sized reviews.
+ * Native OS cursor is still captured via ffmpeg -draw_mouse 1.
+ */
+const installVisibleCursor = async (page: Page): Promise<void> => {
+  await page.addInitScript(() => {
+    const style = document.createElement("style");
+    style.textContent = `
+      #ji-demo-cursor {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 28px;
+        height: 28px;
+        margin: -6px 0 0 -6px;
+        border: 3px solid #f97316;
+        border-radius: 9999px;
+        background: rgba(249, 115, 22, 0.25);
+        box-shadow: 0 0 0 2px rgba(15, 23, 42, 0.85);
+        pointer-events: none;
+        z-index: 2147483647;
+        transform: translate3d(-100px, -100px, 0);
+      }
+    `;
+    const boot = (): void => {
+      if (document.querySelector("#ji-demo-cursor")) {
+        return;
+      }
+      document.documentElement.append(style);
+      const cursor = document.createElement("div");
+      cursor.id = "ji-demo-cursor";
+      document.documentElement.append(cursor);
+      window.addEventListener(
+        "mousemove",
+        (event) => {
+          cursor.style.transform = `translate3d(${event.clientX}px, ${event.clientY}px, 0)`;
+        },
+        { passive: true }
+      );
+    };
+    if (document.readyState === "loading") {
+      document.addEventListener("DOMContentLoaded", boot, { once: true });
+    } else {
+      boot();
+    }
+  });
+};
+
+const moveCursor = async (page: Page, x: number, y: number): Promise<void> => {
+  await page.mouse.move(x, y, { steps: 24 });
+};
+
+const clickWithCursor = async (
+  page: Page,
+  x: number,
+  y: number
+): Promise<void> => {
+  await moveCursor(page, x, y);
+  await dwell(250);
+  await page.mouse.click(x, y);
+};
+
+const clickLocator = async (page: Page, selector: string): Promise<void> => {
+  const locator = page.locator(selector).first();
+  await locator.waitFor({ state: "visible", timeout: 45_000 });
+  const box = await locator.boundingBox();
+  if (!box) {
+    throw new Error(`No bounding box for ${selector}`);
+  }
+  await clickWithCursor(page, box.x + box.width / 2, box.y + box.height / 2);
 };
 
 const waitForSearchReady = async (page: Page): Promise<void> => {
@@ -63,10 +148,22 @@ const signIn = async (
   await page.getByRole("heading", { name: "Welcome Back" }).waitFor({
     state: "visible",
   });
+  await moveCursor(page, 640, 360);
+  await page.getByLabel("Email").click();
   await page.getByLabel("Email").fill(credentials.email);
+  await page.getByLabel("Password").click();
   await page.getByLabel("Password").fill(credentials.password);
-  await page.getByRole("button", { name: "Sign In" }).click();
+  await clickLocator(page, 'button:has-text("Sign In")');
   await page.waitForURL(/\/(?:dashboard)?\/?(?:\?.*)?$/u, { timeout: 30_000 });
+};
+
+const cueGapMs = (fromLabel: string, toLabel: string): number => {
+  const from = DEMO_NARRATION_CUES.find((cue) => cue.label === fromLabel);
+  const to = DEMO_NARRATION_CUES.find((cue) => cue.label === toLabel);
+  if (!(from && to)) {
+    return 2000;
+  }
+  return Math.max(800, Math.round((to.at - from.at) * 1000));
 };
 
 const runTour = async (
@@ -79,46 +176,56 @@ const runTour = async (
     .getByText("Job Intelligence")
     .first()
     .waitFor({ state: "visible" });
+  await moveCursor(page, 200, 160);
+  await dwell(cueGapMs("home", "login"));
 
   await signIn(page, credentials);
+  await dwell(cueGapMs("login", "jobs"));
 
   await page.goto(`/jobs?q=${encodeURIComponent(query)}`, {
     waitUntil: "domcontentloaded",
   });
   await waitForSearchReady(page);
-  const resultButton = page
-    .locator('[aria-label="Zoekresultaten"] table tbody button')
-    .first();
-  await resultButton.waitFor({ state: "visible", timeout: 45_000 });
-  await resultButton.click();
+  await moveCursor(page, 420, 220);
+  await dwell(Math.max(2500, cueGapMs("jobs", "detail") - 1500));
+
+  await clickLocator(page, '[aria-label="Zoekresultaten"] table tbody button');
   await page.waitForURL(/[?&]job=/u, { timeout: 15_000 });
   await page.locator("#desktop-job-detail-title").waitFor({
     state: "visible",
     timeout: 15_000,
   });
+  await moveCursor(page, 980, 320);
+  await dwell(cueGapMs("detail", "bronnen"));
 
   await page.goto("/bronnen", { waitUntil: "domcontentloaded" });
   const forbidden = page.url().includes("toast=forbidden");
-  if (!forbidden) {
+  if (forbidden) {
+    await dwell(cueGapMs("bronnen", "dashboard"));
+  } else {
     await page.getByRole("heading", { exact: true, name: "Bronnen" }).waitFor({
       state: "visible",
       timeout: 30_000,
     });
+    await moveCursor(page, 240, 280);
+    await dwell(cueGapMs("bronnen", "runs"));
     await page.goto("/bronnen/runs", { waitUntil: "domcontentloaded" });
     await page.waitForLoadState("domcontentloaded");
+    await moveCursor(page, 360, 360);
+    await dwell(cueGapMs("runs", "dashboard"));
   }
 
   await page.goto("/dashboard", { waitUntil: "domcontentloaded" });
   await page
     .getByText(/^Welcome /u)
     .waitFor({ state: "visible", timeout: 15_000 });
+  await moveCursor(page, 1180, 40);
+  await dwell(cueGapMs("dashboard", "signout"));
 
   await page
     .locator("header")
     .getByRole("button")
-    .filter({
-      hasNotText: "Inloggen",
-    })
+    .filter({ hasNotText: "Inloggen" })
     .first()
     .click();
   await page.getByText("Uitloggen").click();
@@ -126,15 +233,65 @@ const runTour = async (
   await page.getByRole("button", { name: "Inloggen" }).waitFor({
     state: "visible",
   });
+  await moveCursor(page, 640, 400);
+  await dwell(2500);
 };
 
-const encodeMp4 = (webmPath: string, mp4Path: string): void => {
+const startX11Grab = (display: string, rawPath: string): GrabSession => {
+  const displayId = display.replace(/^:/u, "");
+  const proc = Bun.spawn({
+    cmd: [
+      "ffmpeg",
+      "-y",
+      "-video_size",
+      `${VIEWPORT.width}x${VIEWPORT.height}`,
+      "-framerate",
+      "30",
+      "-f",
+      "x11grab",
+      "-draw_mouse",
+      "1",
+      "-i",
+      `:${displayId}.0+0,0`,
+      "-c:v",
+      "libx264",
+      "-pix_fmt",
+      "yuv420p",
+      "-preset",
+      "ultrafast",
+      "-crf",
+      "23",
+      rawPath,
+    ],
+    stderr: "pipe",
+    stdout: "ignore",
+  });
+  return {
+    kill: () => {
+      try {
+        process.kill(proc.pid, "SIGINT");
+      } catch {
+        // Already exited.
+      }
+    },
+    pid: proc.pid,
+    rawPath,
+  };
+};
+
+const muxVoiceover = (
+  videoPath: string,
+  voiceoverPath: string,
+  outPath: string
+): void => {
   const result = Bun.spawnSync({
     cmd: [
       "ffmpeg",
       "-y",
       "-i",
-      webmPath,
+      videoPath,
+      "-i",
+      voiceoverPath,
       "-c:v",
       "libx264",
       "-preset",
@@ -143,19 +300,24 @@ const encodeMp4 = (webmPath: string, mp4Path: string): void => {
       "23",
       "-pix_fmt",
       "yuv420p",
+      "-c:a",
+      "aac",
+      "-b:a",
+      "192k",
+      "-shortest",
       "-movflags",
       "+faststart",
-      mp4Path,
+      outPath,
     ],
     stderr: "pipe",
     stdout: "pipe",
   });
   if ((result.exitCode ?? 1) !== 0) {
-    throw new Error(`ffmpeg failed encoding ${mp4Path}`);
+    throw new Error(`ffmpeg mux failed for ${outPath}`);
   }
 };
 
-const probeDurationSeconds = (mp4Path: string): number => {
+const probeDurationSeconds = (mediaPath: string): number => {
   const result = Bun.spawnSync({
     cmd: [
       "ffprobe",
@@ -165,7 +327,7 @@ const probeDurationSeconds = (mp4Path: string): number => {
       "format=duration",
       "-of",
       "default=noprint_wrappers=1:nokey=1",
-      mp4Path,
+      mediaPath,
     ],
     stderr: "pipe",
     stdout: "pipe",
@@ -184,10 +346,18 @@ const probeDurationSeconds = (mp4Path: string): number => {
 const writeMeta = async (
   metaPath: string,
   preflight: DemoPreflightResult,
-  durationSeconds: number
+  durationSeconds: number,
+  extras: Readonly<Record<string, string>>
 ): Promise<void> => {
-  const line = `tip=${preflight.releaseSha} duration_s=${durationSeconds.toFixed(1)} app=${preflight.appUrl}\n`;
-  await writeFile(metaPath, line, "utf-8");
+  const pairs = Object.entries({
+    app: preflight.appUrl,
+    duration_s: durationSeconds.toFixed(1),
+    tip: preflight.releaseSha,
+    ...extras,
+  })
+    .map(([key, value]) => `${key}=${value}`)
+    .join(" ");
+  await writeFile(metaPath, `${pairs}\n`, "utf-8");
 };
 
 const main = async (): Promise<void> => {
@@ -197,6 +367,8 @@ const main = async (): Promise<void> => {
   const query = environment.JI_DEMO_QUERY?.trim() || DEFAULT_QUERY;
   const outDir = environment.JI_DEMO_OUT_DIR?.trim() || "demos";
   const display = environment.DISPLAY?.trim() || ":1";
+  const voiceoverPath =
+    environment.JI_DEMO_VOICEOVER?.trim() || DEFAULT_VOICEOVER;
 
   const preflight = await runDemoPreflight(targets);
   await mkdir(outDir, { recursive: true });
@@ -204,46 +376,66 @@ const main = async (): Promise<void> => {
 
   const day = stamp();
   const baseName = `ji-feature-demo-ryan-${day}`;
-  const videoDir = path.join(outDir, ".tmp", baseName);
-  await mkdir(videoDir, { recursive: true });
+  const rawPath = path.join(outDir, ".tmp", `${baseName}-raw.mp4`);
+  const mp4Path = path.join(outDir, `${baseName}.mp4`);
+  const metaPath = path.join(outDir, `${baseName}.meta.txt`);
+
+  const grab = startX11Grab(display, rawPath);
+  await dwell(800);
 
   const browser = await chromium.launch({
+    args: [
+      `--window-position=0,0`,
+      `--window-size=${VIEWPORT.width},${VIEWPORT.height}`,
+      "--disable-features=TranslateUI",
+      "--disable-translate",
+    ],
     env: { ...process.env, DISPLAY: display },
     headless: false,
   });
   const context = await browser.newContext({
     baseURL: preflight.appUrl,
-    recordVideo: { dir: videoDir, size: VIEWPORT },
+    locale: "nl-NL",
     viewport: VIEWPORT,
   });
   const page = await context.newPage();
+  await installVisibleCursor(page);
 
   try {
     await runTour(page, credentials, query);
   } finally {
     await context.close();
     await browser.close();
+    grab.kill();
+    await dwell(1200);
   }
 
-  const [webm] = [...new Bun.Glob("*.webm").scanSync(videoDir)];
-  if (!webm) {
-    throw new Error("Playwright did not write a WebM recording.");
+  if (!(await Bun.file(rawPath).exists())) {
+    throw new Error("x11grab did not write a raw MP4.");
   }
-  const webmPath = path.join(videoDir, webm);
-  const mp4Path = path.join(outDir, `${baseName}.mp4`);
-  const metaPath = path.join(outDir, `${baseName}.meta.txt`);
-  encodeMp4(webmPath, mp4Path);
+  if (!(await Bun.file(voiceoverPath).exists())) {
+    throw new Error(
+      `Voiceover missing at ${voiceoverPath}. Generate with HeyGen Sharon (nl) or set JI_DEMO_VOICEOVER.`
+    );
+  }
+
+  muxVoiceover(rawPath, voiceoverPath, mp4Path);
   const durationSeconds = probeDurationSeconds(mp4Path);
-  await writeMeta(metaPath, preflight, durationSeconds);
+  await writeMeta(metaPath, preflight, durationSeconds, {
+    cursor: "x11grab+overlay",
+    voiceover: path.basename(voiceoverPath),
+  });
 
   console.log(
     JSON.stringify(
       {
+        cursor: "x11grab+overlay",
         durationSeconds,
         metaPath,
         mp4Path,
         ok: true,
         releaseSha: preflight.releaseSha,
+        voiceoverPath,
       },
       null,
       2
