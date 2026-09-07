@@ -17,7 +17,8 @@
     "./export/reconciliation": "./src/export/reconcile-export.ts",
     "./export/spott": "./src/export/spott/index.ts",
     "./replay": "./src/replay/index.ts",
-    "./sources": "./src/sources/index.ts"
+    "./sources": "./src/sources/index.ts",
+    "./export/spott/effect": "./src/export/spott/client-effect.ts"
   },
   "scripts": {
     "check-types": "PATH=\"./node_modules/.bin:$PATH\" tsc --noEmit"

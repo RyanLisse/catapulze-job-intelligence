@@ -10,7 +10,7 @@
 | --- | --- |
 | `@ji/connectors/effect-runtime` | Shared execution core (faults, retry, HTTP, `runReadIoPromise`) — **no JI domain types** |
 | `packages/connectors/src/json-ld/client-effect.ts` | Effect JSON-LD listing/detail; Promise SDK via `createJsonLdEffectClient` |
-| `packages/application/src/export/spott/client-effect.ts` | Effect Spott list/get only; write/POST remains native |
+| `@ji/application/export/spott/effect` (`client-effect.ts`) | Effect Spott list/get only; write/POST remains native; not re-exported via export barrel |
 
 Native factories (`createJsonLdClient`, `createSpottClient`) stay the default export path. Effect clients are opt-in.
 
