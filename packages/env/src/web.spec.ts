@@ -1,11 +1,9 @@
 import { describe, expect, it } from "bun:test";
 
-import { z } from "zod";
-
 // `@ji/env/web` validates process.env at import time and Bun caches modules
 // per process, so each scenario loads the module in a fresh subprocess with
 // exactly the variables under test. This exercises the real createEnv
-// contract (server scope, emptyStringAsUndefined, z.url()) rather than the
+// contract (server scope, emptyStringAsUndefined, URL SoT) rather than the
 // resolver in isolation — see internal-server-url.spec.ts for that.
 
 const PUBLIC_URL = "http://localhost:3000";
@@ -47,14 +45,15 @@ const loadWebEnv = (variables: Record<string, string>): ProbeResult => {
   };
 };
 
-const probeOutputSchema = z.object({
-  internal: z.string(),
-  publicUrl: z.string(),
-});
-
-const parseProbe = (result: ProbeResult): z.infer<typeof probeOutputSchema> => {
+const parseProbe = (
+  result: ProbeResult
+): { internal: string; publicUrl: string } => {
   expect(result.exitCode).toBe(0);
-  return probeOutputSchema.parse(JSON.parse(result.stdout.trim()));
+  // SAFETY: probe script prints a fixed { internal, publicUrl } JSON envelope we own.
+  return JSON.parse(result.stdout.trim()) as {
+    internal: string;
+    publicUrl: string;
+  };
 };
 
 describe("@ji/env/web INTERNAL_SERVER_URL", () => {

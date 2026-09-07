@@ -1,12 +1,51 @@
 import "dotenv/config";
 import { createEnv } from "@t3-oss/env-core";
-import { z } from "zod";
+
+import {
+  Effect,
+  NonEmptyString,
+  onEnvValidationError,
+  Schema,
+  skipEnvValidation,
+  toEnvSchema,
+  UrlString,
+} from "./schema-helpers";
 
 const RELEASE_SHA_MESSAGE =
   "Release SHA must be a 40-character lowercase Git SHA (read from APP_RELEASE_SHA, or from Coolify's SOURCE_COMMIT when APP_RELEASE_SHA is unset).";
 
+/** Effect Schema SoT for server env fields (ADR-0014 Slice 6). */
+export const serverEnvEffectSchemas = {
+  APP_RELEASE_SHA: Schema.optional(
+    Schema.String.check(
+      Schema.isPattern(/^[a-f0-9]{40}$/u, { message: RELEASE_SHA_MESSAGE })
+    )
+  ),
+  BETTER_AUTH_SECRET: Schema.String.check(Schema.isMinLength(32)),
+  BETTER_AUTH_URL: UrlString,
+  CORS_ORIGIN: UrlString,
+  DATABASE_URL: NonEmptyString,
+  MANTICORE_URL: UrlString.pipe(
+    Schema.withDecodingDefault(Effect.succeed("http://127.0.0.1:9308"))
+  ),
+  NODE_ENV: Schema.Literals(["development", "production", "test"]).pipe(
+    Schema.withDecodingDefault(Effect.succeed("development" as const))
+  ),
+  RAW_OBJECT_STORE_PATH: Schema.optional(NonEmptyString),
+  RAW_S3_ACCESS_KEY_ID: Schema.optional(NonEmptyString),
+  RAW_S3_BUCKET: Schema.optional(NonEmptyString),
+  RAW_S3_ENDPOINT: Schema.optional(NonEmptyString),
+  RAW_S3_REGION: Schema.optional(NonEmptyString),
+  RAW_S3_SECRET_ACCESS_KEY: Schema.optional(NonEmptyString),
+  REDIS_URL: Schema.optional(UrlString),
+  SEARCH_HYBRID: Schema.Literals(["0", "1"]).pipe(
+    Schema.withDecodingDefault(Effect.succeed("0" as const))
+  ),
+} as const;
+
 export const env = createEnv({
   emptyStringAsUndefined: true,
+  onValidationError: onEnvValidationError,
   runtimeEnv: {
     ...process.env,
     // Coolify injects SOURCE_COMMIT (the exact commit it built) into every
@@ -16,33 +55,27 @@ export const env = createEnv({
     APP_RELEASE_SHA: process.env.APP_RELEASE_SHA || process.env.SOURCE_COMMIT,
   },
   server: {
-    // Public deployment identity used by guarded live browser verification.
-    // When absent, /version returns 503 rather than inventing a release.
-    APP_RELEASE_SHA: z
-      .string()
-      .regex(/^[a-f0-9]{40}$/u, RELEASE_SHA_MESSAGE)
-      .optional(),
-    BETTER_AUTH_SECRET: z.string().min(32),
-    BETTER_AUTH_URL: z.url(),
-    CORS_ORIGIN: z.url(),
-    DATABASE_URL: z.string().min(1),
-    MANTICORE_URL: z.url().default("http://127.0.0.1:9308"),
-    NODE_ENV: z
-      .enum(["development", "production", "test"])
-      .default("development"),
-    RAW_OBJECT_STORE_PATH: z.string().min(1).optional(),
-    // RJC-386: durable S3-compatible raw object store. Setting RAW_S3_BUCKET
-    // selects it over the worker-local filesystem store; production refuses
-    // to start without it (see apps/server/src/slice-a-registry.ts).
-    RAW_S3_ACCESS_KEY_ID: z.string().min(1).optional(),
-    RAW_S3_BUCKET: z.string().min(1).optional(),
-    RAW_S3_ENDPOINT: z.string().min(1).optional(),
-    RAW_S3_REGION: z.string().min(1).optional(),
-    RAW_S3_SECRET_ACCESS_KEY: z.string().min(1).optional(),
-    /** Search result cache (RJC-388). Unset runs the in-process memory cache. */
-    REDIS_URL: z.url().optional(),
-    /** Manticore 29 hybrid candidate; off keeps lexical 6.3.8 behavior. */
-    SEARCH_HYBRID: z.enum(["0", "1"]).default("0"),
+    APP_RELEASE_SHA: toEnvSchema(serverEnvEffectSchemas.APP_RELEASE_SHA),
+    BETTER_AUTH_SECRET: toEnvSchema(serverEnvEffectSchemas.BETTER_AUTH_SECRET),
+    BETTER_AUTH_URL: toEnvSchema(serverEnvEffectSchemas.BETTER_AUTH_URL),
+    CORS_ORIGIN: toEnvSchema(serverEnvEffectSchemas.CORS_ORIGIN),
+    DATABASE_URL: toEnvSchema(serverEnvEffectSchemas.DATABASE_URL),
+    MANTICORE_URL: toEnvSchema(serverEnvEffectSchemas.MANTICORE_URL),
+    NODE_ENV: toEnvSchema(serverEnvEffectSchemas.NODE_ENV),
+    RAW_OBJECT_STORE_PATH: toEnvSchema(
+      serverEnvEffectSchemas.RAW_OBJECT_STORE_PATH
+    ),
+    RAW_S3_ACCESS_KEY_ID: toEnvSchema(
+      serverEnvEffectSchemas.RAW_S3_ACCESS_KEY_ID
+    ),
+    RAW_S3_BUCKET: toEnvSchema(serverEnvEffectSchemas.RAW_S3_BUCKET),
+    RAW_S3_ENDPOINT: toEnvSchema(serverEnvEffectSchemas.RAW_S3_ENDPOINT),
+    RAW_S3_REGION: toEnvSchema(serverEnvEffectSchemas.RAW_S3_REGION),
+    RAW_S3_SECRET_ACCESS_KEY: toEnvSchema(
+      serverEnvEffectSchemas.RAW_S3_SECRET_ACCESS_KEY
+    ),
+    REDIS_URL: toEnvSchema(serverEnvEffectSchemas.REDIS_URL),
+    SEARCH_HYBRID: toEnvSchema(serverEnvEffectSchemas.SEARCH_HYBRID),
   },
-  skipValidation: !!process.env.SKIP_ENV_VALIDATION,
+  skipValidation: skipEnvValidation(),
 });

@@ -1,13 +1,28 @@
 import { createEnv } from "@t3-oss/env-nextjs";
-import { z } from "zod";
 
 import { resolveInternalServerUrl } from "./internal-server-url";
+import {
+  HttpUrlString,
+  onEnvValidationError,
+  Schema,
+  toEnvSchema,
+  UrlString,
+} from "./schema-helpers";
+
+/** Effect Schema SoT for web env fields (ADR-0014 Slice 6). */
+export const webEnvEffectSchemas = {
+  INTERNAL_SERVER_URL: Schema.optional(HttpUrlString),
+  NEXT_PUBLIC_SERVER_URL: UrlString,
+} as const;
 
 export const env = createEnv({
   client: {
-    NEXT_PUBLIC_SERVER_URL: z.url(),
+    NEXT_PUBLIC_SERVER_URL: toEnvSchema(
+      webEnvEffectSchemas.NEXT_PUBLIC_SERVER_URL
+    ),
   },
   emptyStringAsUndefined: true,
+  onValidationError: onEnvValidationError,
   runtimeEnv: {
     INTERNAL_SERVER_URL: process.env.INTERNAL_SERVER_URL,
     NEXT_PUBLIC_SERVER_URL: process.env.NEXT_PUBLIC_SERVER_URL,
@@ -17,8 +32,8 @@ export const env = createEnv({
     // (http://server:3000 in Compose). Optional so plain local dev, where the
     // browser and the Next.js server share one URL, keeps working unchanged.
     // http(s) only: "server:3000" is a *valid* WHATWG URL (scheme "server"),
-    // so a bare z.url() would accept the classic forgotten-scheme typo.
-    INTERNAL_SERVER_URL: z.url({ protocol: /^https?$/u }).optional(),
+    // so a bare URL check would accept the classic forgotten-scheme typo.
+    INTERNAL_SERVER_URL: toEnvSchema(webEnvEffectSchemas.INTERNAL_SERVER_URL),
   },
 });
 
