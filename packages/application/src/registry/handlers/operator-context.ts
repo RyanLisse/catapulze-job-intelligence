@@ -1,6 +1,16 @@
-import { z } from "zod";
+import { Schema } from "effect";
 
 import type { InvocationPrincipal } from "../capability";
+import type { SchemaEncoded, SchemaType } from "../schema-helpers";
+import {
+  FiniteNumber,
+  IsoDateTimeString,
+  NonNegativeInteger,
+  optionalField,
+  PositiveInteger,
+  toCapabilitySchema,
+  UuidString,
+} from "../schema-helpers";
 import type { SliceADomainFailure } from "../schemas";
 import type {
   AuditEventRecord,
@@ -13,12 +23,12 @@ export const OPERATOR_CONTEXT_CONTRACT_NAME =
   "catapulze.operator-context" as const;
 export const OPERATOR_CONTEXT_CONTRACT_VERSION = "1.0.0" as const;
 
-const capabilityAvailabilitySchema = z.enum([
+const capabilityAvailability = Schema.Literals([
   "available",
   "unavailable",
   "unknown",
 ]);
-const safeActivityActionSchema = z.enum([
+const safeActivityAction = Schema.Literals([
   "approve_snapshot",
   "commit_export",
   "markeer_aanvraag",
@@ -31,144 +41,132 @@ export interface OperatorContextCapabilityDescriptor {
   readonly permission: string;
 }
 
-export const getOperatorContextInputSchema = z
-  .object({
-    savedSearchId: z.string().uuid().optional(),
-    snapshotId: z.string().uuid().optional(),
+export const getOperatorContextInputSchema = toCapabilitySchema(
+  Schema.Struct({
+    savedSearchId: optionalField(UuidString),
+    snapshotId: optionalField(UuidString),
   })
-  .strict();
+);
 
-const selectedSavedSearchSchema = z.discriminatedUnion("state", [
-  z.object({ state: z.literal("not_applicable") }).strict(),
-  z
-    .object({
-      createdAt: z.string().datetime(),
-      id: z.string().uuid(),
-      parserVersion: z.string(),
-      schemaVersion: z.string(),
-      state: z.literal("present"),
-      updatedAt: z.string().datetime(),
-    })
-    .strict(),
+const notApplicable = Schema.Struct({
+  state: Schema.Literal("not_applicable"),
+});
+
+const selectedSavedSearch = Schema.Union([
+  notApplicable,
+  Schema.Struct({
+    createdAt: IsoDateTimeString,
+    id: UuidString,
+    parserVersion: Schema.String,
+    schemaVersion: Schema.String,
+    state: Schema.Literal("present"),
+    updatedAt: IsoDateTimeString,
+  }),
 ]);
 
-const selectedSnapshotSchema = z.discriminatedUnion("state", [
-  z.object({ state: z.literal("not_applicable") }).strict(),
-  z
-    .object({
-      createdAt: z.string().datetime(),
-      id: z.string().uuid(),
-      indexVersion: z.number(),
-      parserVersion: z.string(),
-      savedSearchId: z.string().uuid().nullable(),
-      schemaVersion: z.string(),
-      searchScope: z.string(),
-      searchVersion: z
-        .object({
-          appliedSequence: z.string(),
-          generation: z.number().int().positive(),
+const selectedSnapshot = Schema.Union([
+  notApplicable,
+  Schema.Struct({
+    createdAt: IsoDateTimeString,
+    id: UuidString,
+    indexVersion: FiniteNumber,
+    parserVersion: Schema.String,
+    savedSearchId: Schema.NullOr(UuidString),
+    schemaVersion: Schema.String,
+    searchScope: Schema.String,
+    searchVersion: Schema.Struct({
+      appliedSequence: Schema.String,
+      generation: PositiveInteger,
+    }),
+    selectedCount: NonNegativeInteger,
+    state: Schema.Literal("present"),
+  }),
+]);
+
+const resourceReference = Schema.Union([
+  notApplicable,
+  Schema.Struct({ id: UuidString, state: Schema.Literal("present") }),
+]);
+
+const unknownState = Schema.Struct({ state: Schema.Literal("unknown") });
+
+const freshnessObservation = Schema.Union([
+  Schema.Struct({
+    observedAt: IsoDateTimeString,
+    state: Schema.Literal("present"),
+  }),
+  unknownState,
+  notApplicable,
+]);
+
+export const getOperatorContextOutputSchema = toCapabilitySchema(
+  Schema.Struct({
+    activity: Schema.Struct({
+      items: Schema.Array(
+        Schema.Struct({
+          action: safeActivityAction,
+          auditClass: Schema.Literals(["access", "effect", "none"]),
+          createdAt: IsoDateTimeString,
+          entityType: Schema.String,
         })
-        .strict(),
-      selectedCount: z.number().int().nonnegative(),
-      state: z.literal("present"),
-    })
-    .strict(),
-]);
-
-const resourceReferenceSchema = z.discriminatedUnion("state", [
-  z.object({ state: z.literal("not_applicable") }).strict(),
-  z.object({ id: z.string().uuid(), state: z.literal("present") }).strict(),
-]);
-
-const freshnessObservationSchema = z.discriminatedUnion("state", [
-  z
-    .object({ observedAt: z.string().datetime(), state: z.literal("present") })
-    .strict(),
-  z.object({ state: z.literal("unknown") }).strict(),
-  z.object({ state: z.literal("not_applicable") }).strict(),
-]);
-
-export const getOperatorContextOutputSchema = z
-  .object({
-    activity: z.object({
-      items: z.array(
-        z
-          .object({
-            action: safeActivityActionSchema,
-            auditClass: z.enum(["access", "effect", "none"]),
-            createdAt: z.string().datetime(),
-            entityType: z.string(),
-          })
-          .strict()
       ),
-      state: z.literal("present"),
+      state: Schema.Literal("present"),
     }),
-    actor: z
-      .object({ id: z.string(), kind: z.enum(["user", "agent", "service"]) })
-      .strict(),
-    capabilities: z.object({
-      items: z.array(
-        z
-          .object({
-            availability: capabilityAvailabilitySchema,
-            effect: z.enum(["read", "internal-write"]),
-            id: z.string(),
-            outcome: z.string(),
-          })
-          .strict()
+    actor: Schema.Struct({
+      id: Schema.String,
+      kind: Schema.Literals(["user", "agent", "service"]),
+    }),
+    capabilities: Schema.Struct({
+      items: Schema.Array(
+        Schema.Struct({
+          availability: capabilityAvailability,
+          effect: Schema.Literals(["read", "internal-write"]),
+          id: Schema.String,
+          outcome: Schema.String,
+        })
       ),
-      state: z.literal("present"),
+      state: Schema.Literal("present"),
     }),
-    contract: z
-      .object({
-        digest: z.string().regex(/^[a-f0-9]{64}$/u),
-        digestAlgorithm: z.literal("sha256"),
-        name: z.literal(OPERATOR_CONTEXT_CONTRACT_NAME),
-        version: z.literal(OPERATOR_CONTEXT_CONTRACT_VERSION),
-      })
-      .strict(),
-    freshness: z
-      .object({
-        activity: freshnessObservationSchema,
-        capabilityPolicy: z.object({ state: z.literal("unknown") }).strict(),
-        readAt: z.string().datetime(),
-        resourceInventory: z.object({ state: z.literal("unknown") }).strict(),
-        savedSearch: freshnessObservationSchema,
-        snapshot: freshnessObservationSchema,
-      })
-      .strict(),
-    preferences: z.object({ state: z.literal("unknown") }).strict(),
-    provenance: z
-      .object({
-        activity: z.literal("actor-and-scope-filtered-audit-store"),
-        capabilities: z.literal("permission-filtered-capability-registry"),
-        resources: z.literal("explicit-owner-scoped-resource-references"),
-        selections: z.literal("explicit-owner-and-scope-store-lookups"),
-      })
-      .strict(),
-    resources: z
-      .object({
-        inventory: z.object({ state: z.literal("unknown") }).strict(),
-        selected: z
-          .object({
-            savedSearch: resourceReferenceSchema,
-            snapshot: resourceReferenceSchema,
-          })
-          .strict(),
-      })
-      .strict(),
-    scope: z.object({ id: z.string() }).strict(),
-    selected: z
-      .object({
-        savedSearch: selectedSavedSearchSchema,
-        snapshot: selectedSnapshotSchema,
-      })
-      .strict(),
+    contract: Schema.Struct({
+      digest: Schema.String.check(Schema.isPattern(/^[a-f0-9]{64}$/u)),
+      digestAlgorithm: Schema.Literal("sha256"),
+      name: Schema.Literal(OPERATOR_CONTEXT_CONTRACT_NAME),
+      version: Schema.Literal(OPERATOR_CONTEXT_CONTRACT_VERSION),
+    }),
+    freshness: Schema.Struct({
+      activity: freshnessObservation,
+      capabilityPolicy: unknownState,
+      readAt: IsoDateTimeString,
+      resourceInventory: unknownState,
+      savedSearch: freshnessObservation,
+      snapshot: freshnessObservation,
+    }),
+    preferences: unknownState,
+    provenance: Schema.Struct({
+      activity: Schema.Literal("actor-and-scope-filtered-audit-store"),
+      capabilities: Schema.Literal("permission-filtered-capability-registry"),
+      resources: Schema.Literal("explicit-owner-scoped-resource-references"),
+      selections: Schema.Literal("explicit-owner-and-scope-store-lookups"),
+    }),
+    resources: Schema.Struct({
+      inventory: unknownState,
+      selected: Schema.Struct({
+        savedSearch: resourceReference,
+        snapshot: resourceReference,
+      }),
+    }),
+    scope: Schema.Struct({ id: Schema.String }),
+    selected: Schema.Struct({
+      savedSearch: selectedSavedSearch,
+      snapshot: selectedSnapshot,
+    }),
   })
-  .strict();
+);
 
-type OperatorContextInput = z.output<typeof getOperatorContextInputSchema>;
-type OperatorContextOutput = z.input<typeof getOperatorContextOutputSchema>;
+type OperatorContextInput = SchemaType<typeof getOperatorContextInputSchema>;
+type OperatorContextOutput = SchemaEncoded<
+  typeof getOperatorContextOutputSchema
+>;
 type OperatorContextDigestContent = Pick<
   OperatorContextOutput,
   | "activity"
@@ -218,7 +216,7 @@ const snapshotSummary = (record: QuerySnapshotRecord) => ({
   state: "present" as const,
 });
 
-type SafeActivityAction = z.output<typeof safeActivityActionSchema>;
+type SafeActivityAction = typeof safeActivityAction.Type;
 
 const entityTypeForAction = (action: SafeActivityAction): string => {
   switch (action) {
@@ -237,6 +235,8 @@ const entityTypeForAction = (action: SafeActivityAction): string => {
     }
   }
 };
+
+const safeActivityActionSchema = toCapabilitySchema(safeActivityAction);
 
 const safeActivitySummary = (event: AuditEventRecord) => {
   const parsedAction = safeActivityActionSchema.safeParse(event.action);
@@ -374,7 +374,7 @@ export const createGetOperatorContextHandler =
   ): Promise<
     | {
         readonly ok: true;
-        readonly value: z.input<typeof getOperatorContextOutputSchema>;
+        readonly value: SchemaEncoded<typeof getOperatorContextOutputSchema>;
       }
     | { readonly error: SliceADomainFailure; readonly ok: false }
   > => {

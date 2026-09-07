@@ -1,5 +1,3 @@
-import { z } from "zod";
-
 import { defineCapability } from "./capability";
 import {
   ackAlertInputSchema,
@@ -108,6 +106,7 @@ import {
   ROLE_OPERATOR,
   ROLE_RECRUITER,
 } from "./roles";
+import { emptyObjectSchema } from "./schema-helpers";
 import {
   createSourcingAssessmentHandler,
   sourcingAssessmentInputSchema,
@@ -233,7 +232,7 @@ export const createSliceACapabilityCatalog = (deps: SliceAHandlerDeps) => {
     grounding: true,
     handler: createListBronnenHandler(deps),
     id: "list_bronnen",
-    inputSchema: z.object({}).strict(),
+    inputSchema: emptyObjectSchema,
     outcome: "Lijst bronnen met status en laatste run",
     outputSchema: listBronnenOutputSchema,
   });
@@ -272,7 +271,7 @@ export const createSliceACapabilityCatalog = (deps: SliceAHandlerDeps) => {
     grounding: true,
     handler: createListSavedSearchesHandler(deps),
     id: "list_saved_searches",
-    inputSchema: z.object({}).strict(),
+    inputSchema: emptyObjectSchema,
     outcome: "Lijst eigen actieve opgeslagen zoekopdrachten",
     outputSchema: listSavedSearchesOutputSchema,
   });
@@ -495,7 +494,7 @@ export const createSliceACapabilityCatalog = (deps: SliceAHandlerDeps) => {
     grounding: true,
     handler: createListAlertsHandler(deps),
     id: "list_alerts",
-    inputSchema: z.object({}).strict(),
+    inputSchema: emptyObjectSchema,
     outcome: "Lijst open bron-alerts",
     outputSchema: listAlertsOutputSchema,
   });

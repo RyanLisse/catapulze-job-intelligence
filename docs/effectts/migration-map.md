@@ -109,6 +109,7 @@ Slices zijn strikt geordend op leerrendement en dependency-richting. Elke slice 
 | Testbewijs | `check:capability-registry`, `check:capability-coverage`, registry specs |
 | Rollback | behoud vorige gegenereerde/Zod snapshots tot cutover-commit revert |
 | Stop | parallel hand-maintained Zod+Effect voor zelfde tool I/O |
+| Status (CTP-469) | Effect Schema SoT landed voor registry-contracten (`schemas.ts`, `capability.ts`, `capabilities.ts`, handler I/O, sourcing-assessment); registry-validatie, Standard Schema en MCP/REST JSON Schema zijn afgeleid via `registry/schema-helpers.ts`; geen Zod-duplicaten meer voor tool I/O; descriptors semantisch identiek aan de vorige Zod-output; prod Effect runtime OFF; Motian ongewijzigd |
 
 ### Slice 5 — Domain Effect Schema
 

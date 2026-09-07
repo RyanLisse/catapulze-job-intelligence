@@ -1,10 +1,19 @@
 import { createHash } from "node:crypto";
 
 import { UNKNOWN } from "@ji/domain";
-import { z } from "zod";
+import { Effect, Schema } from "effect";
 
 import type { InvocationContext, InvocationPrincipal } from "./capability";
 import type { SliceAHandlerDeps } from "./handlers/deps";
+import type { SchemaEncoded, SchemaType } from "./schema-helpers";
+import {
+  IsoDateTimeString,
+  NonNegativeInteger,
+  optionalField,
+  PositiveInteger,
+  toCapabilitySchema,
+  UuidString,
+} from "./schema-helpers";
 
 export const SOURCING_PROMPT_ID = "catapulze.sourcing-assessment" as const;
 export const SOURCING_PROMPT_VERSION = "1.0.0" as const;
@@ -45,99 +54,102 @@ const secretLikeReferenceIdPatterns = [
   /^bearer[-_][A-Za-z0-9._~-]{16,}$/iu,
   /^(?:-----)?BEGIN[-_ ](?:[A-Z]+[-_ ])?PRIVATE[-_ ]KEY/iu,
 ] as const;
-const opaqueSourceReferenceIdSchema = z
-  .string()
-  .min(1)
-  .max(256)
-  .regex(/^[A-Za-z0-9][A-Za-z0-9._:/-]*$/u)
-  .refine((reference) => !reference.includes("://"))
-  .refine(
-    (reference) =>
-      !secretLikeReferenceIdPatterns.some((pattern) => pattern.test(reference))
-  );
-const sha256Schema = z.string().regex(/^sha256:[a-f0-9]{64}$/u);
-const sourceReferenceSchema = z
-  .object({
-    capabilityId: z.enum(evidenceCapabilityIds),
-    id: opaqueSourceReferenceIdSchema,
-    maxAgeSeconds: z.number().int().positive().optional(),
-    observedAt: z.string().datetime().nullable(),
-    reference: opaqueSourceReferenceIdSchema,
-  })
-  .strict();
-const claimBaseSchema = z.object({
-  field: z.enum(sourcingFields),
-  vacancyId: z.string().uuid(),
+const OPAQUE_SOURCE_REFERENCE_ID_MAX_LENGTH = 256;
+const opaqueSourceReferenceId = Schema.String.check(
+  Schema.isMinLength(1),
+  Schema.isMaxLength(OPAQUE_SOURCE_REFERENCE_ID_MAX_LENGTH),
+  Schema.isPattern(/^[A-Za-z0-9][A-Za-z0-9._:/-]*$/u),
+  Schema.makeFilter((reference) =>
+    reference.includes("://") ? "Expected an opaque reference" : undefined
+  ),
+  Schema.makeFilter((reference) =>
+    secretLikeReferenceIdPatterns.some((pattern) => pattern.test(reference))
+      ? "Expected a reference without secret-like material"
+      : undefined
+  )
+);
+const sha256Value = Schema.String.check(
+  Schema.isPattern(/^sha256:[a-f0-9]{64}$/u)
+);
+const sourceReference = Schema.Struct({
+  capabilityId: Schema.Literals(evidenceCapabilityIds),
+  id: opaqueSourceReferenceId,
+  maxAgeSeconds: optionalField(PositiveInteger),
+  observedAt: Schema.NullOr(IsoDateTimeString),
+  reference: opaqueSourceReferenceId,
 });
-const sourcingClaimSchema = z.discriminatedUnion("status", [
-  claimBaseSchema
-    .extend({
-      sourceReferenceIds: z
-        .array(opaqueSourceReferenceIdSchema)
-        .min(1)
-        .max(SOURCING_ASSESSMENT_MAX_SOURCE_REFERENCE_IDS_PER_CLAIM),
-      status: z.literal("known"),
-      value: z
-        .string()
-        .min(1)
-        .max(SOURCING_ASSESSMENT_MAX_CLAIM_VALUE_LENGTH)
-        .refine((value) => value !== UNKNOWN),
-    })
-    .strict(),
-  claimBaseSchema
-    .extend({
-      sourceReferenceIds: z
-        .array(opaqueSourceReferenceIdSchema)
-        .max(SOURCING_ASSESSMENT_MAX_SOURCE_REFERENCE_IDS_PER_CLAIM)
-        .default([]),
-      status: z.literal("unknown"),
-      value: z.literal(UNKNOWN),
-    })
-    .strict(),
-  claimBaseSchema
-    .extend({
-      sourceReferenceIds: z
-        .array(opaqueSourceReferenceIdSchema)
-        .max(SOURCING_ASSESSMENT_MAX_SOURCE_REFERENCE_IDS_PER_CLAIM)
-        .default([]),
-      status: z.literal("uncertain"),
-      value: z
-        .string()
-        .min(1)
-        .max(SOURCING_ASSESSMENT_MAX_CLAIM_VALUE_LENGTH)
-        .optional(),
-    })
-    .strict(),
+const claimBaseFields = {
+  field: Schema.Literals(sourcingFields),
+  vacancyId: UuidString,
+} as const;
+const claimValue = Schema.String.check(
+  Schema.isMinLength(1),
+  Schema.isMaxLength(SOURCING_ASSESSMENT_MAX_CLAIM_VALUE_LENGTH)
+);
+const emptyReferenceIds = Schema.Array(opaqueSourceReferenceId)
+  .check(
+    Schema.isMaxLength(SOURCING_ASSESSMENT_MAX_SOURCE_REFERENCE_IDS_PER_CLAIM)
+  )
+  .pipe(Schema.withDecodingDefaultKey(Effect.succeed<readonly string[]>([])));
+const sourcingClaim = Schema.Union([
+  Schema.Struct({
+    ...claimBaseFields,
+    sourceReferenceIds: Schema.Array(opaqueSourceReferenceId).check(
+      Schema.isMinLength(1),
+      Schema.isMaxLength(SOURCING_ASSESSMENT_MAX_SOURCE_REFERENCE_IDS_PER_CLAIM)
+    ),
+    status: Schema.Literal("known"),
+    value: claimValue.check(
+      Schema.makeFilter((value) =>
+        value === UNKNOWN ? "Expected a known value" : undefined
+      )
+    ),
+  }),
+  Schema.Struct({
+    ...claimBaseFields,
+    sourceReferenceIds: emptyReferenceIds,
+    status: Schema.Literal("unknown"),
+    value: Schema.Literal(UNKNOWN),
+  }),
+  Schema.Struct({
+    ...claimBaseFields,
+    sourceReferenceIds: emptyReferenceIds,
+    status: Schema.Literal("uncertain"),
+    value: optionalField(claimValue),
+  }),
 ]);
-const trustedAttestationSchema = z
-  .object({
-    claims: z.array(sourcingClaimSchema).max(SOURCING_ASSESSMENT_MAX_CLAIMS),
-    queryDigest: sha256Schema,
-    searchStatus: z.enum(["complete", "incomplete", "unknown"]),
-    selectedIds: z
-      .array(z.string().uuid())
-      .max(SOURCING_ASSESSMENT_MAX_SELECTED_IDS),
-    sourceReferences: z
-      .array(sourceReferenceSchema)
-      .max(SOURCING_ASSESSMENT_MAX_SOURCE_REFERENCES),
-    usedCapabilities: z
-      .array(z.enum(evidenceCapabilityIds))
-      .max(evidenceCapabilityIds.length),
-  })
-  .strict();
-export type TrustedSourcingAttestation = z.output<
+const trustedAttestation = Schema.Struct({
+  claims: Schema.Array(sourcingClaim).check(
+    Schema.isMaxLength(SOURCING_ASSESSMENT_MAX_CLAIMS)
+  ),
+  queryDigest: sha256Value,
+  searchStatus: Schema.Literals(["complete", "incomplete", "unknown"]),
+  selectedIds: Schema.Array(UuidString).check(
+    Schema.isMaxLength(SOURCING_ASSESSMENT_MAX_SELECTED_IDS)
+  ),
+  sourceReferences: Schema.Array(sourceReference).check(
+    Schema.isMaxLength(SOURCING_ASSESSMENT_MAX_SOURCE_REFERENCES)
+  ),
+  usedCapabilities: Schema.Array(Schema.Literals(evidenceCapabilityIds)).check(
+    Schema.isMaxLength(evidenceCapabilityIds.length)
+  ),
+});
+const trustedAttestationSchema = toCapabilitySchema(trustedAttestation);
+export type TrustedSourcingAttestation = SchemaType<
   typeof trustedAttestationSchema
 >;
-export const sourcingAssessmentInputSchema = z
-  .object({
-    claims: z.array(sourcingClaimSchema).max(SOURCING_ASSESSMENT_MAX_CLAIMS),
-    queryDigest: sha256Schema,
-    selectedIds: z
-      .array(z.string().uuid())
-      .max(SOURCING_ASSESSMENT_MAX_SELECTED_IDS),
-    selectionDigest: sha256Schema,
+export const sourcingAssessmentInputSchema = toCapabilitySchema(
+  Schema.Struct({
+    claims: Schema.Array(sourcingClaim).check(
+      Schema.isMaxLength(SOURCING_ASSESSMENT_MAX_CLAIMS)
+    ),
+    queryDigest: sha256Value,
+    selectedIds: Schema.Array(UuidString).check(
+      Schema.isMaxLength(SOURCING_ASSESSMENT_MAX_SELECTED_IDS)
+    ),
+    selectionDigest: sha256Value,
   })
-  .strict();
+);
 const findingCodes = [
   "UPSTREAM_ATTESTATION_UNAVAILABLE",
   "CLAIM_ATTESTATION_MISMATCH",
@@ -156,75 +168,68 @@ const findingCodes = [
   "UNKNOWN_SOURCE_FRESHNESS",
   "UPSTREAM_SEARCH_INCOMPLETE",
 ] as const;
-const evaluatorFindingSchema = z
-  .object({
-    code: z.enum(findingCodes),
-    field: z.enum(sourcingFields).optional(),
-    message: z.string(),
-    vacancyId: z.string().uuid().optional(),
-  })
-  .strict();
-const freshnessReadbackSchema = sourceReferenceSchema.extend({
-  ageSeconds: z.number().int().nonnegative().nullable(),
-  status: z.enum(["fresh", "stale", "unknown"]),
+const evaluatorFinding = Schema.Struct({
+  code: Schema.Literals(findingCodes),
+  field: optionalField(Schema.Literals(sourcingFields)),
+  message: Schema.String,
+  vacancyId: optionalField(UuidString),
 });
-const dependencyGuardSchema = z
-  .object({
-    issue: z.enum(["RJC-427", "RJC-429", "RJC-430", "RJC-431"]),
-    requirement: z.string(),
-    status: z.enum(["satisfied", "upstream-required"]),
+const freshnessReadback = Schema.Struct({
+  ...sourceReference.fields,
+  ageSeconds: Schema.NullOr(NonNegativeInteger),
+  status: Schema.Literals(["fresh", "stale", "unknown"]),
+});
+const dependencyGuard = Schema.Struct({
+  issue: Schema.Literals(["RJC-427", "RJC-429", "RJC-430", "RJC-431"]),
+  requirement: Schema.String,
+  status: Schema.Literals(["satisfied", "upstream-required"]),
+});
+export const sourcingAssessmentOutputSchema = toCapabilitySchema(
+  Schema.Struct({
+    binding: Schema.Struct({
+      actor: Schema.Struct({
+        kind: Schema.Literals(["user", "agent", "service"]),
+        subjectId: Schema.String,
+      }),
+      queryDigest: Schema.NullOr(sha256Value),
+      scopeId: Schema.String,
+      searchStatus: Schema.Literals(["complete", "incomplete", "unknown"]),
+      selectedIds: Schema.Array(UuidString).check(
+        Schema.isMaxLength(SOURCING_ASSESSMENT_MAX_SELECTED_IDS)
+      ),
+      selectionDigest: Schema.NullOr(sha256Value),
+      trust: Schema.Literals(["attested", "unavailable"]),
+    }),
+    claims: Schema.Array(sourcingClaim).check(
+      Schema.isMaxLength(SOURCING_ASSESSMENT_MAX_CLAIMS)
+    ),
+    dependencyGuards: Schema.Array(dependencyGuard),
+    evaluation: Schema.Struct({
+      asOf: IsoDateTimeString,
+      findings: Schema.Array(evaluatorFinding),
+      inputDigest: sha256Value,
+      status: Schema.Literals([
+        "passed",
+        "needs-review",
+        "insufficient-evidence",
+        "blocked-upstream",
+      ]),
+    }),
+    prompt: Schema.Struct({
+      id: Schema.Literal(SOURCING_PROMPT_ID),
+      instructions: Schema.Array(Schema.String),
+      readOnly: Schema.Literal(true),
+      version: Schema.Literal(SOURCING_PROMPT_VERSION),
+    }),
+    sourceReferences: Schema.Array(freshnessReadback).check(
+      Schema.isMaxLength(SOURCING_ASSESSMENT_MAX_SOURCE_REFERENCES)
+    ),
+    usedCapabilities: Schema.Array(
+      Schema.Literals(evidenceCapabilityIds)
+    ).check(Schema.isMaxLength(evidenceCapabilityIds.length)),
   })
-  .strict();
-export const sourcingAssessmentOutputSchema = z
-  .object({
-    binding: z
-      .object({
-        actor: z.object({
-          kind: z.enum(["user", "agent", "service"]),
-          subjectId: z.string(),
-        }),
-        queryDigest: sha256Schema.nullable(),
-        scopeId: z.string(),
-        searchStatus: z.enum(["complete", "incomplete", "unknown"]),
-        selectedIds: z
-          .array(z.string().uuid())
-          .max(SOURCING_ASSESSMENT_MAX_SELECTED_IDS),
-        selectionDigest: sha256Schema.nullable(),
-        trust: z.enum(["attested", "unavailable"]),
-      })
-      .strict(),
-    claims: z.array(sourcingClaimSchema).max(SOURCING_ASSESSMENT_MAX_CLAIMS),
-    dependencyGuards: z.array(dependencyGuardSchema),
-    evaluation: z
-      .object({
-        asOf: z.string().datetime(),
-        findings: z.array(evaluatorFindingSchema),
-        inputDigest: sha256Schema,
-        status: z.enum([
-          "passed",
-          "needs-review",
-          "insufficient-evidence",
-          "blocked-upstream",
-        ]),
-      })
-      .strict(),
-    prompt: z
-      .object({
-        id: z.literal(SOURCING_PROMPT_ID),
-        instructions: z.array(z.string()),
-        readOnly: z.literal(true),
-        version: z.literal(SOURCING_PROMPT_VERSION),
-      })
-      .strict(),
-    sourceReferences: z
-      .array(freshnessReadbackSchema)
-      .max(SOURCING_ASSESSMENT_MAX_SOURCE_REFERENCES),
-    usedCapabilities: z
-      .array(z.enum(evidenceCapabilityIds))
-      .max(evidenceCapabilityIds.length),
-  })
-  .strict();
-export type SourcingAssessmentInput = z.output<
+);
+export type SourcingAssessmentInput = SchemaType<
   typeof sourcingAssessmentInputSchema
 >;
 interface CanonicalClaim {
@@ -284,7 +289,7 @@ const dependencyRequirements = [
   ["RJC-430", "Attest the current authorized selection."],
   ["RJC-431", "Attest complete versus partial or timed-out search results."],
 ] as const;
-type Finding = z.infer<typeof evaluatorFindingSchema>;
+type Finding = typeof evaluatorFinding.Type;
 const finding = (
   code: Finding["code"],
   message: string,
@@ -366,9 +371,9 @@ const canonicalAttestation = (
       } satisfies CanonicalAttestation);
 
 const readFreshness = (
-  reference: z.output<typeof sourceReferenceSchema>,
+  reference: typeof sourceReference.Type,
   asOf: Date
-): z.output<typeof freshnessReadbackSchema> => {
+): typeof freshnessReadback.Type => {
   if (reference.observedAt === null) {
     return { ...reference, ageSeconds: null, status: "unknown" };
   }
@@ -579,11 +584,11 @@ export const evaluateSourcingAssessment = (
   scopeId: string,
   asOf: Date,
   attestation: TrustedSourcingAttestation | null
-): z.input<typeof sourcingAssessmentOutputSchema> => {
-  const trustedAttestation = attestation
+): SchemaEncoded<typeof sourcingAssessmentOutputSchema> => {
+  const parsedAttestation = attestation
     ? trustedAttestationSchema.safeParse(attestation)
     : null;
-  const attested = trustedAttestation?.success ? trustedAttestation.data : null;
+  const attested = parsedAttestation?.success ? parsedAttestation.data : null;
   const findings = attested
     ? evaluateFindings(input, attested, asOf)
     : [

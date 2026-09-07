@@ -9,6 +9,7 @@ export * from "./handlers/operator-context";
 export * from "./metadata";
 export * from "./registry";
 export * from "./roles";
+export * from "./schema-helpers";
 export * from "./schemas";
 export * from "./sourcing-assessment";
 export * from "./slice-a-ui-actions";

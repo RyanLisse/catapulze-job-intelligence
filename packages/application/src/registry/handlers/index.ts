@@ -13,11 +13,25 @@ import {
   SEARCH_SORT_OPTIONS,
   SEARCH_WINDOW_LIMIT,
 } from "@ji/search";
-import { z } from "zod";
+import { Effect, Schema } from "effect";
 
 import { validateSnapshotApproval } from "../../approval/validate-snapshot-approval";
 import type { PublicBronView } from "../../bronnen";
 import { hasRecruiterPermission } from "../roles";
+import type { SchemaType } from "../schema-helpers";
+import {
+  FiniteNumber,
+  IntegerNumber,
+  IsoDateTimeString,
+  NonEmptyString,
+  NonNegativeInteger,
+  optionalField,
+  PositiveInteger,
+  toCapabilitySchema,
+  TrimmedNonEmptyString,
+  UnknownRecord,
+  UuidString,
+} from "../schema-helpers";
 import {
   previewText,
   searchFiltersSchema,
@@ -80,74 +94,79 @@ const fullAanvraag = (record: AanvraagRecord) => ({
   mode: "full" as const,
 });
 
-const facetBucketsSchema = z.array(
-  z.object({ count: z.number(), value: z.string() })
+const facetBuckets = Schema.Array(
+  Schema.Struct({ count: FiniteNumber, value: Schema.String })
 );
 
 export const SEARCH_MAX_LIMIT = 100;
 
-export const searchAanvragenInputSchema = z
-  .object({
-    filters: searchFiltersSchema.optional(),
-    limit: z.number().int().positive().max(SEARCH_MAX_LIMIT).optional(),
-    offset: z
-      .number()
-      .int()
-      .nonnegative()
-      .max(SEARCH_WINDOW_LIMIT - 1)
-      .optional(),
-    query: z.string(),
+const DEFAULT_SEARCH_PAGE_SIZE = 20;
+
+export const searchAanvragenInputSchema = toCapabilitySchema(
+  Schema.Struct({
+    filters: optionalField(searchFiltersSchema.effect),
+    limit: optionalField(
+      PositiveInteger.check(Schema.isLessThanOrEqualTo(SEARCH_MAX_LIMIT))
+    ),
+    offset: optionalField(
+      NonNegativeInteger.check(
+        Schema.isLessThanOrEqualTo(SEARCH_WINDOW_LIMIT - 1)
+      )
+    ),
+    query: Schema.String,
     /**
      * Partitions to read (RJC-383). Default "active": the placeable stock.
      * "all" also searches the archive (closed / stale / expired work) —
      * the "ook in archief zoeken" toggle.
      */
-    scope: z.enum(SEARCH_SCOPES).optional(),
-    sort: z.enum(SEARCH_SORT_OPTIONS).optional(),
-  })
-  .strict()
-  // offset + limit must stay inside Manticore's max_matches window (RJC-380,
-  // SEARCH_WINDOW_LIMIT): past it a request silently comes back with fewer or
-  // no hits while `total` still reports the true count. Rejecting here keeps
-  // the last navigable page exactly floor(windowLimit / pageSize) for every
-  // page size, which is what the web derives `totalPages` from (RJC-378).
-  .refine(
-    (input) => (input.offset ?? 0) + (input.limit ?? 20) <= SEARCH_WINDOW_LIMIT,
-    {
-      message: `offset + limit must not exceed ${SEARCH_WINDOW_LIMIT}`,
-      path: ["offset"],
-    }
-  );
+    scope: optionalField(Schema.Literals(SEARCH_SCOPES)),
+    sort: optionalField(Schema.Literals(SEARCH_SORT_OPTIONS)),
+  }).check(
+    // offset + limit must stay inside Manticore's max_matches window (RJC-380,
+    // SEARCH_WINDOW_LIMIT): past it a request silently comes back with fewer or
+    // no hits while `total` still reports the true count. Rejecting here keeps
+    // the last navigable page exactly floor(windowLimit / pageSize) for every
+    // page size, which is what the web derives `totalPages` from (RJC-378).
+    Schema.makeFilter((input) =>
+      (input.offset ?? 0) + (input.limit ?? DEFAULT_SEARCH_PAGE_SIZE) >
+      SEARCH_WINDOW_LIMIT
+        ? `offset + limit must not exceed ${SEARCH_WINDOW_LIMIT}`
+        : undefined
+    )
+  )
+);
 
-export const searchAanvragenOutputSchema = z
-  .object({
+export const searchAanvragenOutputSchema = toCapabilitySchema(
+  Schema.Struct({
     /** Matches the same search has in the archive; present for scope "active" only (RJC-383), null when the count failed. */
-    archiveTotal: z.number().int().nonnegative().nullable().optional(),
-    emptyReason: z.string().optional(),
-    facets: z.object({
-      bron_id: facetBucketsSchema,
-      contracttype: facetBucketsSchema,
-      locatie: facetBucketsSchema,
-      locatie_land: facetBucketsSchema,
-      status: facetBucketsSchema,
+    archiveTotal: optionalField(Schema.NullOr(NonNegativeInteger)),
+    emptyReason: optionalField(Schema.String),
+    facets: Schema.Struct({
+      bron_id: facetBuckets,
+      contracttype: facetBuckets,
+      locatie: facetBuckets,
+      locatie_land: facetBuckets,
+      status: facetBuckets,
     }),
-    hits: z.array(z.object({ id: z.string(), weight: z.number() })),
-    ids: z.array(z.string()),
-    incomplete: z.boolean(),
-    indexVersion: z.number(),
-    parserVersion: z.number(),
+    hits: Schema.Array(
+      Schema.Struct({ id: Schema.String, weight: FiniteNumber })
+    ),
+    ids: Schema.Array(Schema.String),
+    incomplete: Schema.Boolean,
+    indexVersion: FiniteNumber,
+    parserVersion: FiniteNumber,
     /** Partitions this result was read from (RJC-383). */
-    scope: z.enum(SEARCH_SCOPES),
+    scope: Schema.Literals(SEARCH_SCOPES),
     /** True hit count — may exceed what is retrievable (see windowLimit). */
-    total: z.number(),
+    total: FiniteNumber,
     /** Deepest reachable offset + limit; pages beyond it cannot be requested. */
-    windowLimit: z.number().int().positive(),
+    windowLimit: PositiveInteger,
   })
-  .strict();
+);
 
 export const createSearchAanvragenHandler =
   (deps: SliceAHandlerDeps) =>
-  (input: z.output<typeof searchAanvragenInputSchema>) => {
+  (input: SchemaType<typeof searchAanvragenInputSchema>) => {
     const execute = async () => {
       const result = await timeCriticalPathPhase("api-handler", () =>
         deps.searchAdapter.search(input)
@@ -197,33 +216,37 @@ export const createSearchAanvragenHandler =
     });
   };
 
-export const getAanvraagInputSchema = z
-  .object({
-    full: z.boolean().optional(),
-    id: z.string().uuid(),
+export const getAanvraagInputSchema = toCapabilitySchema(
+  Schema.Struct({
+    full: optionalField(Schema.Boolean),
+    id: UuidString,
   })
-  .strict();
+);
 
-const markeringReadbackSchema = z
-  .object({
-    reden: z.string().nullable(),
-    revision: z.number().int().positive(),
-    status: z.enum(["relevant", "niet_relevant", "gevolgd"]),
-    updatedAt: z.string().datetime(),
-  })
-  .strict();
+const markeringStatus = Schema.Literals([
+  "relevant",
+  "niet_relevant",
+  "gevolgd",
+]);
 
-export const getAanvraagOutputSchema = z
-  .object({
-    aanvraag: z.record(z.string(), z.unknown()),
-    markering: markeringReadbackSchema.nullable(),
+const markeringReadback = Schema.Struct({
+  reden: Schema.NullOr(Schema.String),
+  revision: PositiveInteger,
+  status: markeringStatus,
+  updatedAt: IsoDateTimeString,
+});
+
+export const getAanvraagOutputSchema = toCapabilitySchema(
+  Schema.Struct({
+    aanvraag: UnknownRecord,
+    markering: Schema.NullOr(markeringReadback),
   })
-  .strict();
+);
 
 export const createGetAanvraagHandler =
   (deps: SliceAHandlerDeps) =>
   async (
-    input: z.output<typeof getAanvraagInputSchema>,
+    input: SchemaType<typeof getAanvraagInputSchema>,
     context: {
       principal: { permissions: ReadonlySet<string>; subjectId: string };
     }
@@ -263,20 +286,20 @@ export const createGetAanvraagHandler =
     };
   };
 
-export const listVersiesInputSchema = z
-  .object({ aanvraagId: z.string().uuid() })
-  .strict();
+export const listVersiesInputSchema = toCapabilitySchema(
+  Schema.Struct({ aanvraagId: UuidString })
+);
 
-export const listVersiesOutputSchema = z.array(
-  z
-    .object({
-      geldigTot: z.string().nullable(),
-      geldigVan: z.string(),
-      id: z.string(),
-      normalisatieversie: z.string(),
-      scrapeRunId: z.string(),
-    })
-    .strict()
+const versieView = Schema.Struct({
+  geldigTot: Schema.NullOr(Schema.String),
+  geldigVan: Schema.String,
+  id: Schema.String,
+  normalisatieversie: Schema.String,
+  scrapeRunId: Schema.String,
+});
+
+export const listVersiesOutputSchema = toCapabilitySchema(
+  Schema.Array(versieView)
 );
 
 const toVersieView = (versie: AanvraagRecord["versies"][number]) => ({
@@ -289,7 +312,7 @@ const toVersieView = (versie: AanvraagRecord["versies"][number]) => ({
 
 export const createListVersiesHandler =
   (deps: SliceAHandlerDeps) =>
-  async (input: z.output<typeof listVersiesInputSchema>) => {
+  async (input: SchemaType<typeof listVersiesInputSchema>) => {
     const versies = await deps.stores.aanvragen.listVersies(input.aanvraagId);
     if (versies.length === 0) {
       const exists = await deps.stores.aanvragen.getById(input.aanvraagId);
@@ -311,32 +334,33 @@ export const createListVersiesHandler =
 // larger id lists are a validation error, never accepted.
 export const BATCH_GET_AANVRAGEN_MAX_IDS = SEARCH_MAX_LIMIT;
 
-export const batchGetAanvragenInputSchema = z
-  .object({
-    full: z.boolean().optional(),
-    ids: z.array(z.string().uuid()).min(1).max(BATCH_GET_AANVRAGEN_MAX_IDS),
-  })
-  .strict();
-
-export const batchGetAanvragenOutputSchema = z
-  .object({
-    items: z.array(
-      z
-        .object({
-          aanvraag: z.record(z.string(), z.unknown()),
-          id: z.string(),
-          markering: markeringReadbackSchema.nullable(),
-          versies: listVersiesOutputSchema,
-        })
-        .strict()
+export const batchGetAanvragenInputSchema = toCapabilitySchema(
+  Schema.Struct({
+    full: optionalField(Schema.Boolean),
+    ids: Schema.Array(UuidString).check(
+      Schema.isMinLength(1),
+      Schema.isMaxLength(BATCH_GET_AANVRAGEN_MAX_IDS)
     ),
   })
-  .strict();
+);
+
+export const batchGetAanvragenOutputSchema = toCapabilitySchema(
+  Schema.Struct({
+    items: Schema.Array(
+      Schema.Struct({
+        aanvraag: UnknownRecord,
+        id: Schema.String,
+        markering: Schema.NullOr(markeringReadback),
+        versies: Schema.Array(versieView),
+      })
+    ),
+  })
+);
 
 export const createBatchGetAanvragenHandler =
   (deps: SliceAHandlerDeps) =>
   async (
-    input: z.output<typeof batchGetAanvragenInputSchema>,
+    input: SchemaType<typeof batchGetAanvragenInputSchema>,
     context: {
       principal: { permissions: ReadonlySet<string>; subjectId: string };
     }
@@ -383,27 +407,27 @@ export const createBatchGetAanvragenHandler =
     return { ok: true as const, value: { items } };
   };
 
-export const readRawInputSchema = z
-  .object({
-    full: z.boolean().optional(),
-    ref: z.string().min(1),
+export const readRawInputSchema = toCapabilitySchema(
+  Schema.Struct({
+    full: optionalField(Schema.Boolean),
+    ref: NonEmptyString,
   })
-  .strict();
+);
 
-export const readRawOutputSchema = z
-  .object({
-    contentType: z.string(),
-    full: z.string().optional(),
-    mode: z.enum(["full", "preview"]),
-    preview: z.string(),
-    ref: z.string(),
+export const readRawOutputSchema = toCapabilitySchema(
+  Schema.Struct({
+    contentType: Schema.String,
+    full: optionalField(Schema.String),
+    mode: Schema.Literals(["full", "preview"]),
+    preview: Schema.String,
+    ref: Schema.String,
   })
-  .strict();
+);
 
 export const createReadRawHandler =
   (deps: SliceAHandlerDeps) =>
   async (
-    input: z.output<typeof readRawInputSchema>,
+    input: SchemaType<typeof readRawInputSchema>,
     context: { principal: { permissions: ReadonlySet<string> } }
   ) => {
     const payload = await deps.stores.rawPayloads.getByRef(input.ref);
@@ -440,8 +464,8 @@ export const createReadRawHandler =
     return { ok: true as const, value: previewValue };
   };
 
-export const listBronnenOutputSchema = z.array(
-  z.record(z.string(), z.unknown())
+export const listBronnenOutputSchema = toCapabilitySchema(
+  Schema.Array(UnknownRecord)
 );
 
 export const createListBronnenHandler =
@@ -453,15 +477,15 @@ export const createListBronnenHandler =
     };
   };
 
-export const getBronInputSchema = z
-  .object({ bronId: z.string().uuid() })
-  .strict();
+export const getBronInputSchema = toCapabilitySchema(
+  Schema.Struct({ bronId: UuidString })
+);
 
-export const getBronOutputSchema = z.record(z.string(), z.unknown());
+export const getBronOutputSchema = toCapabilitySchema(UnknownRecord);
 
 export const createGetBronHandler =
   (deps: SliceAHandlerDeps) =>
-  async (input: z.output<typeof getBronInputSchema>) => {
+  async (input: SchemaType<typeof getBronInputSchema>) => {
     const bron = await deps.bronnen.getById(input.bronId);
     if (!bron) {
       return domainFailure("NOT_FOUND", "Bron not found", {
@@ -471,27 +495,27 @@ export const createGetBronHandler =
     return { ok: true as const, value: { ...bron } };
   };
 
-export const createSavedSearchInputSchema = z
-  .object({
-    filters: searchFiltersSchema.optional(),
-    naam: z.string().min(1),
-    query: z.string(),
+export const createSavedSearchInputSchema = toCapabilitySchema(
+  Schema.Struct({
+    filters: optionalField(searchFiltersSchema.effect),
+    naam: NonEmptyString,
+    query: Schema.String,
   })
-  .strict();
+);
 
-export const savedSearchViewSchema = z
-  .object({
-    createdAt: z.string(),
-    filters: searchFiltersSchema,
-    id: z.string(),
-    naam: z.string(),
-    parserVersion: z.string(),
-    queryText: z.string(),
-    schemaVersion: z.string(),
-    updatedAt: z.string(),
-    userId: z.string(),
-  })
-  .strict();
+const savedSearchView = Schema.Struct({
+  createdAt: Schema.String,
+  filters: searchFiltersSchema.effect,
+  id: Schema.String,
+  naam: Schema.String,
+  parserVersion: Schema.String,
+  queryText: Schema.String,
+  schemaVersion: Schema.String,
+  updatedAt: Schema.String,
+  userId: Schema.String,
+});
+
+export const savedSearchViewSchema = toCapabilitySchema(savedSearchView);
 
 const toSavedSearchView = (record: SavedSearchRecord) => ({
   createdAt: record.createdAt.toISOString(),
@@ -508,7 +532,7 @@ const toSavedSearchView = (record: SavedSearchRecord) => ({
 export const createSavedSearchHandler =
   (deps: SliceAHandlerDeps) =>
   async (
-    input: z.output<typeof createSavedSearchInputSchema>,
+    input: SchemaType<typeof createSavedSearchInputSchema>,
     context: {
       principal: {
         kind: "agent" | "service" | "user";
@@ -544,15 +568,17 @@ export const createSavedSearchHandler =
     return { ok: true as const, value: toSavedSearchView(savedSearch) };
   };
 
-export const savedSearchIdInputSchema = z
-  .object({ id: z.string().uuid() })
-  .strict();
-export const listSavedSearchesOutputSchema = z.array(savedSearchViewSchema);
+export const savedSearchIdInputSchema = toCapabilitySchema(
+  Schema.Struct({ id: UuidString })
+);
+export const listSavedSearchesOutputSchema = toCapabilitySchema(
+  Schema.Array(savedSearchView)
+);
 
 export const createGetSavedSearchHandler =
   (deps: SliceAHandlerDeps) =>
   async (
-    input: z.output<typeof savedSearchIdInputSchema>,
+    input: SchemaType<typeof savedSearchIdInputSchema>,
     context: { principal: { subjectId: string } }
   ) => {
     const saved = await deps.stores.savedSearches.getById(
@@ -578,26 +604,27 @@ export const createListSavedSearchesHandler =
     return { ok: true as const, value: saved.map(toSavedSearchView) };
   };
 
-export const updateSavedSearchInputSchema = z
-  .object({
-    filters: searchFiltersSchema.optional(),
-    id: z.string().uuid(),
-    naam: z.string().min(1).optional(),
-    query: z.string().optional(),
-  })
-  .strict()
-  .refine(
-    (input) =>
-      input.filters !== undefined ||
-      input.naam !== undefined ||
-      input.query !== undefined,
-    { message: "At least one saved-search field must be updated" }
-  );
+export const updateSavedSearchInputSchema = toCapabilitySchema(
+  Schema.Struct({
+    filters: optionalField(searchFiltersSchema.effect),
+    id: UuidString,
+    naam: optionalField(NonEmptyString),
+    query: optionalField(Schema.String),
+  }).check(
+    Schema.makeFilter((input) =>
+      input.filters === undefined &&
+      input.naam === undefined &&
+      input.query === undefined
+        ? "At least one saved-search field must be updated"
+        : undefined
+    )
+  )
+);
 
 export const createUpdateSavedSearchHandler =
   (deps: SliceAHandlerDeps) =>
   async (
-    input: z.output<typeof updateSavedSearchInputSchema>,
+    input: SchemaType<typeof updateSavedSearchInputSchema>,
     context: {
       principal: {
         kind: "agent" | "service" | "user";
@@ -638,18 +665,18 @@ export const createUpdateSavedSearchHandler =
       : domainFailure("NOT_FOUND", "Saved search not found", { id: input.id });
   };
 
-export const removeSavedSearchOutputSchema = z
-  .object({
-    auditEventId: z.string(),
-    id: z.string(),
-    removed: z.literal(true),
+export const removeSavedSearchOutputSchema = toCapabilitySchema(
+  Schema.Struct({
+    auditEventId: Schema.String,
+    id: Schema.String,
+    removed: Schema.Literal(true),
   })
-  .strict();
+);
 
 export const createRemoveSavedSearchHandler =
   (deps: SliceAHandlerDeps) =>
   async (
-    input: z.output<typeof savedSearchIdInputSchema>,
+    input: SchemaType<typeof savedSearchIdInputSchema>,
     context: {
       principal: {
         kind: "agent" | "service" | "user";
@@ -683,41 +710,39 @@ export const createRemoveSavedSearchHandler =
  */
 export const SNAPSHOT_MAX_SELECTED_IDS = 100;
 
-export const createSnapshotInputSchema = z
-  .object({
-    filters: searchFiltersSchema.optional(),
-    query: z.string(),
-    savedSearchId: z.string().uuid().optional(),
+export const createSnapshotInputSchema = toCapabilitySchema(
+  Schema.Struct({
+    filters: optionalField(searchFiltersSchema.effect),
+    query: Schema.String,
+    savedSearchId: optionalField(UuidString),
     /** Scope the selection was made under (RJC-383); recorded as context like query and filters. */
-    scope: z.enum(SEARCH_SCOPES).optional(),
-    selectedIds: z
-      .array(z.string().uuid())
-      .min(1)
-      .max(SNAPSHOT_MAX_SELECTED_IDS),
+    scope: optionalField(Schema.Literals(SEARCH_SCOPES)),
+    selectedIds: Schema.Array(UuidString).check(
+      Schema.isMinLength(1),
+      Schema.isMaxLength(SNAPSHOT_MAX_SELECTED_IDS)
+    ),
   })
-  .strict();
+);
 
-export const snapshotViewSchema = z
-  .object({
-    createdAt: z.string(),
-    filters: searchFiltersSchema,
-    id: z.string(),
-    indexVersion: z.number(),
-    parserVersion: z.string(),
-    queryText: z.string(),
-    resultIds: z.array(z.string()),
-    savedSearchId: z.string().nullable(),
-    schemaVersion: z.string(),
-    scope: z.enum(SEARCH_SCOPES),
-    searchVersion: z
-      .object({
-        appliedSequence: z.string(),
-        generation: z.number().int().min(1),
-      })
-      .strict(),
-    userId: z.string(),
+export const snapshotViewSchema = toCapabilitySchema(
+  Schema.Struct({
+    createdAt: Schema.String,
+    filters: searchFiltersSchema.effect,
+    id: Schema.String,
+    indexVersion: FiniteNumber,
+    parserVersion: Schema.String,
+    queryText: Schema.String,
+    resultIds: Schema.Array(Schema.String),
+    savedSearchId: Schema.NullOr(Schema.String),
+    schemaVersion: Schema.String,
+    scope: Schema.Literals(SEARCH_SCOPES),
+    searchVersion: Schema.Struct({
+      appliedSequence: Schema.String,
+      generation: IntegerNumber.check(Schema.isGreaterThanOrEqualTo(1)),
+    }),
+    userId: Schema.String,
   })
-  .strict();
+);
 
 const toSnapshotView = (record: QuerySnapshotRecord) => ({
   createdAt: record.createdAt.toISOString(),
@@ -748,43 +773,45 @@ const sha256 = async (value: string): Promise<string> => {
     .join("");
 };
 
-export const getSnapshotInputSchema = z
-  .object({ id: z.string().uuid() })
-  .strict();
-export const getSnapshotOutputSchema = z
-  .object({
-    approval: z
-      .object({
-        actorId: z.string(),
-        createdAt: z.string(),
-        expiresAt: z.string(),
-        id: z.string(),
-        status: z.enum(["approved", "expired"]),
+export const getSnapshotInputSchema = toCapabilitySchema(
+  Schema.Struct({ id: UuidString })
+);
+
+const hexDigest = Schema.String.check(Schema.isPattern(/^[a-f0-9]{64}$/u));
+
+export const getSnapshotOutputSchema = toCapabilitySchema(
+  Schema.Struct({
+    approval: Schema.NullOr(
+      Schema.Struct({
+        actorId: Schema.String,
+        createdAt: Schema.String,
+        expiresAt: Schema.String,
+        id: Schema.String,
+        status: Schema.Literals(["approved", "expired"]),
       })
-      .nullable(),
-    createdAt: z.string(),
-    freshness: z
-      .object({
-        searchAppliedSequence: z.string(),
-        searchGeneration: z.number().int().positive(),
-      })
-      .strict(),
-    id: z.string(),
-    provenance: z
-      .object({ parserVersion: z.string(), schemaVersion: z.string() })
-      .strict(),
-    queryDigest: z.string().regex(/^[a-f0-9]{64}$/u),
-    resultIds: z.array(z.string()),
-    savedSearchId: z.string().nullable(),
-    scope: z.enum(SEARCH_SCOPES),
-    selectionDigest: z.string().regex(/^[a-f0-9]{64}$/u),
+    ),
+    createdAt: Schema.String,
+    freshness: Schema.Struct({
+      searchAppliedSequence: Schema.String,
+      searchGeneration: PositiveInteger,
+    }),
+    id: Schema.String,
+    provenance: Schema.Struct({
+      parserVersion: Schema.String,
+      schemaVersion: Schema.String,
+    }),
+    queryDigest: hexDigest,
+    resultIds: Schema.Array(Schema.String),
+    savedSearchId: Schema.NullOr(Schema.String),
+    scope: Schema.Literals(SEARCH_SCOPES),
+    selectionDigest: hexDigest,
   })
-  .strict();
+);
 
 export const createGetSnapshotHandler =
   (deps: SliceAHandlerDeps) =>
   async (
-    input: z.output<typeof getSnapshotInputSchema>,
+    input: SchemaType<typeof getSnapshotInputSchema>,
     context: { principal: { subjectId: string } }
   ) => {
     const snapshot = await deps.stores.snapshots.getById(
@@ -866,7 +893,7 @@ export const createGetSnapshotHandler =
 export const createSnapshotHandler =
   (deps: SliceAHandlerDeps) =>
   async (
-    input: z.output<typeof createSnapshotInputSchema>,
+    input: SchemaType<typeof createSnapshotInputSchema>,
     context: { principal: { subjectId: string } }
   ) => {
     const parsed =
@@ -928,26 +955,27 @@ export const createSnapshotHandler =
     return { ok: true as const, value: toSnapshotView(snapshot) };
   };
 
-export const approveSnapshotInputSchema = z
-  .object({
-    expiresAt: z.string().datetime(),
-    id: z.string().uuid(),
-    motivatie: z.string().trim().min(1),
+export const approveSnapshotInputSchema = toCapabilitySchema(
+  Schema.Struct({
+    expiresAt: IsoDateTimeString,
+    id: UuidString,
+    motivatie: TrimmedNonEmptyString,
   })
-  .strict();
+);
 
-export const approvalViewSchema = z
-  .object({
-    actorId: z.string(),
-    auditEventId: z.string(),
-    createdAt: z.string(),
-    expiresAt: z.string(),
-    id: z.string(),
-    motivatie: z.string(),
-    resultIds: z.array(z.string()),
-    snapshotId: z.string(),
-  })
-  .strict();
+const approvalViewFields = {
+  actorId: Schema.String,
+  createdAt: Schema.String,
+  expiresAt: Schema.String,
+  id: Schema.String,
+  motivatie: Schema.String,
+  resultIds: Schema.Array(Schema.String),
+  snapshotId: Schema.String,
+} as const;
+
+export const approvalViewSchema = toCapabilitySchema(
+  Schema.Struct({ ...approvalViewFields, auditEventId: Schema.String })
+);
 
 const toApprovalView = (record: ApprovalRecord, auditEventId: string) => ({
   actorId: record.actorId,
@@ -963,7 +991,7 @@ const toApprovalView = (record: ApprovalRecord, auditEventId: string) => ({
 export const createApproveSnapshotHandler =
   (deps: SliceAHandlerDeps) =>
   async (
-    input: z.output<typeof approveSnapshotInputSchema>,
+    input: SchemaType<typeof approveSnapshotInputSchema>,
     context: {
       principal: {
         kind: "agent" | "service" | "user";
@@ -1020,21 +1048,17 @@ export const createApproveSnapshotHandler =
     };
   };
 
-export const getSnapshotApprovalInputSchema = z
-  .object({
-    id: z.string().uuid(),
-  })
-  .strict();
+export const getSnapshotApprovalInputSchema = toCapabilitySchema(
+  Schema.Struct({ id: UuidString })
+);
 
-export const getSnapshotApprovalOutputSchema = approvalViewSchema
-  .omit({ auditEventId: true })
-  .extend({
-    valid: z.boolean(),
-  });
+export const getSnapshotApprovalOutputSchema = toCapabilitySchema(
+  Schema.Struct({ ...approvalViewFields, valid: Schema.Boolean })
+);
 
 export const createGetSnapshotApprovalHandler =
   (deps: SliceAHandlerDeps) =>
-  async (input: z.output<typeof getSnapshotApprovalInputSchema>) => {
+  async (input: SchemaType<typeof getSnapshotApprovalInputSchema>) => {
     const snapshot = await deps.stores.snapshots.getById(
       input.id,
       deps.scopeId
@@ -1081,23 +1105,21 @@ export const createGetSnapshotApprovalHandler =
     };
   };
 
-export const validateSnapshotApprovalInputSchema = z
-  .object({
-    id: z.string().uuid(),
-  })
-  .strict();
+export const validateSnapshotApprovalInputSchema = toCapabilitySchema(
+  Schema.Struct({ id: UuidString })
+);
 
-export const validateSnapshotApprovalOutputSchema = z
-  .object({
-    approvalId: z.string(),
-    snapshotId: z.string(),
-    valid: z.literal(true),
+export const validateSnapshotApprovalOutputSchema = toCapabilitySchema(
+  Schema.Struct({
+    approvalId: Schema.String,
+    snapshotId: Schema.String,
+    valid: Schema.Literal(true),
   })
-  .strict();
+);
 
 export const createValidateSnapshotApprovalHandler =
   (deps: SliceAHandlerDeps) =>
-  async (input: z.output<typeof validateSnapshotApprovalInputSchema>) => {
+  async (input: SchemaType<typeof validateSnapshotApprovalInputSchema>) => {
     const snapshot = await deps.stores.snapshots.getById(
       input.id,
       deps.scopeId
@@ -1129,29 +1151,30 @@ export const createValidateSnapshotApprovalHandler =
     };
   };
 
-export const markeerAanvraagInputSchema = z
-  .object({
-    aanvraagId: z.string().uuid(),
-    reden: z.string().nullable().optional(),
-    status: z.enum(["relevant", "niet_relevant", "gevolgd"]),
+export const markeerAanvraagInputSchema = toCapabilitySchema(
+  Schema.Struct({
+    aanvraagId: UuidString,
+    reden: optionalField(Schema.NullOr(Schema.String)),
+    status: markeringStatus,
   })
-  .strict();
+);
 
-export const markeerAanvraagOutputSchema = z
-  .object({
-    aanvraagId: z.string(),
-    auditEventId: z.string(),
-    reden: z.string().nullable(),
-    revision: z.number().int().positive(),
-    status: z.enum(["relevant", "niet_relevant", "gevolgd"]),
-    updatedAt: z.string().datetime(),
-  })
-  .strict();
+const markeringViewFields = {
+  aanvraagId: Schema.String,
+  reden: Schema.NullOr(Schema.String),
+  revision: PositiveInteger,
+  status: markeringStatus,
+  updatedAt: IsoDateTimeString,
+} as const;
+
+export const markeerAanvraagOutputSchema = toCapabilitySchema(
+  Schema.Struct({ ...markeringViewFields, auditEventId: Schema.String })
+);
 
 export const createMarkeerAanvraagHandler =
   (deps: SliceAHandlerDeps) =>
   async (
-    input: z.output<typeof markeerAanvraagInputSchema>,
+    input: SchemaType<typeof markeerAanvraagInputSchema>,
     context: {
       principal: {
         kind: "agent" | "service" | "user";
@@ -1189,17 +1212,17 @@ export const createMarkeerAanvraagHandler =
     };
   };
 
-export const getMarkeringInputSchema = z
-  .object({ aanvraagId: z.string().uuid() })
-  .strict();
-export const getMarkeringOutputSchema = markeerAanvraagOutputSchema.omit({
-  auditEventId: true,
-});
+export const getMarkeringInputSchema = toCapabilitySchema(
+  Schema.Struct({ aanvraagId: UuidString })
+);
+export const getMarkeringOutputSchema = toCapabilitySchema(
+  Schema.Struct(markeringViewFields)
+);
 
 export const createGetMarkeringHandler =
   (deps: SliceAHandlerDeps) =>
   async (
-    input: z.output<typeof getMarkeringInputSchema>,
+    input: SchemaType<typeof getMarkeringInputSchema>,
     context: { principal: { subjectId: string } }
   ) => {
     const markering = await deps.stores.markeringen.get(
@@ -1223,18 +1246,18 @@ export const createGetMarkeringHandler =
         });
   };
 
-export const clearMarkeringOutputSchema = z
-  .object({
-    aanvraagId: z.string(),
-    auditEventId: z.string(),
-    cleared: z.literal(true),
+export const clearMarkeringOutputSchema = toCapabilitySchema(
+  Schema.Struct({
+    aanvraagId: Schema.String,
+    auditEventId: Schema.String,
+    cleared: Schema.Literal(true),
   })
-  .strict();
+);
 
 export const createClearMarkeringHandler =
   (deps: SliceAHandlerDeps) =>
   async (
-    input: z.output<typeof getMarkeringInputSchema>,
+    input: SchemaType<typeof getMarkeringInputSchema>,
     context: {
       principal: {
         kind: "agent" | "service" | "user";
@@ -1262,17 +1285,17 @@ export const createClearMarkeringHandler =
         });
   };
 
-export const listAlertsOutputSchema = z.array(
-  z
-    .object({
-      ackedAt: z.string().nullable(),
-      bronId: z.string(),
-      createdAt: z.string(),
-      id: z.string(),
-      kind: z.string(),
-      message: z.string(),
+export const listAlertsOutputSchema = toCapabilitySchema(
+  Schema.Array(
+    Schema.Struct({
+      ackedAt: Schema.NullOr(Schema.String),
+      bronId: Schema.String,
+      createdAt: Schema.String,
+      id: Schema.String,
+      kind: Schema.String,
+      message: Schema.String,
     })
-    .strict()
+  )
 );
 
 export const createListAlertsHandler =
@@ -1291,23 +1314,23 @@ export const createListAlertsHandler =
     };
   };
 
-export const getBronHealthInputSchema = z
-  .object({ bronId: z.string().uuid() })
-  .strict();
+export const getBronHealthInputSchema = toCapabilitySchema(
+  Schema.Struct({ bronId: UuidString })
+);
 
-export const getBronHealthOutputSchema = z
-  .object({
-    bronId: z.string(),
-    circuitStatus: z.string(),
-    lastRunAt: z.string().nullable(),
-    lastRunStatus: z.string().nullable(),
-    silenceAlertOpen: z.boolean(),
+export const getBronHealthOutputSchema = toCapabilitySchema(
+  Schema.Struct({
+    bronId: Schema.String,
+    circuitStatus: Schema.String,
+    lastRunAt: Schema.NullOr(Schema.String),
+    lastRunStatus: Schema.NullOr(Schema.String),
+    silenceAlertOpen: Schema.Boolean,
   })
-  .strict();
+);
 
 export const createGetBronHealthHandler =
   (deps: SliceAHandlerDeps) =>
-  async (input: z.output<typeof getBronHealthInputSchema>) => {
+  async (input: SchemaType<typeof getBronHealthInputSchema>) => {
     const health = await deps.stores.bronHealth.getByBronId(input.bronId);
     if (!health) {
       return domainFailure("NOT_FOUND", "Bron health not found", {
@@ -1326,22 +1349,22 @@ export const createGetBronHealthHandler =
     };
   };
 
-export const ackAlertInputSchema = z
-  .object({ alertId: z.string().uuid() })
-  .strict();
+export const ackAlertInputSchema = toCapabilitySchema(
+  Schema.Struct({ alertId: UuidString })
+);
 
-export const ackAlertOutputSchema = z
-  .object({
-    ackedAt: z.string(),
-    ackedBy: z.string(),
-    alertId: z.string(),
+export const ackAlertOutputSchema = toCapabilitySchema(
+  Schema.Struct({
+    ackedAt: Schema.String,
+    ackedBy: Schema.String,
+    alertId: Schema.String,
   })
-  .strict();
+);
 
 export const createAckAlertHandler =
   (deps: SliceAHandlerDeps) =>
   async (
-    input: z.output<typeof ackAlertInputSchema>,
+    input: SchemaType<typeof ackAlertInputSchema>,
     context: { principal: { subjectId: string } }
   ) => {
     const existing = await deps.stores.alerts.getById(input.alertId);
@@ -1374,20 +1397,20 @@ export const createAckAlertHandler =
     };
   };
 
-export const startRunInputSchema = z
-  .object({ bronId: z.string().uuid() })
-  .strict();
-export const startTestImportInputSchema = z
-  .object({ bronId: z.string().uuid() })
-  .strict();
+export const startRunInputSchema = toCapabilitySchema(
+  Schema.Struct({ bronId: UuidString })
+);
+export const startTestImportInputSchema = toCapabilitySchema(
+  Schema.Struct({ bronId: UuidString })
+);
 
-export const operatorRunOutputSchema = z
-  .object({ bronId: z.string(), runId: z.string() })
-  .strict();
+export const operatorRunOutputSchema = toCapabilitySchema(
+  Schema.Struct({ bronId: Schema.String, runId: Schema.String })
+);
 
 export const createStartRunHandler =
   (deps: SliceAHandlerDeps) =>
-  async (input: z.output<typeof startRunInputSchema>) => {
+  async (input: SchemaType<typeof startRunInputSchema>) => {
     const bron = await deps.bronnen.getById(input.bronId);
     if (!bron) {
       return domainFailure("NOT_FOUND", "Bron not found", {
@@ -1403,7 +1426,7 @@ export const createStartRunHandler =
 
 export const createStartTestImportHandler =
   (deps: SliceAHandlerDeps) =>
-  async (input: z.output<typeof startTestImportInputSchema>) => {
+  async (input: SchemaType<typeof startTestImportInputSchema>) => {
     const bron = await deps.bronnen.getById(input.bronId);
     if (!bron) {
       return domainFailure("NOT_FOUND", "Bron not found", {
@@ -1417,26 +1440,28 @@ export const createStartTestImportHandler =
     };
   };
 
-export const completeTaskInputSchema = z
-  .object({
-    evidence: z.array(z.string()).default([]),
-    status: z.enum(["blocked", "partial", "success"]),
-    summary: z.string().min(1),
+export const completeTaskInputSchema = toCapabilitySchema(
+  Schema.Struct({
+    evidence: Schema.Array(Schema.String).pipe(
+      Schema.withDecodingDefaultKey(Effect.succeed<readonly string[]>([]))
+    ),
+    status: Schema.Literals(["blocked", "partial", "success"]),
+    summary: NonEmptyString,
   })
-  .strict();
+);
 
-export const completeTaskOutputSchema = z
-  .object({
-    accepted: z.literal(true),
-    evidence: z.array(z.string()),
-    status: z.enum(["blocked", "partial", "success"]),
-    summary: z.string(),
+export const completeTaskOutputSchema = toCapabilitySchema(
+  Schema.Struct({
+    accepted: Schema.Literal(true),
+    evidence: Schema.Array(Schema.String),
+    status: Schema.Literals(["blocked", "partial", "success"]),
+    summary: Schema.String,
   })
-  .strict();
+);
 
 export const createCompleteTaskHandler =
   (_deps: SliceAHandlerDeps) =>
-  (input: z.output<typeof completeTaskInputSchema>) => ({
+  (input: SchemaType<typeof completeTaskInputSchema>) => ({
     ok: true as const,
     value: {
       accepted: true as const,
