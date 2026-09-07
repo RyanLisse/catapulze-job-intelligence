@@ -11,3 +11,4 @@ export {
 } from "./faults";
 export { fromStorePromise } from "./from-promise";
 export { runDbStorePromise, type RunDbStorePromiseOptions } from "./run";
+export { isEffectDbEnabled } from "./flag";

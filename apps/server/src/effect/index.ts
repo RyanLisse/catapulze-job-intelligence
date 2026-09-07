@@ -29,3 +29,4 @@ export {
   type McpJsonRpcError,
 } from "./map";
 export { runTransportPromise, type RunTransportPromiseOptions } from "./run";
+export { isEffectServerEnabled } from "./flag";

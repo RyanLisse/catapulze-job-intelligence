@@ -14,6 +14,7 @@
     "check-types": "PATH=\"./node_modules/.bin:$PATH\" tsc --noEmit"
   },
   "dependencies": {
+    "@ji/env": "workspace:*",
     "effect": "catalog:"
   },
   "devDependencies": {

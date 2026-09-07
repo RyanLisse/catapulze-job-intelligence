@@ -40,7 +40,7 @@ import {
 import type { McpMetricRecorder } from "./mcp-metrics";
 import type { SliceARegistry } from "./registry-types";
 import {
-  invokeMcpTool,
+  invokeMcpToolCanary,
   mcpToolsFromRegistry,
   serializeRegistryJson,
 } from "./rest";
@@ -278,7 +278,7 @@ const createServer = (
       if (!parsedArguments.success) {
         throw new ProtocolError(INVALID_PARAMS, "Invalid tool arguments");
       }
-      const result = await invokeMcpTool(
+      const result = await invokeMcpToolCanary(
         registry,
         tool.name,
         parsedArguments.data,

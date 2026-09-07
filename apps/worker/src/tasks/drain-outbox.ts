@@ -7,6 +7,7 @@ import { ManticoreSearchEngine } from "@ji/search";
 import { schemaTask } from "@trigger.dev/sdk";
 import { z } from "zod";
 
+import { isEffectWorkerEnabled } from "../effect/flag";
 import { readSearchProjectorMode } from "../poll-bron-env";
 import {
   createPollBronRuntime,
@@ -87,6 +88,14 @@ export const drainOutboxTask = schemaTask({
   retry: {
     maxAttempts: 2,
   },
-  run: runDrainOutbox,
+  // CTP-479 canary: JI_EFFECT_WORKER=1 → Effect task-body boundary; default native.
+  // Dynamic import avoids a static cycle with effect/task-bodies → this module.
+  run: async (payload) => {
+    if (!isEffectWorkerEnabled()) {
+      return runDrainOutbox(payload);
+    }
+    const { runDrainOutboxEffect } = await import("../effect/task-bodies");
+    return runDrainOutboxEffect(payload);
+  },
   schema: drainOutboxPayload,
 });

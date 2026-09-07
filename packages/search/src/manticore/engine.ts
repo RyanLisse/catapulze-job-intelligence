@@ -41,6 +41,8 @@ import {
   searchManticore,
 } from "./client";
 import type { ManticoreHttpClient } from "./client";
+import { FetchManticoreEffectClient } from "./client-effect";
+import { isEffectSearchEnabled } from "./effect-flag";
 import { buildBoolJson, buildKnnQueryText, buildQueryString } from "./emitter";
 import type { ManticoreBoolQuery } from "./emitter";
 import { hashDocumentId } from "./id-hash";
@@ -278,8 +280,12 @@ export class ManticoreSearchEngine implements SearchEngine {
     clock: () => Date = () => new Date(),
     options: ManticoreSearchEngineOptions = {}
   ): ManticoreSearchEngine {
+    // CTP-479 canary: JI_EFFECT_SEARCH=1 → Effect HTTP client; default native.
+    const client: ManticoreHttpClient = isEffectSearchEnabled()
+      ? new FetchManticoreEffectClient(baseUrl)
+      : new FetchManticoreClient(baseUrl);
     return new ManticoreSearchEngine(
-      new FetchManticoreClient(baseUrl),
+      client,
       versionStore,
       indexName,
       clock,

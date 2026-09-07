@@ -25,11 +25,24 @@ export const serverEnvEffectSchemas = {
   BETTER_AUTH_URL: UrlString,
   CORS_ORIGIN: UrlString,
   DATABASE_URL: NonEmptyString,
+  JI_EFFECT_DB: Schema.Literals(["0", "1"]).pipe(
+    Schema.withDecodingDefault(Effect.succeed("0" as const))
+  ),
+  /** CTP-479 Slice 14 — per-surface Effect enablement (default OFF). */
+  JI_EFFECT_SEARCH: Schema.Literals(["0", "1"]).pipe(
+    Schema.withDecodingDefault(Effect.succeed("0" as const))
+  ),
+  JI_EFFECT_SERVER: Schema.Literals(["0", "1"]).pipe(
+    Schema.withDecodingDefault(Effect.succeed("0" as const))
+  ),
   MANTICORE_URL: UrlString.pipe(
     Schema.withDecodingDefault(Effect.succeed("http://127.0.0.1:9308"))
   ),
   NODE_ENV: Schema.Literals(["development", "production", "test"]).pipe(
     Schema.withDecodingDefault(Effect.succeed("development" as const))
+  ),
+  PERF_EFFECT_SPANS: Schema.Literals(["0", "1"]).pipe(
+    Schema.withDecodingDefault(Effect.succeed("0" as const))
   ),
   RAW_OBJECT_STORE_PATH: Schema.optional(NonEmptyString),
   RAW_S3_ACCESS_KEY_ID: Schema.optional(NonEmptyString),
@@ -60,8 +73,12 @@ export const env = createEnv({
     BETTER_AUTH_URL: toEnvSchema(serverEnvEffectSchemas.BETTER_AUTH_URL),
     CORS_ORIGIN: toEnvSchema(serverEnvEffectSchemas.CORS_ORIGIN),
     DATABASE_URL: toEnvSchema(serverEnvEffectSchemas.DATABASE_URL),
+    JI_EFFECT_DB: toEnvSchema(serverEnvEffectSchemas.JI_EFFECT_DB),
+    JI_EFFECT_SEARCH: toEnvSchema(serverEnvEffectSchemas.JI_EFFECT_SEARCH),
+    JI_EFFECT_SERVER: toEnvSchema(serverEnvEffectSchemas.JI_EFFECT_SERVER),
     MANTICORE_URL: toEnvSchema(serverEnvEffectSchemas.MANTICORE_URL),
     NODE_ENV: toEnvSchema(serverEnvEffectSchemas.NODE_ENV),
+    PERF_EFFECT_SPANS: toEnvSchema(serverEnvEffectSchemas.PERF_EFFECT_SPANS),
     RAW_OBJECT_STORE_PATH: toEnvSchema(
       serverEnvEffectSchemas.RAW_OBJECT_STORE_PATH
     ),

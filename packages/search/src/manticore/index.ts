@@ -64,3 +64,5 @@ export type {
   FetchImpl as ManticoreEffectFetchImpl,
   FetchManticoreEffectClientOptions,
 } from "./client-effect";
+
+export { isEffectSearchEnabled } from "./effect-flag";

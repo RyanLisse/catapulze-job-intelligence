@@ -25,6 +25,7 @@ import type { Effect } from "effect";
 
 import type { DbStoreFault } from "./effect";
 import { fromStorePromise, runDbStorePromise } from "./effect";
+import { isEffectDbEnabled } from "./effect/flag";
 
 /**
  * Opt-in wrapper options for wrap*StoreEffect factories (CTP-473 Slice 8).
@@ -298,3 +299,49 @@ export const searchVersionReadEffect = (
   store: SearchVersionStore
 ): Effect.Effect<SearchVersionCheckpoint, DbStoreFault> =>
   fromStorePromise(() => store.read());
+
+/**
+ * Production canary hook (CTP-479): when JI_EFFECT_DB=1, wrap the Slice-8
+ * store surfaces through Effect Promise boundaries. When OFF (default), returns
+ * the input stores unchanged (native path / rollback).
+ */
+export interface DbEffectCanaryStores {
+  aanvragen?: AanvraagStore;
+  alerts?: AlertStore;
+  bronHealth?: BronHealthStore;
+  rawPayloads?: RawPayloadStore;
+  savedSearches?: SavedSearchStore;
+  scrapeRunReader?: ScrapeRunReader;
+  snapshots?: QuerySnapshotStore;
+}
+
+export const applyDbStoreEffectCanary = (
+  stores: DbEffectCanaryStores
+): DbEffectCanaryStores => {
+  if (!isEffectDbEnabled()) {
+    return stores;
+  }
+  const next: DbEffectCanaryStores = { ...stores };
+  if (stores.aanvragen !== undefined) {
+    next.aanvragen = wrapAanvraagStoreEffect(stores.aanvragen);
+  }
+  if (stores.alerts !== undefined) {
+    next.alerts = wrapAlertStoreEffect(stores.alerts);
+  }
+  if (stores.bronHealth !== undefined) {
+    next.bronHealth = wrapBronHealthStoreEffect(stores.bronHealth);
+  }
+  if (stores.rawPayloads !== undefined) {
+    next.rawPayloads = wrapRawPayloadStoreEffect(stores.rawPayloads);
+  }
+  if (stores.savedSearches !== undefined) {
+    next.savedSearches = wrapSavedSearchStoreEffect(stores.savedSearches);
+  }
+  if (stores.scrapeRunReader !== undefined) {
+    next.scrapeRunReader = wrapScrapeRunReaderEffect(stores.scrapeRunReader);
+  }
+  if (stores.snapshots !== undefined) {
+    next.snapshots = wrapQuerySnapshotStoreEffect(stores.snapshots);
+  }
+  return next;
+};

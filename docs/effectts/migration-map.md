@@ -213,7 +213,7 @@ Slices zijn strikt geordend op leerrendement en dependency-richting. Elke slice 
 | AC | labels stabiel; geen PII |
 | Testbewijs | performance specs |
 | Rollback | hook disable |
-| Status (CTP-478) | Opt-in `@ji/performance/effect` critical-path Effect span hooks landed (`withCriticalPathSpan`, sanitized attributes, `PERF_EFFECT_SPANS` default OFF); native critical-path sessions remain default; labels stay ADR-0001 set; no PII in spans/labels; Effect module is a separate export (no browser/Node bleed, #203); Motian ongewijzigd; prod Effect OFF; CTP-479 not started |
+| Status (CTP-478) | Opt-in `@ji/performance/effect` critical-path Effect span hooks landed (`withCriticalPathSpan`, sanitized attributes, `PERF_EFFECT_SPANS` default OFF); native critical-path sessions remain default; labels stay ADR-0001 set; no PII in spans/labels; Effect module is a separate export (no browser/Node bleed, #203); Motian ongewijzigd; prod Effect OFF until CTP-479 per-surface flip |
 
 ### Slice 13 — Scoped lintregels
 
@@ -226,7 +226,7 @@ Slices zijn strikt geordend op leerrendement en dependency-richting. Elke slice 
 | AC | lint groen; geen false positives in non-Effect packages |
 | Testbewijs | `ultracite check` / CI lint |
 | Rollback | rule flag off |
-| Status (CTP-477) | Scoped `anti-slop-effect` oxlint rules enabled only in packages/apps with a direct `effect` dependency (`apps/server`, `apps/worker`, `packages/{api,application,connectors,db,domain,env,search}`); non-Effect packages untouched; Motian ongewijzigd; prod Effect OFF; CTP-479 not started |
+| Status (CTP-477) | Scoped `anti-slop-effect` oxlint rules enabled only in packages/apps with a direct `effect` dependency (`apps/server`, `apps/worker`, `packages/{api,application,connectors,db,domain,env,search}`); non-Effect packages untouched; Motian ongewijzigd; prod Effect OFF until CTP-479 per-surface flip |
 
 ### Slice 14 — Gecontroleerde productieactivatie (geen auto)
 
@@ -240,6 +240,7 @@ Slices zijn strikt geordend op leerrendement en dependency-richting. Elke slice 
 | Testbewijs | release bewijsbundle (niet alleen CI) |
 | Rollback | flag off within RTO |
 | Stop | activeren “omdat CTP-453 subissues Done zijn” zonder deze slice |
+| Status (CTP-479) | Per-surface flags + canary hooks landed (`JI_EFFECT_SEARCH|DB|SERVER|WORKER`, `PERF_EFFECT_SPANS` / `JI_EFFECT_PERF`); defaults OFF; `@ji/env/effect-flags` SoT; runbook `docs/runbooks/effectts-production-enablement.md`; **prod flips + live evidence = Catapulze**; Motian ongewijzigd |
 
 ## Dependencygrafiek (samenvatting)
 

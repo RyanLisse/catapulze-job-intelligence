@@ -1,5 +1,6 @@
 import { schemaTask } from "@trigger.dev/sdk";
 
+import { isEffectWorkerEnabled } from "../effect/flag";
 import type { BronIngestPipelineResult } from "../poll-bron-run";
 import {
   createPollBronRuntime,
@@ -33,7 +34,15 @@ export const pollBronTask = schemaTask({
   retry: {
     maxAttempts: 2,
   },
-  run: runPollBron,
+  // CTP-479 canary: JI_EFFECT_WORKER=1 → Effect task-body boundary; default native.
+  // Dynamic import avoids a static cycle with effect/task-bodies → this module.
+  run: async (payload) => {
+    if (!isEffectWorkerEnabled()) {
+      return runPollBron(payload);
+    }
+    const { runPollBronEffect } = await import("../effect/task-bodies");
+    return runPollBronEffect(payload);
+  },
   schema: pollBronPayload,
 });
 
