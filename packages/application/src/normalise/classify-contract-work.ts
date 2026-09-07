@@ -21,8 +21,9 @@ const ZZP_NEGATION =
   /\bzzp\b[^.\n]{0,60}\b(?<negation>niet toegestaan|niet mogelijk|uitgesloten|niet geschikt)\b/iu;
 const ZZP_NEGATION_REVERSE =
   /\b(?<negation>niet toegestaan|niet mogelijk|uitgesloten|niet geschikt)\b[^.\n]{0,60}\bzzp\b/iu;
-const DETACHERING =
-  /\b(?<kind>detachering|detacheren|deta-?vast|interim|inhuur)\b/iu;
+// "inhuur" is the domain umbrella for every commercial form — never map it
+// alone to detachering. "interim" has its own branch below.
+const DETACHERING = /\b(?<kind>detachering|detacheren|deta-?vast)\b/iu;
 const FREELANCE = /\b(?<kind>freelance|zzp|marktplaats\s*\(freelance\))\b/iu;
 const VAST = /\b(?<kind>vast dienstverband|vaste aanstelling|permanent)\b/iu;
 const INTERIM = /\b(?<kind>interim)\b/iu;
@@ -38,14 +39,14 @@ const classifyContracttype = (text: string): ClassifiedContractType | null => {
   if (VAST.test(text) && !DETACHERING.test(text) && !FREELANCE.test(text)) {
     return "vast";
   }
-  if (FREELANCE.test(text) && !DETACHERING.test(text)) {
+  if (FREELANCE.test(text) && !DETACHERING.test(text) && !INTERIM.test(text)) {
     return "freelance";
+  }
+  if (INTERIM.test(text) && !DETACHERING.test(text)) {
+    return "interim";
   }
   if (DETACHERING.test(text)) {
     return "detachering";
-  }
-  if (INTERIM.test(text)) {
-    return "interim";
   }
   return null;
 };

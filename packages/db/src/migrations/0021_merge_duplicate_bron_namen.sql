@@ -1,5 +1,8 @@
 -- Merge Motian seed Opdrachtoverheid/Striive rows onto live register ids, then
--- prevent same-name duplicates. Live ids win on (bron_id, bron_referentie).
+-- prevent same-name duplicates. Live ids win on (bron_id, bron_referentie):
+-- Motian orphans whose referentie already exists on the live bron are DELETED,
+-- not field-merged. Acceptable for Motian seed collision cleanup; do not reuse
+-- this pattern for production dual-ingest without an explicit merge plan.
 
 -- Opdrachtoverheid: Motian ...031 -> live ...0ad
 UPDATE curated.aanvraag AS orphan

@@ -18,6 +18,29 @@ describe("classifyContractAndWork", () => {
     ).toBe("freelance");
   });
 
+  it("classifies bare interim as interim, not detachering", () => {
+    expect(
+      classifyContractAndWork("Rol", "Interim professional gezocht.")
+        .contracttype
+    ).toBe("interim");
+  });
+
+  it("does not treat generic inhuur prose as detachering", () => {
+    expect(
+      classifyContractAndWork(
+        "Analyst",
+        "Wij zoeken versterking via inhuur voor dit project."
+      ).contracttype
+    ).toBeNull();
+  });
+
+  it("still classifies explicit detachering", () => {
+    expect(
+      classifyContractAndWork("Rol", "Via detachering beschikbaar.")
+        .contracttype
+    ).toBe("detachering");
+  });
+
   it("classifies hybride and remote werkvormen", () => {
     expect(
       classifyContractAndWork("Rol", "Hybride: Ja met een vaste dag.").werkvorm
