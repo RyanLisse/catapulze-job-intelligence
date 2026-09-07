@@ -6,9 +6,11 @@ import type {
 } from "@ji/domain";
 import { UNKNOWN } from "@ji/domain";
 import { timeCriticalPathPhase } from "@ji/performance";
+import { z } from "zod";
 
 import type { NormalisedAanvraagDraft } from "../normalise";
 import { buildDedupKey, buildProvenanceMap } from "../normalise";
+import { classifyContractAndWork } from "../normalise/classify-contract-work";
 import type {
   AanvraagSnapshot,
   BronSpecifiekJson,
@@ -140,6 +142,110 @@ export interface CurateObservationResult {
 const tariefColumn = (value: string | typeof UNKNOWN): string | null =>
   value === UNKNOWN ? null : value;
 
+const bronSpecifiekRecordSchema = z.record(
+  z.string(),
+  z.union([
+    z.string(),
+    z.number(),
+    z.boolean(),
+    z.null(),
+    z.array(z.unknown()),
+    z.record(z.string(), z.unknown()),
+  ])
+);
+
+type BronSpecifiekRecord = z.infer<typeof bronSpecifiekRecordSchema>;
+
+const asBronSpecifiekRecord = (
+  value: BronSpecifiekJson
+): BronSpecifiekRecord => {
+  const parsed = bronSpecifiekRecordSchema.safeParse(value);
+  return parsed.success ? parsed.data : {};
+};
+
+const readExistingText = (
+  record: BronSpecifiekRecord,
+  ...keys: readonly string[]
+): string | null => {
+  for (const key of keys) {
+    const value = record[key];
+    // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Zod record values are a union; string is the only commercial text shape we copy
+    if (typeof value === "string" && value.trim() !== "") {
+      return value;
+    }
+  }
+  return null;
+};
+
+/**
+ * Persist commercial facts that the draft already computed but that have no
+ * curated column yet: merge into bron_specifiek under the keys the reader
+ * already understands, and fill contracttype/werkvorm via the shared
+ * classifier when the normaliser left them blank.
+ */
+const commercialBronSpecifiek = (
+  draft: NormalisedAanvraagDraft
+): BronSpecifiekJson => {
+  const base: BronSpecifiekRecord = {
+    ...asBronSpecifiekRecord(draft.bronSpecifiek.value),
+  };
+  if (
+    draft.opdrachtgeverNaam.value !== UNKNOWN &&
+    readExistingText(base, "opdrachtgever_naam", "opdrachtgeverNaam") === null
+  ) {
+    base.opdrachtgever_naam = draft.opdrachtgeverNaam.value;
+  }
+  if (
+    draft.startDatum.value !== UNKNOWN &&
+    readExistingText(base, "start_datum", "startDatum") === null
+  ) {
+    base.start_datum = draft.startDatum.value;
+  }
+  const classified = classifyContractAndWork(
+    draft.titel.value,
+    draft.beschrijving.value
+  );
+  if (
+    classified.contracttype &&
+    readExistingText(base, "contracttype", "contract_type") === null
+  ) {
+    base.contracttype = classified.contracttype;
+  }
+  if (classified.werkvorm && readExistingText(base, "werkvorm") === null) {
+    base.werkvorm = classified.werkvorm;
+  }
+  // SAFETY: BronSpecifiekRecord is a string-keyed JSON object produced by Zod;
+  // BronSpecifiekJson is the same JsonValue object shape at the curate boundary.
+  return base as BronSpecifiekJson;
+};
+
+const coalesceNullable = <T>(
+  incoming: T | null,
+  existing: T | null
+): T | null => incoming ?? existing;
+
+const mergeBronSpecifiek = (
+  existing: BronSpecifiekJson,
+  incoming: BronSpecifiekJson
+): BronSpecifiekJson => {
+  const left = asBronSpecifiekRecord(existing);
+  const right = asBronSpecifiekRecord(incoming);
+  const merged: BronSpecifiekRecord = { ...left };
+  for (const [key, value] of Object.entries(right)) {
+    if (value === null || value === undefined) {
+      continue;
+    }
+    // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Zod record values are a union; blank strings must not overwrite prior facts
+    if (typeof value === "string" && value.trim() === "") {
+      continue;
+    }
+    merged[key] = value;
+  }
+  // SAFETY: merged is a Zod-validated string-keyed JSON object; BronSpecifiekJson
+  // is the JsonValue object shape stored on curated.aanvraag.bron_specifiek.
+  return merged as BronSpecifiekJson;
+};
+
 const toStoredFields = (
   input: CurateObservationInput
 ): Omit<StoredAanvraag, "aanvraagId"> => {
@@ -148,7 +254,7 @@ const toStoredFields = (
     beschrijving: draft.beschrijving.value,
     bronId: input.bronId,
     bronReferentie: draft.bronReferentie.value,
-    bronSpecifiek: draft.bronSpecifiek.value,
+    bronSpecifiek: commercialBronSpecifiek(draft),
     bronUrl: draft.bronUrl.value === UNKNOWN ? null : draft.bronUrl.value,
     contentHash: draft.contentHash,
     dedupGroepId: null,
@@ -285,10 +391,27 @@ export const curateObservation = async (
   const closedAt = input.observedAt;
   return store.withTransaction(async (tx) => {
     await tx.closeOpenVersie(existing.aanvraagId, closedAt);
+    const next = toStoredFields(input);
     const updated = await tx.updateAanvraag(existing.aanvraagId, {
-      ...toStoredFields(input),
+      ...next,
+      bronSpecifiek: mergeBronSpecifiek(
+        existing.bronSpecifiek,
+        next.bronSpecifiek
+      ),
+      bronUrl: coalesceNullable(next.bronUrl, existing.bronUrl),
       dedupGroepId: existing.dedupGroepId,
       eersteGezienOp: existing.eersteGezienOp,
+      locatieTekst: coalesceNullable(next.locatieTekst, existing.locatieTekst),
+      sluitingsdatum: coalesceNullable(
+        next.sluitingsdatum,
+        existing.sluitingsdatum
+      ),
+      tariefEenheid: coalesceNullable(
+        next.tariefEenheid,
+        existing.tariefEenheid
+      ),
+      tariefMax: coalesceNullable(next.tariefMax, existing.tariefMax),
+      tariefMin: coalesceNullable(next.tariefMin, existing.tariefMin),
       versie: nextVersie,
     });
     await tx.insertVersie({

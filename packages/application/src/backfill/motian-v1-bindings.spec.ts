@@ -24,12 +24,19 @@ describe("Motian v1 platform bindings", () => {
   });
 
   it("maps each platform slug to a stable bron_id", () => {
+    const expected = {
+      flextender: "00000000-0000-4000-8000-000000000033",
+      mipublic: "00000000-0000-4000-8000-000000000032",
+      nationalevacaturebank: "00000000-0000-4000-8000-000000000030",
+      opdrachtoverheid: "00000000-0000-4000-8000-0000000000ad",
+      "starapple-nl": "00000000-0000-4000-8000-000000000036",
+      striive: "00000000-0000-4000-8000-000000000008",
+      werkzoeken: "00000000-0000-4000-8000-000000000035",
+    } as const;
     for (const platform of MOTIAN_V1_PLATFORMS) {
       const binding = resolveMotianV1Binding(MOTIAN_V1_BRON_BINDINGS, platform);
       expect(binding?.platform).toBe(platform);
-      expect(binding?.bronId).toMatch(
-        /^00000000-0000-4000-8000-00000000003[0-6]$/u
-      );
+      expect(binding?.bronId).toBe(expected[platform]);
     }
   });
 

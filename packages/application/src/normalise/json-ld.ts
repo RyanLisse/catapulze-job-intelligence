@@ -181,6 +181,7 @@ export const parseJsonLdPayload = (
         employment_type: asTextOrNull(jobPosting.employmentType),
         identifier: jobPosting.identifier ?? null,
         label_block: labelBlock,
+        publicatiedatum: asTextOrNull(jobPosting.datePosted),
         referentienummer: labelBlock.referentienummer ?? null,
         slug: payload.slug,
         sluitings_datum: labelBlock.sluitingsDatum ?? null,

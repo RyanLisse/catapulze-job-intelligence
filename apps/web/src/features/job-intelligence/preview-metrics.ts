@@ -135,7 +135,10 @@ export const hourlyRateBuckets = (
     .map(({ rate }) => rate)
     .filter((rate): rate is NonNullable<JobListing["rate"]> => rate !== null)
     .filter(({ period }) => period === "hour")
-    .map(({ min }) => Math.floor(min / RATE_BUCKET_SIZE) * RATE_BUCKET_SIZE);
+    .map(({ max, min }) => {
+      const floor = min ?? max;
+      return Math.floor(floor / RATE_BUCKET_SIZE) * RATE_BUCKET_SIZE;
+    });
 
   if (hourlyMinimums.length === 0) {
     return [];

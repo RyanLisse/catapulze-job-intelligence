@@ -63,6 +63,7 @@ export interface AanvraagRecord {
   readonly beschrijving: string;
   readonly bronId: string;
   readonly bronReferentie: string;
+  readonly bronUrl?: string | null;
   readonly contracttype?: string | null;
   /** Provenance for fields filled by the enrichment worker (CTP-482). */
   readonly enrichedFields?: readonly AanvraagEnrichedField[];

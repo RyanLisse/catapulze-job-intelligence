@@ -48,6 +48,7 @@ export const bron = curatedSchema.table(
   (table) => [
     index("bron_status_idx").on(table.status),
     index("bron_categorie_idx").on(table.categorie),
+    uniqueIndex("bron_naam_lower_uidx").on(sql`lower(${table.naam})`),
     check(
       "bron_status_check",
       sql`${table.status} IN ('ready', 'blocked', 'deferred')`

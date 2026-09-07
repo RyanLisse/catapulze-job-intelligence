@@ -71,6 +71,37 @@ describe("AE3 detail provenance mapping", () => {
     expect(job.sourceRecords[0]?.validFrom).toBe("2026-08-01T00:00:00.000Z");
   });
 
+  it("prefers bronUrl for the original vacancy link and accepts max-only rates", () => {
+    const job = mapAanvraagToJobListing({
+      aanvraag: {
+        beschrijving: "Azure platform beschrijving",
+        bronId: "bron-1",
+        bronReferentie: "REF-1",
+        bronUrl: "https://example.test/vacature/1",
+        id: "aanvraag-1",
+        rawPayloadRef: "raw/ref-1.json",
+        scrapeRunId: "run-1",
+        status: "active",
+        tariefEenheid: "uur",
+        tariefMax: 106.5,
+        tariefMin: null,
+        tariefValuta: "EUR",
+        titel: "Azure engineer",
+        werkvorm: "Hybride",
+      },
+      bronCatalog: new Map(),
+      versies: [],
+    });
+    expect(job.sourceRecords[0]?.url).toBe("https://example.test/vacature/1");
+    expect(job.rate).toEqual({
+      currency: "EUR",
+      max: 106.5,
+      min: null,
+      period: "hour",
+    });
+    expect(job.remote).toBe(true);
+  });
+
   it("maps only available curated commercial facts", () => {
     const job = mapAanvraagToJobListing({
       aanvraag: {
@@ -112,7 +143,7 @@ describe("AE3 detail provenance mapping", () => {
       organization: "Gemeente Amsterdam",
       publishedAt: "2026-08-03T09:00:00.000Z",
       rate: { currency: "EUR", max: 110, min: 90, period: "hour" },
-      remote: null,
+      remote: true,
       workArrangement: "Volledig remote",
     });
   });

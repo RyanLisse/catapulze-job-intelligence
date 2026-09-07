@@ -20,6 +20,7 @@ export interface AanvraagPreview {
   readonly beschrijving: string;
   readonly bronId: string;
   readonly bronReferentie: string;
+  readonly bronUrl?: string | null;
   readonly contracttype?: string | null;
   readonly enrichedFields?: readonly {
     readonly confidence: number;
@@ -106,23 +107,52 @@ const mapRate = (aanvraag: AanvraagPreview): JobListing["rate"] => {
   if (
     tariefEenheid !== "uur" ||
     tariefValuta !== "EUR" ||
-    tariefMin === null ||
-    tariefMin === undefined ||
     tariefMax === null ||
     tariefMax === undefined ||
-    !Number.isFinite(tariefMin) ||
     !Number.isFinite(tariefMax) ||
-    tariefMin < 0 ||
-    tariefMax < tariefMin
+    tariefMax < 0
   ) {
     return null;
+  }
+  if (
+    tariefMin !== null &&
+    tariefMin !== undefined &&
+    Number.isFinite(tariefMin) &&
+    tariefMin >= 0
+  ) {
+    if (tariefMin > tariefMax) {
+      return null;
+    }
+    return {
+      currency: "EUR",
+      max: tariefMax,
+      min: tariefMin,
+      period: "hour",
+    };
   }
   return {
     currency: "EUR",
     max: tariefMax,
-    min: tariefMin,
+    min: null,
     period: "hour",
   };
+};
+
+const REMOTE_WERKVORM = /\b(?<kind>remote|thuis|hybride|hybrid|telecommute)\b/u;
+const ONSITE_WERKVORM = /\b(?<kind>op locatie|kantoor|onsite)\b/u;
+
+const mapRemote = (werkvorm: string | null | undefined): boolean | null => {
+  if (!werkvorm || werkvorm.trim() === "") {
+    return null;
+  }
+  const lower = werkvorm.toLowerCase();
+  if (REMOTE_WERKVORM.test(lower)) {
+    return true;
+  }
+  if (ONSITE_WERKVORM.test(lower)) {
+    return false;
+  }
+  return null;
 };
 
 export const mapAanvraagToJobListing = (input: {
@@ -151,7 +181,7 @@ export const mapAanvraagToJobListing = (input: {
     publishedAt: input.aanvraag.publicatiedatum ?? null,
     rate: mapRate(input.aanvraag),
     rawPreview: input.rawPreview,
-    remote: null,
+    remote: mapRemote(input.aanvraag.werkvorm),
     skills: [],
     sourceRecords: [
       {
@@ -162,7 +192,7 @@ export const mapAanvraagToJobListing = (input: {
         normalizationVersion: versie?.normalisatieversie ?? "onbekend",
         reference: input.aanvraag.bronReferentie,
         scrapeRunId: input.aanvraag.scrapeRunId,
-        url: `#bron/${input.aanvraag.bronId}`,
+        url: input.aanvraag.bronUrl?.trim() || `#bron/${input.aanvraag.bronId}`,
         validFrom: versie?.geldigVan ?? null,
         validTo: versie?.geldigTot ?? null,
       },

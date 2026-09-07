@@ -74,7 +74,7 @@ describe("contract-start provenance (RJC-432)", () => {
       "n/a (not published by source)"
     );
     expect(draft.bronSpecifiek.value).toMatchObject({
-      publicatie_datum: "2026-08-28T12:15:00+02:00",
+      publicatiedatum: "2026-08-28T12:15:00+02:00",
     });
   });
 
@@ -103,7 +103,7 @@ describe("contract-start provenance (RJC-432)", () => {
       "n/a (not published by source)"
     );
     expect(draft.bronSpecifiek.value).toMatchObject({
-      publicatie_datum: null,
+      publicatiedatum: null,
     });
   });
 

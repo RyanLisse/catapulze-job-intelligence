@@ -78,6 +78,12 @@ export const formatRate = (job: JobListing): string => {
   }
 
   const suffix = job.rate.period === "hour" ? "/ uur" : "/ jaar";
+  if (job.rate.min === null) {
+    return `tot ${currencyFormatter.format(job.rate.max)} ${suffix}`;
+  }
+  if (job.rate.min === job.rate.max) {
+    return `${currencyFormatter.format(job.rate.max)} ${suffix}`;
+  }
   return `${currencyFormatter.format(job.rate.min)}–${currencyFormatter.format(job.rate.max)} ${suffix}`;
 };
 

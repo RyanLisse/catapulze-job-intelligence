@@ -77,7 +77,7 @@ const definitions: readonly MotianV1BronDefinition[] = [
     website: "https://www.nationalevacaturebank.nl",
   },
   {
-    bronId: "00000000-0000-4000-8000-000000000031",
+    bronId: "00000000-0000-4000-8000-0000000000ad",
     categorie: "overheidsportaal",
     mappingRef: "packages/application/src/backfill/neon-v1.ts",
     naam: "Opdrachtoverheid",
@@ -101,7 +101,7 @@ const definitions: readonly MotianV1BronDefinition[] = [
     website: "https://flextender.nl",
   },
   {
-    bronId: "00000000-0000-4000-8000-000000000034",
+    bronId: "00000000-0000-4000-8000-000000000008",
     categorie: "broker",
     mappingRef: "packages/application/src/backfill/neon-v1.ts",
     naam: "Striive",

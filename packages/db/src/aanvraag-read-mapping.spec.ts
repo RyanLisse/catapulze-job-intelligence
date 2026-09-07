@@ -62,4 +62,10 @@ describe("readAanvraagBronFacts", () => {
       expect(facts.werkvorm).toBeNull();
     }
   });
+
+  it("accepts date-only publication values from json-ld sources", () => {
+    expect(
+      readAanvraagBronFacts({ publicatiedatum: "2026-08-24" }).publicatiedatum
+    ).toBe("2026-08-24");
+  });
 });
