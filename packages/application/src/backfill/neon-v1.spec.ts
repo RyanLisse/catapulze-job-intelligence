@@ -1,4 +1,4 @@
-import { describe, expect, it } from "bun:test";
+import { afterEach, describe, expect, it } from "bun:test";
 
 import { InMemoryObjectStore } from "@ji/connectors";
 import type { ObjectStore } from "@ji/connectors";
@@ -11,6 +11,7 @@ import {
   NEON_V1_FORBIDDEN_TABLES,
   InMemoryBackfillProvenanceStore,
   InMemoryBackfillRunStore,
+  RAW_WRITE_RETRY_DELAYS_MS,
   UnreachableNeonV1Source,
   backfillFailureEvidenceSchema,
   createFixtureNeonV1Source,
@@ -18,6 +19,7 @@ import {
   loadNeonV1Fixture,
   mapV1JobToDraft,
   runNeonV1Backfill,
+  setRawWriteRetrySleepForTests,
 } from "./neon-v1";
 import type { BackfillProvenanceStore, NeonV1JobRow } from "./neon-v1";
 
@@ -362,7 +364,12 @@ describe("Neon v1 backfill run", () => {
     expect(successfulReadbacks).toBe(2);
   });
 
+  afterEach(() => {
+    setRawWriteRetrySleepForTests(undefined);
+  });
+
   it("retries the R2 same-object rate error and succeeds", async () => {
+    setRawWriteRetrySleepForTests(() => Promise.resolve());
     const backingStore = new InMemoryObjectStore();
     let putCalls = 0;
     const objectStore: ObjectStore = {
@@ -396,7 +403,84 @@ describe("Neon v1 backfill run", () => {
     expect(putCalls).toBe(2);
   });
 
+  it("retries transient network errors and succeeds after failures", async () => {
+    setRawWriteRetrySleepForTests(() => Promise.resolve());
+    const backingStore = new InMemoryObjectStore();
+    let putCalls = 0;
+    const transientError = Object.assign(new Error("socket hang up"), {
+      code: "ECONNRESET",
+    });
+    const objectStore: ObjectStore = {
+      deleteExpired: (before) => backingStore.deleteExpired(before),
+      get: (path) => backingStore.get(path),
+      put: async (object) => {
+        putCalls += 1;
+        if (putCalls <= 3) {
+          throw transientError;
+        }
+        await backingStore.put(object);
+      },
+    };
+
+    const result = await runNeonV1Backfill({
+      bindings,
+      curateStore: new InMemoryCurateStore(),
+      objectStore,
+      provenanceStore: new InMemoryBackfillProvenanceStore(),
+      runStore: new InMemoryBackfillRunStore(),
+      source: createFixtureNeonV1Source({
+        capturedAt: "2026-09-03T10:05:00.000Z",
+        contractVersion: NEON_V1_BACKFILL_CONTRACT_VERSION,
+        jobs: [sampleJob()],
+      }),
+    });
+
+    expect(result.status).toBe("succeeded");
+    expect(putCalls).toBe(4);
+  });
+
+  it("exhausts the full raw-write retry budget on persistent transient errors", async () => {
+    setRawWriteRetrySleepForTests(() => Promise.resolve());
+    const transientError = Object.assign(
+      new Error("TooManyRequests: Cloudflare rate limited"),
+      { status: 429 }
+    );
+    let putCalls = 0;
+    const objectStore: ObjectStore = {
+      deleteExpired: () => Promise.resolve(0),
+      get: () => Promise.resolve(null),
+      put: () => {
+        putCalls += 1;
+        return Promise.reject(transientError);
+      },
+    };
+
+    const result = await runNeonV1Backfill({
+      bindings,
+      curateStore: new InMemoryCurateStore(),
+      objectStore,
+      provenanceStore: new InMemoryBackfillProvenanceStore(),
+      runStore: new InMemoryBackfillRunStore(),
+      source: createFixtureNeonV1Source({
+        capturedAt: "2026-09-03T10:05:00.000Z",
+        contractVersion: NEON_V1_BACKFILL_CONTRACT_VERSION,
+        jobs: [sampleJob()],
+      }),
+    });
+
+    expect(result.status).toBe("failed");
+    expect(result.evidence.failure).toEqual({
+      code: "RAW_WRITE_FAILED",
+      phase: "raw-write",
+    });
+    expect(putCalls).toBe(RAW_WRITE_RETRY_DELAYS_MS.length + 1);
+    expect(getBackfillFailureDiagnostic(result)?.error.cause).toBe(
+      transientError
+    );
+  });
+
   it("does not retry a permanent object-store write error", async () => {
+    setRawWriteRetrySleepForTests(() => Promise.resolve());
     const permanentError = Object.assign(new Error("Access denied"), {
       status: 403,
     });
@@ -428,6 +512,42 @@ describe("Neon v1 backfill run", () => {
       code: "RAW_WRITE_FAILED",
       phase: "raw-write",
     });
+    expect(putCalls).toBe(1);
+    expect(getBackfillFailureDiagnostic(result)?.error.cause).toBe(
+      permanentError
+    );
+  });
+
+  it("does not retry permanent client errors even when the message looks transient", async () => {
+    setRawWriteRetrySleepForTests(() => Promise.resolve());
+    const permanentError = Object.assign(
+      new Error("timeout while authorizing request"),
+      { status: 401 }
+    );
+    let putCalls = 0;
+    const objectStore: ObjectStore = {
+      deleteExpired: () => Promise.resolve(0),
+      get: () => Promise.resolve(null),
+      put: () => {
+        putCalls += 1;
+        return Promise.reject(permanentError);
+      },
+    };
+
+    const result = await runNeonV1Backfill({
+      bindings,
+      curateStore: new InMemoryCurateStore(),
+      objectStore,
+      provenanceStore: new InMemoryBackfillProvenanceStore(),
+      runStore: new InMemoryBackfillRunStore(),
+      source: createFixtureNeonV1Source({
+        capturedAt: "2026-09-03T10:05:00.000Z",
+        contractVersion: NEON_V1_BACKFILL_CONTRACT_VERSION,
+        jobs: [sampleJob()],
+      }),
+    });
+
+    expect(result.status).toBe("failed");
     expect(putCalls).toBe(1);
     expect(getBackfillFailureDiagnostic(result)?.error.cause).toBe(
       permanentError
