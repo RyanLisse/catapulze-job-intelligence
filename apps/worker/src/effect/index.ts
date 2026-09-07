@@ -19,3 +19,4 @@ export {
   runPollBronEffect,
   type DrainOutboxEffectPayload,
 } from "./task-bodies";
+export { isEffectWorkerEnabled } from "./flag";

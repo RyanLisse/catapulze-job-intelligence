@@ -103,9 +103,12 @@ describe("Trigger durability contract (Slice 10)", () => {
     ).text();
 
     expect(pollSource).toContain("maxAttempts: 2");
-    expect(pollSource).toContain("run: runPollBron");
+    // CTP-479: default path still calls native runPollBron; Effect is flag-gated.
+    expect(pollSource).toContain("return runPollBron(payload)");
+    expect(pollSource).toContain("isEffectWorkerEnabled");
     expect(drainSource).toContain("maxAttempts: 2");
-    expect(drainSource).toContain("run: runDrainOutbox");
+    expect(drainSource).toContain("return runDrainOutbox(payload)");
+    expect(drainSource).toContain("isEffectWorkerEnabled");
     expect(backfillSource).toContain("maxAttempts: 1");
     expect(backfillSource.includes('from "effect"')).toBe(false);
     expect(backfillSource.includes("from 'effect'")).toBe(false);

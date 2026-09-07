@@ -6,7 +6,7 @@
  * this module through browser bundles would also drag Effect runtime (#203).
  *
  * Native critical-path sessions remain the default. Prod Effect stays OFF until
- * CTP-479 (parked).
+ * a deliberate CTP-479 per-surface Coolify flip (`PERF_EFFECT_SPANS=1`).
  */
 export {
   CRITICAL_PATH_SPAN_ATTRIBUTE_KEYS,

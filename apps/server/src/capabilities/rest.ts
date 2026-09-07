@@ -5,6 +5,7 @@ import type {
 import type { Context } from "hono";
 import { z } from "zod";
 
+import { isEffectServerEnabled } from "../effect/flag";
 import { createRequestId, hasAllowedCookieOrigin } from "./auth";
 import type { CookieAuthOriginPolicy, PrincipalResolver } from "./auth";
 import {
@@ -255,18 +256,24 @@ const parseRestQuery = (url: string): RestQuery => {
   return parsed.success ? parsed.data : params;
 };
 
-const invokeRest = (
+const invokeRest = async (
   registry: SliceARegistry,
   route: RestRouteSpec,
   input: RestJsonBody,
   principal: InvocationPrincipal | null,
   requestId: string
-): Promise<RegistryInvocationResult> =>
-  registry.createInvoker({
+): Promise<RegistryInvocationResult> => {
+  // CTP-479 canary: JI_EFFECT_SERVER=1 → Effect transport boundary; default native.
+  if (isEffectServerEnabled()) {
+    const { invokeRestEffect } = await import("../effect/invoke-effect");
+    return invokeRestEffect(registry, route, input, principal, requestId);
+  }
+  return registry.createInvoker({
     capabilityId: route.capabilityId,
     operation: route.operation,
     transport: "rest",
   })(input, { principal, requestId });
+};
 
 export const createRestCapabilityHandler =
   (
@@ -439,3 +446,18 @@ export const mcpToolsFromRegistry = (
 };
 
 export { matchPath, pathParamNames };
+
+/** CTP-479 canary wrapper — Effect MCP boundary when JI_EFFECT_SERVER=1. */
+export const invokeMcpToolCanary = async (
+  registry: SliceARegistry,
+  toolName: string,
+  args: RestJsonBody,
+  principal: InvocationPrincipal | null,
+  requestId: string
+): Promise<RegistryInvocationResult> => {
+  if (isEffectServerEnabled()) {
+    const { invokeMcpToolEffect } = await import("../effect/invoke-effect");
+    return invokeMcpToolEffect(registry, toolName, args, principal, requestId);
+  }
+  return invokeMcpTool(registry, toolName, args, principal, requestId);
+};

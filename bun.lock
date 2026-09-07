@@ -110,6 +110,7 @@
         "@ji/connectors": "workspace:*",
         "@ji/db": "workspace:*",
         "@ji/domain": "workspace:*",
+        "@ji/env": "workspace:*",
         "@ji/search": "workspace:*",
         "@trigger.dev/sdk": "4.5.13",
         "dotenv": "catalog:",
@@ -244,6 +245,7 @@
       "name": "@ji/performance",
       "version": "0.0.0",
       "dependencies": {
+        "@ji/env": "workspace:*",
         "effect": "catalog:",
       },
       "devDependencies": {
@@ -257,6 +259,7 @@
       "version": "0.0.0",
       "dependencies": {
         "@ji/domain": "workspace:*",
+        "@ji/env": "workspace:*",
         "@ji/performance": "workspace:*",
         "effect": "catalog:",
         "zod": "catalog:",

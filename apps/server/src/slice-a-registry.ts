@@ -11,6 +11,7 @@ import type { ObjectStore } from "@ji/connectors";
 // @ji/api's AppRouter type) does not have.
 import { createRawObjectStore } from "@ji/connectors/s3-object-client";
 import {
+  applyDbStoreEffectCanary,
   PostgresAanvraagStore,
   PostgresAlertStore,
   PostgresApprovalStore,
@@ -105,7 +106,7 @@ export const createProductionSliceADeps = async (
 
   const memoryStores: SliceAStores = createMemorySliceAStores();
 
-  const stores: SliceAStores = {
+  const persistentStores = {
     ...memoryStores,
     aanvragen: new PostgresAanvraagStore(runtime.database),
     alerts: new PostgresAlertStore(runtime.database),
@@ -120,6 +121,23 @@ export const createProductionSliceADeps = async (
     rawPayloads: new PostgresRawPayloadStore(objectStore),
     savedSearches: new PostgresSavedSearchStore(runtime.database),
     snapshots: new PostgresQuerySnapshotStore(runtime.database),
+  };
+  const effectCanary = applyDbStoreEffectCanary({
+    aanvragen: persistentStores.aanvragen,
+    alerts: persistentStores.alerts,
+    bronHealth: persistentStores.bronHealth,
+    rawPayloads: persistentStores.rawPayloads,
+    savedSearches: persistentStores.savedSearches,
+    snapshots: persistentStores.snapshots,
+  });
+  const stores: SliceAStores = {
+    ...persistentStores,
+    aanvragen: effectCanary.aanvragen ?? persistentStores.aanvragen,
+    alerts: effectCanary.alerts ?? persistentStores.alerts,
+    bronHealth: effectCanary.bronHealth ?? persistentStores.bronHealth,
+    rawPayloads: effectCanary.rawPayloads ?? persistentStores.rawPayloads,
+    savedSearches: effectCanary.savedSearches ?? persistentStores.savedSearches,
+    snapshots: effectCanary.snapshots ?? persistentStores.snapshots,
   };
 
   assertProductionPersistence({
@@ -170,7 +188,13 @@ export const createProductionSliceADeps = async (
     objectStore,
     rawObjectStoreKind: rawObjectStore.kind,
     scopeId: CATAPULZE_DEPLOYMENT_SCOPE_ID,
-    scrapeRunReader: new PostgresScrapeRunReader(runtime.database),
+    scrapeRunReader: (() => {
+      const native = new PostgresScrapeRunReader(runtime.database);
+      return (
+        applyDbStoreEffectCanary({ scrapeRunReader: native }).scrapeRunReader ??
+        native
+      );
+    })(),
     searchAdapter,
     stores,
   };
