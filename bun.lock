@@ -250,6 +250,7 @@
       "dependencies": {
         "@ji/domain": "workspace:*",
         "@ji/performance": "workspace:*",
+        "effect": "catalog:",
         "zod": "catalog:",
       },
       "devDependencies": {

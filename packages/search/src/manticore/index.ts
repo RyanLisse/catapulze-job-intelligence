@@ -50,3 +50,17 @@ export {
   SLUITINGSDATUM_MISSING_SENTINEL,
 } from "./engine";
 export { hashDocumentId } from "./id-hash";
+
+export {
+  FetchManticoreEffectClient,
+  bulkManticoreEffect,
+  describeManticoreTableEffect,
+  describeManticoreTableViaEffect,
+  postManticoreEffect,
+  requestManticoreEffect,
+  runManticorePromise,
+} from "./client-effect";
+export type {
+  FetchImpl as ManticoreEffectFetchImpl,
+  FetchManticoreEffectClientOptions,
+} from "./client-effect";
