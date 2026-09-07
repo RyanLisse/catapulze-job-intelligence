@@ -213,6 +213,7 @@ Slices zijn strikt geordend op leerrendement en dependency-richting. Elke slice 
 | AC | labels stabiel; geen PII |
 | Testbewijs | performance specs |
 | Rollback | hook disable |
+| Status (CTP-478) | Opt-in `@ji/performance/effect` critical-path Effect span hooks landed (`withCriticalPathSpan`, sanitized attributes, `PERF_EFFECT_SPANS` default OFF); native critical-path sessions remain default; labels stay ADR-0001 set; no PII in spans/labels; Effect module is a separate export (no browser/Node bleed, #203); Motian ongewijzigd; prod Effect OFF; CTP-479 not started |
 
 ### Slice 13 — Scoped lintregels
 

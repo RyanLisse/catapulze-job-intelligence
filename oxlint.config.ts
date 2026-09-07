@@ -33,6 +33,7 @@ const effectPackageGlobs = [
   "packages/domain/**/*.{ts,tsx}",
   "packages/env/**/*.{ts,tsx}",
   "packages/search/**/*.{ts,tsx}",
+  "packages/performance/**/*.{ts,tsx}",
 ] as const;
 
 export default defineConfig({

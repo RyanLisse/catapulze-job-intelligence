@@ -243,6 +243,9 @@
     "packages/performance": {
       "name": "@ji/performance",
       "version": "0.0.0",
+      "dependencies": {
+        "effect": "catalog:",
+      },
       "devDependencies": {
         "@ji/config": "workspace:*",
         "@types/bun": "catalog:",
