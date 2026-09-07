@@ -24,10 +24,13 @@ Deze map bevat de canonieke architectuurbesluiten die meerdere packages, uitvoer
 | [ADR-0009](ADR-0009-manticore-29-hybrid.md) | Proposed | Manticore 29 hybrid search candidate |
 | [ADR-0010](ADR-0010-bron-health-and-alert-storage.md) | Accepted | Dedicated storage voor bron_health en alert versus audit_event |
 | [ADR-0011](ADR-0011-postgres-on-box-trigger-static-ips.md) | Accepted (uitvoering RJC-418 open) | Postgres on-box in Coolify; Trigger.dev static egress-IP allowlist; supersedeert ADR-0006 |
+| [ADR-0012](ADR-0012-first-party-mcp-client-auth.md) | Accepted | First-party signed Better Auth sessions for MCP client access |
+| [ADR-0013](ADR-0013-effectts-platform-baseline.md) | Proposed | EffectTS platformbaseline, foutsemantiek en meetcriteria (CTP-454) |
 
 ## Runbooks
 
 - [Performance-evidence uitvoeren](../runbooks/performance-evidence.md) — lokale timings, GitHub-artifacts en de opt-in Crabbox/exe.dev-lane veilig uitvoeren en vergelijken.
+- [JSON-LD/Spott wire-contract (EffectTS baseline)](../effectts/json-ld-spott-wire-contract.md) — identiek read-contract + reviewrubric voor CTP-454/455.
 - [Postgres on-box beheren](../runbooks/postgres-on-box.md) — beschermde persistentie, private networking, WAL/backups en restoregates (productie opnieuw via ADR-0011 / RJC-418).
 - [Search projector beheren](../runbooks/search-projector.md) — on-box outbox-drain naar Manticore: deploy-contract, supervisie, advisory lock, gedrag bij storingen.
 - [Raw object storage](../runbooks/raw-object-storage.md) — S3-vs-filesystem raw store, content-addressing, digest-validatie, lokale MinIO-compose.

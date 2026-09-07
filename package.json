@@ -89,7 +89,9 @@
     "search:new-generation": "PATH=\"./node_modules/.bin:$PATH\" bun tools/manticore/start-search-generation.ts",
     "search:reconcile-projection": "PATH=\"./node_modules/.bin:$PATH\" bun tools/search/reconcile-projection.ts",
     "prepare": "PATH=\"./node_modules/.bin:$PATH\" lefthook install --reset-hooks-path",
-    "bench:bron-dashboard": "PATH=\"./node_modules/.bin:$PATH\" bun benchmarks/bron-dashboard/run.ts"
+    "bench:bron-dashboard": "PATH=\"./node_modules/.bin:$PATH\" bun benchmarks/bron-dashboard/run.ts",
+    "check-types:effect-baseline": "PATH=\"./node_modules/.bin:$PATH\" tsc --noEmit -p scripts/effect-baseline/tsconfig.json",
+    "effect-baseline:dry-run": "PATH=\"./node_modules/.bin:$PATH\" bun scripts/effect-baseline/harness.ts --dry-run"
   },
   "dependencies": {
     "@ji/env": "workspace:*",
