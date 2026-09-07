@@ -1,12 +1,12 @@
 # ADR-0004 — Postgres-omgevingsstrategie
 
-- Status: Gedeeltelijk superseded door [ADR-0006](ADR-0006-neon-as-system-of-record.md) (2026-08-31); lokale/CI-deel blijft Accepted
-- Zie ook [ADR-0006](ADR-0006-neon-as-system-of-record.md)/[ADR-0007](ADR-0007-search-platform-state-2026-09-01.md) (2026-09-01): de Manticore-helft is nu opgelost door de on-box projector (#96) — de worker hoeft in `onbox`-modus geen Manticore-bereikbaarheid meer te hebben.
+- Status: Accepted voor lokale/CI en productie on-box; het productie-SoR is hersteld via [ADR-0011](ADR-0011-postgres-on-box-trigger-static-ips.md) (2026-09-04). [ADR-0006](ADR-0006-neon-as-system-of-record.md) is voor productie superseded.
+- Zie ook [ADR-0007](ADR-0007-search-platform-state-2026-09-01.md) (2026-09-01): de Manticore-helft is nu opgelost door de on-box projector (#96) — de worker hoeft in `onbox`-modus geen Manticore-bereikbaarheid meer te hebben.
 - Datum: 2026-08-28
 - Eigenaar: Job Intelligence platform
-- Gerelateerd: ADR-0001, ADR-0003, ADR-0006, DEC-005, RJC-321, RJC-347
+- Gerelateerd: ADR-0001, ADR-0003, ADR-0006, ADR-0011, DEC-005, RJC-321, RJC-347, RJC-418
 
-> **Superseded-notitie (2026-08-31).** [ADR-0006](ADR-0006-neon-as-system-of-record.md) kiest Neon als production system of record. Daarmee vervallen uit dit ADR: de dedicated on-box PostgreSQL 16-productie-instance, de zeven productie-eisen daarvoor (regel 18–26), de "afwezigheid van een publieke 5432-listener"-verificatie voor het SoR, en de framing van managed Postgres als niet-gekozen escape hatch. **Wat blijft gelden:** de lokale/CI Docker Postgres 16-lane voor correctness- en performance-evidence, de scheiding van instances en credentials per omgeving, en alle regels rond de Motian/Lovable-Neon-database als strikt read-only importbron. De redenering hieronder is bewust ongewijzigd gelaten — een superseded ADR behoudt zijn argument; ADR-0006 legt vast waarom en waarop is omgekeerd (bereikbaarheid voor Trigger.dev Cloud, niet de escape-hatch-voorwaarden van dit ADR, die niet vervuld waren). *Regelverwijzingen naar dit ADR in oudere documenten (o.a. ADR-0005, ADR-0006) verwijzen naar de versie vóór deze notitie (commit `4eac8a8`); door deze notitie verschuiven regelnummers hieronder met +2.*
+> **Huidige status (2026-09-04).** [ADR-0011](ADR-0011-postgres-on-box-trigger-static-ips.md) herstelt de dedicated on-box PostgreSQL 16-instance als production system of record en supersedeert [ADR-0006](ADR-0006-neon-as-system-of-record.md) voor productie. De lokale/CI Docker Postgres 16-lane blijft ongewijzigd. Motian/Neon is uitsluitend een read-only backfill/importbron; de Coolify-cutover is uitgevoerd en `/readyz` is groen volgens RJC-418.
 
 ## Context
 
