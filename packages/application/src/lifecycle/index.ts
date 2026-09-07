@@ -11,3 +11,7 @@ export {
   type ReconcileMissedPollsInput,
   type ReconcileMissedPollsResult,
 } from "./reconcile-missed-polls";
+export {
+  reconcileMissedPollsEffect,
+  runReconcileMissedPolls,
+} from "./reconcile-missed-polls-effect";

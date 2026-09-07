@@ -95,6 +95,7 @@ Slices zijn strikt geordend op leerrendement en dependency-richting. Elke slice 
 | AC | use-case parity op unit/integration fixtures; geen DB-schemawijziging |
 | Testbewijs | application specs |
 | Rollback | module-swap per use-case map |
+| Status (CTP-468) | Opt-in Effect programs landed for ingest/normalise/lifecycle/bronnen/sources/observability; native default; prod OFF; no DB schema |
 
 ### Slice 4 — Capability registry schemas → Effect Schema SoT
 
