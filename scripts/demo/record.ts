@@ -189,8 +189,24 @@ const runTour = async (
   await moveCursor(page, 420, 220);
   await dwell(Math.max(2500, cueGapMs("jobs", "detail") - 1500));
 
-  await clickLocator(page, '[aria-label="Zoekresultaten"] table tbody button');
-  await page.waitForURL(/[?&]job=/u, { timeout: 15_000 });
+  const result = page
+    .locator('[aria-label="Zoekresultaten"] table tbody button')
+    .first();
+  await result.waitFor({ state: "visible", timeout: 45_000 });
+  await result.scrollIntoViewIfNeeded();
+  const box = await result.boundingBox();
+  if (box) {
+    await moveCursor(page, box.x + box.width / 2, box.y + box.height / 2);
+    await dwell(200);
+  }
+  await result.click();
+  await Promise.race([
+    page.waitForURL(/[?&]job=/u, { timeout: 20_000 }),
+    page.locator("#desktop-job-detail-title").waitFor({
+      state: "visible",
+      timeout: 20_000,
+    }),
+  ]);
   await page.locator("#desktop-job-detail-title").waitFor({
     state: "visible",
     timeout: 15_000,
