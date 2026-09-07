@@ -21,6 +21,10 @@ Volatile copies also land under `.artifacts/effect-baseline/` (gitignored).
 - Toolchain: Bun packageManager `1.3.14`, host Bun `1.4.0`, TypeScript `6.0.3`, transitive `effect@3.21.0` only
 - Metrics: latency p50/p95, attempt counts, cancellation latency, resource release, peak RSS, build + typecheck duration, server bundle bytes, direct dependency count, adapter LOC (observe), review rubric
 
+## Effect Slice 1 (CTP-455)
+
+See [ctp-455-effect-slice1.md](./ctp-455-effect-slice1.md) for shared runtime + Effect adapter notes (production OFF).
+
 ## Still blocked (Effect comparison)
 
 First-party `effect@rc` pin / runtime migration is **CTP-455+ / CTP-453**. Dual-path Effect vs native comparison is not claimed here. Gaps for Effect follow-up:
