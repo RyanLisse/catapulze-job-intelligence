@@ -102,6 +102,26 @@ describe("AE3 detail provenance mapping", () => {
     expect(job.remote).toBe(true);
   });
 
+  it("rejects unsafe bronUrl schemes for Herkomst links", () => {
+    const unsafeScheme = ["java", "script:"].join("");
+    const job = mapAanvraagToJobListing({
+      aanvraag: {
+        beschrijving: "x",
+        bronId: "bron-unsafe",
+        bronReferentie: "REF-X",
+        bronUrl: `${unsafeScheme}alert(1)`,
+        id: "aanvraag-unsafe",
+        rawPayloadRef: "raw/x.json",
+        scrapeRunId: "run-x",
+        status: "active",
+        titel: "Unsafe url",
+      },
+      bronCatalog: new Map(),
+      versies: [],
+    });
+    expect(job.sourceRecords[0]?.url).toBe("#bron/bron-unsafe");
+  });
+
   it("maps only available curated commercial facts", () => {
     const job = mapAanvraagToJobListing({
       aanvraag: {

@@ -1,5 +1,5 @@
 import type { AanvraagVersieView, MarkeringReadback } from "../contracts";
-import { stripHtmlToText } from "../sanitize-job-html";
+import { isSafeHref, stripHtmlToText } from "../sanitize-job-html";
 import type {
   JobContractType,
   JobLifecycleStatus,
@@ -192,7 +192,13 @@ export const mapAanvraagToJobListing = (input: {
         normalizationVersion: versie?.normalisatieversie ?? "onbekend",
         reference: input.aanvraag.bronReferentie,
         scrapeRunId: input.aanvraag.scrapeRunId,
-        url: input.aanvraag.bronUrl?.trim() || `#bron/${input.aanvraag.bronId}`,
+        url: (() => {
+          const candidate = input.aanvraag.bronUrl?.trim() ?? "";
+          if (candidate.length > 0 && isSafeHref(candidate)) {
+            return candidate;
+          }
+          return `#bron/${input.aanvraag.bronId}`;
+        })(),
         validFrom: versie?.geldigVan ?? null,
         validTo: versie?.geldigTot ?? null,
       },

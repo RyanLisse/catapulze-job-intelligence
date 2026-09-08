@@ -97,7 +97,8 @@ const escapeAttribute = (value: string): string =>
     .replaceAll("<", "&lt;")
     .replaceAll(">", "&gt;");
 
-const isSafeHref = (value: string): boolean => {
+/** Allow http(s), mailto, absolute paths, and hash links — reject javascript:/data:. */
+export const isSafeHref = (value: string): boolean => {
   const trimmed = value.trim();
   if (trimmed.length === 0) {
     return false;
