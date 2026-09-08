@@ -72,6 +72,7 @@ export interface AanvraagRecord {
   readonly opdrachtgeverNaam?: string | null;
   readonly publicatiedatum?: string | null;
   readonly rawPayloadRef: string;
+  readonly startDatum?: string | null;
   readonly scrapeRunId: string;
   readonly sluitingsdatum?: Date | null;
   readonly status: string;

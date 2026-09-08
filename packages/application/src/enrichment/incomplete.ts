@@ -28,10 +28,12 @@ interface ParsedBronFacts {
 export interface IncompleteAanvraagFacts {
   readonly beschrijving: string;
   readonly bronSpecifiek: unknown;
+  readonly contracttype?: string | null;
   readonly locatieTekst: string | null;
   readonly tariefEenheid: string | null;
   readonly tariefMax: string | null;
   readonly tariefMin: string | null;
+  readonly werkvorm?: string | null;
 }
 
 const isUnknownText = (value: string | null | undefined): boolean =>
@@ -67,11 +69,17 @@ const readBronFacts = (parsed: ParsedBronSpecifiek | null): ParsedBronFacts => {
 };
 
 const isContractIncomplete = (facts: IncompleteAanvraagFacts): boolean => {
+  if (!isUnknownText(facts.contracttype)) {
+    return false;
+  }
   const bronFacts = readBronFacts(parseBronSpecifiek(facts.bronSpecifiek));
   return isUnknownText(bronFacts.contracttype);
 };
 
 const isRemoteIncomplete = (facts: IncompleteAanvraagFacts): boolean => {
+  if (!isUnknownText(facts.werkvorm)) {
+    return false;
+  }
   const bronFacts = readBronFacts(parseBronSpecifiek(facts.bronSpecifiek));
   return isUnknownText(bronFacts.werkvorm);
 };

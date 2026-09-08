@@ -88,7 +88,7 @@ export const parseFlinterPayload = (
       "listing.opdrachtgeverNaam"
     ),
     parserVersion,
-    startDatum: field(UNKNOWN, parserVersion, "detail"),
+    startDatum: field(UNKNOWN, parserVersion, "n/a (not published by source)"),
     status: lifecycle,
     tarief: unknownTarief,
     titel: field(titel, parserVersion, "detail.titel"),

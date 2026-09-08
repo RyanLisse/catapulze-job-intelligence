@@ -4,7 +4,7 @@ import type {
   BronId,
   ScrapeRunId,
 } from "@ji/domain";
-import { UNKNOWN } from "@ji/domain";
+import { CLEARED, UNKNOWN } from "@ji/domain";
 import { timeCriticalPathPhase } from "@ji/performance";
 import { z } from "zod";
 
@@ -31,24 +31,31 @@ export interface StoredAanvraag {
   bronSpecifiek: BronSpecifiekJson;
   bronUrl: string | null;
   contentHash: string;
+  contracttype: string | null;
   dedupGroepId: string | null;
   extractieMethode: string;
   eersteGezienOp: Date;
+  eindDatum: string | null;
   laatstGezienOp: Date;
   locatieLand: string;
   locatieTekst: string | null;
+  opdrachtgeverNaam: string | null;
   parserVersion: string;
   provenance: ProvenanceMap;
+  publicatiedatum: string | null;
   rawPayloadRef: string;
   scrapeRunId: ScrapeRunId;
   sluitingsdatum: Date | null;
+  startDatum: string | null;
   status: AanvraagLifecycle;
   tariefEenheid: string | null;
   tariefMax: string | null;
   tariefMin: string | null;
   tariefValuta: string;
   titel: string;
+  urenPerWeek: string | null;
   versie: number;
+  werkvorm: string | null;
 }
 
 export interface StoredAanvraagVersie {
@@ -139,8 +146,9 @@ export interface CurateObservationResult {
   versie?: number;
 }
 
-const tariefColumn = (value: string | typeof UNKNOWN): string | null =>
-  value === UNKNOWN ? null : value;
+const tariefColumn = (
+  value: string | typeof UNKNOWN | typeof CLEARED
+): string | null => (value === UNKNOWN || value === CLEARED ? null : value);
 
 const bronSpecifiekRecordSchema = z.record(
   z.string(),
@@ -189,13 +197,17 @@ const commercialBronSpecifiek = (
   const base: BronSpecifiekRecord = {
     ...asBronSpecifiekRecord(draft.bronSpecifiek.value),
   };
-  if (
+  if (draft.opdrachtgeverNaam.value === CLEARED) {
+    base.opdrachtgever_naam = CLEARED;
+  } else if (
     draft.opdrachtgeverNaam.value !== UNKNOWN &&
     readExistingText(base, "opdrachtgever_naam", "opdrachtgeverNaam") === null
   ) {
     base.opdrachtgever_naam = draft.opdrachtgeverNaam.value;
   }
-  if (
+  if (draft.startDatum.value === CLEARED) {
+    base.start_datum = CLEARED;
+  } else if (
     draft.startDatum.value !== UNKNOWN &&
     readExistingText(base, "start_datum", "startDatum") === null
   ) {
@@ -219,10 +231,64 @@ const commercialBronSpecifiek = (
   return base as BronSpecifiekJson;
 };
 
+type CoalescePatch<T> =
+  | { tag: "absent" }
+  | { tag: "clear" }
+  | { tag: "set"; value: T };
+
+const coalescePatchFromDraft = (
+  value: string | typeof UNKNOWN | typeof CLEARED
+): CoalescePatch<string> => {
+  if (value === CLEARED) {
+    return { tag: "clear" };
+  }
+  if (value === UNKNOWN) {
+    return { tag: "absent" };
+  }
+  return { tag: "set", value };
+};
+
+const applyCoalesce = <T>(
+  patch: CoalescePatch<T>,
+  existing: T | null
+): T | null => {
+  switch (patch.tag) {
+    case "absent": {
+      return existing;
+    }
+    case "clear": {
+      return null;
+    }
+    case "set": {
+      return patch.value;
+    }
+    default: {
+      const _exhaustive: never = patch;
+      return _exhaustive;
+    }
+  }
+};
+
+/** Sparse null keeps the prior value; use CLEARED at the draft boundary for a true clear. */
 const coalesceNullable = <T>(
   incoming: T | null,
   existing: T | null
 ): T | null => incoming ?? existing;
+
+const draftTextColumn = (
+  value: string | typeof UNKNOWN | typeof CLEARED
+): string | null => (value === UNKNOWN || value === CLEARED ? null : value);
+
+const readBronText = (
+  record: BronSpecifiekRecord,
+  ...keys: readonly string[]
+): string | null => {
+  const value = readExistingText(record, ...keys);
+  if (value === null || value === CLEARED || value === UNKNOWN) {
+    return null;
+  }
+  return value;
+};
 
 const mergeBronSpecifiek = (
   existing: BronSpecifiekJson,
@@ -230,15 +296,31 @@ const mergeBronSpecifiek = (
 ): BronSpecifiekJson => {
   const left = asBronSpecifiekRecord(existing);
   const right = asBronSpecifiekRecord(incoming);
-  const merged: BronSpecifiekRecord = { ...left };
+  const clearedKeys = new Set<string>();
+  const overlays: BronSpecifiekRecord = {};
   for (const [key, value] of Object.entries(right)) {
     if (value === null || value === undefined) {
       continue;
     }
-    // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Zod record values are a union; blank strings must not overwrite prior facts
-    if (typeof value === "string" && value.trim() === "") {
-      continue;
+    // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Zod record values are a union; blank/CLEARED strings are tombstones or noise
+    if (typeof value === "string") {
+      if (value.trim() === "") {
+        continue;
+      }
+      if (value === CLEARED) {
+        clearedKeys.add(key);
+        continue;
+      }
     }
+    overlays[key] = value;
+  }
+  const merged: BronSpecifiekRecord = {};
+  for (const [key, value] of Object.entries(left)) {
+    if (!clearedKeys.has(key)) {
+      merged[key] = value;
+    }
+  }
+  for (const [key, value] of Object.entries(overlays)) {
     merged[key] = value;
   }
   // SAFETY: merged is a Zod-validated string-keyed JSON object; BronSpecifiekJson
@@ -250,32 +332,44 @@ const toStoredFields = (
   input: CurateObservationInput
 ): Omit<StoredAanvraag, "aanvraagId"> => {
   const { draft } = input;
+  const bronSpecifiek = commercialBronSpecifiek(draft);
+  const bronRecord = asBronSpecifiekRecord(bronSpecifiek);
   return {
     beschrijving: draft.beschrijving.value,
     bronId: input.bronId,
     bronReferentie: draft.bronReferentie.value,
-    bronSpecifiek: commercialBronSpecifiek(draft),
-    bronUrl: draft.bronUrl.value === UNKNOWN ? null : draft.bronUrl.value,
+    bronSpecifiek,
+    bronUrl: draftTextColumn(draft.bronUrl.value),
     contentHash: draft.contentHash,
+    contracttype: readBronText(bronRecord, "contracttype", "contract_type"),
     dedupGroepId: null,
     eersteGezienOp: input.observedAt,
+    eindDatum: readBronText(bronRecord, "eind_datum", "eindDatum"),
     extractieMethode: draft.extractieMethode,
     laatstGezienOp: input.observedAt,
     locatieLand: draft.locatieLand.value,
-    locatieTekst:
-      draft.locatieTekst.value === UNKNOWN ? null : draft.locatieTekst.value,
+    locatieTekst: draftTextColumn(draft.locatieTekst.value),
+    opdrachtgeverNaam: draftTextColumn(draft.opdrachtgeverNaam.value),
     parserVersion: draft.parserVersion,
     provenance: buildProvenanceMap(draft),
+    publicatiedatum: readBronText(
+      bronRecord,
+      "publicatiedatum",
+      "gepubliceerd_op"
+    ),
     rawPayloadRef: input.rawPayloadRef,
     scrapeRunId: input.scrapeRunId,
     sluitingsdatum: draft.sluitingsdatum ?? null,
+    startDatum: draftTextColumn(draft.startDatum.value),
     status: draft.status,
     tariefEenheid: tariefColumn(draft.tarief.eenheid),
     tariefMax: tariefColumn(draft.tarief.max),
     tariefMin: tariefColumn(draft.tarief.min),
     tariefValuta: draft.tarief.valuta,
     titel: draft.titel.value,
+    urenPerWeek: readBronText(bronRecord, "uren_per_week", "uren_per_week_raw"),
     versie: 1,
+    werkvorm: readBronText(bronRecord, "werkvorm"),
   };
 };
 
@@ -392,27 +486,56 @@ export const curateObservation = async (
   return store.withTransaction(async (tx) => {
     await tx.closeOpenVersie(existing.aanvraagId, closedAt);
     const next = toStoredFields(input);
+    const { draft } = input;
     const updated = await tx.updateAanvraag(existing.aanvraagId, {
       ...next,
       bronSpecifiek: mergeBronSpecifiek(
         existing.bronSpecifiek,
         next.bronSpecifiek
       ),
-      bronUrl: coalesceNullable(next.bronUrl, existing.bronUrl),
+      bronUrl: applyCoalesce(
+        coalescePatchFromDraft(draft.bronUrl.value),
+        existing.bronUrl
+      ),
+      contracttype: coalesceNullable(next.contracttype, existing.contracttype),
       dedupGroepId: existing.dedupGroepId,
       eersteGezienOp: existing.eersteGezienOp,
-      locatieTekst: coalesceNullable(next.locatieTekst, existing.locatieTekst),
+      eindDatum: coalesceNullable(next.eindDatum, existing.eindDatum),
+      locatieTekst: applyCoalesce(
+        coalescePatchFromDraft(draft.locatieTekst.value),
+        existing.locatieTekst
+      ),
+      opdrachtgeverNaam: applyCoalesce(
+        coalescePatchFromDraft(draft.opdrachtgeverNaam.value),
+        existing.opdrachtgeverNaam
+      ),
+      publicatiedatum: coalesceNullable(
+        next.publicatiedatum,
+        existing.publicatiedatum
+      ),
       sluitingsdatum: coalesceNullable(
         next.sluitingsdatum,
         existing.sluitingsdatum
       ),
-      tariefEenheid: coalesceNullable(
-        next.tariefEenheid,
+      startDatum: applyCoalesce(
+        coalescePatchFromDraft(draft.startDatum.value),
+        existing.startDatum
+      ),
+      tariefEenheid: applyCoalesce(
+        coalescePatchFromDraft(draft.tarief.eenheid),
         existing.tariefEenheid
       ),
-      tariefMax: coalesceNullable(next.tariefMax, existing.tariefMax),
-      tariefMin: coalesceNullable(next.tariefMin, existing.tariefMin),
+      tariefMax: applyCoalesce(
+        coalescePatchFromDraft(draft.tarief.max),
+        existing.tariefMax
+      ),
+      tariefMin: applyCoalesce(
+        coalescePatchFromDraft(draft.tarief.min),
+        existing.tariefMin
+      ),
+      urenPerWeek: coalesceNullable(next.urenPerWeek, existing.urenPerWeek),
       versie: nextVersie,
+      werkvorm: coalesceNullable(next.werkvorm, existing.werkvorm),
     });
     await tx.insertVersie({
       aanvraagId: updated.aanvraagId,

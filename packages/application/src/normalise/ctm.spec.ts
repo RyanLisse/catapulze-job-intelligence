@@ -62,6 +62,9 @@ describe("parseCtmPayload", () => {
       valuta: "EUR",
     });
     expect(draft.startDatum.value).toBe(UNKNOWN);
+    expect(draft.startDatum.provenance.sourcePath).toBe(
+      "n/a (not published by source)"
+    );
     expect(draft.locatieTekst.value).toBe(UNKNOWN);
   });
 
