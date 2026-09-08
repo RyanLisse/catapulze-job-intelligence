@@ -198,7 +198,9 @@ const commercialBronSpecifiek = (
     ...asBronSpecifiekRecord(draft.bronSpecifiek.value),
   };
   if (draft.opdrachtgeverNaam.value === CLEARED) {
+    // Tombstone every reader alias so merge drops prior camel/snake keys.
     base.opdrachtgever_naam = CLEARED;
+    base.opdrachtgeverNaam = CLEARED;
   } else if (
     draft.opdrachtgeverNaam.value !== UNKNOWN &&
     readExistingText(base, "opdrachtgever_naam", "opdrachtgeverNaam") === null
@@ -207,6 +209,7 @@ const commercialBronSpecifiek = (
   }
   if (draft.startDatum.value === CLEARED) {
     base.start_datum = CLEARED;
+    base.startDatum = CLEARED;
   } else if (
     draft.startDatum.value !== UNKNOWN &&
     readExistingText(base, "start_datum", "startDatum") === null
@@ -549,12 +552,21 @@ export const curateObservation = async (
     await tx.closeOpenVersie(existing.aanvraagId, closedAt);
     const next = toStoredFields(input);
     const { draft } = input;
+    // Merge against commercialBronSpecifiek *before* strip so CLEARED
+    // tombstones still reach mergeBronSpecifiek and drop prior JSON keys.
+    // SAFETY: stripClearedBronSpecifiek only removes CLEARED strings; remainder
+    // is still BronSpecifiekJson for curated.aanvraag.bron_specifiek.
+    const mergedBronSpecifiek = stripClearedBronSpecifiek(
+      asBronSpecifiekRecord(
+        mergeBronSpecifiek(
+          existing.bronSpecifiek,
+          commercialBronSpecifiek(draft)
+        )
+      )
+    ) as BronSpecifiekJson;
     const updated = await tx.updateAanvraag(existing.aanvraagId, {
       ...next,
-      bronSpecifiek: mergeBronSpecifiek(
-        existing.bronSpecifiek,
-        next.bronSpecifiek
-      ),
+      bronSpecifiek: mergedBronSpecifiek,
       bronUrl: applyCoalesce(
         coalescePatchFromDraft(draft.bronUrl.value),
         existing.bronUrl

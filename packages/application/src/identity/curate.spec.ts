@@ -232,5 +232,13 @@ describe("curateObservation commercial columns and coalesce tombstones", () => {
       tariefMin: null,
       versie: 2,
     });
+    // CLEARED must drop prior commercial keys from bron_specifiek so the
+    // column ?? JSON read path cannot resurrect them.
+    const bronJson = JSON.stringify(aanvraag?.bronSpecifiek ?? {});
+    expect(bronJson).not.toContain('"opdrachtgever_naam"');
+    expect(bronJson).not.toContain('"opdrachtgeverNaam"');
+    expect(bronJson).not.toContain('"start_datum"');
+    expect(bronJson).not.toContain('"startDatum"');
+    expect(bronJson).not.toContain(CLEARED);
   });
 });
