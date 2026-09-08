@@ -32,7 +32,7 @@ const mountRest = () => {
     routes,
     adminResolver,
     {
-      allowedCookieOrigin: null,
+      allowedCookieOrigin: "https://app.catapulze.test",
     }
   );
   const app = new Hono();
