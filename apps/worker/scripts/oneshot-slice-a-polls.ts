@@ -5,11 +5,16 @@ import { config as loadEnv } from "dotenv";
 import {
   buildPollPayload,
   formatOneshotList,
+  isSoftOrHashFailure,
   oneshotUsage,
   parseOneshotArgs,
   selectOneshotTargets,
+  summarizeOneshotRun,
 } from "../src/oneshot-slice-a-polls";
-import type { OneshotResult } from "../src/oneshot-slice-a-polls";
+import type {
+  OneshotResult,
+  OneshotRunBronResult,
+} from "../src/oneshot-slice-a-polls";
 import {
   createPollBronRuntime,
   requireDatabaseUrl,
@@ -66,12 +71,9 @@ const main = async (): Promise<OneshotResult> => {
     return listed;
   }
 
-  const results: Extract<OneshotResult, { mode: "run" }> = {
-    failed: 0,
-    mode: "run",
-    results: [],
-    succeeded: 0,
-  };
+  const startedAt = new Date().toISOString();
+  const bronResults: OneshotRunBronResult[] = [];
+  let hardFail = false;
 
   /* oxlint-disable no-await-in-loop -- sequential fan-out keeps Coolify load bounded */
   for (const bron of targets) {
@@ -79,8 +81,7 @@ const main = async (): Promise<OneshotResult> => {
     try {
       // Same body as Trigger task `poll-bron` → runPollBron (no Trigger SDK import).
       const result = await runPollBronOnce(payload);
-      results.succeeded += 1;
-      results.results.push({
+      bronResults.push({
         bronSlug: result.bronSlug,
         metrics: result.metrics,
         nieuw: result.metrics.new,
@@ -102,12 +103,13 @@ const main = async (): Promise<OneshotResult> => {
         )
       );
     } catch (error) {
-      results.failed += 1;
       const message = error instanceof Error ? error.message : String(error);
-      results.results.push({
+      const soft = isSoftOrHashFailure(message);
+      bronResults.push({
         bronSlug: bron.bronSlug,
         error: message,
         scrapeRunId: payload.scrapeRunId,
+        soft,
         status: "failed",
       });
       console.error(
@@ -116,37 +118,37 @@ const main = async (): Promise<OneshotResult> => {
             bronSlug: bron.bronSlug,
             error: message,
             scrapeRunId: payload.scrapeRunId,
+            soft,
             status: "failed",
           },
           null,
           2
         )
       );
-      // Stop on non-hash hard fail so ops can investigate before fan-out continues.
-      if (!/hash/iu.test(message)) {
+      // Soft/hash continue; hard-fail stop so ops can investigate (CTP-489).
+      if (!soft) {
+        hardFail = true;
         break;
       }
     }
   }
   /* oxlint-enable no-await-in-loop */
 
-  console.log(
-    JSON.stringify(
-      {
-        failed: results.failed,
-        mode: "run",
-        succeeded: results.succeeded,
-        targets: targets.length,
-      },
-      null,
-      2
-    )
-  );
+  const summary = summarizeOneshotRun({
+    finishedAt: new Date().toISOString(),
+    hardFail,
+    results: bronResults,
+    startedAt,
+    targets: targets.length,
+  });
 
-  if (results.failed > 0) {
+  console.log(JSON.stringify(summary, null, 2));
+
+  // Non-zero exit on hard-fail only (soft/hash continues still exit 0 — CTP-489).
+  if (summary.hardFail) {
     process.exitCode = 1;
   }
-  return results;
+  return summary;
 };
 
 await main();

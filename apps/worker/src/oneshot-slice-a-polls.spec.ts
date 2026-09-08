@@ -5,9 +5,11 @@ import type { BronId } from "@ji/domain";
 import {
   buildPollPayload,
   formatOneshotList,
+  isSoftOrHashFailure,
   parseOneshotArgs,
   selectOneshotTargets,
   sliceARegistryCount,
+  summarizeOneshotRun,
 } from "./oneshot-slice-a-polls";
 import type { SliceABronDefinition } from "./slice-a-bronnen";
 
@@ -138,7 +140,61 @@ describe("formatOneshotList / buildPollPayload", () => {
   });
 });
 
-describe("slice-a-pollable / schedule contract (CTP-488)", () => {
+describe("isSoftOrHashFailure / summarizeOneshotRun (CTP-489)", () => {
+  it("classifies soft/hash vs hard failures", () => {
+    expect(isSoftOrHashFailure("content hash drift")).toBe(true);
+    expect(isSoftOrHashFailure("429 rate limit")).toBe(true);
+    expect(isSoftOrHashFailure("fetch failed")).toBe(true);
+    expect(isSoftOrHashFailure("PROVENANCE_MISMATCH identity")).toBe(false);
+  });
+
+  it("aggregates JSON summary totals and hardFail", () => {
+    const summary = summarizeOneshotRun({
+      finishedAt: "2026-09-08T14:00:00.000Z",
+      hardFail: true,
+      results: [
+        {
+          bronSlug: "tenderned",
+          metrics: {
+            changed: 1,
+            error: 0,
+            found: 3,
+            new: 2,
+            rejected: 0,
+            unchanged: 0,
+          },
+          nieuw: 2,
+          scrapeRunId: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+          status: "succeeded",
+          writtenRecords: 2,
+        },
+        {
+          bronSlug: "inhuurdesk",
+          error: "boom",
+          soft: false,
+          status: "failed",
+        },
+      ],
+      startedAt: "2026-09-08T13:00:00.000Z",
+      targets: 2,
+    });
+    expect(summary.succeeded).toBe(1);
+    expect(summary.failed).toBe(1);
+    expect(summary.softFailed).toBe(0);
+    expect(summary.hardFail).toBe(true);
+    expect(summary.totals).toEqual({
+      changed: 1,
+      error: 0,
+      found: 3,
+      nieuw: 2,
+      rejected: 0,
+      unchanged: 0,
+      writtenRecords: 2,
+    });
+  });
+});
+
+describe("slice-a-pollable / schedule contract (CTP-488/489)", () => {
   it("keeps schedule-slice-a-polls on the shared listPollable helper", async () => {
     const source = await Bun.file(
       new URL("tasks/schedule-slice-a-polls.ts", import.meta.url)
@@ -155,6 +211,19 @@ describe("slice-a-pollable / schedule contract (CTP-488)", () => {
     ).text();
     expect(source).toContain("runBronIngestPipeline");
     expect(source).toContain("runPollBronOnce");
+    expect(source).toContain("isSoftOrHashFailure");
+    expect(source).toContain("summarizeOneshotRun");
     expect(source.includes('from "@trigger.dev/sdk"')).toBe(false);
+  });
+
+  it("ships flock Coolify/cron wrapper for scheduled oneshot ticks", async () => {
+    const wrapper = await Bun.file(
+      new URL("../scripts/scheduled-oneshot-slice-a-polls.sh", import.meta.url)
+    ).text();
+    expect(wrapper).toContain("flock -n");
+    expect(wrapper).toContain("oneshot-slice-a-polls.ts");
+    expect(wrapper).toContain("--run --bron all");
+    expect(wrapper).toContain("lock_held");
+    expect(wrapper).toContain("CTP-489");
   });
 });
