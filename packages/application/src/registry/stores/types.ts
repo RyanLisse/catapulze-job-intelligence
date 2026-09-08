@@ -678,3 +678,33 @@ export interface ScrapeRunReader {
     readonly nextCursor: string | null;
   }>;
 }
+
+/**
+ * Cross-bron overlap from curated.dedup_groep + aanvraag_bron_link (DEC-003).
+ * No second matching heuristic — Motian overlap strategies stay out of JI.
+ */
+export interface BronOverlapGroup {
+  readonly aanvraagCount: number;
+  readonly bronCount: number;
+  readonly bronIds: readonly string[];
+  readonly bronNamen: readonly string[];
+  readonly groepId: string;
+}
+
+export interface BronOverlapBronShare {
+  readonly bronId: string;
+  readonly naam: string;
+  readonly overlappingAanvragen: number;
+  readonly share: number | null;
+  readonly totalAanvragen: number;
+}
+
+export interface BronOverlapResult {
+  readonly overlapGroepCount: number;
+  readonly perBron: readonly BronOverlapBronShare[];
+  readonly topGroups: readonly BronOverlapGroup[];
+}
+
+export interface BronOverlapReader {
+  bronOverlap: () => Promise<BronOverlapResult>;
+}

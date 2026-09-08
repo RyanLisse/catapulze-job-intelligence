@@ -84,6 +84,11 @@ import {
 } from "./handlers";
 import type { OperatorContextCapabilityDescriptor } from "./handlers";
 import {
+  createGetBronOverlapHandler,
+  getBronOverlapInputSchema,
+  getBronOverlapOutputSchema,
+} from "./handlers/bron-overlap";
+import {
   createGetBronStatsHandler,
   createGetDashboardOverviewHandler,
   createGetScrapeRunHandler,
@@ -604,6 +609,19 @@ export const createSliceACapabilityCatalog = (deps: SliceAHandlerDeps) => {
     outputSchema: getScrapeRunOutputSchema,
   });
 
+  const getBronOverlap = defineCapability({
+    authorization: { permission: ROLE_OPERATOR },
+    bindings: dualBindings("GET", "/v1/bronnen/overlap", "get_bron_overlap"),
+    effect: "read",
+    failureSchema: domainFailureSchema,
+    grounding: true,
+    handler: createGetBronOverlapHandler(deps),
+    id: "get_bron_overlap",
+    inputSchema: getBronOverlapInputSchema,
+    outcome: "Lees overlap tussen bronnen via dedup_groep",
+    outputSchema: getBronOverlapOutputSchema,
+  });
+
   const completeTask = defineCapability({
     authorization: { permission: ROLE_RECRUITER },
     bindings: dualBindings("POST", "/v1/agent/complete-task", "complete_task"),
@@ -954,6 +972,13 @@ export const createSliceACapabilityCatalog = (deps: SliceAHandlerDeps) => {
       target: "internal",
       wiredTransports: ["mcp:get_scrape_run", "rest:GET /v1/scrape-runs/{id}"],
     }),
+    defineSliceACapabilityEntry(getBronOverlap, {
+      auditClass: "access",
+      reversible: true,
+      sideEffectClass: "read",
+      target: "internal",
+      wiredTransports: ["mcp:get_bron_overlap", "rest:GET /v1/bronnen/overlap"],
+    }),
     defineSliceACapabilityEntry(completeTask, {
       auditClass: "none",
       reversible: true,
@@ -985,6 +1010,7 @@ export const sliceACapabilityIds = [
   "get_bron_stats",
   "list_scrape_runs",
   "get_scrape_run",
+  "get_bron_overlap",
   "get_operator_context",
   "search_aanvragen",
   "get_aanvraag",

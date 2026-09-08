@@ -17,6 +17,7 @@ import {
   PostgresApprovalStore,
   PostgresAuditStore,
   PostgresBronHealthStore,
+  PostgresBronOverlapReader,
   PostgresBronRunStatsReader,
   PostgresScrapeRunReader,
   PostgresExportEffectStore,
@@ -164,6 +165,7 @@ export const createProductionSliceADeps = async (
   const curateStore = new PostgresCurateStore(runtime.database);
 
   return {
+    bronOverlapReader: new PostgresBronOverlapReader(runtime.database),
     bronPersistence: runtime.bronPersistence,
     bronRunStatsReader: new PostgresBronRunStatsReader(runtime.database),
     bronnen: {

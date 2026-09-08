@@ -41,6 +41,26 @@ const emptyStatsRow = (
 });
 
 describe("get_dashboard_overview request-path discipline (RJC-415)", () => {
+  it("keeps get_bron_overlap off the KPI critical path (CTP-417)", () => {
+    const dashboardSource = readFileSync(
+      path.join(import.meta.dir, "dashboard.ts"),
+      "utf-8"
+    );
+    const pageSource = readFileSync(
+      path.join(
+        import.meta.dir,
+        "../../../../../apps/web/src/app/bronnen/page.tsx"
+      ),
+      "utf-8"
+    );
+    expect(dashboardSource).not.toContain("bronOverlap");
+    expect(dashboardSource).not.toContain("get_bron_overlap");
+    expect(pageSource).toContain("BronnenOverlapSection");
+    expect(pageSource).toMatch(
+      /<Suspense[\s\S]*?<DashboardData[\s\S]*?<\/Suspense>[\s\S]*?<Suspense[\s\S]*?<BronnenOverlapSection/u
+    );
+  });
+
   it("does not import Trigger.dev runs.list in the dashboard handler or /bronnen page", () => {
     const roots = [
       path.join(import.meta.dir, "dashboard.ts"),
