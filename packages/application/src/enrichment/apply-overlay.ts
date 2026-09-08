@@ -1,4 +1,4 @@
-import { UNKNOWN } from "@ji/domain";
+import { CLEARED, UNKNOWN } from "@ji/domain";
 
 import type {
   EnrichmentContractValue,
@@ -47,6 +47,13 @@ const isMissingText = (value: string | null | undefined): boolean =>
   value.trim() === "" ||
   value.trim() === UNKNOWN;
 
+const isClearedText = (value: string | null | undefined): boolean =>
+  value !== null && value !== undefined && value.trim() === CLEARED;
+
+/** Gaps enrichment may fill — excludes CLEARED tombstones (#213). */
+const isFillableGap = (value: string | null | undefined): boolean =>
+  isMissingText(value) && !isClearedText(value);
+
 const isMissingTarief = (facts: {
   readonly tariefEenheid?: string | null;
   readonly tariefMax?: number | null;
@@ -55,6 +62,23 @@ const isMissingTarief = (facts: {
   (facts.tariefMin === null || facts.tariefMin === undefined) &&
   (facts.tariefMax === null || facts.tariefMax === undefined) &&
   isMissingText(facts.tariefEenheid);
+
+const isClearedTariefFacts = (facts: {
+  readonly tariefEenheid?: string | null;
+  readonly tariefMax?: number | null;
+  readonly tariefMin?: number | null;
+}): boolean =>
+  isClearedText(facts.tariefEenheid) ||
+  isClearedText(
+    facts.tariefMax === null || facts.tariefMax === undefined
+      ? null
+      : String(facts.tariefMax)
+  ) ||
+  isClearedText(
+    facts.tariefMin === null || facts.tariefMin === undefined
+      ? null
+      : String(facts.tariefMin)
+  );
 
 const asLocatie = (
   value: EnrichmentFieldValue
@@ -112,14 +136,18 @@ export const applyEnrichmentOverlayToAanvraagFacts = (
   };
 
   for (const row of rows) {
-    if (row.field === "locatie" && isMissingText(next.locatie)) {
+    if (row.field === "locatie" && isFillableGap(next.locatie)) {
       const value = asLocatie(row.value);
       if (value && !isMissingText(value.locatieTekst)) {
         next.locatie = value.locatieTekst;
       }
       continue;
     }
-    if (row.field === "tarief" && isMissingTarief(next)) {
+    if (
+      row.field === "tarief" &&
+      isMissingTarief(next) &&
+      !isClearedTariefFacts(next)
+    ) {
       const value = asTarief(row.value);
       if (!value) {
         continue;
@@ -130,14 +158,14 @@ export const applyEnrichmentOverlayToAanvraagFacts = (
       next.tariefValuta = isMissingText(value.valuta) ? null : value.valuta;
       continue;
     }
-    if (row.field === "contract" && isMissingText(next.contracttype)) {
+    if (row.field === "contract" && isFillableGap(next.contracttype)) {
       const value = asContract(row.value);
       if (value && !isMissingText(value.contracttype)) {
         next.contracttype = value.contracttype;
       }
       continue;
     }
-    if (row.field === "remote" && isMissingText(next.werkvorm)) {
+    if (row.field === "remote" && isFillableGap(next.werkvorm)) {
       const value = asRemote(row.value);
       if (value && !isMissingText(value.werkvorm)) {
         next.werkvorm = value.werkvorm;
@@ -165,7 +193,7 @@ export const applyEnrichmentOverlayToSearchFacts = (
   };
 
   for (const row of rows) {
-    if (row.field === "locatie" && isMissingText(next.locatie)) {
+    if (row.field === "locatie" && isFillableGap(next.locatie)) {
       const value = asLocatie(row.value);
       if (value && !isMissingText(value.locatieTekst)) {
         next.locatie = value.locatieTekst;
@@ -185,7 +213,7 @@ export const applyEnrichmentOverlayToSearchFacts = (
       next.tariefMin = parseTariefNumber(value.min);
       continue;
     }
-    if (row.field === "contract" && isMissingText(next.contracttype)) {
+    if (row.field === "contract" && isFillableGap(next.contracttype)) {
       const value = asContract(row.value);
       if (value && !isMissingText(value.contracttype)) {
         next.contracttype = value.contracttype;

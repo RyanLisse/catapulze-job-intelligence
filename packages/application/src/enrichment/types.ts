@@ -60,12 +60,14 @@ export interface EnrichmentRunInput {
   readonly aanvraagId: string;
   readonly beschrijving: string;
   readonly bronSpecifiek: unknown;
+  readonly contracttype?: string | null;
   readonly enableLlmResidual?: boolean;
   readonly locatieTekst?: string | null;
   readonly rawHtml?: string | null;
   readonly tariefEenheid?: string | null;
   readonly tariefMax?: string | null;
   readonly tariefMin?: string | null;
+  readonly werkvorm?: string | null;
 }
 
 export interface EnrichmentRunResult {

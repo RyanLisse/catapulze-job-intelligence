@@ -45,3 +45,9 @@ export {
   type EnrichmentOverlayRow,
   type SearchEnrichmentFacts,
 } from "./apply-overlay";
+
+export {
+  planCuratedEnrichmentPatch,
+  type CuratedCommercialFacts,
+  type CuratedEnrichmentPatch,
+} from "./persist-curated";

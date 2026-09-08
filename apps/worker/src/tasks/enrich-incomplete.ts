@@ -1,5 +1,6 @@
 import {
   enqueueEnrichmentOutbox,
+  planCuratedEnrichmentPatch,
   runEnrichment,
 } from "@ji/application/enrichment";
 import { PostgresEnrichmentStore } from "@ji/db";
@@ -13,6 +14,7 @@ import {
 import type { EnrichIncompletePayload } from "./enrich-incomplete-schema";
 
 export interface EnrichIncompleteResult {
+  readonly curatedPersisted: number;
   readonly dryRun: boolean;
   readonly enriched: number;
   readonly outboxEnqueued: number;
@@ -43,15 +45,18 @@ export const runEnrichIncomplete = async (
           aanvraagId: candidate.id,
           beschrijving: candidate.beschrijving,
           bronSpecifiek: candidate.bronSpecifiek,
+          contracttype: candidate.contracttype,
           enableLlmResidual,
           locatieTekst: candidate.locatieTekst,
           tariefEenheid: candidate.tariefEenheid,
           tariefMax: candidate.tariefMax,
           tariefMin: candidate.tariefMin,
+          werkvorm: candidate.werkvorm,
         });
 
         if (result.proposals.length === 0) {
           return {
+            curatedPersisted: accumulator.curatedPersisted,
             dryRun,
             enriched: accumulator.enriched,
             outboxEnqueued: accumulator.outboxEnqueued,
@@ -62,6 +67,7 @@ export const runEnrichIncomplete = async (
         }
 
         let outboxEnqueued = 0;
+        let curatedPersisted = 0;
         if (!dryRun) {
           // oxlint-disable-next-line unicorn/no-array-reduce -- persist proposals serially for the same candidate
           await result.proposals.reduce<Promise<void>>(
@@ -71,15 +77,39 @@ export const runEnrichIncomplete = async (
               }),
             Promise.resolve()
           );
+          const curatedPatch = planCuratedEnrichmentPatch(
+            {
+              bronSpecifiek: candidate.bronSpecifiek,
+              contracttype: candidate.contracttype,
+              locatieTekst: candidate.locatieTekst,
+              tariefEenheid: candidate.tariefEenheid,
+              tariefMax: candidate.tariefMax,
+              tariefMin: candidate.tariefMin,
+              tariefValuta: candidate.tariefValuta,
+              werkvorm: candidate.werkvorm,
+            },
+            result.proposals
+          );
+          if (curatedPatch !== null) {
+            const persisted = await store.applyCuratedEnrichmentPatch(
+              candidate.id,
+              curatedPatch
+            );
+            curatedPersisted = persisted.length;
+          }
+          const outboxFields =
+            curatedPatch?.fields ??
+            result.proposals.map((proposal) => proposal.field);
           const outbox = await enqueueEnrichmentOutbox(store, {
             aanvraagId: candidate.id,
             dryRun,
-            fields: result.proposals.map((proposal) => proposal.field),
+            fields: outboxFields,
           });
           outboxEnqueued = outbox.enqueued ? 1 : 0;
         }
 
         return {
+          curatedPersisted: accumulator.curatedPersisted + curatedPersisted,
           dryRun,
           enriched:
             accumulator.enriched + (dryRun ? 0 : result.proposals.length),
@@ -90,6 +120,7 @@ export const runEnrichIncomplete = async (
         };
       },
       Promise.resolve({
+        curatedPersisted: 0,
         dryRun,
         enriched: 0,
         outboxEnqueued: 0,
