@@ -1,25 +1,13 @@
-import { isPollableBron } from "@ji/application/bronnen";
 import { schedules } from "@trigger.dev/sdk";
 
 import { createPollBronRuntime, requireDatabaseUrl } from "../poll-bron-run";
-import { resolveSliceABronSlug } from "../slice-a-bronnen";
-import type { SliceABronDefinition } from "../slice-a-bronnen";
+import { listPollableSliceABronnen } from "../slice-a-pollable";
 import { pollBronTask } from "./poll-bron";
 
-const pollableSliceABronnen = async (): Promise<SliceABronDefinition[]> => {
+const pollableSliceABronnen = async () => {
   const runtime = createPollBronRuntime(requireDatabaseUrl());
   try {
-    const records = await runtime.bronPersistence.list();
-    return records.flatMap((record) => {
-      if (!isPollableBron(record)) {
-        return [];
-      }
-      const bronSlug = resolveSliceABronSlug(record.naam);
-      if (!bronSlug) {
-        return [];
-      }
-      return [{ bronId: record.bronId, bronSlug, naam: record.naam }];
-    });
+    return await listPollableSliceABronnen(runtime);
   } finally {
     await runtime.close();
   }

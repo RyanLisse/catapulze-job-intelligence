@@ -71,3 +71,4 @@ Local task dev: `bun run dev` in `apps/worker`.
 - Raw payloads land under `RAW_OBJECT_STORE_PATH` (default `.data/raw-objects`).
 - Do not enable Spott export for this smoke; no Slice C sources.
 - Coolify compose may omit a worker container—Trigger.dev hosts scheduled runs; use the smoke script or `trigger.dev dev` on-box.
+- Credit outage / Coolify oneshot poll (no Trigger): see `docs/runbooks/slice-a-oneshot-poll.md`.
