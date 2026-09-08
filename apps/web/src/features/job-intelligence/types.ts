@@ -91,7 +91,7 @@ export interface JobSourceRecord {
 }
 
 export interface JobRate {
-  readonly min: number;
+  readonly min: number | null;
   readonly max: number;
   readonly currency: "EUR";
   readonly period: "hour" | "year";

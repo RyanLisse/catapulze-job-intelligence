@@ -40,16 +40,18 @@ const toAanvraagRecord = (
     beschrijving: row.beschrijving,
     bronId: row.bronId,
     bronReferentie: row.bronReferentie,
-    contracttype: bronFacts.contracttype,
+    bronUrl: row.bronUrl,
+    contracttype: row.contracttype ?? bronFacts.contracttype,
     enrichedFields: [],
     id: row.id,
     // locatie_land defaults to NL and is therefore not proof of a published location.
     locatie: row.locatieTekst,
-    opdrachtgeverNaam: bronFacts.opdrachtgeverNaam,
-    publicatiedatum: bronFacts.publicatiedatum,
+    opdrachtgeverNaam: row.opdrachtgeverNaam ?? bronFacts.opdrachtgeverNaam,
+    publicatiedatum: row.publicatiedatum ?? bronFacts.publicatiedatum,
     rawPayloadRef: row.rawPayloadRef,
     scrapeRunId: row.scrapeRunId,
     sluitingsdatum: row.sluitingsdatum,
+    startDatum: row.startDatum ?? bronFacts.startDatum,
     status: row.status,
     tariefEenheid: row.tariefEenheid,
     tariefMax: row.tariefMax === null ? null : Number(row.tariefMax),
@@ -62,7 +64,7 @@ const toAanvraagRecord = (
         : row.tariefValuta,
     titel: row.titel,
     versies,
-    werkvorm: bronFacts.werkvorm,
+    werkvorm: row.werkvorm ?? bronFacts.werkvorm,
   };
 };
 
@@ -221,7 +223,7 @@ const toSearchDocument = (row: AanvraagRow): SearchDocument => {
   return {
     beschrijving: row.beschrijving,
     bronId: row.bronId,
-    contracttype: bronFacts.contracttype,
+    contracttype: row.contracttype ?? bronFacts.contracttype,
     id: row.id,
     laatstGezienOp: row.laatstGezienOp,
     // Preserve an explicitly unknown location. `locatieLand` defaults to NL

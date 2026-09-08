@@ -61,8 +61,8 @@ export const parseTenderNedPayload = (
         nuts_codes: detail.nutsCodes ?? [],
         opdracht_aard: detail.opdrachtAardCode?.code ?? null,
         procedure: detail.procedureCode?.code ?? null,
-        publicatie_datum: detail.publicatieDatum ?? null,
         publicatie_id: publicatieId,
+        publicatiedatum: detail.publicatieDatum ?? null,
       },
       parserVersion,
       "detail"

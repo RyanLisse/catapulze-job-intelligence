@@ -321,7 +321,9 @@ const v1SpecificFieldsForJob = (
 ) => ({
   // Kept for compatibility with the original backfill preview fields;
   // the exact source spelling remains in the durable raw source row.
+  contracttype: job.contract_type ?? null,
   platform: job.platform,
+  publicatiedatum: job.posted_at ?? null,
   v1_archived_at: job.archived_at ?? null,
   v1_contract_type: job.contract_type ?? null,
   v1_deleted_at: job.deleted_at ?? null,
@@ -377,7 +379,11 @@ export const mapV1JobToDraft = (job: NeonV1JobRow): NormalisedAanvraagDraft => {
     ),
     status: lifecycle,
     tarief: {
-      eenheid: UNKNOWN,
+      eenheid:
+        tariefValue(job.rate_max) === UNKNOWN &&
+        tariefValue(job.rate_min) === UNKNOWN
+          ? UNKNOWN
+          : "uur",
       max: tariefValue(job.rate_max),
       min: tariefValue(job.rate_min),
       valuta: "EUR",

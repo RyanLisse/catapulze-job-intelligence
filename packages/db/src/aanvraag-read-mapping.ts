@@ -4,11 +4,12 @@ export interface AanvraagBronFacts {
   readonly contracttype: string | null;
   readonly opdrachtgeverNaam: string | null;
   readonly publicatiedatum: string | null;
+  readonly startDatum: string | null;
   readonly werkvorm: string | null;
 }
 
 const PUBLICATION_DATE_PATTERN =
-  /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d{1,3})?)?(?:Z|[+-]\d{2}:\d{2})?$/u;
+  /^\d{4}-\d{2}-\d{2}(?:T\d{2}:\d{2}(?::\d{2}(?:\.\d{1,3})?)?(?:Z|[+-]\d{2}:\d{2})?)?$/u;
 
 const sourceTextSchema = z
   .string()
@@ -22,9 +23,13 @@ const bronFactsInputSchema = z.object({
   contract_type: sourceTextSchema,
   contracttype: sourceTextSchema,
   gepubliceerd_op: sourceTextSchema,
+  json_ld_date_posted: sourceTextSchema,
   opdrachtgeverNaam: sourceTextSchema,
   opdrachtgever_naam: sourceTextSchema,
+  publicatie_datum: sourceTextSchema,
   publicatiedatum: sourceTextSchema,
+  startDatum: sourceTextSchema,
+  start_datum: sourceTextSchema,
   werkvorm: sourceTextSchema,
 });
 
@@ -36,7 +41,12 @@ const firstSourceText = (
 const publicationDate = (
   values: z.output<typeof bronFactsInputSchema>
 ): string | null => {
-  const value = firstSourceText(values.publicatiedatum, values.gepubliceerd_op);
+  const value = firstSourceText(
+    values.publicatiedatum,
+    values.gepubliceerd_op,
+    values.publicatie_datum,
+    values.json_ld_date_posted
+  );
   if (value === null) {
     return null;
   }
@@ -66,6 +76,7 @@ export const readAanvraagBronFacts = (
       contracttype: null,
       opdrachtgeverNaam: null,
       publicatiedatum: null,
+      startDatum: null,
       werkvorm: null,
     };
   }
@@ -77,6 +88,7 @@ export const readAanvraagBronFacts = (
       values.opdrachtgever_naam
     ),
     publicatiedatum: publicationDate(values),
+    startDatum: firstSourceText(values.startDatum, values.start_datum),
     werkvorm: values.werkvorm ?? null,
   };
 };

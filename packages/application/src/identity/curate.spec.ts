@@ -1,7 +1,7 @@
 import { describe, expect, it } from "bun:test";
 
 import type { BronId, ScrapeRunId } from "@ji/domain";
-import { UNKNOWN } from "@ji/domain";
+import { CLEARED, UNKNOWN } from "@ji/domain";
 
 import type { NormalisedAanvraagDraft } from "../normalise";
 import type { CurateStore } from "./curate";
@@ -141,5 +141,104 @@ describe("curateObservation dedup grouping", () => {
 
     expect(second.dedupGroepId).not.toBe(first.dedupGroepId);
     expect(store.dedupGroepen).toHaveLength(2);
+  });
+});
+
+describe("curateObservation commercial columns and coalesce tombstones", () => {
+  it("writes first-class commercial columns on create", async () => {
+    const store = new InMemoryCurateStore();
+    const base = observation("COL-1", "hash-col-1");
+    await curateObservation(store, {
+      ...base,
+      draft: {
+        ...base.draft,
+        opdrachtgeverNaam: { provenance, value: "Gemeente Utrecht" },
+        startDatum: { provenance, value: "2026-11-01" },
+        titel: { provenance, value: "Detachering Java developer op locatie" },
+      },
+    });
+    const [aanvraag] = store.aanvragen;
+    expect(aanvraag?.opdrachtgeverNaam).toBe("Gemeente Utrecht");
+    expect(aanvraag?.startDatum).toBe("2026-11-01");
+    expect(aanvraag?.contracttype).toBeTruthy();
+  });
+
+  it("preserves commercial fields when a sparse re-scrape sends UNKNOWN", async () => {
+    const store = new InMemoryCurateStore();
+    const rich = observation("COL-2", "hash-rich");
+    await curateObservation(store, {
+      ...rich,
+      draft: {
+        ...rich.draft,
+        bronUrl: { provenance, value: "https://example.com/rich" },
+        locatieTekst: { provenance, value: "Utrecht" },
+        opdrachtgeverNaam: { provenance, value: "Provincie Utrecht" },
+        startDatum: { provenance, value: "2026-12-01" },
+        tarief: { eenheid: "uur", max: "110", min: "90", valuta: "EUR" },
+      },
+    });
+    const sparse = observation("COL-2", "hash-sparse");
+    await curateObservation(store, sparse);
+    const [aanvraag] = store.aanvragen;
+    expect(aanvraag).toMatchObject({
+      bronUrl: "https://example.com/rich",
+      contentHash: "hash-sparse",
+      locatieTekst: "Utrecht",
+      opdrachtgeverNaam: "Provincie Utrecht",
+      startDatum: "2026-12-01",
+      tariefMax: "110",
+      tariefMin: "90",
+      versie: 2,
+    });
+  });
+
+  it("clears commercial fields when the draft sends CLEARED", async () => {
+    const store = new InMemoryCurateStore();
+    const rich = observation("COL-3", "hash-rich-clear");
+    await curateObservation(store, {
+      ...rich,
+      draft: {
+        ...rich.draft,
+        bronUrl: { provenance, value: "https://example.com/clear-me" },
+        opdrachtgeverNaam: { provenance, value: "Gemeente Tilburg" },
+        startDatum: { provenance, value: "2027-01-15" },
+        tarief: { eenheid: "uur", max: "120", min: "100", valuta: "EUR" },
+      },
+    });
+    const cleared = observation("COL-3", "hash-cleared");
+    await curateObservation(store, {
+      ...cleared,
+      draft: {
+        ...cleared.draft,
+        bronUrl: { provenance, value: CLEARED },
+        opdrachtgeverNaam: { provenance, value: CLEARED },
+        startDatum: { provenance, value: CLEARED },
+        tarief: {
+          eenheid: CLEARED,
+          max: CLEARED,
+          min: CLEARED,
+          valuta: "EUR",
+        },
+      },
+    });
+    const [aanvraag] = store.aanvragen;
+    expect(aanvraag).toMatchObject({
+      bronUrl: null,
+      contentHash: "hash-cleared",
+      opdrachtgeverNaam: null,
+      startDatum: null,
+      tariefEenheid: null,
+      tariefMax: null,
+      tariefMin: null,
+      versie: 2,
+    });
+    // CLEARED must drop prior commercial keys from bron_specifiek so the
+    // column ?? JSON read path cannot resurrect them.
+    const bronJson = JSON.stringify(aanvraag?.bronSpecifiek ?? {});
+    expect(bronJson).not.toContain('"opdrachtgever_naam"');
+    expect(bronJson).not.toContain('"opdrachtgeverNaam"');
+    expect(bronJson).not.toContain('"start_datum"');
+    expect(bronJson).not.toContain('"startDatum"');
+    expect(bronJson).not.toContain(CLEARED);
   });
 });

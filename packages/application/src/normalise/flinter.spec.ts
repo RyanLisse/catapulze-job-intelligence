@@ -48,6 +48,9 @@ describe("parseFlinterPayload", () => {
     // inferred from prose, even though the fixture's own "Praktische zaken"
     // list mentions a (non-authoritative) "Startdatum z.s.m.".
     expect(draft.startDatum.value).toBe(UNKNOWN);
+    expect(draft.startDatum.provenance.sourcePath).toBe(
+      "n/a (not published by source)"
+    );
     expect(draft.tarief.min).toBe(UNKNOWN);
     expect(draft.tarief.max).toBe(UNKNOWN);
     expect(draft.tarief.eenheid).toBe(UNKNOWN);

@@ -48,6 +48,7 @@ export const bron = curatedSchema.table(
   (table) => [
     index("bron_status_idx").on(table.status),
     index("bron_categorie_idx").on(table.categorie),
+    uniqueIndex("bron_naam_lower_uidx").on(sql`lower(${table.naam})`),
     check(
       "bron_status_check",
       sql`${table.status} IN ('ready', 'blocked', 'deferred')`
@@ -211,6 +212,7 @@ export const aanvraag = curatedSchema.table(
     bronUrl: text("bron_url"),
     compleetheidScore: numeric("compleetheid_score"),
     contentHash: text("content_hash").notNull(),
+    contracttype: text("contracttype"),
     createdAt: timestamp("created_at", { withTimezone: true })
       .defaultNow()
       .notNull(),
@@ -220,6 +222,7 @@ export const aanvraag = curatedSchema.table(
     eersteGezienOp: timestamp("eerste_gezien_op", {
       withTimezone: true,
     }).notNull(),
+    eindDatum: text("eind_datum"),
     extractieMethode: text("extractie_methode").notNull(),
     functiegroep: text("functiegroep").default("overig").notNull(),
     id: uuid("id").defaultRandom().primaryKey(),
@@ -228,11 +231,14 @@ export const aanvraag = curatedSchema.table(
     }).notNull(),
     locatieLand: text("locatie_land").default("NL").notNull(),
     locatieTekst: text("locatie_tekst"),
+    opdrachtgeverNaam: text("opdrachtgever_naam"),
+    publicatiedatum: text("publicatiedatum"),
     rawPayloadRef: text("raw_payload_ref").notNull(),
     scrapeRunId: uuid("scrape_run_id")
       .notNull()
       .references(() => scrapeRun.id, { onDelete: "restrict" }),
     sluitingsdatum: timestamp("sluitingsdatum", { withTimezone: true }),
+    startDatum: text("start_datum"),
     status: text("status").default("unknown").notNull(),
     taal: text("taal").default("nl").notNull(),
     tariefEenheid: text("tarief_eenheid"),
@@ -244,8 +250,10 @@ export const aanvraag = curatedSchema.table(
       .defaultNow()
       .$onUpdate(() => new Date())
       .notNull(),
+    urenPerWeek: text("uren_per_week"),
     v1Id: text("v1_id"),
     versie: integer("versie").default(1).notNull(),
+    werkvorm: text("werkvorm"),
   },
   (table) => [
     uniqueIndex("aanvraag_bron_referentie_uidx").on(

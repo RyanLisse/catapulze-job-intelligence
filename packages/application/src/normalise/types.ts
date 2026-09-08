@@ -2,6 +2,7 @@ import type {
   AanvraagLifecycle,
   ExtractieMethode,
   TariefEenheid,
+  CLEARED,
 } from "@ji/domain";
 import { UNKNOWN } from "@ji/domain";
 
@@ -38,9 +39,9 @@ export interface NormalisedField<Value> {
 }
 
 export interface NormalisedTarief {
-  eenheid: TariefEenheid | typeof UNKNOWN;
-  max: string | typeof UNKNOWN;
-  min: string | typeof UNKNOWN;
+  eenheid: TariefEenheid | typeof CLEARED | typeof UNKNOWN;
+  max: string | typeof CLEARED | typeof UNKNOWN;
+  min: string | typeof CLEARED | typeof UNKNOWN;
   valuta: string;
 }
 

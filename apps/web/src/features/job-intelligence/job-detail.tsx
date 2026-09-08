@@ -10,6 +10,7 @@ import {
   isFieldAangevuld,
   sourceLabel,
 } from "./presentation";
+import { isSafeHref } from "./sanitize-job-html";
 import type {
   JobEnrichedField,
   JobListing,
@@ -77,15 +78,17 @@ const ProvenanceCard = ({
           {record.reference}
         </p>
       </div>
-      <a
-        href={record.url}
-        target="_blank"
-        rel="noopener noreferrer"
-        aria-label={`Open bronrecord ${record.reference}`}
-        className="grid size-9 shrink-0 place-items-center rounded-md border border-input text-muted-foreground outline-none transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
-      >
-        <ExternalLink aria-hidden="true" className="size-3.5" />
-      </a>
+      {isSafeHref(record.url) ? (
+        <a
+          href={record.url}
+          target="_blank"
+          rel="noopener noreferrer"
+          aria-label={`Open bronrecord ${record.reference}`}
+          className="grid size-9 shrink-0 place-items-center rounded-md border border-input text-muted-foreground outline-none transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          <ExternalLink aria-hidden="true" className="size-3.5" />
+        </a>
+      ) : null}
     </div>
     <dl className="mt-3 grid gap-1.5 font-mono text-[10px] text-muted-foreground">
       <div className="flex justify-between gap-3">

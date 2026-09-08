@@ -44,6 +44,23 @@ describe("job presentation", () => {
     expect(formatRate(unknownRateJob)).toBe("Tarief onbekend");
   });
 
+  it("formats max-only hourly rates as tot", () => {
+    const [fixture] = JOB_FIXTURES;
+    if (!fixture) {
+      throw new Error("Expected at least one job fixture");
+    }
+    const job = {
+      ...fixture,
+      rate: {
+        currency: "EUR" as const,
+        max: 106.5,
+        min: null,
+        period: "hour" as const,
+      },
+    };
+    expect(formatRate(job)).toMatch(/^tot .+ \/ uur$/u);
+  });
+
   it("prefers literal curated work form and keeps absent live data unknown", () => {
     const [fixture] = JOB_FIXTURES;
     if (!fixture) {

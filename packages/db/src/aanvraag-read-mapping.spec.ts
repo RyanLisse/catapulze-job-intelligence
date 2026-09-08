@@ -43,6 +43,7 @@ describe("readAanvraagBronFacts", () => {
       contracttype: "detachering",
       opdrachtgeverNaam: null,
       publicatiedatum: null,
+      startDatum: null,
       werkvorm: null,
     });
   });
@@ -61,5 +62,11 @@ describe("readAanvraagBronFacts", () => {
       expect(facts.publicatiedatum).toBeNull();
       expect(facts.werkvorm).toBeNull();
     }
+  });
+
+  it("accepts date-only publication values from json-ld sources", () => {
+    expect(
+      readAanvraagBronFacts({ publicatiedatum: "2026-08-24" }).publicatiedatum
+    ).toBe("2026-08-24");
   });
 });

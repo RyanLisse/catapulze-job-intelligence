@@ -157,7 +157,7 @@ export const parseOnefellowTarief = (maxRate?: string): NormalisedTarief => {
 const resolveLocatie = (
   job: OnefellowFetchedPayload["job"]
 ): string | typeof UNKNOWN =>
-  job.company_city?.trim() || job.address_city?.trim() || UNKNOWN;
+  job.address_city?.trim() || job.company_city?.trim() || UNKNOWN;
 
 export const parseOnefellowPayload = (
   payload: OnefellowFetchedPayload,
@@ -199,6 +199,9 @@ export const parseOnefellowPayload = (
   const bronSpecifiek = {
     duration: job.duration ?? null,
     hours_raw: job.hours ?? null,
+    publicatiedatum: job.time_published
+      ? new Date(job.time_published * 1000).toISOString()
+      : null,
     salary_raw: job.salary ?? null,
     samenvatting: job.teaser?.trim() || null,
     sluitingsdatum: sluitingsdatum ? sluitingsdatum.toISOString() : null,

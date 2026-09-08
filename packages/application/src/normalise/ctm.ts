@@ -101,7 +101,11 @@ export const parseCtmPayload = (
     extractieMethode: "api",
     lifecycle,
     locatieLand: field("NL", parserVersion, "entry"),
-    locatieTekst: field(UNKNOWN, parserVersion, "entry"),
+    locatieTekst: field(
+      UNKNOWN,
+      parserVersion,
+      "n/a (not published by source)"
+    ),
     opdrachtgeverNaam: field(
       entry.organisatie?.trim() || UNKNOWN,
       parserVersion,
@@ -109,7 +113,7 @@ export const parseCtmPayload = (
     ),
     parserVersion,
     sluitingsdatum: closingMomentInstant(entry.sluitingstijd),
-    startDatum: field(UNKNOWN, parserVersion, "entry"),
+    startDatum: field(UNKNOWN, parserVersion, "n/a (not published by source)"),
     status: lifecycle,
     tarief: UNKNOWN_TARIEF,
     titel: field(entry.titel, parserVersion, "entry.title"),

@@ -19,7 +19,10 @@ const sourceRecord = (
   normalizationVersion: "preview-v1",
   reference,
   scrapeRunId: `run-preview-${firstSeenAt.slice(0, 10)}`,
-  url: `https://example.invalid/${name}/${reference.toLowerCase()}`,
+  // example.com resolves (IANA reserved) so Herkomst clicks prove the bron
+  // link works in live-verify; example.invalid never resolves and only shows
+  // a browser error page.
+  url: `https://example.com/${name}/${reference.toLowerCase()}`,
 });
 
 export const JOB_FIXTURES: readonly JobListing[] = [

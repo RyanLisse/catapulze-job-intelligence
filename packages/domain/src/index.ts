@@ -76,9 +76,13 @@ export {
   TrimmedNonEmptyString,
 } from "./schema-helpers";
 export {
+  CLEARED,
+  ClearedValueSchema,
   UNKNOWN,
   UnknownValueSchema,
+  isCleared,
   isUnknown,
+  type ClearedValue,
   type UnknownValue,
 } from "./unknown";
 export {
