@@ -114,6 +114,10 @@ export {
   type BronRunStatsDatabase,
   PostgresBronRunStatsReader,
 } from "./bron-run-stats";
+export {
+  type BronOverlapDatabase,
+  PostgresBronOverlapReader,
+} from "./bron-overlap";
 export { PostgresKnownHashStore } from "./known-hash-store";
 export {
   PostgresEnrichmentStore,

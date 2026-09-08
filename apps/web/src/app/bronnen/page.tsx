@@ -19,6 +19,10 @@ import {
   BronnenTrendPanel,
 } from "@/app/bronnen/bronnen-charts";
 import {
+  BronnenOverlapSection,
+  BronnenOverlapSkeleton,
+} from "@/app/bronnen/bronnen-overlap";
+import {
   aggregateTotalTrend,
   sparklineByBron,
 } from "@/app/bronnen/bronnen-timeseries";
@@ -401,6 +405,9 @@ export default async function BronnenPage({
       </div>
       <Suspense fallback={<LoadingState />}>
         <DashboardData window={window} />
+      </Suspense>
+      <Suspense fallback={<BronnenOverlapSkeleton />}>
+        <BronnenOverlapSection />
       </Suspense>
     </main>
   );

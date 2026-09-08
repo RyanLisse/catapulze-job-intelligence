@@ -3,6 +3,7 @@ import type { SearchAdapter } from "@ji/search";
 import type { PublicBronView } from "../../bronnen";
 import type { SpottWriteClient } from "../../export/spott/client";
 import type {
+  BronOverlapReader,
   BronRunStatsReader,
   ScrapeRunReader,
   SliceAStores,
@@ -30,6 +31,7 @@ export interface SourcingAssessmentAttestationPayload {
 }
 
 export interface SliceAHandlerDeps {
+  readonly bronOverlapReader?: BronOverlapReader;
   readonly bronRunStatsReader?: BronRunStatsReader;
   readonly scrapeRunReader?: ScrapeRunReader;
   readonly bronnen: {

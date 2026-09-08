@@ -79,6 +79,14 @@ export const createTestSliceADeps = (
     window: "7d" as const,
   };
   return {
+    bronOverlapReader: {
+      bronOverlap: () =>
+        Promise.resolve({
+          overlapGroepCount: 0,
+          perBron: [],
+          topGroups: [],
+        }),
+    },
     bronRunStatsReader: {
       bronRunStats: () => Promise.resolve(emptyStats),
       bronRunTimeseries: () => Promise.resolve([]),
