@@ -3,12 +3,13 @@ import {
   listMissingEnrichmentFields,
 } from "@ji/application/enrichment";
 import type {
+  CuratedEnrichmentPatch,
   EnrichmentField,
   EnrichmentOutboxInsertInput,
   EnrichmentOverlayRow,
   EnrichmentProposal,
 } from "@ji/application/enrichment";
-import { inArray, sql } from "drizzle-orm";
+import { eq, inArray, sql } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 
 import type * as schema from "./schema";
@@ -19,6 +20,7 @@ export type EnrichmentDatabase = PostgresJsDatabase<typeof schema>;
 export interface IncompleteAanvraagCandidate {
   readonly beschrijving: string;
   readonly bronSpecifiek: unknown;
+  readonly contracttype: string | null;
   readonly id: string;
   readonly locatieTekst: string | null;
   readonly missingFields: readonly EnrichmentField[];
@@ -26,6 +28,8 @@ export interface IncompleteAanvraagCandidate {
   readonly tariefEenheid: string | null;
   readonly tariefMax: string | null;
   readonly tariefMin: string | null;
+  readonly tariefValuta: string | null;
+  readonly werkvorm: string | null;
 }
 
 export interface AanvraagEnrichmentRow {
@@ -83,6 +87,7 @@ export class PostgresEnrichmentStore {
         tariefEenheid: aanvraag.tariefEenheid,
         tariefMax: aanvraag.tariefMax,
         tariefMin: aanvraag.tariefMin,
+        tariefValuta: aanvraag.tariefValuta,
         werkvorm: aanvraag.werkvorm,
       })
       .from(aanvraag)
@@ -131,6 +136,7 @@ export class PostgresEnrichmentStore {
         {
           beschrijving: row.beschrijving,
           bronSpecifiek: row.bronSpecifiek,
+          contracttype: row.contracttype,
           id: row.id,
           locatieTekst: row.locatieTekst,
           missingFields,
@@ -142,6 +148,8 @@ export class PostgresEnrichmentStore {
           tariefMin: toNumericString(
             row.tariefMin === null ? null : String(row.tariefMin)
           ),
+          tariefValuta: row.tariefValuta,
+          werkvorm: row.werkvorm,
         },
       ];
     });
@@ -188,6 +196,60 @@ export class PostgresEnrichmentStore {
       updatedAt: row.updatedAt,
       value: row.value,
     };
+  }
+
+  /**
+   * Persist high-confidence enrichment into curated commercial columns.
+   * Provenance stays in aanvraag_enrichment; this only fills first-class columns
+   * so search/projector sees them without inventing rates or resurrecting CLEARED.
+   */
+  async applyCuratedEnrichmentPatch(
+    aanvraagId: string,
+    patch: CuratedEnrichmentPatch
+  ): Promise<readonly EnrichmentField[]> {
+    if (patch.fields.length === 0) {
+      return [];
+    }
+    const values = {
+      updatedAt: new Date(),
+    };
+    // SAFETY: drizzle update accepts a partial column map; we only assign keys
+    // present on CuratedEnrichmentPatch after explicit undefined checks below.
+    const setValues = values as typeof values & {
+      contracttype?: string;
+      locatieTekst?: string;
+      tariefEenheid?: string;
+      tariefMax?: string;
+      tariefMin?: string;
+      tariefValuta?: string;
+      werkvorm?: string;
+    };
+    if (patch.locatieTekst !== undefined) {
+      setValues.locatieTekst = patch.locatieTekst;
+    }
+    if (patch.tariefEenheid !== undefined) {
+      setValues.tariefEenheid = patch.tariefEenheid;
+    }
+    if (patch.tariefMax !== undefined) {
+      setValues.tariefMax = patch.tariefMax;
+    }
+    if (patch.tariefMin !== undefined) {
+      setValues.tariefMin = patch.tariefMin;
+    }
+    if (patch.tariefValuta !== undefined) {
+      setValues.tariefValuta = patch.tariefValuta;
+    }
+    if (patch.contracttype !== undefined) {
+      setValues.contracttype = patch.contracttype;
+    }
+    if (patch.werkvorm !== undefined) {
+      setValues.werkvorm = patch.werkvorm;
+    }
+    await this.database
+      .update(aanvraag)
+      .set(setValues)
+      .where(eq(aanvraag.id, aanvraagId));
+    return patch.fields;
   }
 
   async listForAanvraag(

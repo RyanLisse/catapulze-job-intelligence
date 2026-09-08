@@ -17,10 +17,12 @@ export const runEnrichment = async (
   const missingFields = listMissingEnrichmentFields({
     beschrijving: input.beschrijving,
     bronSpecifiek: input.bronSpecifiek,
+    contracttype: input.contracttype ?? null,
     locatieTekst: input.locatieTekst ?? null,
     tariefEenheid: input.tariefEenheid ?? null,
     tariefMax: input.tariefMax ?? null,
     tariefMin: input.tariefMin ?? null,
+    werkvorm: input.werkvorm ?? null,
   });
 
   if (missingFields.length === 0) {

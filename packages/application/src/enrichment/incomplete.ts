@@ -1,4 +1,4 @@
-import { UNKNOWN } from "@ji/domain";
+import { CLEARED, UNKNOWN } from "@ji/domain";
 import { z } from "zod";
 
 import type { EnrichmentField } from "./types";
@@ -42,13 +42,30 @@ const isUnknownText = (value: string | null | undefined): boolean =>
   value.trim() === "" ||
   value.trim() === UNKNOWN;
 
-const isLocatieIncomplete = (facts: IncompleteAanvraagFacts): boolean =>
-  isUnknownText(facts.locatieTekst);
+/** CLEARED is a true clear (#213) — not a gap enrichment may fill. */
+const isClearedText = (value: string | null | undefined): boolean =>
+  value !== null && value !== undefined && value.trim() === CLEARED;
 
-const isTariefIncomplete = (facts: IncompleteAanvraagFacts): boolean =>
-  isUnknownText(facts.tariefMin) &&
-  isUnknownText(facts.tariefMax) &&
-  isUnknownText(facts.tariefEenheid);
+const isEnrichableGap = (value: string | null | undefined): boolean =>
+  isUnknownText(value) && !isClearedText(value);
+
+const isLocatieIncomplete = (facts: IncompleteAanvraagFacts): boolean =>
+  isEnrichableGap(facts.locatieTekst);
+
+const isTariefIncomplete = (facts: IncompleteAanvraagFacts): boolean => {
+  if (
+    isClearedText(facts.tariefMin) ||
+    isClearedText(facts.tariefMax) ||
+    isClearedText(facts.tariefEenheid)
+  ) {
+    return false;
+  }
+  return (
+    isEnrichableGap(facts.tariefMin) &&
+    isEnrichableGap(facts.tariefMax) &&
+    isEnrichableGap(facts.tariefEenheid)
+  );
+};
 
 const parseBronSpecifiek = (
   // oxlint-disable-next-line anti-slop/no-unknown-parameters -- curated JSON I/O boundary; parsed by bronSpecifiekSchema before field access
@@ -69,18 +86,24 @@ const readBronFacts = (parsed: ParsedBronSpecifiek | null): ParsedBronFacts => {
 };
 
 const isContractIncomplete = (facts: IncompleteAanvraagFacts): boolean => {
-  if (!isUnknownText(facts.contracttype)) {
+  if (isClearedText(facts.contracttype) || !isUnknownText(facts.contracttype)) {
     return false;
   }
   const bronFacts = readBronFacts(parseBronSpecifiek(facts.bronSpecifiek));
+  if (isClearedText(bronFacts.contracttype)) {
+    return false;
+  }
   return isUnknownText(bronFacts.contracttype);
 };
 
 const isRemoteIncomplete = (facts: IncompleteAanvraagFacts): boolean => {
-  if (!isUnknownText(facts.werkvorm)) {
+  if (isClearedText(facts.werkvorm) || !isUnknownText(facts.werkvorm)) {
     return false;
   }
   const bronFacts = readBronFacts(parseBronSpecifiek(facts.bronSpecifiek));
+  if (isClearedText(bronFacts.werkvorm)) {
+    return false;
+  }
   return isUnknownText(bronFacts.werkvorm);
 };
 

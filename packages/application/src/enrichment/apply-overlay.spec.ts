@@ -1,5 +1,7 @@
 import { describe, expect, it } from "bun:test";
 
+import { CLEARED } from "@ji/domain";
+
 import {
   applyEnrichmentOverlayToAanvraagFacts,
   applyEnrichmentOverlayToSearchFacts,
@@ -124,5 +126,24 @@ describe("enrichment overlay", () => {
     expect(overlaid.locatie).toBe("Utrecht");
     expect(overlaid.tariefMin).toBeNull();
     expect(overlaid.tariefMax).toBe(120);
+  });
+
+  it("does not resurrect CLEARED curated facts via overlay", () => {
+    const overlaid = applyEnrichmentOverlayToAanvraagFacts(
+      {
+        contracttype: CLEARED,
+        locatie: CLEARED,
+        tariefEenheid: CLEARED,
+        tariefMax: null,
+        tariefMin: null,
+        tariefValuta: null,
+        werkvorm: CLEARED,
+      },
+      [locatieRow]
+    );
+
+    expect(overlaid.locatie).toBe(CLEARED);
+    expect(overlaid.contracttype).toBe(CLEARED);
+    expect(overlaid.werkvorm).toBe(CLEARED);
   });
 });
