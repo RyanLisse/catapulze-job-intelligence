@@ -95,6 +95,9 @@ describe("Trigger durability contract (Slice 10)", () => {
     const scheduleSource = await Bun.file(
       new URL("../tasks/schedule-slice-a-polls.ts", import.meta.url)
     ).text();
+    const enrichScheduleSource = await Bun.file(
+      new URL("../tasks/schedule-enrich-incomplete.ts", import.meta.url)
+    ).text();
     const backfillSource = await Bun.file(
       new URL("../tasks/backfill-neon-v1.ts", import.meta.url)
     ).text();
@@ -117,6 +120,9 @@ describe("Trigger durability contract (Slice 10)", () => {
     expect(backfillSource.includes("WorkerFault")).toBe(false);
     expect(scheduleSource).toContain("schedules.task");
     expect(scheduleSource.includes("runWorkerPromise")).toBe(false);
+    expect(enrichScheduleSource).toContain("schedules.task");
+    expect(enrichScheduleSource).toContain('id: "schedule-enrich-incomplete"');
+    expect(enrichScheduleSource.includes("runWorkerPromise")).toBe(false);
     expect(triggerConfig).toContain('runtime: "bun"');
     expect(triggerConfig.toLowerCase().includes("effect")).toBe(false);
   });
