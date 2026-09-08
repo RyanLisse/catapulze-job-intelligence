@@ -56,3 +56,28 @@ describe("parseTariefFromText", () => {
     });
   });
 });
+
+describe("tarief parser regressions (bugbot)", () => {
+  it("does not treat tot N uur per week as a max-only rate", () => {
+    expect(
+      parseTariefFromText("Detachering, tot 36 uur per week")
+    ).toMatchObject({
+      max: UNKNOWN,
+      min: UNKNOWN,
+    });
+  });
+
+  it("still parses tot € amounts as max-only", () => {
+    expect(parseTariefFromText("Tarief tot €95")).toMatchObject({
+      max: "95",
+      min: UNKNOWN,
+    });
+  });
+
+  it("prefers per dag over all-in gloss for eenheid", () => {
+    expect(parseTariefFromText("€450 per dag all-in")).toMatchObject({
+      eenheid: "dag",
+      max: "450",
+    });
+  });
+});

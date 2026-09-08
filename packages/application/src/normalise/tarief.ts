@@ -25,6 +25,21 @@ const normalizeAmount = (raw: string): string => {
 };
 
 const detectEenheid = (lower: string): TariefEenheid | typeof UNKNOWN => {
+  // Explicit period wins over all-in / BTW gloss that often sits beside day rates.
+  if (
+    lower.includes(" per dag") ||
+    lower.includes("/dag") ||
+    lower.includes("dagtarief")
+  ) {
+    return "dag";
+  }
+  if (
+    lower.includes(" per maand") ||
+    lower.includes("/maand") ||
+    lower.includes("maandtarief")
+  ) {
+    return "maand";
+  }
   if (
     lower.includes(" per uur") ||
     lower.includes(" p/u") ||
@@ -37,12 +52,6 @@ const detectEenheid = (lower: string): TariefEenheid | typeof UNKNOWN => {
     lower.includes("inclusief msp")
   ) {
     return "uur";
-  }
-  if (lower.includes(" per dag") || lower.includes("/dag")) {
-    return "dag";
-  }
-  if (lower.includes(" per maand") || lower.includes("/maand")) {
-    return "maand";
   }
   // Bare euro amounts in Dutch inhuur listings are almost always hourly.
   if (/€|euro/u.test(lower)) {
@@ -73,9 +82,10 @@ const withEenheid = (
 });
 
 const parseMaxOnly = (lower: string): NormalisedTarief | null => {
+  // Currency required: "tot 36 uur per week" must not become a max-only rate.
   const maxMatch = lower.match(
     new RegExp(
-      String.raw`(?:max(?:\.|\s+tarief)?|tot|tm|t\/m)\s*[^€\d]*€?\s*${AMOUNT_CAPTURE}`,
+      String.raw`(?:max(?:\.|\s+tarief)?|tot|tm|t\/m)\s*(?:van\s+)?(?:€|euro)\s*${AMOUNT_CAPTURE}`,
       "u"
     )
   );

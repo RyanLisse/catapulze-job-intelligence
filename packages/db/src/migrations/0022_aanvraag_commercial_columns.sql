@@ -36,7 +36,9 @@ SET
   "publicatiedatum" = COALESCE(
     "publicatiedatum",
     NULLIF(trim("bron_specifiek"->>'publicatiedatum'), ''),
-    NULLIF(trim("bron_specifiek"->>'gepubliceerd_op'), '')
+    NULLIF(trim("bron_specifiek"->>'gepubliceerd_op'), ''),
+    NULLIF(trim("bron_specifiek"->>'publicatie_datum'), ''),
+    NULLIF(trim("bron_specifiek"->>'json_ld_date_posted'), '')
   ),
   "uren_per_week" = COALESCE(
     "uren_per_week",

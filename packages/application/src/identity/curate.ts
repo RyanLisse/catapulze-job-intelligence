@@ -290,6 +290,25 @@ const readBronText = (
   return value;
 };
 
+const explicitBronText = (
+  draft: NormalisedAanvraagDraft,
+  ...keys: readonly string[]
+): string | null =>
+  readBronText(asBronSpecifiekRecord(draft.bronSpecifiek.value), ...keys);
+
+/** Drop CLEARED tombstones so they never persist inside bron_specifiek JSON. */
+const stripClearedBronSpecifiek = (
+  record: BronSpecifiekRecord
+): BronSpecifiekRecord => {
+  const out: BronSpecifiekRecord = {};
+  for (const [key, value] of Object.entries(record)) {
+    if (value !== CLEARED) {
+      out[key] = value;
+    }
+  }
+  return out;
+};
+
 const mergeBronSpecifiek = (
   existing: BronSpecifiekJson,
   incoming: BronSpecifiekJson
@@ -332,7 +351,11 @@ const toStoredFields = (
   input: CurateObservationInput
 ): Omit<StoredAanvraag, "aanvraagId"> => {
   const { draft } = input;
-  const bronSpecifiek = commercialBronSpecifiek(draft);
+  // SAFETY: stripClearedBronSpecifiek only removes CLEARED string values; remaining
+  // entries are still BronSpecifiekJson object shape for curated.aanvraag.bron_specifiek.
+  const bronSpecifiek = stripClearedBronSpecifiek(
+    asBronSpecifiekRecord(commercialBronSpecifiek(draft))
+  ) as BronSpecifiekJson;
   const bronRecord = asBronSpecifiekRecord(bronSpecifiek);
   return {
     beschrijving: draft.beschrijving.value,
@@ -355,7 +378,9 @@ const toStoredFields = (
     publicatiedatum: readBronText(
       bronRecord,
       "publicatiedatum",
-      "gepubliceerd_op"
+      "gepubliceerd_op",
+      "publicatie_datum",
+      "json_ld_date_posted"
     ),
     rawPayloadRef: input.rawPayloadRef,
     scrapeRunId: input.scrapeRunId,
@@ -426,8 +451,45 @@ export const curateObservation = async (
     // outbox event. Only write when the draft actually has a value: a
     // source that stops publishing a deadline must never silently erase a
     // value already stored from an earlier observation.
+
     if (draft.locatieTekst.value !== UNKNOWN) {
       patch.locatieTekst = draft.locatieTekst.value;
+    }
+    if (existing.opdrachtgeverNaam === null) {
+      const value = draftTextColumn(draft.opdrachtgeverNaam.value);
+      if (value !== null) {
+        patch.opdrachtgeverNaam = value;
+      }
+    }
+    if (existing.startDatum === null) {
+      const value = draftTextColumn(draft.startDatum.value);
+      if (value !== null) {
+        patch.startDatum = value;
+      }
+    }
+    if (existing.publicatiedatum === null) {
+      const value = readBronText(
+        asBronSpecifiekRecord(draft.bronSpecifiek.value),
+        "publicatiedatum",
+        "gepubliceerd_op",
+        "publicatie_datum",
+        "json_ld_date_posted"
+      );
+      if (value !== null) {
+        patch.publicatiedatum = value;
+      }
+    }
+    if (existing.contracttype === null) {
+      const value = explicitBronText(draft, "contracttype", "contract_type");
+      if (value !== null) {
+        patch.contracttype = value;
+      }
+    }
+    if (existing.werkvorm === null) {
+      const value = explicitBronText(draft, "werkvorm");
+      if (value !== null) {
+        patch.werkvorm = value;
+      }
     }
     if (draft.sluitingsdatum !== undefined) {
       patch.sluitingsdatum = draft.sluitingsdatum;
@@ -497,7 +559,10 @@ export const curateObservation = async (
         coalescePatchFromDraft(draft.bronUrl.value),
         existing.bronUrl
       ),
-      contracttype: coalesceNullable(next.contracttype, existing.contracttype),
+      contracttype: coalesceNullable(
+        explicitBronText(draft, "contracttype", "contract_type"),
+        existing.contracttype
+      ),
       dedupGroepId: existing.dedupGroepId,
       eersteGezienOp: existing.eersteGezienOp,
       eindDatum: coalesceNullable(next.eindDatum, existing.eindDatum),
@@ -535,7 +600,10 @@ export const curateObservation = async (
       ),
       urenPerWeek: coalesceNullable(next.urenPerWeek, existing.urenPerWeek),
       versie: nextVersie,
-      werkvorm: coalesceNullable(next.werkvorm, existing.werkvorm),
+      werkvorm: coalesceNullable(
+        explicitBronText(draft, "werkvorm"),
+        existing.werkvorm
+      ),
     });
     await tx.insertVersie({
       aanvraagId: updated.aanvraagId,

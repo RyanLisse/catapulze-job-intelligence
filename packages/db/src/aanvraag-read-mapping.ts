@@ -23,8 +23,10 @@ const bronFactsInputSchema = z.object({
   contract_type: sourceTextSchema,
   contracttype: sourceTextSchema,
   gepubliceerd_op: sourceTextSchema,
+  json_ld_date_posted: sourceTextSchema,
   opdrachtgeverNaam: sourceTextSchema,
   opdrachtgever_naam: sourceTextSchema,
+  publicatie_datum: sourceTextSchema,
   publicatiedatum: sourceTextSchema,
   startDatum: sourceTextSchema,
   start_datum: sourceTextSchema,
@@ -39,7 +41,12 @@ const firstSourceText = (
 const publicationDate = (
   values: z.output<typeof bronFactsInputSchema>
 ): string | null => {
-  const value = firstSourceText(values.publicatiedatum, values.gepubliceerd_op);
+  const value = firstSourceText(
+    values.publicatiedatum,
+    values.gepubliceerd_op,
+    values.publicatie_datum,
+    values.json_ld_date_posted
+  );
   if (value === null) {
     return null;
   }
