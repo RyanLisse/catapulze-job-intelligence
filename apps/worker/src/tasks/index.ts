@@ -8,4 +8,5 @@ export {
   enrichIncompleteTask,
   type EnrichIncompletePayload,
 } from "./enrich-incomplete";
+export { scheduleEnrichIncompleteTask } from "./schedule-enrich-incomplete";
 export { scheduleSliceAPollsTask } from "./schedule-slice-a-polls";
