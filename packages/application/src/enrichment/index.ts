@@ -51,3 +51,13 @@ export {
   type CuratedCommercialFacts,
   type CuratedEnrichmentPatch,
 } from "./persist-curated";
+
+export {
+  durableClearedIntersects,
+  readDurableClearedKeys,
+} from "./cleared-markers";
+export {
+  planCuratedEnrichmentPatchFromStored,
+  proposalsFromStoredEnrichment,
+  type StoredEnrichmentProposalInput,
+} from "./apply-stored-curated";

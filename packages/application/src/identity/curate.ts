@@ -4,7 +4,7 @@ import type {
   BronId,
   ScrapeRunId,
 } from "@ji/domain";
-import { CLEARED, UNKNOWN } from "@ji/domain";
+import { CLEARED, CLEARED_BRON_MARKER_KEY, UNKNOWN } from "@ji/domain";
 import { timeCriticalPathPhase } from "@ji/performance";
 import { z } from "zod";
 
@@ -185,6 +185,57 @@ const readExistingText = (
   return null;
 };
 
+const applyDraftTextOrCleared = (
+  base: BronSpecifiekRecord,
+  value: string | typeof UNKNOWN | typeof CLEARED,
+  aliases: readonly string[],
+  primaryKey: string
+): void => {
+  if (value === CLEARED) {
+    for (const key of aliases) {
+      base[key] = CLEARED;
+    }
+    return;
+  }
+  if (value === UNKNOWN) {
+    return;
+  }
+  if (readExistingText(base, ...aliases) === null) {
+    base[primaryKey] = value;
+  }
+};
+
+const applyDraftTariefClears = (
+  base: BronSpecifiekRecord,
+  draft: NormalisedAanvraagDraft
+): void => {
+  applyDraftTextOrCleared(
+    base,
+    draft.tarief.min,
+    ["tarief_min", "tariefMin"],
+    "tarief_min"
+  );
+  applyDraftTextOrCleared(
+    base,
+    draft.tarief.max,
+    ["tarief_max", "tariefMax"],
+    "tarief_max"
+  );
+  applyDraftTextOrCleared(
+    base,
+    draft.tarief.eenheid,
+    ["tarief_eenheid", "tariefEenheid"],
+    "tarief_eenheid"
+  );
+  if (
+    draft.tarief.min === CLEARED ||
+    draft.tarief.max === CLEARED ||
+    draft.tarief.eenheid === CLEARED
+  ) {
+    base.tarief = CLEARED;
+  }
+};
+
 /**
  * Persist commercial facts that the draft already computed but that have no
  * curated column yet: merge into bron_specifiek under the keys the reader
@@ -197,25 +248,27 @@ const commercialBronSpecifiek = (
   const base: BronSpecifiekRecord = {
     ...asBronSpecifiekRecord(draft.bronSpecifiek.value),
   };
-  if (draft.opdrachtgeverNaam.value === CLEARED) {
-    // Tombstone every reader alias so merge drops prior camel/snake keys.
-    base.opdrachtgever_naam = CLEARED;
-    base.opdrachtgeverNaam = CLEARED;
-  } else if (
-    draft.opdrachtgeverNaam.value !== UNKNOWN &&
-    readExistingText(base, "opdrachtgever_naam", "opdrachtgeverNaam") === null
-  ) {
-    base.opdrachtgever_naam = draft.opdrachtgeverNaam.value;
-  }
-  if (draft.startDatum.value === CLEARED) {
-    base.start_datum = CLEARED;
-    base.startDatum = CLEARED;
-  } else if (
-    draft.startDatum.value !== UNKNOWN &&
-    readExistingText(base, "start_datum", "startDatum") === null
-  ) {
-    base.start_datum = draft.startDatum.value;
-  }
+  applyDraftTextOrCleared(
+    base,
+    draft.opdrachtgeverNaam.value,
+    ["opdrachtgever_naam", "opdrachtgeverNaam"],
+    "opdrachtgever_naam"
+  );
+  applyDraftTextOrCleared(
+    base,
+    draft.startDatum.value,
+    ["start_datum", "startDatum"],
+    "start_datum"
+  );
+  // Emit CLEARED into bron_specifiek so strip/merge can write durable markers
+  // for enrichment commercial fields (columns themselves store null after clear).
+  applyDraftTextOrCleared(
+    base,
+    draft.locatieTekst.value,
+    ["locatie", "locatie_tekst", "locatieTekst"],
+    "locatie_tekst"
+  );
+  applyDraftTariefClears(base, draft);
   const classified = classifyContractAndWork(
     draft.titel.value,
     draft.beschrijving.value
@@ -299,16 +352,95 @@ const explicitBronText = (
 ): string | null =>
   readBronText(asBronSpecifiekRecord(draft.bronSpecifiek.value), ...keys);
 
-/** Drop CLEARED tombstones so they never persist inside bron_specifiek JSON. */
+/** Alias groups for durable CLEARED markers — clearing/lifting one lifts all. */
+const CLEARED_MARKER_ALIAS_GROUPS: readonly (readonly string[])[] = [
+  ["locatie", "locatie_tekst", "locatieTekst"],
+  [
+    "tarief",
+    "tarief_min",
+    "tarief_max",
+    "tarief_eenheid",
+    "tariefMin",
+    "tariefMax",
+    "tariefEenheid",
+  ],
+  ["opdrachtgever_naam", "opdrachtgeverNaam"],
+  ["start_datum", "startDatum"],
+  ["contracttype", "contract_type"],
+  ["werkvorm"],
+];
+
+const expandClearedMarkerKeys = (keys: Iterable<string>): Set<string> => {
+  const expanded = new Set<string>(keys);
+  for (const group of CLEARED_MARKER_ALIAS_GROUPS) {
+    if (group.some((key) => expanded.has(key))) {
+      for (const key of group) {
+        expanded.add(key);
+      }
+    }
+  }
+  return expanded;
+};
+
+const clearedMarkerSchema = z.record(z.string(), z.literal(true));
+type ClearedMarkerRecord = z.infer<typeof clearedMarkerSchema>;
+
+const omitClearedMarkers = (
+  markers: ClearedMarkerRecord,
+  keys: Iterable<string>
+): ClearedMarkerRecord => {
+  const omit = expandClearedMarkerKeys(keys);
+  return clearedMarkerSchema.parse(
+    Object.fromEntries(
+      Object.entries(markers).filter(([key]) => !omit.has(key))
+    )
+  );
+};
+
+const readClearedMarkerRecord = (
+  record: BronSpecifiekRecord
+): ClearedMarkerRecord => {
+  const parsed = clearedMarkerSchema.safeParse(record[CLEARED_BRON_MARKER_KEY]);
+  return parsed.success ? parsed.data : {};
+};
+
+const writeClearedMarkers = (
+  record: BronSpecifiekRecord,
+  markers: ClearedMarkerRecord
+): void => {
+  if (Object.keys(markers).length === 0) {
+    return;
+  }
+  record[CLEARED_BRON_MARKER_KEY] = markers;
+};
+
+/**
+ * Drop CLEARED string tombstones so they never persist as commercial values,
+ * while writing durable `_cleared` markers (Slice 4 / CTP-486) so enrichment
+ * cannot resurrect post-strip null gaps.
+ */
 const stripClearedBronSpecifiek = (
   record: BronSpecifiekRecord
 ): BronSpecifiekRecord => {
+  const markers = readClearedMarkerRecord(record);
+  const newlyCleared = new Set<string>();
+  const lifted = new Set<string>();
   const out: BronSpecifiekRecord = {};
   for (const [key, value] of Object.entries(record)) {
-    if (value !== CLEARED) {
-      out[key] = value;
+    if (key === CLEARED_BRON_MARKER_KEY) {
+      continue;
     }
+    if (value === CLEARED) {
+      newlyCleared.add(key);
+      continue;
+    }
+    out[key] = value;
+    lifted.add(key);
   }
+  for (const key of expandClearedMarkerKeys(newlyCleared)) {
+    markers[key] = true;
+  }
+  writeClearedMarkers(out, omitClearedMarkers(markers, lifted));
   return out;
 };
 
@@ -318,9 +450,13 @@ const mergeBronSpecifiek = (
 ): BronSpecifiekJson => {
   const left = asBronSpecifiekRecord(existing);
   const right = asBronSpecifiekRecord(incoming);
+  const markers = readClearedMarkerRecord(left);
   const clearedKeys = new Set<string>();
   const overlays: BronSpecifiekRecord = {};
   for (const [key, value] of Object.entries(right)) {
+    if (key === CLEARED_BRON_MARKER_KEY) {
+      continue;
+    }
     if (value === null || value === undefined) {
       continue;
     }
@@ -338,6 +474,9 @@ const mergeBronSpecifiek = (
   }
   const merged: BronSpecifiekRecord = {};
   for (const [key, value] of Object.entries(left)) {
+    if (key === CLEARED_BRON_MARKER_KEY) {
+      continue;
+    }
     if (!clearedKeys.has(key)) {
       merged[key] = value;
     }
@@ -345,6 +484,11 @@ const mergeBronSpecifiek = (
   for (const [key, value] of Object.entries(overlays)) {
     merged[key] = value;
   }
+  const afterLift = omitClearedMarkers(markers, Object.keys(overlays));
+  for (const key of expandClearedMarkerKeys(clearedKeys)) {
+    afterLift[key] = true;
+  }
+  writeClearedMarkers(merged, afterLift);
   // SAFETY: merged is a Zod-validated string-keyed JSON object; BronSpecifiekJson
   // is the JsonValue object shape stored on curated.aanvraag.bron_specifiek.
   return merged as BronSpecifiekJson;
@@ -354,8 +498,8 @@ const toStoredFields = (
   input: CurateObservationInput
 ): Omit<StoredAanvraag, "aanvraagId"> => {
   const { draft } = input;
-  // SAFETY: stripClearedBronSpecifiek only removes CLEARED string values; remaining
-  // entries are still BronSpecifiekJson object shape for curated.aanvraag.bron_specifiek.
+  // SAFETY: stripClearedBronSpecifiek removes CLEARED strings and may add `_cleared`
+  // markers; remaining entries are still BronSpecifiekJson for curated.aanvraag.bron_specifiek.
   const bronSpecifiek = stripClearedBronSpecifiek(
     asBronSpecifiekRecord(commercialBronSpecifiek(draft))
   ) as BronSpecifiekJson;
@@ -553,9 +697,9 @@ export const curateObservation = async (
     const next = toStoredFields(input);
     const { draft } = input;
     // Merge against commercialBronSpecifiek *before* strip so CLEARED
-    // tombstones still reach mergeBronSpecifiek and drop prior JSON keys.
-    // SAFETY: stripClearedBronSpecifiek only removes CLEARED strings; remainder
-    // is still BronSpecifiekJson for curated.aanvraag.bron_specifiek.
+    // tombstones still reach mergeBronSpecifiek (drop keys + durable markers).
+    // SAFETY: strip removes CLEARED strings / keeps `_cleared`; remainder is
+    // still BronSpecifiekJson for curated.aanvraag.bron_specifiek.
     const mergedBronSpecifiek = stripClearedBronSpecifiek(
       asBronSpecifiekRecord(
         mergeBronSpecifiek(
