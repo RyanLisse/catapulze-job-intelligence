@@ -158,4 +158,32 @@ describe("planCuratedEnrichmentPatch", () => {
       fields: ["contract"],
     });
   });
+
+  it("never resurrects commercial keys recorded in durable _cleared markers", () => {
+    const patch = planCuratedEnrichmentPatch(
+      {
+        ...emptyFacts,
+        bronSpecifiek: {
+          _cleared: {
+            contracttype: true,
+            locatie_tekst: true,
+            tarief_eenheid: true,
+            tarief_max: true,
+            tarief_min: true,
+            werkvorm: true,
+          },
+          other_meta: "keep-me",
+        },
+        contracttype: null,
+        locatieTekst: null,
+        tariefEenheid: null,
+        tariefMax: null,
+        tariefMin: null,
+        werkvorm: null,
+      },
+      [locatieProposal, tariefProposal, contractProposal, remoteProposal]
+    );
+
+    expect(patch).toBeNull();
+  });
 });

@@ -124,6 +124,7 @@ export {
   type AanvraagEnrichmentRow,
   type EnrichmentDatabase,
   type IncompleteAanvraagCandidate,
+  type PendingCuratedApplyCandidate,
 } from "./enrichment-store";
 export {
   createPostgresLifecyclePorts,

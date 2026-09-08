@@ -5,6 +5,13 @@ export const UNKNOWN = "unknown" as const;
 /** Explicit clear tombstone: overwrite last-known curated value with null. */
 export const CLEARED = "cleared" as const;
 
+/**
+ * Reserved bron_specifiek key for durable CLEARED markers after #213 strip.
+ * Value shape: Record<commercialKey, true>. Never stores the CLEARED string
+ * itself — only which commercial keys were intentionally cleared.
+ */
+export const CLEARED_BRON_MARKER_KEY = "_cleared" as const;
+
 /** Effect Schema SoT for the sentinel unknown value (ADR-0014 / CTP-470). */
 export const UnknownValueSchema = Schema.Literal(UNKNOWN);
 

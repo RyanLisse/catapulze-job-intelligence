@@ -1,7 +1,7 @@
 import { describe, expect, it } from "bun:test";
 
 import type { BronId, ScrapeRunId } from "@ji/domain";
-import { CLEARED, UNKNOWN } from "@ji/domain";
+import { CLEARED, CLEARED_BRON_MARKER_KEY, UNKNOWN } from "@ji/domain";
 
 import type { NormalisedAanvraagDraft } from "../normalise";
 import type { CurateStore } from "./curate";
@@ -233,12 +233,108 @@ describe("curateObservation commercial columns and coalesce tombstones", () => {
       versie: 2,
     });
     // CLEARED must drop prior commercial keys from bron_specifiek so the
-    // column ?? JSON read path cannot resurrect them.
-    const bronJson = JSON.stringify(aanvraag?.bronSpecifiek ?? {});
-    expect(bronJson).not.toContain('"opdrachtgever_naam"');
-    expect(bronJson).not.toContain('"opdrachtgeverNaam"');
-    expect(bronJson).not.toContain('"start_datum"');
-    expect(bronJson).not.toContain('"startDatum"');
-    expect(bronJson).not.toContain(CLEARED);
+    // column ?? JSON read path cannot resurrect them. Marker key *names*
+    // may still appear under `_cleared` — assert top-level absence.
+    expect(aanvraag?.bronSpecifiek).not.toHaveProperty("opdrachtgever_naam");
+    expect(aanvraag?.bronSpecifiek).not.toHaveProperty("opdrachtgeverNaam");
+    expect(aanvraag?.bronSpecifiek).not.toHaveProperty("start_datum");
+    expect(aanvraag?.bronSpecifiek).not.toHaveProperty("startDatum");
+    expect(aanvraag?.bronSpecifiek).not.toHaveProperty("tarief_min");
+    // Sentinel string itself must never persist as a commercial value.
+    expect(JSON.stringify(aanvraag?.bronSpecifiek ?? {})).not.toContain(
+      `"${CLEARED}"`
+    );
+    // Durable markers survive strip so enrichment cannot resurrect gaps.
+    expect(aanvraag?.bronSpecifiek).toMatchObject({
+      [CLEARED_BRON_MARKER_KEY]: {
+        opdrachtgeverNaam: true,
+        opdrachtgever_naam: true,
+        startDatum: true,
+        start_datum: true,
+        tarief: true,
+        tariefEenheid: true,
+        tariefMax: true,
+        tariefMin: true,
+        tarief_eenheid: true,
+        tarief_max: true,
+        tarief_min: true,
+      },
+    });
+  });
+
+  it("records durable CLEARED markers for locatie after strip", async () => {
+    const store = new InMemoryCurateStore();
+    const rich = observation("COL-4", "hash-rich-loc");
+    await curateObservation(store, {
+      ...rich,
+      draft: {
+        ...rich.draft,
+        locatieTekst: { provenance, value: "Utrecht" },
+      },
+    });
+    const cleared = observation("COL-4", "hash-cleared-loc");
+    await curateObservation(store, {
+      ...cleared,
+      draft: {
+        ...cleared.draft,
+        locatieTekst: { provenance, value: CLEARED },
+      },
+    });
+    const [aanvraag] = store.aanvragen;
+    expect(aanvraag).toMatchObject({
+      locatieTekst: null,
+      versie: 2,
+    });
+    expect(aanvraag?.bronSpecifiek).not.toHaveProperty("locatie_tekst");
+    expect(JSON.stringify(aanvraag?.bronSpecifiek ?? {})).not.toContain(
+      `"${CLEARED}"`
+    );
+    expect(aanvraag?.bronSpecifiek).toMatchObject({
+      [CLEARED_BRON_MARKER_KEY]: {
+        locatie: true,
+        locatieTekst: true,
+        locatie_tekst: true,
+      },
+    });
+  });
+
+  it("lifts durable CLEARED markers when a later draft sets a real value", async () => {
+    const store = new InMemoryCurateStore();
+    const cleared = observation("COL-5", "hash-clear-then-set");
+    await curateObservation(store, {
+      ...cleared,
+      draft: {
+        ...cleared.draft,
+        locatieTekst: { provenance, value: CLEARED },
+      },
+    });
+    const restored = observation("COL-5", "hash-restored-loc");
+    await curateObservation(store, {
+      ...restored,
+      draft: {
+        ...restored.draft,
+        locatieTekst: { provenance, value: "Rotterdam" },
+      },
+    });
+    const [aanvraag] = store.aanvragen;
+    expect(aanvraag).toMatchObject({
+      locatieTekst: "Rotterdam",
+      versie: 2,
+    });
+    expect(aanvraag?.bronSpecifiek).not.toMatchObject({
+      [CLEARED_BRON_MARKER_KEY]: {
+        locatie: true,
+      },
+    });
+    expect(aanvraag?.bronSpecifiek).not.toMatchObject({
+      [CLEARED_BRON_MARKER_KEY]: {
+        locatie_tekst: true,
+      },
+    });
+    expect(aanvraag?.bronSpecifiek).not.toMatchObject({
+      [CLEARED_BRON_MARKER_KEY]: {
+        locatieTekst: true,
+      },
+    });
   });
 });

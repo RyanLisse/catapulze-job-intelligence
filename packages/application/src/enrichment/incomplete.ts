@@ -1,6 +1,10 @@
 import { CLEARED, UNKNOWN } from "@ji/domain";
 import { z } from "zod";
 
+import {
+  durableClearedIntersects,
+  readDurableClearedKeys,
+} from "./cleared-markers";
 import type { EnrichmentField } from "./types";
 import { ENRICHMENT_FIELDS } from "./types";
 
@@ -49,14 +53,39 @@ const isClearedText = (value: string | null | undefined): boolean =>
 const isEnrichableGap = (value: string | null | undefined): boolean =>
   isUnknownText(value) && !isClearedText(value);
 
-const isLocatieIncomplete = (facts: IncompleteAanvraagFacts): boolean =>
-  isEnrichableGap(facts.locatieTekst);
+const isLocatieIncomplete = (facts: IncompleteAanvraagFacts): boolean => {
+  const bronCleared = readDurableClearedKeys(facts.bronSpecifiek);
+  if (
+    durableClearedIntersects(bronCleared, [
+      "locatie",
+      "locatie_tekst",
+      "locatieTekst",
+    ])
+  ) {
+    return false;
+  }
+  return isEnrichableGap(facts.locatieTekst);
+};
 
 const isTariefIncomplete = (facts: IncompleteAanvraagFacts): boolean => {
   if (
     isClearedText(facts.tariefMin) ||
     isClearedText(facts.tariefMax) ||
     isClearedText(facts.tariefEenheid)
+  ) {
+    return false;
+  }
+  const bronCleared = readDurableClearedKeys(facts.bronSpecifiek);
+  if (
+    durableClearedIntersects(bronCleared, [
+      "tarief",
+      "tarief_min",
+      "tarief_max",
+      "tarief_eenheid",
+      "tariefMin",
+      "tariefMax",
+      "tariefEenheid",
+    ])
   ) {
     return false;
   }
@@ -89,6 +118,12 @@ const isContractIncomplete = (facts: IncompleteAanvraagFacts): boolean => {
   if (isClearedText(facts.contracttype) || !isUnknownText(facts.contracttype)) {
     return false;
   }
+  const bronCleared = readDurableClearedKeys(facts.bronSpecifiek);
+  if (
+    durableClearedIntersects(bronCleared, ["contracttype", "contract_type"])
+  ) {
+    return false;
+  }
   const bronFacts = readBronFacts(parseBronSpecifiek(facts.bronSpecifiek));
   if (isClearedText(bronFacts.contracttype)) {
     return false;
@@ -98,6 +133,10 @@ const isContractIncomplete = (facts: IncompleteAanvraagFacts): boolean => {
 
 const isRemoteIncomplete = (facts: IncompleteAanvraagFacts): boolean => {
   if (isClearedText(facts.werkvorm) || !isUnknownText(facts.werkvorm)) {
+    return false;
+  }
+  const bronCleared = readDurableClearedKeys(facts.bronSpecifiek);
+  if (durableClearedIntersects(bronCleared, ["werkvorm"])) {
     return false;
   }
   const bronFacts = readBronFacts(parseBronSpecifiek(facts.bronSpecifiek));

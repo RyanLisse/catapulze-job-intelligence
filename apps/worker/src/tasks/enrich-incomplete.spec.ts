@@ -8,6 +8,7 @@ import {
 describe("enrich-incomplete schema", () => {
   it("defaults dryRun to true and LLM residual to false", () => {
     expect(enrichIncompleteDefaults).toEqual({
+      applyStoredProposals: false,
       batchSize: 25,
       dryRun: true,
       enableLlmResidual: false,

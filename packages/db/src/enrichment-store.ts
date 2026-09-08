@@ -1,6 +1,8 @@
 import {
+  ENRICHMENT_APPLY_MIN_CONFIDENCE,
   ENRICHMENT_FIELDS,
   listMissingEnrichmentFields,
+  planCuratedEnrichmentPatchFromStored,
 } from "@ji/application/enrichment";
 import type {
   CuratedEnrichmentPatch,
@@ -25,6 +27,19 @@ export interface IncompleteAanvraagCandidate {
   readonly locatieTekst: string | null;
   readonly missingFields: readonly EnrichmentField[];
   readonly rawPayloadRef: string;
+  readonly tariefEenheid: string | null;
+  readonly tariefMax: string | null;
+  readonly tariefMin: string | null;
+  readonly tariefValuta: string | null;
+  readonly werkvorm: string | null;
+}
+
+export interface PendingCuratedApplyCandidate {
+  readonly bronSpecifiek: unknown;
+  readonly contracttype: string | null;
+  readonly id: string;
+  readonly locatieTekst: string | null;
+  readonly patch: CuratedEnrichmentPatch;
   readonly tariefEenheid: string | null;
   readonly tariefMax: string | null;
   readonly tariefMin: string | null;
@@ -250,6 +265,154 @@ export class PostgresEnrichmentStore {
       .set(setValues)
       .where(eq(aanvraag.id, aanvraagId));
     return patch.fields;
+  }
+
+  /**
+   * Rows that already have high-confidence deterministic aanvraag_enrichment
+   * but still have null curated commercial columns. Plans patches via
+   * planCuratedEnrichmentPatchFromStored (respects CLEARED / `_cleared`).
+   */
+  async listPendingCuratedApply(
+    limit: number
+  ): Promise<readonly PendingCuratedApplyCandidate[]> {
+    const rows = await this.database
+      .select({
+        bronSpecifiek: aanvraag.bronSpecifiek,
+        confidence: aanvraagEnrichment.confidence,
+        contracttype: aanvraag.contracttype,
+        field: aanvraagEnrichment.field,
+        id: aanvraag.id,
+        locatieTekst: aanvraag.locatieTekst,
+        rawRefs: aanvraagEnrichment.rawRefs,
+        source: aanvraagEnrichment.source,
+        tariefEenheid: aanvraag.tariefEenheid,
+        tariefMax: aanvraag.tariefMax,
+        tariefMin: aanvraag.tariefMin,
+        tariefValuta: aanvraag.tariefValuta,
+        value: aanvraagEnrichment.value,
+        werkvorm: aanvraag.werkvorm,
+      })
+      .from(aanvraag)
+      .innerJoin(
+        aanvraagEnrichment,
+        eq(aanvraagEnrichment.aanvraagId, aanvraag.id)
+      )
+      .where(
+        sql`(
+          ${aanvraag.locatieTekst} IS NULL
+          OR trim(${aanvraag.locatieTekst}) = ''
+          OR ${aanvraag.locatieTekst} = 'unknown'
+          OR (
+            ${aanvraag.tariefMin} IS NULL
+            AND ${aanvraag.tariefMax} IS NULL
+            AND ${aanvraag.tariefEenheid} IS NULL
+          )
+          OR COALESCE(
+            NULLIF(trim(${aanvraag.contracttype}), ''),
+            NULLIF(trim(${aanvraag.bronSpecifiek}->>'contracttype'), ''),
+            NULLIF(trim(${aanvraag.bronSpecifiek}->>'contract_type'), '')
+          ) IS NULL
+          OR COALESCE(
+            NULLIF(trim(${aanvraag.werkvorm}), ''),
+            NULLIF(trim(${aanvraag.bronSpecifiek}->>'werkvorm'), '')
+          ) IS NULL
+        )`
+      )
+      .limit(limit * 8);
+
+    const byId = new Map<
+      string,
+      {
+        bronSpecifiek: unknown;
+        contracttype: string | null;
+        locatieTekst: string | null;
+        proposals: {
+          confidence: number;
+          field: string;
+          rawRefs: unknown;
+          source: string;
+          value: unknown;
+        }[];
+        tariefEenheid: string | null;
+        tariefMax: string | null;
+        tariefMin: string | null;
+        tariefValuta: string | null;
+        werkvorm: string | null;
+      }
+    >();
+
+    for (const row of rows) {
+      const confidence = Number(row.confidence);
+      if (confidence < ENRICHMENT_APPLY_MIN_CONFIDENCE) {
+        continue;
+      }
+      if (row.source !== "deterministic") {
+        continue;
+      }
+      const existing = byId.get(row.id);
+      const proposal = {
+        confidence,
+        field: row.field,
+        rawRefs: row.rawRefs,
+        source: row.source,
+        value: row.value,
+      };
+      if (existing) {
+        existing.proposals.push(proposal);
+        continue;
+      }
+      byId.set(row.id, {
+        bronSpecifiek: row.bronSpecifiek,
+        contracttype: row.contracttype,
+        locatieTekst: row.locatieTekst,
+        proposals: [proposal],
+        tariefEenheid: row.tariefEenheid,
+        tariefMax: toNumericString(
+          row.tariefMax === null ? null : String(row.tariefMax)
+        ),
+        tariefMin: toNumericString(
+          row.tariefMin === null ? null : String(row.tariefMin)
+        ),
+        tariefValuta: row.tariefValuta,
+        werkvorm: row.werkvorm,
+      });
+    }
+
+    const result: PendingCuratedApplyCandidate[] = [];
+    for (const [id, candidate] of byId) {
+      if (result.length >= limit) {
+        break;
+      }
+      const patch = planCuratedEnrichmentPatchFromStored(
+        {
+          bronSpecifiek: candidate.bronSpecifiek,
+          contracttype: candidate.contracttype,
+          locatieTekst: candidate.locatieTekst,
+          tariefEenheid: candidate.tariefEenheid,
+          tariefMax: candidate.tariefMax,
+          tariefMin: candidate.tariefMin,
+          tariefValuta: candidate.tariefValuta,
+          werkvorm: candidate.werkvorm,
+        },
+        candidate.proposals
+      );
+      if (patch === null) {
+        continue;
+      }
+      result.push({
+        bronSpecifiek: candidate.bronSpecifiek,
+        contracttype: candidate.contracttype,
+        id,
+        locatieTekst: candidate.locatieTekst,
+        patch,
+        tariefEenheid: candidate.tariefEenheid,
+        tariefMax: candidate.tariefMax,
+        tariefMin: candidate.tariefMin,
+        tariefValuta: candidate.tariefValuta,
+        werkvorm: candidate.werkvorm,
+      });
+    }
+    return result;
   }
 
   async listForAanvraag(

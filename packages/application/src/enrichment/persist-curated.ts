@@ -1,6 +1,6 @@
 import { CLEARED, UNKNOWN } from "@ji/domain";
-import { z } from "zod";
 
+import { readDurableClearedKeys } from "./cleared-markers";
 import type {
   EnrichmentContractValue,
   EnrichmentField,
@@ -114,32 +114,6 @@ class PatchBuilder {
   }
 }
 
-const sourceTextSchema = z
-  .string()
-  .refine((value) => value.trim() !== "")
-  .nullable()
-  .optional()
-  // oxlint-disable-next-line promise/prefer-await-to-then -- Zod synchronous fallback API
-  .catch(null);
-
-const bronClearedSchema = z
-  .object({
-    contract_type: sourceTextSchema,
-    contracttype: sourceTextSchema,
-    locatie: sourceTextSchema,
-    locatieTekst: sourceTextSchema,
-    locatie_tekst: sourceTextSchema,
-    tarief: sourceTextSchema,
-    tariefEenheid: sourceTextSchema,
-    tariefMax: sourceTextSchema,
-    tariefMin: sourceTextSchema,
-    tarief_eenheid: sourceTextSchema,
-    tarief_max: sourceTextSchema,
-    tarief_min: sourceTextSchema,
-    werkvorm: sourceTextSchema,
-  })
-  .passthrough();
-
 const isMissingText = (value: string | null | undefined): boolean =>
   value === null ||
   value === undefined ||
@@ -173,23 +147,6 @@ const asContract = (
 
 const asRemote = (value: EnrichmentFieldValue): EnrichmentRemoteValue | null =>
   "werkvorm" in value ? value : null;
-
-const readBronClearedKeys = (
-  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- curated JSON I/O boundary; parsed by bronClearedSchema before field access
-  bronSpecifiek: unknown
-): ReadonlySet<string> => {
-  const cleared = new Set<string>();
-  const parsed = bronClearedSchema.safeParse(bronSpecifiek);
-  if (!parsed.success) {
-    return cleared;
-  }
-  for (const [key, value] of Object.entries(parsed.data)) {
-    if (value === CLEARED) {
-      cleared.add(key);
-    }
-  }
-  return cleared;
-};
 
 const locatieCleared = (
   facts: CuratedCommercialFacts,
@@ -357,14 +314,15 @@ const applyProposal = (
 
 /**
  * Plan curated commercial column writes from high-confidence enrichment
- * proposals. #213 CLEARED coalesce wins: cleared keys are never resurrected;
- * published bron values are never overwritten; only null/unknown gaps fill.
+ * proposals. #213 CLEARED coalesce wins: cleared keys and durable `_cleared`
+ * markers (Slice 4) are never resurrected; published bron values are never
+ * overwritten; only null/unknown gaps fill.
  */
 export const planCuratedEnrichmentPatch = (
   facts: CuratedCommercialFacts,
   proposals: readonly EnrichmentProposal[]
 ): CuratedEnrichmentPatch | null => {
-  const bronCleared = readBronClearedKeys(facts.bronSpecifiek);
+  const bronCleared = readDurableClearedKeys(facts.bronSpecifiek);
   const builder = new PatchBuilder();
   for (const proposal of proposals) {
     applyProposal(builder, facts, bronCleared, proposal);
