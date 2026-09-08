@@ -26,7 +26,8 @@ export const oneshotUsage = `Usage: bun apps/worker/scripts/oneshot-slice-a-poll
 Safe default is --list / --dry-run (print pollable Slice A targets; no poll).
 Pass --run to execute runPollBron sequentially for each selected bron.
 Does not seed or activate bronnen (unlike poll-bron-smoke).
-Not a permanent Trigger replacement — credit-outage / Coolify container ops only.`;
+Not a permanent Trigger replacement — credit-outage / Coolify container ops only.
+For scheduled Coolify/cron ticks use scheduled-oneshot-slice-a-polls.sh (CTP-489).`;
 
 export const parseOneshotArgs = (
   argv: readonly string[]
@@ -129,15 +130,32 @@ export interface OneshotRunBronResult {
   };
   nieuw?: number;
   scrapeRunId?: string;
+  soft?: boolean;
   status: "failed" | "succeeded";
   writtenRecords?: number;
 }
 
+export interface OneshotRunTotals {
+  changed: number;
+  error: number;
+  found: number;
+  nieuw: number;
+  rejected: number;
+  unchanged: number;
+  writtenRecords: number;
+}
+
 export interface OneshotRunResult {
   failed: number;
+  finishedAt: string;
+  hardFail: boolean;
   mode: "run";
   results: OneshotRunBronResult[];
+  softFailed: number;
+  startedAt: string;
   succeeded: number;
+  targets: number;
+  totals: OneshotRunTotals;
 }
 
 export type OneshotResult = OneshotListResult | OneshotRunResult;
@@ -154,6 +172,88 @@ export const formatOneshotList = (
     naam: bron.naam,
   })),
 });
+
+/**
+ * Soft / hash failures continue fan-out; everything else is a hard fail that
+ * should stop the scheduled tick (CTP-489 / Coolify oneshot).
+ */
+export const isSoftOrHashFailure = (message: string): boolean => {
+  const lower = message.toLowerCase();
+  return (
+    lower.includes("hash") ||
+    lower.includes("knownhash") ||
+    lower.includes("known-hash") ||
+    lower.includes("content hash") ||
+    lower.includes("soft") ||
+    lower.includes("etag") ||
+    lower.includes("not modified") ||
+    lower.includes("429") ||
+    lower.includes("rate limit") ||
+    lower.includes("timeout") ||
+    lower.includes("econnreset") ||
+    lower.includes("fetch failed") ||
+    lower.includes("network")
+  );
+};
+
+const emptyTotals = (): OneshotRunTotals => ({
+  changed: 0,
+  error: 0,
+  found: 0,
+  nieuw: 0,
+  rejected: 0,
+  unchanged: 0,
+  writtenRecords: 0,
+});
+
+/**
+ * Final JSON summary for Coolify/cron ticks — one object ops can scrape.
+ */
+export const summarizeOneshotRun = (input: {
+  finishedAt?: string;
+  hardFail: boolean;
+  results: readonly OneshotRunBronResult[];
+  startedAt: string;
+  targets: number;
+}): OneshotRunResult => {
+  const totals = emptyTotals();
+  let succeeded = 0;
+  let failed = 0;
+  let softFailed = 0;
+
+  for (const row of input.results) {
+    if (row.status === "succeeded") {
+      succeeded += 1;
+      if (row.metrics) {
+        totals.changed += row.metrics.changed;
+        totals.error += row.metrics.error;
+        totals.found += row.metrics.found;
+        totals.nieuw += row.metrics.new;
+        totals.rejected += row.metrics.rejected;
+        totals.unchanged += row.metrics.unchanged;
+      }
+      totals.writtenRecords += row.writtenRecords ?? 0;
+      continue;
+    }
+    failed += 1;
+    if (row.soft) {
+      softFailed += 1;
+    }
+  }
+
+  return {
+    failed,
+    finishedAt: input.finishedAt ?? new Date().toISOString(),
+    hardFail: input.hardFail,
+    mode: "run",
+    results: [...input.results],
+    softFailed,
+    startedAt: input.startedAt,
+    succeeded,
+    targets: input.targets,
+    totals,
+  };
+};
 
 /** Registry snapshot for docs / tests — not a DB query. */
 export const sliceARegistryCount = (): number => SLICE_A_BRONNEN.length;

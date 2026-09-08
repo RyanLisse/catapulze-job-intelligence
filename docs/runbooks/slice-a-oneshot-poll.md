@@ -67,6 +67,16 @@ Keep `/readyz` `lagEvents≈0`. Stop if a non-hash hard fail appears.
 - `/bronnen/overview` unshadow: separate lane.
 - LLM: N/A (poll path only).
 
+## Scheduled Coolify / cron (CTP-489)
+
+For recurring weekday ticks without Trigger credits, use the flock wrapper:
+
+See [slice-a-oneshot-poll-schedule.md](./slice-a-oneshot-poll-schedule.md).
+
+```bash
+bash apps/worker/scripts/scheduled-oneshot-slice-a-polls.sh
+```
+
 ## Related
 
 - `docs/runbooks/slice-a-live-smoke.md` — smoke / activate
