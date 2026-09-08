@@ -8,6 +8,9 @@ The `/jobs` route exposes Boolean job search with filters, sort, pagination, and
 - `jobs-results` results region has `aria-label="Zoekresultaten"`.
 - `jobs-query` the query input accepts Boolean syntax (placeholder e.g. `(Azure OR "Power BI") NOT junior`).
 - `jobs-detail` selecting a result adds `job=<id>` to the URL while staying on `/jobs`; closing detail removes `job` and preserves other params (e.g. `q=Azure`).
+- `jobs-detail-opdracht` the detail `Opdracht` section renders via `JobBodyContent` (allowlist HTML sanitize); HTML bron bodies show `data-body-format="html"` with rendered markup (fixture `job-html-nvb`: `TypeScript Engineer (HTML body fixture)`).
+- `jobs-detail-raw-preview` the `Raw preview` section exposes a scroll container `data-testid="job-raw-preview-scroll"` (`max-h-72 overflow-y-auto`) over the immutable bron payload preview.
+- `jobs-detail-aangevuld` when `enrichedFields` includes a field with confidence ≥ 0.8, Locatie/Tarief/Contract/Werkvorm show an `aangevuld` badge with `title` from `aangevuldLabel` — detail panel only, not results rows.
 - `jobs-nav` header nav link `Zoeken` routes to `/jobs`.
 - `jobs-chips` every active filter and the query render as a removable chip above the results; `Alles wissen` clears query and filters together.
 - `jobs-facets` the sidebar facet groups (`Bron`, `Contract`, `Locatie`, `Gepubliceerd`, `Minimum uurtarief`) collapse on their heading and show live counts; groups past six entries expose `Toon alle N …`.
@@ -30,7 +33,8 @@ Preconditions:
 - **HTTP shell.** Run `bun .cursor/skills/verify-job-intelligence/scripts/control.mjs http http://localhost:3001/jobs`. Status `200`; body contains `Zoek opdrachten met Boolean-logica`, `Zoekresultaten`, and `Opdrachten zoeken`.
 - **Example query.** Load `/jobs?q=Azure&freshness=30d` in a browser; URL keeps `q=Azure` and results filter accordingly.
 - **Browser results.** Wait for `[aria-label="Zoekresultaten"]` to contain at least one result row (`table tbody button`) when fixtures are enabled.
-- **Detail panel.** Activate a result; URL gains `job=<id>` without leaving `/jobs`. Dismiss detail; `job` param clears.
+- **Detail panel.** Activate a result; URL gains `job=<id>` without leaving `/jobs`. Dismiss detail; `job` param clears. Scroll the detail pane to assert `Opdracht` (`JobBodyContent`), `Raw preview` (`data-testid="job-raw-preview-scroll"`), and (when data present) `aangevuld` badges on metadata fields.
+- **HTML body fixture.** Open `/jobs?job=job-html-nvb` to prove sanitized HTML Opdracht rendering and raw preview scroll without Manticore.
 - **Proof.** Save HTML or a screenshot under `artifacts/job-search/` with `meta.json` recording `NEXT_PUBLIC_USE_FIXTURES` and the query/detail URL exercised.
 
 ## Gotchas
@@ -43,3 +47,5 @@ Preconditions:
 - Pagination controls read `Vorige` / `Volgende` on screen with accessible names `Vorige pagina` / `Volgende pagina`.
 - Boolean search and the facet sidebar are the capability the reference design does not have; a port that drops either is a regression, not a simplification.
 - Do not invent separate feature files for approvals or Spott export — they have no `:3001` UI yet.
+- Fixture jobs omit `enrichedFields`; `jobs-detail-aangevuld` is **verified-unreachable** under `NEXT_PUBLIC_USE_FIXTURES=1` unless you seed enriched data or drive against live REST with enrichment. Do not infer badges from plain fixture metadata.
+- Detail panel may exist twice in the DOM (mobile + desktop); scope Playwright assertions to the visible `complementary` region or `:visible` locators.
