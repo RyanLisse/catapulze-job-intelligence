@@ -132,22 +132,57 @@ const matchPath = (pattern: string, pathname: string): PathParams | null => {
   return parsed.success ? parsed.data : null;
 };
 
+/**
+ * Rank REST patterns so static segments beat `{param}` siblings.
+ *
+ * Catalog order alone is unsafe: `GET /v1/bronnen/{id}` is registered before
+ * `GET /v1/bronnen/overlap`, and `routes.find` would otherwise swallow the
+ * static path as `id=overlap` (CTP-417 prod 4xx/5xx on the overlap capability).
+ */
+const isPathParamSegment = (segment: string): boolean =>
+  segment.startsWith("{") && segment.endsWith("}");
+
+export const restRouteSpecificity = (pattern: string): number => {
+  let score = 0;
+  for (const segment of pattern.split("/").filter(Boolean)) {
+    // Static segments dominate; longer static paths outrank shorter ones.
+    score += isPathParamSegment(segment) ? 1 : 1000;
+  }
+  return score;
+};
+
+const compareRestRouteSpecificity = (
+  left: RestRouteSpec,
+  right: RestRouteSpec
+): number => {
+  const bySpecificity =
+    restRouteSpecificity(right.pathPattern) -
+    restRouteSpecificity(left.pathPattern);
+  if (bySpecificity !== 0) {
+    return bySpecificity;
+  }
+  // Stable tie-break for equal specificity (keeps catalog-adjacent order).
+  return left.operation.localeCompare(right.operation);
+};
+
 export const restRoutesFromRegistry = (
   registry: SliceARegistry
 ): RestRouteSpec[] =>
-  registry.catalog.flatMap((descriptor) =>
-    descriptor.bindings
-      .filter((binding) => binding.transport === "rest")
-      .map((binding) => {
-        const [method = "GET", ...pathParts] = binding.operation.split(" ");
-        return {
-          capabilityId: descriptor.id,
-          method,
-          operation: binding.operation,
-          pathPattern: pathParts.join(" "),
-        };
-      })
-  );
+  registry.catalog
+    .flatMap((descriptor) =>
+      descriptor.bindings
+        .filter((binding) => binding.transport === "rest")
+        .map((binding) => {
+          const [method = "GET", ...pathParts] = binding.operation.split(" ");
+          return {
+            capabilityId: descriptor.id,
+            method,
+            operation: binding.operation,
+            pathPattern: pathParts.join(" "),
+          };
+        })
+    )
+    .toSorted(compareRestRouteSpecificity);
 
 const stringFieldSchema = z.string();
 const booleanFieldSchema = z.boolean();

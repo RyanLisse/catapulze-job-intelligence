@@ -13,7 +13,7 @@ describe("get_bron_overlap handler", () => {
             overlapGroepCount: 2,
             perBron: [
               {
-                bronId: "11111111-1111-1111-1111-111111111111",
+                bronId: "11111111-1111-4111-8111-111111111111",
                 naam: "Hero",
                 overlappingAanvragen: 3,
                 share: 0.25,
@@ -25,11 +25,11 @@ describe("get_bron_overlap handler", () => {
                 aanvraagCount: 4,
                 bronCount: 2,
                 bronIds: [
-                  "11111111-1111-1111-1111-111111111111",
-                  "22222222-2222-2222-2222-222222222222",
+                  "11111111-1111-4111-8111-111111111111",
+                  "22222222-2222-4222-8222-222222222222",
                 ],
                 bronNamen: ["Hero", "Other"],
-                groepId: "33333333-3333-3333-3333-333333333333",
+                groepId: "33333333-3333-4333-8333-333333333333",
               },
             ],
           }),
