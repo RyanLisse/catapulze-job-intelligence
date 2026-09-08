@@ -619,7 +619,9 @@ const JobSearchPageContent = ({
     writeState({ ...state, selectedJobId: null });
   };
 
-  const syntaxError = liveData ? null : validateBooleanPreview(state.query);
+  // Live mode must still validate Boolean syntax client-side; skipping sends
+  // malformed queries to the engine and shows engine-error instead of syntax-error.
+  const syntaxError = validateBooleanPreview(state.query);
   const displayStatus = resolveDisplayStatus(syntaxError, response.status);
   const activeFilterCount = countActiveFilters(state.filters);
   const countLabel = resultCountLabel(response.total);
