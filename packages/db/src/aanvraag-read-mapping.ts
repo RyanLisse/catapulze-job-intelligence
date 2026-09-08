@@ -4,6 +4,7 @@ export interface AanvraagBronFacts {
   readonly contracttype: string | null;
   readonly opdrachtgeverNaam: string | null;
   readonly publicatiedatum: string | null;
+  readonly startDatum: string | null;
   readonly werkvorm: string | null;
 }
 
@@ -25,6 +26,8 @@ const bronFactsInputSchema = z.object({
   opdrachtgeverNaam: sourceTextSchema,
   opdrachtgever_naam: sourceTextSchema,
   publicatiedatum: sourceTextSchema,
+  startDatum: sourceTextSchema,
+  start_datum: sourceTextSchema,
   werkvorm: sourceTextSchema,
 });
 
@@ -66,6 +69,7 @@ export const readAanvraagBronFacts = (
       contracttype: null,
       opdrachtgeverNaam: null,
       publicatiedatum: null,
+      startDatum: null,
       werkvorm: null,
     };
   }
@@ -77,6 +81,7 @@ export const readAanvraagBronFacts = (
       values.opdrachtgever_naam
     ),
     publicatiedatum: publicationDate(values),
+    startDatum: firstSourceText(values.startDatum, values.start_datum),
     werkvorm: values.werkvorm ?? null,
   };
 };

@@ -76,12 +76,14 @@ export class PostgresEnrichmentStore {
       .select({
         beschrijving: aanvraag.beschrijving,
         bronSpecifiek: aanvraag.bronSpecifiek,
+        contracttype: aanvraag.contracttype,
         id: aanvraag.id,
         locatieTekst: aanvraag.locatieTekst,
         rawPayloadRef: aanvraag.rawPayloadRef,
         tariefEenheid: aanvraag.tariefEenheid,
         tariefMax: aanvraag.tariefMax,
         tariefMin: aanvraag.tariefMin,
+        werkvorm: aanvraag.werkvorm,
       })
       .from(aanvraag)
       .where(
@@ -95,10 +97,14 @@ export class PostgresEnrichmentStore {
             AND ${aanvraag.tariefEenheid} IS NULL
           )
           OR COALESCE(
+            NULLIF(trim(${aanvraag.contracttype}), ''),
             NULLIF(trim(${aanvraag.bronSpecifiek}->>'contracttype'), ''),
             NULLIF(trim(${aanvraag.bronSpecifiek}->>'contract_type'), '')
           ) IS NULL
-          OR NULLIF(trim(${aanvraag.bronSpecifiek}->>'werkvorm'), '') IS NULL
+          OR COALESCE(
+            NULLIF(trim(${aanvraag.werkvorm}), ''),
+            NULLIF(trim(${aanvraag.bronSpecifiek}->>'werkvorm'), '')
+          ) IS NULL
         )`
       )
       .limit(limit);
@@ -107,6 +113,7 @@ export class PostgresEnrichmentStore {
       const missingFields = listMissingEnrichmentFields({
         beschrijving: row.beschrijving,
         bronSpecifiek: row.bronSpecifiek,
+        contracttype: row.contracttype,
         locatieTekst: row.locatieTekst,
         tariefEenheid: row.tariefEenheid,
         tariefMax: toNumericString(
@@ -115,6 +122,7 @@ export class PostgresEnrichmentStore {
         tariefMin: toNumericString(
           row.tariefMin === null ? null : String(row.tariefMin)
         ),
+        werkvorm: row.werkvorm,
       });
       if (missingFields.length === 0) {
         return [];

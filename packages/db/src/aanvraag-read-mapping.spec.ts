@@ -43,6 +43,7 @@ describe("readAanvraagBronFacts", () => {
       contracttype: "detachering",
       opdrachtgeverNaam: null,
       publicatiedatum: null,
+      startDatum: null,
       werkvorm: null,
     });
   });
