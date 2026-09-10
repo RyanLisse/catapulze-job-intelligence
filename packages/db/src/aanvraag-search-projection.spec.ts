@@ -157,12 +157,15 @@ const seedContractCases = async (
         bronSpecifiek,
         contentHash: `synthetic-contract-hash-${key}`,
         eersteGezienOp: NOW,
+        eindDatum: key === "canonical" ? "2027-02-28" : null,
         extractieMethode: "html_parser",
         laatstGezienOp: NOW,
         rawPayloadRef: `raw/synthetic-contract/${key}.json`,
         scrapeRunId: runId,
+        startDatum: key === "canonical" ? "2026-10-01" : null,
         status: "active",
         titel: `Synthetic contract case ${key}`,
+        urenPerWeek: key === "canonical" ? "32" : null,
         versie: 1,
       }))
     )
@@ -278,6 +281,13 @@ describe("Postgres aanvraag search projection contract aliases", () => {
       // oxlint-disable-next-line no-await-in-loop -- parity is proven against the actual single-row read store
       const record = await aanvraagStore.getById(id);
       expect(record?.contracttype).toBe(contractCase.expected);
+      if (contractCase.key === "canonical") {
+        expect(record).toMatchObject({
+          eindDatum: "2027-02-28",
+          startDatum: "2026-10-01",
+          urenPerWeek: "32",
+        });
+      }
     }
     expect(await loader.loadByAggregateId(crypto.randomUUID())).toBeNull();
 

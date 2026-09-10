@@ -133,6 +133,7 @@ describe("batch_get_aanvragen (RJC-379)", () => {
       "bronReferentie",
       "bronUrl",
       "contracttype",
+      "eindDatum",
       "enrichedFields",
       "id",
       "locatie",
@@ -142,24 +143,29 @@ describe("batch_get_aanvragen (RJC-379)", () => {
       "rawPayloadRef",
       "scrapeRunId",
       "sluitingsdatum",
+      "startDatum",
       "status",
       "tariefEenheid",
       "tariefMax",
       "tariefMin",
       "tariefValuta",
       "titel",
+      "urenPerWeek",
       "werkvorm",
     ]);
     expect(item?.aanvraag).toMatchObject({
       contracttype: null,
+      eindDatum: null,
       locatie: null,
       opdrachtgeverNaam: null,
       publicatiedatum: null,
       sluitingsdatum: null,
+      startDatum: null,
       tariefEenheid: null,
       tariefMax: null,
       tariefMin: null,
       tariefValuta: null,
+      urenPerWeek: null,
       werkvorm: null,
     });
     // previewText truncation still applies to the 600+ char beschrijving
@@ -174,14 +180,17 @@ describe("batch_get_aanvragen (RJC-379)", () => {
     bundle.deps.stores.aanvragen.seed({
       ...seedRecord(idA, "a"),
       contracttype: "detachering",
+      eindDatum: "2027-02-28",
       locatie: "Amsterdam",
       opdrachtgeverNaam: "Gemeente Amsterdam",
       publicatiedatum: "2026-08-26T04:34:00+02:00",
       sluitingsdatum: new Date("2026-09-15T10:00:00.000Z"),
+      startDatum: "2026-10-01",
       tariefEenheid: "uur",
       tariefMax: 110,
       tariefMin: 90,
       tariefValuta: "EUR",
+      urenPerWeek: "32",
       werkvorm: "remote",
     });
     const invoker = bundle.registry.createInvoker({
@@ -199,14 +208,17 @@ describe("batch_get_aanvragen (RJC-379)", () => {
     }
     expect(result.value.items[0]?.aanvraag).toMatchObject({
       contracttype: "detachering",
+      eindDatum: "2027-02-28",
       locatie: "Amsterdam",
       opdrachtgeverNaam: "Gemeente Amsterdam",
       publicatiedatum: "2026-08-26T04:34:00+02:00",
       sluitingsdatum: "2026-09-15T10:00:00.000Z",
+      startDatum: "2026-10-01",
       tariefEenheid: "uur",
       tariefMax: 110,
       tariefMin: 90,
       tariefValuta: "EUR",
+      urenPerWeek: "32",
       werkvorm: "remote",
     });
     expect(result.value.items[0]?.versies[0]).toMatchObject({

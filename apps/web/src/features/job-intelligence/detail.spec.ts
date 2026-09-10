@@ -63,7 +63,10 @@ describe("AE3 detail provenance mapping", () => {
     expect(job.organization).toBeNull();
     expect(job.publishedAt).toBeNull();
     expect(job.closingAt).toBeNull();
+    expect(job.endDate).toBeNull();
+    expect(job.hoursPerWeek).toBeNull();
     expect(job.remote).toBeNull();
+    expect(job.startDate).toBeNull();
     expect(job.workArrangement).toBeNull();
     expect(job.country).toBeNull();
     expect(job.rate).toBeNull();
@@ -229,6 +232,7 @@ describe("AE3 detail provenance mapping", () => {
         bronId: "bron-1",
         bronReferentie: "REF-1",
         contracttype: "detachering",
+        eindDatum: "2027-02-28",
         id: "aanvraag-1",
         locatie: "Amsterdam, Noord-Holland",
         opdrachtgeverNaam: "Gemeente Amsterdam",
@@ -236,12 +240,14 @@ describe("AE3 detail provenance mapping", () => {
         rawPayloadRef: "raw/ref-1.json",
         scrapeRunId: "run-1",
         sluitingsdatum: "2026-09-01T12:00:00.000Z",
+        startDatum: "2026-10-01",
         status: "active",
         tariefEenheid: "uur",
         tariefMax: 110,
         tariefMin: 90,
         tariefValuta: "EUR",
         titel: "Azure engineer",
+        urenPerWeek: "32",
         werkvorm: "Volledig remote",
       },
       bronCatalog: new Map(),
@@ -259,13 +265,40 @@ describe("AE3 detail provenance mapping", () => {
     expect(job).toMatchObject({
       closingAt: "2026-09-01T12:00:00.000Z",
       contractType: "detachering",
+      endDate: "2027-02-28",
+      hoursPerWeek: "32",
       location: "Amsterdam, Noord-Holland",
       organization: "Gemeente Amsterdam",
       publishedAt: "2026-08-03T09:00:00.000Z",
       rate: { currency: "EUR", max: 110, min: 90, period: "hour" },
       remote: true,
+      startDate: "2026-10-01",
       workArrangement: "Volledig remote",
     });
+  });
+
+  it("maps whitespace-only optional facts to null", () => {
+    const job = mapAanvraagToJobListing({
+      aanvraag: {
+        beschrijving: "Beschrijving",
+        bronId: "bron-1",
+        bronReferentie: "REF-1",
+        eindDatum: "  ",
+        id: "aanvraag-1",
+        rawPayloadRef: "raw/ref-1.json",
+        scrapeRunId: "run-1",
+        startDatum: "\t",
+        status: "active",
+        titel: "Opdracht",
+        urenPerWeek: "   ",
+      },
+      bronCatalog: new Map(),
+      versies: [],
+    });
+
+    expect(job.endDate).toBeNull();
+    expect(job.hoursPerWeek).toBeNull();
+    expect(job.startDate).toBeNull();
   });
 });
 

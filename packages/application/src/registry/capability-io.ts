@@ -30,6 +30,18 @@ const facetBuckets = Schema.Array(
   Schema.Struct({ count: FiniteNumber, value: Schema.String })
 );
 
+// Aanvraag envelopes deliberately remain open records: full detail can carry
+// source-specific fields. These typed optional keys keep the curated contract
+// visible and validate the period fields shared by preview and full reads.
+const aanvraagWireRecord = Schema.StructWithRest(
+  Schema.Struct({
+    eindDatum: optionalField(Schema.NullOr(Schema.String)),
+    startDatum: optionalField(Schema.NullOr(Schema.String)),
+    urenPerWeek: optionalField(Schema.NullOr(Schema.String)),
+  }),
+  [UnknownRecord]
+);
+
 export const SEARCH_MAX_LIMIT = 100;
 
 const DEFAULT_SEARCH_PAGE_SIZE = 20;
@@ -105,7 +117,7 @@ export const getAanvraagInputSchema = toCapabilitySchema(
 
 export const getAanvraagOutputSchema = toCapabilitySchema(
   Schema.Struct({
-    aanvraag: UnknownRecord,
+    aanvraag: aanvraagWireRecord,
     markering: Schema.NullOr(markeringReadbackSchema.effect),
   })
 );
@@ -143,7 +155,7 @@ export const batchGetAanvragenOutputSchema = toCapabilitySchema(
   Schema.Struct({
     items: Schema.Array(
       Schema.Struct({
-        aanvraag: UnknownRecord,
+        aanvraag: aanvraagWireRecord,
         id: Schema.String,
         markering: Schema.NullOr(markeringReadbackSchema.effect),
         versies: Schema.Array(versieView),

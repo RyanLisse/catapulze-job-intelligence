@@ -76,6 +76,7 @@ const previewAanvraag = (record: AanvraagRecord) => ({
   bronReferentie: record.bronReferentie,
   bronUrl: record.bronUrl ?? null,
   contracttype: record.contracttype ?? null,
+  eindDatum: record.eindDatum ?? null,
   enrichedFields: record.enrichedFields ?? [],
   id: record.id,
   locatie: record.locatie ?? null,
@@ -85,12 +86,14 @@ const previewAanvraag = (record: AanvraagRecord) => ({
   rawPayloadRef: record.rawPayloadRef,
   scrapeRunId: record.scrapeRunId,
   sluitingsdatum: record.sluitingsdatum?.toISOString() ?? null,
+  startDatum: record.startDatum ?? null,
   status: record.status,
   tariefEenheid: record.tariefEenheid ?? null,
   tariefMax: record.tariefMax ?? null,
   tariefMin: record.tariefMin ?? null,
   tariefValuta: record.tariefValuta ?? null,
   titel: record.titel,
+  urenPerWeek: record.urenPerWeek ?? null,
   werkvorm: record.werkvorm ?? null,
 });
 

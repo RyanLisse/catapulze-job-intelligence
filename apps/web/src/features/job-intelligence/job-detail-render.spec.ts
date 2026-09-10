@@ -210,3 +210,66 @@ describe("CTP-482 aangevuld provenance badge", () => {
     expect(markup).toContain("Werkvorm");
   });
 });
+
+describe("curated contract period fields", () => {
+  it("renders hours and dates and keeps absent values honest", () => {
+    if (!plainJob) {
+      throw new Error("Expected job-001 fixture");
+    }
+    const populated = renderToStaticMarkup(
+      createElement(JobDetail, {
+        descriptionId: "d",
+        job: {
+          ...plainJob,
+          endDate: "2027-02-28",
+          hoursPerWeek: "32",
+          startDate: "2026-10-01",
+        },
+        onClose: () => {},
+        titleId: "t",
+      })
+    );
+    expect(populated).toContain("Uren per week");
+    expect(populated).toContain(">32<");
+    expect(populated).toContain("Startdatum");
+    expect(populated).toContain("1 okt 2026");
+    expect(populated).toContain("Einddatum");
+    expect(populated).toContain("28 feb 2027");
+
+    const absent = renderToStaticMarkup(
+      createElement(JobDetail, {
+        descriptionId: "d",
+        job: plainJob,
+        onClose: () => {},
+        titleId: "t",
+      })
+    );
+    expect(absent).toContain("Uren per week");
+    expect(absent).toContain("Startdatum");
+    expect(absent).toContain("Einddatum");
+    expect(
+      absent.match(/>Onbekend<\/span><\/dd>/gu)?.length
+    ).toBeGreaterThanOrEqual(3);
+  });
+
+  it("preserves invalid or source-provided date text literally", () => {
+    if (!plainJob) {
+      throw new Error("Expected job-001 fixture");
+    }
+    const markup = renderToStaticMarkup(
+      createElement(JobDetail, {
+        descriptionId: "d",
+        job: {
+          ...plainJob,
+          endDate: "zo spoedig mogelijk",
+          startDate: "1",
+        },
+        onClose: () => {},
+        titleId: "t",
+      })
+    );
+
+    expect(markup).toContain(">1</span>");
+    expect(markup).toContain(">zo spoedig mogelijk</span>");
+  });
+});

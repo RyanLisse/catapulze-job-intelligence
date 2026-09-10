@@ -356,6 +356,7 @@ const createSyntheticRegistry = async () => {
       bronId: document.bronId,
       bronReferentie: `SYNTH-${document.id.slice(-3)}`,
       contracttype: hasPublishedFacts ? "detachering" : null,
+      eindDatum: document.id === longDetailJob.id ? "2027-02-28" : null,
       id: document.id,
       locatie: document.locatie ?? null,
       // Organization is absent from the currently persisted source facts.
@@ -366,12 +367,14 @@ const createSyntheticRegistry = async () => {
       sluitingsdatum: hasPublishedFacts
         ? new Date("2099-09-30T17:00:00.000Z")
         : null,
+      startDatum: document.id === longDetailJob.id ? "2026-10-01" : null,
       status: document.status,
       tariefEenheid: rateFacts?.tariefEenheid ?? null,
       tariefMax: rateFacts?.tariefMax ?? null,
       tariefMin: rateFacts?.tariefMin ?? null,
       tariefValuta: rateFacts?.tariefValuta ?? null,
       titel: document.titel,
+      urenPerWeek: document.id === longDetailJob.id ? "32" : null,
       versies: [],
       werkvorm: hasPublishedFacts ? "remote" : null,
     });
