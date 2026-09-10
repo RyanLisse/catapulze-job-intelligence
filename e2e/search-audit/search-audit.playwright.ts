@@ -190,7 +190,7 @@ for (const { rate, title } of RATE_CASES) {
     await expect(row).not.toContainText("/ uur");
 
     await row.getByRole("button", { name: title }).click();
-    const detail = page.locator("aside").filter({ hasText: title });
+    const detail = page.getByRole("dialog", { exact: true, name: title });
     await expect(detail).toBeVisible();
     await expect(detail.getByRole("heading", { name: title })).toBeVisible();
     await expect(detail).toContainText(rate);
@@ -422,6 +422,8 @@ test("keeps partial hits visible and blocks snapshots until retry", async ({
   await expect(
     page.getByRole("heading", { name: "Timeout platformopdracht" })
   ).toBeVisible();
+  await page.getByRole("button", { name: "Vacaturedetail sluiten" }).click();
+  await expect(page.getByRole("dialog")).not.toBeVisible();
   const snapshotButton = page.getByRole("button", { name: "Snapshot maken" });
   await expect(snapshotButton).toBeDisabled();
   await expect(snapshotButton).toHaveAttribute(
@@ -431,7 +433,7 @@ test("keeps partial hits visible and blocks snapshots until retry", async ({
   await page.screenshot({
     animations: "disabled",
     fullPage: true,
-    path: testInfo.outputPath("partial-hit-timeout-selected.png"),
+    path: testInfo.outputPath("partial-hit-timeout-after-detail.png"),
   });
 
   await incompleteAlert
@@ -446,4 +448,99 @@ test("keeps partial hits visible and blocks snapshots until retry", async ({
       "POST /v1/aanvragen/batch",
     ])
   );
+});
+
+for (const viewport of [
+  { height: 960, width: 1440 },
+  { height: 844, width: 390 },
+]) {
+  test(`opens a right-side detail drawer at ${viewport.width}px and restores focus`, async ({
+    page,
+  }, testInfo) => {
+    await page.setViewportSize(viewport);
+    await openJobs(page);
+    const trigger = page.getByRole("button", {
+      name: DETAIL_TITLE,
+    });
+    await expect(trigger).toBeVisible();
+    const resultElement = page.locator('[aria-label="Zoekresultaten"]');
+    const before = await resultElement.boundingBox();
+    await trigger.click();
+    const drawer = page.getByRole("dialog", {
+      exact: true,
+      name: DETAIL_TITLE,
+    });
+    await expect(drawer).toBeVisible();
+    await expect(page.locator('[data-slot="drawer-overlay"]')).toBeVisible();
+    await expect(page).toHaveURL(
+      (url) => url.searchParams.get("job") === DETAIL_ID
+    );
+    await expect
+      .poll(async () => {
+        const bounds = await drawer.boundingBox();
+        return bounds
+          ? Math.abs(bounds.x + bounds.width - viewport.width)
+          : 999;
+      })
+      .toBeLessThan(2);
+    const bounds = await drawer.boundingBox();
+    expect(bounds?.height).toBeGreaterThan(viewport.height - 5);
+    if (viewport.width > 800) {
+      expect(bounds?.width).toBeGreaterThan(500);
+      expect(bounds?.width).toBeLessThan(800);
+    } else {
+      expect(bounds?.width).toBeGreaterThan(viewport.width - 5);
+    }
+    const after = await resultElement.boundingBox();
+    expect(after?.width).toBeCloseTo(before?.width ?? 0, 0);
+    await page.screenshot({
+      animations: "disabled",
+      path: testInfo.outputPath("right-drawer.png"),
+    });
+    const close = drawer.getByRole("button", {
+      name: "Vacaturedetail sluiten",
+    });
+    await close.focus();
+    await page.keyboard.press("Shift+Tab");
+    await expect
+      .poll(() =>
+        drawer.evaluate((element) =>
+          element.contains(element.ownerDocument.activeElement)
+        )
+      )
+      .toBe(true);
+    await drawer.locator("[data-body-format]").scrollIntoViewIfNeeded();
+    await expect(drawer.locator("[data-body-format]")).toContainText(
+      DETAIL_END_MARKER
+    );
+    await page.keyboard.press("Escape");
+    await expect(drawer).not.toBeVisible();
+    await expect(page).toHaveURL((url) => !url.searchParams.has("job"));
+    await expect(trigger).toBeFocused();
+    await trigger.click();
+    await expect(drawer).toBeVisible();
+    await drawer
+      .getByRole("button", { name: "Vacaturedetail sluiten" })
+      .click();
+    await expect(drawer).not.toBeVisible();
+    await expect(trigger).toBeFocused();
+  });
+}
+
+test("keeps drawer deep links and browser navigation consistent", async ({
+  page,
+}) => {
+  await openJobs(page);
+  await page.getByRole("button", { name: DETAIL_TITLE }).click();
+  const drawer = page.getByRole("dialog", { exact: true, name: DETAIL_TITLE });
+  await expect(drawer).toBeVisible();
+  await page.goBack();
+  await expect(drawer).not.toBeVisible();
+  await page.goForward();
+  await expect(drawer).toBeVisible();
+  await page.reload();
+  await expect(drawer).toBeVisible();
+  await page.mouse.click(10, 300);
+  await expect(drawer).not.toBeVisible();
+  await expect(page).toHaveURL((url) => !url.searchParams.has("job"));
 });
