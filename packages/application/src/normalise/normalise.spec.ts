@@ -246,6 +246,7 @@ const buildNeedstaffingPayload = (
     periode: "4 maanden",
     referentie: "2026-BZB-0457",
     start: "1790380800000",
+    tarief: "€98-102",
     tariefMax: "102",
     tariefMin: "98",
     titel: "Operationeel Database Ontwikkelaar 2026-BZB-0457",
@@ -261,7 +262,7 @@ const buildNeedstaffingPayload = (
 });
 
 describe("normalise needstaffing", () => {
-  it("derives typed tarief.min/max and an ISO startDatum from epoch fields", () => {
+  it("keeps a parsed tarief band but leaves its unit unknown when the source does not publish one", () => {
     const draft = parseNeedstaffingPayload(
       buildNeedstaffingPayload(),
       "hash-needstaffing"
@@ -269,7 +270,8 @@ describe("normalise needstaffing", () => {
 
     expect(draft.tarief.min).toBe("98");
     expect(draft.tarief.max).toBe("102");
-    expect(draft.tarief.eenheid).toBe("uur");
+    expect(draft.tarief.eenheid).toBe(UNKNOWN);
+    expect(draft.parserVersion).toBe("needstaffing/v2");
     expect(draft.startDatum.value).toBe("2026-09-26");
     expect(draft.bronReferentie.value).toBe("15520");
     expect(draft.bronUrl.value).toBe(
@@ -280,6 +282,40 @@ describe("normalise needstaffing", () => {
       "Rolomschrijving voor database ontwikkelaar"
     );
     expect(validateNormalisedDraft(draft)).toEqual([]);
+  });
+
+  it("sets the tarief unit for an explicit per-hour source band", () => {
+    const draft = parseNeedstaffingPayload(
+      buildNeedstaffingPayload({
+        tarief: "€80,- / €95,- per uur all-in ex.btw",
+        tariefMax: "95",
+        tariefMin: "80",
+      }),
+      "hash-needstaffing-hourly"
+    );
+
+    expect(draft.tarief).toEqual({
+      eenheid: "uur",
+      max: "95",
+      min: "80",
+      valuta: "EUR",
+    });
+  });
+
+  it("decodes entities in the canonical plain description", () => {
+    const draft = parseNeedstaffingPayload(
+      {
+        ...buildNeedstaffingPayload(),
+        raw: {
+          html: "<p>Inrichten en ontwikkelen van datastromen (van bron ontsluiting tot dashboard &amp; applicaties)</p>",
+        },
+      },
+      "hash-needstaffing-entities"
+    );
+
+    expect(draft.beschrijving.value).toBe(
+      "Inrichten en ontwikkelen van datastromen (van bron ontsluiting tot dashboard & applicaties)"
+    );
   });
 
   it("falls back to UNKNOWN when tarief or start data is missing", () => {

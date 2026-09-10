@@ -148,6 +148,12 @@ describe("Needstaffing HTML parsing", () => {
     });
   });
 
+  it("parses slash-separated all-in rates with comma-dash suffixes", () => {
+    expect(
+      parseNeedstaffingTariefBand("€80,- / €95,- per uur all-in ex.btw")
+    ).toEqual({ max: "95", min: "80" });
+  });
+
   it("parses listing cards into items with dates as epoch strings, and does not leak a field into an info-item with no recognised icon", async () => {
     const listing = await parseNeedstaffingListing(LISTING_HTML);
     expect(listing.items).toHaveLength(2);

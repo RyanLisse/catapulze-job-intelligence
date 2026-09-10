@@ -1,3 +1,4 @@
+import { decodeHtmlEntities } from "@ji/connectors";
 import type { NeedstaffingFetchedPayload } from "@ji/connectors/needstaffing";
 import { NEEDSTAFFING_PARSER_VERSION } from "@ji/connectors/needstaffing";
 import { UNKNOWN } from "@ji/domain";
@@ -60,13 +61,18 @@ const epochToIsoInstant = (epochMs: string | undefined): string | undefined => {
 const tariefAmount = (value: string | undefined): string | typeof UNKNOWN =>
   value ? value.replace(",", ".") : UNKNOWN;
 
+const HOURLY_TARIEF_PATTERN = /\bper\s+(?:hour|uur)\b/iu;
+
+const tariefEenheid = (value: string | undefined): "uur" | typeof UNKNOWN =>
+  value && HOURLY_TARIEF_PATTERN.test(value) ? "uur" : UNKNOWN;
+
 export const parseNeedstaffingPayload = (
   payload: NeedstaffingFetchedPayload,
   contentHash: string
 ): NormalisedAanvraagDraft => {
   const { detail, listing, raw } = payload;
   const parserVersion = NEEDSTAFFING_PARSER_VERSION;
-  const beschrijving = stripHtml(raw.html) || detail.titel;
+  const beschrijving = stripHtml(decodeHtmlEntities(raw.html)) || detail.titel;
   // The detail page's own "Deadline voor reageren" block (`detail.deadline`)
   // is a real, per-listing closing moment -- confirmed live 2026-08-31
   // (fixtures/connectors/needstaffing/detail-15520.json). Previously this
@@ -124,7 +130,7 @@ export const parseNeedstaffingPayload = (
     ),
     status: lifecycle,
     tarief: {
-      eenheid: "uur",
+      eenheid: tariefEenheid(detail.tarief),
       max: tariefAmount(detail.tariefMax),
       min: tariefAmount(detail.tariefMin),
       valuta: "EUR",

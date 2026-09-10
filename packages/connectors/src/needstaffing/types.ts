@@ -35,7 +35,7 @@ export interface NeedstaffingFetchedPayload {
   raw: { html: string };
 }
 
-export const NEEDSTAFFING_PARSER_VERSION = "needstaffing/v1" as const;
+export const NEEDSTAFFING_PARSER_VERSION = "needstaffing/v2" as const;
 
 export const NEEDSTAFFING_OPDRACHTEN_PATH = "/Opdrachten";
 

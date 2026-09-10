@@ -30,6 +30,8 @@ const buildPayload = (
     jobId: "452d25a3-ae7d-4ee6-9ceb-3c696332799f",
     jsonLd: {
       datePosted: "2026-08-31T07:24:55.419Z",
+      description:
+        "<p>Voor onze eindklant Politie is Harvey Nash op zoek naar een endpoints specialist</p>",
       title: "Endpoints specialist ",
       validThrough: "2026-09-07T23:59:59.999Z",
     },
@@ -204,11 +206,34 @@ describe("parseHarveyNashPayload", () => {
   });
 
   it("builds beschrijving from the parsed facts", () => {
-    const draft = parseHarveyNashPayload(buildPayload(), "hash-4");
+    const draft = parseHarveyNashPayload(
+      buildPayload({
+        jsonLd: { ...buildPayload().detail.jsonLd, description: undefined },
+      }),
+      "hash-4"
+    );
     expect(draft.beschrijving.value).toContain("Locatie: Bunnik , Utrecht");
     expect(draft.beschrijving.value).toContain(
       "Richttarief: Max tarief 106.50 euro all-in exclusief btw"
     );
+  });
+
+  it("prefers the retained full source description over the synthesized fallback", () => {
+    const description =
+      "<p>Voor onze eindklant Politie is Harvey Nash op zoek naar een endpoints specialist</p><p>Werkzaamheden thuis kunnen enkel vanuit Nederland plaatsvinden.</p>";
+    const draft = parseHarveyNashPayload(
+      buildPayload({
+        jsonLd: { ...buildPayload().detail.jsonLd, description },
+      }),
+      "hash-full-description"
+    );
+    expect(draft.beschrijving.value).toBe(
+      "Voor onze eindklant Politie is Harvey Nash op zoek naar een endpoints specialist Werkzaamheden thuis kunnen enkel vanuit Nederland plaatsvinden."
+    );
+    expect(draft.beschrijving.provenance.sourcePath).toBe(
+      "detail.jsonLd.description"
+    );
+    expect(draft.parserVersion).toBe("harveynash/v2");
   });
 
   it("normaliseHarveyNashObservation round-trips a serialised payload", () => {
