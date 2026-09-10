@@ -1,4 +1,5 @@
 import { loadConnectorFixture } from "../fixtures/load";
+import { resolveHttpTimeoutMs, withHttpTimeout } from "../http-timeout";
 import { extractJobPosting, extractLabelBlock } from "./extract";
 import type {
   JsonLdConnectorConfig,
@@ -23,6 +24,8 @@ export interface JsonLdClientOptions {
   fetchImpl?: typeof fetch;
   listingFixturePath?: string;
   liveEnabled?: boolean;
+  /** Maximum time for one live request, including response-body consumption. */
+  timeoutMs?: number;
 }
 
 const SITEMAP_URL_BLOCK_PATTERN = /<url>(?<block>[\s\S]*?)<\/url>/giu;
@@ -125,6 +128,7 @@ export const createJsonLdClient = (
 ): JsonLdClient => {
   const { config } = options;
   const fetchImpl = options.fetchImpl ?? fetch;
+  const timeoutMs = resolveHttpTimeoutMs(options.timeoutMs);
   const liveEnabled =
     options.liveEnabled ??
     (config.liveEnvVar ? process.env[config.liveEnvVar] === "1" : false);
@@ -168,8 +172,10 @@ export const createJsonLdClient = (
         const fixture = await loadConnectorFixture<string>(relativePath);
         return buildDetailPayload(url, fixture.payload);
       }
-      const response = await fetchImpl(url);
-      const html = await readText(response, config.slug, "detail");
+      const html = await withHttpTimeout(async (signal) => {
+        const response = await fetchImpl(url, { signal });
+        return await readText(response, config.slug, "detail");
+      }, timeoutMs);
       return buildDetailPayload(url, html);
     },
     fetchListing: async () => {
@@ -177,8 +183,10 @@ export const createJsonLdClient = (
         const fixture = await loadConnectorFixture<string>(listingFixturePath);
         return parseListingSource(fixture.payload);
       }
-      const response = await fetchImpl(config.discovery.url);
-      const raw = await readText(response, config.slug, "listing");
+      const raw = await withHttpTimeout(async (signal) => {
+        const response = await fetchImpl(config.discovery.url, { signal });
+        return await readText(response, config.slug, "listing");
+      }, timeoutMs);
       return parseListingSource(raw);
     },
   };

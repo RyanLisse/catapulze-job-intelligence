@@ -1,4 +1,5 @@
 import { loadConnectorFixture } from "../fixtures/load";
+import { resolveHttpTimeoutMs, withHttpTimeout } from "../http-timeout";
 import { findJobPosting, extractJsonLdBlocks } from "../json-ld";
 import type { JsonLdNode } from "../json-ld";
 import {
@@ -31,6 +32,8 @@ export interface OpdrachtoverheidClientOptions {
   fetchImpl?: typeof fetch;
   listingFixturePath?: string;
   liveEnabled?: boolean;
+  /** Maximum time for one live request, including response-body consumption. */
+  timeoutMs?: number;
 }
 
 const DEFAULT_BASE_URL = "https://kbenp-match-api.azurewebsites.net";
@@ -81,6 +84,7 @@ export const createOpdrachtoverheidClient = (
   options: OpdrachtoverheidClientOptions = {}
 ): OpdrachtoverheidClient => {
   const fetchImpl = options.fetchImpl ?? fetch;
+  const timeoutMs = resolveHttpTimeoutMs(options.timeoutMs);
   const liveEnabled =
     options.liveEnabled ?? process.env.OPDRACHTOVERHEID_LIVE === "1";
   const listingFixturePath =
@@ -92,13 +96,15 @@ export const createOpdrachtoverheidClient = (
       if (!liveEnabled) {
         return null;
       }
-      const response = await fetchImpl(detailUrl);
-      if (!response.ok) {
-        return null;
-      }
-      const html = await response.text();
-      const blocks = extractJsonLdBlocks(html);
-      return findJobPosting(blocks) ?? null;
+      return await withHttpTimeout(async (signal) => {
+        const response = await fetchImpl(detailUrl, { signal });
+        if (!response.ok) {
+          return null;
+        }
+        const html = await response.text();
+        const blocks = extractJsonLdBlocks(html);
+        return findJobPosting(blocks) ?? null;
+      }, timeoutMs);
     },
     fetchListing: async (page) => {
       if (!liveEnabled) {
@@ -113,15 +119,18 @@ export const createOpdrachtoverheidClient = (
       }
 
       const requestedLimit = OPDRACHTOVERHEID_PAGE_SIZE * (page + 1);
-      const response = await fetchImpl(
-        `${baseUrl}${OPDRACHTOVERHEID_SEARCH_PATH}`,
-        {
-          body: JSON.stringify({ limit: requestedLimit, offset: 0 }),
-          headers: { "Content-Type": "application/json" },
-          method: "POST",
-        }
-      );
-      const body = await readJson<OpdrachtoverheidListingResponse>(response);
+      const body = await withHttpTimeout(async (signal) => {
+        const response = await fetchImpl(
+          `${baseUrl}${OPDRACHTOVERHEID_SEARCH_PATH}`,
+          {
+            body: JSON.stringify({ limit: requestedLimit, offset: 0 }),
+            headers: { "Content-Type": "application/json" },
+            method: "POST",
+            signal,
+          }
+        );
+        return await readJson<OpdrachtoverheidListingResponse>(response);
+      }, timeoutMs);
       const all = body.negometrix_tenders;
       const items = all.slice(page * OPDRACHTOVERHEID_PAGE_SIZE);
       return { hasMore: all.length === requestedLimit, items };
