@@ -152,12 +152,15 @@ export interface JobListing {
   readonly status: JobLifecycleStatus;
   readonly summary: string;
   readonly description: string;
+  readonly endDate?: string | null;
+  readonly hoursPerWeek?: string | null;
   readonly remote: boolean | null;
   /** Curated source wording when a bron explicitly publishes the work form. */
   readonly workArrangement?: string | null;
   readonly markering?: JobMarkering | null;
   readonly enrichedFields?: readonly JobEnrichedField[];
   readonly rawPreview?: string;
+  readonly startDate?: string | null;
 }
 
 export interface JobSearchFilters {

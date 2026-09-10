@@ -67,6 +67,7 @@ export interface AanvraagRecord {
   readonly contracttype?: string | null;
   /** Provenance for fields filled by the enrichment worker (CTP-482). */
   readonly enrichedFields?: readonly AanvraagEnrichedField[];
+  readonly eindDatum?: string | null;
   readonly id: string;
   readonly locatie?: string | null;
   readonly opdrachtgeverNaam?: string | null;
@@ -81,6 +82,7 @@ export interface AanvraagRecord {
   readonly tariefMin?: number | null;
   readonly tariefValuta?: string | null;
   readonly titel: string;
+  readonly urenPerWeek?: string | null;
   readonly versies: readonly AanvraagVersieRecord[];
   readonly werkvorm?: string | null;
 }

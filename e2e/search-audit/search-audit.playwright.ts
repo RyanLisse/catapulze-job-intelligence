@@ -235,61 +235,89 @@ test("shows catalog labels, historical archive filters, and closed results", asy
   await expect(closedRow).toBeVisible();
 });
 
-test("loads full REST detail without making search batch hydration full", async ({
-  page,
-}) => {
-  const batchBodies: unknown[] = [];
-  page.on("request", (request) => {
-    const url = new URL(request.url());
-    if (
-      request.method() === "POST" &&
-      url.origin === "http://localhost:3100" &&
-      url.pathname === "/v1/aanvragen/batch"
-    ) {
-      batchBodies.push(request.postDataJSON());
-    }
-  });
+test.describe("date-only facts in a negative UTC timezone", () => {
+  test.use({ timezoneId: "America/Los_Angeles" });
 
-  await openJobs(page);
-  await expect(
-    page.getByRole("region", { name: "Zoekresultaten" })
-  ).toContainText(LIVE_CATALOG_LABEL);
-  const fullDetailResponse = page.waitForResponse(
-    (response) => {
-      const url = new URL(response.url());
-      return (
-        response.request().method() === "GET" &&
+  test("loads full REST detail without making search batch hydration full", async ({
+    page,
+  }) => {
+    const batchBodies: unknown[] = [];
+    page.on("request", (request) => {
+      const url = new URL(request.url());
+      if (
+        request.method() === "POST" &&
         url.origin === "http://localhost:3100" &&
-        url.pathname === `/v1/aanvragen/${DETAIL_ID}` &&
-        url.searchParams.get("full") === "true" &&
-        response.ok()
-      );
-    },
-    { timeout: 15_000 }
-  );
-  await page.getByRole("button", { name: DETAIL_TITLE }).click();
-  const detailResponse = await fullDetailResponse;
-  // SAFETY: the successful response comes from the typed synthetic get_aanvraag handler.
-  const detailBody = (await detailResponse.json()) as {
-    aanvraag: { beschrijving: string; mode: string };
-  };
-  expect(detailBody.aanvraag.mode).toBe("full");
-  expect(detailBody.aanvraag.beschrijving.length).toBeGreaterThan(500);
-  expect(detailBody.aanvraag.beschrijving).toContain(DETAIL_END_MARKER);
+        url.pathname === "/v1/aanvragen/batch"
+      ) {
+        batchBodies.push(request.postDataJSON());
+      }
+    });
 
-  await expect(page.getByRole("heading", { name: DETAIL_TITLE })).toBeVisible();
-  const detailDescription = page
-    .locator("[data-body-format]:visible")
-    .filter({ hasText: DETAIL_END_MARKER });
-  await expect(detailDescription).toBeVisible();
-  await expect(detailDescription).toContainText(DETAIL_END_MARKER);
-  const detailText = await detailDescription.textContent();
-  expect(detailText?.length).toBeGreaterThan(500);
+    await openJobs(page);
+    await expect(
+      page.getByRole("region", { name: "Zoekresultaten" })
+    ).toContainText(LIVE_CATALOG_LABEL);
+    const fullDetailResponse = page.waitForResponse(
+      (response) => {
+        const url = new URL(response.url());
+        return (
+          response.request().method() === "GET" &&
+          url.origin === "http://localhost:3100" &&
+          url.pathname === `/v1/aanvragen/${DETAIL_ID}` &&
+          url.searchParams.get("full") === "true" &&
+          response.ok()
+        );
+      },
+      { timeout: 15_000 }
+    );
+    await page.getByRole("button", { name: DETAIL_TITLE }).click();
+    const detailResponse = await fullDetailResponse;
+    // SAFETY: the successful response comes from the typed synthetic get_aanvraag handler.
+    const detailBody = (await detailResponse.json()) as {
+      aanvraag: {
+        beschrijving: string;
+        eindDatum: string | null;
+        mode: string;
+        startDatum: string | null;
+        urenPerWeek: string | null;
+      };
+    };
+    expect(detailBody.aanvraag.mode).toBe("full");
+    expect(detailBody.aanvraag.beschrijving.length).toBeGreaterThan(500);
+    expect(detailBody.aanvraag.beschrijving).toContain(DETAIL_END_MARKER);
+    expect(detailBody.aanvraag.eindDatum).toBe("2027-02-28");
+    expect(detailBody.aanvraag.startDatum).toBe("2026-10-01");
+    expect(detailBody.aanvraag.urenPerWeek).toBe("32");
 
-  expect(batchBodies.length).toBeGreaterThan(0);
-  expect(batchBodies).not.toContainEqual(
-    expect.objectContaining({ full: true })
-  );
+    await expect(
+      page.getByRole("heading", { name: DETAIL_TITLE })
+    ).toBeVisible();
+    const detailFacts = page.locator("dl:visible");
+    await expect(
+      detailFacts
+        .locator("dt")
+        .filter({ hasText: "Uren per week" })
+        .locator("..")
+    ).toContainText("32");
+    await expect(
+      detailFacts.locator("dt").filter({ hasText: "Startdatum" }).locator("..")
+    ).toContainText("1 okt 2026");
+    await expect(
+      detailFacts.locator("dt").filter({ hasText: "Einddatum" }).locator("..")
+    ).toContainText("28 feb 2027");
+    const detailDescription = page
+      .locator("[data-body-format]:visible")
+      .filter({ hasText: DETAIL_END_MARKER });
+    await expect(detailDescription).toBeVisible();
+    await expect(detailDescription).toContainText(DETAIL_END_MARKER);
+    const detailText = await detailDescription.textContent();
+    expect(detailText?.length).toBeGreaterThan(500);
+
+    expect(batchBodies.length).toBeGreaterThan(0);
+    expect(batchBodies).not.toContainEqual(
+      expect.objectContaining({ full: true })
+    );
+  });
 });
 
 test("shows and retries a zero-hit query timeout", async ({

@@ -22,6 +22,45 @@ const RAW_PREVIEW_INDENT = 2;
 const badgeClass =
   "rounded-full border border-border bg-secondary px-2.5 py-0.5 text-[11px] font-medium";
 
+const ISO_DATE_PATTERN =
+  /^(?<year>\d{4})-(?<month>\d{2})-(?<day>\d{2})(?:T(?<hour>\d{2}):(?<minute>\d{2})(?::(?<second>\d{2})(?:\.\d{1,9})?)?(?:Z|[+-]\d{2}:\d{2})?)?$/u;
+
+const dateOnlyFormatter = new Intl.DateTimeFormat("nl-NL", {
+  day: "numeric",
+  month: "short",
+  timeZone: "UTC",
+  year: "numeric",
+});
+
+const formatOptionalDate = (value: string | null | undefined): string => {
+  if (!value || value.trim() === "") {
+    return "Onbekend";
+  }
+  const match = ISO_DATE_PATTERN.exec(value);
+  if (!match?.groups) {
+    return value;
+  }
+
+  const year = Number(match.groups.year);
+  const month = Number(match.groups.month);
+  const day = Number(match.groups.day);
+  const lastDay =
+    month >= 1 && month <= 12
+      ? new Date(Date.UTC(year, month, 0)).getUTCDate()
+      : 0;
+  if (day < 1 || day > lastDay) {
+    return value;
+  }
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+  return match.groups.hour === undefined
+    ? dateOnlyFormatter.format(date)
+    : formatDate(value);
+};
+
 const DetailField = ({
   aangevuld = false,
   aangevuldField,
@@ -260,6 +299,18 @@ export const JobDetail = ({
             value={formatDate(job.publishedAt)}
           />
           <DetailField label="Sluit" value={formatDate(job.closingAt)} />
+          <DetailField
+            label="Uren per week"
+            value={job.hoursPerWeek ?? "Onbekend"}
+          />
+          <DetailField
+            label="Startdatum"
+            value={formatOptionalDate(job.startDate)}
+          />
+          <DetailField
+            label="Einddatum"
+            value={formatOptionalDate(job.endDate)}
+          />
         </dl>
 
         <DetailSection title="Opdracht">

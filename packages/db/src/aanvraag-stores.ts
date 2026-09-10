@@ -42,6 +42,7 @@ const toAanvraagRecord = (
     bronReferentie: row.bronReferentie,
     bronUrl: row.bronUrl,
     contracttype: row.contracttype ?? bronFacts.contracttype,
+    eindDatum: row.eindDatum,
     enrichedFields: [],
     id: row.id,
     // locatie_land defaults to NL and is therefore not proof of a published location.
@@ -63,6 +64,7 @@ const toAanvraagRecord = (
         ? null
         : row.tariefValuta,
     titel: row.titel,
+    urenPerWeek: row.urenPerWeek,
     versies,
     werkvorm: row.werkvorm ?? bronFacts.werkvorm,
   };

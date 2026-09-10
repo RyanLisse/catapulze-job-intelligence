@@ -28,6 +28,7 @@ export interface AanvraagPreview {
     readonly field: "contract" | "locatie" | "remote" | "tarief";
     readonly source: "deterministic" | "llm";
   }[];
+  readonly eindDatum?: string | null;
   readonly id: string;
   readonly locatie?: string | null;
   readonly opdrachtgeverNaam?: string | null;
@@ -35,12 +36,14 @@ export interface AanvraagPreview {
   readonly rawPayloadRef: string;
   readonly scrapeRunId: string;
   readonly sluitingsdatum?: string | null;
+  readonly startDatum?: string | null;
   readonly status: string;
   readonly tariefEenheid?: string | null;
   readonly tariefMax?: number | null;
   readonly tariefMin?: number | null;
   readonly tariefValuta?: string | null;
   readonly titel: string;
+  readonly urenPerWeek?: string | null;
   readonly werkvorm?: string | null;
 }
 
@@ -89,6 +92,11 @@ const latestVersie = (
 const previewSummary = (value: string): string => {
   const plain = stripHtmlToText(value) || value.trim();
   return plain.length <= 220 ? plain : `${plain.slice(0, 217)}…`;
+};
+
+const optionalText = (value: string | null | undefined): string | null => {
+  const trimmed = value?.trim() ?? "";
+  return trimmed || null;
 };
 
 const mapContractType = (value: string | null): JobContractType | null => {
@@ -196,7 +204,9 @@ export const mapAanvraagToJobListing = (input: {
     contractType: mapContractType(input.aanvraag.contracttype ?? null),
     country: null,
     description: input.aanvraag.beschrijving,
+    endDate: optionalText(input.aanvraag.eindDatum),
     enrichedFields: input.aanvraag.enrichedFields ?? [],
+    hoursPerWeek: optionalText(input.aanvraag.urenPerWeek),
     id: input.aanvraag.id,
     location: input.aanvraag.locatie ?? null,
     markering: input.markering ?? null,
@@ -227,6 +237,7 @@ export const mapAanvraagToJobListing = (input: {
         validTo: versie?.geldigTot ?? null,
       },
     ],
+    startDate: optionalText(input.aanvraag.startDatum),
     status: mapApiStatus(input.aanvraag.status),
     summary: previewSummary(input.aanvraag.beschrijving),
     title: input.aanvraag.titel,
