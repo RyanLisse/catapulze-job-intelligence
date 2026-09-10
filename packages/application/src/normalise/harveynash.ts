@@ -247,7 +247,9 @@ const resolveBeschrijving = (
 ): ResolvedBeschrijving => {
   const sourceDescription = detail.jsonLd.description?.trim();
   if (sourceDescription) {
-    const fullDescription = stripHtml(decodeHtmlEntities(sourceDescription));
+    const fullDescription = decodeHtmlEntities(stripHtml(sourceDescription))
+      .replaceAll(/\s+/gu, " ")
+      .trim();
     if (fullDescription) {
       return {
         sourcePath: "detail.jsonLd.description",

@@ -236,6 +236,23 @@ describe("parseHarveyNashPayload", () => {
     expect(draft.parserVersion).toBe("harveynash/v2");
   });
 
+  it("removes source tags before retaining escaped angle-bracket text", () => {
+    const draft = parseHarveyNashPayload(
+      buildPayload({
+        jsonLd: {
+          ...buildPayload().detail.jsonLd,
+          description:
+            "<p>Een organisatie met &lt;5 werknemers&gt; zoekt een <strong>specialist.</strong></p>",
+        },
+      }),
+      "hash-angle-text"
+    );
+
+    expect(draft.beschrijving.value).toBe(
+      "Een organisatie met <5 werknemers> zoekt een specialist."
+    );
+  });
+
   it("normaliseHarveyNashObservation round-trips a serialised payload", () => {
     const payload = buildPayload();
     const body = new TextEncoder().encode(JSON.stringify(payload));
