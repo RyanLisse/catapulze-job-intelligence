@@ -89,7 +89,7 @@ export const formatRate = (job: JobListing): string => {
 
 export const primarySource = (job: JobListing): string => {
   const [source] = job.sourceRecords;
-  return source ? sourceLabel(source.name) : "Bron onbekend";
+  return source?.displayName ?? "Bron onbekend";
 };
 
 const describeBooleanError = (message: string, offset: number): string => {

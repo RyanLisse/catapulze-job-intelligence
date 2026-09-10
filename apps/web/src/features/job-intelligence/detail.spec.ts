@@ -52,6 +52,7 @@ describe("AE3 detail provenance mapping", () => {
 
     expect(job.sourceRecords[0]?.reference).toBe("TN-883021");
     expect(job.sourceRecords[0]?.name).toBe("tenderned");
+    expect(job.sourceRecords[0]?.displayName).toBe("TenderNed");
     expect(job.sourceRecords[0]?.scrapeRunId).toBe(
       "00000000-0000-4000-8000-000000000020"
     );

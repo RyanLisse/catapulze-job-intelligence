@@ -65,12 +65,14 @@ const mapApiStatus = (status: string): JobLifecycleStatus => {
 // every other registered source. bronNameToSource is now a total slugifier,
 // so the only remaining fallback is an unknown bronId itself (never a
 // specific other bron's name).
-const resolveSourceName = (
+const resolveSource = (
   bronId: string,
   bronCatalog: ReadonlyMap<string, BronCatalogEntry>
-): JobSource => {
+): { readonly displayName: string; readonly name: JobSource } => {
   const bron = bronCatalog.get(bronId);
-  return bron ? bronNameToSource(bron.naam) : bronId;
+  return bron
+    ? { displayName: bron.naam, name: bronNameToSource(bron.naam) }
+    : { displayName: bronId, name: bronId };
 };
 
 const latestVersie = (
@@ -162,10 +164,7 @@ export const mapAanvraagToJobListing = (input: {
   readonly rawPreview?: string;
   readonly versies: readonly AanvraagVersieView[];
 }): JobListing => {
-  const sourceName = resolveSourceName(
-    input.aanvraag.bronId,
-    input.bronCatalog
-  );
+  const source = resolveSource(input.aanvraag.bronId, input.bronCatalog);
   const versie = latestVersie(input.versies);
 
   return {
@@ -185,10 +184,11 @@ export const mapAanvraagToJobListing = (input: {
     skills: [],
     sourceRecords: [
       {
+        displayName: source.displayName,
         firstSeenAt: null,
-        id: `${sourceName}-${input.aanvraag.bronReferentie}`,
+        id: `${source.name}-${input.aanvraag.bronReferentie}`,
         lastSeenAt: null,
-        name: sourceName,
+        name: source.name,
         normalizationVersion: versie?.normalisatieversie ?? "onbekend",
         reference: input.aanvraag.bronReferentie,
         scrapeRunId: input.aanvraag.scrapeRunId,

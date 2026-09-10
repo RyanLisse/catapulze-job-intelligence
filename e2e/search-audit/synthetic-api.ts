@@ -1,3 +1,4 @@
+import type { PublicBronView } from "@ji/application/bronnen";
 import {
   createSliceARegistry,
   createTestSliceADeps,
@@ -26,7 +27,71 @@ import type {
 const API_PORT = 3100;
 const WEB_ORIGIN = "http://localhost:3001";
 const BRON_ID = "00000000-0000-4000-8000-000000000001";
+const LIVE_CATALOG_BRON_ID = "00000000-0000-4000-8000-000000000002";
+const HISTORICAL_BRON_ID = "00000000-0000-4000-8000-000000000003";
 const SCRAPE_RUN_ID = "00000000-0000-4000-8000-000000000020";
+const DETAIL_END_MARKER = "SYNTHETIC_DETAIL_END_MARKER_CTP_492";
+
+const longDetailDescription = [
+  "SYNTHETIC detailtekst voor de browseraudit van de volledige REST-aanvraag.",
+  "Deze brongetrouwe tekst is bewust langer dan de zoekresultaat-preview zodat de detailweergave de volledige payload moet tonen.",
+  "De inhoud bevat alleen testgegevens en geen productieaanvraag, persoonsgegevens of externe bronpayload.",
+  "De actieve catalogusbron heeft een label dat uitsluitend via het bronregister naar de UI mag komen.",
+  "Elke zin maakt de lengtecontrole robuust tegen een onbedoelde server-side samenvatting of afkapping in de clientadapter.",
+  "De zichtbare eindmarkering bewijst dat de tekst tot het einde van de full-detail respons in het detailpaneel staat.",
+  DETAIL_END_MARKER,
+].join(" ");
+
+const syntheticBronnen: readonly PublicBronView[] = [
+  {
+    actief: true,
+    bronId: BRON_ID,
+    crawlDelayMs: 0,
+    hasSecretRef: false,
+    interval: "0 * * * *",
+    lastRun: null,
+    loginVereist: false,
+    mappingRef: null,
+    method: "json-api",
+    naam: "TenderNed",
+    rateLimitPerMinute: 1,
+    retentionDays: 90,
+    status: "ready",
+    voorwaardenStatus: "toegestaan",
+  },
+  {
+    actief: true,
+    bronId: LIVE_CATALOG_BRON_ID,
+    crawlDelayMs: 0,
+    hasSecretRef: false,
+    interval: "0 * * * *",
+    lastRun: null,
+    loginVereist: false,
+    mappingRef: null,
+    method: "json-api",
+    naam: "SYNTHETIC Catalogus Live",
+    rateLimitPerMinute: 1,
+    retentionDays: 90,
+    status: "ready",
+    voorwaardenStatus: "toegestaan",
+  },
+  {
+    actief: false,
+    bronId: HISTORICAL_BRON_ID,
+    crawlDelayMs: 0,
+    hasSecretRef: false,
+    interval: "0 * * * *",
+    lastRun: null,
+    loginVereist: false,
+    mappingRef: null,
+    method: "json-api",
+    naam: "SYNTHETIC Historisch Archief",
+    rateLimitPerMinute: 1,
+    retentionDays: 90,
+    status: "ready",
+    voorwaardenStatus: "toegestaan",
+  },
+];
 
 const commaJob: SearchDocument = {
   beschrijving:
@@ -68,6 +133,35 @@ const unknownFieldsJob: SearchDocument = {
   tariefMax: null,
   tariefMin: null,
   titel: "Brongetrouwe onbekende velden",
+};
+
+const longDetailJob: SearchDocument = {
+  beschrijving: longDetailDescription,
+  bronId: LIVE_CATALOG_BRON_ID,
+  contracttype: "interim",
+  id: "00000000-0000-4000-8000-000000000104",
+  laatstGezienOp: new Date("2026-09-04T12:00:00.000Z"),
+  locatie: "Den Haag",
+  locatieLand: "NL",
+  status: "active",
+  tariefMax: 125,
+  tariefMin: 100,
+  titel: "SYNTHETIC volledige detailopdracht",
+};
+
+const archivedJob: SearchDocument = {
+  beschrijving:
+    "SYNTHETIC gesloten archiefrecord van een inactieve historische bron.",
+  bronId: HISTORICAL_BRON_ID,
+  contracttype: "interim",
+  id: "00000000-0000-4000-8000-000000000105",
+  laatstGezienOp: new Date("2026-09-04T13:00:00.000Z"),
+  locatie: "Rotterdam",
+  locatieLand: "NL",
+  status: "closed",
+  tariefMax: null,
+  tariefMin: null,
+  titel: "SYNTHETIC gesloten archiefopdracht",
 };
 
 class IncompleteOnceEngine implements SearchEngine {
@@ -116,10 +210,19 @@ const createSyntheticRegistry = async () => {
     baseDeps.engine.upsertDocument(commaJob),
     baseDeps.engine.upsertDocument(timeoutJob),
     baseDeps.engine.upsertDocument(unknownFieldsJob),
+    baseDeps.engine.upsertDocument(longDetailJob),
+    baseDeps.engine.upsertDocument(archivedJob),
   ]);
 
-  for (const document of [commaJob, timeoutJob, unknownFieldsJob]) {
-    const hasPublishedFacts = document.id === commaJob.id;
+  for (const document of [
+    commaJob,
+    timeoutJob,
+    unknownFieldsJob,
+    longDetailJob,
+    archivedJob,
+  ]) {
+    const hasPublishedFacts =
+      document.id === commaJob.id || document.id === longDetailJob.id;
     baseDeps.stores.aanvragen.seed({
       beschrijving: document.beschrijving,
       bronId: document.bronId,
@@ -148,6 +251,13 @@ const createSyntheticRegistry = async () => {
 
   const deps = {
     ...baseDeps,
+    bronnen: {
+      getById: (bronId: string) =>
+        Promise.resolve(
+          syntheticBronnen.find((bron) => bron.bronId === bronId) ?? null
+        ),
+      list: () => Promise.resolve(syntheticBronnen),
+    },
     searchAdapter: new SearchAdapter({
       engine: new IncompleteOnceEngine(baseDeps.engine),
     }),

@@ -4,6 +4,12 @@ import type { Page } from "@playwright/test";
 const COMMA_LOCATION = "Amsterdam, Noord-Holland";
 const COMMA_QUERY = `"${COMMA_LOCATION}"`;
 const ZERO_TIMEOUT_QUERY = encodeURIComponent('"timeout zero"');
+const DETAIL_ID = "00000000-0000-4000-8000-000000000104";
+const DETAIL_TITLE = "SYNTHETIC volledige detailopdracht";
+const DETAIL_END_MARKER = "SYNTHETIC_DETAIL_END_MARKER_CTP_492";
+const LIVE_CATALOG_LABEL = "SYNTHETIC Catalogus Live";
+const HISTORICAL_CATALOG_LABEL = "SYNTHETIC Historisch Archief";
+const CLOSED_TITLE = "SYNTHETIC gesloten archiefopdracht";
 
 const openJobs = async (page: Page, url = "/jobs") => {
   await page.goto(url, { waitUntil: "domcontentloaded" });
@@ -154,6 +160,95 @@ test("distinguishes published commercial facts from unknown source facts", async
     fullPage: true,
     path: testInfo.outputPath("published-versus-unknown-fields.png"),
   });
+});
+
+test("shows catalog labels, historical archive filters, and closed results", async ({
+  page,
+}) => {
+  await openJobs(page);
+  const results = page.getByRole("region", { name: "Zoekresultaten" });
+  await expect(results).toContainText(LIVE_CATALOG_LABEL);
+
+  const historicalSourceFilter = page.getByRole("checkbox", {
+    name: new RegExp(`^${HISTORICAL_CATALOG_LABEL}`, "u"),
+  });
+  await expect(historicalSourceFilter).toBeVisible();
+
+  await Promise.all([
+    waitForSearchResponse(page),
+    page.getByRole("checkbox", { name: "Ook in archief zoeken" }).check(),
+  ]);
+  const closedRow = results.getByRole("row").filter({ hasText: CLOSED_TITLE });
+  await expect(closedRow).toContainText("Gesloten");
+  await expect(closedRow).toContainText(HISTORICAL_CATALOG_LABEL);
+
+  await Promise.all([
+    waitForSearchResponse(page),
+    historicalSourceFilter.check(),
+  ]);
+  await expect(page).toHaveURL(
+    (url) =>
+      url.searchParams.get("archief") === "1" &&
+      url.searchParams.get("source") === "synthetic-historisch-archief"
+  );
+  await expect(closedRow).toBeVisible();
+});
+
+test("loads full REST detail without making search batch hydration full", async ({
+  page,
+}) => {
+  const batchBodies: unknown[] = [];
+  page.on("request", (request) => {
+    const url = new URL(request.url());
+    if (
+      request.method() === "POST" &&
+      url.origin === "http://localhost:3100" &&
+      url.pathname === "/v1/aanvragen/batch"
+    ) {
+      batchBodies.push(request.postDataJSON());
+    }
+  });
+
+  await openJobs(page);
+  await expect(
+    page.getByRole("region", { name: "Zoekresultaten" })
+  ).toContainText(LIVE_CATALOG_LABEL);
+  const fullDetailResponse = page.waitForResponse(
+    (response) => {
+      const url = new URL(response.url());
+      return (
+        response.request().method() === "GET" &&
+        url.origin === "http://localhost:3100" &&
+        url.pathname === `/v1/aanvragen/${DETAIL_ID}` &&
+        url.searchParams.get("full") === "true" &&
+        response.ok()
+      );
+    },
+    { timeout: 15_000 }
+  );
+  await page.getByRole("button", { name: DETAIL_TITLE }).click();
+  const detailResponse = await fullDetailResponse;
+  // SAFETY: the successful response comes from the typed synthetic get_aanvraag handler.
+  const detailBody = (await detailResponse.json()) as {
+    aanvraag: { beschrijving: string; mode: string };
+  };
+  expect(detailBody.aanvraag.mode).toBe("full");
+  expect(detailBody.aanvraag.beschrijving.length).toBeGreaterThan(500);
+  expect(detailBody.aanvraag.beschrijving).toContain(DETAIL_END_MARKER);
+
+  await expect(page.getByRole("heading", { name: DETAIL_TITLE })).toBeVisible();
+  const detailDescription = page
+    .locator("[data-body-format]:visible")
+    .filter({ hasText: DETAIL_END_MARKER });
+  await expect(detailDescription).toBeVisible();
+  await expect(detailDescription).toContainText(DETAIL_END_MARKER);
+  const detailText = await detailDescription.textContent();
+  expect(detailText?.length).toBeGreaterThan(500);
+
+  expect(batchBodies.length).toBeGreaterThan(0);
+  expect(batchBodies).not.toContainEqual(
+    expect.objectContaining({ full: true })
+  );
 });
 
 test("shows and retries a zero-hit query timeout", async ({

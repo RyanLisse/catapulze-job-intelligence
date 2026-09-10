@@ -186,6 +186,10 @@ export const restRoutesFromRegistry = (
 
 const stringFieldSchema = z.string();
 const booleanFieldSchema = z.boolean();
+const getAanvraagFullQuerySchema = z.union([
+  booleanFieldSchema,
+  z.enum(["true", "false"]).transform((value) => value === "true"),
+]);
 
 const readString = (body: RestJsonBody, key: string): string | undefined => {
   const parsed = stringFieldSchema.safeParse(body[key]);
@@ -195,6 +199,14 @@ const readString = (body: RestJsonBody, key: string): string | undefined => {
 const readBoolean = (body: RestJsonBody, key: string): boolean | undefined => {
   const parsed = booleanFieldSchema.safeParse(body[key]);
   return parsed.success ? parsed.data : undefined;
+};
+
+const normalizeGetAanvraagFull = (
+  body: RestJsonBody
+): JsonValue | undefined => {
+  const value = body.full;
+  const parsed = getAanvraagFullQuerySchema.safeParse(value);
+  return parsed.success ? parsed.data : value;
 };
 
 const toRestJsonBody = (
@@ -218,6 +230,12 @@ const normalizeRestInput = (
   raw: RestJsonBody
 ): RestJsonBody => {
   switch (capabilityId) {
+    case "get_aanvraag": {
+      return toRestJsonBody([
+        ["full", normalizeGetAanvraagFull(raw)],
+        ["id", readString(raw, "id")],
+      ]);
+    }
     case "list_versies": {
       return toRestJsonBody([
         ["aanvraagId", readString(raw, "id") ?? readString(raw, "aanvraagId")],

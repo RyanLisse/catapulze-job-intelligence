@@ -124,6 +124,61 @@ describe("JobResults list card summary (CTP-483)", () => {
     expect(markup).not.toContain("&lt;p&gt;");
     expect(markup).not.toContain("<b>TypeScript</b>");
   });
+
+  it("renders the catalog display name while keeping the source slug as identity", () => {
+    if (!plainJob) {
+      throw new Error("Expected job-001 fixture");
+    }
+    const [fixtureSource] = plainJob.sourceRecords;
+    if (!fixtureSource) {
+      throw new Error("Expected job-001 source record");
+    }
+    const catalogNamedJob: JobListing = {
+      ...plainJob,
+      sourceRecords: [
+        {
+          ...fixtureSource,
+          displayName: "One Fellow",
+          name: "one-fellow",
+        },
+      ],
+    };
+    const resultsMarkup = renderToStaticMarkup(
+      createElement(JobResults, {
+        jobs: [catalogNamedJob],
+        onSelect: () => {},
+        selectedJobId: null,
+      })
+    );
+    const detailMarkup = renderToStaticMarkup(
+      createElement(JobDetail, {
+        descriptionId: "d",
+        job: catalogNamedJob,
+        onClose: () => {},
+        titleId: "t",
+      })
+    );
+
+    expect(resultsMarkup).toContain(">One Fellow<");
+    expect(detailMarkup).toContain(">One Fellow<");
+    expect(catalogNamedJob.sourceRecords[0]?.name).toBe("one-fellow");
+  });
+
+  it("renders closed archive rows as Gesloten", () => {
+    if (!plainJob) {
+      throw new Error("Expected job-001 fixture");
+    }
+    const markup = renderToStaticMarkup(
+      createElement(JobResults, {
+        jobs: [{ ...plainJob, status: "closed" }],
+        onSelect: () => {},
+        selectedJobId: null,
+      })
+    );
+
+    expect(markup).toContain(">Gesloten<");
+    expect(markup).not.toContain(">Open<");
+  });
 });
 
 describe("CTP-482 aangevuld provenance badge", () => {

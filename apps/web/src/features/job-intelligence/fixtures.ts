@@ -12,6 +12,7 @@ const sourceRecord = (
   reference: string,
   firstSeenAt: string
 ): JobSourceRecord => ({
+  displayName: sourceLabel(name),
   firstSeenAt,
   id: `${name}-${reference.toLowerCase()}`,
   lastSeenAt: "2026-08-30T08:00:00.000Z",

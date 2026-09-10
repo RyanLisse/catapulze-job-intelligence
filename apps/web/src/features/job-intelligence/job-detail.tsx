@@ -8,7 +8,6 @@ import {
   formatRate,
   formatRemote,
   isFieldAangevuld,
-  sourceLabel,
 } from "./presentation";
 import { isSafeHref } from "./sanitize-job-html";
 import type {
@@ -73,7 +72,7 @@ const ProvenanceCard = ({
   <article className="rounded-lg border border-border bg-background/60 p-3">
     <div className="flex items-start justify-between gap-3">
       <div className="min-w-0">
-        <p className="text-xs font-medium">{sourceLabel(record.name)}</p>
+        <p className="text-xs font-medium">{record.displayName}</p>
         <p className="mt-0.5 truncate font-mono text-[10px] text-muted-foreground">
           {record.reference}
         </p>
@@ -93,7 +92,7 @@ const ProvenanceCard = ({
     <dl className="mt-3 grid gap-1.5 font-mono text-[10px] text-muted-foreground">
       <div className="flex justify-between gap-3">
         <dt>bron</dt>
-        <dd className="text-foreground/80">{sourceLabel(record.name)}</dd>
+        <dd className="text-foreground/80">{record.displayName}</dd>
       </div>
       <div className="flex justify-between gap-3">
         <dt>bron_referentie</dt>

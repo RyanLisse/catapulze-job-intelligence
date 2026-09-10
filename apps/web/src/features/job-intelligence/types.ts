@@ -78,6 +78,8 @@ export interface JobSourceOption {
 }
 
 export interface JobSourceRecord {
+  /** Registered catalog label shown to users; `name` remains the stable slug. */
+  readonly displayName: string;
   readonly id: string;
   readonly name: JobSource;
   readonly reference: string;

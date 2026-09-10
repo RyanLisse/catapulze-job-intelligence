@@ -191,6 +191,26 @@ const resolveSearchStatus = (
   return "ready";
 };
 
+const loadPreviewEnrichment = async <T>(
+  load: () => Promise<T>,
+  fallback: T,
+  previewFallbackAllowed: boolean
+): Promise<T> => {
+  try {
+    return await load();
+  } catch (error) {
+    if (
+      previewFallbackAllowed &&
+      error instanceof CapabilityRequestError &&
+      error.status === 403 &&
+      error.body.error.code === "FORBIDDEN"
+    ) {
+      return fallback;
+    }
+    throw error;
+  }
+};
+
 export interface RestJobIntelligenceOptions {
   readonly baseUrl?: string;
 }
@@ -263,13 +283,40 @@ export const createRestJobIntelligence = ({
   };
 
   const loadAanvraag = async (id: string): Promise<JobListing | null> => {
-    const bronCatalog = await loadBronCatalog();
-    const detail = await client.get<GetAanvraagResponseBody>(
-      `/v1/aanvragen/${id}`
-    );
-    const versies = await client.get<readonly AanvraagVersieView[]>(
-      `/v1/aanvragen/${id}/versies`
-    );
+    let detail: GetAanvraagResponseBody;
+    let previewFallbackAllowed = false;
+    try {
+      detail = await client.get<GetAanvraagResponseBody>(
+        `/v1/aanvragen/${id}?full=true`
+      );
+    } catch (error) {
+      if (
+        !(error instanceof CapabilityRequestError) ||
+        error.status !== 403 ||
+        error.body.error.code !== "FORBIDDEN_FULL"
+      ) {
+        throw error;
+      }
+      // Operators can still inspect the curated preview. Full detail remains
+      // recruiter-gated by the server and is only preferred when authorized.
+      detail = await client.get<GetAanvraagResponseBody>(`/v1/aanvragen/${id}`);
+      previewFallbackAllowed = true;
+    }
+    const [bronCatalog, versies] = await Promise.all([
+      loadPreviewEnrichment(
+        loadBronCatalog,
+        new Map<string, BronCatalogEntry>(),
+        previewFallbackAllowed
+      ),
+      loadPreviewEnrichment(
+        () =>
+          client.get<readonly AanvraagVersieView[]>(
+            `/v1/aanvragen/${id}/versies`
+          ),
+        [],
+        previewFallbackAllowed
+      ),
+    ]);
     const rawPreview = await loadRawPreview(detail.aanvraag.rawPayloadRef);
 
     return mapAanvraagToJobListing({
@@ -308,14 +355,12 @@ export const createRestJobIntelligence = ({
     }
   };
 
-  // RJC-368: the bron filter list is derived from the live /v1/bronnen
-  // catalog (actieve bronnen only — a deferred/inactive bron would only ever
-  // show a permanent 0-count checkbox), independent of the current search's
-  // facet counts, so it doesn't collapse when a query has zero hits.
+  // CTP-492: derive the filter list from the entire live catalog. Historical
+  // archive rows retain their original bronId after ingestion stops, so an
+  // inactive source remains a valid filter even when its live count is zero.
   const listSources = async (): Promise<readonly JobSourceOption[]> => {
     const bronCatalog = await loadBronCatalog();
     return [...bronCatalog.values()]
-      .filter((bron) => bron.actief)
       .map((bron) => ({
         label: bron.naam,
         value: bronNameToSource(bron.naam),
