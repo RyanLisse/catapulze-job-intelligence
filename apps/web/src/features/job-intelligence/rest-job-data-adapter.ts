@@ -153,7 +153,7 @@ const emptySearchResponse = (
 ): JobSearchResponse => ({
   archiveTotal: null,
   complete: false,
-  facets: { contractTypes: [], locations: [], sources: [] },
+  facets: { contractTypes: [], locations: [], sources: [], status: [] },
   items: [],
   message,
   page,

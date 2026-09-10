@@ -7,6 +7,7 @@ import {
   FRESHNESS_FILTERS,
   JOB_CONTRACT_TYPES,
   JOB_PAGE_SIZE,
+  JOB_SEARCH_STATUS_VALUES,
   PREVIEW_STATUSES,
   selectableJobSortOptions,
 } from "./types";
@@ -17,6 +18,7 @@ import type {
   JobSearchRequest,
   JobSearchResponse,
   JobSearchState,
+  JobSearchStatus,
   JobSort,
   PreviewStatus,
 } from "./types";
@@ -98,6 +100,10 @@ export const parseJobSearchState = (
       // fixed enum, so any provided value passes through (deduped); an
       // unrecognized slug simply matches zero bronnen/facets downstream.
       sources: [...new Set(readValues(input, "source"))],
+      status: uniqueAllowedValues(
+        readValues(input, "status"),
+        JOB_SEARCH_STATUS_VALUES
+      ),
     },
     page: parsePositiveInteger(readFirst(input, "page"), 1),
     previewStatus: isOneOf(previewStatus, PREVIEW_STATUSES)
@@ -129,6 +135,9 @@ export const serializeJobSearchState = (
   }
   for (const location of state.filters.locations) {
     params.append("location", location);
+  }
+  for (const status of state.filters.status) {
+    params.append("status", status);
   }
   if (state.filters.freshness !== "all") {
     params.set("freshness", state.filters.freshness);
@@ -288,6 +297,10 @@ const isFreshEnough = (
 
 const matchesFilters = (job: JobListing, state: JobSearchState): boolean => {
   const { filters } = state;
+  const searchStatus =
+    job.status === "closed" ? ("closed" as const) : ("active" as const);
+  const statusMatches =
+    filters.status.length === 0 || filters.status.includes(searchStatus);
   const sourceMatches =
     filters.sources.length === 0 ||
     job.sourceRecords.some((source) => filters.sources.includes(source.name));
@@ -305,6 +318,7 @@ const matchesFilters = (job: JobListing, state: JobSearchState): boolean => {
     (hourlyRate !== null && hourlyRate >= filters.minRate);
 
   return (
+    statusMatches &&
     sourceMatches &&
     contractMatches &&
     locationMatches &&
@@ -383,6 +397,11 @@ const buildFacets = (jobs: readonly JobListing[]) => ({
   ),
   sources: countFacets(
     jobs.flatMap((job) => job.sourceRecords.map(({ name }) => name))
+  ),
+  status: countFacets(
+    jobs.map((job): JobSearchStatus =>
+      job.status === "closed" ? "closed" : "active"
+    )
   ),
 });
 

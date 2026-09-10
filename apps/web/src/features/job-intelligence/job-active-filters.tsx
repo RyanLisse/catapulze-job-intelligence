@@ -2,11 +2,17 @@
 
 import { X } from "lucide-react";
 
-import { contractLabels, freshnessLabels, sourceLabel } from "./presentation";
+import {
+  contractLabels,
+  freshnessLabels,
+  searchStatusLabels,
+  sourceLabel,
+} from "./presentation";
 import type {
   FreshnessFilter,
   JobContractType,
   JobSearchFilters,
+  JobSearchStatus,
   JobSource,
   JobSourceOption,
 } from "./types";
@@ -27,6 +33,7 @@ interface JobActiveFiltersProps {
   readonly onMinRateChange: (value: number | null) => void;
   readonly onQueryClear: () => void;
   readonly onSourceToggle: (value: JobSource) => void;
+  readonly onStatusToggle: (value: JobSearchStatus) => void;
   readonly query: string;
   readonly sources: readonly JobSourceOption[];
 }
@@ -39,6 +46,7 @@ const buildChips = ({
   onMinRateChange,
   onQueryClear,
   onSourceToggle,
+  onStatusToggle,
   query,
   sources,
 }: Omit<JobActiveFiltersProps, "onClearAll">): readonly ActiveChip[] => {
@@ -71,6 +79,15 @@ const buildChips = ({
       onRemove: () => onContractToggle(contract),
       removeLabel: `Contract ${contractLabels[contract]} verwijderen`,
       text: contractLabels[contract],
+    });
+  }
+
+  for (const status of filters.status) {
+    chips.push({
+      key: `status:${status}`,
+      onRemove: () => onStatusToggle(status),
+      removeLabel: `Status ${searchStatusLabels[status]} verwijderen`,
+      text: searchStatusLabels[status],
     });
   }
 

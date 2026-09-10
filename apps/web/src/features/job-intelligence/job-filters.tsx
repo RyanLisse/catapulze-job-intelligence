@@ -3,16 +3,21 @@
 import { ChevronDown } from "lucide-react";
 import { useState } from "react";
 
-import { contractLabels, freshnessLabels } from "./presentation";
+import {
+  contractLabels,
+  freshnessLabels,
+  searchStatusLabels,
+} from "./presentation";
 import type {
   FacetCount,
   JobContractType,
   JobSearchFacets,
   JobSearchFilters,
+  JobSearchStatus,
   JobSource,
   JobSourceOption,
 } from "./types";
-import { FRESHNESS_FILTERS } from "./types";
+import { FRESHNESS_FILTERS, JOB_SEARCH_STATUS_VALUES } from "./types";
 
 const DEFAULT_VISIBLE_OPTIONS = 6;
 
@@ -32,6 +37,7 @@ const countActiveFilters = (filters: JobSearchFilters): number =>
   filters.sources.length +
   filters.contractTypes.length +
   filters.locations.length +
+  filters.status.length +
   (filters.freshness === "all" ? 0 : 1) +
   (filters.minRate === null ? 0 : 1);
 
@@ -128,6 +134,7 @@ interface JobFiltersProps {
   readonly onLocationToggle: (value: string) => void;
   readonly onMinRateChange: (value: number | null) => void;
   readonly onSourceToggle: (value: JobSource) => void;
+  readonly onStatusToggle: (value: JobSearchStatus) => void;
   readonly sources: readonly JobSourceOption[];
 }
 
@@ -140,6 +147,7 @@ export const JobFilters = ({
   onLocationToggle,
   onMinRateChange,
   onSourceToggle,
+  onStatusToggle,
   sources,
 }: JobFiltersProps) => {
   const [showAllSources, setShowAllSources] = useState(false);
@@ -202,6 +210,19 @@ export const JobFilters = ({
             count={findFacetCount(facets.contractTypes, contract)}
             checked={filters.contractTypes.includes(contract)}
             onChange={onContractToggle}
+          />
+        ))}
+      </FacetGroup>
+
+      <FacetGroup title="Status">
+        {JOB_SEARCH_STATUS_VALUES.map((status) => (
+          <FacetOption
+            key={status}
+            value={status}
+            label={searchStatusLabels[status]}
+            count={findFacetCount(facets.status, status)}
+            checked={filters.status.includes(status)}
+            onChange={onStatusToggle}
           />
         ))}
       </FacetGroup>

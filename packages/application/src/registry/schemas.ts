@@ -11,6 +11,10 @@ import {
   UuidString,
 } from "./schema-helpers";
 
+/** Browser-safe lifecycle values shared by the search wire contract and web UI. */
+export { AANVRAAG_LIFECYCLE } from "@ji/domain";
+export type { AanvraagLifecycle } from "@ji/domain";
+
 /**
  * Slice A capability contracts (ADR-0014 / CTP-469).
  *

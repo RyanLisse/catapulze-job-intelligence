@@ -13,7 +13,7 @@ describe("job search URL state", () => {
   it("round-trips shareable filters and selection", () => {
     const original = parseJobSearchState(
       new URLSearchParams(
-        "q=data&source=inhuurdesk&source=tenderned&contract=interim&location=Amsterdam&freshness=7d&minRate=90&sort=rate-high&page=2&job=job-001&preview=loading&archief=1"
+        "q=data&source=inhuurdesk&source=tenderned&contract=interim&status=active&status=closed&location=Amsterdam&freshness=7d&minRate=90&sort=rate-high&page=2&job=job-001&preview=loading&archief=1"
       )
     );
 
@@ -34,6 +34,7 @@ describe("job search URL state", () => {
     // -- an unrecognized slug just matches zero bronnen/facets downstream.
     expect(state.filters.sources).toEqual(["database"]);
     expect(state.filters.contractTypes).toEqual([]);
+    expect(state.filters.status).toEqual([]);
     expect(state.filters.freshness).toBe("all");
     expect(state.filters.minRate).toBeNull();
     expect(state.sort).toBe("relevance");
@@ -68,6 +69,20 @@ describe("job search URL state", () => {
     expect(state.filters.sources).toEqual(["alpha,beta"]);
   });
 
+  it("accepts repeated lifecycle status values and drops invalid values", () => {
+    const state = parseJobSearchState(
+      new URLSearchParams(
+        "status=active&status=closed&status=archived&status=active"
+      )
+    );
+
+    expect(state.filters.status).toEqual(["active", "closed"]);
+    expect(serializeJobSearchState(state).getAll("status")).toEqual([
+      "active",
+      "closed",
+    ]);
+  });
+
   it("defaults to the active scope and only serialises the archive opt-in (RJC-383)", () => {
     const active = parseJobSearchState(new URLSearchParams("q=data"));
     expect(active.scope).toBe("active");
@@ -94,6 +109,24 @@ describe("fixture job search", () => {
     );
     expect(all.archiveTotal).toBeNull();
     expect(all.total).toBe(active.total + closed.length);
+  });
+
+  it("keeps an archive-only closed status truthful until archive scope is enabled", () => {
+    const active = searchJobs(
+      JOB_FIXTURES,
+      parseJobSearchState(new URLSearchParams("status=closed"))
+    );
+    expect(active.items).toEqual([]);
+    expect(active.total).toBe(0);
+    expect(active.archiveTotal).toBeGreaterThan(0);
+
+    const all = searchJobs(
+      JOB_FIXTURES,
+      parseJobSearchState(new URLSearchParams("status=closed&archief=1"))
+    );
+    expect(all.items.every((job) => job.status === "closed")).toBe(true);
+    expect(all.total).toBeGreaterThan(0);
+    expect(all.archiveTotal).toBeNull();
   });
 
   it("searches, filters and sorts deterministically", () => {

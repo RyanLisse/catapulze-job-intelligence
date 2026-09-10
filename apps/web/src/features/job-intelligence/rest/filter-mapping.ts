@@ -7,6 +7,7 @@ import type {
   JobSearchFacets,
   JobSearchFilters,
   JobSearchScope,
+  JobSearchStatus,
   JobSort,
   JobSource,
 } from "../types";
@@ -27,6 +28,7 @@ export interface ApiSearchFacets {
   readonly contracttype: readonly ApiFacetBucket[];
   readonly locatie: readonly ApiFacetBucket[];
   readonly locatie_land: readonly ApiFacetBucket[];
+  readonly status: readonly ApiFacetBucket[];
 }
 
 // RJC-394/RJC-449: the loader indexes the published `locatie_tekst` value.
@@ -106,6 +108,9 @@ export const mapUiFiltersToApi = (
     mapped[locationFilterKey(enrichedDataAvailable)] =
       filters.locations.map(locationValue);
   }
+  if (filters.status.length > 0) {
+    mapped.status = [...filters.status];
+  }
   if (filters.minRate === null) {
     // no rate filter
   } else {
@@ -125,6 +130,12 @@ const isJobContractType = (value: string): value is JobContractType =>
   value === "detachering" ||
   value === "vast" ||
   value === "freelance";
+
+const isJobSearchStatus = (value: string): value is JobSearchStatus =>
+  value === "active" ||
+  value === "stale" ||
+  value === "closed" ||
+  value === "unknown";
 
 const mapSourceFacet = (
   bucket: ApiFacetBucket,
@@ -157,6 +168,11 @@ export const mapApiFacetsToUi = (
     const mapped = mapSourceFacet(bucket, bronCatalog);
     return mapped ? [mapped] : [];
   }),
+  status: facets.status.flatMap((bucket) =>
+    isJobSearchStatus(bucket.value)
+      ? [{ count: bucket.count, value: bucket.value }]
+      : []
+  ),
 });
 
 export const buildSearchRequestBody = (input: {
