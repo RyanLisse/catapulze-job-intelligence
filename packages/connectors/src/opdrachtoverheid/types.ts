@@ -86,7 +86,7 @@ export interface OpdrachtoverheidFetchedPayload {
   jobPosting: JsonLdNode | null;
 }
 
-export const OPDRACHTOVERHEID_PARSER_VERSION = "opdrachtoverheid/v2" as const;
+export const OPDRACHTOVERHEID_PARSER_VERSION = "opdrachtoverheid/v3" as const;
 
 export const OPDRACHTOVERHEID_SEARCH_PATH = "/search";
 

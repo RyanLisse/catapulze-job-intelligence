@@ -7,6 +7,7 @@ import {
 import { UNKNOWN } from "@ji/domain";
 import { resolveLifecycleStatus } from "@ji/domain/lifecycle";
 
+import { formatHoursPerWeek } from "./hours";
 import {
   closingMomentInstant,
   field,
@@ -40,9 +41,9 @@ interface UrenRange {
   max: string | typeof UNKNOWN;
 }
 
-/** Prefer the numeric min/max hour fields; fall back to the free-text
- * `tender_hours_week` (a string like `"36"`, observed as the more commonly
- * populated field) applied to both bounds when min/max are both absent. */
+/** Prefer the numeric min/max hour fields. Keep the explicit weekly text as a
+ * raw fallback when the numeric bounds are absent rather than inventing two
+ * equal bounds from it. */
 const resolveUren = (
   tender: OpdrachtoverheidFetchedPayload["tender"]
 ): UrenRange => {
@@ -54,10 +55,6 @@ const resolveUren = (
       max: numberToStringOrUnknown(tender.tender_max_hours),
       min: numberToStringOrUnknown(tender.tender_min_hours),
     };
-  }
-  const weekHours = tender.tender_hours_week?.trim();
-  if (weekHours) {
-    return { max: weekHours, min: weekHours };
   }
   return { max: UNKNOWN, min: UNKNOWN };
 };
@@ -160,6 +157,10 @@ export const parseOpdrachtoverheidPayload = (
   });
   const locatie = resolveLocatie(tender);
   const uren = resolveUren(tender);
+  const numericUren = formatHoursPerWeek(
+    uren.min === UNKNOWN ? null : uren.min,
+    uren.max === UNKNOWN ? null : uren.max
+  );
   // Aggregator-attribution fields: `tender_source`/`tender_url` identify the
   // original broker this tender was mirrored from, kept for cross-source
   // dedup per the RJC-360 probe decision.
@@ -168,10 +169,12 @@ export const parseOpdrachtoverheidPayload = (
     exclusive: tender.exclusive ?? null,
     opdracht_overheid_url: tender.opdracht_overheid_url ?? null,
     tender_first_seen: tender.tender_first_seen ?? null,
+    tender_hours_week: tender.tender_hours_week ?? null,
     tender_source: tender.tender_source ?? null,
     tender_url: tender.tender_url ?? null,
     uren_max: uren.max === UNKNOWN ? null : uren.max,
     uren_min: uren.min === UNKNOWN ? null : uren.min,
+    uren_per_week: numericUren ?? tender.tender_hours_week?.trim() ?? null,
     web_key: tender.web_key,
   };
 

@@ -111,7 +111,7 @@ export interface HarveyNashFetchedPayload {
   detail: HarveyNashDetail;
 }
 
-export const HARVEYNASH_PARSER_VERSION = "harveynash/v2" as const;
+export const HARVEYNASH_PARSER_VERSION = "harveynash/v3" as const;
 
 /** Undocumented Staffing Future/Bullhorn search endpoint. Live capture
  * 2026-08-31 required a `job_search` wrapper object with `offset` and

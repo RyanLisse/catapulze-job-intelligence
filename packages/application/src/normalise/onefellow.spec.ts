@@ -189,6 +189,7 @@ describe("parseOnefellowPayload", () => {
       status_bron: "Open",
       uren_max: "28",
       uren_min: "24",
+      uren_per_week: "24–28",
       werkvorm: "remote",
     });
   });

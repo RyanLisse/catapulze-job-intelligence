@@ -49,7 +49,7 @@ export interface OnefellowFetchedPayload {
   job: OnefellowJob;
 }
 
-export const ONEFELLOW_PARSER_VERSION = "onefellow/v1" as const;
+export const ONEFELLOW_PARSER_VERSION = "onefellow/v2" as const;
 
 export const ONEFELLOW_LISTING_URL =
   "https://yhjktxqtoyeruztiwupf.supabase.co/functions/v1/olli-jobs?action=list";
