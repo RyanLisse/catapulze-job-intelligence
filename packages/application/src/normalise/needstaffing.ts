@@ -66,13 +66,16 @@ const HOURLY_TARIEF_PATTERN = /\bper\s+(?:hour|uur)\b/iu;
 const tariefEenheid = (value: string | undefined): "uur" | typeof UNKNOWN =>
   value && HOURLY_TARIEF_PATTERN.test(value) ? "uur" : UNKNOWN;
 
+const descriptionText = (html: string): string =>
+  decodeHtmlEntities(stripHtml(html)).replaceAll(/\s+/gu, " ").trim();
+
 export const parseNeedstaffingPayload = (
   payload: NeedstaffingFetchedPayload,
   contentHash: string
 ): NormalisedAanvraagDraft => {
   const { detail, listing, raw } = payload;
   const parserVersion = NEEDSTAFFING_PARSER_VERSION;
-  const beschrijving = stripHtml(decodeHtmlEntities(raw.html)) || detail.titel;
+  const beschrijving = descriptionText(raw.html) || detail.titel;
   // The detail page's own "Deadline voor reageren" block (`detail.deadline`)
   // is a real, per-listing closing moment -- confirmed live 2026-08-31
   // (fixtures/connectors/needstaffing/detail-15520.json). Previously this

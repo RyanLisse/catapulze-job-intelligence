@@ -318,6 +318,22 @@ describe("normalise needstaffing", () => {
     );
   });
 
+  it("removes source tags before retaining escaped angle-bracket text", () => {
+    const draft = parseNeedstaffingPayload(
+      {
+        ...buildNeedstaffingPayload(),
+        raw: {
+          html: "<p>Een team van &lt;5 werknemers&gt; zoekt een <strong>engineer.</strong></p>",
+        },
+      },
+      "hash-needstaffing-angle-text"
+    );
+
+    expect(draft.beschrijving.value).toBe(
+      "Een team van <5 werknemers> zoekt een engineer."
+    );
+  });
+
   it("falls back to UNKNOWN when tarief or start data is missing", () => {
     const draft = parseNeedstaffingPayload(
       buildNeedstaffingPayload({
