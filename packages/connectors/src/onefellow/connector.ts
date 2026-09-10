@@ -109,5 +109,6 @@ export const createOnefellowConnector = (
         status: "fetched" as const,
       };
     },
+    fetchUsesNetwork: false,
   };
 };

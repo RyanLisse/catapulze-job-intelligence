@@ -111,5 +111,6 @@ export const createStriiveConnector = (
         status: "fetched" as const,
       };
     },
+    fetchUsesNetwork: false,
   };
 };

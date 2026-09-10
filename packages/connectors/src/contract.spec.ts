@@ -574,6 +574,59 @@ describe("InMemoryRunLifecycleStore", () => {
 });
 
 describe("runConnector", () => {
+  it("limits discovery and network fetches while allowing local fetches to skip the limiter", async () => {
+    const acquireCalls: BronId[] = [];
+    const limiter = {
+      acquire: (bronId: BronId): Promise<void> => {
+        acquireCalls.push(bronId);
+        return Promise.resolve();
+      },
+    };
+    const dependencies = {
+      ...runDependencies("run-local-fetch-limiter"),
+      limiter,
+    };
+    const bronId = "bron-local-fetch-limiter";
+
+    await runConnector({
+      ...dependencies,
+      bronId,
+      bronSlug: "local-fetch-limiter",
+      connector: {
+        bronId,
+        discover: () =>
+          Promise.resolve({
+            checkpoint: { page: 1 },
+            hasMore: false,
+            items: [{ bronReferentie: "local-1", contentHash: "listing" }],
+          }),
+        fetch: (item) =>
+          Promise.resolve({
+            body: new TextEncoder().encode(item.bronReferentie),
+            bronReferentie: item.bronReferentie,
+            contentHash:
+              "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            contentType: "json" as const,
+            status: "fetched" as const,
+          }),
+        fetchUsesNetwork: false,
+      },
+    });
+
+    expect(acquireCalls).toEqual([bronId]);
+
+    const networkBronId = "bron-network-fetch-limiter";
+    await runConnector({
+      ...dependencies,
+      bronId: networkBronId,
+      bronSlug: "network-fetch-limiter",
+      connector: createFakeConnector(networkBronId),
+      scrapeRunId: "run-network-fetch-limiter",
+    });
+
+    expect(acquireCalls).toEqual([bronId, networkBronId, networkBronId]);
+  });
+
   it("maps each guarded failure phase to its exact secret-safe tuple", async () => {
     const inputFor = (suffix: string): Parameters<typeof runConnector>[0] => ({
       ...runDependencies(`run-phase-${suffix}`),

@@ -242,13 +242,15 @@ const runConnectorInner = async (
     const fetched = await withFailureEnvelope(
       () =>
         timeCriticalPathPhase("ingest-fetch", () =>
-          request(
-            () => connector.fetch(item),
-            bronId,
-            limiter,
-            retryPolicy,
-            wait
-          )
+          connector.fetchUsesNetwork === false
+            ? withRetry(() => connector.fetch(item), retryPolicy, wait)
+            : request(
+                () => connector.fetch(item),
+                bronId,
+                limiter,
+                retryPolicy,
+                wait
+              )
         ),
       FAILURE_ENVELOPES.fetch
     );
