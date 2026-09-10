@@ -84,5 +84,6 @@ export const createCtmConnector = (options: CtmConnectorOptions): Connector => {
         status: "fetched" as const,
       };
     },
+    fetchUsesNetwork: false,
   };
 };

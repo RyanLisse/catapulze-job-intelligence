@@ -85,6 +85,11 @@ export interface ConnectorFixture {
 
 export interface Connector {
   readonly bronId: BronId;
+  /**
+   * Whether fetch() requests the upstream source. Omitted means network-backed,
+   * so fetches remain subject to the per-source request limiter by default.
+   */
+  readonly fetchUsesNetwork?: boolean;
   discover: (
     checkpoint: ConnectorCheckpoint | null
   ) => Promise<ConnectorDiscoverResult>;
