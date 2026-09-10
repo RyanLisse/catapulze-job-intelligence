@@ -296,37 +296,19 @@ const tariefValue = (
  * valid facts from the same row.
  */
 /* oxlint-disable promise/prefer-await-to-then -- Zod catch supplies a synchronous per-field parse fallback. */
-const sourceFieldsSchema = z.object({
-  duration_months: z
-    .number()
-    .int()
-    .nonnegative()
-    .nullable()
-    .optional()
-    .catch(null),
-  end_date: z.string().nullable().optional().catch(null),
-  hours_per_week: z
-    .number()
-    .int()
-    .nonnegative()
-    .nullable()
-    .optional()
-    .catch(null),
-  min_hours_per_week: z
-    .number()
-    .int()
-    .nonnegative()
-    .nullable()
-    .optional()
-    .catch(null),
-  work_arrangement: z.string().nullable().optional().catch(null),
+export const sourceFieldsSchema = z.object({
+  duration_months: z.number().int().nonnegative().nullable().catch(null),
+  end_date: z.string().nullable().catch(null),
+  hours_per_week: z.number().int().nonnegative().nullable().catch(null),
+  min_hours_per_week: z.number().int().nonnegative().nullable().catch(null),
+  work_arrangement: z.string().nullable().catch(null),
 });
 
 /* oxlint-enable promise/prefer-await-to-then */
 
 const sourceFieldsForJob = (job: NeonV1JobRow) => {
   const parsed = sourceFieldsSchema.safeParse(job.sourceRow);
-  return parsed.success ? parsed.data : {};
+  return parsed.success ? parsed.data : sourceFieldsSchema.parse({});
 };
 
 const sourceSpecificFieldsForJob = (job: NeonV1JobRow) => {

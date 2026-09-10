@@ -7,7 +7,7 @@ import {
   normalizeMotianPlatform,
   sourcePlatformsForMotianV1,
 } from "./motian-v1-bindings";
-import { resolveMotianDatabaseUrl } from "./neon-v1";
+import { resolveMotianDatabaseUrl, sourceFieldsSchema } from "./neon-v1";
 import type {
   BackfillScope,
   NeonV1JobRow,
@@ -173,9 +173,10 @@ export const decodeMotianV1RawRow = (body: Uint8Array): NeonV1JobRow => {
     throw new TypeError("Motian raw object has an invalid root schema");
   }
   const row = rawMotianV1JobSchema.parse(root.data);
+  const sourceRow = sourceFieldsSchema.parse(root.data);
   return mapMotianRow({
     ...row,
-    source_row: {},
+    source_row: sourceRow,
   });
 };
 

@@ -2,7 +2,14 @@ import { describe, expect, it } from "bun:test";
 
 import type postgres from "postgres";
 
-import { createMotianNeonV1Source } from "./motian-neon-v1-source";
+import { curateObservation } from "../identity/curate";
+import { InMemoryCurateStore } from "../identity/store";
+import type { JsonValue } from "../normalise";
+import {
+  createMotianNeonV1Source,
+  decodeMotianV1RawRow,
+} from "./motian-neon-v1-source";
+import { mapV1JobToDraft } from "./neon-v1";
 
 interface MotianPrivileges {
   can_delete_jobs: boolean | null;
@@ -116,6 +123,36 @@ const motianJobRow = (id: string) => ({
   status: "open",
   title: `Job ${id}`,
 });
+
+type RawMotianV1Row = Record<string, JsonValue>;
+
+const rawMotianV1Row = (overrides: Partial<RawMotianV1Row> = {}) =>
+  ({
+    application_deadline: null,
+    archived_at: null,
+    company: "Broker BV",
+    contract_type: "detachering",
+    deleted_at: null,
+    description: "Historical platform engineer assignment.",
+    end_client: "Ministry",
+    external_id: "external-raw-1",
+    external_url: "https://example.com/jobs/external-raw-1",
+    id: "00000000-0000-4000-8000-000000000004",
+    location: "Utrecht",
+    platform: "nationalevacaturebank",
+    posted_at: null,
+    province: "Utrecht",
+    rate_max: 120,
+    rate_min: 90,
+    scraped_at: null,
+    start_date: null,
+    status: "open",
+    title: "Platform engineer Azure",
+    ...overrides,
+  }) satisfies RawMotianV1Row;
+
+const encodeRawMotianV1Row = (row: RawMotianV1Row): Uint8Array =>
+  new TextEncoder().encode(JSON.stringify(row));
 
 const asTransactionSql = (value: FakeTransactionSql): postgres.TransactionSql =>
   // SAFETY: the fake only receives tagged queries from the Motian source test.
@@ -235,6 +272,104 @@ const sourceWithClient = (
       },
     }
   );
+
+describe("Motian Neon v1 raw decoding", () => {
+  it("keeps only exact historical fields and drops nested or unrelated values", () => {
+    const decoded = decodeMotianV1RawRow(
+      encodeRawMotianV1Row(
+        rawMotianV1Row({
+          durationMonths: 99,
+          duration_months: 6,
+          endDate: "2099-01-01T00:00:00.000Z",
+          end_date: "2027-03-31T00:00:00.000Z",
+          hoursPerWeek: 99,
+          hours_per_week: 40,
+          minHoursPerWeek: 99,
+          min_hours_per_week: 32,
+          raw_payload: {
+            duration_months: 99,
+            end_date: "2099-01-01T00:00:00.000Z",
+            hours_per_week: 99,
+            min_hours_per_week: 99,
+            work_arrangement: "remote",
+          },
+          unrelated_field: "ignored",
+          workArrangement: "remote",
+          work_arrangement: "hybride",
+        })
+      )
+    );
+
+    expect(decoded.sourceRow).toEqual({
+      duration_months: 6,
+      end_date: "2027-03-31T00:00:00.000Z",
+      hours_per_week: 40,
+      min_hours_per_week: 32,
+      work_arrangement: "hybride",
+    });
+  });
+
+  it("turns malformed optional historical values into null independently", () => {
+    const decoded = decodeMotianV1RawRow(
+      encodeRawMotianV1Row(
+        rawMotianV1Row({
+          duration_months: "6",
+          end_date: 2027,
+          hours_per_week: "40",
+          min_hours_per_week: -32,
+          work_arrangement: { value: "hybride" },
+        })
+      )
+    );
+
+    expect(decoded.sourceRow).toEqual({
+      duration_months: null,
+      end_date: null,
+      hours_per_week: null,
+      min_hours_per_week: null,
+      work_arrangement: null,
+    });
+  });
+
+  it("carries decoded hours, end date, and work arrangement through curation", async () => {
+    const decoded = decodeMotianV1RawRow(
+      encodeRawMotianV1Row(
+        rawMotianV1Row({
+          end_date: "2027-03-31T00:00:00.000Z",
+          hours_per_week: 40,
+          min_hours_per_week: 32,
+          work_arrangement: "hybride",
+        })
+      )
+    );
+    const draft = mapV1JobToDraft(decoded);
+    const store = new InMemoryCurateStore();
+
+    const result = await curateObservation(store, {
+      bronId: "00000000-0000-4000-8000-000000000031",
+      draft,
+      observedAt: new Date("2026-09-10T12:00:00.000Z"),
+      rawPayloadRef: "raw/motian/external-raw-1.json",
+      scrapeRunId: "run-motian-raw-test",
+    });
+
+    expect(result.status).toBe("curated");
+    const [record] = store.aanvragen;
+    if (!record) {
+      throw new Error("Expected curated aanvraag record");
+    }
+    expect(record).toMatchObject({
+      eindDatum: "2027-03-31T00:00:00.000Z",
+      urenPerWeek: "32–40",
+      werkvorm: "hybride",
+    });
+    expect(record.bronSpecifiek).toMatchObject({
+      eind_datum: "2027-03-31T00:00:00.000Z",
+      uren_per_week: "32–40",
+      werkvorm: "hybride",
+    });
+  });
+});
 
 describe("Motian Neon v1 source access", () => {
   it("uses the explicit URL and reads on the verified transaction session", async () => {
