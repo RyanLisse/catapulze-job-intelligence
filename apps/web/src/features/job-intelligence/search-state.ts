@@ -249,6 +249,28 @@ const freshnessMilliseconds = {
   "7d": 7 * 24 * 60 * 60 * 1000,
 } satisfies Record<Exclude<FreshnessFilter, "all">, number>;
 
+const RATE_PERIOD_RANK = {
+  day: 1,
+  hour: 0,
+  month: 2,
+  unknown: 4,
+  year: 3,
+} as const;
+
+const ratePeriodRank = (job: JobListing): number =>
+  job.rate ? RATE_PERIOD_RANK[job.rate.period] : 5;
+
+const rateSortValue = (job: JobListing): number =>
+  job.rate?.max ?? job.rate?.min ?? -1;
+
+const compareRateHigh = (left: JobListing, right: JobListing): number => {
+  const periodDifference = ratePeriodRank(left) - ratePeriodRank(right);
+  if (periodDifference !== 0) {
+    return periodDifference;
+  }
+  return rateSortValue(right) - rateSortValue(left);
+};
+
 const isFreshEnough = (
   publishedAt: string | null,
   freshness: FreshnessFilter
@@ -276,9 +298,11 @@ const matchesFilters = (job: JobListing, state: JobSearchState): boolean => {
   const locationMatches =
     filters.locations.length === 0 ||
     (job.location !== null && filters.locations.includes(job.location));
+  const hourlyRate =
+    job.rate?.period === "hour" ? (job.rate.max ?? job.rate.min) : null;
   const rateMatches =
     filters.minRate === null ||
-    (job.rate?.period === "hour" && job.rate.max >= filters.minRate);
+    (hourlyRate !== null && hourlyRate >= filters.minRate);
 
   return (
     sourceMatches &&
@@ -317,13 +341,7 @@ const compareJobs = (
   query: string
 ): number => {
   if (sort === "rate-high") {
-    const periodRank = { hour: 0, year: 1 } as const;
-    const leftRank = left.rate ? periodRank[left.rate.period] : 2;
-    const rightRank = right.rate ? periodRank[right.rate.period] : 2;
-    if (leftRank !== rightRank) {
-      return leftRank - rightRank;
-    }
-    return (right.rate?.max ?? -1) - (left.rate?.max ?? -1);
+    return compareRateHigh(left, right);
   }
   if (sort === "closing-soon") {
     return (

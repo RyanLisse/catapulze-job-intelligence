@@ -5,6 +5,7 @@ import type {
   JobLifecycleStatus,
   JobListing,
   JobMarkering,
+  JobRatePeriod,
   JobSource,
 } from "../types";
 import { bronNameToSource } from "./bron-catalog";
@@ -104,40 +105,63 @@ const mapContractType = (value: string | null): JobContractType | null => {
   }
 };
 
+const mapRatePeriod = (value: string | null | undefined): JobRatePeriod => {
+  switch (value?.trim().toLocaleLowerCase("nl-NL")) {
+    case "uur": {
+      return "hour";
+    }
+    case "dag": {
+      return "day";
+    }
+    case "maand": {
+      return "month";
+    }
+    case "jaar": {
+      return "year";
+    }
+    default: {
+      return "unknown";
+    }
+  }
+};
+
+const normalizeRateBound = (
+  value: number | null | undefined
+): number | null | undefined => {
+  if (value === null || value === undefined) {
+    return undefined;
+  }
+  return Number.isFinite(value) && value >= 0 ? value : null;
+};
+
 const mapRate = (aanvraag: AanvraagPreview): JobListing["rate"] => {
   const { tariefEenheid, tariefMax, tariefMin, tariefValuta } = aanvraag;
+  if (tariefValuta !== "EUR") {
+    return null;
+  }
+
+  const min = normalizeRateBound(tariefMin);
+  const max = normalizeRateBound(tariefMax);
   if (
-    tariefEenheid !== "uur" ||
-    tariefValuta !== "EUR" ||
-    tariefMax === null ||
-    tariefMax === undefined ||
-    !Number.isFinite(tariefMax) ||
-    tariefMax < 0
+    min === null ||
+    max === null ||
+    (min === undefined && max === undefined) ||
+    (min !== undefined && max !== undefined && min > max)
   ) {
     return null;
   }
-  if (
-    tariefMin !== null &&
-    tariefMin !== undefined &&
-    Number.isFinite(tariefMin) &&
-    tariefMin >= 0
-  ) {
-    if (tariefMin > tariefMax) {
-      return null;
-    }
-    return {
-      currency: "EUR",
-      max: tariefMax,
-      min: tariefMin,
-      period: "hour",
-    };
+
+  const period = mapRatePeriod(tariefEenheid);
+  if (min !== undefined && max !== undefined) {
+    return { currency: "EUR", max, min, period };
   }
-  return {
-    currency: "EUR",
-    max: tariefMax,
-    min: null,
-    period: "hour",
-  };
+  if (min !== undefined) {
+    return { currency: "EUR", max: null, min, period };
+  }
+  if (max !== undefined) {
+    return { currency: "EUR", max, min: null, period };
+  }
+  return null;
 };
 
 const REMOTE_WERKVORM = /\b(?<kind>remote|thuis|hybride|hybrid|telecommute)\b/u;

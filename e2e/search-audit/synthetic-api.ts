@@ -31,6 +31,10 @@ const LIVE_CATALOG_BRON_ID = "00000000-0000-4000-8000-000000000002";
 const HISTORICAL_BRON_ID = "00000000-0000-4000-8000-000000000003";
 const SCRAPE_RUN_ID = "00000000-0000-4000-8000-000000000020";
 const DETAIL_END_MARKER = "SYNTHETIC_DETAIL_END_MARKER_CTP_492";
+const MONTH_RATE_ID = "00000000-0000-4000-8000-000000000106";
+const DAY_RATE_ID = "00000000-0000-4000-8000-000000000107";
+const UNKNOWN_PERIOD_RATE_ID = "00000000-0000-4000-8000-000000000108";
+const MIN_ONLY_RATE_ID = "00000000-0000-4000-8000-000000000109";
 
 const longDetailDescription = [
   "SYNTHETIC detailtekst voor de browseraudit van de volledige REST-aanvraag.",
@@ -164,6 +168,138 @@ const archivedJob: SearchDocument = {
   titel: "SYNTHETIC gesloten archiefopdracht",
 };
 
+const monthRateJob: SearchDocument = {
+  beschrijving: "SYNTHETIC maandtarief met EUR min en max.",
+  bronId: BRON_ID,
+  contracttype: null,
+  id: MONTH_RATE_ID,
+  laatstGezienOp: new Date("2026-09-04T14:00:00.000Z"),
+  locatie: "Eindhoven",
+  locatieLand: "NL",
+  status: "active",
+  tariefMax: 6000,
+  tariefMin: 4000,
+  titel: "SYNTHETIC maandtarief",
+};
+
+const dayRateJob: SearchDocument = {
+  beschrijving: "SYNTHETIC dagtarief met EUR min en max.",
+  bronId: BRON_ID,
+  contracttype: null,
+  id: DAY_RATE_ID,
+  laatstGezienOp: new Date("2026-09-04T15:00:00.000Z"),
+  locatie: "Groningen",
+  locatieLand: "NL",
+  status: "active",
+  tariefMax: 750,
+  tariefMin: 500,
+  titel: "SYNTHETIC dagtarief",
+};
+
+const unknownPeriodRateJob: SearchDocument = {
+  beschrijving: "SYNTHETIC EUR-tarief zonder gepubliceerde periode.",
+  bronId: BRON_ID,
+  contracttype: null,
+  id: UNKNOWN_PERIOD_RATE_ID,
+  laatstGezienOp: new Date("2026-09-04T16:00:00.000Z"),
+  locatie: "Breda",
+  locatieLand: "NL",
+  status: "active",
+  tariefMax: 4250,
+  tariefMin: 3750,
+  titel: "SYNTHETIC tarief zonder periode",
+};
+
+const minOnlyRateJob: SearchDocument = {
+  beschrijving: "SYNTHETIC dagtarief met alleen een EUR minimum.",
+  bronId: BRON_ID,
+  contracttype: null,
+  id: MIN_ONLY_RATE_ID,
+  laatstGezienOp: new Date("2026-09-04T17:00:00.000Z"),
+  locatie: "Tilburg",
+  locatieLand: "NL",
+  status: "active",
+  tariefMax: null,
+  tariefMin: 650,
+  titel: "SYNTHETIC minimum dagtarief",
+};
+
+interface SyntheticRateFacts {
+  readonly tariefEenheid: string | null;
+  readonly tariefMax: number | null;
+  readonly tariefMin: number | null;
+  readonly tariefValuta: string | null;
+}
+
+const syntheticRateFacts = new Map<string, SyntheticRateFacts>([
+  [
+    commaJob.id,
+    {
+      tariefEenheid: "uur",
+      tariefMax: 110,
+      tariefMin: 90,
+      tariefValuta: "EUR",
+    },
+  ],
+  [
+    longDetailJob.id,
+    {
+      tariefEenheid: "uur",
+      tariefMax: 110,
+      tariefMin: 90,
+      tariefValuta: "EUR",
+    },
+  ],
+  [
+    monthRateJob.id,
+    {
+      tariefEenheid: "maand",
+      tariefMax: 6000,
+      tariefMin: 4000,
+      tariefValuta: "EUR",
+    },
+  ],
+  [
+    dayRateJob.id,
+    {
+      tariefEenheid: "dag",
+      tariefMax: 750,
+      tariefMin: 500,
+      tariefValuta: "EUR",
+    },
+  ],
+  [
+    unknownPeriodRateJob.id,
+    {
+      tariefEenheid: null,
+      tariefMax: 4250,
+      tariefMin: 3750,
+      tariefValuta: "EUR",
+    },
+  ],
+  [
+    minOnlyRateJob.id,
+    {
+      tariefEenheid: "dag",
+      tariefMax: null,
+      tariefMin: 650,
+      tariefValuta: "EUR",
+    },
+  ],
+]);
+
+const syntheticDocuments: readonly SearchDocument[] = [
+  commaJob,
+  timeoutJob,
+  unknownFieldsJob,
+  longDetailJob,
+  archivedJob,
+  monthRateJob,
+  dayRateJob,
+  unknownPeriodRateJob,
+  minOnlyRateJob,
+];
+
 class IncompleteOnceEngine implements SearchEngine {
   private readonly delegate: SearchEngine;
   private readonly timeoutSearches = new Set<string>();
@@ -206,23 +342,15 @@ class IncompleteOnceEngine implements SearchEngine {
 
 const createSyntheticRegistry = async () => {
   const baseDeps = createTestSliceADeps("search-audit-e2e");
-  await Promise.all([
-    baseDeps.engine.upsertDocument(commaJob),
-    baseDeps.engine.upsertDocument(timeoutJob),
-    baseDeps.engine.upsertDocument(unknownFieldsJob),
-    baseDeps.engine.upsertDocument(longDetailJob),
-    baseDeps.engine.upsertDocument(archivedJob),
-  ]);
+  await Promise.all(
+    syntheticDocuments.map((document) =>
+      baseDeps.engine.upsertDocument(document)
+    )
+  );
 
-  for (const document of [
-    commaJob,
-    timeoutJob,
-    unknownFieldsJob,
-    longDetailJob,
-    archivedJob,
-  ]) {
-    const hasPublishedFacts =
-      document.id === commaJob.id || document.id === longDetailJob.id;
+  for (const document of syntheticDocuments) {
+    const rateFacts = syntheticRateFacts.get(document.id);
+    const hasPublishedFacts = rateFacts !== undefined;
     baseDeps.stores.aanvragen.seed({
       beschrijving: document.beschrijving,
       bronId: document.bronId,
@@ -239,10 +367,10 @@ const createSyntheticRegistry = async () => {
         ? new Date("2099-09-30T17:00:00.000Z")
         : null,
       status: document.status,
-      tariefEenheid: hasPublishedFacts ? "uur" : null,
-      tariefMax: hasPublishedFacts ? 110 : null,
-      tariefMin: hasPublishedFacts ? 90 : null,
-      tariefValuta: hasPublishedFacts ? "EUR" : null,
+      tariefEenheid: rateFacts?.tariefEenheid ?? null,
+      tariefMax: rateFacts?.tariefMax ?? null,
+      tariefMin: rateFacts?.tariefMin ?? null,
+      tariefValuta: rateFacts?.tariefValuta ?? null,
       titel: document.titel,
       versies: [],
       werkvorm: hasPublishedFacts ? "remote" : null,

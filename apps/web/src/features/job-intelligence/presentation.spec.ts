@@ -61,6 +61,29 @@ describe("job presentation", () => {
     expect(formatRate(job)).toMatch(/^tot .+ \/ uur$/u);
   });
 
+  it("formats min-only rates and labels each known or unknown period", () => {
+    const [fixture] = JOB_FIXTURES;
+    if (!fixture) {
+      throw new Error("Expected at least one job fixture");
+    }
+
+    const periods = [
+      ["hour", "/ uur"],
+      ["day", "/ dag"],
+      ["month", "/ maand"],
+      ["year", "/ jaar"],
+      ["unknown", "(periode onbekend)"],
+    ] as const;
+    for (const [period, suffix] of periods) {
+      const formatted = formatRate({
+        ...fixture,
+        rate: { currency: "EUR", max: null, min: 90, period },
+      });
+      expect(formatted).toMatch(/^vanaf /u);
+      expect(formatted).toContain(suffix);
+    }
+  });
+
   it("prefers literal curated work form and keeps absent live data unknown", () => {
     const [fixture] = JOB_FIXTURES;
     if (!fixture) {

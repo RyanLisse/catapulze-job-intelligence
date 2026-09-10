@@ -137,8 +137,12 @@ export const hourlyRateBuckets = (
     .filter(({ period }) => period === "hour")
     .map(({ max, min }) => {
       const floor = min ?? max;
+      if (floor === null) {
+        return null;
+      }
       return Math.floor(floor / RATE_BUCKET_SIZE) * RATE_BUCKET_SIZE;
-    });
+    })
+    .filter((bucket): bucket is number => bucket !== null);
 
   if (hourlyMinimums.length === 0) {
     return [];
@@ -159,4 +163,4 @@ export const hourlyRateBuckets = (
 };
 
 export const countJobsWithHourlyRate = (jobs: readonly JobListing[]): number =>
-  jobs.filter(({ rate }) => rate !== null).length;
+  jobs.filter(({ rate }) => rate?.period === "hour").length;

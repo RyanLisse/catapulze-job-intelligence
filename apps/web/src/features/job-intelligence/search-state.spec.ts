@@ -109,6 +109,54 @@ describe("fixture job search", () => {
     expect(result.status).toBe("ready");
   });
 
+  it("applies the hourly minimum-rate filter to either published bound", () => {
+    const [hourlyFixture, minOnlyBase, maxOnlyBase, dayBase] = JOB_FIXTURES;
+    if (!hourlyFixture || !minOnlyBase || !maxOnlyBase || !dayBase) {
+      throw new Error("Expected rate fixtures");
+    }
+    const jobs = [
+      hourlyFixture,
+      {
+        ...minOnlyBase,
+        id: "hour-min-only",
+        rate: {
+          currency: "EUR" as const,
+          max: null,
+          min: 100,
+          period: "hour" as const,
+        },
+      },
+      {
+        ...maxOnlyBase,
+        id: "hour-max-only",
+        rate: {
+          currency: "EUR" as const,
+          max: 99,
+          min: null,
+          period: "hour" as const,
+        },
+      },
+      {
+        ...dayBase,
+        id: "day-rate",
+        rate: {
+          currency: "EUR" as const,
+          max: 500,
+          min: 400,
+          period: "day" as const,
+        },
+      },
+    ];
+    const result = searchJobs(
+      jobs,
+      parseJobSearchState(new URLSearchParams("minRate=100"))
+    );
+
+    expect(new Set(result.items.map(({ id }) => id))).toEqual(
+      new Set([hourlyFixture.id, "hour-min-only"])
+    );
+  });
+
   it("returns an explicit empty presentation state", () => {
     const state = parseJobSearchState(
       new URLSearchParams("q=kwantumteleportatie")
@@ -186,6 +234,79 @@ describe("fixture job search", () => {
       { id: "job-008", max: 102_000, period: "year" },
       { id: "job-010", max: 96_000, period: "year" },
       { id: "job-011", max: null, period: null },
+    ]);
+  });
+
+  it("groups day, month and unknown rates after hourly rates", () => {
+    const [fixture] = JOB_FIXTURES;
+    if (!fixture) {
+      throw new Error("Expected at least one job fixture");
+    }
+    const jobs = [
+      {
+        ...fixture,
+        id: "hour",
+        rate: {
+          currency: "EUR" as const,
+          max: null,
+          min: 100,
+          period: "hour" as const,
+        },
+      },
+      {
+        ...fixture,
+        id: "day",
+        rate: {
+          currency: "EUR" as const,
+          max: 500,
+          min: null,
+          period: "day" as const,
+        },
+      },
+      {
+        ...fixture,
+        id: "month",
+        rate: {
+          currency: "EUR" as const,
+          max: 300,
+          min: null,
+          period: "month" as const,
+        },
+      },
+      {
+        ...fixture,
+        id: "year",
+        rate: {
+          currency: "EUR" as const,
+          max: 120_000,
+          min: null,
+          period: "year" as const,
+        },
+      },
+      {
+        ...fixture,
+        id: "unknown",
+        rate: {
+          currency: "EUR" as const,
+          max: 9000,
+          min: null,
+          period: "unknown" as const,
+        },
+      },
+      { ...fixture, id: "missing", rate: null },
+    ];
+    const result = searchJobs(jobs, {
+      ...parseJobSearchState(new URLSearchParams("sort=rate-high")),
+      pageSize: 100,
+    });
+
+    expect(result.items.map(({ id }) => id)).toEqual([
+      "hour",
+      "day",
+      "month",
+      "year",
+      "unknown",
+      "missing",
     ]);
   });
 

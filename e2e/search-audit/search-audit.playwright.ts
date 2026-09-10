@@ -10,6 +10,24 @@ const DETAIL_END_MARKER = "SYNTHETIC_DETAIL_END_MARKER_CTP_492";
 const LIVE_CATALOG_LABEL = "SYNTHETIC Catalogus Live";
 const HISTORICAL_CATALOG_LABEL = "SYNTHETIC Historisch Archief";
 const CLOSED_TITLE = "SYNTHETIC gesloten archiefopdracht";
+const RATE_CASES = [
+  {
+    rate: /€\s*4\.000–€\s*6\.000 \/ maand/u,
+    title: "SYNTHETIC maandtarief",
+  },
+  {
+    rate: /€\s*500–€\s*750 \/ dag/u,
+    title: "SYNTHETIC dagtarief",
+  },
+  {
+    rate: /€\s*3\.750–€\s*4\.250 \(periode onbekend\)/u,
+    title: "SYNTHETIC tarief zonder periode",
+  },
+  {
+    rate: /vanaf €\s*650 \/ dag/u,
+    title: "SYNTHETIC minimum dagtarief",
+  },
+] as const;
 
 const openJobs = async (page: Page, url = "/jobs") => {
   await page.goto(url, { waitUntil: "domcontentloaded" });
@@ -161,6 +179,29 @@ test("distinguishes published commercial facts from unknown source facts", async
     path: testInfo.outputPath("published-versus-unknown-fields.png"),
   });
 });
+
+for (const { rate, title } of RATE_CASES) {
+  test(`shows ${title} in results and detail`, async ({ page }) => {
+    await openJobs(page);
+    const results = page.getByRole("region", { name: "Zoekresultaten" });
+    const row = results.getByRole("row").filter({ hasText: title });
+    await expect(row).toBeVisible();
+    await expect(row).toContainText(rate);
+    await expect(row).not.toContainText("/ uur");
+
+    await row.getByRole("button", { name: title }).click();
+    const detail = page.locator("aside").filter({ hasText: title });
+    await expect(detail).toBeVisible();
+    await expect(detail.getByRole("heading", { name: title })).toBeVisible();
+    await expect(detail).toContainText(rate);
+    await expect(detail).not.toContainText("/ uur");
+
+    await detail
+      .getByRole("button", { name: "Vacaturedetail sluiten" })
+      .click();
+    await expect(detail).toHaveCount(0);
+  });
+}
 
 test("shows catalog labels, historical archive filters, and closed results", async ({
   page,
