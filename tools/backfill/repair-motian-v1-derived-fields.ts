@@ -1,8 +1,17 @@
-import { RawObjectDigestMismatchError } from "@ji/connectors";
+import { hashContent, RawObjectDigestMismatchError } from "@ji/connectors";
 import { createRawObjectStore } from "@ji/connectors/s3-object-client";
 import postgres from "postgres";
 import { z } from "zod";
 
+import {
+  applyMotianV1DerivedFieldRepair,
+  rollbackMotianV1DerivedFieldRepair,
+} from "./motian-v1-derived-field-apply";
+import type {
+  MotianRepairApplyReason,
+  MotianRepairApplyResult,
+  MotianRepairRollbackResult,
+} from "./motian-v1-derived-field-apply";
 import {
   MOTIAN_DERIVED_FIELD_NAMES,
   MOTIAN_V1_DERIVED_FIELD_REPAIR_VERSION,
@@ -21,9 +30,14 @@ import type {
 const MAX_MANIFEST_ENTRIES = 100;
 const REPORT_STATEMENT_TIMEOUT_MS = 15_000;
 
-interface CliArguments {
-  readonly limit: number;
-  readonly manifestPath: string;
+export type MotianRepairOperation = "apply" | "report" | "rollback";
+
+export interface CliArguments {
+  readonly auditId?: string;
+  readonly ingestQuiesced: boolean;
+  readonly limit?: number;
+  readonly manifestPath?: string;
+  readonly operation: MotianRepairOperation;
 }
 
 const manifestEntrySchema = z
@@ -67,34 +81,103 @@ const parseManifest = (body: Uint8Array): RepairManifest => {
   return manifest;
 };
 
-const readRequiredOption = (
-  arguments_: readonly string[],
-  option: "--limit" | "--manifest"
+const valueFlags = new Set(["--audit-id", "--limit", "--manifest"]);
+const booleanFlags = new Set(["--apply", "--ingest-quiesced", "--rollback"]);
+
+const readValue = (
+  values: ReadonlyMap<string, string>,
+  option: string
 ): string => {
-  const index = arguments_.indexOf(option);
-  const value = index === -1 ? undefined : arguments_[index + 1];
-  if (!value || value.startsWith("--")) {
+  const value = values.get(option);
+  if (!value) {
     throw new Error(`${option} is required`);
   }
   return value;
 };
 
-const parseArguments = (arguments_: readonly string[]): CliArguments => {
-  const known = new Set(["--limit", "--manifest"]);
-  for (const argument of arguments_) {
-    if (argument.startsWith("--") && !known.has(argument)) {
-      throw new Error(`Unsupported option ${argument}`);
+const readOptions = (arguments_: readonly string[]) => {
+  const normalized = arguments_[0] === "--" ? arguments_.slice(1) : arguments_;
+  const values = new Map<string, string>();
+  const booleans = new Set<string>();
+
+  for (let index = 0; index < normalized.length; index += 1) {
+    const argument = normalized[index];
+    if (
+      !argument ||
+      (!valueFlags.has(argument) && !booleanFlags.has(argument))
+    ) {
+      throw new Error(`Unsupported option ${argument ?? ""}`);
     }
+    if (values.has(argument) || booleans.has(argument)) {
+      throw new Error(`Duplicate option ${argument}`);
+    }
+    if (booleanFlags.has(argument)) {
+      booleans.add(argument);
+      continue;
+    }
+    const value = normalized[index + 1];
+    if (!value || value.startsWith("--")) {
+      throw new Error(`${argument} requires a value`);
+    }
+    values.set(argument, value);
+    index += 1;
   }
-  const limit = Number(readRequiredOption(arguments_, "--limit"));
-  if (!Number.isInteger(limit) || limit < 1 || limit > MAX_MANIFEST_ENTRIES) {
+
+  return { booleans, values };
+};
+
+const parseArguments = (arguments_: readonly string[]): CliArguments => {
+  const { values, booleans } = readOptions(arguments_);
+  const apply = booleans.has("--apply");
+  const rollback = booleans.has("--rollback");
+  if (apply && rollback) {
+    throw new Error("--apply and --rollback are mutually exclusive");
+  }
+  const ingestQuiesced = booleans.has("--ingest-quiesced");
+  if ((apply || rollback) !== ingestQuiesced) {
+    throw new Error(
+      "--apply and --rollback require --ingest-quiesced; report mode rejects it"
+    );
+  }
+
+  if (rollback) {
+    if (values.has("--limit") || values.has("--manifest")) {
+      throw new Error(
+        "--rollback accepts only --audit-id and --ingest-quiesced"
+      );
+    }
+    return {
+      auditId: readValue(values, "--audit-id"),
+      ingestQuiesced,
+      operation: "rollback",
+    };
+  }
+
+  if (values.has("--audit-id")) {
+    throw new Error("--audit-id requires --rollback");
+  }
+  const limitText = readValue(values, "--limit");
+  if (!/^\d+$/u.test(limitText)) {
     throw new Error(
       `--limit must be an integer from 1 through ${MAX_MANIFEST_ENTRIES}`
     );
   }
+  const limit = Number(limitText);
+  if (
+    !Number.isSafeInteger(limit) ||
+    limit < 1 ||
+    limit > MAX_MANIFEST_ENTRIES
+  ) {
+    throw new Error(
+      `--limit must be an integer from 1 through ${MAX_MANIFEST_ENTRIES}`
+    );
+  }
+  const operation: MotianRepairOperation = apply ? "apply" : "report";
   return {
+    ingestQuiesced,
     limit,
-    manifestPath: readRequiredOption(arguments_, "--manifest"),
+    manifestPath: readValue(values, "--manifest"),
+    operation,
   };
 };
 
@@ -105,7 +188,6 @@ const loadManifest = async (
   readonly manifestSha256: string;
 }> => {
   const body = new Uint8Array(await Bun.file(manifestPath).arrayBuffer());
-  const { hashContent } = await import("@ji/connectors");
   return {
     manifest: parseManifest(body),
     manifestSha256: await hashContent(body),
@@ -335,22 +417,194 @@ const runReport = async (input: {
   };
 };
 
+interface ApplyReport {
+  readonly applied: number;
+  readonly candidates: readonly MotianRepairApplyResult[];
+  readonly manifestSha256: string;
+  readonly planVersion: typeof MOTIAN_V1_DERIVED_FIELD_REPAIR_VERSION;
+  readonly projectionEventsRequired: number;
+  readonly rejected: Partial<Record<MotianRepairApplyReason, number>>;
+  readonly selected: number;
+  readonly unchanged: number;
+}
+
+interface RollbackReport {
+  readonly auditId: string;
+  readonly planVersion: typeof MOTIAN_V1_DERIVED_FIELD_REPAIR_VERSION;
+  readonly result: MotianRepairRollbackResult;
+}
+
+const requireDatabaseUrl = (): string => {
+  const databaseUrl = process.env.DATABASE_URL?.trim();
+  if (!databaseUrl) {
+    throw new Error("DATABASE_URL is required");
+  }
+  return databaseUrl;
+};
+
+const createRawReader = (): ((
+  rawPayloadRef: string
+) => Promise<RawObjectForMotianRepair | null>) => {
+  const rawObjectStore = createRawObjectStore({
+    RAW_S3_ACCESS_KEY_ID: process.env.RAW_S3_ACCESS_KEY_ID,
+    RAW_S3_BUCKET: process.env.RAW_S3_BUCKET,
+    RAW_S3_ENDPOINT: process.env.RAW_S3_ENDPOINT,
+    RAW_S3_REGION: process.env.RAW_S3_REGION,
+    RAW_S3_SECRET_ACCESS_KEY: process.env.RAW_S3_SECRET_ACCESS_KEY,
+  });
+  if (rawObjectStore.kind !== "s3") {
+    throw new Error(
+      "RAW_S3_BUCKET is required; filesystem raw storage is refused"
+    );
+  }
+  return (rawPayloadRef) => rawObjectStore.store.get(rawPayloadRef);
+};
+
+const createRepairDatabase = (readOnly: boolean): postgres.Sql =>
+  postgres(requireDatabaseUrl(), {
+    connect_timeout: 10,
+    connection: {
+      default_transaction_read_only: readOnly,
+      statement_timeout: REPORT_STATEMENT_TIMEOUT_MS,
+    },
+    idle_timeout: 20,
+    max: 1,
+    max_lifetime: null,
+  });
+
+export const runApply = async (input: {
+  readonly limit: number;
+  readonly manifest: RepairManifest;
+  readonly manifestSha256: string;
+}): Promise<ApplyReport> => {
+  if (input.manifest.candidates.length > input.limit) {
+    throw new Error(
+      "Manifest candidate count exceeds --limit; create an explicit smaller manifest"
+    );
+  }
+  const readRawObject = createRawReader();
+  const database = createRepairDatabase(false);
+  const candidates: MotianRepairApplyResult[] = [];
+  const rejected: Partial<Record<MotianRepairApplyReason, number>> = {};
+  let applied = 0;
+  let unchanged = 0;
+
+  try {
+    for (const manifestEntry of input.manifest.candidates) {
+      let result: MotianRepairApplyResult;
+      try {
+        /* oxlint-disable no-await-in-loop -- the row lock and bounded transaction are per approved candidate */
+        result = await applyMotianV1DerivedFieldRepair({
+          database,
+          manifest: manifestEntry,
+          manifestSha256: input.manifestSha256,
+          readRawObject,
+        });
+        /* oxlint-enable no-await-in-loop */
+      } catch {
+        result = {
+          reason: "transaction_failed",
+          status: "rejected",
+          v1Id: manifestEntry.v1Id,
+        };
+      }
+      candidates.push(result);
+      if (result.status === "applied") {
+        applied += 1;
+      } else if (result.status === "unchanged") {
+        unchanged += 1;
+      } else if (result.reason) {
+        rejected[result.reason] = (rejected[result.reason] ?? 0) + 1;
+      }
+    }
+  } finally {
+    await database.end({ timeout: 5 });
+  }
+
+  return {
+    applied,
+    candidates,
+    manifestSha256: input.manifestSha256,
+    planVersion: MOTIAN_V1_DERIVED_FIELD_REPAIR_VERSION,
+    projectionEventsRequired: applied,
+    rejected,
+    selected: candidates.length,
+    unchanged,
+  };
+};
+
+export const runRollback = async (input: {
+  readonly auditId: string;
+}): Promise<RollbackReport> => {
+  const database = createRepairDatabase(false);
+  let result: MotianRepairRollbackResult;
+  try {
+    try {
+      result = await rollbackMotianV1DerivedFieldRepair({
+        auditId: input.auditId,
+        database,
+      });
+    } catch {
+      result = {
+        reason: "rollback_transaction_failed",
+        status: "rejected",
+      };
+    }
+  } finally {
+    await database.end({ timeout: 5 });
+  }
+  return {
+    auditId: input.auditId,
+    planVersion: MOTIAN_V1_DERIVED_FIELD_REPAIR_VERSION,
+    result,
+  };
+};
+
 const main = async (): Promise<void> => {
   const arguments_ = parseArguments(Bun.argv.slice(2));
+  if (arguments_.operation === "rollback") {
+    if (!arguments_.auditId) {
+      throw new Error("Rollback arguments were incomplete");
+    }
+    console.log(
+      JSON.stringify(
+        await runRollback({ auditId: arguments_.auditId }),
+        null,
+        2
+      )
+    );
+    return;
+  }
+  if (!arguments_.manifestPath || arguments_.limit === undefined) {
+    throw new Error("Repair arguments were incomplete");
+  }
   const { manifest, manifestSha256 } = await loadManifest(
     arguments_.manifestPath
   );
-  console.log(
-    JSON.stringify(
-      await runReport({ limit: arguments_.limit, manifest, manifestSha256 }),
-      null,
-      2
-    )
-  );
+  const result =
+    arguments_.operation === "apply"
+      ? await runApply({
+          limit: arguments_.limit,
+          manifest,
+          manifestSha256,
+        })
+      : await runReport({
+          limit: arguments_.limit,
+          manifest,
+          manifestSha256,
+        });
+  console.log(JSON.stringify(result, null, 2));
 };
 
 if (import.meta.main) {
-  await main();
+  try {
+    await main();
+  } catch {
+    console.error(
+      JSON.stringify({ reason: "command_failed", status: "error" })
+    );
+    process.exitCode = 1;
+  }
 }
 
 export { MAX_MANIFEST_ENTRIES, parseArguments, parseManifest, runReport };

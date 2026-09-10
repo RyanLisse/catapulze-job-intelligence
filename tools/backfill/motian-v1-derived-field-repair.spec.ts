@@ -11,7 +11,11 @@ import type {
   CurrentMotianDerivedFieldRow,
   MotianDerivedFieldRepairManifestEntry,
 } from "./motian-v1-derived-field-repair";
-import { planReportCandidate } from "./repair-motian-v1-derived-fields";
+import {
+  MAX_MANIFEST_ENTRIES,
+  parseArguments,
+  planReportCandidate,
+} from "./repair-motian-v1-derived-fields";
 
 const V1_ID = "motian-001";
 const BRON_ID = "00000000-0000-4000-8000-000000000030";
@@ -385,5 +389,132 @@ describe("planReportCandidate", () => {
       status: "rejected",
       v1Id: V1_ID,
     });
+  });
+});
+
+describe("repair CLI arguments", () => {
+  const manifestPath = "motian-manifest.json";
+
+  it("defaults to report mode when no mutating flag is present", () => {
+    expect(
+      parseArguments(["--manifest", manifestPath, "--limit", "3"])
+    ).toEqual({
+      ingestQuiesced: false,
+      limit: 3,
+      manifestPath,
+      operation: "report",
+    });
+  });
+
+  it("accepts apply only with an explicit quiescence acknowledgement", () => {
+    expect(() =>
+      parseArguments(["--apply", "--limit", "1", "--manifest", manifestPath])
+    ).toThrow("--apply and --rollback require --ingest-quiesced");
+    expect(
+      parseArguments([
+        "--apply",
+        "--ingest-quiesced",
+        "--limit",
+        "1",
+        "--manifest",
+        manifestPath,
+      ])
+    ).toEqual({
+      ingestQuiesced: true,
+      limit: 1,
+      manifestPath,
+      operation: "apply",
+    });
+  });
+
+  it("requires a bounded limit and manifest for report and apply", () => {
+    expect(() => parseArguments(["--manifest", manifestPath])).toThrow(
+      "--limit is required"
+    );
+    expect(() => parseArguments(["--limit", "1"])).toThrow(
+      "--manifest is required"
+    );
+    expect(() =>
+      parseArguments([
+        "--apply",
+        "--ingest-quiesced",
+        "--limit",
+        String(MAX_MANIFEST_ENTRIES + 1),
+        "--manifest",
+        manifestPath,
+      ])
+    ).toThrow("--limit must be an integer from 1 through");
+  });
+
+  it("rejects quiescence acknowledgement in report mode", () => {
+    expect(() =>
+      parseArguments([
+        "--ingest-quiesced",
+        "--limit",
+        "1",
+        "--manifest",
+        manifestPath,
+      ])
+    ).toThrow("report mode rejects it");
+  });
+
+  it("accepts rollback only with an audit id and quiescence acknowledgement", () => {
+    expect(() =>
+      parseArguments(["--rollback", "--audit-id", "audit-1"])
+    ).toThrow("--apply and --rollback require --ingest-quiesced");
+    expect(
+      parseArguments([
+        "--rollback",
+        "--audit-id",
+        "audit-1",
+        "--ingest-quiesced",
+      ])
+    ).toEqual({
+      auditId: "audit-1",
+      ingestQuiesced: true,
+      operation: "rollback",
+    });
+    expect(() =>
+      parseArguments([
+        "--rollback",
+        "--audit-id",
+        "audit-1",
+        "--ingest-quiesced",
+        "--limit",
+        "1",
+      ])
+    ).toThrow("--rollback accepts only --audit-id and --ingest-quiesced");
+    expect(() =>
+      parseArguments([
+        "--rollback",
+        "--audit-id",
+        "audit-1",
+        "--ingest-quiesced",
+        "--manifest",
+        manifestPath,
+      ])
+    ).toThrow("--rollback accepts only --audit-id and --ingest-quiesced");
+  });
+
+  it("rejects mutually exclusive operations and misplaced audit ids", () => {
+    expect(() =>
+      parseArguments([
+        "--apply",
+        "--rollback",
+        "--ingest-quiesced",
+        "--audit-id",
+        "audit-1",
+      ])
+    ).toThrow("--apply and --rollback are mutually exclusive");
+    expect(() =>
+      parseArguments([
+        "--audit-id",
+        "audit-1",
+        "--manifest",
+        manifestPath,
+        "--limit",
+        "1",
+      ])
+    ).toThrow("--audit-id requires --rollback");
   });
 });

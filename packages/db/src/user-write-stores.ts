@@ -46,6 +46,36 @@ const markeringStatusSchema = z.enum(["relevant", "niet_relevant", "gevolgd"]);
 const auditActorTypeSchema = z.enum(["agent", "service", "system", "user"]);
 const auditClassSchema = z.enum(["access", "effect", "none"]);
 const resultIdsSchema = z.array(z.string());
+const motianRepairFieldNameSchema = z.enum([
+  "opdrachtgeverNaam",
+  "contracttype",
+  "publicatiedatum",
+  "startDatum",
+  "sluitingsdatum",
+]);
+const motianRepairFieldImageSchema = z
+  .object({
+    contracttype: z.string().nullable(),
+    opdrachtgeverNaam: z.string().nullable(),
+    publicatiedatum: z.string().nullable(),
+    sluitingsdatum: z.string().datetime({ offset: true }).nullable(),
+    startDatum: z.string().nullable(),
+  })
+  .strict();
+const motianRepairAuditBaseSchema = {
+  aanvraagId: z.string().min(1),
+  afterimage: motianRepairFieldImageSchema,
+  bronId: z.string().min(1),
+  bronReferentie: z.string().min(1),
+  changedFields: z.array(motianRepairFieldNameSchema),
+  contentHash: z.string().regex(/^[0-9a-f]{64}$/u),
+  manifestSha256: z.string().regex(/^[0-9a-f]{64}$/u),
+  preimage: motianRepairFieldImageSchema,
+  rawPayloadRef: z.string().min(1),
+  repairVersion: z.literal("motian-v1-derived-field-repair/v1"),
+  sourceAbsentFields: z.array(motianRepairFieldNameSchema),
+  v1Id: z.string().min(1),
+} as const;
 const auditMetadataSchema: z.ZodType<AuditEventMetadata> = z.union([
   z
     .object({
@@ -95,6 +125,13 @@ const auditMetadataSchema: z.ZodType<AuditEventMetadata> = z.union([
       deleted: z.boolean(),
       naam: z.string(),
       queryText: z.string(),
+    })
+    .strict(),
+  z.object(motianRepairAuditBaseSchema).strict(),
+  z
+    .object({
+      ...motianRepairAuditBaseSchema,
+      rollbackOfAuditId: z.string().min(1),
     })
     .strict(),
 ]);

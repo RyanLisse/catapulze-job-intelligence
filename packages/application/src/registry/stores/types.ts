@@ -145,12 +145,53 @@ export interface ManualExportReconciliationAuditMetadata {
   readonly target: "spott";
 }
 
+export type MotianDerivedFieldRepairFieldName =
+  | "opdrachtgeverNaam"
+  | "contracttype"
+  | "publicatiedatum"
+  | "startDatum"
+  | "sluitingsdatum";
+
+export interface MotianDerivedFieldRepairAuditFieldImage {
+  readonly contracttype: string | null;
+  readonly opdrachtgeverNaam: string | null;
+  readonly publicatiedatum: string | null;
+  readonly sluitingsdatum: string | null;
+  readonly startDatum: string | null;
+}
+
+/**
+ * Strict, bounded metadata for the Motian v1 derived-field repair lane.
+ * Values are limited to the five nullable derived columns; raw payloads and
+ * arbitrary source JSON never belong in an audit event.
+ */
+export interface MotianDerivedFieldRepairAuditMetadata {
+  readonly afterimage: MotianDerivedFieldRepairAuditFieldImage;
+  readonly aanvraagId: string;
+  readonly bronId: string;
+  readonly bronReferentie: string;
+  readonly changedFields: readonly MotianDerivedFieldRepairFieldName[];
+  readonly contentHash: string;
+  readonly manifestSha256: string;
+  readonly preimage: MotianDerivedFieldRepairAuditFieldImage;
+  readonly rawPayloadRef: string;
+  readonly repairVersion: "motian-v1-derived-field-repair/v1";
+  readonly sourceAbsentFields: readonly MotianDerivedFieldRepairFieldName[];
+  readonly v1Id: string;
+}
+
+export interface MotianDerivedFieldRepairRollbackAuditMetadata extends MotianDerivedFieldRepairAuditMetadata {
+  readonly rollbackOfAuditId: string;
+}
+
 export type AuditEventMetadata =
   | ApprovalAuditMetadata
   | ClearMarkeringAuditMetadata
   | CommitExportAuditMetadata
   | ManualExportReconciliationAuditMetadata
   | MarkeerAuditMetadata
+  | MotianDerivedFieldRepairAuditMetadata
+  | MotianDerivedFieldRepairRollbackAuditMetadata
   | SavedSearchAuditMetadata;
 
 export type AlertEvidenceValue = boolean | null | number | string;
