@@ -1,3 +1,4 @@
+import { RawObjectDigestMismatchError } from "@ji/connectors";
 import { createRawObjectStore } from "@ji/connectors/s3-object-client";
 import postgres from "postgres";
 import { z } from "zod";
@@ -219,7 +220,14 @@ export const planReportCandidate = async (input: {
   let raw: RawObjectForMotianRepair | null;
   try {
     raw = await readRawObject(current.rawPayloadRef);
-  } catch {
+  } catch (error) {
+    if (error instanceof RawObjectDigestMismatchError) {
+      return {
+        reason: "raw_hash_mismatch",
+        status: "rejected",
+        v1Id: manifest.v1Id,
+      };
+    }
     return {
       reason: "raw_read_failed",
       status: "rejected",
