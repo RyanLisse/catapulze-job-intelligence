@@ -186,6 +186,7 @@ describe("parseHarveyNashPayload", () => {
       deadline_resolved: "2026-09-04",
       job_ref: "BBBH121494_1788161094",
       reference: "BBBH121494_1788161094",
+      uren_per_week: "36",
     });
   });
 
@@ -233,7 +234,7 @@ describe("parseHarveyNashPayload", () => {
     expect(draft.beschrijving.provenance.sourcePath).toBe(
       "detail.jsonLd.description"
     );
-    expect(draft.parserVersion).toBe("harveynash/v2");
+    expect(draft.parserVersion).toBe("harveynash/v3");
   });
 
   it("removes source tags before retaining escaped angle-bracket text", () => {

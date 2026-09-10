@@ -4,6 +4,7 @@ import { INHUURDESK_PARSER_VERSION } from "@ji/connectors/inhuurdesk";
 import { UNKNOWN } from "@ji/domain";
 import { resolveLifecycleStatus } from "@ji/domain/lifecycle";
 
+import { formatHoursPerWeek } from "./hours";
 import { parseTariefFromText } from "./tarief";
 import {
   closingMomentInstant,
@@ -106,6 +107,10 @@ export const parseInhuurdeskPayload = (
         supplier_deadline: assignment.closingDateInvoice ?? null,
         uren_max: assignment.hoursPerWeekMax ?? null,
         uren_min: assignment.hoursPerWeekMin ?? null,
+        uren_per_week: formatHoursPerWeek(
+          assignment.hoursPerWeekMin,
+          assignment.hoursPerWeekMax
+        ),
       },
       parserVersion,
       "assignment"

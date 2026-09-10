@@ -327,6 +327,7 @@ export const parseHarveyNashPayload = (
         reference: detail.reference,
         richttarief_raw: detail.facts.richttarief ?? null,
         start_raw: detail.facts.start ?? null,
+        uren_per_week: detail.facts.uren ?? null,
         uren_raw: detail.facts.uren ?? null,
       },
       parserVersion,

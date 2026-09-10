@@ -65,7 +65,7 @@ export interface StriiveFetchedPayload {
   job: StriiveJob;
 }
 
-export const STRIIVE_PARSER_VERSION = "striive/v1" as const;
+export const STRIIVE_PARSER_VERSION = "striive/v2" as const;
 
 export const STRIIVE_JOBS_PATH = "/api/jobs";
 

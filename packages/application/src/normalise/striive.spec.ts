@@ -55,6 +55,7 @@ describe("parseStriivePayload", () => {
     );
     expect(draft.startDatum.value).toBe("2026-09-13");
     expect(draft.beschrijving.value).toContain("Beheer van Youforce.");
+    expect(draft.bronSpecifiek.value).toMatchObject({ uren_per_week: "8–24" });
     expect(draft.extractieMethode).toBe("api");
   });
 

@@ -44,7 +44,7 @@ describe("parseInhuurdeskPayload (live schema, captured 2026-09-03)", () => {
   it("maps the real Planner C record into the normalised draft", () => {
     const draft = parseInhuurdeskPayload(buildPayload(), "hash-1");
 
-    expect(draft.parserVersion).toBe("inhuurdesk/v2");
+    expect(draft.parserVersion).toBe("inhuurdesk/v3");
     expect(draft.titel.value).toBe("Planner C");
     expect(draft.bronReferentie.value).toBe(
       "3c9792fd-d0ef-4bcc-9500-c2ceaba566a4"
@@ -72,6 +72,7 @@ describe("parseInhuurdeskPayload (live schema, captured 2026-09-03)", () => {
       supplier_deadline: "2026-09-08T08:00:00",
       uren_max: 36,
       uren_min: 36,
+      uren_per_week: "36",
     });
     expect(draft.extractieMethode).toBe("api");
   });

@@ -115,7 +115,7 @@ describe("contract-start provenance (RJC-432)", () => {
       "hash-actual-start"
     );
 
-    expect(draft.parserVersion).toBe("opdrachtoverheid/v2");
+    expect(draft.parserVersion).toBe("opdrachtoverheid/v3");
     expect(draft.startDatum.value).toBe("2026-09-15");
     expect(draft.startDatum.provenance.sourcePath).toBe(
       "tender.tender_start_date"

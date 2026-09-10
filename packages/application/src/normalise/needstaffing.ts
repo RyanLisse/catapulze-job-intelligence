@@ -101,6 +101,8 @@ export const parseNeedstaffingPayload = (
         deadline: epochToIsoDate(detail.deadline),
         periode: detail.periode ?? null,
         referentie: detail.referentie ?? null,
+        uren: detail.uren ?? null,
+        uren_per_week: detail.uren ?? null,
       },
       parserVersion,
       "detail"

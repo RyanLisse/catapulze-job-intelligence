@@ -3,6 +3,7 @@ import { STRIIVE_PARSER_VERSION } from "@ji/connectors/striive";
 import { UNKNOWN } from "@ji/domain";
 import { resolveLifecycleStatus } from "@ji/domain/lifecycle";
 
+import { formatHoursPerWeek } from "./hours";
 import {
   closingMomentInstant,
   field,
@@ -103,6 +104,7 @@ export const parseStriivePayload = (
         : job.closingDateInvoice,
     uren_max: numberToStringOrUnknown(job.hoursPerWeekMax),
     uren_min: numberToStringOrUnknown(job.hoursPerWeekMin),
+    uren_per_week: formatHoursPerWeek(job.hoursPerWeekMin, job.hoursPerWeekMax),
   };
 
   return {

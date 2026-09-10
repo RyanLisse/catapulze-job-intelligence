@@ -6,6 +6,7 @@ import {
 import { UNKNOWN } from "@ji/domain";
 import { resolveLifecycleStatus } from "@ji/domain/lifecycle";
 
+import { formatHoursPerWeek } from "./hours";
 import { field, stripHtml } from "./types";
 import type { NormalisedAanvraagDraft, NormalisedTarief } from "./types";
 
@@ -195,6 +196,8 @@ export const parseOnefellowPayload = (
     seenOpen: !bronSaysClosed,
     sluitingsdatumPassed,
   });
+  const urenMin = uren.min === UNKNOWN ? null : uren.min;
+  const urenMax = uren.max === UNKNOWN ? null : uren.max;
 
   const bronSpecifiek = {
     duration: job.duration ?? null,
@@ -206,8 +209,9 @@ export const parseOnefellowPayload = (
     samenvatting: job.teaser?.trim() || null,
     sluitingsdatum: sluitingsdatum ? sluitingsdatum.toISOString() : null,
     status_bron: job.status ?? null,
-    uren_max: uren.max === UNKNOWN ? null : uren.max,
-    uren_min: uren.min === UNKNOWN ? null : uren.min,
+    uren_max: urenMax,
+    uren_min: urenMin,
+    uren_per_week: formatHoursPerWeek(urenMin, urenMax),
     werkvorm: job.workplace_type ?? null,
   };
 

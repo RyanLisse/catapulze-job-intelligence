@@ -133,6 +133,19 @@ describe("U4/U5 fixture read path", () => {
     });
     expect(observationRecorder.records).toHaveLength(4);
     expect(curateStore.aanvragen).toHaveLength(4);
+    expect(
+      curateStore.aanvragen.find(
+        (aanvraag) =>
+          aanvraag.bronReferentie === "3c9792fd-d0ef-4bcc-9500-c2ceaba566a4"
+      )
+    ).toMatchObject({
+      bronSpecifiek: {
+        uren_max: 36,
+        uren_min: 36,
+        uren_per_week: "36",
+      },
+      urenPerWeek: "36",
+    });
   });
 });
 

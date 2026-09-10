@@ -271,7 +271,7 @@ describe("normalise needstaffing", () => {
     expect(draft.tarief.min).toBe("98");
     expect(draft.tarief.max).toBe("102");
     expect(draft.tarief.eenheid).toBe(UNKNOWN);
-    expect(draft.parserVersion).toBe("needstaffing/v2");
+    expect(draft.parserVersion).toBe("needstaffing/v3");
     expect(draft.startDatum.value).toBe("2026-09-26");
     expect(draft.bronReferentie.value).toBe("15520");
     expect(draft.bronUrl.value).toBe(
@@ -281,6 +281,10 @@ describe("normalise needstaffing", () => {
     expect(draft.beschrijving.value).toContain(
       "Rolomschrijving voor database ontwikkelaar"
     );
+    expect(draft.bronSpecifiek.value).toMatchObject({
+      uren: "36",
+      uren_per_week: "36",
+    });
     expect(validateNormalisedDraft(draft)).toEqual([]);
   });
 
@@ -497,11 +501,41 @@ describe("normalise opdrachtoverheid", () => {
 
     // SAFETY: parseOpdrachtoverheidPayload always emits these bron_specifiek fields.
     const specifiek = draft.bronSpecifiek.value as {
+      tender_hours_week: unknown;
       uren_max: unknown;
       uren_min: unknown;
+      uren_per_week: unknown;
     };
-    expect(specifiek.uren_min).toBe("36");
-    expect(specifiek.uren_max).toBe("36");
+    expect(specifiek.tender_hours_week).toBe("36");
+    expect(specifiek.uren_min).toBeNull();
+    expect(specifiek.uren_max).toBeNull();
+    expect(specifiek.uren_per_week).toBe("36");
+  });
+
+  it("formats numeric weekly bounds without changing one-sided meaning", () => {
+    const range = parseOpdrachtoverheidPayload(
+      buildOpdrachtoverheidPayload({
+        tender_hours_week: "36",
+        tender_max_hours: 40,
+        tender_min_hours: 32,
+      }),
+      "hash-oo-5-range"
+    );
+    expect(range.bronSpecifiek.value).toMatchObject({
+      tender_hours_week: "36",
+      uren_per_week: "32–40",
+    });
+
+    const minimumOnly = parseOpdrachtoverheidPayload(
+      buildOpdrachtoverheidPayload({
+        tender_max_hours: null,
+        tender_min_hours: 32,
+      }),
+      "hash-oo-5-minimum"
+    );
+    expect(minimumOnly.bronSpecifiek.value).toMatchObject({
+      uren_per_week: "≥32",
+    });
   });
 
   it("falls back to vacancies_location when tender_job_location is absent", () => {
