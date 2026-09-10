@@ -179,6 +179,9 @@ describe("Harvey Nash connector", () => {
     expect(payload.detail.facts.start).toContain("01-11-2026");
     expect(payload.detail.jsonLd.datePosted).toBe("2026-08-31T07:24:55.419Z");
     expect(payload.detail.jsonLd.validThrough).toBe("2026-09-07T23:59:59.999Z");
+    expect(payload.detail.jsonLd.description).toContain(
+      "Voor onze eindklant Politie"
+    );
     expect(payload.detail.jsonLd).not.toHaveProperty("baseSalary");
     expect(payload.detail.url).toBe(
       "https://www.harveynash.nl/vacatures/298852-Endpoints-specialist-"

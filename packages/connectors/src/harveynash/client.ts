@@ -140,6 +140,7 @@ export const parseHarveyNashDetailHtml = (
     jsonLd: jobPosting
       ? {
           datePosted: asOptionalString(jobPosting.datePosted),
+          description,
           title: asOptionalString(jobPosting.title),
           validThrough: asOptionalString(jobPosting.validThrough),
         }

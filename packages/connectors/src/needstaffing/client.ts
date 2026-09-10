@@ -98,7 +98,7 @@ export const extractNeedstaffingReferentie = (
 ): string | undefined => REFERENTIE_PATTERN.exec(titel)?.groups?.ref;
 
 const TARIEF_BAND_PATTERN =
-  /€\s*(?<min>\d+(?:[.,]\d+)?)\s*-\s*€?\s*(?<max>\d+(?:[.,]\d+)?)/u;
+  /€\s*(?<min>\d+(?:[.,]\d+)?)(?:,\s*-)?\s*(?:-|\/)\s*€?\s*(?<max>\d+(?:[.,]\d+)?)(?:,\s*-)?/u;
 
 const normalizeTariefAmount = (value: string): string =>
   value.replace(",", ".");

@@ -1,3 +1,4 @@
+import { decodeHtmlEntities } from "@ji/connectors";
 import type { HarveyNashFetchedPayload } from "@ji/connectors/harveynash";
 import { HARVEYNASH_PARSER_VERSION } from "@ji/connectors/harveynash";
 import { UNKNOWN } from "@ji/domain";
@@ -9,6 +10,7 @@ import {
   field,
   hasClosingMomentPassed,
   isValidCalendarDate,
+  stripHtml,
 } from "./types";
 import type { NormalisedAanvraagDraft, NormalisedTarief } from "./types";
 
@@ -234,6 +236,31 @@ const buildFallbackBeschrijving = (
   return parts.length > 0 ? parts.join(". ") : titel;
 };
 
+interface ResolvedBeschrijving {
+  readonly sourcePath: "detail.facts" | "detail.jsonLd.description";
+  readonly value: string;
+}
+
+const resolveBeschrijving = (
+  detail: HarveyNashFetchedPayload["detail"],
+  titel: string
+): ResolvedBeschrijving => {
+  const sourceDescription = detail.jsonLd.description?.trim();
+  if (sourceDescription) {
+    const fullDescription = stripHtml(decodeHtmlEntities(sourceDescription));
+    if (fullDescription) {
+      return {
+        sourcePath: "detail.jsonLd.description",
+        value: fullDescription,
+      };
+    }
+  }
+  return {
+    sourcePath: "detail.facts",
+    value: buildFallbackBeschrijving(detail.facts, titel),
+  };
+};
+
 export const parseHarveyNashPayload = (
   payload: HarveyNashFetchedPayload,
   contentHash: string
@@ -247,6 +274,7 @@ export const parseHarveyNashPayload = (
       : new Date(detail.publishedAt * 1000);
   const deadline = resolveHarveyNashDeadline(detail.facts.deadline, observedAt);
   const tarief = parseHarveyNashRichttarief(detail.facts.richttarief);
+  const beschrijving = resolveBeschrijving(detail, titel);
   // Two distinct dates are published per listing (confirmed live 2026-08-31,
   // fixtures/connectors/harveynash/detail-endpoints-specialist.json):
   // `detail.facts.deadline` ("Deadline voor het voorstellen van kandidaten")
@@ -282,9 +310,9 @@ export const parseHarveyNashPayload = (
 
   return {
     beschrijving: field(
-      buildFallbackBeschrijving(detail.facts, titel),
+      beschrijving.value,
       parserVersion,
-      "detail.facts"
+      beschrijving.sourcePath
     ),
     bronReferentie: field(detail.jobId, parserVersion, "job.id"),
     bronSpecifiek: field(
