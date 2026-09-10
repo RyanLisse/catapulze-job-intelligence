@@ -3,6 +3,7 @@ import { describe, expect, it } from "bun:test";
 import {
   buildContentAddressedRawObjectPath,
   hashContent,
+  RawObjectDigestMismatchError,
 } from "@ji/connectors";
 
 import { planMotianV1DerivedFieldRepair } from "./motian-v1-derived-field-repair";
@@ -345,5 +346,44 @@ describe("planReportCandidate", () => {
       }))
     );
     expect(rawReads).toBe(0);
+  });
+
+  it("reports a raw hash mismatch when the object store detects digest corruption", async () => {
+    const input = await candidate();
+
+    await expect(
+      planReportCandidate({
+        current: input.current,
+        manifest: input.manifest,
+        readRawObject: () =>
+          Promise.reject(
+            new RawObjectDigestMismatchError(
+              input.current.rawPayloadRef,
+              input.manifest.contentHash,
+              "b".repeat(64)
+            )
+          ),
+      })
+    ).resolves.toEqual({
+      reason: "raw_hash_mismatch",
+      status: "rejected",
+      v1Id: V1_ID,
+    });
+  });
+
+  it("keeps unrelated raw object read failures as raw_read_failed", async () => {
+    const input = await candidate();
+
+    await expect(
+      planReportCandidate({
+        current: input.current,
+        manifest: input.manifest,
+        readRawObject: () => Promise.reject(new Error("S3 unavailable")),
+      })
+    ).resolves.toEqual({
+      reason: "raw_read_failed",
+      status: "rejected",
+      v1Id: V1_ID,
+    });
   });
 });
