@@ -103,6 +103,105 @@ describe("AE3 detail provenance mapping", () => {
     expect(job.remote).toBe(true);
   });
 
+  it("maps min-only rates and preserves every published period", () => {
+    const baseAanvraag = {
+      beschrijving: "Rate mapping",
+      bronId: "bron-rate",
+      bronReferentie: "RATE-1",
+      id: "aanvraag-rate",
+      rawPayloadRef: "raw/rate.json",
+      scrapeRunId: "run-rate",
+      status: "active",
+      titel: "Rate mapping",
+    };
+    const cases = [
+      {
+        expected: { currency: "EUR", max: 4250, min: 3750, period: "unknown" },
+        tariefEenheid: null,
+        tariefMax: 4250,
+        tariefMin: 3750,
+      },
+      {
+        expected: { currency: "EUR", max: null, min: 88, period: "day" },
+        tariefEenheid: "dag",
+        tariefMax: null,
+        tariefMin: 88,
+      },
+      {
+        expected: { currency: "EUR", max: 6000, min: 4000, period: "month" },
+        tariefEenheid: "maand",
+        tariefMax: 6000,
+        tariefMin: 4000,
+      },
+      {
+        expected: {
+          currency: "EUR",
+          max: 120_000,
+          min: 90_000,
+          period: "year",
+        },
+        tariefEenheid: "jaar",
+        tariefMax: 120_000,
+        tariefMin: 90_000,
+      },
+      {
+        expected: {
+          currency: "EUR",
+          max: 10_000,
+          min: null,
+          period: "unknown",
+        },
+        tariefEenheid: "per project",
+        tariefMax: 10_000,
+        tariefMin: null,
+      },
+    ] as const;
+
+    for (const rateCase of cases) {
+      const { expected, ...rate } = rateCase;
+      const job = mapAanvraagToJobListing({
+        aanvraag: {
+          ...baseAanvraag,
+          ...rate,
+          tariefValuta: "EUR",
+        },
+        bronCatalog: new Map(),
+        versies: [],
+      });
+      expect(job.rate).toEqual(expected);
+    }
+  });
+
+  it("rejects non-EUR, invalid and inverted rates", () => {
+    const baseAanvraag = {
+      beschrijving: "Rate validation",
+      bronId: "bron-rate-validation",
+      bronReferentie: "RATE-INVALID",
+      id: "aanvraag-rate-invalid",
+      rawPayloadRef: "raw/rate-invalid.json",
+      scrapeRunId: "run-rate-invalid",
+      status: "active",
+      tariefEenheid: "uur",
+      titel: "Rate validation",
+    };
+    const invalidCases = [
+      { tariefMax: 100, tariefMin: 90, tariefValuta: "USD" },
+      { tariefMax: Number.NaN, tariefMin: 90, tariefValuta: "EUR" },
+      { tariefMax: 100, tariefMin: -1, tariefValuta: "EUR" },
+      { tariefMax: 100, tariefMin: 101, tariefValuta: "EUR" },
+      { tariefMax: null, tariefMin: null, tariefValuta: "EUR" },
+    ] as const;
+
+    for (const rate of invalidCases) {
+      const job = mapAanvraagToJobListing({
+        aanvraag: { ...baseAanvraag, ...rate },
+        bronCatalog: new Map(),
+        versies: [],
+      });
+      expect(job.rate).toBeNull();
+    }
+  });
+
   it("rejects unsafe bronUrl schemes for Herkomst links", () => {
     const unsafeScheme = ["java", "script:"].join("");
     const job = mapAanvraagToJobListing({

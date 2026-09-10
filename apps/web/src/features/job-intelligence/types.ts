@@ -92,12 +92,25 @@ export interface JobSourceRecord {
   readonly validTo?: string | null;
 }
 
-export interface JobRate {
-  readonly min: number | null;
-  readonly max: number;
+export type JobRatePeriod = "hour" | "day" | "month" | "year" | "unknown";
+
+export type JobRate = {
   readonly currency: "EUR";
-  readonly period: "hour" | "year";
-}
+  readonly period: JobRatePeriod;
+} & (
+  | {
+      readonly min: number;
+      readonly max: number;
+    }
+  | {
+      readonly min: number;
+      readonly max: null;
+    }
+  | {
+      readonly min: null;
+      readonly max: number;
+    }
+);
 
 export interface JobMarkering {
   readonly reden: string | null;

@@ -107,11 +107,45 @@ describe("hourly rate buckets", () => {
 });
 
 describe("rate coverage", () => {
-  it("counts jobs with any published rate", () => {
+  it("counts only jobs with an hourly rate", () => {
     const withRate = countJobsWithHourlyRate(JOB_FIXTURES);
-    const withoutRate = JOB_FIXTURES.filter(({ rate }) => rate === null).length;
+    const hourlyJobs = JOB_FIXTURES.filter(
+      ({ rate }) => rate?.period === "hour"
+    ).length;
 
-    expect(withRate + withoutRate).toBe(JOB_FIXTURES.length);
-    expect(withoutRate).toBeGreaterThan(0);
+    expect(withRate).toBe(hourlyJobs);
+    expect(withRate).toBeLessThan(JOB_FIXTURES.length);
+  });
+
+  it("excludes day and unknown periods from hourly coverage", () => {
+    const [fixture] = JOB_FIXTURES;
+    if (!fixture) {
+      throw new Error("Expected at least one job fixture");
+    }
+    const jobs = [
+      fixture,
+      {
+        ...fixture,
+        id: "day-rate",
+        rate: {
+          currency: "EUR" as const,
+          max: 500,
+          min: null,
+          period: "day" as const,
+        },
+      },
+      {
+        ...fixture,
+        id: "unknown-rate",
+        rate: {
+          currency: "EUR" as const,
+          max: 500,
+          min: null,
+          period: "unknown" as const,
+        },
+      },
+    ];
+
+    expect(countJobsWithHourlyRate(jobs)).toBe(1);
   });
 });

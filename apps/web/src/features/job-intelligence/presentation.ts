@@ -77,9 +77,18 @@ export const formatRate = (job: JobListing): string => {
     return "Tarief onbekend";
   }
 
-  const suffix = job.rate.period === "hour" ? "/ uur" : "/ jaar";
+  const suffix = {
+    day: "/ dag",
+    hour: "/ uur",
+    month: "/ maand",
+    unknown: "(periode onbekend)",
+    year: "/ jaar",
+  }[job.rate.period];
   if (job.rate.min === null) {
     return `tot ${currencyFormatter.format(job.rate.max)} ${suffix}`;
+  }
+  if (job.rate.max === null) {
+    return `vanaf ${currencyFormatter.format(job.rate.min)} ${suffix}`;
   }
   if (job.rate.min === job.rate.max) {
     return `${currencyFormatter.format(job.rate.max)} ${suffix}`;
