@@ -47,20 +47,42 @@ const ResultTitleButton = ({
   </button>
 );
 
-const JobStatus = ({ job }: { readonly job: JobListing }) => (
-  <span
-    className={`inline-flex items-center gap-1.5 text-[10px] font-medium tracking-wide uppercase ${
-      job.status === "closing-soon" ? "text-chart-2" : "text-primary"
-    }`}
-  >
+const jobStatusPresentation = {
+  closed: {
+    dotClassName: "bg-muted-foreground",
+    label: "Gesloten",
+    textClassName: "text-muted-foreground",
+  },
+  "closing-soon": {
+    dotClassName: "bg-chart-2",
+    label: "Sluit snel",
+    textClassName: "text-chart-2",
+  },
+  open: {
+    dotClassName: "bg-primary",
+    label: "Open",
+    textClassName: "text-primary",
+  },
+} satisfies Record<
+  JobListing["status"],
+  {
+    readonly dotClassName: string;
+    readonly label: string;
+    readonly textClassName: string;
+  }
+>;
+
+const JobStatus = ({ job }: { readonly job: JobListing }) => {
+  const status = jobStatusPresentation[job.status];
+  return (
     <span
-      className={`size-1.5 rounded-full ${
-        job.status === "closing-soon" ? "bg-chart-2" : "bg-primary"
-      }`}
-    />
-    {job.status === "closing-soon" ? "Sluit snel" : "Open"}
-  </span>
-);
+      className={`inline-flex items-center gap-1.5 text-[10px] font-medium tracking-wide uppercase ${status.textClassName}`}
+    >
+      <span className={`size-1.5 rounded-full ${status.dotClassName}`} />
+      {status.label}
+    </span>
+  );
+};
 
 const DesktopResults = ({ jobs, onSelect, selectedJobId }: JobResultsProps) => (
   <div className="hidden min-[800px]:block">

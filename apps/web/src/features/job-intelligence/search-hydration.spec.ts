@@ -27,8 +27,8 @@ const REGISTERED_BRONNEN = [
   { actief: true, bronId: "bron-opdrachtoverheid", naam: "Opdrachtoverheid" },
   { actief: true, bronId: "bron-striive", naam: "Striive" },
   { actief: true, bronId: BRON_ID, naam: "TenderNed" },
-  // A deferred/inactive bron must not appear as a filter option -- it would
-  // be a permanent, misleading 0-count checkbox.
+  // Historical rows retain their original source, so inactive catalog entries
+  // remain valid archive filters even when they no longer ingest new work.
   { actief: false, bronId: "bron-pro-act", naam: "Pro-Act" },
 ] as const;
 
@@ -216,6 +216,10 @@ describe("search hydration call count (RJC-379)", () => {
         (request) => request.path === "/v1/aanvragen/batch"
       )
     ).toHaveLength(1);
+    expect(
+      recordedRequests.find((request) => request.path === "/v1/aanvragen/batch")
+        ?.body
+    ).not.toHaveProperty("full");
   });
 
   it("renders a failed batch call as engine-error, never as an empty result", async () => {
@@ -431,7 +435,7 @@ describe("bron filter list derives from the API (RJC-368)", () => {
     globalThis.fetch = originalFetch;
   });
 
-  it("yields as many filter entries as active bronnen the API returns, not a hardcoded count", async () => {
+  it("includes every catalog source so historical rows remain filterable", async () => {
     bronnenResponse = REGISTERED_BRONNEN;
     try {
       const adapter = createRestJobDataAdapter({
@@ -440,14 +444,12 @@ describe("bron filter list derives from the API (RJC-368)", () => {
 
       const sources = await adapter.listSources();
 
-      const activeBronnen = REGISTERED_BRONNEN.filter((bron) => bron.actief);
-      expect(sources).toHaveLength(activeBronnen.length);
+      expect(sources).toHaveLength(REGISTERED_BRONNEN.length);
       expect(sources.length).toBeGreaterThan(4);
       expect(new Set(sources.map((source) => source.value)).size).toBe(
-        activeBronnen.length
+        REGISTERED_BRONNEN.length
       );
-      // The inactive bron must not surface as a permanent 0-count checkbox.
-      expect(sources.some((source) => source.label === "Pro-Act")).toBe(false);
+      expect(sources).toContainEqual({ label: "Pro-Act", value: "pro-act" });
     } finally {
       bronnenResponse = [{ actief: true, bronId: BRON_ID, naam: "TenderNed" }];
     }
