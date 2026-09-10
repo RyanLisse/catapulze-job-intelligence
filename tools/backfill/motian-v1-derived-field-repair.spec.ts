@@ -116,6 +116,47 @@ describe("planMotianV1DerivedFieldRepair", () => {
     });
   });
 
+  it("keeps a contract proposal when the publication date is absent", async () => {
+    const input = await candidate({
+      body: rawBody({
+        application_deadline: null,
+        contract_type: "vast",
+        posted_at: null,
+        start_date: null,
+      }),
+    });
+
+    await expect(planMotianV1DerivedFieldRepair(input)).resolves.toEqual({
+      kind: "patch",
+      patch: {
+        contracttype: "vast",
+        opdrachtgeverNaam: "NVB opdrachtgever",
+      },
+      sourceAbsentFields: ["publicatiedatum", "startDatum", "sluitingsdatum"],
+      v1Id: V1_ID,
+    });
+  });
+
+  it("keeps a publication date proposal when the contract is absent", async () => {
+    const input = await candidate({
+      body: rawBody({
+        application_deadline: null,
+        contract_type: null,
+        start_date: null,
+      }),
+    });
+
+    await expect(planMotianV1DerivedFieldRepair(input)).resolves.toEqual({
+      kind: "patch",
+      patch: {
+        opdrachtgeverNaam: "NVB opdrachtgever",
+        publicatiedatum: "2026-09-10T08:10:11.000Z",
+      },
+      sourceAbsentFields: ["contracttype", "startDatum", "sluitingsdatum"],
+      v1Id: V1_ID,
+    });
+  });
+
   it("rejects a body whose digest no longer matches the current raw pointer", async () => {
     const input = await candidate();
     const tampered = new TextEncoder().encode("tampered");

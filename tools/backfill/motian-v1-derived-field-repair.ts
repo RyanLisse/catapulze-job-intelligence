@@ -112,15 +112,19 @@ const manifestMatchesCurrent = (
 const sourceText = (value: string | typeof UNKNOWN): string | undefined =>
   value === UNKNOWN ? undefined : value;
 
-const bronSpecifiekSchema = z.object({
-  contracttype: z.string().trim().min(1).optional(),
-  publicatiedatum: z.string().trim().min(1).optional(),
-});
+const bronSpecifiekSchema = z.record(z.string(), z.unknown());
+const sourceBronTextSchema = z.string().trim().min(1);
 
 const sourceBronText = (
   value: JsonValue,
   key: "contracttype" | "publicatiedatum"
-): string | undefined => bronSpecifiekSchema.safeParse(value).data?.[key];
+): string | undefined => {
+  const bronSpecifiek = bronSpecifiekSchema.safeParse(value);
+  if (!bronSpecifiek.success) {
+    return undefined;
+  }
+  return sourceBronTextSchema.safeParse(bronSpecifiek.data[key]).data;
+};
 
 const rejectedPlan = (
   reason: MotianDerivedFieldRepairReason,
