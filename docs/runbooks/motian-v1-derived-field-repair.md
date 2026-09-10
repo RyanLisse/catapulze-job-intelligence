@@ -1,9 +1,11 @@
-# Motian v1 derived-field diagnostic
+# Motian v1 derived-field repair
 
-This is a **report-only** diagnostic for a small, explicitly approved set of
-historical Motian rows. It reads the current curated row and its current
-immutable S3 raw object, then reports which null derived fields could be
-recovered. It never connects to Motian and has no `--apply` mode.
+This is a bounded diagnostic and repair tool for a small, explicitly approved
+set of historical Motian rows. The default mode reads the current curated row
+and its current immutable S3 raw object, then reports which null derived fields
+could be recovered. It never connects to Motian. `--apply` is a separate,
+quiescence-gated mode that writes only the five derived fields, one audit event,
+and one `aanvraag.gewijzigd` outbox event per changed row.
 
 Use it when a current `curated.aanvraag` row has a Motian `v1_id`, a
 content-addressed JSON raw pointer, and a missing one of:
@@ -89,14 +91,49 @@ the original Motian backfill. Missing source data stays absent.
 ## Interpret and retain the report
 
 `wouldPatch` is grouped by field. `projectionEventsRequired` is the count of
-rows that would need a normal `aanvraag.gewijzigd` event if an approved future
-apply tool is built. `raw_schema_not_motian` is expected for rows whose current
-raw pointer has since been replaced by a live native-source payload; do not
-attempt to repair those with this tool.
+rows that would need a normal `aanvraag.gewijzigd` event during apply.
+`raw_schema_not_motian` is expected for rows whose current raw pointer has
+since been replaced by a live native-source payload; do not attempt to repair
+those with this tool.
 
-Attach the reviewed manifest digest and redacted report to CTP-492. A future
-apply design must re-lock and recheck every accepted row, update only null
-columns, write a validated metadata-only audit event, and append one durable
-outbox event in the same transaction. It must not mutate raw objects,
-provenance fields, source pointers, content hashes, or versions without a
-separate approved history contract.
+Attach the reviewed manifest digest and redacted report to CTP-492. An apply
+must be preceded by a reviewed dry-run report and an ingest freeze. Stop
+all writers that can change `curated.aanvraag` or its raw pointer, wait for
+in-flight work to finish, and retain the exact manifest bytes and digest.
+
+## Apply the reviewed manifest
+
+`--apply` requires both the exact manifest and an explicit
+`--ingest-quiesced` acknowledgement. The limit remains mandatory and is capped
+at 100; the tool refuses a manifest larger than the limit.
+
+```bash
+bun tools/backfill/repair-motian-v1-derived-fields.ts \
+  --apply --ingest-quiesced \
+  --manifest /secure/path/motian-pilot.json \
+  --limit 10
+```
+
+Each candidate is re-read, the row is locked and all six identity bindings are
+checked again, and the raw object is validated before the transaction commits.
+Only fields that are still `NULL` are set. The derived-field update, strict audit event containing the five-field before and after values, and one `aanvraag.gewijzigd` outbox event commit
+atomically. Candidate failures are isolated and reported by reason code; raw
+hash mismatches remain distinct from other raw read failures.
+
+The apply mode never changes identity, raw pointers, content hashes, versions,
+history, or raw storage. Keep the returned audit IDs, outbox IDs, field names,
+reason codes, and manifest digest with the repair record.
+
+## Bounded rollback
+
+Rollback is also quiescence-gated and accepts only one repair audit ID. It
+restores a field only while it still equals that repair's recorded after-image;
+later edits are reported as skipped. A rollback audit and outbox event are
+written atomically with any restored fields. If every changed field has a later
+value, rollback is an unchanged no-op.
+
+```bash
+bun tools/backfill/repair-motian-v1-derived-fields.ts \
+  --rollback --ingest-quiesced \
+  --audit-id 00000000-0000-4000-8000-000000000000
+```
