@@ -2,7 +2,9 @@ import { afterEach, describe, expect, it } from "bun:test";
 
 import { InMemoryObjectStore } from "@ji/connectors";
 import type { ObjectStore } from "@ji/connectors";
+import { UNKNOWN } from "@ji/domain";
 
+import { curateObservation } from "../identity/curate";
 import { InMemoryCurateStore } from "../identity/store";
 import type { JsonValue } from "../normalise";
 import { MOTIAN_V1_BRON_BINDINGS } from "./motian-v1-bindings";
@@ -125,6 +127,150 @@ describe("Neon v1 backfill mapping", () => {
     expect(draft.sluitingsdatum?.toISOString()).toBe(
       "2026-09-10T12:00:00.000Z"
     );
+  });
+
+  it("preserves exact top-level source facts and weekly min/max semantics", () => {
+    const draft = mapV1JobToDraft({
+      ...sampleJob(),
+      sourceRow: {
+        durationMonths: 99,
+        duration_months: 6,
+        endDate: "2099-01-01T00:00:00.000Z",
+        end_date: "2027-03-31T00:00:00.000Z",
+        hoursPerWeek: 99,
+        hours_per_week: 40,
+        minHoursPerWeek: 99,
+        min_hours_per_week: 32,
+        raw_payload: {
+          durationMonths: 99,
+          endDate: "2099-01-01T00:00:00.000Z",
+          hoursPerWeek: 99,
+          minHoursPerWeek: 99,
+          workArrangement: "remote",
+        },
+        workArrangement: "remote",
+        work_arrangement: "hybride",
+      },
+    });
+
+    expect(draft.bronSpecifiek.value).toMatchObject({
+      duration_months: "6",
+      eind_datum: "2027-03-31T00:00:00.000Z",
+      min_uren_per_week: "32",
+      uren_per_week: "32–40",
+      werkvorm: "hybride",
+    });
+    expect(draft.tarief).toMatchObject({
+      eenheid: UNKNOWN,
+      max: "120",
+      min: "90",
+      valuta: "EUR",
+    });
+  });
+
+  it("ignores malformed exact fields", () => {
+    const draft = mapV1JobToDraft({
+      ...sampleJob(),
+      sourceRow: {
+        duration_months: "6",
+        end_date: 2027,
+        hours_per_week: "40",
+        min_hours_per_week: -32,
+        work_arrangement: { value: "hybride" },
+      },
+    });
+
+    expect(draft.bronSpecifiek.value).toMatchObject({
+      duration_months: null,
+      eind_datum: null,
+      min_uren_per_week: null,
+      uren_per_week: null,
+      werkvorm: null,
+    });
+    expect(draft.tarief.eenheid).toBe(UNKNOWN);
+  });
+
+  it("keeps a native scalar weekly-hours value when the minimum is absent", () => {
+    const draft = mapV1JobToDraft({
+      ...sampleJob(),
+      sourceRow: {
+        hours_per_week: 36,
+      },
+    });
+
+    expect(draft.bronSpecifiek.value).toMatchObject({
+      duration_months: null,
+      eind_datum: null,
+      min_uren_per_week: null,
+      uren_per_week: "36",
+      werkvorm: null,
+    });
+  });
+
+  it("formats a minimum-only weekly-hours value as a lower bound", () => {
+    const draft = mapV1JobToDraft({
+      ...sampleJob(),
+      sourceRow: {
+        min_hours_per_week: 32,
+      },
+    });
+
+    expect(draft.bronSpecifiek.value).toMatchObject({
+      min_uren_per_week: "32",
+      uren_per_week: "≥32",
+    });
+  });
+
+  it("leaves an inverted weekly-hours range unknown", () => {
+    const draft = mapV1JobToDraft({
+      ...sampleJob(),
+      sourceRow: {
+        hours_per_week: 24,
+        min_hours_per_week: 32,
+      },
+    });
+
+    expect(draft.bronSpecifiek.value).toMatchObject({
+      min_uren_per_week: "32",
+      uren_per_week: null,
+    });
+  });
+
+  it("persists historical source facts through curation", async () => {
+    const store = new InMemoryCurateStore();
+    const draft = mapV1JobToDraft({
+      ...sampleJob(),
+      sourceRow: {
+        end_date: "2027-03-31T00:00:00.000Z",
+        hours_per_week: 40,
+        min_hours_per_week: 32,
+        work_arrangement: "hybride",
+      },
+    });
+
+    const result = await curateObservation(store, {
+      bronId: "00000000-0000-4000-8000-000000000030",
+      draft,
+      observedAt: new Date("2026-09-10T12:00:00.000Z"),
+      rawPayloadRef: "raw/motian/test.json",
+      scrapeRunId: "run-motian-test",
+    });
+
+    expect(result.status).toBe("curated");
+    const [record] = store.aanvragen;
+    if (!record) {
+      throw new Error("Expected curated aanvraag record");
+    }
+    expect(record).toMatchObject({
+      eindDatum: "2027-03-31T00:00:00.000Z",
+      urenPerWeek: "32–40",
+      werkvorm: "hybride",
+    });
+    expect(record.bronSpecifiek).toMatchObject({
+      eind_datum: "2027-03-31T00:00:00.000Z",
+      uren_per_week: "32–40",
+      werkvorm: "hybride",
+    });
   });
 
   it("retains a closed or deleted v1 row as closed in the curated lifecycle", () => {

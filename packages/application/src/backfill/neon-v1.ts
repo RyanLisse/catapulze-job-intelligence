@@ -10,11 +10,13 @@ import {
 } from "@ji/connectors";
 import type { ObjectStore } from "@ji/connectors";
 import { UNKNOWN } from "@ji/domain";
+import { z } from "zod";
 
 import { curateObservation } from "../identity/curate";
 import type { CurateStore } from "../identity/curate";
 import { field } from "../normalise";
 import type { NormalisedAanvraagDraft } from "../normalise";
+import { formatHoursPerWeek } from "../normalise/hours";
 import { resolveMotianV1Binding } from "./motian-v1-bindings";
 import type {
   BackfillBronBinding,
@@ -286,6 +288,59 @@ const tariefValue = (
 ): string | typeof UNKNOWN =>
   value === null || value === undefined ? UNKNOWN : String(value);
 
+/**
+ * The Motian `jobs` table has no tariff-period column. These are the only
+ * historical fields that this mapper is allowed to read from its complete
+ * source row; Zod strips nested payloads and camelCase or unrelated keys.
+ * Invalid values fall back per field so one malformed column does not erase
+ * valid facts from the same row.
+ */
+/* oxlint-disable promise/prefer-await-to-then -- Zod catch supplies a synchronous per-field parse fallback. */
+export const sourceFieldsSchema = z.object({
+  duration_months: z.number().int().nonnegative().nullable().catch(null),
+  end_date: z.string().nullable().catch(null),
+  hours_per_week: z.number().int().nonnegative().nullable().catch(null),
+  min_hours_per_week: z.number().int().nonnegative().nullable().catch(null),
+  work_arrangement: z.string().nullable().catch(null),
+});
+
+/* oxlint-enable promise/prefer-await-to-then */
+
+const sourceFieldsForJob = (job: NeonV1JobRow) => {
+  const parsed = sourceFieldsSchema.safeParse(job.sourceRow);
+  return parsed.success ? parsed.data : sourceFieldsSchema.parse({});
+};
+
+const sourceSpecificFieldsForJob = (job: NeonV1JobRow) => {
+  const source = sourceFieldsForJob(job);
+  const publishedHours =
+    source.hours_per_week === null || source.hours_per_week === undefined
+      ? null
+      : String(source.hours_per_week);
+  const weeklyHours =
+    source.min_hours_per_week === null ||
+    source.min_hours_per_week === undefined
+      ? publishedHours
+      : formatHoursPerWeek(source.min_hours_per_week, source.hours_per_week);
+  // These fields are copied only from exact persisted Motian keys. No values
+  // are inferred from free text, location, or the presence of a rate amount.
+  return {
+    duration_months:
+      source.duration_months === null || source.duration_months === undefined
+        ? null
+        : String(source.duration_months),
+    // Keep the source timestamp exactly as persisted; do not normalize it.
+    eind_datum: source.end_date ?? null,
+    min_uren_per_week:
+      source.min_hours_per_week === null ||
+      source.min_hours_per_week === undefined
+        ? null
+        : String(source.min_hours_per_week),
+    uren_per_week: weeklyHours,
+    werkvorm: source.work_arrangement ?? null,
+  };
+};
+
 const sourceStatusForJob = (job: NeonV1JobRow): string | null =>
   job.status?.trim() || null;
 
@@ -319,6 +374,7 @@ const v1SpecificFieldsForJob = (
   job: NeonV1JobRow,
   sourceStatus: string | null
 ) => ({
+  ...sourceSpecificFieldsForJob(job),
   // Kept for compatibility with the original backfill preview fields;
   // the exact source spelling remains in the durable raw source row.
   contracttype: job.contract_type ?? null,
@@ -379,11 +435,8 @@ export const mapV1JobToDraft = (job: NeonV1JobRow): NormalisedAanvraagDraft => {
     ),
     status: lifecycle,
     tarief: {
-      eenheid:
-        tariefValue(job.rate_max) === UNKNOWN &&
-        tariefValue(job.rate_min) === UNKNOWN
-          ? UNKNOWN
-          : "uur",
+      // Motian's authoritative `jobs` schema has no rate-unit field.
+      eenheid: UNKNOWN,
       max: tariefValue(job.rate_max),
       min: tariefValue(job.rate_min),
       valuta: "EUR",
