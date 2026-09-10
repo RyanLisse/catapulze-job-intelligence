@@ -1,5 +1,6 @@
 "use client";
 
+import { Drawer, DrawerContent } from "@ji/ui/components/drawer";
 import { ChevronLeft, ChevronRight, X } from "lucide-react";
 import { useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -71,20 +72,6 @@ const resolveDisplayStatus = (
   syntaxError: string | null,
   responseStatus: PreviewStatus
 ): PreviewStatus => (syntaxError ? "syntax-error" : responseStatus);
-
-const useMediaQuery = (query: string): boolean => {
-  const [matches, setMatches] = useState(false);
-
-  useEffect(() => {
-    const mediaQuery = window.matchMedia(query);
-    const updateMatches = () => setMatches(mediaQuery.matches);
-    updateMatches();
-    mediaQuery.addEventListener("change", updateMatches);
-    return () => mediaQuery.removeEventListener("change", updateMatches);
-  }, [query]);
-
-  return matches;
-};
 
 interface ManagedDialogProps {
   readonly children: React.ReactNode;
@@ -418,10 +405,8 @@ const JobSearchPageContent = ({
   const [markeringSyncState, setMarkeringSyncState] =
     useState<MarkeringSyncState>("idle");
   const [sources, setSources] = useState<readonly JobSourceOption[]>([]);
-  const isDetailOverlay = useMediaQuery("(max-width: 1199px)");
   const detailTriggerRef = useRef<HTMLButtonElement | null>(null);
   const lastAppliedMarkering = useRef(emptyMarkeringReadbackState());
-  const previousSelectedJobId = useRef<string | null>(state.selectedJobId);
   const selectedJobIdRef = useRef<string | null>(state.selectedJobId);
   const markeringMutationsInFlight = useRef(new Set<string>());
   selectedJobIdRef.current = state.selectedJobId;
@@ -550,14 +535,6 @@ const JobSearchPageContent = ({
     });
   }, [adapter, applyMarkeringReadback, state.selectedJobId]);
 
-  useEffect(() => {
-    const wasSelected = previousSelectedJobId.current !== null;
-    if (wasSelected && state.selectedJobId === null) {
-      detailTriggerRef.current?.focus();
-    }
-    previousSelectedJobId.current = state.selectedJobId;
-  }, [state.selectedJobId]);
-
   const writeState = (
     nextState: JobSearchState,
     mode: "push" | "replace" = "replace"
@@ -629,9 +606,7 @@ const JobSearchPageContent = ({
   const countLabel = resultCountLabel(response.total);
   const canCreateSnapshot =
     response.complete && !isRefreshing && responseRequestKey === requestKey;
-  const gridColumns = selectedJob
-    ? "min-[800px]:grid-cols-[280px_minmax(0,1fr)] min-[1200px]:grid-cols-[280px_minmax(0,1fr)_400px]"
-    : "min-[800px]:grid-cols-[280px_minmax(0,1fr)]";
+  const gridColumns = "min-[800px]:grid-cols-[280px_minmax(0,1fr)]";
 
   const { createSnapshot, markSelectedJob, saveCurrentSearch } =
     createJobSearchMutations({
@@ -810,22 +785,6 @@ const JobSearchPageContent = ({
             </div>
           ) : null}
         </div>
-
-        {selectedJob ? (
-          <aside className="sticky top-20 hidden h-[calc(100dvh-6rem)] min-h-[640px] overflow-hidden rounded-lg border border-border min-[1200px]:block">
-            <JobDetail
-              job={selectedJob}
-              liveData={liveData}
-              markering={selectedJob.markering ?? null}
-              isMarkeringMutationPending={isMarkeringMutationPending}
-              markeringSyncState={markeringSyncState}
-              onClose={closeJob}
-              onMarkeer={actions ? () => runAsync(markSelectedJob) : undefined}
-              titleId="desktop-job-detail-title"
-              descriptionId="desktop-job-detail-description"
-            />
-          </aside>
-        ) : null}
       </div>
 
       <ManagedDialog
@@ -873,27 +832,36 @@ const JobSearchPageContent = ({
         </div>
       </ManagedDialog>
 
-      <ManagedDialog
-        open={Boolean(selectedJob && isDetailOverlay)}
-        onClose={closeJob}
-        titleId="overlay-job-detail-title"
-        descriptionId="overlay-job-detail-description"
-        className="inset-y-0 right-0 left-auto m-0 h-dvh w-full max-w-[440px] border-l border-border bg-card p-0 text-foreground max-[799px]:max-w-none"
+      <Drawer
+        open={Boolean(selectedJob)}
+        onOpenChange={(open) => {
+          if (!open) {
+            closeJob();
+          }
+        }}
+        swipeDirection="right"
       >
-        {selectedJob ? (
-          <JobDetail
-            job={selectedJob}
-            liveData={liveData}
-            markering={selectedJob.markering ?? null}
-            isMarkeringMutationPending={isMarkeringMutationPending}
-            markeringSyncState={markeringSyncState}
-            onClose={closeJob}
-            onMarkeer={actions ? () => runAsync(markSelectedJob) : undefined}
-            titleId="overlay-job-detail-title"
-            descriptionId="overlay-job-detail-description"
-          />
-        ) : null}
-      </ManagedDialog>
+        <DrawerContent
+          aria-labelledby="overlay-job-detail-title"
+          aria-describedby="overlay-job-detail-description"
+          className="h-dvh w-[40vw] min-w-[32rem] max-w-[44rem] border-l border-border bg-card p-0 text-foreground max-[799px]:w-full max-[799px]:min-w-0 max-[799px]:max-w-none"
+          finalFocus={detailTriggerRef}
+        >
+          {selectedJob ? (
+            <JobDetail
+              job={selectedJob}
+              liveData={liveData}
+              markering={selectedJob.markering ?? null}
+              isMarkeringMutationPending={isMarkeringMutationPending}
+              markeringSyncState={markeringSyncState}
+              onClose={closeJob}
+              onMarkeer={actions ? () => runAsync(markSelectedJob) : undefined}
+              titleId="overlay-job-detail-title"
+              descriptionId="overlay-job-detail-description"
+            />
+          ) : null}
+        </DrawerContent>
+      </Drawer>
     </main>
   );
 };
