@@ -1,4 +1,5 @@
 import postgres from "postgres";
+import { z } from "zod";
 
 import type { JsonValue } from "../normalise";
 import {
@@ -123,6 +124,60 @@ const mapMotianRow = (row: MotianJobRow): NeonV1JobRow => ({
   status: row.status,
   title: row.title,
 });
+
+const nullableString = z.string().nullable();
+const rawMotianV1RootSchema = z.record(z.string(), z.unknown());
+const rawMotianV1JobSchema = z.object({
+  application_deadline: nullableString,
+  archived_at: nullableString,
+  company: nullableString,
+  contract_type: nullableString,
+  deleted_at: nullableString,
+  description: nullableString,
+  end_client: nullableString,
+  external_id: z.string().min(1),
+  external_url: nullableString,
+  id: z.string().min(1),
+  location: nullableString,
+  platform: z.string().min(1),
+  posted_at: nullableString,
+  province: nullableString,
+  rate_max: z.union([z.number(), z.string()]).nullable(),
+  rate_min: z.union([z.number(), z.string()]).nullable(),
+  scraped_at: nullableString,
+  start_date: nullableString,
+  status: nullableString,
+  title: z.string().min(1),
+});
+
+/**
+ * Decodes the exact JSON object written by the Motian v1 backfill. The raw
+ * object is an immutable `to_jsonb(jobs)` row, rather than the projection
+ * returned by the source query, so this reconstructs that projection without
+ * requiring another Motian connection. It requires every column selected by
+ * the original adapter and rejects native `{ job: ... }` roots. Unknown
+ * columns remain permitted because `to_jsonb(jobs)` preserves the complete
+ * Motian row, including columns outside the adapter projection. Keep the UTC
+ * coercion aligned with {@link mapMotianRow}: historical timestamp columns
+ * are timezone-less.
+ */
+export const decodeMotianV1RawRow = (body: Uint8Array): NeonV1JobRow => {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(new TextDecoder().decode(body));
+  } catch {
+    throw new TypeError("Motian raw object is not valid JSON");
+  }
+  const root = rawMotianV1RootSchema.safeParse(parsed);
+  if (!root.success || Object.hasOwn(root.data, "job")) {
+    throw new TypeError("Motian raw object has an invalid root schema");
+  }
+  const row = rawMotianV1JobSchema.parse(root.data);
+  return mapMotianRow({
+    ...row,
+    source_row: {},
+  });
+};
 
 /**
  * Checks the effective role on the transaction which will perform the source

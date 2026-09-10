@@ -76,6 +76,9 @@ run_phase qlty bash tools/quality/run-qlty.sh check --all --jobs "$QLTY_JOBS" --
 echo "gate: check-types"
 run_phase typecheck bun run check-types
 
+echo "gate: backfill tools typecheck"
+run_phase backfill-typecheck bun run check-types:backfill
+
 echo "gate: performance scripts typecheck"
 run_phase performance-typecheck bun run check-types:performance
 
