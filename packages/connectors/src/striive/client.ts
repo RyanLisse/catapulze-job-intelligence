@@ -1,4 +1,5 @@
 import { loadConnectorFixture } from "../fixtures/load";
+import { resolveHttpTimeoutMs, withHttpTimeout } from "../http-timeout";
 import { STRIIVE_JOBS_PATH } from "./types";
 import type { StriiveJob, StriiveListingResponse } from "./types";
 
@@ -11,6 +12,8 @@ export interface StriiveClientOptions {
   fetchImpl?: typeof fetch;
   listingFixturePath?: string;
   liveEnabled?: boolean;
+  /** Maximum time for one live request, including response-body consumption. */
+  timeoutMs?: number;
 }
 
 const DEFAULT_BASE_URL = "https://striive-cms.codebridge.nl";
@@ -28,6 +31,7 @@ export const createStriiveClient = (
   options: StriiveClientOptions = {}
 ): StriiveClient => {
   const fetchImpl = options.fetchImpl ?? fetch;
+  const timeoutMs = resolveHttpTimeoutMs(options.timeoutMs);
   const liveEnabled = options.liveEnabled ?? process.env.STRIIVE_LIVE === "1";
   const listingFixturePath =
     options.listingFixturePath ?? "striive/listing-page-0.json";
@@ -47,10 +51,13 @@ export const createStriiveClient = (
         }
         return fixture.payload;
       }
-      const response = await fetchImpl(
-        `${baseUrl}${STRIIVE_JOBS_PATH}?open=true&page=${page}`
-      );
-      return readJson<StriiveListingResponse>(response);
+      return await withHttpTimeout(async (signal) => {
+        const response = await fetchImpl(
+          `${baseUrl}${STRIIVE_JOBS_PATH}?open=true&page=${page}`,
+          { signal }
+        );
+        return await readJson<StriiveListingResponse>(response);
+      }, timeoutMs);
     },
   };
 };
