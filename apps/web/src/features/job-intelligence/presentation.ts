@@ -5,6 +5,7 @@ import type {
   JobContractType,
   JobEnrichedField,
   JobListing,
+  JobSearchStatus,
   JobSort,
   JobSource,
 } from "./types";
@@ -36,6 +37,13 @@ export const freshnessLabels = {
   "7d": "Afgelopen 7 dagen",
   all: "Alle publicatiedata",
 } satisfies Record<FreshnessFilter, string>;
+
+export const searchStatusLabels = {
+  active: "Open",
+  closed: "Gesloten",
+  stale: "Stale / niet recent gezien",
+  unknown: "Onbekend",
+} satisfies Record<JobSearchStatus, string>;
 
 export const sortLabels = {
   "closing-soon": "Sluitingsdatum",

@@ -12,6 +12,7 @@
  */
 
 export {
+  AANVRAAG_LIFECYCLE,
   MARKERING_STATUSES,
   MarkeringStatusSchema,
   SEARCH_SCOPES,
@@ -33,6 +34,7 @@ export {
   searchFiltersSchema,
   syntaxErrorDetailsSchema,
   type AanvraagVersieView,
+  type AanvraagLifecycle,
   type MarkeringReadback,
   type MarkeringStatus,
   type MarkeringView,

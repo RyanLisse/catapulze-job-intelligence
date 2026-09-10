@@ -64,6 +64,7 @@ const emptyFilters: JobSearchFilters = {
   locations: [],
   minRate: null,
   sources: [],
+  status: [],
 };
 
 const resolveDisplayStatus = (
@@ -163,6 +164,7 @@ const countActiveFilters = (filters: JobSearchFilters): number =>
   filters.sources.length +
   filters.contractTypes.length +
   filters.locations.length +
+  filters.status.length +
   (filters.freshness === "all" ? 0 : 1) +
   (filters.minRate === null ? 0 : 1);
 
@@ -243,7 +245,7 @@ const emptyResponse = (
 ): JobSearchResponse => ({
   archiveTotal: null,
   complete: false,
-  facets: { contractTypes: [], locations: [], sources: [] },
+  facets: { contractTypes: [], locations: [], sources: [], status: [] },
   items: [],
   message:
     status === "engine-error"
@@ -676,6 +678,11 @@ const JobSearchPageContent = ({
         ...state.filters,
         sources: toggleSearchFilter(state.filters.sources, value),
       }),
+    onStatusToggle: (value: JobSearchFilters["status"][number]) =>
+      updateFilters({
+        ...state.filters,
+        status: toggleSearchFilter(state.filters.status, value),
+      }),
     sources,
   };
 
@@ -743,6 +750,7 @@ const JobSearchPageContent = ({
             onMinRateChange={filterProps.onMinRateChange}
             onQueryClear={clearQuery}
             onSourceToggle={filterProps.onSourceToggle}
+            onStatusToggle={filterProps.onStatusToggle}
             query={state.query}
             sources={sources}
           />

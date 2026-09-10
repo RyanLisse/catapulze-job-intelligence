@@ -87,4 +87,95 @@ describe("REST search contract", () => {
     expect(body.total).toBe(1);
     expect(body.ids).toEqual(["00000000-0000-4000-8000-000000000011"]);
   });
+
+  it("filters lifecycle status in the all-scope REST search and rejects unknown values", async () => {
+    const bundle = createTestSliceARegistry();
+    const documents = [
+      {
+        id: "00000000-0000-4000-8000-000000000021",
+        status: "active" as const,
+        titel: "Active status fixture",
+      },
+      {
+        id: "00000000-0000-4000-8000-000000000022",
+        status: "stale" as const,
+        titel: "Stale status fixture",
+      },
+      {
+        id: "00000000-0000-4000-8000-000000000023",
+        status: "closed" as const,
+        titel: "Closed status fixture",
+      },
+    ];
+    await Promise.all(
+      documents.map((document) =>
+        bundle.deps.engine.upsertDocument({
+          beschrijving: "Lifecycle status fixture",
+          bronId: "00000000-0000-4000-8000-000000000001",
+          contracttype: null,
+          id: document.id,
+          laatstGezienOp: new Date("2026-09-01T00:00:00.000Z"),
+          locatieLand: "NL",
+          status: document.status,
+          tariefMax: null,
+          tariefMin: null,
+          titel: document.titel,
+        })
+      )
+    );
+
+    const handler = createRestCapabilityHandler(
+      bundle.registry,
+      restRoutesFromRegistry(bundle.registry),
+      resolveRecruiter,
+      { allowedCookieOrigin: allowedOrigin }
+    );
+    // SAFETY: this request stub provides the complete context consumed by the REST handler.
+    const search = await handler({
+      req: {
+        json: () =>
+          Promise.resolve({
+            filters: { status: ["closed"] },
+            limit: 10,
+            offset: 0,
+            query: "",
+            scope: "all",
+            sort: "relevance",
+          }),
+        method: "POST",
+        path: "/v1/aanvragen/search",
+        raw: { headers: browserSessionHeaders() },
+        url: "http://localhost/v1/aanvragen/search",
+      },
+    } as never);
+    expect(search.status).toBe(200);
+    // SAFETY: the handler returns the validated search_aanvragen output envelope.
+    const body = (await search.json()) as {
+      facets: { status: { count: number; value: string }[] };
+      ids: string[];
+      total: number;
+    };
+    expect(body.total).toBe(1);
+    expect(body.ids).toEqual(["00000000-0000-4000-8000-000000000023"]);
+    expect(body.facets.status).toEqual([{ count: 1, value: "closed" }]);
+
+    // SAFETY: this request stub provides the complete context consumed by the REST handler.
+    const invalid = await handler({
+      req: {
+        json: () =>
+          Promise.resolve({
+            filters: { status: ["archived"] },
+            query: "",
+          }),
+        method: "POST",
+        path: "/v1/aanvragen/search",
+        raw: { headers: browserSessionHeaders() },
+        url: "http://localhost/v1/aanvragen/search",
+      },
+    } as never);
+    expect(invalid.status).toBe(400);
+    // SAFETY: the handler returns the standard REST capability error envelope.
+    const invalidBody = (await invalid.json()) as { error: { code: string } };
+    expect(invalidBody.error.code).toBe("INVALID_INPUT");
+  });
 });

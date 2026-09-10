@@ -235,6 +235,66 @@ test("shows catalog labels, historical archive filters, and closed results", asy
   await expect(closedRow).toBeVisible();
 });
 
+test("filters closed status in the archive and preserves it in the URL", async ({
+  page,
+}) => {
+  const searchBodies: unknown[] = [];
+  page.on("request", (request) => {
+    const url = new URL(request.url());
+    if (
+      request.method() === "POST" &&
+      url.origin === "http://localhost:3100" &&
+      url.pathname === "/v1/aanvragen/search"
+    ) {
+      searchBodies.push(request.postDataJSON());
+    }
+  });
+
+  await openJobs(page);
+  const results = page.getByRole("region", { name: "Zoekresultaten" });
+  const closedStatus = page.getByRole("checkbox", { name: /^Gesloten/u });
+  await expect(closedStatus).toBeVisible();
+
+  await Promise.all([
+    waitForSearchResponse(page),
+    page.getByRole("checkbox", { name: "Ook in archief zoeken" }).check(),
+  ]);
+  await Promise.all([waitForSearchResponse(page), closedStatus.check()]);
+
+  await expect(page).toHaveURL(
+    (url) =>
+      url.searchParams.get("archief") === "1" &&
+      url.searchParams.getAll("status").length === 1 &&
+      url.searchParams.get("status") === "closed"
+  );
+  expect(searchBodies).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        filters: expect.objectContaining({ status: ["closed"] }),
+        scope: "all",
+      }),
+    ])
+  );
+
+  const closedRow = results.getByRole("row").filter({ hasText: CLOSED_TITLE });
+  await expect(closedRow).toHaveCount(1);
+  await expect(closedRow).toContainText("Gesloten");
+
+  await page.reload({ waitUntil: "domcontentloaded" });
+  await expect(
+    page.getByRole("checkbox", { name: /^Gesloten/u })
+  ).toBeChecked();
+  await expect(
+    page.getByRole("checkbox", { name: "Ook in archief zoeken" })
+  ).toBeChecked();
+  await expect(
+    page
+      .getByRole("region", { name: "Zoekresultaten" })
+      .getByRole("row")
+      .filter({ hasText: CLOSED_TITLE })
+  ).toHaveCount(1);
+});
+
 test.describe("date-only facts in a negative UTC timezone", () => {
   test.use({ timezoneId: "America/Los_Angeles" });
 

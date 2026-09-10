@@ -24,6 +24,7 @@ import type { MarkeringReadback } from "./schemas";
 
 export type { SchemaEncoded, SchemaType } from "./schema-helpers";
 export {
+  AANVRAAG_LIFECYCLE,
   DEFAULT_SEARCH_SCOPE,
   MARKERING_STATUSES,
   MarkeringStatusSchema,
@@ -37,6 +38,7 @@ export {
   syntaxErrorDetailsSchema,
   type MarkeringReadback,
   type MarkeringStatus,
+  type AanvraagLifecycle,
   type RestCapabilityFailure,
   type SearchFilters,
   type SearchScope,

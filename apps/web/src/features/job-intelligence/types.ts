@@ -1,5 +1,6 @@
 /* oxlint-disable prefer-export-from -- JOB_* aliases keep existing UI import paths while SoT lives in ./contracts (CTP-475). */
 import {
+  AANVRAAG_LIFECYCLE,
   MARKERING_STATUSES,
   SEARCH_SCOPES,
   SEARCH_SORT_OPTIONS,
@@ -9,9 +10,12 @@ import type { MarkeringStatus, SearchScope, SearchSort } from "./contracts";
 export const JOB_MARKERING_STATUSES = MARKERING_STATUSES;
 export const JOB_SEARCH_SCOPES = SEARCH_SCOPES;
 export const JOB_SORT_OPTIONS = SEARCH_SORT_OPTIONS;
+/** Lifecycle values sent to the search API; presentation status stays separate. */
+export const JOB_SEARCH_STATUS_VALUES = AANVRAAG_LIFECYCLE;
 export type JobMarkeringStatus = MarkeringStatus;
 export type JobSearchScope = SearchScope;
 export type JobSort = SearchSort;
+export type JobSearchStatus = (typeof JOB_SEARCH_STATUS_VALUES)[number];
 export const JOB_PAGE_SIZE = 8;
 
 export const JOB_CONTRACT_TYPES = [
@@ -167,6 +171,7 @@ export interface JobSearchFilters {
   readonly sources: readonly JobSource[];
   readonly contractTypes: readonly JobContractType[];
   readonly locations: readonly string[];
+  readonly status: readonly JobSearchStatus[];
   readonly freshness: FreshnessFilter;
   readonly minRate: number | null;
 }
@@ -194,6 +199,7 @@ export interface JobSearchFacets {
   readonly sources: readonly FacetCount<JobSource>[];
   readonly contractTypes: readonly FacetCount<JobContractType>[];
   readonly locations: readonly FacetCount[];
+  readonly status: readonly FacetCount<JobSearchStatus>[];
 }
 
 export interface JobSearchResponse {
@@ -248,6 +254,7 @@ export const DEFAULT_JOB_SEARCH_STATE: JobSearchState = {
     locations: [],
     minRate: null,
     sources: [],
+    status: [],
   },
   page: 1,
   previewStatus: "ready",

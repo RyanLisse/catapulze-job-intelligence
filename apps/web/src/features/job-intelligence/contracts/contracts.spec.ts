@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 
 import {
+  AANVRAAG_LIFECYCLE,
   MARKERING_STATUSES,
   SEARCH_SCOPES,
   SEARCH_SORT_OPTIONS,
@@ -14,6 +15,15 @@ const contractsDir = import.meta.dirname;
 const featureRoot = path.join(contractsDir, "..");
 
 describe("web contracts from SoT (CTP-475)", () => {
+  it("re-exports lifecycle status values for browser search state", () => {
+    expect([...AANVRAAG_LIFECYCLE]).toEqual([
+      "active",
+      "stale",
+      "closed",
+      "unknown",
+    ]);
+  });
+
   it("re-exports search scope/sort SoT used by the UI", () => {
     expect([...SEARCH_SCOPES]).toEqual(["active", "all"]);
     expect([...SEARCH_SORT_OPTIONS]).toEqual([

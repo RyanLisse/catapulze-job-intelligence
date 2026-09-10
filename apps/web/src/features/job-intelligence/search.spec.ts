@@ -38,7 +38,7 @@ describe("REST search request mapping", () => {
     ]);
     const state = parseJobSearchState(
       new URLSearchParams(
-        "q=Azure&source=tenderned&contract=detachering&freshness=7d&minRate=90&location=Nederland&sort=newest"
+        "q=Azure&source=tenderned&contract=detachering&status=closed&freshness=7d&minRate=90&location=Nederland&sort=newest"
       )
     );
 
@@ -49,6 +49,7 @@ describe("REST search request mapping", () => {
       // RJC-378/RJC-394: the UI label "Nederland" maps back to the indexed
       // `locatie` value now that the loader fills it.
       locatie: ["NL"],
+      status: ["closed"],
       tariefMin: 90,
     });
     expect(
@@ -66,6 +67,7 @@ describe("REST search request mapping", () => {
         contracttype: ["detachering"],
         freshnessDays: 7,
         locatie: ["NL"],
+        status: ["closed"],
         tariefMin: 90,
       },
       limit: 8,
@@ -129,12 +131,16 @@ describe("REST search request mapping", () => {
       contracttype: [],
       locatie: [{ count: 3, value: "Amsterdam" }],
       locatie_land: [{ count: 9, value: "NL" }],
+      status: [{ count: 2, value: "closed" }],
     };
     expect(mapApiFacetsToUi(facets, bronCatalog, true).locations).toEqual([
       { count: 3, value: "Amsterdam" },
     ]);
     expect(mapApiFacetsToUi(facets, bronCatalog, false).locations).toEqual([
       { count: 9, value: "Nederland" },
+    ]);
+    expect(mapApiFacetsToUi(facets, bronCatalog).status).toEqual([
+      { count: 2, value: "closed" },
     ]);
   });
 });
