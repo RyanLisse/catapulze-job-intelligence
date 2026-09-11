@@ -33,6 +33,7 @@
     "build": "PATH=\"./node_modules/.bin:$PATH\" turbo run build",
     "check-types": "PATH=\"./node_modules/.bin:$PATH\" turbo run check-types --concurrency=2",
     "check-types:backfill": "PATH=\"./node_modules/.bin:$PATH\" tsc --noEmit -p tools/backfill/tsconfig.json",
+    "check-types:production": "PATH=\"./node_modules/.bin:$PATH\" tsc --noEmit -p scripts/production/tsconfig.json",
     "check-types:benchmarks": "PATH=\"./node_modules/.bin:$PATH\" tsc --noEmit -p benchmarks/tsconfig.json",
     "check-types:ci-metrics": "PATH=\"./node_modules/.bin:$PATH\" tsc --noEmit -p scripts/ci-metrics/tsconfig.json",
     "check-types:e2e-live-jobs": "PATH=\"./node_modules/.bin:$PATH\" tsc --noEmit -p e2e/live-jobs/tsconfig.json",

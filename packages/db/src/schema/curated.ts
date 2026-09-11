@@ -617,6 +617,29 @@ export const searchProjectionCheckpoint = curatedSchema.table(
   }
 );
 
+/**
+ * Live identity of the running projector, so a deploy can read back which
+ * container and which release SHA is actually draining the index. The
+ * projector has no HTTP surface of its own, so the database is the only
+ * medium it and the API server already share. One row per index name: the
+ * advisory-lock holder's self report, overwritten by whichever container
+ * currently holds the lock.
+ */
+export const searchProjectorRuntime = curatedSchema.table(
+  "search_projector_runtime",
+  {
+    containerId: text("container_id").notNull(),
+    cycle: bigint("cycle", { mode: "number" }).notNull(),
+    heartbeatAt: timestamp("heartbeat_at", { withTimezone: true }).notNull(),
+    indexName: text("index_name").primaryKey(),
+    releaseSha: text("release_sha"),
+    startedAt: timestamp("started_at", { withTimezone: true }).notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  }
+);
+
 export const agentContext = curatedSchema.table(
   "agent_context",
   {

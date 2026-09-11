@@ -15,6 +15,7 @@ const { env, getInternalServerUrl } = await import(${JSON.stringify(WEB_ENV_MODU
 console.log(JSON.stringify({
   internal: getInternalServerUrl(),
   publicUrl: env.NEXT_PUBLIC_SERVER_URL,
+  releaseSha: env.APP_RELEASE_SHA ?? null,
 }));
 `;
 
@@ -45,15 +46,16 @@ const loadWebEnv = (variables: Record<string, string>): ProbeResult => {
   };
 };
 
-const parseProbe = (
-  result: ProbeResult
-): { internal: string; publicUrl: string } => {
+interface ProbeEnvelope {
+  readonly internal: string;
+  readonly publicUrl: string;
+  readonly releaseSha: string | null;
+}
+
+const parseProbe = (result: ProbeResult): ProbeEnvelope => {
   expect(result.exitCode).toBe(0);
-  // SAFETY: probe script prints a fixed { internal, publicUrl } JSON envelope we own.
-  return JSON.parse(result.stdout.trim()) as {
-    internal: string;
-    publicUrl: string;
-  };
+  // SAFETY: probe script prints a fixed { internal, publicUrl, releaseSha } JSON envelope we own.
+  return JSON.parse(result.stdout.trim()) as ProbeEnvelope;
 };
 
 describe("@ji/env/web INTERNAL_SERVER_URL", () => {
@@ -93,5 +95,47 @@ describe("@ji/env/web INTERNAL_SERVER_URL", () => {
     });
     expect(result.exitCode).not.toBe(0);
     expect(result.stderr).toContain("INTERNAL_SERVER_URL");
+  });
+});
+
+const RELEASE_SHA = "0123456789abcdef0123456789abcdef01234567";
+const OTHER_RELEASE_SHA = "fedcba9876543210fedcba9876543210fedcba98";
+
+describe("@ji/env/web APP_RELEASE_SHA", () => {
+  it("resolves the release SHA from Coolify's SOURCE_COMMIT when APP_RELEASE_SHA is unset", () => {
+    const probe = parseProbe(
+      loadWebEnv({
+        NEXT_PUBLIC_SERVER_URL: PUBLIC_URL,
+        SOURCE_COMMIT: RELEASE_SHA,
+      })
+    );
+    expect(probe.releaseSha).toBe(RELEASE_SHA);
+  });
+
+  it("prefers an explicit APP_RELEASE_SHA over SOURCE_COMMIT", () => {
+    const probe = parseProbe(
+      loadWebEnv({
+        APP_RELEASE_SHA: OTHER_RELEASE_SHA,
+        NEXT_PUBLIC_SERVER_URL: PUBLIC_URL,
+        SOURCE_COMMIT: RELEASE_SHA,
+      })
+    );
+    expect(probe.releaseSha).toBe(OTHER_RELEASE_SHA);
+  });
+
+  it("exposes no release identity when neither variable is set", () => {
+    const probe = parseProbe(
+      loadWebEnv({ NEXT_PUBLIC_SERVER_URL: PUBLIC_URL })
+    );
+    expect(probe.releaseSha).toBeNull();
+  });
+
+  it("rejects a release SHA that is not a full lowercase Git SHA", () => {
+    const result = loadWebEnv({
+      NEXT_PUBLIC_SERVER_URL: PUBLIC_URL,
+      SOURCE_COMMIT: "main",
+    });
+    expect(result.exitCode).not.toBe(0);
+    expect(result.stderr).toContain("APP_RELEASE_SHA");
   });
 });

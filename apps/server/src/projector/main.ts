@@ -1,7 +1,10 @@
+import { hostname } from "node:os";
+
 import {
   createBronRuntimeClient,
   drainPostgresOutbox,
   PostgresSearchDocumentLoader,
+  PostgresSearchProjectorRuntimeStore,
   PostgresSearchVersionStore,
 } from "@ji/db";
 /**
@@ -22,6 +25,7 @@ import { heartbeatFilePath, writeHeartbeat } from "./heartbeat";
 import { acquireAdvisoryLock, LockLostError } from "./lock";
 import type { ProjectorCycleLog } from "./loop";
 import { runProjectorLoop } from "./loop";
+import { createProjectorRuntimeRecorder } from "./runtime";
 
 const POLL_INTERVAL_MS = 1000;
 const MAX_BACKOFF_MS = 30_000;
@@ -36,6 +40,9 @@ const DRAIN_LIMIT = 500;
  * give it a different constant so the two never collide silently.
  */
 const ADVISORY_LOCK_KEY = 847_732_991;
+
+/** Module scope runs at import, i.e. process start, before main() is awaited. */
+const PROCESS_STARTED_AT = new Date();
 
 /** `process.stdout` and `process.stderr` differ only in their `fd` literal type — this accepts either. */
 interface LogStream {
@@ -99,9 +106,24 @@ const main = async (): Promise<void> => {
       });
     }
   };
+  // Deploy readback (docs/runbooks/search-projector.md): the API serves this
+  // row at /projector/runtime so a deploy can confirm which container and
+  // release SHA holds the lock. Throttled inside the recorder; a failed write
+  // is logged and never takes the drain loop down.
+  const runtimeRecorder = createProjectorRuntimeRecorder({
+    containerId: hostname(),
+    onError: (message) => {
+      logLine(process.stderr, "projector_runtime_record_failed", { message });
+    },
+    releaseSha: projectorEnv.APP_RELEASE_SHA ?? null,
+    startedAt: PROCESS_STARTED_AT,
+    store: new PostgresSearchProjectorRuntimeStore(runtime.database),
+  });
+
   const onCycle = (log: ProjectorCycleLog): void => {
     logLine(process.stdout, "projector_cycle", log);
     void recordHeartbeat();
+    void runtimeRecorder.onCycle();
   };
 
   try {

@@ -162,6 +162,13 @@
       "when": 1789804800000,
       "tag": "0022_aanvraag_commercial_columns",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1789891200000,
+      "tag": "0023_search_projector_runtime",
+      "breakpoints": true
     }
   ]
 }
