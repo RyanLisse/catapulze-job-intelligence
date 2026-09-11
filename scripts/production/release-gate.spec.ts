@@ -7,12 +7,22 @@ import {
   assertStrictReleaseAncestry,
   assertTrustedCheck,
   blockedReleasePath,
+  isReleaseLedgerEntry,
+  parseReviewMode,
   runReleaseGate,
   selectLatestExactWorkflowRun,
 } from "./release-gate";
-import type { FetchInput, FetchLike } from "./release-gate";
+import type {
+  FetchInput,
+  FetchLike,
+  ReleaseGateReviewMode,
+} from "./release-gate";
 
 const sha = "a".repeat(40);
+
+interface ReviewModeProbe {
+  readonly mode?: string;
+}
 
 describe("production release gate rejection paths", () => {
   it("rejects a stale main SHA before release work", () => {
@@ -57,6 +67,59 @@ describe("production release gate rejection paths", () => {
     );
   });
 
+  it("counts only deployments this workflow wrote as ledger entries", () => {
+    const candidate = "b".repeat(40);
+    expect(
+      isReleaseLedgerEntry({
+        description: `Automatic production release ${candidate}`,
+        payload: { candidate_sha: candidate, workflow: "Deploy production" },
+      })
+    ).toBe(true);
+    expect(
+      isReleaseLedgerEntry({
+        payload: JSON.stringify({
+          candidate_sha: candidate,
+          workflow: "Deploy production",
+        }),
+      })
+    ).toBe(true);
+    expect(
+      isReleaseLedgerEntry({
+        payload: { candidate_sha: candidate, workflow: "Deploy production" },
+        sha: candidate,
+      })
+    ).toBe(true);
+    expect(
+      isReleaseLedgerEntry({
+        payload: { candidate_sha: candidate, workflow: "Deploy production" },
+        sha: "c".repeat(40),
+      })
+    ).toBe(false);
+    expect(isReleaseLedgerEntry({ description: null, payload: {} })).toBe(
+      false
+    );
+    expect(isReleaseLedgerEntry({ payload: "not json" })).toBe(false);
+    expect(isReleaseLedgerEntry({})).toBe(false);
+    expect(
+      isReleaseLedgerEntry({
+        payload: { candidate_sha: "B".repeat(40), workflow: "Deploy" },
+      })
+    ).toBe(false);
+    expect(
+      isReleaseLedgerEntry({
+        payload: { candidate_sha: candidate, workflow: "" },
+      })
+    ).toBe(false);
+  });
+
+  it("rejects an unknown review mode and defaults to trusted-approver", () => {
+    const unset: ReviewModeProbe = {};
+    expect(parseReviewMode(unset.mode)).toBe("trusted-approver");
+    expect(parseReviewMode("")).toBe("trusted-approver");
+    expect(parseReviewMode("solo")).toBe("solo");
+    expect(() => parseReviewMode("anything")).toThrow("invalid_review_mode");
+  });
+
   it("routes migrations, index schema, backfills, and worker changes away from the automatic lane", () => {
     expect(blockedReleasePath("packages/db/src/migrations/0001.sql")).toBe(
       true
@@ -79,8 +142,20 @@ const secondCommitSha = "e".repeat(40);
 const firstHeadSha = "f".repeat(40);
 const secondHeadSha = "a".repeat(40);
 
+interface ProductionDeploymentRecord {
+  readonly id: number;
+  readonly sha: string;
+  readonly environment: string;
+  readonly description?: string | null;
+  readonly payload?: unknown;
+}
+
 interface GateHarnessOptions {
   readonly blockedFile?: string;
+  readonly changesRequested?: boolean;
+  readonly claudeReviewWrongWorkflow?: boolean;
+  readonly productionDeployments?: readonly ProductionDeploymentRecord[];
+  readonly deploymentStatuses?: Readonly<Record<string, string>>;
   readonly latestCiFailed?: boolean;
   readonly unresolvedPullRequest?: number;
   readonly missingFormalReview?: boolean;
@@ -118,6 +193,19 @@ const makeGateHarness = (options: GateHarnessOptions = {}) => {
     calls.push(url);
     if (url.endsWith("/git/ref/heads/main")) {
       return gateJson({ object: { sha: releaseCandidateSha } });
+    }
+    if (url.includes("/deployments?environment=production")) {
+      return gateJson(options.productionDeployments ?? []);
+    }
+    const statusMatch = /\/deployments\/(?<id>\d+)\/statuses/u.exec(url);
+    if (statusMatch?.groups?.id) {
+      return gateJson([
+        {
+          id: 1,
+          state:
+            options.deploymentStatuses?.[statusMatch.groups.id] ?? "success",
+        },
+      ]);
     }
     if (
       url.includes(`/compare/${releasePreviousSha}...${releaseCandidateSha}`)
@@ -173,12 +261,15 @@ const makeGateHarness = (options: GateHarnessOptions = {}) => {
     }
     if (url.includes("/commits/") && url.includes("/check-runs")) {
       if (options.missingFormalReview) {
+        const isFirst = url.includes(firstHeadSha);
         return gateJson([
           {
             app: { id: 15_368, slug: "github-actions" },
             conclusion: "success",
-            details_url: "https://github.com/test/repo/actions/runs/99",
-            head_sha: url.includes(firstHeadSha) ? firstHeadSha : secondHeadSha,
+            details_url: `https://github.com/test/repo/actions/runs/${
+              isFirst ? 99 : 98
+            }`,
+            head_sha: isFirst ? firstHeadSha : secondHeadSha,
             name: "claude-review",
             status: "completed",
           },
@@ -266,6 +357,16 @@ const makeGateHarness = (options: GateHarnessOptions = {}) => {
       return gateJson({
         conclusion: "success",
         head_sha: firstHeadSha,
+        path: options.claudeReviewWrongWorkflow
+          ? ".github/workflows/ci.yml"
+          : ".github/workflows/claude-code-review.yml",
+        status: "completed",
+      });
+    }
+    if (url.includes("/actions/runs/98")) {
+      return gateJson({
+        conclusion: "success",
+        head_sha: secondHeadSha,
         path: ".github/workflows/claude-code-review.yml",
         status: "completed",
       });
@@ -349,7 +450,11 @@ const makeGateHarness = (options: GateHarnessOptions = {}) => {
       data: {
         repository: {
           pullRequest: {
-            reviewDecision: options.missingFormalReview ? null : "APPROVED",
+            reviewDecision: options.changesRequested
+              ? "CHANGES_REQUESTED"
+              : options.missingFormalReview
+                ? null
+                : "APPROVED",
             reviewThreads: {
               nodes: unresolved ? [{ isResolved: false }] : [],
               pageInfo: {
@@ -373,13 +478,52 @@ const makeGateHarness = (options: GateHarnessOptions = {}) => {
   };
 };
 
-const gateConfig = (fetchImpl: FetchLike) => ({
+const gateConfig = (
+  fetchImpl: FetchLike,
+  reviewMode: ReleaseGateReviewMode = "trusted-approver"
+) => ({
   candidateSha: releaseCandidateSha,
   fetchImpl,
   lastDeployedSha: releasePreviousSha,
   repository: "test/repo",
+  reviewMode,
   token: "github-token",
 });
+
+const ledgerGateConfig = (
+  fetchImpl: FetchLike,
+  reviewMode: ReleaseGateReviewMode = "trusted-approver"
+) => ({
+  candidateSha: releaseCandidateSha,
+  fetchImpl,
+  repository: "test/repo",
+  reviewMode,
+  token: "github-token",
+});
+
+const autoCreatedDeployment = {
+  description: null,
+  environment: "production",
+  id: 900,
+  payload: {},
+  sha: releaseCandidateSha,
+} as const;
+
+const ledgerPayload = {
+  candidate_sha: releasePreviousSha,
+  job: "deploy",
+  run_attempt: "1",
+  workflow: "Deploy production",
+  workflow_run_id: "77",
+} as const;
+
+const ledgerDeployment = {
+  description: `Automatic production release ${releasePreviousSha}`,
+  environment: "production",
+  id: 800,
+  payload: ledgerPayload,
+  sha: releasePreviousSha,
+} as const;
 
 describe("production release gate integrations", () => {
   it("rejects a stale green CI attempt when the latest exact-SHA attempt failed", async () => {
@@ -459,6 +603,129 @@ describe("production release gate integrations", () => {
     await expect(runReleaseGate(gateConfig(harness.fetchImpl))).rejects.toThrow(
       "unreviewed_release_commit"
     );
+  });
+
+  it("ignores GitHub's own environment record and uses the ledger entry", async () => {
+    const harness = makeGateHarness({
+      deploymentStatuses: { "800": "success", "900": "in_progress" },
+      productionDeployments: [autoCreatedDeployment, ledgerDeployment],
+    });
+
+    await expect(
+      runReleaseGate(ledgerGateConfig(harness.fetchImpl))
+    ).resolves.toMatchObject({
+      previousDeployedSha: releasePreviousSha,
+      reviewMode: "trusted-approver",
+      workflows: [".github/workflows/ci.yml"],
+    });
+    expect(
+      harness.calls.some((url) => url.includes("/deployments/900/statuses"))
+    ).toBe(false);
+  });
+
+  it("parses a ledger payload delivered as a JSON string", async () => {
+    const harness = makeGateHarness({
+      productionDeployments: [
+        autoCreatedDeployment,
+        { ...ledgerDeployment, payload: JSON.stringify(ledgerPayload) },
+      ],
+    });
+
+    await expect(
+      runReleaseGate(ledgerGateConfig(harness.fetchImpl))
+    ).resolves.toMatchObject({ previousDeployedSha: releasePreviousSha });
+  });
+
+  it("fails closed when only GitHub environment records exist", async () => {
+    const harness = makeGateHarness({
+      deploymentStatuses: { "900": "in_progress", "901": "failure" },
+      productionDeployments: [
+        autoCreatedDeployment,
+        { ...autoCreatedDeployment, id: 901, payload: "not json" },
+      ],
+    });
+
+    await expect(
+      runReleaseGate(ledgerGateConfig(harness.fetchImpl))
+    ).rejects.toThrow("missing_actual_deployed_sha");
+  });
+
+  it("accepts a solo release carried by a successful claude-review check", async () => {
+    const harness = makeGateHarness({ missingFormalReview: true });
+
+    await expect(
+      runReleaseGate(gateConfig(harness.fetchImpl, "solo"))
+    ).resolves.toMatchObject({
+      pullRequestNumbers: [1, 2],
+      reviewMode: "solo",
+      workflows: [".github/workflows/ci.yml"],
+    });
+  });
+
+  it("blocks a solo release on an unresolved review thread", async () => {
+    const harness = makeGateHarness({
+      missingFormalReview: true,
+      unresolvedPullRequest: 2,
+    });
+
+    await expect(
+      runReleaseGate(gateConfig(harness.fetchImpl, "solo"))
+    ).rejects.toThrow("unresolved_review_threads");
+  });
+
+  it("blocks a solo release on a CHANGES_REQUESTED decision", async () => {
+    const harness = makeGateHarness({
+      changesRequested: true,
+      missingFormalReview: true,
+    });
+
+    await expect(
+      runReleaseGate(gateConfig(harness.fetchImpl, "solo"))
+    ).rejects.toThrow("changes_requested");
+  });
+
+  it("blocks a solo release without a claude-review check", async () => {
+    const harness = makeGateHarness();
+
+    await expect(
+      runReleaseGate(gateConfig(harness.fetchImpl, "solo"))
+    ).rejects.toThrow("review_evidence_missing");
+  });
+
+  it("keeps trusted-approver mode requiring an exact-head approval", async () => {
+    const harness = makeGateHarness({ missingFormalReview: true });
+
+    await expect(runReleaseGate(gateConfig(harness.fetchImpl))).rejects.toThrow(
+      "review_evidence_missing"
+    );
+    const approved = makeGateHarness();
+    await expect(
+      runReleaseGate(gateConfig(approved.fetchImpl))
+    ).resolves.toMatchObject({ reviewMode: "trusted-approver" });
+  });
+
+  it("blocks a solo release whose claude-review came from another workflow", async () => {
+    const harness = makeGateHarness({
+      claudeReviewWrongWorkflow: true,
+      missingFormalReview: true,
+    });
+
+    await expect(
+      runReleaseGate(gateConfig(harness.fetchImpl, "solo"))
+    ).rejects.toThrow("untrusted_check");
+  });
+
+  it("ignores a ledger entry whose payload SHA is not the deployment SHA", async () => {
+    const harness = makeGateHarness({
+      productionDeployments: [
+        autoCreatedDeployment,
+        { ...ledgerDeployment, sha: "e".repeat(40) },
+      ],
+    });
+
+    await expect(
+      runReleaseGate(ledgerGateConfig(harness.fetchImpl))
+    ).rejects.toThrow("missing_actual_deployed_sha");
   });
 
   it("selects only the newest exact push attempt", () => {

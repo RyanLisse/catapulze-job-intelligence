@@ -259,12 +259,20 @@ voor OpenSSH daarom expliciet met:
 ```bash
 umask 077
 trap 'rm -f <tijdelijk-keypad>' EXIT
-op read "op://<vault>/<ssh-item>/private key?ssh-format=openssh" > <tijdelijk-keypad>
+op read "op://Catapulze Development/Hetzner_catapulze/private key?ssh-format=openssh" > <tijdelijk-keypad>
 ```
 
 De restrictieve `umask` geldt vóórdat shell-redirection het bestand aanmaakt;
 de trap verwijdert het na de sessie. Zonder `?ssh-format=openssh` weigert
 `ssh-keygen` de sleutel met `invalid format`. Log of commit de sleutel nooit.
+
+Het SSH-item heet `Hetzner_catapulze` in de vault `Catapulze Development` en
+het veld heet `private key`. De overige productiewaarden staan in dezelfde
+vault op het item `Job Intelligence production`, als velden en niet als losse
+items. De bevestigde velden zijn `DATABASE_URL`, `R2_ACCESS_KEY_ID`,
+`R2_SECRET_ACCESS_KEY` en `R2_S3_API_ENDPOINT`, dus bijvoorbeeld
+`op://Catapulze Development/Job Intelligence production/DATABASE_URL`. Neem
+geen andere veldnaam aan zonder het item eerst te lezen.
 
 #### 0.5.2 Firewall — 80/443 publiek; 22 tijdelijk bron-IP-beperkt
 

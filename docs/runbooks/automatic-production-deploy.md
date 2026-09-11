@@ -29,6 +29,100 @@ is queued or in progress. Its description and JSON payload carry the workflow,
 run, attempt, job, and candidate SHA, so a retry cannot be confused with a
 different release.
 
+## Release ledger predicate
+
+A job that declares `environment: production` makes GitHub create its own
+deployment record for that environment before the job runs its first step. That
+record is not a release. It carries an empty `payload`, a null `description`,
+and an `in_progress` status for the lifetime of the job. Reading every record
+under `GET /repos/{repo}/deployments?environment=production` as a release
+therefore makes the lane block on itself: the first run saw its own record,
+refused to continue, and left a `failure` status behind that blocked every
+later run as well.
+
+Only records this workflow wrote itself count as release ledger entries. The
+workflow writes a JSON payload of `workflow`, `workflow_run_id`, `run_attempt`,
+`job`, and `candidate_sha`, plus a description that starts with `Automatic
+production release`. A record counts as a ledger entry only when its payload
+parses and carries a full 40-character lowercase `candidate_sha` and a
+non-empty `workflow`. GitHub returns `payload` as an object on some routes and
+as a JSON string on others, so both forms are parsed. Anything else is one of
+GitHub's own environment records and is ignored by the gate, by the deploy
+driver, and by the lease step. `scripts/production/release-gate.ts` exports the
+predicate as `isReleaseLedgerEntry` and every filter uses it.
+
+Ignoring a record is not the same as passing. When the production environment
+holds no ledger entry at all, the gate still fails closed with
+`missing_actual_deployed_sha` rather than falling back to an environment
+record's SHA.
+
+## Seeding the baseline
+
+The ledger predicate means an environment that has never run this lane has no
+release ledger entry, so the gate has nothing to compare against. Before first
+enablement the operator seeds exactly one entry through the same API shape the
+workflow uses. Create a production deployment whose `ref` is the SHA that is
+actually running, with payload
+`{workflow:"Deploy production", workflow_run_id:"manual", run_attempt:"1", job:"seed", candidate_sha:<deployed sha>}`,
+then post a `success` status on it. The `ref` and the payload `candidate_sha`
+must be the same SHA: a record whose payload SHA does not match the deployment
+SHA is not treated as a ledger entry. Set
+`PRODUCTION_LAST_DEPLOYED_RELEASE_JSON` to match that entry, including its
+deployment id, its release SHA, and the three component SHAs read back from
+Coolify. The seed entry and the protected variable must agree; the gate and the
+driver both read them and both fail closed on a mismatch.
+
+Seeding is a one-time step for the first release only. After that the baseline
+rotates automatically. On a successful release the deploy driver writes the
+complete new baseline into its outcome file, carrying the ledger deployment id,
+the candidate SHA, and the three component SHAs it read back from Coolify. The
+finalize step then writes that JSON to the `production` environment variable
+`PRODUCTION_LAST_DEPLOYED_RELEASE_JSON`, updating it in place or creating it if
+it does not exist yet. Rotation runs only after the ledger status is recorded
+as `success`, so a failed or rolled-back release leaves the previous baseline
+untouched and the next run still compares against the last release that
+actually reached production. The job needs `actions: write` for this one call.
+If rotation fails the job fails even though the deployment succeeded, because
+an unrotated baseline blocks the next release.
+
+## Review modes
+
+`RELEASE_GATE_REVIEW_MODE` selects how the gate accepts review evidence. It is
+supplied to the gate step from the repository variable of the same name. An
+unset or empty value means `trusted-approver`. Any value other than
+`trusted-approver` or `solo` blocks the release with `invalid_review_mode`
+rather than falling back to a weaker rule.
+
+In `trusted-approver` mode, every associated merged PR needs an exact-head
+formal `APPROVED` review from a reviewer other than the author whose repository
+permission is `write`, `push`, `maintain`, or `admin`.
+
+In `solo` mode that approval is not required. Every associated merged PR must
+still have no `CHANGES_REQUESTED` decision, no unresolved review threads, and
+exactly one successful `claude-review` check run on the PR head SHA produced by
+the GitHub Actions app. The same check-run trust rules apply, so a check from
+any other app or a check that is not a completed success blocks the release.
+
+Know what that check does and does not prove. `claude-code-review.yml` runs in
+comment mode: it posts its findings on the PR and reports success as long as
+the review job itself completed, whatever verdict the review reached. A
+successful `claude-review` check therefore means the automated review ran on
+that head, not that it approved. The gate also confirms the check came from the
+`claude-code-review.yml` workflow run for that exact head, so a check with the
+same name from any other workflow blocks with `untrusted_check`.
+
+That leaves `solo` mode with exactly two vetoes that can actually stop a
+release: an unresolved review thread and a `CHANGES_REQUESTED` decision. If the
+automated review finds something that must block the release, a human has to
+turn it into one of those two, or add the `release-blocker` label to an issue.
+Reading the review and acting on it stays a human step.
+
+`solo` is acceptable only where the repository has a single collaborator, which
+makes the non-author approval rule impossible to satisfy rather than merely
+inconvenient. It is not an escape hatch for an unreviewed change: the automated
+review must still have run on the exact head. As soon as a second collaborator
+with write permission exists, move the variable back to `trusted-approver`.
+
 The protected environment supplies these names (values are never committed or
 printed):
 
@@ -67,11 +161,13 @@ truncated GitHub responses.
 The candidate must have at least one merged PR whose merge commit is exactly
 the candidate SHA. Every associated merged PR is checked for an active
 `CHANGES_REQUESTED` decision and every page of unresolved GraphQL review
-threads. The gate currently requires an exact-head formal `APPROVED` review from
-a different reviewer whose repository permission is `write`, `push`,
-`maintain`, or `admin`. A bare successful Claude workflow does not satisfy this
-requirement. Missing review evidence, an untrusted approver, or malformed
-pagination blocks the release.
+threads. In `trusted-approver` mode the gate requires an exact-head formal
+`APPROVED` review from a different reviewer whose repository permission is
+`write`, `push`, `maintain`, or `admin`, and a bare successful Claude workflow
+does not satisfy that requirement. In `solo` mode a successful `claude-review`
+check on the PR head replaces the approval. Missing review evidence, an
+untrusted approver, or malformed pagination blocks the release in either mode.
+The evidence output records the mode it ran under as `reviewMode`.
 
 The gate requires trusted GitHub Actions runs for the exact SHA and exact
 workflow/job identity: `CI` jobs `changes`, `verify`, `build`,
@@ -138,6 +234,16 @@ release SHA, container id, process cycle count, and heartbeat time in the
 reads that row at `/projector/runtime`. A container that lost the advisory lock
 or stopped draining stops refreshing the row, so its evidence goes stale within
 one minute and the driver refuses the release.
+
+Do not restart the projector by stopping it in Coolify. Stopping the projector
+through Coolify removes its container, and `start` does not recreate it, so the
+application stays down and its runtime row goes stale. Bring it back with the
+deploy endpoint against the commit it should run:
+`PATCH /applications/{uuid}` with the pinned SHA, then
+`POST /deploy?uuid={uuid}&force=true`. Confirm recovery by reading
+`/projector/runtime` for the expected release SHA, a moving cycle counter, and
+a heartbeat under sixty seconds old. The same rule applies to the server and
+web applications.
 
 Every application mutation records its prior configured SHA. A failure rolls
 back all mutated stateless applications in reverse order, including the role

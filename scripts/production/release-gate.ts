@@ -23,6 +23,8 @@ export type FetchLike = (
   init?: RequestInit
 ) => Promise<Response>;
 
+export type ReleaseGateReviewMode = "trusted-approver" | "solo";
+
 export interface GateConfig {
   readonly candidateSha: string;
   readonly repository: string;
@@ -30,6 +32,7 @@ export interface GateConfig {
   readonly lastDeployedSha?: string;
   readonly fetchImpl?: FetchLike;
   readonly apiBaseUrl?: string;
+  readonly reviewMode?: ReleaseGateReviewMode;
 }
 
 export interface GateResult {
@@ -38,6 +41,17 @@ export interface GateResult {
   readonly pullRequestNumbers: readonly number[];
   readonly changedFiles: readonly string[];
   readonly reasons: readonly string[];
+  readonly reviewMode: ReleaseGateReviewMode;
+  readonly workflows: readonly string[];
+}
+
+export interface ReleaseGateEvidence {
+  readonly candidateSha?: unknown;
+  readonly previousDeployedSha?: unknown;
+  readonly pullRequests?: unknown;
+  readonly result?: unknown;
+  readonly reviewMode?: unknown;
+  readonly workflows?: unknown;
 }
 
 export class GateError extends Error {
@@ -116,7 +130,48 @@ interface Deployment {
   readonly id?: number;
   readonly sha?: string;
   readonly environment?: string;
+  readonly payload?: unknown;
+  readonly description?: unknown;
 }
+
+const asPayloadObject = (
+  payload: unknown
+): Record<string, unknown> | undefined => {
+  let value = payload;
+  if (typeof value === "string") {
+    try {
+      value = JSON.parse(value);
+    } catch {
+      return undefined;
+    }
+  }
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    return undefined;
+  }
+  return value as Record<string, unknown>;
+};
+
+export const isReleaseLedgerEntry = (deployment: {
+  readonly payload?: unknown;
+  readonly description?: unknown;
+  readonly sha?: unknown;
+}): boolean => {
+  const payload = asPayloadObject(deployment.payload);
+  if (!payload) {
+    return false;
+  }
+  const candidateSha = payload.candidate_sha;
+  const { workflow } = payload;
+  if (
+    typeof candidateSha !== "string" ||
+    !SHA_PATTERN.test(candidateSha) ||
+    typeof workflow !== "string" ||
+    workflow.length === 0
+  ) {
+    return false;
+  }
+  return typeof deployment.sha !== "string" || deployment.sha === candidateSha;
+};
 
 interface DeploymentStatus {
   readonly created_at?: string;
@@ -625,6 +680,37 @@ const requireBrowserEvidence = async (
   );
 };
 
+const requireClaudeReviewCheck = async (
+  github: GitHubApi,
+  repository: string,
+  pullRequestNumber: number,
+  headSha: string
+): Promise<void> => {
+  const checks = await github.all<CheckRun>(
+    `/repos/${repository}/commits/${headSha}/check-runs?per_page=100`,
+    `PR #${pullRequestNumber} check runs`
+  );
+  const matches = checks.filter(
+    (check) => check.name === "claude-review" && check.head_sha === headSha
+  );
+  const [claudeReview, ...extraClaudeReviews] = matches;
+  if (claudeReview === undefined || extraClaudeReviews.length > 0) {
+    throw new GateError(
+      "review_evidence_missing",
+      `PR #${pullRequestNumber} lacks exactly one claude-review check on its head`
+    );
+  }
+  checkSucceeded(claudeReview, `PR #${pullRequestNumber} claude-review`);
+  await assertCheckWorkflowIdentity(
+    github,
+    repository,
+    claudeReview,
+    ".github/workflows/claude-code-review.yml",
+    headSha,
+    `PR #${pullRequestNumber} claude-review`
+  );
+};
+
 export const requiresBrowserEvidence = (files: readonly string[]): boolean =>
   files.some(
     (file) =>
@@ -958,7 +1044,8 @@ const previousDeployedSha = async (
     .filter(
       (deployment) =>
         deployment.environment === "production" &&
-        typeof deployment.id === "number"
+        typeof deployment.id === "number" &&
+        isReleaseLedgerEntry(deployment)
     )
     .sort((left, right) => (right.id ?? 0) - (left.id ?? 0));
   const [latest] = candidates;
@@ -1033,6 +1120,9 @@ export const runReleaseGate = async (
       "GITHUB_REPOSITORY must be owner/name"
     );
   }
+  const reviewMode: ReleaseGateReviewMode =
+    config.reviewMode ?? "trusted-approver";
+  const verifiedWorkflows = new Set<string>();
   const github = new GitHubApi(config);
 
   const readMain = async (): Promise<string> => {
@@ -1160,42 +1250,52 @@ export const runReleaseGate = async (
       config.fetchImpl ?? fetch
     );
     assertCleanReview(review.decision, review.unresolved);
-    if (review.approvedReviewerLogins.length === 0) {
-      throw new GateError(
-        "review_evidence_missing",
-        `PR #${pullRequest.number} lacks an exact-head approval from a non-author reviewer`
+    if (reviewMode === "solo") {
+      await requireClaudeReviewCheck(
+        github,
+        config.repository,
+        pullRequest.number,
+        headSha
       );
-    }
-    let trustedReviewer = false;
-    for (const reviewerLogin of review.approvedReviewerLogins) {
-      try {
-        await requireTrustedReviewer(
-          github,
-          config.repository,
-          pullRequest.number,
-          reviewerLogin
+    } else {
+      if (review.approvedReviewerLogins.length === 0) {
+        throw new GateError(
+          "review_evidence_missing",
+          `PR #${pullRequest.number} lacks an exact-head approval from a non-author reviewer`
         );
-        trustedReviewer = true;
-        break;
-      } catch (error) {
-        if (
-          !(error instanceof GateError) ||
-          error.code !== "review_evidence_untrusted"
-        ) {
-          throw error;
+      }
+      let trustedReviewer = false;
+      for (const reviewerLogin of review.approvedReviewerLogins) {
+        try {
+          await requireTrustedReviewer(
+            github,
+            config.repository,
+            pullRequest.number,
+            reviewerLogin
+          );
+          trustedReviewer = true;
+          break;
+        } catch (error) {
+          if (
+            !(error instanceof GateError) ||
+            error.code !== "review_evidence_untrusted"
+          ) {
+            throw error;
+          }
         }
       }
-    }
-    if (!trustedReviewer) {
-      throw new GateError(
-        "review_evidence_untrusted",
-        `PR #${pullRequest.number} exact-head approval is not from a trusted repository reviewer`
-      );
+      if (!trustedReviewer) {
+        throw new GateError(
+          "review_evidence_untrusted",
+          `PR #${pullRequest.number} exact-head approval is not from a trusted repository reviewer`
+        );
+      }
     }
     if (requiresBrowserEvidence(pullRequestFiles)) {
       browserEvidenceRequired = true;
       browserEvidenceChecked = true;
       await requireBrowserEvidence(github, config.repository, pullRequest);
+      verifiedWorkflows.add(".github/workflows/search-audit-evidence.yml");
     }
   }
 
@@ -1213,6 +1313,7 @@ export const runReleaseGate = async (
       "postgres-restore-drill",
     ]
   );
+  verifiedWorkflows.add(".github/workflows/ci.yml");
   if (browserEvidenceRequired && !browserEvidenceChecked) {
     const [firstMerged] = merged;
     if (firstMerged === undefined) {
@@ -1222,9 +1323,11 @@ export const runReleaseGate = async (
       );
     }
     await requireBrowserEvidence(github, config.repository, firstMerged);
+    verifiedWorkflows.add(".github/workflows/search-audit-evidence.yml");
   }
   if (requiresBrowserEvidence(comparisonFiles)) {
     await requireReactDoctor(github, config.repository, candidateSha);
+    verifiedWorkflows.add(".github/workflows/react-doctor.yml");
   }
   await requireNoReleaseBlockers(github, config.repository);
   assertMainCandidate(candidateSha, await readMain());
@@ -1234,7 +1337,78 @@ export const runReleaseGate = async (
     previousDeployedSha: previousSha,
     pullRequestNumbers: merged.map((pullRequest) => pullRequest.number),
     reasons: [],
+    reviewMode,
+    workflows: [...verifiedWorkflows].sort(),
   };
+};
+
+const isReviewMode = (value: unknown): boolean =>
+  value === "trusted-approver" || value === "solo";
+
+export const revalidateReleaseEvidence = (
+  gateConfig: {
+    readonly candidateSha: string;
+    readonly repository: string;
+    readonly token: string;
+    readonly lastDeployedRelease?: { readonly releaseSha?: string };
+  },
+  expected: ReleaseGateEvidence
+): Promise<ReleaseGateEvidence> => {
+  const reject = (detail: string): never => {
+    throw new GateError("release_evidence_invalid", detail);
+  };
+  if (expected.result !== "pass") {
+    reject("release-gate evidence did not record a passing result");
+  }
+  if (
+    typeof expected.candidateSha !== "string" ||
+    expected.candidateSha !== gateConfig.candidateSha
+  ) {
+    reject("release-gate evidence was written for a different candidate");
+  }
+  if (!isReviewMode(expected.reviewMode)) {
+    reject("release-gate evidence did not record a known review mode");
+  }
+  const { workflows, pullRequests } = expected;
+  if (
+    !Array.isArray(workflows) ||
+    workflows.length === 0 ||
+    workflows.some(
+      (workflow) => typeof workflow !== "string" || workflow.length === 0
+    )
+  ) {
+    reject("release-gate evidence did not list the verified workflows");
+  }
+  if (
+    !Array.isArray(pullRequests) ||
+    pullRequests.length === 0 ||
+    pullRequests.some((number) => !Number.isSafeInteger(number))
+  ) {
+    reject("release-gate evidence did not list the reviewed pull requests");
+  }
+  const baselineSha = gateConfig.lastDeployedRelease?.releaseSha;
+  if (
+    baselineSha !== undefined &&
+    expected.previousDeployedSha !== baselineSha
+  ) {
+    reject("release-gate evidence did not match the complete-release baseline");
+  }
+  return Promise.resolve(expected);
+};
+
+export const parseReviewMode = (
+  value: string | undefined
+): ReleaseGateReviewMode => {
+  if (value === undefined || value === "" || value === "trusted-approver") {
+    return "trusted-approver";
+  }
+  if (value === "solo") {
+    return "solo";
+  }
+  throw new GateError(
+    "invalid_review_mode",
+    "RELEASE_GATE_REVIEW_MODE must be trusted-approver or solo"
+  );
 };
 
 const main = async (): Promise<void> => {
@@ -1243,6 +1417,7 @@ const main = async (): Promise<void> => {
       candidateSha: process.env.CANDIDATE_SHA ?? process.env.GITHUB_SHA ?? "",
       lastDeployedSha: process.env.PRODUCTION_LAST_DEPLOYED_SHA,
       repository: process.env.GITHUB_REPOSITORY ?? "",
+      reviewMode: parseReviewMode(process.env.RELEASE_GATE_REVIEW_MODE),
       token: process.env.GITHUB_TOKEN ?? "",
     });
     console.log(
@@ -1250,8 +1425,10 @@ const main = async (): Promise<void> => {
         candidateSha: result.candidateSha,
         changedFileCount: result.changedFiles.length,
         previousDeployedSha: result.previousDeployedSha,
-        pullRequestNumbers: result.pullRequestNumbers,
+        pullRequests: result.pullRequestNumbers,
         result: "pass",
+        reviewMode: result.reviewMode,
+        workflows: result.workflows,
       })
     );
   } catch (error) {

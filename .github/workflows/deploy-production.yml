@@ -8,7 +8,7 @@ name: Deploy production
     branches: [main]
 
 permissions:
-  actions: read
+  actions: write
   contents: read
   checks: read
   deployments: write
@@ -50,6 +50,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
           RELEASE_GATE_EVIDENCE_FILE: ${{ runner.temp }}/release-gate.json
+          RELEASE_GATE_REVIEW_MODE: ${{ vars.RELEASE_GATE_REVIEW_MODE }}
         run: |
           set -euo pipefail
           bun scripts/production/release-gate.ts > "${RELEASE_GATE_EVIDENCE_FILE}"
@@ -61,11 +62,14 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
+          ledger_payload='(.payload | if type=="string" then (try fromjson catch {}) else . end)'
+          ledger_jq=".[] | select((${ledger_payload} | .candidate_sha?) as \$c"
+          ledger_jq="${ledger_jq} | (\$c | type) == \"string\" and (.sha == null or .sha == \$c)) | .id"
           mapfile -t active_ids < <(gh api --paginate \
             -H 'Accept: application/vnd.github+json' \
             -H 'X-GitHub-Api-Version: 2022-11-28' \
             "/repos/${GITHUB_REPOSITORY}/deployments?environment=production&per_page=100" \
-            --jq '.[].id')
+            --jq "${ledger_jq}")
           for active_id in "${active_ids[@]}"; do
             state="$(gh api \
               -H 'Accept: application/vnd.github+json' \
@@ -169,3 +173,29 @@ jobs:
           if [[ "${state}" != 'success' ]]; then
             exit 1
           fi
+          if [[ ! -f "${OUTCOME_FILE}" ]]; then
+            echo 'production deploy outcome file is missing; baseline not rotated' >&2
+            exit 1
+          fi
+          baseline="$(jq -ce '.nextReleaseBaseline' "${OUTCOME_FILE}")"
+          variables_path="/repos/${GITHUB_REPOSITORY}/environments/production/variables"
+          patch_error="$(mktemp)"
+          trap 'rm -f "${patch_error}"' EXIT
+          if ! gh api --method PATCH \
+            -H 'Accept: application/vnd.github+json' \
+            -H 'X-GitHub-Api-Version: 2022-11-28' \
+            "${variables_path}/PRODUCTION_LAST_DEPLOYED_RELEASE_JSON" \
+            -f name=PRODUCTION_LAST_DEPLOYED_RELEASE_JSON \
+            -f value="${baseline}" >/dev/null 2>"${patch_error}"; then
+            if ! grep -q 'HTTP 404' "${patch_error}"; then
+              cat "${patch_error}" >&2
+              exit 1
+            fi
+            gh api --method POST \
+              -H 'Accept: application/vnd.github+json' \
+              -H 'X-GitHub-Api-Version: 2022-11-28' \
+              "${variables_path}" \
+              -f name=PRODUCTION_LAST_DEPLOYED_RELEASE_JSON \
+              -f value="${baseline}" >/dev/null
+          fi
+          printf 'production release baseline rotated to %s\n' "${CANDIDATE_SHA}"
