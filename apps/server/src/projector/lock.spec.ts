@@ -3,7 +3,7 @@ import { beforeAll, describe, expect, it } from "bun:test";
 import { PROJECTOR_DATABASE_URL_DIRECT_MESSAGE } from "@ji/env/projector-database-url";
 import postgres from "postgres";
 
-import { acquireAdvisoryLock } from "./lock";
+import { acquireAdvisoryLock, waitForAdvisoryLock } from "./lock";
 
 const testDatabaseUrl =
   process.env.DATABASE_TEST_URL ??
@@ -133,6 +133,87 @@ describe("acquireAdvisoryLock (RJC-387)", () => {
     } finally {
       await rival`select pg_advisory_unlock_all()`;
       await rival.end({ timeout: 5 });
+      await admin.end({ timeout: 5 });
+    }
+  });
+});
+
+describe("waitForAdvisoryLock (rolling deploy handoff)", () => {
+  let postgresAvailable = false;
+
+  beforeAll(async () => {
+    postgresAvailable = await isPostgresAvailable();
+    if (!postgresAvailable && testDatabaseRequired) {
+      throw new Error("Required test database is unavailable");
+    }
+  });
+
+  it("acquires the lock once the first holder releases it", async () => {
+    if (!postgresAvailable) {
+      expect(postgresAvailable).toBe(false);
+      return;
+    }
+    const lockKey = 900_000_000 + Math.floor(Math.random() * 1_000_000);
+    const first = await acquireAdvisoryLock(testDatabaseUrl, lockKey);
+    expect(first.acquired).toBe(true);
+
+    const controller = new AbortController();
+    let waits = 0;
+    const pending = waitForAdvisoryLock(testDatabaseUrl, lockKey, {
+      onWaiting: () => {
+        waits += 1;
+        return Promise.resolve();
+      },
+      pollIntervalMs: 25,
+      signal: controller.signal,
+    });
+
+    await Bun.sleep(150);
+    await first.release();
+
+    const second = await pending;
+    expect(second?.acquired).toBe(true);
+    expect(waits).toBeGreaterThanOrEqual(1);
+    await second?.release();
+  });
+
+  it("invokes onWaiting while blocked and returns undefined when aborted before release", async () => {
+    if (!postgresAvailable) {
+      expect(postgresAvailable).toBe(false);
+      return;
+    }
+    const lockKey = 900_000_000 + Math.floor(Math.random() * 1_000_000);
+    const admin = postgres(testDatabaseUrl, { max: 1 });
+    const first = await acquireAdvisoryLock(testDatabaseUrl, lockKey);
+    expect(first.acquired).toBe(true);
+
+    try {
+      const controller = new AbortController();
+      let waits = 0;
+      const pending = waitForAdvisoryLock(testDatabaseUrl, lockKey, {
+        onWaiting: () => {
+          waits += 1;
+          return Promise.resolve();
+        },
+        pollIntervalMs: 25,
+        signal: controller.signal,
+      });
+
+      await Bun.sleep(150);
+      controller.abort();
+
+      expect(await pending).toBeUndefined();
+      expect(waits).toBeGreaterThanOrEqual(1);
+
+      // The aborted waiter took nothing: the original holder is the only
+      // session on the key.
+      const [holders] = await admin<{ count: number }[]>`
+        select count(*)::int as count from pg_locks
+        where locktype = 'advisory' and objid = ${lockKey} and granted
+      `;
+      expect(holders?.count).toBe(1);
+    } finally {
+      await first.release();
       await admin.end({ timeout: 5 });
     }
   });

@@ -49,6 +49,8 @@ interface HarnessOptions {
   readonly cancelRaceFinished?: boolean;
   readonly baselineMismatch?: boolean;
   readonly dashboardLocation?: string;
+  /** Number of `/projector/runtime` reads that still report the previous SHA. */
+  readonly projectorRuntimeLagPolls?: number;
 }
 
 interface HarnessState {
@@ -58,6 +60,7 @@ interface HarnessState {
   cancelledDeployment: string | undefined;
   finishedRaceDeployment: string | undefined;
   candidateDeployments: number;
+  projectorRuntimeReads: number;
 }
 
 const json = (body: unknown, status = 200): Response =>
@@ -115,6 +118,7 @@ const makeHarness = (options: HarnessOptions = {}) => {
     candidateDeployments: 0,
     finishedRaceDeployment: undefined,
     mainReads: 0,
+    projectorRuntimeReads: 0,
     sha: {
       projector: options.baselineMismatch ? candidateSha : previousSha,
       server: previousSha,
@@ -304,12 +308,16 @@ const makeHarness = (options: HarnessOptions = {}) => {
         });
       }
       if (path === "/projector/runtime") {
+        state.projectorRuntimeReads += 1;
+        const lagging =
+          options.projectorRuntimeLagPolls !== undefined &&
+          state.projectorRuntimeReads <= options.projectorRuntimeLagPolls;
         return json({
           active: true,
           containerId: "0123456789ab",
           cycle: 3,
           heartbeatFresh: true,
-          releaseSha: state.sha.projector,
+          releaseSha: lagging ? previousSha : state.sha.projector,
         });
       }
       if (path === "/readyz") {
@@ -434,6 +442,41 @@ describe("production Coolify deployment contract", () => {
       ).toBe(true);
     }
   );
+
+  it("waits out a projector runtime readback that still reports the previous SHA", async () => {
+    const harness = makeHarness({ projectorRuntimeLagPolls: 2 });
+    const evidence = await runCoolifyDeploy({
+      ...harness.config,
+      sleepImpl: async () => {
+        // Collapses the readback's 5 s poll so the case runs instantly.
+      },
+    });
+
+    expect(evidence.map((item) => item.role)).toEqual([
+      "server",
+      "web",
+      "projector",
+    ]);
+    expect(harness.state.projectorRuntimeReads).toBe(3);
+    expect(harness.state.sha.projector).toBe(candidateSha);
+  });
+
+  it("fails with projector_runtime_mismatch when the candidate never appears within the window", async () => {
+    const harness = makeHarness({
+      projectorRuntimeLagPolls: Number.POSITIVE_INFINITY,
+    });
+
+    await expect(
+      runCoolifyDeploy({
+        ...harness.config,
+        sleepImpl: async () => {
+          // Collapses the readback's 5 s poll so the case runs instantly.
+        },
+      })
+    ).rejects.toThrow("projector_runtime_mismatch");
+    expect(harness.state.projectorRuntimeReads).toBeGreaterThan(1);
+    expect(harness.state.sha.projector).toBe(previousSha);
+  });
 
   it("rolls back after main moves because rollback does not depend on main", async () => {
     const harness = makeHarness({ mainMovesAfter: 4 });
