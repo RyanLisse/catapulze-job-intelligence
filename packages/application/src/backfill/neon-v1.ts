@@ -32,6 +32,7 @@ import type {
   BackfillTargetReconciliation,
   NeonV1Fixture,
   NeonV1JobRow,
+  NeonV1SourceFacts,
   NeonV1Source,
   RunNeonV1BackfillInput,
 } from "./neon-v1-types";
@@ -70,6 +71,7 @@ export {
   type NeonV1Fixture,
   type NeonV1ForbiddenTable,
   type NeonV1JobRow,
+  type NeonV1SourceFacts,
   type NeonV1Source,
   type RunNeonV1BackfillInput,
   BACKFILL_FAILURE_CODES,
@@ -296,9 +298,17 @@ const tariefValue = (
  * valid facts from the same row.
  */
 /* oxlint-disable promise/prefer-await-to-then -- Zod catch supplies a synchronous per-field parse fallback. */
+const sourceDateStringSchema = z
+  .string()
+  .refine(
+    (value) => Number.isFinite(Date.parse(value)),
+    "expected a valid date string"
+  );
+const nullableSourceDateSchema = sourceDateStringSchema.nullable().catch(null);
+
 export const sourceFieldsSchema = z.object({
   duration_months: z.number().int().nonnegative().nullable().catch(null),
-  end_date: z.string().nullable().catch(null),
+  end_date: nullableSourceDateSchema,
   hours_per_week: z.number().int().nonnegative().nullable().catch(null),
   min_hours_per_week: z.number().int().nonnegative().nullable().catch(null),
   work_arrangement: z.string().nullable().catch(null),
@@ -309,6 +319,93 @@ export const sourceFieldsSchema = z.object({
 const sourceFieldsForJob = (job: NeonV1JobRow) => {
   const parsed = sourceFieldsSchema.safeParse(job.sourceRow);
   return parsed.success ? parsed.data : sourceFieldsSchema.parse({});
+};
+
+const sourceFactJsonSchema = z.json();
+
+/* oxlint-disable promise/prefer-await-to-then -- per-field catches preserve valid sibling facts. */
+export const sourceFactsSchema = z.object({
+  allows_subcontracting: z.boolean().nullable().optional().catch(null),
+  application_deadline: z.string().nullable().optional().catch(null),
+  company: z.string().nullable().optional().catch(null),
+  competences: sourceFactJsonSchema.nullable().optional().catch(null),
+  end_client: z.string().nullable().optional().catch(null),
+  end_date: nullableSourceDateSchema.optional().catch(null),
+  extension_possible: z.boolean().nullable().optional().catch(null),
+  external_url: z.string().nullable().optional().catch(null),
+  hours_per_week: z
+    .number()
+    .int()
+    .nonnegative()
+    .nullable()
+    .optional()
+    .catch(null),
+  min_hours_per_week: z
+    .number()
+    .int()
+    .nonnegative()
+    .nullable()
+    .optional()
+    .catch(null),
+  positions_available: z
+    .number()
+    .int()
+    .nonnegative()
+    .nullable()
+    .optional()
+    .catch(null),
+  posted_at: z.string().nullable().optional().catch(null),
+  province: z.string().nullable().optional().catch(null),
+  requirements: sourceFactJsonSchema.nullable().optional().catch(null),
+  start_date: z.string().nullable().optional().catch(null),
+  wishes: sourceFactJsonSchema.nullable().optional().catch(null),
+  work_arrangement: z.string().nullable().optional().catch(null),
+  work_experience_years: z
+    .number()
+    .int()
+    .nonnegative()
+    .nullable()
+    .optional()
+    .catch(null),
+});
+
+/* oxlint-enable promise/prefer-await-to-then */
+
+export const SOURCE_FACT_KEYS = [
+  "allows_subcontracting",
+  "application_deadline",
+  "company",
+  "competences",
+  "end_client",
+  "end_date",
+  "external_url",
+  "extension_possible",
+  "hours_per_week",
+  "min_hours_per_week",
+  "positions_available",
+  "posted_at",
+  "province",
+  "requirements",
+  "start_date",
+  "wishes",
+  "work_arrangement",
+  "work_experience_years",
+] as const satisfies readonly (keyof NeonV1SourceFacts)[];
+
+export const sourceFactsForJob = (job: NeonV1JobRow): NeonV1SourceFacts => {
+  const source = job.sourceRow;
+  const root = { ...job };
+  const raw = Object.fromEntries(
+    SOURCE_FACT_KEYS.map((key) => [
+      key,
+      source && Object.hasOwn(source, key) ? source[key] : root[key],
+    ])
+  );
+  const parsed = sourceFactsSchema.parse(raw);
+  // SAFETY: sourceFactsSchema validates every named key before this typed projection.
+  return Object.fromEntries(
+    Object.entries(parsed).filter(([, value]) => value !== undefined)
+  ) as NeonV1SourceFacts;
 };
 
 const sourceSpecificFieldsForJob = (job: NeonV1JobRow) => {
@@ -374,6 +471,7 @@ const v1SpecificFieldsForJob = (
   job: NeonV1JobRow,
   sourceStatus: string | null
 ) => ({
+  ...sourceFactsForJob(job),
   ...sourceSpecificFieldsForJob(job),
   // Kept for compatibility with the original backfill preview fields;
   // the exact source spelling remains in the durable raw source row.

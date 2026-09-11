@@ -741,8 +741,19 @@ on-box proces nooit tegelijk eigenaar van de drain zijn.
 
 Verificatie: één cycle-logregel per drain
 (`{"event":"projector_cycle","drained":N,…}`; `drained: 0` per ~1s is normaal
-bij idle), en een tweede instance-start eindigt met "another projector holds
-the lock" en exit 0 (advisory lock werkt).
+bij idle), en een tweede instance-start blijft wachten op de advisory lock in
+plaats van te stoppen: `projector_lock_waiting` hooguit elke 30 s, een verse
+heartbeat, en geen enkele drain totdat hij de lock heeft.
+
+Een Coolify-rolling-update vereist daarom geen handmatige stop vooraf. Coolify
+start de nieuwe container, die healthy op de lock wacht, en verwijdert daarna de
+oude; het SIGTERM-pad van de oude maakt de lopende cycle af en geeft de lock
+vrij, waarna de nieuwe hem op de eerstvolgende poll pakt. Een stop via Coolify
+verwijdert de container nog steeds, dus een bewuste stop blijft een stop en geen
+handoff. De deploydriver leest `/projector/runtime` na de switch tot 90 s lang
+elke 5 s opnieuw, omdat die endpoint in de paar seconden tussen healthy en
+lockhouder nog de oude container kan tonen of 503 met reason `runtime_missing`
+of `heartbeat_stale` kan geven.
 
 Faalt de Coolify-deploy van de projector met "New container is unhealthy",
 gebruik dan hetzelfde zijcontainer-recept als bij stap 4. De projector heeft
@@ -927,7 +938,7 @@ vallen allemaal buiten het mandaat van dit runbook:
 | RJC-373: productieconfiguratie van `TRIGGER_SECRET_KEY` verifiëren of zo nodig inrichten | Stap 9 (worker-deploy en gedeployd bewijs) | Ryan / Trigger.dev-account |
 | Voorgestelde ADR-0009: hybrid-evaluatie op Manticore 29 afronden | Geen blokkade voor de huidige lexicale productie-engine 29.0.2; hybrid activeren vereist afzonderlijk gereviewd bewijs | Ryan |
 | ~~Raw-store-provider~~ — beslist: Cloudflare R2 ([ADR-0008](../adr/ADR-0008-cloudflare-r2-for-raw-payloads.md)); bestaan/configuratie van bucket + keys verifiëren en zo nodig inrichten | Stap 6 | Ryan |
-| Coolify-rolling-update van server en projector faalt sinds 2026-09-04 met "New container is unhealthy" bij de eerste inspect (lege `Health.Log`), terwijl dezelfde image handmatig gezond is; oorzaak open — diagnoserecept in stap 4 | Stap 4 en 7 (elke server-/projector-release via Coolify) | Ryan |
+| Coolify-rolling-update van de server faalt sinds 2026-09-04 met "New container is unhealthy" bij de eerste inspect (lege `Health.Log`), terwijl dezelfde image handmatig gezond is; oorzaak open, diagnoserecept in stap 4. De bekende projectoroorzaak is gesloten: de nieuwe container wacht healthy op de advisory lock in plaats van direct te stoppen, dus een projectorrelease vereist geen handmatige stop vooraf. Keert het symptoom toch terug op de projector, gebruik dan hetzelfde recept uit stap 4. | Stap 4 (elke serverrelease via Coolify) | Ryan |
 | Branch protection op `main` | Geen deploystap, wel de release-hygiëne eromheen | Ryan |
 
 Daarnaast: host en Coolify waren op 2026-09-03 live bereikbaar, maar iedere

@@ -1009,6 +1009,114 @@ const validateWeb = async (
   }
 };
 
+/**
+ * A rolling projector deploy reports healthy while the replacement container
+ * is still waiting for the outgoing one's advisory lock, so for a few seconds
+ * the runtime row still carries the previous container and SHA (or no fresh
+ * row at all). Those are the transient states worth re-reading; everything
+ * else stays a single-shot failure.
+ */
+const PROJECTOR_RUNTIME_RETRY_WINDOW_MS = 90_000;
+const PROJECTOR_RUNTIME_RETRY_INTERVAL_MS = 5000;
+const PROJECTOR_RUNTIME_RETRY_ATTEMPTS =
+  Math.floor(
+    PROJECTOR_RUNTIME_RETRY_WINDOW_MS / PROJECTOR_RUNTIME_RETRY_INTERVAL_MS
+  ) + 1;
+const PROJECTOR_RUNTIME_RETRYABLE_REASONS = new Set([
+  "heartbeat_stale",
+  "runtime_missing",
+]);
+
+const retryableRuntimeReason = async (response: {
+  json: () => Promise<unknown>;
+}): Promise<string | undefined> => {
+  try {
+    const body = await response.json();
+    const { reason } = asObject(body, "projector runtime evidence");
+    return typeof reason === "string" &&
+      PROJECTOR_RUNTIME_RETRYABLE_REASONS.has(reason)
+      ? reason
+      : undefined;
+  } catch {
+    return undefined;
+  }
+};
+
+/** Resolves the readback's failure, or `undefined` when the evidence matches. */
+const probeProjectorRuntime = async (
+  config: CoolifyConfig,
+  runtimeUrl: string,
+  expectedSha: string
+): Promise<DeploymentError | undefined> => {
+  const runtime = await fetchPublic(config, runtimeUrl);
+  if (runtime.status === 503) {
+    const reason = await retryableRuntimeReason(runtime.clone());
+    if (reason !== undefined) {
+      return new DeploymentError(
+        "public_readback_failed",
+        `projector runtime evidence returned HTTP ${runtime.status}`
+      );
+    }
+  }
+  const runtimeBody = await readJsonPublic(
+    runtime,
+    "projector runtime evidence"
+  );
+  const { active } = runtimeBody;
+  const container = runtimeBody.containerId ?? runtimeBody.container_id;
+  const cycle = runtimeBody.cycle ?? runtimeBody.cycleCount;
+  const { heartbeatFresh } = runtimeBody;
+  const cycleNumber = typeof cycle === "number" ? cycle : null;
+  if (
+    runtimeBody.releaseSha !== expectedSha ||
+    active !== true ||
+    typeof container !== "string" ||
+    container.length === 0 ||
+    cycleNumber === null ||
+    !Number.isSafeInteger(cycleNumber) ||
+    cycleNumber < 1 ||
+    heartbeatFresh !== true
+  ) {
+    return new DeploymentError(
+      "projector_runtime_mismatch",
+      "projector runtime evidence did not identify an active candidate container with a fresh heartbeat",
+      "projector"
+    );
+  }
+  return undefined;
+};
+
+const awaitProjectorRuntime = async (
+  config: CoolifyConfig,
+  runtimeUrl: string,
+  expectedSha: string
+): Promise<void> => {
+  const sleepImpl =
+    config.sleepImpl ??
+    ((milliseconds: number) =>
+      new Promise<void>((resolve) => setTimeout(resolve, milliseconds)));
+  for (
+    let attempt = 0;
+    attempt < PROJECTOR_RUNTIME_RETRY_ATTEMPTS;
+    attempt += 1
+  ) {
+    // oxlint-disable-next-line no-await-in-loop -- the readback is a poll; attempts are sequential by design
+    const failure = await probeProjectorRuntime(
+      config,
+      runtimeUrl,
+      expectedSha
+    );
+    if (!failure) {
+      return;
+    }
+    if (attempt === PROJECTOR_RUNTIME_RETRY_ATTEMPTS - 1) {
+      throw failure;
+    }
+    // oxlint-disable-next-line no-await-in-loop -- the poll interval must elapse before the next readback
+    await sleepImpl(PROJECTOR_RUNTIME_RETRY_INTERVAL_MS);
+  }
+};
+
 const validateProjector = async (
   config: CoolifyConfig,
   expectedSha: string
@@ -1045,35 +1153,11 @@ const validateProjector = async (
     );
   }
   if (config.projectorRuntimeUrl) {
-    const runtime = await fetchPublic(
+    await awaitProjectorRuntime(
       config,
-      trimUrl(config.projectorRuntimeUrl)
+      trimUrl(config.projectorRuntimeUrl),
+      expectedSha
     );
-    const runtimeBody = await readJsonPublic(
-      runtime,
-      "projector runtime evidence"
-    );
-    const { active } = runtimeBody;
-    const container = runtimeBody.containerId ?? runtimeBody.container_id;
-    const cycle = runtimeBody.cycle ?? runtimeBody.cycleCount;
-    const { heartbeatFresh } = runtimeBody;
-    const cycleNumber = typeof cycle === "number" ? cycle : null;
-    if (
-      runtimeBody.releaseSha !== expectedSha ||
-      active !== true ||
-      typeof container !== "string" ||
-      container.length === 0 ||
-      cycleNumber === null ||
-      !Number.isSafeInteger(cycleNumber) ||
-      cycleNumber < 1 ||
-      heartbeatFresh !== true
-    ) {
-      throw new DeploymentError(
-        "projector_runtime_mismatch",
-        "projector runtime evidence did not identify an active candidate container with a fresh heartbeat",
-        "projector"
-      );
-    }
   }
 };
 
