@@ -36,20 +36,29 @@ export type NeonV1ForbiddenTable = (typeof NEON_V1_FORBIDDEN_TABLES)[number];
 export interface NeonV1JobRow {
   readonly application_deadline?: string | null;
   readonly archived_at?: string | null;
+  /** Exact source field names are retained for the parity/detail projection. */
+  readonly allows_subcontracting?: boolean | null;
   readonly company?: string | null;
+  readonly competences?: JsonValue | null;
   readonly contract_type?: string | null;
   readonly deleted_at?: string | null;
   readonly description?: string | null;
   readonly end_client?: string | null;
+  readonly end_date?: string | null;
   readonly external_id: string;
   readonly external_url?: string | null;
+  readonly extension_possible?: boolean | null;
+  readonly hours_per_week?: number | null;
   readonly id: string;
   readonly location?: string | null;
+  readonly min_hours_per_week?: number | null;
   readonly platform: string;
+  readonly positions_available?: number | null;
   readonly province?: string | null;
   readonly rate_max?: number | null;
   readonly rate_min?: number | null;
   readonly posted_at?: string | null;
+  readonly requirements?: JsonValue | null;
   readonly scraped_at?: string | null;
   readonly start_date?: string | null;
   /** Complete `jobs` row as returned by Motian-Neon, including `raw_payload`.
@@ -58,6 +67,35 @@ export interface NeonV1JobRow {
   readonly sourceRow?: Readonly<Record<string, JsonValue>>;
   readonly status?: string | null;
   readonly title: string;
+  readonly work_arrangement?: string | null;
+  readonly wishes?: JsonValue | null;
+  readonly work_experience_years?: number | null;
+}
+
+/**
+ * Source facts copied into bronSpecifiek with the original Motian/UI field
+ * names. Every member is optional so a missing source column remains missing;
+ * an explicit null, false, zero, or array remains distinguishable.
+ */
+export interface NeonV1SourceFacts {
+  readonly allows_subcontracting?: boolean | null;
+  readonly application_deadline?: string | null;
+  readonly company?: string | null;
+  readonly competences?: JsonValue | null;
+  readonly end_client?: string | null;
+  readonly end_date?: string | null;
+  readonly external_url?: string | null;
+  readonly extension_possible?: boolean | null;
+  readonly hours_per_week?: number | null;
+  readonly min_hours_per_week?: number | null;
+  readonly positions_available?: number | null;
+  readonly posted_at?: string | null;
+  readonly province?: string | null;
+  readonly requirements?: JsonValue | null;
+  readonly start_date?: string | null;
+  readonly wishes?: JsonValue | null;
+  readonly work_arrangement?: string | null;
+  readonly work_experience_years?: number | null;
 }
 
 export interface NeonV1Fixture {
