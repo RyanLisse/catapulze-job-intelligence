@@ -90,7 +90,7 @@ describe("Neon v1 backfill mapping", () => {
   });
 
   it("preserves exact source facts and distinguishes omitted values", () => {
-    const draft = mapV1JobToDraft({
+    const facts = {
       ...sampleJob(),
       allows_subcontracting: false,
       application_deadline: null,
@@ -110,7 +110,8 @@ describe("Neon v1 backfill mapping", () => {
       wishes: ["Azure"],
       work_arrangement: "remote",
       work_experience_years: 0,
-    });
+    };
+    const draft = mapV1JobToDraft(facts);
 
     expect(draft.bronSpecifiek.value).toMatchObject({
       allows_subcontracting: false,
@@ -132,7 +133,11 @@ describe("Neon v1 backfill mapping", () => {
       work_arrangement: "remote",
       work_experience_years: 0,
     });
-    expect(draft.bronSpecifiek.value).not.toHaveProperty("missing_field");
+
+    const { competences: _omitted, ...withoutCompetences } = facts;
+    const omitted = mapV1JobToDraft(withoutCompetences).bronSpecifiek.value;
+    expect(omitted).not.toHaveProperty("competences");
+    expect(omitted).toMatchObject({ wishes: ["Azure"] });
   });
 
   it("uses only posted_at as first seen and keeps scraped_at separate", () => {
