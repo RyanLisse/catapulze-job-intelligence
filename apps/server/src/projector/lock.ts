@@ -1,6 +1,8 @@
 import { parseProjectorDatabaseUrl } from "@ji/env/projector-database-url";
 import postgres from "postgres";
 
+import { abortableSleep } from "./sleep";
+
 /**
  * Thrown when a cycle's lock heartbeat (`reassert`) finds the lock gone and
  * held by someone else. Fatal, not transient: the projector must stop
@@ -112,4 +114,41 @@ export const acquireAdvisoryLock = async (
       await sql.end({ timeout: 5 });
     },
   };
+};
+
+export interface WaitForAdvisoryLockOptions {
+  /** Awaited after every failed attempt, before the sleep. */
+  readonly onWaiting: () => Promise<void>;
+  readonly pollIntervalMs: number;
+  readonly signal: AbortSignal;
+}
+
+/**
+ * Blocks until the advisory lock is free, then takes it. A rolling deploy
+ * starts the replacement container while the outgoing one still holds the
+ * lock, so exiting on a held lock would fail the handoff; waiting lets the
+ * new container stay healthy (that is what `onWaiting` is for) until the old
+ * one's shutdown releases the lock. Resolves `undefined` when `signal`
+ * aborts before acquisition, having taken nothing. Each failed attempt
+ * closes its own connection inside `acquireAdvisoryLock`, so a long wait
+ * never accumulates sessions.
+ */
+export const waitForAdvisoryLock = async (
+  databaseUrl: string,
+  lockKey: number,
+  options: WaitForAdvisoryLockOptions
+): Promise<AdvisoryLockHandle | undefined> => {
+  const { onWaiting, pollIntervalMs, signal } = options;
+  while (!signal.aborted) {
+    // oxlint-disable-next-line no-await-in-loop -- one attempt at a time by design; attempts must not overlap
+    const handle = await acquireAdvisoryLock(databaseUrl, lockKey);
+    if (handle.acquired) {
+      return handle;
+    }
+    // oxlint-disable-next-line no-await-in-loop -- the waiting side effect must complete before the poll interval starts
+    await onWaiting();
+    // oxlint-disable-next-line no-await-in-loop -- the poll interval must elapse before the next attempt
+    await abortableSleep(pollIntervalMs, signal);
+  }
+  return undefined;
 };

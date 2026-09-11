@@ -22,7 +22,7 @@ import { env as projectorEnv } from "@ji/env/projector";
 import { ManticoreSearchEngine } from "@ji/search";
 
 import { heartbeatFilePath, writeHeartbeat } from "./heartbeat";
-import { acquireAdvisoryLock, LockLostError } from "./lock";
+import { LockLostError, waitForAdvisoryLock } from "./lock";
 import type { ProjectorCycleLog } from "./loop";
 import { runProjectorLoop } from "./loop";
 import { createProjectorRuntimeRecorder } from "./runtime";
@@ -30,6 +30,8 @@ import { createProjectorRuntimeRecorder } from "./runtime";
 const POLL_INTERVAL_MS = 1000;
 const MAX_BACKOFF_MS = 30_000;
 const DRAIN_LIMIT = 500;
+const LOCK_WAIT_POLL_INTERVAL_MS = 2000;
+const LOCK_WAIT_LOG_INTERVAL_MS = 30_000;
 
 /**
  * Arbitrary 31-bit key for the projector's singleton `pg_advisory_lock`.
@@ -62,19 +64,6 @@ const main = async (): Promise<void> => {
   const lockDatabaseUrl = projectorEnv.PROJECTOR_DATABASE_URL;
   const manticoreUrl = projectorEnv.MANTICORE_URL;
 
-  const lock = await acquireAdvisoryLock(lockDatabaseUrl, ADVISORY_LOCK_KEY);
-  if (!lock.acquired) {
-    logLine(process.stdout, "projector_lock_held", {
-      message: "another projector holds the lock",
-    });
-    return;
-  }
-
-  const runtime = createBronRuntimeClient(databaseUrl);
-  const versionStore = new PostgresSearchVersionStore(runtime.database);
-  const engine = ManticoreSearchEngine.fromUrl(manticoreUrl, versionStore);
-  const loader = new PostgresSearchDocumentLoader(runtime.database);
-
   const controller = new AbortController();
   // `process.once` would let a second signal (supervisor impatience, a
   // `docker stop` retry, operator double-Ctrl-C) fall through to Bun's
@@ -106,6 +95,37 @@ const main = async (): Promise<void> => {
       });
     }
   };
+
+  // Coolify rolls this application by starting the replacement container,
+  // waiting for it to report healthy, then removing the outgoing one. So the
+  // replacement waits for the lock instead of exiting, and keeps the
+  // heartbeat file fresh while it waits: healthy but idle, holding nothing
+  // until the outgoing container's SIGTERM path releases the lock.
+  let lastLockWaitLogAt = 0;
+  const lock = await waitForAdvisoryLock(lockDatabaseUrl, ADVISORY_LOCK_KEY, {
+    onWaiting: async () => {
+      await recordHeartbeat();
+      const now = Date.now();
+      if (now - lastLockWaitLogAt >= LOCK_WAIT_LOG_INTERVAL_MS) {
+        lastLockWaitLogAt = now;
+        logLine(process.stdout, "projector_lock_waiting", {
+          message: "another projector holds the lock",
+        });
+      }
+    },
+    pollIntervalMs: LOCK_WAIT_POLL_INTERVAL_MS,
+    signal: controller.signal,
+  });
+  if (!lock) {
+    logLine(process.stdout, "projector_shutdown", {});
+    return;
+  }
+
+  const runtime = createBronRuntimeClient(databaseUrl);
+  const versionStore = new PostgresSearchVersionStore(runtime.database);
+  const engine = ManticoreSearchEngine.fromUrl(manticoreUrl, versionStore);
+  const loader = new PostgresSearchDocumentLoader(runtime.database);
+
   // Deploy readback (docs/runbooks/search-projector.md): the API serves this
   // row at /projector/runtime so a deploy can confirm which container and
   // release SHA holds the lock. Throttled inside the recorder; a failed write

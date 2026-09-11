@@ -72,14 +72,37 @@ loop — put it under a supervisor:
 
 The projector takes a Postgres session-level advisory lock
 (`pg_try_advisory_lock`) on startup and holds it for its lifetime. A second
-instance started against the same database logs "another projector holds
-the lock" and exits 0 — this is expected and safe. It means:
+instance started against the same database does not exit. It polls for the
+lock every 2 seconds, writes the heartbeat file on every poll so the Docker
+HEALTHCHECK keeps reporting healthy, and logs one `projector_lock_waiting`
+line at most every 30 seconds. It drains nothing until it holds the lock. It
+means:
 
 - A supervisor restarting a still-running instance (e.g. a flapping health
   check) never causes two projectors to double-drain.
 - Deploying a new version alongside an old one draining the same outbox is
-  safe — the new one waits out the old one's exit (or the old one's
-  supervisor eventually stops it), never runs concurrently.
+  safe: the new one waits out the old one's exit, never runs concurrently.
+
+### Rolling deploy handoff
+
+This is what lets a Coolify rolling update work without an operator stopping
+the projector first. Coolify starts the replacement container, waits for it to
+report healthy, then removes the outgoing one. The replacement reports healthy
+while it waits, because waiting is what keeps its heartbeat file fresh.
+Removing the outgoing container sends it SIGTERM, its shutdown path finishes
+the in-flight cycle and releases the lock, and the replacement acquires it on
+its next poll.
+
+A stop through Coolify still removes the container, so a deliberate stop stays
+a stop and is not a handoff. SIGINT or SIGTERM during the wait aborts the wait
+and exits 0 without the container ever having held the lock.
+
+For a few seconds between "healthy" and "holding the lock", `/projector/runtime`
+still reports the outgoing container and release SHA, or answers 503 with
+reason `runtime_missing` or `heartbeat_stale`. The deploy driver
+(`scripts/production/coolify-deploy.ts`) re-reads that endpoint every 5 seconds
+for up to 90 seconds before failing, so that gap is expected rather than a
+failed deploy.
 
 The lock is re-asserted every cycle, not just taken once at startup: a lost
 lock (idle-connection reaping, Neon autosuspend) exits the process instead
@@ -132,7 +155,7 @@ steps rather than once per poll.
 | Neon data endpoint (`DATABASE_URL`) down | Same as Manticore down — the drain call fails, same backoff-and-retry. |
 | Neon direct lock endpoint (`PROJECTOR_DATABASE_URL`) missing or a known pooler URL | Typed env validation fails before startup; the process exits non-zero. Supply the direct endpoint for the same branch/database. |
 | Schema mismatch (`SearchIndexSchemaMismatchError`) | Not retried. This means the index was built for a different document mapping than the running code expects — an operator action (start a new generation via `tools/manticore/start-search-generation.ts` and reindex), not something a retry can fix. The loop rejects and `main.ts` exits 1. Fix the mismatch, then let the supervisor restart it (or restart manually). |
-| Second instance started | Fails to acquire the advisory lock, logs "another projector holds the lock", exits 0. Safe for a supervisor to have done this by mistake. |
+| Second instance started | Waits for the advisory lock instead of exiting: polls every 2 s, keeps the heartbeat file fresh so it stays healthy, logs `projector_lock_waiting` at most every 30 s, drains nothing. It acquires as soon as the current holder releases. SIGINT/SIGTERM during the wait exits 0 without ever having held the lock. |
 | Lock silently dropped (idle-connection reaping, Neon autosuspend) | Caught by the every-cycle heartbeat, not by luck: if the lock is still free, the same session retakes it and the cycle proceeds; if another session already grabbed it, the heartbeat throws `LockLostError`, which is not retried — the loop rejects and `main.ts` exits 1. Supervisor restarts it. |
 | SIGINT / SIGTERM | Aborts the loop; an in-flight drain cycle always finishes first (never killed mid-cycle); logs a shutdown line; releases the advisory lock; closes the database connection; exits 0. A repeated SIGINT/SIGTERM (impatient supervisor, a `docker stop` retry, a second Ctrl-C) is logged as `projector_shutdown_in_progress` and otherwise ignored — it does not re-abort or kill mid-write. SIGKILL remains the only hard stop; nothing in userspace can catch it, so a SIGKILL mid-cycle can leave the advisory lock held until Postgres notices the dead connection. |
 
