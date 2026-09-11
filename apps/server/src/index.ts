@@ -2,7 +2,11 @@ import { trpcServer } from "@hono/trpc-server";
 import { createContext } from "@ji/api/context";
 import { appRouter } from "@ji/api/routers/index";
 import { auth } from "@ji/auth";
-import { closeDb, getDbReadiness } from "@ji/db";
+import {
+  closeDb,
+  getDbReadiness,
+  PostgresSearchProjectorRuntimeStore,
+} from "@ji/db";
 import { env } from "@ji/env/server";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
@@ -17,6 +21,7 @@ import {
   restRoutesFromRegistry,
 } from "./capabilities/rest";
 import { createHealthRoutes } from "./http/health";
+import { createProjectorRuntimeHandler } from "./http/projector-runtime";
 import { createReleaseHandler } from "./http/release";
 import { createReadinessDeps, createReadinessHandler } from "./readiness";
 import { jsonBodyLimit } from "./request-body-limit";
@@ -92,6 +97,16 @@ const healthRoutes = createHealthRoutes(readinessHandler);
 app.get("/health", healthRoutes.health);
 app.get("/livez", healthRoutes.live);
 app.get("/readyz", healthRoutes.ready);
+
+// Deploy readback for the on-box projector, which has no HTTP surface of
+// its own. One store for the process, not one per request.
+const projectorRuntimeStore = new PostgresSearchProjectorRuntimeStore(
+  sliceA.deps.database
+);
+app.get(
+  "/projector/runtime",
+  createProjectorRuntimeHandler({ read: () => projectorRuntimeStore.read() })
+);
 
 const restRoutes = restRoutesFromRegistry(sliceA.registry);
 const resolvePrincipal = createSessionPrincipalResolver(

@@ -112,6 +112,18 @@ a second advisory lock anywhere in this codebase, so the two never collide.
   unreachable) backs off exponentially and keeps retrying — see behaviour
   table below. It does not need paging on its own; page on sustained lag.
 
+The projector has no HTTP surface of its own, so it publishes its identity to
+`curated.search_projector_runtime` and the API server serves that row at
+`GET /projector/runtime`. The response carries `indexName`, `releaseSha`,
+`active`, `containerId`, `cycle`, `startedAt`, `heartbeatAt`, `heartbeatAgeMs`
+and `heartbeatFresh`. A heartbeat counts as fresh for 60 seconds, the same
+window the Docker HEALTHCHECK uses. The endpoint answers 200 only when the row
+exists and is fresh; a missing row, a stale heartbeat or a failed read all
+answer 503 with `active: false` and a `reason` field, so a deploy that only
+checks the status code cannot mistake a dead projector for a live one. The
+projector writes the row at most once every 15 seconds, so `cycle` advances in
+steps rather than once per poll.
+
 ## Behaviour reference
 
 | Condition | What happens |
