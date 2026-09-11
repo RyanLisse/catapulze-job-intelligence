@@ -152,6 +152,13 @@ export {
   type SearchVersionDatabase,
 } from "./search-version-store";
 export {
+  PostgresSearchProjectorRuntimeStore,
+  type PostgresSearchProjectorRuntimeStoreOptions,
+  type SearchProjectorRuntimeDatabase,
+  type SearchProjectorRuntimeInput,
+  type SearchProjectorRuntimeRecord,
+} from "./search-projector-runtime-store";
+export {
   createBronRuntimeClient,
   type BronRuntimeClient,
 } from "./runtime-client";

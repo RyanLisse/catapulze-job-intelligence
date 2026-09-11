@@ -95,7 +95,11 @@ const readValue = (
   return value;
 };
 
-const readOptions = (arguments_: readonly string[]) => {
+export const readOptions = (
+  arguments_: readonly string[],
+  valueOptions: ReadonlySet<string>,
+  booleanOptions: ReadonlySet<string>
+) => {
   const normalized = arguments_[0] === "--" ? arguments_.slice(1) : arguments_;
   const values = new Map<string, string>();
   const booleans = new Set<string>();
@@ -104,14 +108,14 @@ const readOptions = (arguments_: readonly string[]) => {
     const argument = normalized[index];
     if (
       !argument ||
-      (!valueFlags.has(argument) && !booleanFlags.has(argument))
+      (!valueOptions.has(argument) && !booleanOptions.has(argument))
     ) {
       throw new Error(`Unsupported option ${argument ?? ""}`);
     }
     if (values.has(argument) || booleans.has(argument)) {
       throw new Error(`Duplicate option ${argument}`);
     }
-    if (booleanFlags.has(argument)) {
+    if (booleanOptions.has(argument)) {
       booleans.add(argument);
       continue;
     }
@@ -127,7 +131,11 @@ const readOptions = (arguments_: readonly string[]) => {
 };
 
 const parseArguments = (arguments_: readonly string[]): CliArguments => {
-  const { values, booleans } = readOptions(arguments_);
+  const { values, booleans } = readOptions(
+    arguments_,
+    valueFlags,
+    booleanFlags
+  );
   const apply = booleans.has("--apply");
   const rollback = booleans.has("--rollback");
   if (apply && rollback) {

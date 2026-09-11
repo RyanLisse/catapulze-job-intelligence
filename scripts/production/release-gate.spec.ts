@@ -1,0 +1,759 @@
+/* oxlint-disable eslint/complexity, eslint/require-await, eslint/no-nested-ternary, unicorn/no-nested-ternary, anti-slop/no-unknown-parameters, anti-slop/require-safety-comment-for-type-assertion -- These stateful protocol fixtures intentionally centralize REST and GraphQL response branches to exercise fail-closed release behavior. */
+import { describe, expect, it } from "bun:test";
+
+import {
+  assertCleanReview,
+  assertMainCandidate,
+  assertStrictReleaseAncestry,
+  assertTrustedCheck,
+  blockedReleasePath,
+  isReleaseLedgerEntry,
+  parseReviewMode,
+  runReleaseGate,
+  selectLatestExactWorkflowRun,
+} from "./release-gate";
+import type {
+  FetchInput,
+  FetchLike,
+  ReleaseGateReviewMode,
+} from "./release-gate";
+
+const sha = "a".repeat(40);
+
+interface ReviewModeProbe {
+  readonly mode?: string;
+}
+
+describe("production release gate rejection paths", () => {
+  it("rejects a stale main SHA before release work", () => {
+    expect(() => assertMainCandidate(sha, "b".repeat(40))).toThrow(
+      "main_moved"
+    );
+  });
+
+  it("rejects unresolved review threads and active change requests", () => {
+    expect(() => assertCleanReview(null, 1)).toThrow(
+      "unresolved_review_threads"
+    );
+    expect(() => assertCleanReview("CHANGES_REQUESTED", 0)).toThrow(
+      "changes_requested"
+    );
+  });
+
+  it("rejects an untrusted or unsuccessful CI check", () => {
+    expect(() =>
+      assertTrustedCheck(
+        {
+          app: { id: 1_210_556, slug: "cursor" },
+          conclusion: "success",
+          head_sha: sha,
+          name: "verify",
+          status: "completed",
+          workflow_name: "CI",
+        },
+        sha,
+        "CI",
+        "verify"
+      )
+    ).toThrow("untrusted_check");
+  });
+
+  it("rejects a bad or stale release ancestry comparison", () => {
+    expect(() => assertStrictReleaseAncestry("behind", 0, 1)).toThrow(
+      "invalid_release_ancestry"
+    );
+    expect(() => assertStrictReleaseAncestry("ahead", 0, 0)).toThrow(
+      "invalid_release_ancestry"
+    );
+  });
+
+  it("counts only deployments this workflow wrote as ledger entries", () => {
+    const candidate = "b".repeat(40);
+    expect(
+      isReleaseLedgerEntry({
+        description: `Automatic production release ${candidate}`,
+        payload: { candidate_sha: candidate, workflow: "Deploy production" },
+      })
+    ).toBe(true);
+    expect(
+      isReleaseLedgerEntry({
+        payload: JSON.stringify({
+          candidate_sha: candidate,
+          workflow: "Deploy production",
+        }),
+      })
+    ).toBe(true);
+    expect(
+      isReleaseLedgerEntry({
+        payload: { candidate_sha: candidate, workflow: "Deploy production" },
+        sha: candidate,
+      })
+    ).toBe(true);
+    expect(
+      isReleaseLedgerEntry({
+        payload: { candidate_sha: candidate, workflow: "Deploy production" },
+        sha: "c".repeat(40),
+      })
+    ).toBe(false);
+    expect(isReleaseLedgerEntry({ description: null, payload: {} })).toBe(
+      false
+    );
+    expect(isReleaseLedgerEntry({ payload: "not json" })).toBe(false);
+    expect(isReleaseLedgerEntry({})).toBe(false);
+    expect(
+      isReleaseLedgerEntry({
+        payload: { candidate_sha: "B".repeat(40), workflow: "Deploy" },
+      })
+    ).toBe(false);
+    expect(
+      isReleaseLedgerEntry({
+        payload: { candidate_sha: candidate, workflow: "" },
+      })
+    ).toBe(false);
+  });
+
+  it("rejects an unknown review mode and defaults to trusted-approver", () => {
+    const unset: ReviewModeProbe = {};
+    expect(parseReviewMode(unset.mode)).toBe("trusted-approver");
+    expect(parseReviewMode("")).toBe("trusted-approver");
+    expect(parseReviewMode("solo")).toBe("solo");
+    expect(() => parseReviewMode("anything")).toThrow("invalid_review_mode");
+  });
+
+  it("routes migrations, index schema, backfills, and worker changes away from the automatic lane", () => {
+    expect(blockedReleasePath("packages/db/src/migrations/0001.sql")).toBe(
+      true
+    );
+    expect(blockedReleasePath("packages/search/src/schema/index.ts")).toBe(
+      true
+    );
+    expect(blockedReleasePath("scripts/backfill-neon-v1.ts")).toBe(true);
+    expect(blockedReleasePath("packages/application/src/backfill/run.ts")).toBe(
+      true
+    );
+    expect(blockedReleasePath("packages/connectors/src/source.ts")).toBe(true);
+    expect(blockedReleasePath("apps/worker/src/tasks/poll.ts")).toBe(true);
+  });
+});
+
+const releaseCandidateSha = "c".repeat(40);
+const releasePreviousSha = "d".repeat(40);
+const secondCommitSha = "e".repeat(40);
+const firstHeadSha = "f".repeat(40);
+const secondHeadSha = "a".repeat(40);
+
+interface ProductionDeploymentRecord {
+  readonly id: number;
+  readonly sha: string;
+  readonly environment: string;
+  readonly description?: string | null;
+  readonly payload?: unknown;
+}
+
+interface GateHarnessOptions {
+  readonly blockedFile?: string;
+  readonly changesRequested?: boolean;
+  readonly claudeReviewWrongWorkflow?: boolean;
+  readonly productionDeployments?: readonly ProductionDeploymentRecord[];
+  readonly deploymentStatuses?: Readonly<Record<string, string>>;
+  readonly latestCiFailed?: boolean;
+  readonly unresolvedPullRequest?: number;
+  readonly missingFormalReview?: boolean;
+  readonly truncatedReviews?: boolean;
+  readonly untrustedReviewer?: boolean;
+  readonly trustedReviewerAfterUntrusted?: boolean;
+  readonly reviewerRevokedApproval?: boolean;
+  readonly unreviewedCommit?: boolean;
+}
+
+interface GraphqlReviewPayload {
+  readonly nodes: readonly {
+    readonly author: { readonly login: string };
+    readonly commit: { readonly oid: string };
+    readonly state: string;
+    readonly submittedAt: string;
+  }[];
+  pageInfo?: {
+    readonly endCursor: string | null;
+    readonly hasNextPage: boolean;
+  };
+}
+
+const gateJson = (body: unknown, init?: ResponseInit): Response =>
+  Response.json(body, init);
+
+const makeGateHarness = (options: GateHarnessOptions = {}) => {
+  const calls: string[] = [];
+  const workflowPath = ".github/workflows/ci.yml";
+  const fetchImpl = async (
+    input: FetchInput,
+    init?: RequestInit
+  ): Promise<Response> => {
+    const url = String(input);
+    calls.push(url);
+    if (url.endsWith("/git/ref/heads/main")) {
+      return gateJson({ object: { sha: releaseCandidateSha } });
+    }
+    if (url.includes("/deployments?environment=production")) {
+      return gateJson(options.productionDeployments ?? []);
+    }
+    const statusMatch = /\/deployments\/(?<id>\d+)\/statuses/u.exec(url);
+    if (statusMatch?.groups?.id) {
+      return gateJson([
+        {
+          id: 1,
+          state:
+            options.deploymentStatuses?.[statusMatch.groups.id] ?? "success",
+        },
+      ]);
+    }
+    if (
+      url.includes(`/compare/${releasePreviousSha}...${releaseCandidateSha}`)
+    ) {
+      return gateJson({
+        ahead_by: 2,
+        behind_by: 0,
+        commits: [{ sha: releaseCandidateSha }, { sha: secondCommitSha }],
+        files: [options.blockedFile ?? "packages/domain/src/value.ts"].map(
+          (filename) => ({ filename })
+        ),
+        status: "ahead",
+      });
+    }
+    if (url.includes(`/commits/${releaseCandidateSha}/pulls`)) {
+      return gateJson([
+        {
+          head: { sha: firstHeadSha },
+          merge_commit_sha: releaseCandidateSha,
+          merged_at: "2026-09-11T10:00:00Z",
+          number: 1,
+          user: { login: "author-one" },
+        },
+      ]);
+    }
+    if (url.includes(`/commits/${secondCommitSha}/pulls`)) {
+      if (options.unreviewedCommit) {
+        return gateJson([]);
+      }
+      return gateJson([
+        {
+          head: { sha: secondHeadSha },
+          merge_commit_sha: secondCommitSha,
+          merged_at: "2026-09-11T11:00:00Z",
+          number: 2,
+          user: { login: "author-two" },
+        },
+      ]);
+    }
+    if (url.includes("/pulls/1/files")) {
+      return gateJson([{ filename: "packages/domain/src/value.ts" }]);
+    }
+    if (url.includes("/pulls/2/files")) {
+      return gateJson([{ filename: "packages/application/src/use-case.ts" }]);
+    }
+    if (url.includes("/collaborators/reviewer/permission")) {
+      return gateJson({
+        permission: options.untrustedReviewer ? "pull" : "push",
+      });
+    }
+    if (url.includes("/collaborators/trusted-reviewer/permission")) {
+      return gateJson({ permission: "push" });
+    }
+    if (url.includes("/commits/") && url.includes("/check-runs")) {
+      if (options.missingFormalReview) {
+        const isFirst = url.includes(firstHeadSha);
+        return gateJson([
+          {
+            app: { id: 15_368, slug: "github-actions" },
+            conclusion: "success",
+            details_url: `https://github.com/test/repo/actions/runs/${
+              isFirst ? 99 : 98
+            }`,
+            head_sha: isFirst ? firstHeadSha : secondHeadSha,
+            name: "claude-review",
+            status: "completed",
+          },
+        ]);
+      }
+      return gateJson([]);
+    }
+    if (url.includes("/actions/workflows/") && url.includes("/runs")) {
+      const { latestCiFailed } = options;
+      return gateJson(
+        latestCiFailed
+          ? [
+              {
+                check_suite_id: 122,
+                conclusion: "success",
+                event: "push",
+                head_branch: "main",
+                head_sha: releaseCandidateSha,
+                id: 11,
+                path: workflowPath,
+                status: "completed",
+              },
+              {
+                check_suite_id: 122,
+                conclusion: "failure",
+                event: "push",
+                head_branch: "main",
+                head_sha: releaseCandidateSha,
+                id: 22,
+                path: workflowPath,
+                status: "completed",
+              },
+            ]
+          : [
+              {
+                check_suite_id: 122,
+                conclusion: "success",
+                event: "push",
+                head_branch: "main",
+                head_sha: releaseCandidateSha,
+                id: 22,
+                path: workflowPath,
+                status: "completed",
+              },
+            ]
+      );
+    }
+    if (url.includes("/actions/runs/22/jobs")) {
+      return gateJson(
+        [
+          "changes",
+          "verify",
+          "build",
+          "application-image-smoke",
+          "mcp-edge-smoke",
+          "postgres-restore-drill",
+        ].map((name) => ({
+          conclusion: "success",
+          head_sha: releaseCandidateSha,
+          name,
+          status: "completed",
+        }))
+      );
+    }
+    if (url.includes("/check-suites/122/check-runs")) {
+      return gateJson(
+        [
+          "changes",
+          "verify",
+          "build",
+          "application-image-smoke",
+          "mcp-edge-smoke",
+          "postgres-restore-drill",
+        ].map((name) => ({
+          app: { id: 15_368, slug: "github-actions" },
+          conclusion: "success",
+          head_sha: releaseCandidateSha,
+          name,
+          status: "completed",
+          workflow_name: "CI",
+        }))
+      );
+    }
+    if (url.includes("/actions/runs/99")) {
+      return gateJson({
+        conclusion: "success",
+        head_sha: firstHeadSha,
+        path: options.claudeReviewWrongWorkflow
+          ? ".github/workflows/ci.yml"
+          : ".github/workflows/claude-code-review.yml",
+        status: "completed",
+      });
+    }
+    if (url.includes("/actions/runs/98")) {
+      return gateJson({
+        conclusion: "success",
+        head_sha: secondHeadSha,
+        path: ".github/workflows/claude-code-review.yml",
+        status: "completed",
+      });
+    }
+    if (url.includes("/issues?state=open&labels=release-blocker")) {
+      return gateJson([]);
+    }
+    throw new Error(`unhandled gate route ${init?.method ?? "GET"} ${url}`);
+  };
+
+  const graphqlFetchImpl = async (
+    _input: FetchInput,
+    init?: RequestInit
+  ): Promise<Response> => {
+    const body = JSON.parse(String(init?.body));
+    const pullRequestNumber = body.variables.number as number;
+    const threadCursor = body.variables.threadCursor as string | null;
+    const unresolved =
+      options.unresolvedPullRequest === pullRequestNumber &&
+      threadCursor === "page-2";
+    const hasNextThreadPage =
+      options.unresolvedPullRequest === pullRequestNumber &&
+      threadCursor === null;
+    const reviewNodes = options.missingFormalReview
+      ? []
+      : options.trustedReviewerAfterUntrusted
+        ? [
+            {
+              author: { login: "reviewer" },
+              commit: {
+                oid: pullRequestNumber === 1 ? firstHeadSha : secondHeadSha,
+              },
+              state: "APPROVED",
+              submittedAt: "2026-09-11T12:00:00Z",
+            },
+            {
+              author: { login: "trusted-reviewer" },
+              commit: {
+                oid: pullRequestNumber === 1 ? firstHeadSha : secondHeadSha,
+              },
+              state: "APPROVED",
+              submittedAt: "2026-09-11T13:00:00Z",
+            },
+          ]
+        : options.reviewerRevokedApproval
+          ? [
+              {
+                author: { login: "reviewer" },
+                commit: {
+                  oid: pullRequestNumber === 1 ? firstHeadSha : secondHeadSha,
+                },
+                state: "APPROVED",
+                submittedAt: "2026-09-11T12:00:00Z",
+              },
+              {
+                author: { login: "reviewer" },
+                commit: {
+                  oid: pullRequestNumber === 1 ? firstHeadSha : secondHeadSha,
+                },
+                state: "CHANGES_REQUESTED",
+                submittedAt: "2026-09-11T13:00:00Z",
+              },
+            ]
+          : [
+              {
+                author: { login: "reviewer" },
+                commit: {
+                  oid: pullRequestNumber === 1 ? firstHeadSha : secondHeadSha,
+                },
+                state: "APPROVED",
+                submittedAt: "2026-09-11T12:00:00Z",
+              },
+            ];
+    const reviews: GraphqlReviewPayload = {
+      nodes: reviewNodes,
+    };
+    if (!options.truncatedReviews) {
+      reviews.pageInfo = { endCursor: null, hasNextPage: false };
+    }
+    return gateJson({
+      data: {
+        repository: {
+          pullRequest: {
+            reviewDecision: options.changesRequested
+              ? "CHANGES_REQUESTED"
+              : options.missingFormalReview
+                ? null
+                : "APPROVED",
+            reviewThreads: {
+              nodes: unresolved ? [{ isResolved: false }] : [],
+              pageInfo: {
+                endCursor: hasNextThreadPage ? "page-2" : null,
+                hasNextPage: hasNextThreadPage,
+              },
+            },
+            reviews,
+          },
+        },
+      },
+    });
+  };
+
+  return {
+    calls,
+    fetchImpl: async (input: FetchInput, init?: RequestInit) =>
+      String(input) === "https://api.github.com/graphql"
+        ? graphqlFetchImpl(input, init)
+        : fetchImpl(input, init),
+  };
+};
+
+const gateConfig = (
+  fetchImpl: FetchLike,
+  reviewMode: ReleaseGateReviewMode = "trusted-approver"
+) => ({
+  candidateSha: releaseCandidateSha,
+  fetchImpl,
+  lastDeployedSha: releasePreviousSha,
+  repository: "test/repo",
+  reviewMode,
+  token: "github-token",
+});
+
+const ledgerGateConfig = (
+  fetchImpl: FetchLike,
+  reviewMode: ReleaseGateReviewMode = "trusted-approver"
+) => ({
+  candidateSha: releaseCandidateSha,
+  fetchImpl,
+  repository: "test/repo",
+  reviewMode,
+  token: "github-token",
+});
+
+const autoCreatedDeployment = {
+  description: null,
+  environment: "production",
+  id: 900,
+  payload: {},
+  sha: releaseCandidateSha,
+} as const;
+
+const ledgerPayload = {
+  candidate_sha: releasePreviousSha,
+  job: "deploy",
+  run_attempt: "1",
+  workflow: "Deploy production",
+  workflow_run_id: "77",
+} as const;
+
+const ledgerDeployment = {
+  description: `Automatic production release ${releasePreviousSha}`,
+  environment: "production",
+  id: 800,
+  payload: ledgerPayload,
+  sha: releasePreviousSha,
+} as const;
+
+describe("production release gate integrations", () => {
+  it("rejects a stale green CI attempt when the latest exact-SHA attempt failed", async () => {
+    const harness = makeGateHarness({ latestCiFailed: true });
+
+    await expect(runReleaseGate(gateConfig(harness.fetchImpl))).rejects.toThrow(
+      "required_workflow_failed"
+    );
+  });
+
+  it("walks every comparison PR and every review-thread page", async () => {
+    const harness = makeGateHarness({ unresolvedPullRequest: 2 });
+
+    await expect(runReleaseGate(gateConfig(harness.fetchImpl))).rejects.toThrow(
+      "unresolved_review_threads"
+    );
+    expect(harness.calls.some((url) => url.includes("/pulls/2/files"))).toBe(
+      true
+    );
+  });
+
+  it("rejects a PR without an exact-head formal approval", async () => {
+    const harness = makeGateHarness({ missingFormalReview: true });
+
+    await expect(runReleaseGate(gateConfig(harness.fetchImpl))).rejects.toThrow(
+      "review_evidence_missing"
+    );
+  });
+
+  it("rejects an exact-head approval from an untrusted repository reviewer", async () => {
+    const harness = makeGateHarness({ untrustedReviewer: true });
+
+    await expect(runReleaseGate(gateConfig(harness.fetchImpl))).rejects.toThrow(
+      "review_evidence_untrusted"
+    );
+  });
+
+  it("accepts a trusted exact-head approval after an untrusted approval", async () => {
+    const harness = makeGateHarness({ trustedReviewerAfterUntrusted: true });
+
+    await expect(
+      runReleaseGate(gateConfig(harness.fetchImpl))
+    ).resolves.toMatchObject({
+      pullRequestNumbers: [1, 2],
+    });
+  });
+
+  it("ignores an approval revoked by the same reviewer later", async () => {
+    const harness = makeGateHarness({ reviewerRevokedApproval: true });
+
+    await expect(runReleaseGate(gateConfig(harness.fetchImpl))).rejects.toThrow(
+      "review_evidence_missing"
+    );
+  });
+
+  it("fails closed when review pagination metadata is truncated", async () => {
+    const harness = makeGateHarness({ truncatedReviews: true });
+
+    await expect(runReleaseGate(gateConfig(harness.fetchImpl))).rejects.toThrow(
+      "malformed_response"
+    );
+  });
+
+  it("blocks search schema changes in the full comparison before deployment evidence", async () => {
+    const harness = makeGateHarness({
+      blockedFile: "packages/search/src/schema/index.ts",
+    });
+
+    await expect(runReleaseGate(gateConfig(harness.fetchImpl))).rejects.toThrow(
+      "migration_or_backfill_required"
+    );
+  });
+
+  it("rejects a comparison commit without merged pull request evidence", async () => {
+    const harness = makeGateHarness({ unreviewedCommit: true });
+
+    await expect(runReleaseGate(gateConfig(harness.fetchImpl))).rejects.toThrow(
+      "unreviewed_release_commit"
+    );
+  });
+
+  it("ignores GitHub's own environment record and uses the ledger entry", async () => {
+    const harness = makeGateHarness({
+      deploymentStatuses: { "800": "success", "900": "in_progress" },
+      productionDeployments: [autoCreatedDeployment, ledgerDeployment],
+    });
+
+    await expect(
+      runReleaseGate(ledgerGateConfig(harness.fetchImpl))
+    ).resolves.toMatchObject({
+      previousDeployedSha: releasePreviousSha,
+      reviewMode: "trusted-approver",
+      workflows: [".github/workflows/ci.yml"],
+    });
+    expect(
+      harness.calls.some((url) => url.includes("/deployments/900/statuses"))
+    ).toBe(false);
+  });
+
+  it("parses a ledger payload delivered as a JSON string", async () => {
+    const harness = makeGateHarness({
+      productionDeployments: [
+        autoCreatedDeployment,
+        { ...ledgerDeployment, payload: JSON.stringify(ledgerPayload) },
+      ],
+    });
+
+    await expect(
+      runReleaseGate(ledgerGateConfig(harness.fetchImpl))
+    ).resolves.toMatchObject({ previousDeployedSha: releasePreviousSha });
+  });
+
+  it("fails closed when only GitHub environment records exist", async () => {
+    const harness = makeGateHarness({
+      deploymentStatuses: { "900": "in_progress", "901": "failure" },
+      productionDeployments: [
+        autoCreatedDeployment,
+        { ...autoCreatedDeployment, id: 901, payload: "not json" },
+      ],
+    });
+
+    await expect(
+      runReleaseGate(ledgerGateConfig(harness.fetchImpl))
+    ).rejects.toThrow("missing_actual_deployed_sha");
+  });
+
+  it("accepts a solo release carried by a successful claude-review check", async () => {
+    const harness = makeGateHarness({ missingFormalReview: true });
+
+    await expect(
+      runReleaseGate(gateConfig(harness.fetchImpl, "solo"))
+    ).resolves.toMatchObject({
+      pullRequestNumbers: [1, 2],
+      reviewMode: "solo",
+      workflows: [".github/workflows/ci.yml"],
+    });
+  });
+
+  it("blocks a solo release on an unresolved review thread", async () => {
+    const harness = makeGateHarness({
+      missingFormalReview: true,
+      unresolvedPullRequest: 2,
+    });
+
+    await expect(
+      runReleaseGate(gateConfig(harness.fetchImpl, "solo"))
+    ).rejects.toThrow("unresolved_review_threads");
+  });
+
+  it("blocks a solo release on a CHANGES_REQUESTED decision", async () => {
+    const harness = makeGateHarness({
+      changesRequested: true,
+      missingFormalReview: true,
+    });
+
+    await expect(
+      runReleaseGate(gateConfig(harness.fetchImpl, "solo"))
+    ).rejects.toThrow("changes_requested");
+  });
+
+  it("blocks a solo release without a claude-review check", async () => {
+    const harness = makeGateHarness();
+
+    await expect(
+      runReleaseGate(gateConfig(harness.fetchImpl, "solo"))
+    ).rejects.toThrow("review_evidence_missing");
+  });
+
+  it("keeps trusted-approver mode requiring an exact-head approval", async () => {
+    const harness = makeGateHarness({ missingFormalReview: true });
+
+    await expect(runReleaseGate(gateConfig(harness.fetchImpl))).rejects.toThrow(
+      "review_evidence_missing"
+    );
+    const approved = makeGateHarness();
+    await expect(
+      runReleaseGate(gateConfig(approved.fetchImpl))
+    ).resolves.toMatchObject({ reviewMode: "trusted-approver" });
+  });
+
+  it("blocks a solo release whose claude-review came from another workflow", async () => {
+    const harness = makeGateHarness({
+      claudeReviewWrongWorkflow: true,
+      missingFormalReview: true,
+    });
+
+    await expect(
+      runReleaseGate(gateConfig(harness.fetchImpl, "solo"))
+    ).rejects.toThrow("untrusted_check");
+  });
+
+  it("ignores a ledger entry whose payload SHA is not the deployment SHA", async () => {
+    const harness = makeGateHarness({
+      productionDeployments: [
+        autoCreatedDeployment,
+        { ...ledgerDeployment, sha: "e".repeat(40) },
+      ],
+    });
+
+    await expect(
+      runReleaseGate(ledgerGateConfig(harness.fetchImpl))
+    ).rejects.toThrow("missing_actual_deployed_sha");
+  });
+
+  it("selects only the newest exact push attempt", () => {
+    expect(
+      selectLatestExactWorkflowRun(
+        [
+          {
+            conclusion: "success",
+            event: "push",
+            head_branch: "main",
+            head_sha: releaseCandidateSha,
+            id: 1,
+            path: ".github/workflows/ci.yml",
+            status: "completed",
+          },
+          {
+            conclusion: "failure",
+            event: "push",
+            head_branch: "main",
+            head_sha: releaseCandidateSha,
+            id: 2,
+            path: ".github/workflows/ci.yml",
+            status: "completed",
+          },
+        ],
+        releaseCandidateSha,
+        ".github/workflows/ci.yml"
+      ).map((run) => run.id)
+    ).toEqual([2]);
+  });
+});

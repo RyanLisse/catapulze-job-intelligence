@@ -69,7 +69,8 @@ in-place restores, "only root branches support instant restore") and
 1. **Authenticate `neonctl` or generate a Neon API key** (Console → Account
    → API keys) and store it in the secret manager — nothing named
    `NEON_API_KEY` or equivalent exists in this repo's `.env.example` files or
-   1Password vault references today.
+   1Password vault references today. The vault to create it in is
+   `Catapulze Development`.
 2. **Confirm the actual configured retention window** in Console → project →
    **Settings → Instant restore**. Neon's documented defaults are 6 hours
    (Free) or 1 day (paid plans), configurable up to 7 days (Launch) or 30 days
@@ -267,14 +268,21 @@ export NEON_OWNER_DATABASE_URL=...   # from apps/worker/.env NEON_DATABASE_URL, 
 # Generate three strong, distinct passwords (do not reuse any existing value).
 psql "$NEON_OWNER_DATABASE_URL" \
   --set ON_ERROR_STOP=1 \
-  --set migrator_password="$(op read 'op://Catapulze Production/neon-ji-migrator/password')" \
-  --set app_password="$(op read 'op://Catapulze Production/neon-ji-app/password')" \
-  --set readonly_password="$(op read 'op://Catapulze Production/neon-ji-readonly/password')" \
+  --set migrator_password="$(op read 'op://Catapulze Development/neon-ji-migrator/password')" \
+  --set app_password="$(op read 'op://Catapulze Development/neon-ji-app/password')" \
+  --set readonly_password="$(op read 'op://Catapulze Development/neon-ji-readonly/password')" \
   -f tools/postgres/neon-roles.sql
 ```
 
-(1Password item paths above are illustrative — create the actual items first;
-none exist yet under those names.) After it runs, build each role's
+The vault is `Catapulze Development`. The three item names above are
+placeholders: no item exists yet for these role passwords, so the operator
+creates them in that vault before running the command. The production
+connection secrets that already exist live in the same vault, on the item
+`Job Intelligence production`, as fields rather than as separate items. The
+fields confirmed on that item are `DATABASE_URL`, `R2_ACCESS_KEY_ID`,
+`R2_SECRET_ACCESS_KEY`, and `R2_S3_API_ENDPOINT`; reference them as
+`op://Catapulze Development/Job Intelligence production/DATABASE_URL` and so
+on. Do not assume any other field name on that item without reading it first. After it runs, build each role's
 connection string (same host/db as `NEON_DATABASE_URL`, different
 user/password) and:
 

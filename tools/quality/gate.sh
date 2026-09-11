@@ -79,6 +79,12 @@ run_phase typecheck bun run check-types
 echo "gate: backfill tools typecheck"
 run_phase backfill-typecheck bun run check-types:backfill
 
+# scripts/production lives outside apps/* and packages/*, so turbo never
+# type-checks the release gate and Coolify driver; the specs alone let 28
+# type errors through on 2026-09-11.
+echo "gate: production scripts typecheck"
+run_phase production-typecheck bun run check-types:production
+
 echo "gate: performance scripts typecheck"
 run_phase performance-typecheck bun run check-types:performance
 
