@@ -44,6 +44,8 @@ This script:
 
 CI runs the same script in `.github/workflows/ci.yml` job `postgres-restore-drill`.
 
+The drill is fully isolated from the developer stack. Every compose invocation runs under the project `catapulze-restore-drill`, it publishes its source Postgres on 127.0.0.1:55431 and its restore target on 127.0.0.1:55432, and it publishes its MinIO fixture on 127.0.0.1:59000, so it never starts, swaps a volume under, or tears down a service in the shared `catapulze-job-intelligence` project. That matters because the cleanup trap ends in `docker compose down --remove-orphans`, which would otherwise stop whatever the developer is running. Override `RESTORE_DRILL_PROJECT` to run two drills side by side and `RESTORE_DRILL_SOURCE_PORT` if 55431 is already taken on the host; `RESTORE_DRILL_MINIO_PORT` moves the fixture bucket the same way.
+
 ## Production drill (operator)
 
 Production still requires Ryan/Hetzner evidence that is **not** substituted by CI:

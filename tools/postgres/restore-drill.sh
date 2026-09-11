@@ -5,14 +5,17 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$ROOT"
 
 compose_env_file="${COMPOSE_ENV_FILE:-.env.example}"
+compose_project="${RESTORE_DRILL_PROJECT:-catapulze-restore-drill}"
 source_volume="${POSTGRES_DATA_VOLUME:-catapulze-postgres-restore-src}"
 restore_volume="${POSTGRES_RESTORE_VOLUME:-catapulze-postgres-restore-target}"
 restore_port="${POSTGRES_RESTORE_PORT:-55432}"
-source_port="${POSTGRES_HOST_PORT:-5432}"
+export POSTGRES_HOST_PORT="${RESTORE_DRILL_SOURCE_PORT:-55431}"
+export MINIO_API_PORT="${RESTORE_DRILL_MINIO_PORT:-59000}"
+source_port="$POSTGRES_HOST_PORT"
 restore_container="${POSTGRES_RESTORE_CONTAINER:-catapulze-postgres-restore-target}"
 evidence_path="${RESTORE_EVIDENCE_PATH:-.artifacts/postgres-restore-evidence.json}"
 
-compose=(docker compose --env-file "$compose_env_file" -f docker-compose.yml -f docker-compose.backup.yml)
+compose=(docker compose -p "$compose_project" --env-file "$compose_env_file" -f docker-compose.yml -f docker-compose.backup.yml)
 
 require_command() {
   if ! command -v "$1" >/dev/null 2>&1; then
@@ -151,6 +154,7 @@ cat >"$evidence_path" <<EOF
   "schemaVersion": 1,
   "requirement": "AE9 / R21 / JI-037",
   "environment": "ci-isolated-minio-fixture",
+  "composeProject": "${compose_project}",
   "gitSha": "${git_sha}",
   "sourceVolume": "${source_volume}",
   "restoreVolume": "${restore_volume}",
