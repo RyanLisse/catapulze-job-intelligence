@@ -208,7 +208,7 @@ services:
   # `-f docker-compose.yml -f docker-compose.backup.yml`), silently changing
   # an already-working, unrelated feature. Kept fully independent instead.
   raw-storage-minio:
-    image: minio/minio:RELEASE.2025-09-07T16-13-09Z-cpuv1
+    image: quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z-cpuv1@sha256:13582eff79c6605a2d315bdd0e70164142ea7e98fc8411e9e10d089502a6d883
     profiles: ["storage"]
     command: server /data --console-address ":9001"
     ports:
@@ -272,7 +272,7 @@ services:
   # One-shot bucket bootstrap: creates the configured local bucket and exits.
   # Re-running `up --profile storage` is idempotent (`mc mb --ignore-existing`).
   raw-storage-minio-init:
-    image: minio/mc:RELEASE.2025-08-13T08-35-41Z-cpuv1
+    image: quay.io/minio/mc:RELEASE.2025-08-13T08-35-41Z-cpuv1@sha256:95b5f3f7969a5c5a9f3a700ba72d5c84172819e13385aaf916e237cf111ab868
     profiles: ["storage"]
     depends_on:
       raw-storage-minio:
