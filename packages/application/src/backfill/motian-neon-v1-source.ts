@@ -55,25 +55,36 @@ export interface MotianNeonV1SourceDependencies {
 interface MotianJobRow {
   application_deadline: string | null;
   archived_at: string | null;
+  allows_subcontracting?: boolean | null;
   company: string | null;
   contract_type: string | null;
+  competences?: JsonValue | null;
   deleted_at: string | null;
   description: string | null;
   end_client: string | null;
   external_id: string;
+  end_date?: string | null;
   external_url: string | null;
   id: string;
+  extension_possible?: boolean | null;
+  hours_per_week?: number | null;
   location: string | null;
   platform: string;
+  min_hours_per_week?: number | null;
   province: string | null;
+  positions_available?: number | null;
   rate_max: number | string | null;
   rate_min: number | string | null;
   posted_at: string | null;
   scraped_at: string | null;
+  requirements?: JsonValue | null;
   source_row: Record<string, JsonValue>;
   start_date: string | null;
   status: string | null;
   title: string;
+  wishes?: JsonValue | null;
+  work_arrangement?: string | null;
+  work_experience_years?: number | null;
 }
 
 /** Motian stores legacy timestamps without a timezone. The historical data and
@@ -91,6 +102,17 @@ const toIsoString = (value: string | null): string | null => {
   return new Date(zonedValue).toISOString();
 };
 
+const toIsoStringOrNull = (value: string | null | undefined): string | null => {
+  if (value === null || value === undefined) {
+    return null;
+  }
+  try {
+    return toIsoString(value);
+  } catch {
+    return null;
+  }
+};
+
 const toNumberOrNull = (
   value: number | string | null | undefined
 ): number | null => {
@@ -101,54 +123,82 @@ const toNumberOrNull = (
   return Number.isFinite(parsed) ? parsed : null;
 };
 
-const mapMotianRow = (row: MotianJobRow): NeonV1JobRow => ({
-  application_deadline: toIsoString(row.application_deadline),
-  archived_at: toIsoString(row.archived_at),
-  company: row.company,
-  contract_type: row.contract_type,
-  deleted_at: toIsoString(row.deleted_at),
-  description: row.description,
-  end_client: row.end_client,
-  external_id: row.external_id,
-  external_url: row.external_url,
-  id: row.id,
-  location: row.location,
-  platform: normalizeMotianPlatform(row.platform),
-  posted_at: toIsoString(row.posted_at),
-  province: row.province,
-  rate_max: toNumberOrNull(row.rate_max),
-  rate_min: toNumberOrNull(row.rate_min),
-  scraped_at: toIsoString(row.scraped_at),
-  sourceRow: row.source_row,
-  start_date: toIsoString(row.start_date),
-  status: row.status,
-  title: row.title,
-});
+const mapMotianRow = (row: MotianJobRow): NeonV1JobRow => {
+  const endDate = toIsoStringOrNull(row.end_date);
+  return {
+    allows_subcontracting: row.allows_subcontracting,
+    application_deadline: toIsoString(row.application_deadline),
+    archived_at: toIsoString(row.archived_at),
+    company: row.company,
+    competences: row.competences,
+    contract_type: row.contract_type,
+    deleted_at: toIsoString(row.deleted_at),
+    description: row.description,
+    end_client: row.end_client,
+    end_date: endDate,
+    extension_possible: row.extension_possible,
+    external_id: row.external_id,
+    external_url: row.external_url,
+    hours_per_week: row.hours_per_week,
+    id: row.id,
+    location: row.location,
+    min_hours_per_week: row.min_hours_per_week,
+    platform: normalizeMotianPlatform(row.platform),
+    positions_available: row.positions_available,
+    posted_at: toIsoString(row.posted_at),
+    province: row.province,
+    rate_max: toNumberOrNull(row.rate_max),
+    rate_min: toNumberOrNull(row.rate_min),
+    requirements: row.requirements,
+    scraped_at: toIsoString(row.scraped_at),
+    sourceRow: row.source_row,
+    start_date: toIsoString(row.start_date),
+    status: row.status,
+    title: row.title,
+    wishes: row.wishes,
+    work_arrangement: row.work_arrangement,
+    work_experience_years: row.work_experience_years,
+  };
+};
 
 const nullableString = z.string().nullable();
 const rawMotianV1RootSchema = z.record(z.string(), z.unknown());
+const rawJsonValue = z.json();
+/* oxlint-disable promise/prefer-await-to-then -- Zod catches synchronously preserve malformed optional source fields. */
 const rawMotianV1JobSchema = z.object({
+  allows_subcontracting: z.boolean().nullable().optional().catch(null),
   application_deadline: nullableString,
   archived_at: nullableString,
   company: nullableString,
+  competences: rawJsonValue.nullable().optional().catch(null),
   contract_type: nullableString,
   deleted_at: nullableString,
   description: nullableString,
   end_client: nullableString,
+  end_date: nullableString.optional().catch(null),
+  extension_possible: z.boolean().nullable().optional().catch(null),
   external_id: z.string().min(1),
   external_url: nullableString,
+  hours_per_week: z.number().nullable().optional().catch(null),
   id: z.string().min(1),
   location: nullableString,
+  min_hours_per_week: z.number().nullable().optional().catch(null),
   platform: z.string().min(1),
+  positions_available: z.number().nullable().optional().catch(null),
   posted_at: nullableString,
   province: nullableString,
   rate_max: z.union([z.number(), z.string()]).nullable(),
   rate_min: z.union([z.number(), z.string()]).nullable(),
+  requirements: rawJsonValue.nullable().optional().catch(null),
   scraped_at: nullableString,
   start_date: nullableString,
   status: nullableString,
   title: z.string().min(1),
+  wishes: rawJsonValue.nullable().optional().catch(null),
+  work_arrangement: nullableString.optional().catch(null),
+  work_experience_years: z.number().nullable().optional().catch(null),
 });
+/* oxlint-enable promise/prefer-await-to-then */
 
 /**
  * Decodes the exact JSON object written by the Motian v1 backfill. The raw
@@ -291,7 +341,18 @@ export const createMotianNeonV1Source = (
             application_deadline::text AS application_deadline,
             start_date::text AS start_date,
             posted_at::text AS posted_at,
-            scraped_at::text AS scraped_at
+            scraped_at::text AS scraped_at,
+            work_arrangement,
+            hours_per_week,
+            min_hours_per_week,
+            requirements,
+            wishes,
+            competences,
+            positions_available,
+            work_experience_years,
+            allows_subcontracting,
+            extension_possible,
+            end_date::text AS end_date
           FROM jobs
           WHERE platform = ANY(${platforms})
             ${afterId === null ? sql`` : sql`AND id > ${afterId}`}
@@ -324,7 +385,18 @@ export const createMotianNeonV1Source = (
             application_deadline::text AS application_deadline,
             start_date::text AS start_date,
             posted_at::text AS posted_at,
-            scraped_at::text AS scraped_at
+            scraped_at::text AS scraped_at,
+            work_arrangement,
+            hours_per_week,
+            min_hours_per_week,
+            requirements,
+            wishes,
+            competences,
+            positions_available,
+            work_experience_years,
+            allows_subcontracting,
+            extension_possible,
+            end_date::text AS end_date
           FROM jobs
           WHERE platform = ANY(${platforms})
             AND deleted_at IS NULL
@@ -358,7 +430,18 @@ export const createMotianNeonV1Source = (
             application_deadline::text AS application_deadline,
             start_date::text AS start_date,
             posted_at::text AS posted_at,
-            scraped_at::text AS scraped_at
+            scraped_at::text AS scraped_at,
+            work_arrangement,
+            hours_per_week,
+            min_hours_per_week,
+            requirements,
+            wishes,
+            competences,
+            positions_available,
+            work_experience_years,
+            allows_subcontracting,
+            extension_possible,
+            end_date::text AS end_date
           FROM jobs
           WHERE platform = ANY(${platforms})
             AND deleted_at IS NULL
