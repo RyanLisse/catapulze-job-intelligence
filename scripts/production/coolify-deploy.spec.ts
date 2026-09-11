@@ -1,10 +1,14 @@
-/* oxlint-disable eslint/complexity, eslint/require-await, eslint/prefer-destructuring, eslint/no-plusplus, eslint/no-nested-ternary, unicorn/prefer-response-static-json, promise/avoid-new, eslint/no-promise-executor-return, anti-slop/no-unknown-parameters, anti-slop/require-safety-comment-for-type-assertion -- The stateful HTTP harness intentionally centralizes many protocol branches and uses an explicit clock delay for timeout coverage. */
 import { describe, expect, it } from "bun:test";
+/* oxlint-disable eslint/complexity, eslint/require-await, eslint/prefer-destructuring, eslint/no-plusplus, eslint/no-nested-ternary, unicorn/prefer-response-static-json, promise/avoid-new, eslint/no-promise-executor-return, anti-slop/no-unknown-parameters, anti-slop/require-safety-comment-for-type-assertion -- The stateful HTTP harness intentionally centralizes many protocol branches and uses an explicit clock delay for timeout coverage. */
+import { mkdtemp, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import nodePath from "node:path";
 
 import {
   DEPLOYMENT_ORDER,
   extractLatestFinishedDeploymentSha,
   extractDeploymentUuid,
+  nextReleaseBaseline,
   rollbackOrder,
   runCoolifyDeploy,
 } from "./coolify-deploy";
@@ -35,6 +39,8 @@ type FailureMode = "public" | "projector-schema" | "timeout" | "wrong-sha";
 
 interface HarnessOptions {
   readonly failRole?: Role;
+  readonly ledgerPayload?: unknown;
+  readonly withReleaseBaseline?: boolean;
   readonly failureMode?: FailureMode;
   readonly mainMovesAfter?: number;
   readonly patchFailsAfterMutation?: boolean;
@@ -70,6 +76,38 @@ const roleForUuid = (uuid: string): Role => {
   return entry[0] as Role;
 };
 
+const passingEvidence = {
+  candidateSha,
+  changedFileCount: 1,
+  previousDeployedSha: previousSha,
+  pullRequests: [1],
+  result: "pass",
+  reviewMode: "trusted-approver",
+  workflows: [".github/workflows/ci.yml"],
+} as const;
+
+const writeEvidenceFile = async (body: unknown): Promise<string> => {
+  const directory = await mkdtemp(
+    nodePath.join(tmpdir(), "ji-release-evidence-")
+  );
+  const file = nodePath.join(directory, "release-gate.json");
+  await writeFile(file, JSON.stringify(body), { encoding: "utf-8" });
+  return file;
+};
+
+const releaseBaseline = {
+  componentShas: {
+    projector: previousSha,
+    server: previousSha,
+    web: previousSha,
+  },
+  releaseId: "ledger-1",
+  releaseSha: previousSha,
+  repository: "test/repo",
+  source: "trusted-complete-release",
+  verifiedAt: "2026-09-11T10:00:00Z",
+} as const;
+
 const makeHarness = (options: HarnessOptions = {}) => {
   const state: HarnessState = {
     calls: [],
@@ -91,6 +129,28 @@ const makeHarness = (options: HarnessOptions = {}) => {
     const url = String(input);
     const method = init?.method ?? "GET";
     state.calls.push({ method, url });
+
+    if (url.includes("api.github.com/repos/test/repo/deployments/ledger-1")) {
+      if (url.endsWith("/statuses?per_page=100")) {
+        return json([{ id: 1, state: "success" }]);
+      }
+      return json({
+        description: `Automatic production release ${previousSha}`,
+        environment: "production",
+        id: 800,
+        payload:
+          options.ledgerPayload === undefined
+            ? {
+                candidate_sha: previousSha,
+                job: "deploy",
+                run_attempt: "1",
+                workflow: "Deploy production",
+                workflow_run_id: "77",
+              }
+            : options.ledgerPayload,
+        sha: previousSha,
+      });
+    }
 
     if (url.includes("api.github.com/repos/test/repo/git/ref/heads/main")) {
       state.mainReads += 1;
@@ -304,6 +364,9 @@ const makeHarness = (options: HarnessOptions = {}) => {
       enabled: true,
       fetchImpl,
       githubToken: "github-token",
+      lastDeployedRelease: options.withReleaseBaseline
+        ? releaseBaseline
+        : undefined,
       pollIntervalMs: 100,
       projectorRuntimeUrl: `${apiPublicUrl}/projector/runtime`,
       projectorSchemaHash: schemaHash,
@@ -526,6 +589,160 @@ describe("production Coolify rollback", () => {
       "web",
       "server",
     ]);
+  });
+
+  it("accepts a complete-release baseline backed by a real ledger entry", async () => {
+    const harness = makeHarness({ withReleaseBaseline: true });
+
+    const evidence = await runCoolifyDeploy(harness.config);
+
+    expect(evidence.map((item) => item.role)).toEqual([
+      "server",
+      "web",
+      "projector",
+    ]);
+  });
+
+  it("rejects a baseline pointing at a GitHub environment record", async () => {
+    const harness = makeHarness({
+      ledgerPayload: {},
+      withReleaseBaseline: true,
+    });
+
+    await expect(runCoolifyDeploy(harness.config)).rejects.toThrow(
+      "release_baseline_mismatch"
+    );
+  });
+
+  it("parses a ledger payload delivered as a JSON string", async () => {
+    const harness = makeHarness({
+      ledgerPayload: JSON.stringify({
+        candidate_sha: previousSha,
+        workflow: "Deploy production",
+      }),
+      withReleaseBaseline: true,
+    });
+
+    await expect(runCoolifyDeploy(harness.config)).resolves.toHaveLength(3);
+  });
+
+  it("proceeds when the release-gate evidence file revalidates", async () => {
+    const harness = makeHarness({ withReleaseBaseline: true });
+    const releaseEvidenceFile = await writeEvidenceFile(passingEvidence);
+
+    const evidence = await runCoolifyDeploy({
+      ...harness.config,
+      releaseEvidenceFile,
+    });
+
+    expect(evidence.map((item) => item.role)).toEqual([
+      "server",
+      "web",
+      "projector",
+    ]);
+  });
+
+  it("rejects release-gate evidence written for another candidate", async () => {
+    const harness = makeHarness({ withReleaseBaseline: true });
+    const releaseEvidenceFile = await writeEvidenceFile({
+      ...passingEvidence,
+      candidateSha: "e".repeat(40),
+    });
+
+    await expect(
+      runCoolifyDeploy({ ...harness.config, releaseEvidenceFile })
+    ).rejects.toThrow("release_evidence_invalid");
+  });
+
+  it("rejects release-gate evidence that recorded a block", async () => {
+    const harness = makeHarness({ withReleaseBaseline: true });
+    const releaseEvidenceFile = await writeEvidenceFile({
+      ...passingEvidence,
+      result: "block",
+    });
+
+    await expect(
+      runCoolifyDeploy({ ...harness.config, releaseEvidenceFile })
+    ).rejects.toThrow("release_evidence_invalid");
+  });
+
+  it("rejects release-gate evidence missing the verified workflow list", async () => {
+    const harness = makeHarness({ withReleaseBaseline: true });
+    const { workflows, ...withoutWorkflows } = passingEvidence;
+    const releaseEvidenceFile = await writeEvidenceFile(withoutWorkflows);
+
+    expect(workflows).toHaveLength(1);
+    await expect(
+      runCoolifyDeploy({ ...harness.config, releaseEvidenceFile })
+    ).rejects.toThrow("release_evidence_invalid");
+  });
+
+  it("rejects release-gate evidence without a recorded review mode", async () => {
+    const harness = makeHarness({ withReleaseBaseline: true });
+    const { reviewMode, ...withoutReviewMode } = passingEvidence;
+    const releaseEvidenceFile = await writeEvidenceFile(withoutReviewMode);
+
+    expect(reviewMode).toBe("trusted-approver");
+    await expect(
+      runCoolifyDeploy({ ...harness.config, releaseEvidenceFile })
+    ).rejects.toThrow("release_evidence_stale");
+  });
+
+  it("rotates the complete-release baseline from the deployment readbacks", async () => {
+    const harness = makeHarness({ withReleaseBaseline: true });
+    const releaseEvidenceFile = await writeEvidenceFile(passingEvidence);
+
+    const evidence = await runCoolifyDeploy({
+      ...harness.config,
+      releaseEvidenceFile,
+    });
+
+    expect(
+      nextReleaseBaseline(evidence, {
+        candidateSha,
+        deploymentId: "4242",
+        repository: "test/repo",
+        verifiedAt: "2026-09-11T12:00:00Z",
+      })
+    ).toEqual({
+      componentShas: {
+        projector: candidateSha,
+        server: candidateSha,
+        web: candidateSha,
+      },
+      releaseId: "4242",
+      releaseSha: candidateSha,
+      repository: "test/repo",
+      source: "trusted-complete-release",
+      verifiedAt: "2026-09-11T12:00:00Z",
+    });
+  });
+
+  it("refuses to rotate a baseline without a deployment id or full evidence", () => {
+    const evidence = DEPLOYMENT_ORDER.map((role) => ({
+      applicationUuid: applicationUuids[role],
+      candidateSha,
+      deploymentStatus: "finished",
+      deploymentUuid: `deployment-${role}`,
+      previousSha,
+      role,
+    }));
+    const context = {
+      candidateSha,
+      deploymentId: "4242",
+      repository: "test/repo",
+      verifiedAt: "2026-09-11T12:00:00Z",
+    };
+
+    expect(() =>
+      nextReleaseBaseline(evidence, { ...context, deploymentId: "  " })
+    ).toThrow("release_baseline_unwritable");
+    expect(() => nextReleaseBaseline(evidence.slice(0, 2), context)).toThrow(
+      "release_baseline_unwritable"
+    );
+    expect(() =>
+      nextReleaseBaseline(evidence, { ...context, verifiedAt: "not a date" })
+    ).toThrow("release_baseline_unwritable");
   });
 
   it("selects exactly one deployment UUID for the mutated resource", () => {

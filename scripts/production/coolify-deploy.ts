@@ -2,6 +2,8 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { exit } from "node:process";
 
+import { isReleaseLedgerEntry } from "./release-gate";
+
 const SHA_PATTERN = /^[a-f0-9]{40}$/u;
 const TERMINAL_SUCCESS = new Set([
   "completed",
@@ -312,7 +314,7 @@ const assertReleaseEvidence = async (config: CoolifyConfig): Promise<void> => {
   } catch {
     throw new DeploymentError(
       "release_evidence_stale",
-      "trusted CI and review evidence changed after the release gate"
+      "trusted release-gate evidence failed its recheck before the first mutation"
     );
   }
 };
@@ -361,7 +363,8 @@ const assertTrustedReleaseLedger = async (
   );
   if (
     deployment.environment !== "production" ||
-    deployment.sha !== baseline.releaseSha
+    deployment.sha !== baseline.releaseSha ||
+    !isReleaseLedgerEntry(deployment)
   ) {
     throw new DeploymentError(
       "release_baseline_mismatch",
@@ -391,6 +394,58 @@ const assertTrustedReleaseLedger = async (
       "the trusted release ledger does not have a successful terminal status"
     );
   }
+};
+
+export const nextReleaseBaseline = (
+  evidence: readonly DeploymentEvidence[],
+  context: {
+    readonly candidateSha: string;
+    readonly deploymentId: string;
+    readonly repository: string;
+    readonly verifiedAt: string;
+  }
+): TrustedReleaseBaseline => {
+  if (context.deploymentId.trim().length === 0) {
+    throw new DeploymentError(
+      "release_baseline_unwritable",
+      "the production deployment id was not available for baseline rotation"
+    );
+  }
+  if (context.repository.trim().length === 0) {
+    throw new DeploymentError(
+      "release_baseline_unwritable",
+      "the repository was not available for baseline rotation"
+    );
+  }
+  if (Number.isNaN(Date.parse(context.verifiedAt))) {
+    throw new DeploymentError(
+      "release_baseline_unwritable",
+      "the rotation timestamp was malformed"
+    );
+  }
+  const componentSha = (role: Role): string => {
+    const entry = evidence.find((item) => item.role === role);
+    if (!entry) {
+      throw new DeploymentError(
+        "release_baseline_unwritable",
+        `${role} produced no deployment evidence for baseline rotation`,
+        role
+      );
+    }
+    return requireSha(entry.candidateSha, `rotated ${role} baseline SHA`);
+  };
+  return {
+    componentShas: {
+      projector: componentSha("projector"),
+      server: componentSha("server"),
+      web: componentSha("web"),
+    },
+    releaseId: context.deploymentId,
+    releaseSha: requireSha(context.candidateSha, "rotated baseline SHA"),
+    repository: context.repository,
+    source: "trusted-complete-release",
+    verifiedAt: context.verifiedAt,
+  };
 };
 
 class CoolifyApi {
@@ -1467,6 +1522,12 @@ const main = async (): Promise<void> => {
         process.env.PRODUCTION_DEPLOY_OUTCOME_FILE,
         JSON.stringify({
           candidateSha: process.env.CANDIDATE_SHA,
+          nextReleaseBaseline: nextReleaseBaseline(result, {
+            candidateSha: readRequired("CANDIDATE_SHA"),
+            deploymentId: readRequired("PRODUCTION_DEPLOYMENT_ID"),
+            repository: readRequired("GITHUB_REPOSITORY"),
+            verifiedAt: new Date().toISOString(),
+          }),
           result: "pass",
           state: "success",
         })
