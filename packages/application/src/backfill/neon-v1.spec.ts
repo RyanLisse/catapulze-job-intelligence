@@ -89,6 +89,57 @@ describe("Neon v1 backfill mapping", () => {
     });
   });
 
+  it("preserves exact source facts and distinguishes omitted values", () => {
+    const facts = {
+      ...sampleJob(),
+      allows_subcontracting: false,
+      application_deadline: null,
+      company: "Broker BV",
+      competences: [{ name: "TypeScript", years: 3 }],
+      end_client: "Ministry",
+      end_date: null,
+      extension_possible: true,
+      external_url: "https://example.com/jobs/ext-000001",
+      hours_per_week: 0,
+      min_hours_per_week: 0,
+      positions_available: 0,
+      posted_at: "2026-08-31T08:00:00.000Z",
+      province: "Utrecht",
+      requirements: { education: ["HBO"], security: null },
+      start_date: null,
+      wishes: ["Azure"],
+      work_arrangement: "remote",
+      work_experience_years: 0,
+    };
+    const draft = mapV1JobToDraft(facts);
+
+    expect(draft.bronSpecifiek.value).toMatchObject({
+      allows_subcontracting: false,
+      application_deadline: null,
+      company: "Broker BV",
+      competences: [{ name: "TypeScript", years: 3 }],
+      end_client: "Ministry",
+      end_date: null,
+      extension_possible: true,
+      external_url: "https://example.com/jobs/ext-000001",
+      hours_per_week: 0,
+      min_hours_per_week: 0,
+      positions_available: 0,
+      posted_at: "2026-08-31T08:00:00.000Z",
+      province: "Utrecht",
+      requirements: { education: ["HBO"], security: null },
+      start_date: null,
+      wishes: ["Azure"],
+      work_arrangement: "remote",
+      work_experience_years: 0,
+    });
+
+    const { competences: _omitted, ...withoutCompetences } = facts;
+    const omitted = mapV1JobToDraft(withoutCompetences).bronSpecifiek.value;
+    expect(omitted).not.toHaveProperty("competences");
+    expect(omitted).toMatchObject({ wishes: ["Azure"] });
+  });
+
   it("uses only posted_at as first seen and keeps scraped_at separate", () => {
     const postedAt = "2026-08-31T08:00:00.000Z";
     const scrapedAt = "2026-09-03T09:00:00.000Z";

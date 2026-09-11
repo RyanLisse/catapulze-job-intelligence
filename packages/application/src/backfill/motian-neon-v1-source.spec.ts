@@ -309,6 +309,89 @@ describe("Motian Neon v1 raw decoding", () => {
     });
   });
 
+  it("decodes the bounded parity fields with native null and zero semantics", () => {
+    const decoded = decodeMotianV1RawRow(
+      encodeRawMotianV1Row(
+        rawMotianV1Row({
+          allows_subcontracting: false,
+          application_deadline: null,
+          competences: [{ name: "TypeScript" }],
+          end_date: null,
+          extension_possible: true,
+          hours_per_week: 0,
+          min_hours_per_week: 0,
+          positions_available: 0,
+          posted_at: "2026-08-31T08:00:00.000Z",
+          requirements: { education: ["HBO"], security: null },
+          start_date: null,
+          wishes: ["Azure"],
+          work_arrangement: "remote",
+          work_experience_years: 0,
+        })
+      )
+    );
+
+    expect(decoded).toMatchObject({
+      allows_subcontracting: false,
+      application_deadline: null,
+      competences: [{ name: "TypeScript" }],
+      end_date: null,
+      extension_possible: true,
+      hours_per_week: 0,
+      min_hours_per_week: 0,
+      positions_available: 0,
+      posted_at: "2026-08-31T08:00:00.000Z",
+      requirements: { education: ["HBO"], security: null },
+      start_date: null,
+      wishes: ["Azure"],
+      work_arrangement: "remote",
+      work_experience_years: 0,
+    });
+
+    const specific = mapV1JobToDraft(decoded).bronSpecifiek.value;
+    expect(specific).toMatchObject({
+      allows_subcontracting: false,
+      application_deadline: null,
+      competences: [{ name: "TypeScript" }],
+      end_date: null,
+      extension_possible: true,
+      hours_per_week: 0,
+      min_hours_per_week: 0,
+      positions_available: 0,
+      posted_at: "2026-08-31T08:00:00.000Z",
+      requirements: { education: ["HBO"], security: null },
+      start_date: null,
+      wishes: ["Azure"],
+      work_arrangement: "remote",
+      work_experience_years: 0,
+    });
+  });
+
+  it("drops an invalid optional end date without rejecting valid siblings", () => {
+    const decoded = decodeMotianV1RawRow(
+      encodeRawMotianV1Row(
+        rawMotianV1Row({
+          company: "Broker BV",
+          end_date: "not-a-date",
+          hours_per_week: 40,
+        })
+      )
+    );
+
+    expect(decoded).toMatchObject({
+      company: "Broker BV",
+      end_date: null,
+      hours_per_week: 40,
+    });
+    const specific = mapV1JobToDraft(decoded).bronSpecifiek.value;
+    expect(specific).toMatchObject({
+      company: "Broker BV",
+      eind_datum: null,
+      end_date: null,
+      hours_per_week: 40,
+    });
+  });
+
   it("turns malformed optional historical values into null independently", () => {
     const decoded = decodeMotianV1RawRow(
       encodeRawMotianV1Row(
@@ -541,10 +624,21 @@ describe("Motian Neon v1 source access", () => {
       scopes.map(async (options) => {
         const row = {
           ...motianJobRow("00000000-0000-0000-0000-000000000003"),
+          allows_subcontracting: false,
           application_deadline: "2026-09-10 12:00:00",
+          competences: [{ name: "TypeScript" }],
+          end_date: "2027-03-31 00:00:00",
+          extension_possible: true,
+          hours_per_week: 40,
+          min_hours_per_week: 32,
+          positions_available: 2,
           posted_at: "2026-08-31 08:00:00",
+          requirements: { education: ["HBO"] },
           scraped_at: "2026-09-03 09:00:00",
           start_date: "2026-10-01 00:00:00",
+          wishes: ["Azure"],
+          work_arrangement: "remote",
+          work_experience_years: 5,
         };
         const client = createFakeMotianSqlClient({ jobBatches: [[row]] });
         const source = createMotianNeonV1Source(
@@ -560,10 +654,21 @@ describe("Motian Neon v1 source access", () => {
         const [parameters] = client.jobParameters;
 
         expect(jobs[0]).toMatchObject({
+          allows_subcontracting: false,
           application_deadline: "2026-09-10T12:00:00.000Z",
+          competences: [{ name: "TypeScript" }],
+          end_date: "2027-03-31T00:00:00.000Z",
+          extension_possible: true,
+          hours_per_week: 40,
+          min_hours_per_week: 32,
+          positions_available: 2,
           posted_at: "2026-08-31T08:00:00.000Z",
+          requirements: { education: ["HBO"] },
           scraped_at: "2026-09-03T09:00:00.000Z",
           start_date: "2026-10-01T00:00:00.000Z",
+          wishes: ["Azure"],
+          work_arrangement: "remote",
+          work_experience_years: 5,
         });
         expect(statement).toContain(
           "application_deadline::text AS application_deadline"
@@ -571,6 +676,17 @@ describe("Motian Neon v1 source access", () => {
         expect(statement).toContain("start_date::text AS start_date");
         expect(statement).toContain("posted_at::text AS posted_at");
         expect(statement).toContain("scraped_at::text AS scraped_at");
+        expect(statement).toContain("work_arrangement");
+        expect(statement).toContain("hours_per_week");
+        expect(statement).toContain("min_hours_per_week");
+        expect(statement).toContain("requirements");
+        expect(statement).toContain("wishes");
+        expect(statement).toContain("competences");
+        expect(statement).toContain("positions_available");
+        expect(statement).toContain("work_experience_years");
+        expect(statement).toContain("allows_subcontracting");
+        expect(statement).toContain("extension_possible");
+        expect(statement).toContain("end_date::text AS end_date");
         expect(statement).not.toContain("COLLATE");
         expect(statement).not.toContain("AND id >");
         expect(statement).toContain("ORDER BY id ASC");
@@ -580,6 +696,35 @@ describe("Motian Neon v1 source access", () => {
         expect(statement).not.toContain("updated_at");
       })
     );
+  });
+
+  it("keeps complete source evidence immutable while normalizing projected dates", async () => {
+    const row = {
+      ...motianJobRow("00000000-0000-0000-0000-000000000005"),
+      end_date: "not-a-date",
+      hours_per_week: 40,
+      source_row: {
+        end_date: "not-a-date",
+        hours_per_week: 40,
+      },
+    };
+    const client = createFakeMotianSqlClient({ jobBatches: [[row]] });
+    const source = sourceWithClient(
+      client,
+      "postgresql://readonly@motian.example/v1",
+      []
+    );
+
+    const [job] = await source.loadJobs();
+
+    expect(job).toMatchObject({
+      end_date: null,
+      hours_per_week: 40,
+    });
+    expect(job?.sourceRow).toEqual({
+      end_date: "not-a-date",
+      hours_per_week: 40,
+    });
   });
 
   it("fails closed when the source snapshot end heartbeat is lost", async () => {
