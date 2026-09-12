@@ -258,10 +258,35 @@ the dead connection, and the replacement container sits logging
   `durationMs`, `found`, `curated`, `remaining` and, on failure, `errorName`
   plus `errorMessage`. `remaining` is the number to watch while the backlog
   drains: it should trend down cycle over cycle and settle near zero.
-  `errorMessage` is the first 300 characters of the thrown `Error.message`,
-  with any `postgres://` or `postgresql://` connection string replaced by
-  `[redacted]`. `errorName` alone was not actionable: a production line read
+  `errorMessage` is the first 300 characters of the thrown `Error.message`
+  joined with every `cause` message beneath it (up to four levels, separated by
+  ` <- `), with any `postgres://` or `postgresql://` connection string replaced
+  by `[redacted]`. `errorName` alone was not actionable: a production line read
   `{"errorName":"Error"}` for `harveynash` and said nothing about what failed.
+  Neither was the outermost message alone: `Curation failed for observation
+  7100e5cb-...` named the row but not the defect, which sat two `cause` links
+  down as `index row size 3368 exceeds btree version 4 maximum 2704`.
+- **Observations parked on `curation_failed`**: a single observation whose
+  curation throws something the pass does not classify is no longer allowed to
+  abort the pass. It is marked `staging.aanvraag_observation.status =
+  'curation_failed'`, its identity is blocked for the rest of that pass so
+  later observations of the same source record cannot be curated out of order,
+  it is counted in the pass result as `failed`, and curation continues with the
+  next identity. One line goes to stderr as
+  `{"event":"curation_candidate_failed","observationId":...,"errorName":...,"causeChain":...}`
+  with the first 500 characters of the chain. `curation_failed` is terminal: it
+  is not in `RECOVERABLE_STATUSES`, so no later pass picks the row up again and
+  it no longer counts toward `remaining`. Find them with
+  `SELECT id, bron_id, source_record_id, created_at FROM staging.aanvraag_observation
+  WHERE status = 'curation_failed' ORDER BY created_at;`, and join
+  `staging.source_record` for the `bron_referentie` behind each one. There is no
+  automatic retry by design: fix the underlying defect first, then re-queue the
+  rows with `UPDATE staging.aanvraag_observation SET status = 'awaiting_curation'
+  WHERE status = 'curation_failed' AND id = '...';`. The next poll for that
+  source picks them up in `created_at` order like any other backlog. Before
+  CTP-499 there was no such status: `curateScrapeRun` rethrew, so observation
+  `7100e5cb-...` held 7,126 Harvey Nash observations from 9 September and every
+  poll added one more.
 - **`poller_source_skipped`**: a due source was not polled. Today the only
   `reason` is `not_live`: production plus an unset live flag. One line per
   skipped source per cycle, so a source that is meant to be live and keeps

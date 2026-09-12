@@ -9,6 +9,7 @@ import { z } from "zod";
 
 import { compareSourcePointerOrder } from "./bron-runtime";
 import type { BronRuntimeDatabase } from "./bron-runtime";
+import { describeCauseChain, errorNameOf } from "./error-cause-chain";
 import { PostgresCurateStore } from "./postgres-curate-store";
 import type { PostgresCurateTransaction } from "./postgres-curate-store";
 import { aanvraag, aanvraagVersie, scrapeRun } from "./schema/curated";
@@ -32,6 +33,33 @@ const RECOVERABLE_STATUSES = [
 ] as const;
 const APPLIED_STATUSES = new Set(["already_committed", "curated", "unchanged"]);
 
+/**
+ * Terminal review status for an observation whose processing threw something
+ * `processCandidate` does not classify.
+ *
+ * Deliberately absent from `RECOVERABLE_STATUSES`, so `loadCandidates` never
+ * selects the row again and `markObservation` never writes over it: that is
+ * what stops one poison observation from re-aborting every later pass.
+ * CTP-499: observation 7100e5cb-... blocked 7,126 Harvey Nash observations
+ * from 9 September because the rethrow below aborted the whole pass and the
+ * row stayed `awaiting_curation`, so the next pass picked the same oldest
+ * candidate and failed identically.
+ *
+ * `staging.aanvraag_observation.status` is a plain `text` column with a
+ * `'pending'` default and no enum, `CHECK`, or foreign key (see
+ * `packages/db/src/schema/staging.ts` and migration 0001), so this value needs
+ * no migration. The only constrained column on that table is `outcome`
+ * (`aanvraag_observation_outcome_check`, `IN ('new','changed','unchanged')`).
+ *
+ * Clearing it is a deliberate human act: fix the defect, then
+ * `UPDATE ... SET status = 'awaiting_curation'` to re-queue. See
+ * `docs/runbooks/onbox-poller.md`.
+ */
+const CURATION_FAILED_STATUS = "curation_failed";
+
+/** Enough of the chain to name the failing statement without flooding stderr. */
+const MAX_LOGGED_CAUSE_LENGTH = 500;
+
 const OBSERVATION_SCHEMA = z.object({
   bronId: z.string(),
   bronReferentie: z.string().trim().min(1),
@@ -54,6 +82,7 @@ type RecoveryDisposition =
 type CandidateDisposition =
   | Exclude<RecoveryDisposition, "process">
   | "curated"
+  | "curation_failed"
   | "pending"
   | "quarantined";
 
@@ -96,6 +125,8 @@ export interface CurateScrapeRunResult {
   attemptedObservationIds: string[];
   blockedOrdering: number;
   curated: number;
+  /** Candidates that threw and were parked on `curation_failed`. */
+  failed: number;
   pending: number;
   quarantined: number;
   superseded: number;
@@ -752,6 +783,12 @@ const recordDisposition = (
   } else if (disposition === "quarantined") {
     result.quarantined += 1;
     blockedIdentities.add(candidate.sourceRecordId);
+  } else if (disposition === "curation_failed") {
+    result.failed += 1;
+    // Block the identity as well: later observations of the same source record
+    // must not be curated ahead of the one that failed, or the aanvraag would
+    // carry a version history with a hole in it.
+    blockedIdentities.add(candidate.sourceRecordId);
   } else if (disposition === "already_committed") {
     result.alreadyCommitted += 1;
   } else if (disposition === "blocked_ordering") {
@@ -762,6 +799,37 @@ const recordDisposition = (
   } else {
     result.unchanged += 1;
   }
+};
+
+/**
+ * Parks one candidate that threw and leaves a line on stderr naming it.
+ *
+ * `processCandidate` does all its writing inside a transaction, so an
+ * unexpected throw has already rolled back: the row is still in a recoverable
+ * status here, which is exactly what `markObservation` requires. When it is
+ * not -- another writer moved it first -- the candidate still counts as failed
+ * and its identity is still blocked, because this pass did not curate it.
+ */
+const parkFailedCandidate = async (input: {
+  database: BronRuntimeDatabase;
+  error: unknown;
+  observationId: string;
+}): Promise<void> => {
+  const { database, error, observationId } = input;
+  const causeChain = describeCauseChain({ error }).slice(
+    0,
+    MAX_LOGGED_CAUSE_LENGTH
+  );
+  process.stderr.write(
+    `${JSON.stringify({
+      causeChain,
+      errorName: errorNameOf({ error }),
+      event: "curation_candidate_failed",
+      observationId,
+      status: CURATION_FAILED_STATUS,
+    })}\n`
+  );
+  await markObservation(database, observationId, CURATION_FAILED_STATUS);
 };
 
 export const curateScrapeRun = async (
@@ -792,6 +860,7 @@ export const curateScrapeRun = async (
     attemptedObservationIds: [],
     blockedOrdering: 0,
     curated: 0,
+    failed: 0,
     pending: 0,
     quarantined: 0,
     remaining: 0,
@@ -821,9 +890,22 @@ export const curateScrapeRun = async (
       const disposition = await processCandidate(input, candidate);
       recordDisposition(result, blockedIdentities, candidate, disposition);
     } catch (error) {
-      throw new Error(`Curation failed for observation ${candidate.id}`, {
-        cause: error,
+      // CTP-499: rethrowing here aborted the whole pass, so one candidate that
+      // Postgres refused blocked every other identity of the source
+      // indefinitely. Park this one and keep going; errors raised before the
+      // loop (bad config, database unreachable) still throw.
+      // oxlint-disable-next-line no-await-in-loop -- the marker must land before the next candidate
+      await parkFailedCandidate({
+        database: input.database,
+        error,
+        observationId: candidate.id,
       });
+      recordDisposition(
+        result,
+        blockedIdentities,
+        candidate,
+        "curation_failed"
+      );
     }
   }
   const [backlogRows, missingRawRows] = await Promise.all([

@@ -53,6 +53,72 @@ describe("failedSourceLog", () => {
     expect(Object.hasOwn(log, "errorMessage")).toBe(false);
   });
 
+  it("joins the cause chain so the message that names the failure survives", () => {
+    // The CTP-499 shape: the outermost message identifies nothing.
+    const error = new Error("Curation failed for observation 7100e5cb", {
+      cause: new Error("Failed query: insert into dedup_groep", {
+        cause: new Error(
+          "index row size 3368 exceeds btree version 4 maximum 2704"
+        ),
+      }),
+    });
+
+    expect(failedSourceLog({ ...base, error }).errorMessage).toBe(
+      "Curation failed for observation 7100e5cb <- Failed query: insert into dedup_groep <- index row size 3368 exceeds btree version 4 maximum 2704"
+    );
+  });
+
+  it("stops at four levels rather than following an unbounded chain", () => {
+    let error = new Error("level5");
+    for (const label of ["level4", "level3", "level2", "level1"]) {
+      error = new Error(label, { cause: error });
+    }
+
+    expect(failedSourceLog({ ...base, error }).errorMessage).toBe(
+      "level1 <- level2 <- level3 <- level4"
+    );
+  });
+
+  it("does not loop on a self-referencing cause", () => {
+    const error = new Error("outer");
+    error.cause = error;
+
+    expect(failedSourceLog({ ...base, error }).errorMessage).toBe("outer");
+  });
+
+  it("skips an empty link rather than leaving a dangling separator", () => {
+    const blank = new Error("cleared below");
+    blank.message = "";
+    blank.cause = new Error("the real one");
+    const error = new Error("outer", { cause: blank });
+
+    expect(failedSourceLog({ ...base, error }).errorMessage).toBe(
+      "outer <- the real one"
+    );
+  });
+
+  it("redacts a connection string carried by a nested cause", () => {
+    const error = new Error("poll failed", {
+      cause: new Error("connect ECONNREFUSED postgres://ji_app:hunter2@h/d"),
+    });
+    const log = failedSourceLog({ ...base, error });
+
+    expect(log.errorMessage).toBe(
+      "poll failed <- connect ECONNREFUSED [redacted]"
+    );
+    expect(log.errorMessage).not.toContain("hunter2");
+  });
+
+  it("truncates a long chain to the cap", () => {
+    const error = new Error("x".repeat(200), {
+      cause: new Error("y".repeat(400)),
+    });
+
+    expect(failedSourceLog({ ...base, error }).errorMessage).toHaveLength(
+      MAX_ERROR_MESSAGE_LENGTH
+    );
+  });
+
   it("carries a custom error name", () => {
     const error = new Error("gateway timeout");
     error.name = "FetchError";

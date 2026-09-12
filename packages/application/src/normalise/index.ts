@@ -12,8 +12,10 @@ export {
   parseTenderNedPayload,
 } from "./tenderned";
 export {
+  boundDedupKey,
   buildDedupKey,
   buildProvenanceMap,
+  DEDUP_KEY_MAX_BYTES,
   field,
   normalizeDedupText,
   provenanceFor,

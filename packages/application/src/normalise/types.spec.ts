@@ -1,6 +1,12 @@
 import { describe, expect, it } from "bun:test";
 
-import { closingMomentInstant, hasClosingMomentPassed } from "./types";
+import {
+  boundDedupKey,
+  buildDedupKey,
+  closingMomentInstant,
+  DEDUP_KEY_MAX_BYTES,
+  hasClosingMomentPassed,
+} from "./types";
 
 const AMSTERDAM_TIME_ZONE = "Europe/Amsterdam";
 
@@ -158,5 +164,79 @@ describe("closingMomentInstant", () => {
       expect(closingMomentInstant(impossible)).toBeUndefined();
       expect(hasClosingMomentPassed(impossible)).toBe(false);
     }
+  });
+});
+
+const byteLength = (value: string): number =>
+  new TextEncoder().encode(value).length;
+
+const keyWithTitleBytes = (titleBytes: number): string =>
+  buildDedupKey({
+    opdrachtgeverNaam: "Harvey Nash",
+    startDatum: "2026-09-01",
+    titel: "a".repeat(titleBytes),
+  });
+
+describe("buildDedupKey byte bound (CTP-499)", () => {
+  it("leaves a short key literal so existing dedup_groep rows keep matching", () => {
+    expect(
+      buildDedupKey({
+        opdrachtgeverNaam: "Gemeente Amsterdam",
+        startDatum: "2026-09-01",
+        titel: "Senior Java Developer",
+      })
+    ).toBe("senior java developer\u001Fgemeente amsterdam\u001F2026-09-01");
+  });
+
+  it("replaces a 3368-byte normalised key with a fixed-length sha256 key", () => {
+    // The shape that blocked Harvey Nash: a titel carrying the whole
+    // beschrijving, 3,368 bytes once normalised, over the 2704-byte index max.
+    const key = keyWithTitleBytes(
+      3368 - "\u001Fharvey nash\u001F2026-09-01".length
+    );
+
+    expect(key).toMatch(/^sha256:[0-9a-f]{64}$/u);
+    expect(byteLength(key)).toBe(71);
+    expect(byteLength(key)).toBeLessThan(DEDUP_KEY_MAX_BYTES);
+  });
+
+  it("keeps two long keys distinct when they differ only past the byte limit", () => {
+    const prefix = "x".repeat(DEDUP_KEY_MAX_BYTES + 100);
+    const alpha = buildDedupKey({
+      opdrachtgeverNaam: "Harvey Nash",
+      startDatum: "2026-09-01",
+      titel: `${prefix} alpha`,
+    });
+    const beta = buildDedupKey({
+      opdrachtgeverNaam: "Harvey Nash",
+      startDatum: "2026-09-01",
+      titel: `${prefix} beta`,
+    });
+
+    expect(alpha).toMatch(/^sha256:[0-9a-f]{64}$/u);
+    expect(beta).toMatch(/^sha256:[0-9a-f]{64}$/u);
+    expect(alpha).not.toBe(beta);
+  });
+
+  it("is deterministic: the same long input always yields the same key", () => {
+    expect(keyWithTitleBytes(4000)).toBe(keyWithTitleBytes(4000));
+  });
+
+  it("counts UTF-8 bytes rather than characters", () => {
+    // Each euro sign is three UTF-8 bytes, so the character count is a third
+    // of what the index actually measures.
+    const underBound = boundDedupKey("\u20AC".repeat(600));
+    const overBound = boundDedupKey("\u20AC".repeat(700));
+
+    expect(byteLength(underBound)).toBe(1800);
+    expect(underBound).not.toMatch(/^sha256:/u);
+    expect(overBound).toMatch(/^sha256:[0-9a-f]{64}$/u);
+  });
+
+  it("leaves a key exactly at the bound literal and digests one byte more", () => {
+    const atBound = "y".repeat(DEDUP_KEY_MAX_BYTES);
+
+    expect(boundDedupKey(atBound)).toBe(atBound);
+    expect(boundDedupKey(`${atBound}y`)).toMatch(/^sha256:[0-9a-f]{64}$/u);
   });
 });

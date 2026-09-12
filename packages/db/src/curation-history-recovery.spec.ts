@@ -17,7 +17,7 @@ import {
   CONNECTOR_OBSERVATION_CONTRACT_VERSION,
   InMemoryObjectStore,
 } from "@ji/connectors";
-import type { ConnectorRunKind } from "@ji/connectors";
+import type { ConnectorRunKind, ObjectStore } from "@ji/connectors";
 import type { BronId, ScrapeRunId } from "@ji/domain";
 import { and, asc, eq, inArray } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/postgres-js";
@@ -1196,6 +1196,111 @@ describe("historical curation recovery (RJC-433)", () => {
     expect(history.versions).toHaveLength(1);
     expect(history.events).toHaveLength(1);
     expectMonotoneHistory(history.versions);
+  });
+
+  it("parks a candidate that throws and still curates the next identity (CTP-499)", async () => {
+    if (!available || !database) {
+      expect(available).toBe(false);
+      return;
+    }
+    const objectStore = new InMemoryObjectStore();
+    const runId = await seedRun(database, 0);
+    // Two identities in one run. The poison one is created first, so
+    // `fairOldestFirst` offers it first -- exactly the production ordering that
+    // let it abort every pass before this identity could ever be reached.
+    const poisonReferentie = `ctp-499-poison-${crypto.randomUUID()}`;
+    const healthyReferentie = `ctp-499-healthy-${crypto.randomUUID()}`;
+    const poisonSourceRecordId = await seedSourceRecord(
+      database,
+      poisonReferentie,
+      runId
+    );
+    const healthySourceRecordId = await seedSourceRecord(
+      database,
+      healthyReferentie,
+      runId
+    );
+    const poisonObservationId = await seedObservation({
+      bronReferentie: poisonReferentie,
+      contentHash: "ctp-499-poison",
+      database,
+      minute: 10,
+      objectStore,
+      scrapeRunId: runId,
+      sourceRecordId: poisonSourceRecordId,
+      title: "Poison observation",
+    });
+    const healthyObservationId = await seedObservation({
+      bronReferentie: healthyReferentie,
+      contentHash: "ctp-499-healthy",
+      database,
+      minute: 20,
+      objectStore,
+      scrapeRunId: runId,
+      sourceRecordId: healthySourceRecordId,
+      title: "Healthy observation",
+    });
+
+    // Stands in for the real defect: `PostgresError 54000` raised from deep
+    // inside `processObservation`. Any unexpected throw out of
+    // `processCandidate` reaches the same branch, and this one is reachable
+    // from a spec without an oversized fixture.
+    const poisonRef = rawRef(poisonReferentie, "ctp-499-poison");
+    const failingObjectStore: ObjectStore = {
+      deleteExpired: (before: Date) => objectStore.deleteExpired(before),
+      get: (objectPath: string) => {
+        if (objectPath === poisonRef) {
+          return Promise.reject(
+            new Error("Failed query: insert into dedup_groep", {
+              cause: new Error(
+                "index row size 3368 exceeds btree version 4 maximum 2704"
+              ),
+            })
+          );
+        }
+        return objectStore.get(objectPath);
+      },
+      put: (object) => objectStore.put(object),
+    };
+    const input = {
+      bronId: BRON_ID,
+      bronSlug: BRON_SLUG,
+      database,
+      objectStore: failingObjectStore,
+      scrapeRunId: runId,
+    };
+
+    const first = await curateScrapeRun(input);
+
+    expect(first).toMatchObject({ curated: 1, failed: 1 });
+    expect(first.attemptedObservationIds).toEqual(
+      expect.arrayContaining([poisonObservationId, healthyObservationId])
+    );
+    // The parked row is terminal, so it is not backlog any more.
+    expect(first.remaining).toBe(0);
+    const afterFirst = await database
+      .select({
+        id: aanvraagObservation.id,
+        status: aanvraagObservation.status,
+      })
+      .from(aanvraagObservation)
+      .where(eq(aanvraagObservation.bronId, BRON_ID));
+    expect(afterFirst).toEqual(
+      expect.arrayContaining([
+        { id: poisonObservationId, status: "curation_failed" },
+        { id: healthyObservationId, status: "curated" },
+      ])
+    );
+
+    const second = await curateScrapeRun(input);
+
+    expect(second).toMatchObject({ curated: 0, failed: 0, remaining: 0 });
+    expect(second.attemptedObservationIds).not.toContain(poisonObservationId);
+    const [afterSecond] = await database
+      .select({ status: aanvraagObservation.status })
+      .from(aanvraagObservation)
+      .where(eq(aanvraagObservation.id, poisonObservationId));
+    expect(afterSecond?.status).toBe("curation_failed");
   });
 
   it("serializes concurrent recovery and leaves repeated runs idempotent", async () => {
