@@ -2,7 +2,11 @@ import { processObservation } from "@ji/application/identity";
 import type { SupportedBronSlug } from "@ji/application/identity";
 import { SOURCES } from "@ji/application/sources";
 import { CONNECTOR_OBSERVATION_CONTRACT_VERSION } from "@ji/connectors";
-import type { ConnectorObservation, ObjectStore } from "@ji/connectors";
+import type {
+  ConnectorObservation,
+  ObjectStore,
+  StoredObject,
+} from "@ji/connectors";
 import type { BronId, ScrapeRunId } from "@ji/domain";
 import { and, asc, count, desc, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
@@ -622,6 +626,34 @@ const markObservation = async (
   return rows.length > 0;
 };
 
+/**
+ * Reads the raw object, treating a read that throws exactly like an absent
+ * object. Both mean "the payload is not available right now", and both are
+ * recoverable on a later pass. The failure is still named on stderr so an
+ * outage is visible rather than silent.
+ */
+const readStoredRaw = async (
+  objectStore: ObjectStore,
+  rawPayloadRef: string
+): Promise<StoredObject | null> => {
+  try {
+    return await objectStore.get(rawPayloadRef);
+  } catch (error) {
+    process.stderr.write(
+      `${JSON.stringify({
+        causeChain: describeCauseChain({ error }).slice(
+          0,
+          MAX_LOGGED_CAUSE_LENGTH
+        ),
+        errorName: errorNameOf({ error }),
+        event: "curation_raw_read_failed",
+        rawPayloadRef,
+      })}\n`
+    );
+    return null;
+  }
+};
+
 const processCandidate = async (
   input: CurateScrapeRunInput,
   candidate: RecoveryCandidate
@@ -645,9 +677,16 @@ const processCandidate = async (
         current: preliminaryHighWater,
         legacyPending: isLegacyStatus(candidate.status),
       });
+  // A raw object that cannot be read is a storage problem, never a property of
+  // this row, so it must not reach the terminal `curation_failed` path: the
+  // object store is a network client and `get` runs outside the transaction, so
+  // one outage would otherwise park every candidate of the pass. An absent
+  // object already defers as `deferred_missing_raw`; a read that throws is the
+  // same class of failure and defers the same way, staying recoverable and
+  // being retried on the next pass.
   const stored =
     preliminaryDisposition === "process"
-      ? await input.objectStore.get(candidate.payload.rawPayloadRef)
+      ? await readStoredRaw(input.objectStore, candidate.payload.rawPayloadRef)
       : null;
   if (preliminaryDisposition === "process" && !stored) {
     await markObservation(
@@ -785,9 +824,11 @@ const recordDisposition = (
     blockedIdentities.add(candidate.sourceRecordId);
   } else if (disposition === "curation_failed") {
     result.failed += 1;
-    // Block the identity as well: later observations of the same source record
-    // must not be curated ahead of the one that failed, or the aanvraag would
-    // carry a version history with a hole in it.
+    // Block the identity for the rest of this pass, so a newer observation of
+    // the same source record cannot be curated immediately behind the one that
+    // just failed. This is a within-pass guard only: a later pass will curate
+    // the newer observation, and a re-queued row then classifies as superseded
+    // rather than rewinding the aanvraag.
     blockedIdentities.add(candidate.sourceRecordId);
   } else if (disposition === "already_committed") {
     result.alreadyCommitted += 1;

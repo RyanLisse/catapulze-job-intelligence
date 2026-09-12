@@ -282,11 +282,21 @@ the dead connection, and the replacement container sits logging
   `staging.source_record` for the `bron_referentie` behind each one. There is no
   automatic retry by design: fix the underlying defect first, then re-queue the
   rows with `UPDATE staging.aanvraag_observation SET status = 'awaiting_curation'
-  WHERE status = 'curation_failed' AND id = '...';`. The next poll for that
+  WHERE status = 'curation_failed' AND id = '...';`, or for a whole source once
+  the defect is fixed for all of them,
+  `UPDATE staging.aanvraag_observation SET status = 'awaiting_curation'
+  WHERE status = 'curation_failed' AND bron_id = '...';`. The next poll for that
   source picks them up in `created_at` order like any other backlog. Before
   CTP-499 there was no such status: `curateScrapeRun` rethrew, so observation
   `7100e5cb-...` held 7,126 Harvey Nash observations from 9 September and every
   poll added one more.
+- **`curation_raw_read_failed` is not the same thing.** A raw object the store
+  cannot return is a storage problem, not a property of the row, so it defers as
+  `deferred_missing_raw`, stays in `RECOVERABLE_STATUSES`, counts toward
+  `pending`, and is retried on the next poll with no operator action. Only a
+  failure raised inside the curation transaction reaches `curation_failed`. If
+  you see a burst of `curation_raw_read_failed` lines, look at the object store,
+  not at the observations.
 - **`poller_source_skipped`**: a due source was not polled. Today the only
   `reason` is `not_live`: production plus an unset live flag. One line per
   skipped source per cycle, so a source that is meant to be live and keeps

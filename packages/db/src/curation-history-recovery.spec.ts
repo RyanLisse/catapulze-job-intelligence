@@ -1241,24 +1241,24 @@ describe("historical curation recovery (RJC-433)", () => {
       title: "Healthy observation",
     });
 
-    // Stands in for the real defect: `PostgresError 54000` raised from deep
-    // inside `processObservation`. Any unexpected throw out of
-    // `processCandidate` reaches the same branch, and this one is reachable
-    // from a spec without an oversized fixture.
+    // Stands in for the real defect: a throw raised from inside the curation
+    // transaction, which is where `PostgresError 54000` came from. A raw
+    // payload that is not parseable JSON makes `SOURCES[...].normalise` throw
+    // at exactly that point, and unlike an unreadable object it is a property
+    // of this row, so the terminal status is the right answer. Any unexpected
+    // throw out of `processCandidate` reaches the same branch.
     const poisonRef = rawRef(poisonReferentie, "ctp-499-poison");
     const failingObjectStore: ObjectStore = {
       deleteExpired: (before: Date) => objectStore.deleteExpired(before),
-      get: (objectPath: string) => {
-        if (objectPath === poisonRef) {
-          return Promise.reject(
-            new Error("Failed query: insert into dedup_groep", {
-              cause: new Error(
-                "index row size 3368 exceeds btree version 4 maximum 2704"
-              ),
-            })
-          );
+      get: async (objectPath: string) => {
+        const stored = await objectStore.get(objectPath);
+        if (objectPath !== poisonRef || !stored) {
+          return stored;
         }
-        return objectStore.get(objectPath);
+        return {
+          ...stored,
+          body: new TextEncoder().encode("{ not valid json"),
+        };
       },
       put: (object) => objectStore.put(object),
     };
