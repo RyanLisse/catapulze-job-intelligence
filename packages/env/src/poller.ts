@@ -16,12 +16,22 @@ import {
 const RELEASE_SHA_MESSAGE =
   "Release SHA must be a 40-character lowercase Git SHA (read from APP_RELEASE_SHA, or from Coolify's SOURCE_COMMIT when APP_RELEASE_SHA is unset).";
 
-const millisecondsWithDefault = (fallbackMs: number, variableName: string) =>
+const positiveIntegerWithDefault = (
+  fallback: number,
+  variableName: string,
+  unit: string
+) =>
   Schema.String.check(
     Schema.isPattern(/^[1-9][0-9]*$/u, {
-      message: `${variableName} must be a positive whole number of milliseconds`,
+      message: `${variableName} must be a positive whole number of ${unit}`,
     })
-  ).pipe(Schema.withDecodingDefault(Effect.succeed(String(fallbackMs))));
+  ).pipe(Schema.withDecodingDefault(Effect.succeed(String(fallback))));
+
+const millisecondsWithDefault = (fallbackMs: number, variableName: string) =>
+  positiveIntegerWithDefault(fallbackMs, variableName, "milliseconds");
+
+/** Six hours: longer than any healthy poll plus its full curate budget. */
+const ABANDON_RUN_AFTER_MS_DEFAULT = 6 * 60 * 60 * 1000;
 
 /**
  * Dedicated env contract for the long-running on-box poller
@@ -43,6 +53,24 @@ export const pollerEnvEffectSchemas = {
   DATABASE_URL: TrimmedNonEmptyString,
   /** Unused while SEARCH_PROJECTOR is onbox; the projector owns every drain. */
   MANTICORE_URL: Schema.optional(UrlString),
+  /**
+   * A `running` scrape run older than this is failed at the top of a cycle.
+   * Sized so only a process that died mid-run can qualify: no healthy poll
+   * plus its curate budget comes close to six hours.
+   */
+  POLLER_ABANDON_RUN_AFTER_MS: millisecondsWithDefault(
+    ABANDON_RUN_AFTER_MS_DEFAULT,
+    "POLLER_ABANDON_RUN_AFTER_MS"
+  ),
+  /**
+   * How many sources the cycle may poll at once. Politeness per host is
+   * unaffected: `crawl_delay_ms` still paces requests inside one source.
+   */
+  POLLER_CONCURRENCY: positiveIntegerWithDefault(
+    2,
+    "POLLER_CONCURRENCY",
+    "concurrent sources"
+  ),
   POLLER_CURATE_BUDGET_MS: millisecondsWithDefault(
     120_000,
     "POLLER_CURATE_BUDGET_MS"
@@ -76,6 +104,10 @@ export const env = createEnv({
     APP_RELEASE_SHA: toEnvSchema(pollerEnvEffectSchemas.APP_RELEASE_SHA),
     DATABASE_URL: toEnvSchema(pollerEnvEffectSchemas.DATABASE_URL),
     MANTICORE_URL: toEnvSchema(pollerEnvEffectSchemas.MANTICORE_URL),
+    POLLER_ABANDON_RUN_AFTER_MS: toEnvSchema(
+      pollerEnvEffectSchemas.POLLER_ABANDON_RUN_AFTER_MS
+    ),
+    POLLER_CONCURRENCY: toEnvSchema(pollerEnvEffectSchemas.POLLER_CONCURRENCY),
     POLLER_CURATE_BUDGET_MS: toEnvSchema(
       pollerEnvEffectSchemas.POLLER_CURATE_BUDGET_MS
     ),

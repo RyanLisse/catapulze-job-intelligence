@@ -11,6 +11,12 @@ import {
 import * as schema from "./schema";
 
 export {
+  ABANDONED_RUN_FAILURE,
+  abandonStaleRuns,
+  type AbandonStaleRunsDatabase,
+  type AbandonStaleRunsOptions,
+} from "./abandon-stale-runs";
+export {
   emitPgStatStatementRecords,
   readPgStatStatementSummaries,
   timeSqlQuery,
