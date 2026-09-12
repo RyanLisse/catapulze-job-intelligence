@@ -9,7 +9,7 @@ CTP-487 — continuous deterministic enrichment loop via Trigger.dev.
 | `schedule-enrich-incomplete` | `schedules.task` | Cron `5 * * * *` `Europe/Amsterdam`. Triggers `enrich-incomplete`. |
 | `enrich-incomplete` | `schemaTask` | Queue concurrency 1. Defaults: `dryRun: true`, `enableLlmResidual: false`, `batchSize: 25`. |
 
-Staggered from `schedule-slice-a-polls` (`*/15 * * * *` Europe/Amsterdam).
+Staggered from the per-bron poll cadence (`curated.bron.interval`, today `*/15 * * * *` Europe/Amsterdam) that the on-box poller follows (`docs/runbooks/onbox-poller.md`).
 
 ## Safe defaults
 

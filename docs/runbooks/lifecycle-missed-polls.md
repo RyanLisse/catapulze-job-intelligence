@@ -77,7 +77,7 @@ Only a run that saw the whole listing may count misses. The runner reports
 
 A failed run throws before the reconcile step, so it never counts. The run
 result carries `lifecycle.skippedIncrementReason` when increments were skipped;
-the worker's `poll-bron` task output mirrors it as a JSON-safe `lifecycle`
+the on-box poller's `poller_source` log line (`docs/runbooks/onbox-poller.md`) mirrors it as a JSON-safe `lifecycle`
 summary (`incremented`, `reset`, `staled`, `reopened`, `skippedIncrementReason`).
 
 The four capped connectors (`striive`, `opdrachtoverheid`, `harveynash`,
@@ -93,7 +93,7 @@ exhausted, so `truncated` is honestly absent there.
   a retry cannot re-run the same run id (the run store rejects a terminal run).
   Consequence: that poll's misses are simply not counted -- one poll of slack,
   nothing corrupted; the next complete run counts as usual. An operator sees a
-  failed `poll-bron` task whose output has no `lifecycle` summary.
+  failed poll (a `poller_source` line with `errorName`) that has no `lifecycle` summary.
 - ~~Status write and outbox row are separate statements.~~ Closed by RJC-399:
   the SCD2/status write and the outbox insert run in one Postgres transaction
   (`CurateStore.withTransaction`), in both `curateObservation` and this
