@@ -260,6 +260,17 @@ const expectExactlyOneNewVersionPerIdentity = async (
   ).toBe(true);
 };
 
+/**
+ * An unreachable object store still aborts the pass, and this is deliberate.
+ *
+ * CTP-499 stopped `curateScrapeRun` rethrowing per-candidate errors, because a
+ * single row Postgres refused was holding an entire source hostage. A store
+ * that will not answer is the opposite case: it says nothing about any row, and
+ * every status the pass could write for it -- terminal `curation_failed` or
+ * deferred `deferred_missing_raw` -- needs an operator to clear by hand. So the
+ * pass aborts untouched and the next poll retries the whole backlog, which is
+ * what the rows below assert by staying `awaiting_curation`.
+ */
 const expectInjectedReadFailure = async (
   operation: Promise<unknown>
 ): Promise<void> => {
@@ -273,10 +284,11 @@ const expectInjectedReadFailure = async (
   if (!(caught instanceof Error)) {
     throw new Error("Expected curation to reject with an Error");
   }
-  expect(caught.message).toContain("Curation failed for observation");
+  expect(caught.name).toBe("RawReadError");
+  expect(caught.message).toContain("Raw object read failed for");
   expect(caught.cause).toBeInstanceOf(Error);
   if (!(caught.cause instanceof Error)) {
-    throw new Error("Expected curation failure to retain its storage cause");
+    throw new Error("Expected the read failure to retain its storage cause");
   }
   expect(caught.cause.message).toBe("injected raw object read failure");
 };

@@ -77,6 +77,8 @@ export interface BronIngestPipelineResult extends PollBronRunResult {
   blockedOrdering: number;
   curated: number;
   drained: number;
+  /** Observations parked on `curation_failed` by this pass; see CTP-499. */
+  failed: number;
   /** Null in "onbox" mode: this process never drains, so it has no version to report. */
   indexVersion: number | null;
   quarantined: number;
@@ -431,6 +433,7 @@ export const runBronIngestPipeline = async (
     blockedOrdering: curateResult.blockedOrdering,
     curated: curateResult.curated,
     drained: drainSummary.drained,
+    failed: curateResult.failed,
     indexVersion: drainSummary.indexVersion,
     pending: curateResult.pending,
     quarantined: curateResult.quarantined,

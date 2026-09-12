@@ -258,10 +258,71 @@ the dead connection, and the replacement container sits logging
   `durationMs`, `found`, `curated`, `remaining` and, on failure, `errorName`
   plus `errorMessage`. `remaining` is the number to watch while the backlog
   drains: it should trend down cycle over cycle and settle near zero.
-  `errorMessage` is the first 300 characters of the thrown `Error.message`,
-  with any `postgres://` or `postgresql://` connection string replaced by
-  `[redacted]`. `errorName` alone was not actionable: a production line read
+  `errorMessage` is the first 300 characters of the thrown `Error.message`
+  joined with every `cause` message beneath it (up to four levels, separated by
+  ` <- `), with any `postgres://` or `postgresql://` connection string replaced
+  by `[redacted]`. `errorName` alone was not actionable: a production line read
   `{"errorName":"Error"}` for `harveynash` and said nothing about what failed.
+  Neither was the outermost message alone: `Curation failed for observation
+  7100e5cb-...` named the row but not the defect, which sat two `cause` links
+  down as `index row size 3368 exceeds btree version 4 maximum 2704`.
+- **Observations parked on `curation_failed`**: a single observation whose
+  curation throws something the pass does not classify is no longer allowed to
+  abort the pass. It is marked `staging.aanvraag_observation.status =
+  'curation_failed'`, its identity is blocked for the rest of that pass so
+  later observations of the same source record cannot be curated out of order,
+  it is counted in the pass result as `failed`, and curation continues with the
+  next identity. One line goes to stderr as
+  `{"event":"curation_candidate_failed","observationId":...,"errorName":...,"causeChain":...}`
+  with the first 500 characters of the chain. `curation_failed` is terminal: it
+  is not in `RECOVERABLE_STATUSES`, so no later pass picks the row up again and
+  it no longer counts toward `remaining`. Find them with
+  `SELECT id, bron_id, source_record_id, created_at FROM staging.aanvraag_observation
+  WHERE status = 'curation_failed' ORDER BY created_at;`, and join
+  `staging.source_record` for the `bron_referentie` behind each one. There is no
+  automatic retry by design: fix the underlying defect first, then re-queue the
+  rows with `UPDATE staging.aanvraag_observation SET status = 'awaiting_curation'
+  WHERE status = 'curation_failed' AND id = '...';`, or for a whole source once
+  the defect is fixed for all of them,
+  `UPDATE staging.aanvraag_observation SET status = 'awaiting_curation'
+  WHERE status = 'curation_failed' AND bron_id = '...';`. The next poll for that
+  source picks them up in `created_at` order like any other backlog. One caveat
+  when the parked row was the identity's first observation: by the time you
+  requeue it a later observation of the same source record has usually been
+  curated already, so the requeued row classifies as `superseded` and the
+  aanvraag starts at version two rather than one. That is expected, not a
+  second defect. Before CTP-499 there was no such status: `curateScrapeRun` rethrew, so observation
+  `7100e5cb-...` held 7,126 Harvey Nash observations from 9 September and every
+  poll added one more.
+- **`curation_raw_read_failed` is not the same thing.** An object store that
+  will not answer is a storage problem, not a property of any row, so the pass
+  writes no status at all: it aborts with a `RawReadError` and leaves every
+  observation in the active status it already had. The next poll therefore
+  retries the whole backlog with no operator action, which is the only outcome
+  that is actually self-clearing. Parking the row would have needed a human to
+  clear `curation_failed`, and deferring it would have needed a human to clear
+  `deferred_missing_raw` (see `docs/runbooks/curation-recovery.md`), so neither
+  is retried by the poller. `deferred_missing_raw` stays reserved for an object
+  that is genuinely absent and has to be restored from the original capture. If
+  you see a burst of `curation_raw_read_failed` lines, look at the object store,
+  not at the observations.
+- **A transient Postgres failure aborts the pass too.** `curateScrapeRun` walks
+  the cause chain for a SQLSTATE and rethrows on classes `08` (connection),
+  `40` (`40001` serialization, `40P01` deadlock), `53` (insufficient resources)
+  and `57` (`57P01` admin shutdown, `57P02` crash shutdown, `57P03` cannot
+  connect now). Curation takes `FOR UPDATE` on the source record while lifecycle
+  reconciliation touches the same rows, so a deadlock is an ordinary outcome
+  that a retry clears, and it must never burn a review status. Everything else
+  parks: `54000` (the CTP-499 oversized index tuple), `22*` data exceptions,
+  `23*` integrity violations.
+- **A pass stops after five parkings.** Parking is for a row that is
+  individually bad. A revoked grant or a half-applied deploy looks identical one
+  row at a time, so the pass throws `TooManyParkedObservationsError` once five
+  rows have parked rather than working through a whole backlog inside one poll
+  budget. The rows already parked stay parked and the progress of the pass is
+  kept; the next poll continues from there. Seeing this error means the failure
+  is probably systemic: read the `curation_candidate_failed` lines before
+  requeueing anything.
 - **`poller_source_skipped`**: a due source was not polled. Today the only
   `reason` is `not_live`: production plus an unset live flag. One line per
   skipped source per cycle, so a source that is meant to be live and keeps

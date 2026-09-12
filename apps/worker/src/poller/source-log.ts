@@ -4,11 +4,21 @@
  * Kept out of `main.ts` so the failure branch is reachable from a spec:
  * `main.ts` runs the poller on import, so nothing there can be tested.
  */
+import { describeCauseChain, errorNameOf } from "@ji/db/error-cause-chain";
+import { redactConnectionUrls } from "@ji/db/redact-connection-urls";
+
 export interface PollerSourceLog {
   bronSlug: string;
   curated: number;
   durationMs: number;
-  /** Redacted and truncated `Error.message`; absent when there is no detail. */
+  /**
+   * Redacted and truncated cause chain; absent when there is no detail.
+   *
+   * Carries `error.message` plus each `cause` message joined with `" <- "`,
+   * because the message that identifies the failure is usually not the
+   * outermost one (CTP-499: `Curation failed for observation 7100e5cb-...`
+   * told an operator nothing, while its cause named the oversized index row).
+   */
   errorMessage?: string;
   errorName?: string;
   found: number;
@@ -22,18 +32,13 @@ export interface PollerSourceLog {
 export const MAX_ERROR_MESSAGE_LENGTH = 300;
 
 /**
- * Connection strings are the one secret that reliably reaches an error
- * message here: postgres.js and Drizzle both quote the URL they failed on, and
- * it carries the role password. There is no shared redaction helper in
- * `@ji/db` or `apps/worker` to reuse, so this is the whole policy.
+ * Redacts first, then truncates, so a cut can never expose half a secret.
+ *
+ * The redaction itself lives in `@ji/db` so the poller and `curateScrapeRun`
+ * share one policy; only the length cap is this log line's own concern.
  */
-const CONNECTION_URL_PATTERN = /postgres(?:ql)?:\/\/\S+/giu;
-
-const REDACTED = "[redacted]";
-
-/** Redacts first, then truncates, so a cut can never expose half a secret. */
 export const redactErrorMessage = (message: string): string => {
-  const redacted = message.replace(CONNECTION_URL_PATTERN, REDACTED);
+  const redacted = redactConnectionUrls(message);
   return redacted.length > MAX_ERROR_MESSAGE_LENGTH
     ? redacted.slice(0, MAX_ERROR_MESSAGE_LENGTH)
     : redacted;
@@ -48,22 +53,24 @@ export interface FailedSourceLogInput {
 /**
  * The `poller_source` line for a source that threw. `errorName` alone was not
  * enough to act on: a production line read `{"errorName":"Error"}` with no
- * indication of what failed.
+ * indication of what failed. Neither was the outermost message alone -- see
+ * `errorMessage` above.
  */
 export const failedSourceLog = (
   input: FailedSourceLogInput
 ): PollerSourceLog => {
   const { bronSlug, durationMs, error } = input;
-  const message = error instanceof Error ? error.message : String(error);
   const log: PollerSourceLog = {
     bronSlug,
     curated: 0,
     durationMs,
-    errorName: error instanceof Error ? error.name : "UnknownError",
+    errorName: errorNameOf({ error }),
     found: 0,
     remaining: 0,
   };
-  const errorMessage = redactErrorMessage(message);
+  // Redaction runs over the whole joined chain, not per link, so a connection
+  // string cannot survive by straddling a separator.
+  const errorMessage = redactErrorMessage(describeCauseChain({ error }));
   if (errorMessage !== "") {
     log.errorMessage = errorMessage;
   }

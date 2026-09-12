@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import type {
   AanvraagLifecycle,
   ExtractieMethode,
@@ -261,18 +263,62 @@ export const hasClosingMomentPassed = (
 export const normalizeDedupText = (value: string): string =>
   value.replaceAll("\u001F", " ").trim().toLowerCase().replaceAll(/\s+/gu, " ");
 
+/**
+ * Byte ceiling for a `dedup_key` before it is replaced by its digest.
+ *
+ * `curated.dedup_groep.dedup_key` is covered by the unique btree index
+ * `dedup_groep_dedup_key_uidx`, and Postgres refuses any index row over
+ * **2704** bytes on a btree version 4 index ("index row size N exceeds btree
+ * version 4 maximum 2704"). CTP-499: a Harvey Nash aanvraag produced a
+ * 3,368-byte key, the insert raised `PostgresError 54000`, and every curation
+ * pass for that source aborted on it.
+ *
+ * 2000 leaves roughly 700 bytes of margin over the Postgres number for the
+ * index tuple header and any future page-layout change, and is comfortably
+ * above every key observed in production, so the substitution stays rare.
+ *
+ * Measured in UTF-8 bytes, not characters: the index limit is a byte limit and
+ * the normalised key routinely carries non-ASCII (accented client names, `\u2019`).
+ */
+export const DEDUP_KEY_MAX_BYTES = 2000;
+
+/**
+ * Marks a key as a digest rather than a literal key. Matches the `sha256:`
+ * convention already used for content addresses elsewhere in this package, and
+ * makes the two forms unambiguous: a literal key can never begin with this
+ * prefix followed by 64 hex characters and nothing else, because a literal key
+ * always carries at least two `\u001F` separators.
+ */
+const DEDUP_KEY_DIGEST_PREFIX = "sha256:";
+
+const utf8ByteLength = (value: string): number =>
+  new TextEncoder().encode(value).length;
+
+/**
+ * Keeps a key at or under {@link DEDUP_KEY_MAX_BYTES} unchanged, so every
+ * `dedup_groep` row written before CTP-499 keeps matching, and replaces a
+ * longer one with the digest of the *whole* normalised key. Truncating instead
+ * would silently merge two aanvragen that differ only past the cut.
+ */
+export const boundDedupKey = (normalisedKey: string): string =>
+  utf8ByteLength(normalisedKey) <= DEDUP_KEY_MAX_BYTES
+    ? normalisedKey
+    : `${DEDUP_KEY_DIGEST_PREFIX}${createHash("sha256").update(normalisedKey, "utf-8").digest("hex")}`;
+
 export const buildDedupKey = (input: {
   opdrachtgeverNaam: string | typeof UNKNOWN;
   startDatum: string | typeof UNKNOWN;
   titel: string;
 }): string =>
-  [
-    normalizeDedupText(input.titel),
-    input.opdrachtgeverNaam === UNKNOWN
-      ? UNKNOWN
-      : normalizeDedupText(input.opdrachtgeverNaam),
-    input.startDatum === UNKNOWN ? UNKNOWN : input.startDatum,
-  ].join("\u001F");
+  boundDedupKey(
+    [
+      normalizeDedupText(input.titel),
+      input.opdrachtgeverNaam === UNKNOWN
+        ? UNKNOWN
+        : normalizeDedupText(input.opdrachtgeverNaam),
+      input.startDatum === UNKNOWN ? UNKNOWN : input.startDatum,
+    ].join("\u001F")
+  );
 
 export const provenanceFor = (
   parserVersion: string,
