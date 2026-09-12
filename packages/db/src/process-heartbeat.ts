@@ -10,7 +10,11 @@
  */
 import { stat, writeFile } from "node:fs/promises";
 
-/** One projector poll interval is 1 s; the poller ticks every 60 s by default. */
+/**
+ * Default allowed age. Fits the projector, whose poll interval is 1 s and
+ * whose drain cycle of a 500 row batch takes well under a minute. A process
+ * with longer cycles must pass its own `maxAgeMs` (see the poller).
+ */
 export const MAX_HEARTBEAT_AGE_MS = 60_000;
 
 export const resolveHeartbeatFilePath = (
@@ -44,9 +48,12 @@ export const isHeartbeatFresh = (
 ): boolean => ageMs !== null && ageMs <= maxAgeMs;
 
 /** Body of every `--check` HEALTHCHECK entrypoint: prints one line, exits 0/1. */
-export const reportHeartbeatCheck = async (path: string): Promise<never> => {
+export const reportHeartbeatCheck = async (
+  path: string,
+  maxAgeMs: number = MAX_HEARTBEAT_AGE_MS
+): Promise<never> => {
   const age = await heartbeatAgeMs(path);
-  const fresh = isHeartbeatFresh(age);
+  const fresh = isHeartbeatFresh(age, maxAgeMs);
   process.stdout.write(`${JSON.stringify({ ageMs: age, fresh })}\n`);
   process.exit(fresh ? 0 : 1);
 };

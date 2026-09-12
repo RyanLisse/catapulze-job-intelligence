@@ -32,7 +32,7 @@ Derived by pure `deriveBronHealth` in
 | `inactive` | info | Bron `actief=false`. Other signals suppressed. | Confirm intentional pause; re-activate when ready. |
 | `never_run` | warning | No completed poll run yet. | Check scheduler / first `poll-bron` enqueue; verify bron config. |
 | `circuit_open` | critical | Last run circuit status is `open`. | Inspect last failure; fix root cause; wait for cooldown or reset circuit after verified fix. |
-| `scheduler_stale` | critical | No poll run across **any** bron within 2x smallest interval (deployment-wide). | Check Trigger/on-box poll worker, `schedule-slice-a-polls`, and queue lag — not a single-source bug. |
+| `scheduler_stale` | critical | No poll run across **any** bron within 2x smallest interval (deployment-wide). | Check the on-box poller's `poller_cycle` logs and advisory lock ([onbox-poller.md](./onbox-poller.md)); this is not a single-source bug. |
 | `schedule_overdue` | warning (critical if circuit open) | `now` past `next_run_at` + 1x interval + 5 min grace. | Confirm worker heartbeats; inspect that bron's recent runs; escalate if cluster-wide. |
 | `recent_failures` | warning (1-2) / critical (>=3) | Failed runs in the rolling 24h window. | Open run detail; map `failure_code` below; fix connector/upstream. |
 | `latest_error` | warning | Last finished run failed; detail often `class/code`. | Same as `recent_failures` for the latest code. |

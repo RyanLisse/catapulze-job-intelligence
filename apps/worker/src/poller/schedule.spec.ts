@@ -3,7 +3,7 @@ import { describe, expect, it } from "bun:test";
 import type { BronId } from "@ji/domain";
 
 import type { PollCandidate } from "./schedule";
-import { dueCandidates } from "./schedule";
+import { dueCandidates, partitionByLiveFlag } from "./schedule";
 
 /** 2026-06-15 10:55 Europe/Amsterdam (CEST, UTC+2). */
 const NOW = new Date("2026-06-15T08:55:00.000Z");
@@ -92,5 +92,44 @@ describe("dueCandidates", () => {
         )
       )
     ).toEqual(["tenderned"]);
+  });
+});
+
+describe("partitionByLiveFlag", () => {
+  it("skips a source whose live flag is unset in production", () => {
+    const result = partitionByLiveFlag([candidate()], {
+      NODE_ENV: "production",
+    });
+    expect(result.live).toEqual([]);
+    expect(slugsOf(result.notLive)).toEqual(["tenderned"]);
+  });
+
+  it("polls the same source once its live flag is set", () => {
+    const result = partitionByLiveFlag([candidate()], {
+      NODE_ENV: "production",
+      TENDER_NED_LIVE: "1",
+    });
+    expect(slugsOf(result.live)).toEqual(["tenderned"]);
+    expect(result.notLive).toEqual([]);
+  });
+
+  it("polls a fixture-backed source outside production", () => {
+    const result = partitionByLiveFlag([candidate()], {
+      NODE_ENV: "development",
+    });
+    expect(slugsOf(result.live)).toEqual(["tenderned"]);
+    expect(result.notLive).toEqual([]);
+  });
+
+  it("reads the flag name from the source definition, per source", () => {
+    const result = partitionByLiveFlag(
+      [
+        candidate({ bronSlug: "tenderned" }),
+        candidate({ bronSlug: "inhuurdesk" }),
+      ],
+      { INHUURDESK_LIVE: "1", NODE_ENV: "production" }
+    );
+    expect(slugsOf(result.live)).toEqual(["inhuurdesk"]);
+    expect(slugsOf(result.notLive)).toEqual(["tenderned"]);
   });
 });

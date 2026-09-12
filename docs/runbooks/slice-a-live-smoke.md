@@ -45,7 +45,7 @@ Repeat for Inhuurdesk when needed. Activation requires:
 - A **succeeded** scrape run with `run_kind=test`
 - ≥20 distinct `source_record_id` values on that run’s observations
 
-After activation, scheduled polls (`run_kind=poll`) may run; Trigger.dev task `poll-bron` executes poll → curate → outbox drain.
+After activation, scheduled polls (`run_kind=poll`) may run; the on-box poller executes poll → curate and defers the outbox drain to the projector (see [onbox-poller.md](./onbox-poller.md)). Remember that in production a source is only polled once its live flag is set.
 
 ## Verify search
 
@@ -55,9 +55,8 @@ After activation, scheduled polls (`run_kind=poll`) may run; Trigger.dev task `p
 
 ## Trigger.dev (project `proj_xgtjezribvfwcmqktcli`)
 
-- `schedule-slice-a-polls`: cron `*/15 * * * *` Europe/Amsterdam, fans out `poll-bron` per pollable bron (KTD6 isolation).
 - `schedule-enrich-incomplete`: cron `5 * * * *` Europe/Amsterdam, triggers `enrich-incomplete` with dryRun defaults (see `docs/runbooks/enrichment-schedule.md`).
-- `poll-bron`: ingest pipeline for one bron.
+- Polling is no longer here: `schedule-slice-a-polls` and `poll-bron` were deleted with the move to the on-box poller ([onbox-poller.md](./onbox-poller.md)), which reads each bron's own `curated.bron.interval`.
 - `drain-outbox`: optional standalone drain only in `SEARCH_PROJECTOR=worker`;
   in `onbox` mode it returns `deferred: true` and the on-box projector owns the
   drain.

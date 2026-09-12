@@ -1,18 +1,19 @@
 # Scheduled Coolify / cron oneshot Slice A polls (CTP-489)
 
-Credit-outage durability: run the CTP-488 oneshot CLI on a weekday cadence from
-Coolify Scheduled Tasks (or host cron) **without Trigger credits**.
+Fallback durability: run the CTP-488 oneshot CLI on a weekday cadence from
+Coolify Scheduled Tasks (or host cron).
 
-**Not a permanent Trigger replacement.** When credits are restored, prefer
-`schedule-slice-a-polls` → `poll-bron` again and disable this schedule.
-Motian backfill paths are untouched. LLM OFF.
+**Not the scheduler.** Routine ingest is the on-box poller
+([onbox-poller.md](./onbox-poller.md)), which replaced the Trigger schedule
+`schedule-slice-a-polls` and its `poll-bron` task; keep this Coolify schedule
+disabled while the poller is healthy. Motian backfill paths are untouched. LLM OFF.
 
-## When to use vs Trigger
+## When to use vs the poller
 
 | Situation | Action |
 |-----------|--------|
-| Trigger out of credits / `schedule-slice-a-polls` stuck queued | Enable this Coolify/cron schedule |
-| Trigger healthy + credits OK | Use Trigger; disable Coolify schedule |
+| Poller stopped or stuck and cannot be restored quickly | Enable this Coolify/cron schedule |
+| Poller healthy | Use the poller; disable this Coolify schedule |
 | One-off prove / single bron | Use `oneshot-slice-a-polls.ts` directly (see [slice-a-oneshot-poll.md](./slice-a-oneshot-poll.md)) |
 | Motian Neon backfill | Out of scope — leave Motian alone |
 
@@ -69,11 +70,13 @@ bash apps/worker/scripts/scheduled-oneshot-slice-a-polls.sh --limit 1
 2. `/readyz` ready + `lagEvents≈0` before enabling the schedule.
 3. Capture one tick JSON: `scrapeRunId`, `totals.nieuw`, `hardFail`, exit code.
 4. Keep Motian untouched; do not flip LLM residual.
-5. When Ryan tops up Trigger credits: prove one COMPLETED `poll-bron`, then
-   **disable** this Coolify schedule.
+5. Once the poller is healthy again: confirm one `poller_source` line per
+   expected bron, then **disable** this Coolify schedule.
 
 ## Related
 
 - [slice-a-oneshot-poll.md](./slice-a-oneshot-poll.md) — manual CLI
 - [enrichment-schedule.md](./enrichment-schedule.md) — Trigger enrich schedule
-- `apps/worker/src/tasks/schedule-slice-a-polls.ts` — cloud fan-out (`*/15`)
+- [onbox-poller.md](./onbox-poller.md): the on-box poller that replaced the
+  `schedule-slice-a-polls` cloud fan-out. Scheduled polling now runs there and
+  this Coolify schedule exists only as a manual fallback.
