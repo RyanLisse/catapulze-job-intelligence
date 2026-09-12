@@ -241,13 +241,23 @@ const expectExactlyOneNewVersionPerIdentity = async (
   expect(new Set(state.versions.map((version) => version.aanvraagId))).toEqual(
     new Set(state.requests.map((request) => request.id))
   );
-  expect(state.outbox).toHaveLength(2);
-  expect(
-    state.outbox.every((event) => event.eventType === "aanvraag.nieuw")
-  ).toBe(true);
-  expect(new Set(state.outbox.map((event) => event.aggregateId))).toEqual(
+  // Exactly one create event per identity. A later poll of unchanged content
+  // adds its own `aanvraag.gewijzigd` (CTP-498: laatst_gezien_op is a projected
+  // field), so the create events are counted rather than the whole outbox.
+  const created = state.outbox.filter(
+    (event) => event.eventType === "aanvraag.nieuw"
+  );
+  expect(created).toHaveLength(2);
+  expect(new Set(created.map((event) => event.aggregateId))).toEqual(
     new Set(state.requests.map((request) => request.id))
   );
+  expect(
+    state.outbox.every(
+      (event) =>
+        event.eventType === "aanvraag.nieuw" ||
+        event.eventType === "aanvraag.gewijzigd"
+    )
+  ).toBe(true);
 };
 
 const expectInjectedReadFailure = async (
@@ -450,6 +460,11 @@ describe
         expect(later.remaining).toBe(0);
         expect(fixture.connectorInvocations).toBe(2);
 
+        // CTP-498: the later poll bumped laatst_gezien_op on both identities,
+        // so each carries one seen event on top of its create event.
+        const beforeReplay = await readDurableState(fixture.runtime.database);
+        expect(beforeReplay.outbox).toHaveLength(4);
+
         fixture.disableConnector();
         const replay = await runBronIngestPipeline(
           laterPayload,
@@ -460,6 +475,10 @@ describe
         expect(replay.remaining).toBe(0);
         expect(fixture.connectorInvocations).toBe(2);
         await expectExactlyOneNewVersionPerIdentity(fixture.runtime.database);
+        // The retry observes the same payload at the same instant, so it moves
+        // no field and enqueues nothing: the seen event is not a per-poll tax.
+        const afterReplay = await readDurableState(fixture.runtime.database);
+        expect(afterReplay.outbox).toHaveLength(4);
 
         const state = await readDurableState(fixture.runtime.database);
         expect(state.observations).toHaveLength(4);

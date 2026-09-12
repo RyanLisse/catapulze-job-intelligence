@@ -71,6 +71,24 @@ For a current aanvraag, the report can identify:
 It prints exact totals and only capped samples, so a large index does not turn
 operator output into an unbounded data dump.
 
+### Closed drift class: seen-only and status-only curated writes (CTP-498)
+
+Until CTP-498, an observation whose `content_hash` equalled the stored one
+wrote `laatst_gezien_op`, `status`, and the RJC-394 derived columns on
+`curated.aanvraag` with no outbox event. All of those fields are in the search
+document and therefore in the projection hash, and the projector skips a later
+same-content event, so the index kept a closed aanvraag active and a stale
+last-seen date until the content changed; one measured run went from 0 to 46
+source-hash mismatches in ten minutes against an empty outbox. That path now
+enqueues its own event inside the same transaction as the row write:
+`aanvraag.status_gewijzigd` when the status flips and `aanvraag.gewijzigd` when
+only the last-seen date or a derived column moves. An observation that moves
+nothing still writes nothing. To verify, let the poller run two full cycles with
+the projector draining normally, then run the report-only reconciliation twice:
+a source-hash-mismatch count that stays at 0 across both cycles is the evidence.
+A non-zero count here is a new producer that writes a projected field without an
+event, not a repair-tool problem; find the writer before applying repairs.
+
 ## Applying repairs
 
 `--apply` handles each class as follows:

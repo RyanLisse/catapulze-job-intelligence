@@ -2,7 +2,10 @@ import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import path from "node:path";
 
 import type { CurateStore } from "@ji/application/identity";
-import { curateObservation } from "@ji/application/identity";
+import {
+  AANVRAAG_GEWIJZIGD_EVENT,
+  curateObservation,
+} from "@ji/application/identity";
 import {
   AANVRAAG_STATUS_GEWIJZIGD_EVENT,
   createInMemoryLifecyclePorts,
@@ -333,6 +336,89 @@ describe("PostgresCurateStore transaction boundary (RJC-399)", () => {
       .orderBy(outboxEvent.sequenceNumber);
     expect(events.map((event) => event.eventType)).toEqual([
       "aanvraag.nieuw",
+      AANVRAAG_STATUS_GEWIJZIGD_EVENT,
+    ]);
+  });
+
+  /**
+   * CTP-498: the unchanged-content path writes projected fields, so its outbox
+   * event has to commit through real Postgres together with the row -- the
+   * in-memory double cannot prove the transaction boundary.
+   */
+  it("commits the unchanged-content seen and status writes with their events", async () => {
+    if (!available || !database) {
+      expect(available).toBe(false);
+      return;
+    }
+    const { bronId, runIds } = await seedBronAndRuns(database, 3);
+    const store = new PostgresCurateStore(database);
+
+    const created = await curateObservation(
+      store,
+      observation(bronId, runIds[0] ?? "", "A", "hash-stable")
+    );
+    const aanvraagId = created.aanvraagId ?? "";
+
+    // Seen-only: later observedAt, same content, same status.
+    const seenAt = new Date("2026-09-02T06:00:00.000Z");
+    const seen = await curateObservation(store, {
+      ...observation(bronId, runIds[1] ?? "", "A", "hash-stable"),
+      observedAt: seenAt,
+    });
+    expect(seen).toMatchObject({ status: "unchanged" });
+    expect(seen.outboxEventId).toBeTruthy();
+
+    const [afterSeen] = await database
+      .select({
+        laatstGezienOp: aanvraag.laatstGezienOp,
+        versie: aanvraag.versie,
+      })
+      .from(aanvraag)
+      .where(eq(aanvraag.id, aanvraagId));
+    expect(afterSeen).toEqual({ laatstGezienOp: seenAt, versie: 1 });
+    expect(
+      await database
+        .select({ id: aanvraagVersie.id })
+        .from(aanvraagVersie)
+        .where(eq(aanvraagVersie.aanvraagId, aanvraagId))
+    ).toHaveLength(1);
+
+    // Status flip on unchanged content: new SCD2 version plus status event.
+    const closedAt = new Date("2026-09-03T06:00:00.000Z");
+    const base = observation(bronId, runIds[2] ?? "", "A", "hash-stable");
+    const flipped = await curateObservation(store, {
+      ...base,
+      draft: { ...base.draft, status: "closed" },
+      observedAt: closedAt,
+    });
+    expect(flipped).toMatchObject({ status: "unchanged", versie: 2 });
+
+    const [afterFlip] = await database
+      .select({ status: aanvraag.status, versie: aanvraag.versie })
+      .from(aanvraag)
+      .where(eq(aanvraag.id, aanvraagId));
+    expect(afterFlip).toEqual({ status: "closed", versie: 2 });
+    const versies = await database
+      .select({
+        geldigTot: aanvraagVersie.geldigTot,
+        versie: aanvraagVersie.versie,
+      })
+      .from(aanvraagVersie)
+      .where(eq(aanvraagVersie.aanvraagId, aanvraagId))
+      .orderBy(aanvraagVersie.versie);
+    expect(versies).toEqual([
+      { geldigTot: closedAt, versie: 1 },
+      { geldigTot: null, versie: 2 },
+    ]);
+
+    const events = await database
+      .select({ eventType: outboxEvent.eventType })
+      .from(outboxEvent)
+      .where(eq(outboxEvent.aggregateId, aanvraagId))
+      .orderBy(outboxEvent.sequenceNumber);
+    expect(events.map((event) => event.eventType)).toEqual([
+      "aanvraag.nieuw",
+      AANVRAAG_GEWIJZIGD_EVENT,
       AANVRAAG_STATUS_GEWIJZIGD_EVENT,
     ]);
   });

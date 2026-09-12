@@ -146,6 +146,12 @@ export interface CurateObservationResult {
   versie?: number;
 }
 
+/** Content change on an already-curated aanvraag; the projector reloads and upserts. */
+export const AANVRAAG_GEWIJZIGD_EVENT = "aanvraag.gewijzigd";
+
+/** Status change that carries no new content. Lives here so both writers share it. */
+export const AANVRAAG_STATUS_GEWIJZIGD_EVENT = "aanvraag.status_gewijzigd";
+
 const tariefColumn = (
   value: string | typeof UNKNOWN | typeof CLEARED
 ): string | null => (value === UNKNOWN || value === CLEARED ? null : value);
@@ -569,6 +575,174 @@ const ensureDedupGroep = (
     }),
   });
 
+/**
+ * Fields the unchanged-content path may still move on an already-curated row.
+ *
+ * Only fields that actually differ from the stored row are returned, so an
+ * observation that moves nothing writes nothing -- and, through the caller,
+ * enqueues nothing.
+ *
+ * RJC-394 fix-first: an unchanged raw payload still needs to surface
+ * locatie_tekst/sluitingsdatum on an already-curated row -- otherwise a
+ * listing whose source content never changes again would never get these
+ * columns filled, making the degraded (country-code/sentinel) state permanent
+ * instead of transitional. Only write when the draft actually has a value: a
+ * source that stops publishing a deadline must never silently erase a value
+ * already stored from an earlier observation.
+ */
+const buildUnchangedContentPatch = (
+  input: CurateObservationInput,
+  existing: StoredAanvraag
+): Partial<StoredAanvraag> => {
+  const { draft } = input;
+  const patch: Partial<StoredAanvraag> = {};
+  if (input.observedAt.getTime() > existing.laatstGezienOp.getTime()) {
+    patch.laatstGezienOp = input.observedAt;
+  }
+  if (draft.status !== existing.status) {
+    patch.status = draft.status;
+  }
+  if (
+    draft.locatieTekst.value !== UNKNOWN &&
+    draft.locatieTekst.value !== existing.locatieTekst
+  ) {
+    patch.locatieTekst = draft.locatieTekst.value;
+  }
+  if (existing.opdrachtgeverNaam === null) {
+    const value = draftTextColumn(draft.opdrachtgeverNaam.value);
+    if (value !== null) {
+      patch.opdrachtgeverNaam = value;
+    }
+  }
+  if (existing.startDatum === null) {
+    const value = draftTextColumn(draft.startDatum.value);
+    if (value !== null) {
+      patch.startDatum = value;
+    }
+  }
+  if (existing.publicatiedatum === null) {
+    const value = readBronText(
+      asBronSpecifiekRecord(draft.bronSpecifiek.value),
+      "publicatiedatum",
+      "gepubliceerd_op",
+      "publicatie_datum",
+      "json_ld_date_posted"
+    );
+    if (value !== null) {
+      patch.publicatiedatum = value;
+    }
+  }
+  if (existing.contracttype === null) {
+    const value = explicitBronText(draft, "contracttype", "contract_type");
+    if (value !== null) {
+      patch.contracttype = value;
+    }
+  }
+  if (existing.werkvorm === null) {
+    const value = explicitBronText(draft, "werkvorm");
+    if (value !== null) {
+      patch.werkvorm = value;
+    }
+  }
+  if (
+    draft.sluitingsdatum !== undefined &&
+    draft.sluitingsdatum.getTime() !== existing.sluitingsdatum?.getTime()
+  ) {
+    patch.sluitingsdatum = draft.sluitingsdatum;
+  }
+  return patch;
+};
+
+/**
+ * Observation whose content hash equals the stored one (CTP-498).
+ *
+ * Every field this path can move -- `laatst_gezien_op`, `status`, `locatie`,
+ * `sluitingsdatum`, `contracttype` -- is part of the search document and so of
+ * the projection hash, and the projector skips a later same-content event.
+ * A write here therefore has to enqueue its own outbox event or the Manticore
+ * index keeps a closed aanvraag active and a stale last-seen date until the
+ * content changes. The event is bound to the row write by one transaction
+ * (RJC-399), with the outbox insert last.
+ *
+ * Event type: the projector has no per-type dispatch apart from
+ * `aanvraag.verwijderd` (packages/search/src/projector.ts), so every other
+ * type is "reload the aggregate and upsert". The two existing types therefore
+ * carry this without a projector change: `aanvraag.status_gewijzigd` for a
+ * status flip, matching the lifecycle reconcile writer, and `aanvraag.gewijzigd`
+ * for a seen-only or derived-column move.
+ *
+ * `versie` moves only for a status flip: `status` is the one field here that
+ * `buildSnapshot` records, so a flip without a new SCD2 version would leave the
+ * open version's snapshot contradicting the row. The other fields are absent
+ * from the snapshot, so a version for them would carry no new information.
+ */
+const curateUnchangedContent = (
+  store: CurateStore,
+  input: CurateObservationInput,
+  existing: StoredAanvraag
+): Promise<CurateObservationResult> => {
+  const patch = buildUnchangedContentPatch(input, existing);
+  if (Object.keys(patch).length === 0) {
+    return Promise.resolve<CurateObservationResult>({
+      aanvraagId: existing.aanvraagId,
+      status: "unchanged",
+    });
+  }
+
+  const statusChanged = patch.status !== undefined;
+  const versie = existing.versie + 1;
+
+  return store.withTransaction(async (tx) => {
+    const rowPatch: Partial<StoredAanvraag> = { ...patch };
+    if (statusChanged) {
+      rowPatch.versie = versie;
+      await tx.closeOpenVersie(existing.aanvraagId, input.observedAt);
+    }
+    const updated = await tx.updateAanvraag(existing.aanvraagId, rowPatch);
+    if (statusChanged) {
+      await tx.insertVersie({
+        aanvraagId: updated.aanvraagId,
+        contentHash: updated.contentHash,
+        geldigTot: null,
+        geldigVan: input.observedAt,
+        rawPayloadRef: updated.rawPayloadRef,
+        scrapeRunId: input.scrapeRunId,
+        snapshot: buildSnapshot(updated),
+        versie,
+      });
+    }
+    const basePayload = {
+      content_hash: updated.contentHash,
+      parser_version: updated.parserVersion,
+      scrape_run_id: input.scrapeRunId,
+    };
+    // The projector pins a payload status over the loaded row, so a status
+    // flip stays correct even when the row moved on before the drain.
+    const payload = statusChanged
+      ? { ...basePayload, status: updated.status }
+      : basePayload;
+    const outbox = await timeCriticalPathPhase("ingest-outbox", () =>
+      tx.insertOutboxEvent({
+        aggregateId: updated.aanvraagId,
+        aggregateType: "aanvraag",
+        eventType: statusChanged
+          ? AANVRAAG_STATUS_GEWIJZIGD_EVENT
+          : AANVRAAG_GEWIJZIGD_EVENT,
+        payload,
+      })
+    );
+    const result: CurateObservationResult = {
+      aanvraagId: updated.aanvraagId,
+      outboxEventId: outbox.id,
+      status: "unchanged",
+    };
+    if (statusChanged) {
+      result.versie = versie;
+    }
+    return result;
+  });
+};
+
 export const curateObservation = async (
   store: CurateStore,
   input: CurateObservationInput
@@ -579,70 +753,7 @@ export const curateObservation = async (
   );
 
   if (existing && existing.contentHash === input.draft.contentHash) {
-    // ponytail: known gap — this branch writes a status change with NO outbox
-    // event, so a draft whose status flips while the content hash stays equal
-    // silently diverges the search index (the projection hash skips later
-    // same-content events). Repair: bun run search:reconcile-projection —
-    // see docs/runbooks/projection-repair.md.
-    const { draft } = input;
-    const patch: Partial<StoredAanvraag> = {
-      laatstGezienOp: input.observedAt,
-      status: draft.status,
-    };
-    // RJC-394 fix-first: an unchanged raw payload still needs to surface
-    // locatie_tekst/sluitingsdatum on an already-curated row -- otherwise a
-    // listing whose source content never changes again would never get
-    // these columns filled, making the degraded (country-code/sentinel)
-    // state permanent instead of transitional. These are derived fields
-    // like `status` above, so this write does not bump `versie` or emit an
-    // outbox event. Only write when the draft actually has a value: a
-    // source that stops publishing a deadline must never silently erase a
-    // value already stored from an earlier observation.
-
-    if (draft.locatieTekst.value !== UNKNOWN) {
-      patch.locatieTekst = draft.locatieTekst.value;
-    }
-    if (existing.opdrachtgeverNaam === null) {
-      const value = draftTextColumn(draft.opdrachtgeverNaam.value);
-      if (value !== null) {
-        patch.opdrachtgeverNaam = value;
-      }
-    }
-    if (existing.startDatum === null) {
-      const value = draftTextColumn(draft.startDatum.value);
-      if (value !== null) {
-        patch.startDatum = value;
-      }
-    }
-    if (existing.publicatiedatum === null) {
-      const value = readBronText(
-        asBronSpecifiekRecord(draft.bronSpecifiek.value),
-        "publicatiedatum",
-        "gepubliceerd_op",
-        "publicatie_datum",
-        "json_ld_date_posted"
-      );
-      if (value !== null) {
-        patch.publicatiedatum = value;
-      }
-    }
-    if (existing.contracttype === null) {
-      const value = explicitBronText(draft, "contracttype", "contract_type");
-      if (value !== null) {
-        patch.contracttype = value;
-      }
-    }
-    if (existing.werkvorm === null) {
-      const value = explicitBronText(draft, "werkvorm");
-      if (value !== null) {
-        patch.werkvorm = value;
-      }
-    }
-    if (draft.sluitingsdatum !== undefined) {
-      patch.sluitingsdatum = draft.sluitingsdatum;
-    }
-    await store.updateAanvraag(existing.aanvraagId, patch);
-    return { aanvraagId: existing.aanvraagId, status: "unchanged" };
+    return curateUnchangedContent(store, input, existing);
   }
 
   // One transaction per mutation (RJC-399): versie + aanvraag + outbox
@@ -775,7 +886,7 @@ export const curateObservation = async (
       tx.insertOutboxEvent({
         aggregateId: updated.aanvraagId,
         aggregateType: "aanvraag",
-        eventType: "aanvraag.gewijzigd",
+        eventType: AANVRAAG_GEWIJZIGD_EVENT,
         payload: {
           content_hash: updated.contentHash,
           parser_version: updated.parserVersion,
