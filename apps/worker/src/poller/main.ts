@@ -218,6 +218,9 @@ const main = async (): Promise<void> => {
       const candidates = await loadPollCandidates(runtime);
       const due = dueCandidates(candidates, new Date());
       for (const candidate of due) {
+        if (controller.signal.aborted) {
+          break;
+        }
         // oxlint-disable-next-line no-await-in-loop -- one source at a time by design; crawl_delay_ms paces requests inside a source
         const log = await pollSource(candidate, runtime, curateBudgetMs);
         logLine(process.stdout, "poller_source", log);
