@@ -284,6 +284,13 @@ services:
       POLLER_DATABASE_URL: ${POLLER_DATABASE_URL:-${CATAPULZE_DATABASE_URL:?CATAPULZE_DATABASE_URL is required}}
       POLLER_TICK_MS: ${POLLER_TICK_MS:-60000}
       POLLER_CURATE_BUDGET_MS: ${POLLER_CURATE_BUDGET_MS:-120000}
+      # Sources polled side by side per cycle. Politeness per host is unchanged:
+      # crawl_delay_ms still paces requests inside one source. Also the ceiling
+      # on concurrent curate drains against Postgres, one per source in flight.
+      POLLER_CONCURRENCY: ${POLLER_CONCURRENCY:-2}
+      # A scrape run still `running` after this is failed at the top of a cycle;
+      # a process killed mid-run would otherwise leave the row running forever.
+      POLLER_ABANDON_RUN_AFTER_MS: ${POLLER_ABANDON_RUN_AFTER_MS:-21600000}
       RAW_S3_BUCKET: ${RAW_S3_BUCKET:-}
       RAW_S3_ENDPOINT: ${RAW_S3_ENDPOINT:-}
       RAW_S3_REGION: ${RAW_S3_REGION:-}
