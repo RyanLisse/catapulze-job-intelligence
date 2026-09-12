@@ -1,7 +1,6 @@
+import { abortableSleep } from "@ji/db/abortable-sleep";
+import { LockLostError } from "@ji/db/process-lock";
 import { SearchIndexSchemaMismatchError } from "@ji/search";
-
-import { LockLostError } from "./lock";
-import { abortableSleep } from "./sleep";
 
 /** One drain cycle's outcome, the subset `runProjectorLoop` needs to decide pacing. */
 export interface ProjectorDrainResult {

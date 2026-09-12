@@ -279,7 +279,7 @@ refreshed against the live state before execution. Historical reasoning:
   milliseconds. A concurrent query from the worker or projector that needs the
   same table queues for, at most, tens of milliseconds — not a perceptible
   outage, and well under any client-side timeout in this codebase.
-- The worker's writes to these tables (`poll-bron`, `drain-outbox`) are short,
+- The poller's and worker's writes to these tables (on-box poll cycles, `drain-outbox`) are short,
   single-statement-per-row transactions, not long-held ones — there is no
   scenario here where the migration would queue for minutes behind an open
   worker transaction the way it could on a system with long-running batch

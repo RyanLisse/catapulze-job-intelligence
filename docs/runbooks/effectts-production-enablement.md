@@ -18,7 +18,10 @@ prior/native path.
 | search | `JI_EFFECT_SEARCH` | `ManticoreSearchEngine.fromUrl` → `FetchManticoreEffectClient` | `FetchManticoreClient` |
 | db | `JI_EFFECT_DB` | Slice-8 store wrappers via `applyDbStoreEffectCanary` | Native `Postgres*Store` / readers |
 | server | `JI_EFFECT_SERVER` | REST/MCP invokers → Effect transport boundary | Native Promise invokers |
-| worker | `JI_EFFECT_WORKER` | `poll-bron` / `drain-outbox` task bodies → Effect boundary | Native `runPollBron` / `runDrainOutbox` |
+| worker | `JI_EFFECT_WORKER` | `drain-outbox` task body → Effect boundary | Native `runDrainOutbox` |
+
+The `poll-bron` half of this row is gone: polling moved to the on-box poller
+([onbox-poller.md](./onbox-poller.md)), which has no Effect boundary.
 | perf | `PERF_EFFECT_SPANS` (alias `JI_EFFECT_PERF`) | `@ji/performance/effect` spans | Native critical-path sessions only |
 
 Shared SoT: `@ji/env/effect-flags` (`isEffectSurfaceEnabled`, `readEffectSurfaceFlags`).

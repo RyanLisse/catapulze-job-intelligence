@@ -86,14 +86,8 @@ describe("runWorkerPromise", () => {
 
 describe("Trigger durability contract (Slice 10)", () => {
   it("preserves Trigger maxAttempts and leaves Motian backfill Effect-free", async () => {
-    const pollSource = await Bun.file(
-      new URL("../tasks/poll-bron.ts", import.meta.url)
-    ).text();
     const drainSource = await Bun.file(
       new URL("../tasks/drain-outbox.ts", import.meta.url)
-    ).text();
-    const scheduleSource = await Bun.file(
-      new URL("../tasks/schedule-slice-a-polls.ts", import.meta.url)
     ).text();
     const enrichScheduleSource = await Bun.file(
       new URL("../tasks/schedule-enrich-incomplete.ts", import.meta.url)
@@ -105,10 +99,7 @@ describe("Trigger durability contract (Slice 10)", () => {
       new URL("../../trigger.config.ts", import.meta.url)
     ).text();
 
-    expect(pollSource).toContain("maxAttempts: 2");
-    // CTP-479: default path still calls native runPollBron; Effect is flag-gated.
-    expect(pollSource).toContain("return runPollBron(payload)");
-    expect(pollSource).toContain("isEffectWorkerEnabled");
+    // CTP-479: default path still calls native runDrainOutbox; Effect is flag-gated.
     expect(drainSource).toContain("maxAttempts: 2");
     expect(drainSource).toContain("return runDrainOutbox(payload)");
     expect(drainSource).toContain("isEffectWorkerEnabled");
@@ -118,8 +109,6 @@ describe("Trigger durability contract (Slice 10)", () => {
     expect(backfillSource.includes("runWorkerPromise")).toBe(false);
     expect(backfillSource.includes("fromWorkerPromise")).toBe(false);
     expect(backfillSource.includes("WorkerFault")).toBe(false);
-    expect(scheduleSource).toContain("schedules.task");
-    expect(scheduleSource.includes("runWorkerPromise")).toBe(false);
     expect(enrichScheduleSource).toContain("schedules.task");
     expect(enrichScheduleSource).toContain('id: "schedule-enrich-incomplete"');
     expect(enrichScheduleSource.includes("runWorkerPromise")).toBe(false);

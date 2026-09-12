@@ -1,18 +1,19 @@
 # Slice A oneshot poll CLI (CTP-488)
 
-Offline-capable ops CLI that wraps the same `runPollBron` body as Trigger task
-`poll-bron` (`createPollBronRuntime` + `runBronIngestPipeline(..., "poll")`) for
-**Trigger credit outages** and Coolify / on-box container ops.
+Offline-capable ops CLI wrapping `createPollBronRuntime` +
+`runBronIngestPipeline(..., "poll")` for Coolify / on-box container ops.
 
-**Not a permanent Trigger replacement.** When credits are restored, prefer
-`schedule-slice-a-polls` → `poll-bron` again. Motian backfill paths are untouched.
+**Not the scheduler.** Routine ingest is the on-box poller
+([onbox-poller.md](./onbox-poller.md)), which replaced the Trigger schedule
+`schedule-slice-a-polls` and its `poll-bron` task; this CLI is the manual
+one-shot beside it. Motian backfill paths are untouched.
 
 ## When to use
 
 | Situation | Action |
 |-----------|--------|
-| Trigger out of credits / `schedule-slice-a-polls` stuck queued | List then oneshot poll activated Slice A brons from Coolify server container |
-| Routine scheduled ingest | Use Trigger `schedule-slice-a-polls` (not this CLI) |
+| Poller stopped, or one bron needs a poll now | List then oneshot poll activated Slice A brons from Coolify server container |
+| Routine scheduled ingest | Use the on-box poller ([onbox-poller.md](./onbox-poller.md)), not this CLI |
 | Fresh DB seed / test-import / activate | Use `poll-bron-smoke.ts` (this CLI never seeds) |
 | Motian Neon backfill | Out of scope — leave Motian alone |
 
@@ -20,15 +21,15 @@ Offline-capable ops CLI that wraps the same `runPollBron` body as Trigger task
 
 - Default mode is **`--list` / `--dry-run`**: prints pollable targets, **no poll**.
 - `--run` is required to execute.
-- Targets are **activated + schedule-eligible Slice A** brons only (same filter as
-  `schedule-slice-a-polls` via `listPollableSliceABronnen`).
+- Targets are **activated + schedule-eligible Slice A** brons only (same
+  `listPollableSliceABronnen` filter the on-box poller uses).
 - Fan-out is **sequential** (bounded Coolify load). Optional `--limit N`.
 - On non-hash hard failure, fan-out **stops** so ops can investigate.
 
 ## Invoke (repo / on-box)
 
 ```bash
-# List what schedule-slice-a-polls would fan out to
+# List what the poller would consider pollable
 bun apps/worker/scripts/oneshot-slice-a-polls.ts --list
 
 # Dry-run alias
@@ -81,5 +82,4 @@ bash apps/worker/scripts/scheduled-oneshot-slice-a-polls.sh
 
 - `docs/runbooks/slice-a-live-smoke.md` — smoke / activate
 - `docs/runbooks/enrichment-schedule.md` — enrich Trigger schedule + ops flip
-- `apps/worker/src/tasks/schedule-slice-a-polls.ts` — cloud fan-out
-- `apps/worker/src/tasks/poll-bron.ts` — Trigger `runPollBron` entry
+- [onbox-poller.md](./onbox-poller.md): the scheduler this CLI sits beside

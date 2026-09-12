@@ -113,7 +113,7 @@ No Coolify env change in this step (already on-box).
 
 ### 5) Prove the write path
 
-1. Trigger a single `poll-bron` (or wait for `schedule-slice-a-polls`) in
+1. Wait for one `poller_source` line from the on-box poller (`docs/runbooks/onbox-poller.md`) in
    **prod**.
 2. Run status must be **succeeded** (not connect / timeout / SSL errors).
 3. On-box projector: `searchProjection` lag 0 after outbox drain (Coolify
@@ -135,7 +135,7 @@ No Coolify env change in this step (already on-box).
 - [ ] `hcloud firewall describe 11557985` shows TCP 5432 only from those `/32`s
 - [ ] Trigger prod `DATABASE_URL` is on-box `ji_app` (no Neon host)
 - [ ] `SEARCH_PROJECTOR=onbox`; no `MANTICORE_URL` on Trigger prod
-- [ ] At least one prod `poll-bron` **succeeded**
+- [ ] At least one prod poll **succeeded** (a `poller_source` line without `errorName`)
 - [ ] Projector lag 0 / Coolify `/readyz` still 200
 
 Then RJC-418 ops DoD can close aside from any remaining R2 restore-drill

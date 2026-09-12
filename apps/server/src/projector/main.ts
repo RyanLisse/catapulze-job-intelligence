@@ -7,6 +7,7 @@ import {
   PostgresSearchProjectorRuntimeStore,
   PostgresSearchVersionStore,
 } from "@ji/db";
+import { LockLostError, waitForAdvisoryLock } from "@ji/db/process-lock";
 /**
  * On-box search projector process (RJC-387, runbook: docs/runbooks/search-projector.md).
  *
@@ -22,7 +23,6 @@ import { env as projectorEnv } from "@ji/env/projector";
 import { ManticoreSearchEngine } from "@ji/search";
 
 import { heartbeatFilePath, writeHeartbeat } from "./heartbeat";
-import { LockLostError, waitForAdvisoryLock } from "./lock";
 import type { ProjectorCycleLog } from "./loop";
 import { runProjectorLoop } from "./loop";
 import { createProjectorRuntimeRecorder } from "./runtime";
@@ -103,6 +103,7 @@ const main = async (): Promise<void> => {
   // until the outgoing container's SIGTERM path releases the lock.
   let lastLockWaitLogAt = 0;
   const lock = await waitForAdvisoryLock(lockDatabaseUrl, ADVISORY_LOCK_KEY, {
+    databaseUrlVariable: "PROJECTOR_DATABASE_URL",
     onWaiting: async () => {
       await recordHeartbeat();
       const now = Date.now();

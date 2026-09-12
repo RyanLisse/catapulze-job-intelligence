@@ -236,3 +236,20 @@ export {
   PostgresScrapeRunReader,
   type ScrapeRunDatabase,
 } from "./scrape-run-reader";
+
+export { abortableSleep } from "./abortable-sleep";
+export {
+  heartbeatAgeMs,
+  isHeartbeatFresh,
+  MAX_HEARTBEAT_AGE_MS,
+  reportHeartbeatCheck,
+  resolveHeartbeatFilePath,
+  writeHeartbeat,
+} from "./process-heartbeat";
+export {
+  acquireAdvisoryLock,
+  LockLostError,
+  waitForAdvisoryLock,
+  type AdvisoryLockHandle,
+  type WaitForAdvisoryLockOptions,
+} from "./process-lock";

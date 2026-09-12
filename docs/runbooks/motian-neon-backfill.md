@@ -9,7 +9,7 @@ This runbook covers **historical Motian Neon backfill** and how imported rows re
 | Path | Source | When |
 | ---- | ------ | ---- |
 | **Motian Neon backfill** | Read-only `MOTIAN_DATABASE_URL` (operator-injected) | One-shot historical import; seven Motian platforms |
-| **Live poll-bron** | TenderNed / Inhuurdesk connectors | After bron `test-import` (≥20 distinct source records) and `--activate` |
+| **Live poll (on-box poller)** | TenderNed / Inhuurdesk connectors | After bron `test-import` (≥20 distinct source records) and `--activate` |
 
 Both paths persist curated rows and outbox events to Postgres. Search reads the same index regardless of ingest path.
 
@@ -192,7 +192,7 @@ For connector smoke and activation, see [slice-a-live-smoke.md](./slice-a-live-s
 bun apps/worker/scripts/poll-bron-smoke.ts --bron tenderned --test-import --activate
 ```
 
-4. Scheduled `poll-bron` (Trigger.dev) runs poll → curate → outbox drain automatically.
+4. The on-box poller (`docs/runbooks/onbox-poller.md`) runs poll, curate and the deferred outbox drain automatically.
 
 Do not open Slice C per-bron tickets from this runbook.
 
@@ -202,7 +202,7 @@ Search is **`POST /v1/aanvragen/search`** on `apps/server` (port 3000). The prod
 
 **After Motian backfill:** the backfill script does not drain the outbox. In
 `SEARCH_PROJECTOR=worker` mode, run the Trigger.dev **`drain-outbox`** task (or
-wait for a poll-bron cycle); that mode requires worker `DATABASE_URL` and
+wait for an on-box poller cycle); that mode requires worker `DATABASE_URL` and
 `MANTICORE_URL`. In production `SEARCH_PROJECTOR=onbox`, the Trigger task
 returns `deferred: true` and never drains: keep the on-box projector running
 and verify its cycle/lag evidence instead.

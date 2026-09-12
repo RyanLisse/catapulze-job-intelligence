@@ -3,7 +3,7 @@ import { beforeAll, describe, expect, it } from "bun:test";
 import { PROJECTOR_DATABASE_URL_DIRECT_MESSAGE } from "@ji/env/projector-database-url";
 import postgres from "postgres";
 
-import { acquireAdvisoryLock, waitForAdvisoryLock } from "./lock";
+import { acquireAdvisoryLock, waitForAdvisoryLock } from "./process-lock";
 
 const testDatabaseUrl =
   process.env.DATABASE_TEST_URL ??
@@ -38,7 +38,8 @@ describe("acquireAdvisoryLock (RJC-387)", () => {
     await expect(
       acquireAdvisoryLock(
         "postgresql://ji_app:secret@ep-blue-tree-pooler.eu-central-1.aws.neon.tech/catapulze?sslmode=require",
-        900_000_001
+        900_000_001,
+        "PROJECTOR_DATABASE_URL"
       )
     ).rejects.toThrow(PROJECTOR_DATABASE_URL_DIRECT_MESSAGE);
   });
@@ -51,16 +52,28 @@ describe("acquireAdvisoryLock (RJC-387)", () => {
     // Distinct per run so parallel spec files never collide on one key.
     const lockKey = 900_000_000 + Math.floor(Math.random() * 1_000_000);
 
-    const first = await acquireAdvisoryLock(testDatabaseUrl, lockKey);
+    const first = await acquireAdvisoryLock(
+      testDatabaseUrl,
+      lockKey,
+      "PROJECTOR_DATABASE_URL"
+    );
     expect(first.acquired).toBe(true);
 
-    const second = await acquireAdvisoryLock(testDatabaseUrl, lockKey);
+    const second = await acquireAdvisoryLock(
+      testDatabaseUrl,
+      lockKey,
+      "PROJECTOR_DATABASE_URL"
+    );
     expect(second.acquired).toBe(false);
     await second.release();
 
     await first.release();
 
-    const third = await acquireAdvisoryLock(testDatabaseUrl, lockKey);
+    const third = await acquireAdvisoryLock(
+      testDatabaseUrl,
+      lockKey,
+      "PROJECTOR_DATABASE_URL"
+    );
     expect(third.acquired).toBe(true);
     await third.release();
   });
@@ -74,7 +87,11 @@ describe("acquireAdvisoryLock (RJC-387)", () => {
     const admin = postgres(testDatabaseUrl, { max: 1 });
 
     try {
-      const handle = await acquireAdvisoryLock(testDatabaseUrl, lockKey);
+      const handle = await acquireAdvisoryLock(
+        testDatabaseUrl,
+        lockKey,
+        "PROJECTOR_DATABASE_URL"
+      );
       expect(handle.acquired).toBe(true);
 
       // Kill the lock's own backend from a second connection — simulates
@@ -109,7 +126,11 @@ describe("acquireAdvisoryLock (RJC-387)", () => {
     const rival = postgres(testDatabaseUrl, { max: 1 });
 
     try {
-      const handle = await acquireAdvisoryLock(testDatabaseUrl, lockKey);
+      const handle = await acquireAdvisoryLock(
+        testDatabaseUrl,
+        lockKey,
+        "PROJECTOR_DATABASE_URL"
+      );
       expect(handle.acquired).toBe(true);
 
       const [victim] = await admin<{ pid: number }[]>`
@@ -154,12 +175,17 @@ describe("waitForAdvisoryLock (rolling deploy handoff)", () => {
       return;
     }
     const lockKey = 900_000_000 + Math.floor(Math.random() * 1_000_000);
-    const first = await acquireAdvisoryLock(testDatabaseUrl, lockKey);
+    const first = await acquireAdvisoryLock(
+      testDatabaseUrl,
+      lockKey,
+      "PROJECTOR_DATABASE_URL"
+    );
     expect(first.acquired).toBe(true);
 
     const controller = new AbortController();
     let waits = 0;
     const pending = waitForAdvisoryLock(testDatabaseUrl, lockKey, {
+      databaseUrlVariable: "PROJECTOR_DATABASE_URL",
       onWaiting: () => {
         waits += 1;
         return Promise.resolve();
@@ -184,13 +210,18 @@ describe("waitForAdvisoryLock (rolling deploy handoff)", () => {
     }
     const lockKey = 900_000_000 + Math.floor(Math.random() * 1_000_000);
     const admin = postgres(testDatabaseUrl, { max: 1 });
-    const first = await acquireAdvisoryLock(testDatabaseUrl, lockKey);
+    const first = await acquireAdvisoryLock(
+      testDatabaseUrl,
+      lockKey,
+      "PROJECTOR_DATABASE_URL"
+    );
     expect(first.acquired).toBe(true);
 
     try {
       const controller = new AbortController();
       let waits = 0;
       const pending = waitForAdvisoryLock(testDatabaseUrl, lockKey, {
+        databaseUrlVariable: "PROJECTOR_DATABASE_URL",
         onWaiting: () => {
           waits += 1;
           return Promise.resolve();

@@ -1,8 +1,8 @@
 import { describe, expect, it } from "bun:test";
 
+import { LockLostError } from "@ji/db/process-lock";
 import { SearchIndexSchemaMismatchError } from "@ji/search";
 
-import { LockLostError } from "./lock";
 import type { ProjectorCycleLog, ProjectorDrainResult } from "./loop";
 import { runProjectorLoop } from "./loop";
 

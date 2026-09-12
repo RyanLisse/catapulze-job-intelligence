@@ -269,6 +269,51 @@ services:
       disable: true
     restart: unless-stopped
 
+  poller:
+    build:
+      context: .
+      dockerfile: apps/worker/Dockerfile.poller
+    profiles: ["poller"]
+    init: true
+    environment:
+      APP_RELEASE_SHA: ${APP_RELEASE_SHA:-}
+      DATABASE_URL: ${CATAPULZE_DATABASE_URL:?CATAPULZE_DATABASE_URL is required}
+      # Local Compose uses the same direct Postgres service for data and lock.
+      # Production must override this when CATAPULZE_DATABASE_URL is pooled;
+      # the poller's typed env rejects a known Neon pooler host here.
+      POLLER_DATABASE_URL: ${POLLER_DATABASE_URL:-${CATAPULZE_DATABASE_URL:?CATAPULZE_DATABASE_URL is required}}
+      POLLER_TICK_MS: ${POLLER_TICK_MS:-60000}
+      POLLER_CURATE_BUDGET_MS: ${POLLER_CURATE_BUDGET_MS:-120000}
+      RAW_S3_BUCKET: ${RAW_S3_BUCKET:-}
+      RAW_S3_ENDPOINT: ${RAW_S3_ENDPOINT:-}
+      RAW_S3_REGION: ${RAW_S3_REGION:-}
+      RAW_S3_ACCESS_KEY_ID: ${RAW_S3_ACCESS_KEY_ID:-}
+      RAW_S3_SECRET_ACCESS_KEY: ${RAW_S3_SECRET_ACCESS_KEY:-}
+      # Per-bron live flags (packages/application/src/sources/*.ts `liveEnv`).
+      # Unset means the connector reads a repo fixture; with NODE_ENV=production
+      # the poller skips those sources rather than committing fixture data.
+      BLUETRAIL_LIVE: ${BLUETRAIL_LIVE:-}
+      CTM_LIVE: ${CTM_LIVE:-}
+      FLINTER_LIVE: ${FLINTER_LIVE:-}
+      HARVEYNASH_LIVE: ${HARVEYNASH_LIVE:-}
+      HERO_LIVE: ${HERO_LIVE:-}
+      INHUURDESK_LIVE: ${INHUURDESK_LIVE:-}
+      NEEDSTAFFING_LIVE: ${NEEDSTAFFING_LIVE:-}
+      ONEFELLOW_LIVE: ${ONEFELLOW_LIVE:-}
+      OPDRACHTOVERHEID_LIVE: ${OPDRACHTOVERHEID_LIVE:-}
+      PROACT_LIVE: ${PROACT_LIVE:-}
+      STRIIVE_LIVE: ${STRIIVE_LIVE:-}
+      TENDER_NED_LIVE: ${TENDER_NED_LIVE:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    # Shutdown finishes the source in flight, so the stop timeout must cover one
+    # poll plus one curation pass. Same budget as the heartbeat allowance in
+    # apps/worker/src/poller/heartbeat.ts; below it Docker escalates to SIGKILL
+    # and the advisory lock stays held until Postgres reaps the connection.
+    stop_grace_period: 300s
+    restart: unless-stopped
+
   # One-shot bucket bootstrap: creates the configured local bucket and exits.
   # Re-running `up --profile storage` is idempotent (`mc mb --ignore-existing`).
   raw-storage-minio-init:
