@@ -102,6 +102,23 @@ const MAX_PARKED_PER_PASS = 5;
 const TRANSIENT_SQLSTATE_CLASSES = ["08", "40", "53", "57"] as const;
 
 /**
+ * postgres.js reports a client-side connection drop with its own literal codes
+ * instead of a SQLSTATE (`node_modules/postgres/src/errors.js`), and a raw
+ * socket failure surfaces as a Node system code. All of them are about the
+ * connection, never about the row, so they abort the pass like `08*` does.
+ */
+const TRANSIENT_LITERAL_CODES = new Set([
+  "CONNECTION_CLOSED",
+  "CONNECTION_DESTROYED",
+  "CONNECTION_ENDED",
+  "CONNECT_TIMEOUT",
+  "ECONNREFUSED",
+  "ECONNRESET",
+  "EPIPE",
+  "ETIMEDOUT",
+]);
+
+/**
  * Name carried by the error raised when the object store refuses to answer, as
  * distinct from answering "no such object".
  *
@@ -143,7 +160,8 @@ const isRawReadError = (input: ThrownValue): boolean =>
 const SQLSTATE_SCHEMA = z.object({ code: z.string() });
 
 /**
- * True when any link of the cause chain carries a transient SQLSTATE.
+ * True when any link of the cause chain carries a transient SQLSTATE or one of
+ * the client-side connection codes in {@link TRANSIENT_LITERAL_CODES}.
  *
  * The chain is walked rather than the outermost error inspected, because
  * Drizzle wraps the postgres.js error that actually carries `code`.
@@ -153,9 +171,10 @@ export const isTransientPostgresError = (input: ThrownValue): boolean =>
     const parsed = SQLSTATE_SCHEMA.safeParse(link);
     return (
       parsed.success &&
-      TRANSIENT_SQLSTATE_CLASSES.some((klass) =>
-        parsed.data.code.startsWith(klass)
-      )
+      (TRANSIENT_LITERAL_CODES.has(parsed.data.code) ||
+        TRANSIENT_SQLSTATE_CLASSES.some((klass) =>
+          parsed.data.code.startsWith(klass)
+        ))
     );
   });
 

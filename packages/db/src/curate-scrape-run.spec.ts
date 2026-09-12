@@ -207,6 +207,9 @@ describe("isTransientPostgresError (CTP-499)", () => {
     ["57P01", "admin shutdown"],
     ["57P02", "crash shutdown"],
     ["57P03", "cannot connect now"],
+    ["CONNECTION_CLOSED", "postgres.js client-side drop"],
+    ["CONNECT_TIMEOUT", "postgres.js connect timeout"],
+    ["ECONNRESET", "socket reset"],
   ])("treats %s (%s) as transient", (code) => {
     expect(isTransientPostgresError({ error: postgresError(code) })).toBe(true);
   });
