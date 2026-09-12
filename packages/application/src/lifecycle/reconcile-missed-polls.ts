@@ -12,10 +12,13 @@ import {
 } from "@ji/domain";
 
 import type { CurateStore, StoredAanvraag } from "../identity/curate";
-import { buildSnapshot } from "../identity/curate";
+import {
+  AANVRAAG_STATUS_GEWIJZIGD_EVENT,
+  buildSnapshot,
+} from "../identity/curate";
 
 /** Outbox event type for a status change that carries no new content. */
-export const AANVRAAG_STATUS_GEWIJZIGD_EVENT = "aanvraag.status_gewijzigd";
+export { AANVRAAG_STATUS_GEWIJZIGD_EVENT } from "../identity/curate";
 
 export interface MarkSeenInput {
   bronId: BronId;

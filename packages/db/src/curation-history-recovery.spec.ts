@@ -514,14 +514,22 @@ describe("historical curation recovery (RJC-433)", () => {
       unchanged: 1,
     });
     const unchanged = await readHistory(database, unchangedAanvraagId);
+    // CTP-498: the replayed observation flips the lifecycle-only `stale` back
+    // to `active` on unchanged content. `status` is a snapshot field, so that
+    // now closes the lifecycle version and opens a third one, and it carries
+    // its own status event -- without which the search index would keep the
+    // stale status, because the projector skips a later same-content event.
     expect(unchanged.current).toMatchObject({
       contentHash: "same-hash",
       laatstGezienOp: atMinute(70),
       status: "active",
-      versie: 2,
+      versie: 3,
     });
-    expect(unchanged.versions).toHaveLength(2);
-    expect(unchanged.events).toHaveLength(2);
+    expect(unchanged.versions).toHaveLength(3);
+    expect(unchanged.events).toHaveLength(3);
+    expect(unchanged.events.at(-1)?.eventType).toBe(
+      AANVRAAG_STATUS_GEWIJZIGD_EVENT
+    );
     expectMonotoneHistory(unchanged.versions);
 
     const changed = await readHistory(database, changedAanvraagId);

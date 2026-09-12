@@ -338,3 +338,108 @@ describe("curateObservation commercial columns and coalesce tombstones", () => {
     });
   });
 });
+
+/**
+ * CTP-498: every write on the unchanged-content path moves a field the search
+ * document (and so the projection hash) contains, and the projector skips a
+ * later same-content event. Each such write therefore has to carry its own
+ * outbox event, or the index keeps a closed aanvraag active and a stale
+ * last-seen date until the content changes.
+ */
+describe("curateObservation unchanged content enqueues its own events (CTP-498)", () => {
+  const later = new Date("2026-09-02T06:00:00.000Z");
+
+  const seedActive = async (store: InMemoryCurateStore) => {
+    await curateObservation(store, observation("SEEN-1", "hash-stable"));
+    expect(store.outboxEvents).toHaveLength(1);
+    return store;
+  };
+
+  it("enqueues a status event and a new versie when the status flips", async () => {
+    const store = await seedActive(new InMemoryCurateStore());
+    const base = observation("SEEN-1", "hash-stable");
+
+    const result = await curateObservation(store, {
+      ...base,
+      draft: { ...base.draft, status: "closed" },
+      observedAt: later,
+    });
+
+    expect(result.status).toBe("unchanged");
+    expect(result.outboxEventId).toBeTruthy();
+    expect(result.versie).toBe(2);
+    expect(store.outboxEvents).toHaveLength(2);
+    expect(store.outboxEvents[1]).toMatchObject({
+      aggregateType: "aanvraag",
+      eventType: "aanvraag.status_gewijzigd",
+    });
+    // The projector pins the status from the payload, so a row that moved on
+    // between the write and the drain is still indexed as closed.
+    expect(store.outboxEvents[1]?.payload).toMatchObject({ status: "closed" });
+    // status is the one field here that buildSnapshot records, so SCD2 needs
+    // a new version whose snapshot agrees with the row.
+    expect(store.aanvragen[0]).toMatchObject({ status: "closed", versie: 2 });
+    expect(store.versies).toHaveLength(2);
+    expect(store.versies[0]?.geldigTot).not.toBeNull();
+    expect(store.versies[1]).toMatchObject({ geldigTot: null, versie: 2 });
+    expect(store.versies[1]?.snapshot).toMatchObject({ status: "closed" });
+  });
+
+  it("enqueues an upsert event and no new versie when only laatstGezienOp moves", async () => {
+    const store = await seedActive(new InMemoryCurateStore());
+
+    const result = await curateObservation(store, {
+      ...observation("SEEN-1", "hash-stable"),
+      observedAt: later,
+    });
+
+    expect(result.status).toBe("unchanged");
+    expect(result.outboxEventId).toBeTruthy();
+    expect(result.versie).toBeUndefined();
+    expect(store.outboxEvents).toHaveLength(2);
+    expect(store.outboxEvents[1]).toMatchObject({
+      eventType: "aanvraag.gewijzigd",
+    });
+    expect(store.aanvragen[0]).toMatchObject({
+      laatstGezienOp: later,
+      versie: 1,
+    });
+    // laatst_gezien_op is absent from buildSnapshot, so a version row here
+    // would duplicate the open one without carrying new information.
+    expect(store.versies).toHaveLength(1);
+  });
+
+  it("enqueues nothing when the same observation is seen again", async () => {
+    const store = await seedActive(new InMemoryCurateStore());
+
+    const result = await curateObservation(
+      store,
+      observation("SEEN-1", "hash-stable")
+    );
+
+    expect(result.status).toBe("unchanged");
+    expect(result.outboxEventId).toBeUndefined();
+    expect(store.outboxEvents).toHaveLength(1);
+    expect(store.versies).toHaveLength(1);
+    expect(store.aanvragen[0]).toMatchObject({
+      laatstGezienOp: OBSERVED_AT,
+      versie: 1,
+    });
+  });
+
+  it("rolls the seen write back entirely when the outbox insert fails", async () => {
+    const store = await seedActive(new InMemoryCurateStore());
+
+    await expect(
+      curateObservation(withFailingOutbox(store), {
+        ...observation("SEEN-1", "hash-stable"),
+        observedAt: later,
+      })
+    ).rejects.toThrow("forced outbox insert failure");
+
+    // Without the join, the row would carry a last-seen date the index can
+    // never learn about: the next same-content event is skipped by the hash.
+    expect(store.aanvragen[0]).toMatchObject({ laatstGezienOp: OBSERVED_AT });
+    expect(store.outboxEvents).toHaveLength(1);
+  });
+});

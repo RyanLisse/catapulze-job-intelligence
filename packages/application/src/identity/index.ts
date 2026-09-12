@@ -1,4 +1,6 @@
 export {
+  AANVRAAG_GEWIJZIGD_EVENT,
+  AANVRAAG_STATUS_GEWIJZIGD_EVENT,
   curateObservation,
   splitDedupGroep,
   type CurateObservationInput,

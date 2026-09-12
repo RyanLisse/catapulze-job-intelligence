@@ -799,7 +799,7 @@ describe("identity", () => {
     expect(store.aanvragen[0]?.tariefMax).toBe("130");
   });
 
-  it("RJC-394 fix-first: an unchanged observation still writes locatieTekst/sluitingsdatum without a new versie or outbox event", async () => {
+  it("RJC-394 fix-first: an unchanged observation still writes locatieTekst/sluitingsdatum, without a new versie but with an outbox event", async () => {
     const store = new InMemoryCurateStore();
     const body = buildInhuurdeskBody("Beschrijving ongewijzigd.");
     const hash = await hashContent(body);
@@ -837,7 +837,10 @@ describe("identity", () => {
     expect(store.aanvragen[0]?.sluitingsdatum).toEqual(sluitingsdatum);
     expect(store.aanvragen[0]?.versie).toBe(1);
     expect(store.versies).toHaveLength(1);
-    expect(store.outboxEvents).toHaveLength(1);
+    // CTP-498: locatie and sluitingsdatum are both projected fields, so this
+    // write needs its own event. Status did not flip, so no new SCD2 version.
+    expect(store.outboxEvents).toHaveLength(2);
+    expect(store.outboxEvents[1]?.eventType).toBe("aanvraag.gewijzigd");
 
     // A later unchanged observation whose draft has neither field must not
     // erase the values already stored -- a source that stops publishing a
