@@ -427,6 +427,23 @@ describe("curateObservation unchanged content enqueues its own events (CTP-498)"
     });
   });
 
+  it("enqueues nothing and keeps laatstGezienOp when an older observation replays", async () => {
+    const store = await seedActive(new InMemoryCurateStore());
+
+    const result = await curateObservation(store, {
+      ...observation("SEEN-1", "hash-stable"),
+      observedAt: new Date(OBSERVED_AT.getTime() - 60_000),
+    });
+
+    expect(result.status).toBe("unchanged");
+    expect(result.outboxEventId).toBeUndefined();
+    expect(store.outboxEvents).toHaveLength(1);
+    expect(store.aanvragen[0]).toMatchObject({
+      laatstGezienOp: OBSERVED_AT,
+      versie: 1,
+    });
+  });
+
   it("rolls the seen write back entirely when the outbox insert fails", async () => {
     const store = await seedActive(new InMemoryCurateStore());
 

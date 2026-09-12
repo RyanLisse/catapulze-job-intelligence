@@ -596,7 +596,7 @@ const buildUnchangedContentPatch = (
 ): Partial<StoredAanvraag> => {
   const { draft } = input;
   const patch: Partial<StoredAanvraag> = {};
-  if (input.observedAt.getTime() !== existing.laatstGezienOp.getTime()) {
+  if (input.observedAt.getTime() > existing.laatstGezienOp.getTime()) {
     patch.laatstGezienOp = input.observedAt;
   }
   if (draft.status !== existing.status) {
