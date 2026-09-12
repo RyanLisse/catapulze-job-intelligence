@@ -1,12 +1,12 @@
-import { parseProjectorDatabaseUrl } from "@ji/env/projector-database-url";
+import { parseDirectDatabaseUrl } from "@ji/env/projector-database-url";
 import postgres from "postgres";
 
-import { abortableSleep } from "./sleep";
+import { abortableSleep } from "./abortable-sleep";
 
 /**
  * Thrown when a cycle's lock heartbeat (`reassert`) finds the lock gone and
- * held by someone else. Fatal, not transient: the projector must stop
- * rather than keep draining without the lock (see `runProjectorLoop`).
+ * held by someone else. Fatal, not transient: the holder must stop rather
+ * than keep working without the lock.
  */
 export class LockLostError extends Error {
   constructor(lockKey: number) {
@@ -38,18 +38,22 @@ export interface AdvisoryLockHandle {
  * let the lock migrate across connections and defeat the single-instance
  * guarantee. `max_lifetime`/`idle_timeout` are disabled on this connection
  * so the common case doesn't churn, but that is not the guarantee: the
- * caller must call `reassert()` every cycle (see main.ts) because postgres.js
+ * caller must call `reassert()` every cycle because postgres.js
  * or Neon can still drop an idle connection underneath us, silently
  * releasing the session-level lock. Call `release()` on shutdown; it also
  * closes the connection.
  */
 export const acquireAdvisoryLock = async (
   databaseUrl: string,
-  lockKey: number
+  lockKey: number,
+  databaseUrlVariable: string
 ): Promise<AdvisoryLockHandle> => {
   // Validate at the lock boundary too: callers cannot accidentally bypass
-  // the typed projector env and put a session lock behind Neon's pooler.
-  const directDatabaseUrl = parseProjectorDatabaseUrl(databaseUrl);
+  // the typed process env and put a session lock behind Neon's pooler.
+  const directDatabaseUrl = parseDirectDatabaseUrl(
+    databaseUrl,
+    databaseUrlVariable
+  );
   const sql = postgres(directDatabaseUrl, {
     idle_timeout: 0,
     max: 1,
@@ -117,6 +121,8 @@ export const acquireAdvisoryLock = async (
 };
 
 export interface WaitForAdvisoryLockOptions {
+  /** Env variable name that supplied `databaseUrl`, for boundary messages. */
+  readonly databaseUrlVariable: string;
   /** Awaited after every failed attempt, before the sleep. */
   readonly onWaiting: () => Promise<void>;
   readonly pollIntervalMs: number;
@@ -138,10 +144,14 @@ export const waitForAdvisoryLock = async (
   lockKey: number,
   options: WaitForAdvisoryLockOptions
 ): Promise<AdvisoryLockHandle | undefined> => {
-  const { onWaiting, pollIntervalMs, signal } = options;
+  const { databaseUrlVariable, onWaiting, pollIntervalMs, signal } = options;
   while (!signal.aborted) {
     // oxlint-disable-next-line no-await-in-loop -- one attempt at a time by design; attempts must not overlap
-    const handle = await acquireAdvisoryLock(databaseUrl, lockKey);
+    const handle = await acquireAdvisoryLock(
+      databaseUrl,
+      lockKey,
+      databaseUrlVariable
+    );
     if (handle.acquired) {
       return handle;
     }

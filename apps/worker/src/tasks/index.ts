@@ -1,4 +1,3 @@
-export { pollBronTask, type PollBronPayload } from "./poll-bron";
 export {
   backfillNeonV1Task,
   type BackfillNeonV1Payload,
@@ -9,4 +8,3 @@ export {
   type EnrichIncompletePayload,
 } from "./enrich-incomplete";
 export { scheduleEnrichIncompleteTask } from "./schedule-enrich-incomplete";
-export { scheduleSliceAPollsTask } from "./schedule-slice-a-polls";

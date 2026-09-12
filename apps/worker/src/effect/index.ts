@@ -14,9 +14,7 @@ export { fromWorkerPromise } from "./from-promise";
 export { runWorkerPromise, type RunWorkerPromiseOptions } from "./run";
 export {
   drainOutboxTaskBodyProgram,
-  pollBronTaskBodyProgram,
   runDrainOutboxEffect,
-  runPollBronEffect,
   type DrainOutboxEffectPayload,
 } from "./task-bodies";
 export { isEffectWorkerEnabled } from "./flag";

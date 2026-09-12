@@ -195,13 +195,13 @@ describe("isSoftOrHashFailure / summarizeOneshotRun (CTP-489)", () => {
 });
 
 describe("slice-a-pollable / schedule contract (CTP-488/489)", () => {
-  it("keeps schedule-slice-a-polls on the shared listPollable helper", async () => {
+  it("keeps the on-box poller on the shared listPollable helper", async () => {
     const source = await Bun.file(
-      new URL("tasks/schedule-slice-a-polls.ts", import.meta.url)
+      new URL("poller/schedule.ts", import.meta.url)
     ).text();
-    expect(source).toContain('id: "schedule-slice-a-polls"');
     expect(source).toContain("listPollableSliceABronnen");
-    expect(source).toContain('pattern: "*/15 * * * *"');
+    expect(source).toContain('POLL_TIME_ZONE = "Europe/Amsterdam"');
+    expect(source.includes('from "@trigger.dev/sdk"')).toBe(false);
     expect(sliceARegistryCount()).toBeGreaterThan(0);
   });
 

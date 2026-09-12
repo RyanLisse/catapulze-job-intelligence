@@ -6,7 +6,8 @@
   "scripts": {
     "check-types": "PATH=\"./node_modules/.bin:$PATH\" tsc --noEmit",
     "dev": "PATH=\"./node_modules/.bin:$PATH\" bunx trigger.dev@4.5.13 dev",
-    "deploy": "PATH=\"./node_modules/.bin:$PATH\" bunx trigger.dev@4.5.13 deploy"
+    "deploy": "PATH=\"./node_modules/.bin:$PATH\" bunx trigger.dev@4.5.13 deploy",
+    "poller": "bun src/poller/main.ts"
   },
   "dependencies": {
     "@ji/application": "workspace:*",

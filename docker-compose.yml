@@ -269,6 +269,31 @@ services:
       disable: true
     restart: unless-stopped
 
+  poller:
+    build:
+      context: .
+      dockerfile: apps/worker/Dockerfile.poller
+    profiles: ["poller"]
+    init: true
+    environment:
+      APP_RELEASE_SHA: ${APP_RELEASE_SHA:-}
+      DATABASE_URL: ${CATAPULZE_DATABASE_URL:?CATAPULZE_DATABASE_URL is required}
+      # Local Compose uses the same direct Postgres service for data and lock.
+      # Production must override this when CATAPULZE_DATABASE_URL is pooled;
+      # the poller's typed env rejects a known Neon pooler host here.
+      POLLER_DATABASE_URL: ${POLLER_DATABASE_URL:-${CATAPULZE_DATABASE_URL:?CATAPULZE_DATABASE_URL is required}}
+      POLLER_TICK_MS: ${POLLER_TICK_MS:-60000}
+      POLLER_CURATE_BUDGET_MS: ${POLLER_CURATE_BUDGET_MS:-120000}
+      RAW_S3_BUCKET: ${RAW_S3_BUCKET:-}
+      RAW_S3_ENDPOINT: ${RAW_S3_ENDPOINT:-}
+      RAW_S3_REGION: ${RAW_S3_REGION:-}
+      RAW_S3_ACCESS_KEY_ID: ${RAW_S3_ACCESS_KEY_ID:-}
+      RAW_S3_SECRET_ACCESS_KEY: ${RAW_S3_SECRET_ACCESS_KEY:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
   # One-shot bucket bootstrap: creates the configured local bucket and exits.
   # Re-running `up --profile storage` is idempotent (`mc mb --ignore-existing`).
   raw-storage-minio-init:
