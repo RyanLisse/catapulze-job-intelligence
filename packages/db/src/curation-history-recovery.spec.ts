@@ -1303,6 +1303,200 @@ describe("historical curation recovery (RJC-433)", () => {
     expect(afterSecond?.status).toBe("curation_failed");
   });
 
+  it("aborts rather than parking when the object store is unreachable (CTP-499)", async () => {
+    if (!available || !database) {
+      expect(available).toBe(false);
+      return;
+    }
+    const objectStore = new InMemoryObjectStore();
+    const runId = await seedRun(database, 0);
+    const bronReferentie = `ctp-499-unreadable-${crypto.randomUUID()}`;
+    const sourceRecordId = await seedSourceRecord(
+      database,
+      bronReferentie,
+      runId
+    );
+    const observationId = await seedObservation({
+      bronReferentie,
+      contentHash: "ctp-499-unreadable",
+      database,
+      minute: 10,
+      objectStore,
+      scrapeRunId: runId,
+      sourceRecordId,
+      title: "Unreadable raw",
+    });
+    const unreachableObjectStore: ObjectStore = {
+      deleteExpired: (before: Date) => objectStore.deleteExpired(before),
+      get: () => Promise.reject(new Error("object store unreachable")),
+      put: (object) => objectStore.put(object),
+    };
+
+    // Neither status the pass could write is self-clearing, so an outage must
+    // leave the row exactly as it found it.
+    await expect(
+      curateScrapeRun({
+        bronId: BRON_ID,
+        bronSlug: BRON_SLUG,
+        database,
+        objectStore: unreachableObjectStore,
+        scrapeRunId: runId,
+      })
+    ).rejects.toThrow("Raw object read failed for");
+    const [afterOutage] = await database
+      .select({ status: aanvraagObservation.status })
+      .from(aanvraagObservation)
+      .where(eq(aanvraagObservation.id, observationId));
+    expect(afterOutage?.status).toBe("awaiting_curation");
+
+    // The next poll, with the store back, curates it with no operator action.
+    const recovered = await curateScrapeRun({
+      bronId: BRON_ID,
+      bronSlug: BRON_SLUG,
+      database,
+      objectStore,
+      scrapeRunId: runId,
+    });
+
+    expect(recovered).toMatchObject({ curated: 1, failed: 0, remaining: 0 });
+  });
+
+  it("aborts rather than parking on a transient Postgres error (CTP-499)", async () => {
+    if (!available || !database) {
+      expect(available).toBe(false);
+      return;
+    }
+    const objectStore = new InMemoryObjectStore();
+    const runId = await seedRun(database, 0);
+    const bronReferentie = `ctp-499-deadlock-${crypto.randomUUID()}`;
+    const sourceRecordId = await seedSourceRecord(
+      database,
+      bronReferentie,
+      runId
+    );
+    const observationId = await seedObservation({
+      bronReferentie,
+      contentHash: "ctp-499-deadlock",
+      database,
+      minute: 10,
+      objectStore,
+      scrapeRunId: runId,
+      sourceRecordId,
+      title: "Deadlocked",
+    });
+    let raised = false;
+    const deadlockingObjectStore: ObjectStore = {
+      deleteExpired: (before: Date) => objectStore.deleteExpired(before),
+      get: async (objectPath: string) => {
+        const stored = await objectStore.get(objectPath);
+        if (raised) {
+          return stored;
+        }
+        raised = true;
+        // A deadlock surfaces from inside the transaction in production; this
+        // raises the same shape one step earlier, which is the same branch.
+        throw new Error("Failed query: select ... for update", {
+          cause: Object.assign(new Error("deadlock detected"), {
+            code: "40P01",
+          }),
+        });
+      },
+      put: (object) => objectStore.put(object),
+    };
+    const input = {
+      bronId: BRON_ID,
+      bronSlug: BRON_SLUG,
+      database,
+      objectStore: deadlockingObjectStore,
+      scrapeRunId: runId,
+    };
+
+    await expect(curateScrapeRun(input)).rejects.toThrow();
+    const [afterDeadlock] = await database
+      .select({ status: aanvraagObservation.status })
+      .from(aanvraagObservation)
+      .where(eq(aanvraagObservation.id, observationId));
+    // A retry would have curated it, so it must not have burned a status.
+    expect(afterDeadlock?.status).toBe("awaiting_curation");
+
+    expect(await curateScrapeRun(input)).toMatchObject({
+      curated: 1,
+      failed: 0,
+    });
+  });
+
+  it("stops a pass once too many observations park (CTP-499)", async () => {
+    if (!available || !database) {
+      expect(available).toBe(false);
+      return;
+    }
+    const objectStore = new InMemoryObjectStore();
+    const runId = await seedRun(database, 0);
+    const poisonCount = 7;
+    const observationIds: string[] = [];
+    for (let index = 0; index < poisonCount; index += 1) {
+      const bronReferentie = `ctp-499-systemic-${index}-${crypto.randomUUID()}`;
+      // oxlint-disable-next-line no-await-in-loop -- fixture rows are seeded in order
+      const sourceRecordId = await seedSourceRecord(
+        database,
+        bronReferentie,
+        runId
+      );
+      observationIds.push(
+        // oxlint-disable-next-line no-await-in-loop -- fixture rows are seeded in order
+        await seedObservation({
+          bronReferentie,
+          contentHash: `ctp-499-systemic-${index}`,
+          database,
+          minute: 10 + index,
+          objectStore,
+          scrapeRunId: runId,
+          sourceRecordId,
+          title: `Systemic ${index}`,
+        })
+      );
+    }
+    // Every row fails the same way: what a revoked grant or a half-applied
+    // deploy looks like one row at a time.
+    const corruptingObjectStore: ObjectStore = {
+      deleteExpired: (before: Date) => objectStore.deleteExpired(before),
+      get: async (objectPath: string) => {
+        const stored = await objectStore.get(objectPath);
+        return stored
+          ? { ...stored, body: new TextEncoder().encode("{ not valid json") }
+          : stored;
+      },
+      put: (object) => objectStore.put(object),
+    };
+
+    await expect(
+      curateScrapeRun({
+        bronId: BRON_ID,
+        bronSlug: BRON_SLUG,
+        database,
+        objectStore: corruptingObjectStore,
+        scrapeRunId: runId,
+      })
+    ).rejects.toThrow("stopping in case the failure is systemic");
+
+    const parked = await database
+      .select({
+        id: aanvraagObservation.id,
+        status: aanvraagObservation.status,
+      })
+      .from(aanvraagObservation)
+      .where(eq(aanvraagObservation.bronId, BRON_ID));
+    // Progress is kept: the rows parked before the cap stay parked, and the
+    // rest are untouched for the next poll.
+    expect(
+      parked.filter((row) => row.status === "curation_failed")
+    ).toHaveLength(5);
+    expect(
+      parked.filter((row) => row.status === "awaiting_curation")
+    ).toHaveLength(poisonCount - 5);
+    expect(observationIds).toHaveLength(poisonCount);
+  });
+
   it("serializes concurrent recovery and leaves repeated runs idempotent", async () => {
     if (!available || !database) {
       expect(available).toBe(false);

@@ -261,41 +261,36 @@ const expectExactlyOneNewVersionPerIdentity = async (
 };
 
 /**
- * CTP-499 changed this contract twice over.
+ * An unreachable object store still aborts the pass, and this is deliberate.
  *
- * The pipeline used to reject with `Curation failed for observation ...`
- * wrapping the storage error, which aborted the whole pass: one unreadable
- * object held every other identity of the source hostage. It now resolves.
- *
- * An unreadable raw object is still recoverable, because it says nothing about
- * the row: it defers as `deferred_missing_raw` and is retried on the next pass,
- * the same way an absent object always has. Only a failure inside the curation
- * transaction reaches the terminal `curation_failed`.
+ * CTP-499 stopped `curateScrapeRun` rethrowing per-candidate errors, because a
+ * single row Postgres refused was holding an entire source hostage. A store
+ * that will not answer is the opposite case: it says nothing about any row, and
+ * every status the pass could write for it -- terminal `curation_failed` or
+ * deferred `deferred_missing_raw` -- needs an operator to clear by hand. So the
+ * pass aborts untouched and the next poll retries the whole backlog, which is
+ * what the rows below assert by staying `awaiting_curation`.
  */
-const expectInjectedReadDeferred = async (
-  operation: Promise<{ curated: number; failed: number; pending: number }>,
-  expectedDeferred: number
+const expectInjectedReadFailure = async (
+  operation: Promise<unknown>
 ): Promise<void> => {
-  const result = await operation;
-
-  expect(result.curated).toBe(0);
-  expect(result.failed).toBe(0);
-  expect(result.pending).toBe(expectedDeferred);
-};
-
-/** Mirrors the requeue the poller performs once the raw object is readable. */
-const requeueDeferredMissingRaw = async (
-  database: RecoveryDatabase
-): Promise<void> => {
-  await database
-    .update(aanvraagObservation)
-    .set({ status: "awaiting_curation" })
-    .where(
-      and(
-        eq(aanvraagObservation.bronId, HERO_BRON_ID),
-        eq(aanvraagObservation.status, "deferred_missing_raw")
-      )
-    );
+  let caught: unknown;
+  try {
+    await operation;
+  } catch (error) {
+    caught = error;
+  }
+  expect(caught).toBeInstanceOf(Error);
+  if (!(caught instanceof Error)) {
+    throw new Error("Expected curation to reject with an Error");
+  }
+  expect(caught.name).toBe("RawReadError");
+  expect(caught.message).toContain("Raw object read failed for");
+  expect(caught.cause).toBeInstanceOf(Error);
+  if (!(caught.cause instanceof Error)) {
+    throw new Error("Expected the read failure to retain its storage cause");
+  }
+  expect(caught.cause.message).toBe("injected raw object read failure");
 };
 
 describe
@@ -311,9 +306,8 @@ describe
       try {
         await cleanHeroRows(fixture.runtime.database);
         await seedHeroBron(fixture.runtime);
-        await expectInjectedReadDeferred(
-          runBronIngestPipeline(payload, fixture.runtime, "poll"),
-          2
+        await expectInjectedReadFailure(
+          runBronIngestPipeline(payload, fixture.runtime, "poll")
         );
         expect(fixture.connectorInvocations).toBe(1);
         const staged = await readDurableState(fixture.runtime.database);
@@ -321,7 +315,7 @@ describe
         expect(staged.observations).toHaveLength(2);
         expect(
           staged.observations.every(
-            (observation) => observation.status === "deferred_missing_raw"
+            (observation) => observation.status === "awaiting_curation"
           )
         ).toBe(true);
         const [completedBeforeRetry] = await fixture.runtime.database
@@ -345,7 +339,6 @@ describe
         });
 
         fixture.objectStore.enableReads();
-        await requeueDeferredMissingRaw(fixture.runtime.database);
         fixture.disableConnector();
         const resumed = await runBronIngestPipeline(
           payload,
@@ -425,9 +418,8 @@ describe
       try {
         await cleanHeroRows(fixture.runtime.database);
         await seedHeroBron(fixture.runtime);
-        await expectInjectedReadDeferred(
-          runBronIngestPipeline(firstPayload, fixture.runtime, "poll"),
-          2
+        await expectInjectedReadFailure(
+          runBronIngestPipeline(firstPayload, fixture.runtime, "poll")
         );
         expect(fixture.connectorInvocations).toBe(1);
         const staged = await readDurableState(fixture.runtime.database);
@@ -437,7 +429,7 @@ describe
         expect(priorObservationIds).toHaveLength(2);
         expect(
           staged.observations.every(
-            (observation) => observation.status === "deferred_missing_raw"
+            (observation) => observation.status === "awaiting_curation"
           )
         ).toBe(true);
         const [completedBeforeLaterPoll] = await fixture.runtime.database
@@ -461,7 +453,6 @@ describe
         });
 
         fixture.objectStore.enableReads();
-        await requeueDeferredMissingRaw(fixture.runtime.database);
         const later = await runBronIngestPipeline(
           laterPayload,
           fixture.runtime,

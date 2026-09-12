@@ -5,6 +5,7 @@
  * `main.ts` runs the poller on import, so nothing there can be tested.
  */
 import { describeCauseChain, errorNameOf } from "@ji/db/error-cause-chain";
+import { redactConnectionUrls } from "@ji/db/redact-connection-urls";
 
 export interface PollerSourceLog {
   bronSlug: string;
@@ -31,18 +32,13 @@ export interface PollerSourceLog {
 export const MAX_ERROR_MESSAGE_LENGTH = 300;
 
 /**
- * Connection strings are the one secret that reliably reaches an error
- * message here: postgres.js and Drizzle both quote the URL they failed on, and
- * it carries the role password. There is no shared redaction helper in
- * `@ji/db` or `apps/worker` to reuse, so this is the whole policy.
+ * Redacts first, then truncates, so a cut can never expose half a secret.
+ *
+ * The redaction itself lives in `@ji/db` so the poller and `curateScrapeRun`
+ * share one policy; only the length cap is this log line's own concern.
  */
-const CONNECTION_URL_PATTERN = /postgres(?:ql)?:\/\/\S+/giu;
-
-const REDACTED = "[redacted]";
-
-/** Redacts first, then truncates, so a cut can never expose half a secret. */
 export const redactErrorMessage = (message: string): string => {
-  const redacted = message.replace(CONNECTION_URL_PATTERN, REDACTED);
+  const redacted = redactConnectionUrls(message);
   return redacted.length > MAX_ERROR_MESSAGE_LENGTH
     ? redacted.slice(0, MAX_ERROR_MESSAGE_LENGTH)
     : redacted;

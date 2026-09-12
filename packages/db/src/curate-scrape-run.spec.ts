@@ -1,6 +1,9 @@
 import { describe, expect, it } from "bun:test";
 
-import { classifyRecoveryCandidate } from "./curate-scrape-run";
+import {
+  classifyRecoveryCandidate,
+  isTransientPostgresError,
+} from "./curate-scrape-run";
 
 const pointer = (input: {
   contentHash: string;
@@ -187,5 +190,97 @@ describe("classifyRecoveryCandidate", () => {
         legacyPending: true,
       })
     ).toBe("process");
+  });
+});
+
+/** Shaped like a postgres.js error: the SQLSTATE rides on `code`. */
+const postgresError = (code: string, message = `SQLSTATE ${code}`): Error =>
+  Object.assign(new Error(message), { code });
+
+describe("isTransientPostgresError (CTP-499)", () => {
+  it.each([
+    ["08006", "connection failure"],
+    ["08003", "connection does not exist"],
+    ["40001", "serialization failure"],
+    ["40P01", "deadlock detected"],
+    ["53200", "out of memory"],
+    ["57P01", "admin shutdown"],
+    ["57P02", "crash shutdown"],
+    ["57P03", "cannot connect now"],
+  ])("treats %s (%s) as transient", (code) => {
+    expect(isTransientPostgresError({ error: postgresError(code) })).toBe(true);
+  });
+
+  it("does not treat 54000 as transient: that is the CTP-499 oversized key", () => {
+    const error = postgresError(
+      "54000",
+      "index row size 3368 exceeds btree version 4 maximum 2704"
+    );
+
+    expect(isTransientPostgresError({ error })).toBe(false);
+  });
+
+  it.each([
+    ["22001", "string data right truncation"],
+    ["23505", "unique violation"],
+    ["23502", "not null violation"],
+    ["42P01", "undefined table"],
+  ])("parks %s (%s) as a property of the row", (code) => {
+    expect(isTransientPostgresError({ error: postgresError(code) })).toBe(
+      false
+    );
+  });
+
+  it("finds the code on a wrapped Drizzle error rather than the outermost one", () => {
+    // The production shape: the outermost error carries no code at all.
+    const error = new Error("Failed query: insert into dedup_groep", {
+      cause: postgresError("40P01", "deadlock detected"),
+    });
+
+    expect(Object.hasOwn(error, "code")).toBe(false);
+    expect(isTransientPostgresError({ error })).toBe(true);
+  });
+
+  it("finds the code three links down", () => {
+    const error = new Error("outer", {
+      cause: new Error("middle", { cause: postgresError("57P01") }),
+    });
+
+    expect(isTransientPostgresError({ error })).toBe(true);
+  });
+
+  it("stops at the chain depth cap rather than walking forever", () => {
+    // Five links deep, so the transient code sits past MAX_CAUSE_DEPTH.
+    const error = new Error("l1", {
+      cause: new Error("l2", {
+        cause: new Error("l3", {
+          cause: new Error("l4", { cause: postgresError("40001") }),
+        }),
+      }),
+    });
+
+    expect(isTransientPostgresError({ error })).toBe(false);
+  });
+
+  it("does not loop on a self-referencing cause", () => {
+    const error = new Error("outer");
+    error.cause = error;
+
+    expect(isTransientPostgresError({ error })).toBe(false);
+  });
+
+  it.each([
+    ["a plain error with no code", new Error("boom")],
+    ["a non-Error throw", "plain string"],
+    ["null", null],
+    ["undefined", undefined],
+  ])("parks %s", (_label, error) => {
+    expect(isTransientPostgresError({ error })).toBe(false);
+  });
+
+  it("ignores a non-string code", () => {
+    const error = Object.assign(new Error("boom"), { code: 40 });
+
+    expect(isTransientPostgresError({ error })).toBe(false);
   });
 });

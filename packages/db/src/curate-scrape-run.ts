@@ -13,9 +13,15 @@ import { z } from "zod";
 
 import { compareSourcePointerOrder } from "./bron-runtime";
 import type { BronRuntimeDatabase } from "./bron-runtime";
-import { describeCauseChain, errorNameOf } from "./error-cause-chain";
+import {
+  causeChain,
+  describeCauseChain,
+  errorNameOf,
+} from "./error-cause-chain";
+import type { ThrownValue } from "./error-cause-chain";
 import { PostgresCurateStore } from "./postgres-curate-store";
 import type { PostgresCurateTransaction } from "./postgres-curate-store";
+import { redactConnectionUrls } from "./redact-connection-urls";
 import { aanvraag, aanvraagVersie, scrapeRun } from "./schema/curated";
 import { aanvraagObservation, sourceRecord } from "./schema/staging";
 
@@ -63,6 +69,95 @@ const CURATION_FAILED_STATUS = "curation_failed";
 
 /** Enough of the chain to name the failing statement without flooding stderr. */
 const MAX_LOGGED_CAUSE_LENGTH = 500;
+
+/**
+ * How many observations one pass may park before it gives up and throws.
+ *
+ * Parking is for a row that is individually bad. A systemic in-loop failure --
+ * a revoked grant, a half-applied deploy, a constraint added ahead of the code
+ * that satisfies it -- looks identical one row at a time, and without a cap it
+ * would quietly park an entire backlog inside a single poll budget. Five is
+ * enough that a handful of genuinely bad rows still clear in one pass, and
+ * small enough that a systemic fault stops the pass while nearly all of the
+ * backlog is still recoverable. Rows already parked stay parked and the
+ * progress of the pass is kept; the next poll continues from there.
+ */
+const MAX_PARKED_PER_PASS = 5;
+
+/**
+ * Postgres SQLSTATE classes that say "try again", not "this row is bad".
+ *
+ * - `08` connection exception: a pooled connection reset mid-transaction.
+ * - `40` transaction rollback: `40001` serialization failure and `40P01`
+ *   deadlock. `processCandidate` takes `FOR UPDATE` on the source record and
+ *   `FOR KEY SHARE` on the run while lifecycle reconciliation touches the same
+ *   rows, so a deadlock is an ordinary outcome, not a defect in the row.
+ * - `53` insufficient resources: out of memory, connection slots, disk.
+ * - `57` operator intervention: `57P01` admin shutdown, `57P02` crash shutdown,
+ *   `57P03` cannot connect now.
+ *
+ * Everything else is a property of the row and parks: `54000` (the CTP-499
+ * oversized index tuple), `22*` data exceptions, `23*` integrity violations.
+ */
+const TRANSIENT_SQLSTATE_CLASSES = ["08", "40", "53", "57"] as const;
+
+/**
+ * Name carried by the error raised when the object store refuses to answer, as
+ * distinct from answering "no such object".
+ *
+ * These are not interchangeable. An absent object defers to
+ * `deferred_missing_raw`, which is a review status an operator requeues by hand
+ * (`docs/runbooks/curation-recovery.md`). A store that is merely unreachable
+ * would strand every row it touched behind that manual step, so it aborts the
+ * pass instead and the next poll retries the whole backlog untouched.
+ *
+ * Tagged by `name` rather than by class, so the check survives the error
+ * crossing a module boundary and needs no shared constructor identity.
+ */
+export const RAW_READ_ERROR_NAME = "RawReadError";
+
+/** Name carried by the error raised when a pass hits {@link MAX_PARKED_PER_PASS}. */
+export const TOO_MANY_PARKED_ERROR_NAME = "TooManyParkedObservationsError";
+
+const namedError = (
+  name: string,
+  message: string,
+  options?: { cause: unknown }
+): Error => {
+  const error = new Error(message, options);
+  error.name = name;
+  return error;
+};
+
+const rawReadError = (rawPayloadRef: string, cause: unknown): Error =>
+  namedError(
+    RAW_READ_ERROR_NAME,
+    `Raw object read failed for ${rawPayloadRef}`,
+    { cause }
+  );
+
+const isRawReadError = (input: ThrownValue): boolean =>
+  input.error instanceof Error && input.error.name === RAW_READ_ERROR_NAME;
+
+/** postgres.js hangs the SQLSTATE off `code`; nothing else on the error matters here. */
+const SQLSTATE_SCHEMA = z.object({ code: z.string() });
+
+/**
+ * True when any link of the cause chain carries a transient SQLSTATE.
+ *
+ * The chain is walked rather than the outermost error inspected, because
+ * Drizzle wraps the postgres.js error that actually carries `code`.
+ */
+export const isTransientPostgresError = (input: ThrownValue): boolean =>
+  causeChain(input).some((link) => {
+    const parsed = SQLSTATE_SCHEMA.safeParse(link);
+    return (
+      parsed.success &&
+      TRANSIENT_SQLSTATE_CLASSES.some((klass) =>
+        parsed.data.code.startsWith(klass)
+      )
+    );
+  });
 
 const OBSERVATION_SCHEMA = z.object({
   bronId: z.string(),
@@ -626,11 +721,22 @@ const markObservation = async (
   return rows.length > 0;
 };
 
+/** Redacted and length-capped, ready to go on a log line. */
+const loggableCauseChain = (input: ThrownValue): string =>
+  redactConnectionUrls(describeCauseChain(input)).slice(
+    0,
+    MAX_LOGGED_CAUSE_LENGTH
+  );
+
 /**
- * Reads the raw object, treating a read that throws exactly like an absent
- * object. Both mean "the payload is not available right now", and both are
- * recoverable on a later pass. The failure is still named on stderr so an
- * outage is visible rather than silent.
+ * Reads the raw object, keeping "no such object" and "the store would not
+ * answer" apart.
+ *
+ * `null` means absent, which the caller defers to `deferred_missing_raw`. A
+ * throw means the store is unreachable, which says nothing about this row and
+ * must not consume a review status, so it is retagged as `RawReadError`
+ * and aborts the pass: the next poll then retries the whole backlog with every
+ * row still in an active status.
  */
 const readStoredRaw = async (
   objectStore: ObjectStore,
@@ -641,16 +747,13 @@ const readStoredRaw = async (
   } catch (error) {
     process.stderr.write(
       `${JSON.stringify({
-        causeChain: describeCauseChain({ error }).slice(
-          0,
-          MAX_LOGGED_CAUSE_LENGTH
-        ),
+        causeChain: loggableCauseChain({ error }),
         errorName: errorNameOf({ error }),
         event: "curation_raw_read_failed",
         rawPayloadRef,
       })}\n`
     );
-    return null;
+    throw rawReadError(rawPayloadRef, error);
   }
 };
 
@@ -677,13 +780,12 @@ const processCandidate = async (
         current: preliminaryHighWater,
         legacyPending: isLegacyStatus(candidate.status),
       });
-  // A raw object that cannot be read is a storage problem, never a property of
-  // this row, so it must not reach the terminal `curation_failed` path: the
-  // object store is a network client and `get` runs outside the transaction, so
-  // one outage would otherwise park every candidate of the pass. An absent
-  // object already defers as `deferred_missing_raw`; a read that throws is the
-  // same class of failure and defers the same way, staying recoverable and
-  // being retried on the next pass.
+  // An unreachable object store is a storage problem, never a property of this
+  // row, so it must reach neither the terminal `curation_failed` path nor the
+  // `deferred_missing_raw` one: the first needs an operator to fix a defect
+  // that does not exist, and the second is equally manual to requeue, so an
+  // outage would strand up to `attemptLimit` rows per source per cycle. It
+  // aborts the pass instead. Only a genuinely absent object defers.
   const stored =
     preliminaryDisposition === "process"
       ? await readStoredRaw(input.objectStore, candidate.payload.rawPayloadRef)
@@ -857,13 +959,9 @@ const parkFailedCandidate = async (input: {
   observationId: string;
 }): Promise<void> => {
   const { database, error, observationId } = input;
-  const causeChain = describeCauseChain({ error }).slice(
-    0,
-    MAX_LOGGED_CAUSE_LENGTH
-  );
   process.stderr.write(
     `${JSON.stringify({
-      causeChain,
+      causeChain: loggableCauseChain({ error }),
       errorName: errorNameOf({ error }),
       event: "curation_candidate_failed",
       observationId,
@@ -931,10 +1029,19 @@ export const curateScrapeRun = async (
       const disposition = await processCandidate(input, candidate);
       recordDisposition(result, blockedIdentities, candidate, disposition);
     } catch (error) {
-      // CTP-499: rethrowing here aborted the whole pass, so one candidate that
-      // Postgres refused blocked every other identity of the source
-      // indefinitely. Park this one and keep going; errors raised before the
-      // loop (bad config, database unreachable) still throw.
+      // CTP-499: rethrowing every error here aborted the whole pass, so one
+      // candidate that Postgres refused blocked every other identity of the
+      // source indefinitely. Only errors that are genuinely about this row park
+      // it and let the pass continue.
+      //
+      // An unreachable object store and a transient Postgres failure are about
+      // the infrastructure, not the row. Parking either would burn a review
+      // status that only an operator can clear, on a condition a retry would
+      // have cleared by itself, so both abort the pass and leave every row in
+      // an active status for the next poll.
+      if (isRawReadError({ error }) || isTransientPostgresError({ error })) {
+        throw error;
+      }
       // oxlint-disable-next-line no-await-in-loop -- the marker must land before the next candidate
       await parkFailedCandidate({
         database: input.database,
@@ -947,6 +1054,12 @@ export const curateScrapeRun = async (
         candidate,
         "curation_failed"
       );
+      if (result.failed >= MAX_PARKED_PER_PASS) {
+        throw namedError(
+          TOO_MANY_PARKED_ERROR_NAME,
+          `Parked ${result.failed} observations in one pass; stopping in case the failure is systemic`
+        );
+      }
     }
   }
   const [backlogRows, missingRawRows] = await Promise.all([

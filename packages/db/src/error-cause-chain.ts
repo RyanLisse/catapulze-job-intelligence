@@ -34,27 +34,38 @@ const messageOf = (input: ThrownValue): string =>
   input.error instanceof Error ? input.error.message : String(input.error);
 
 /**
- * Returns the messages of `error`, `error.cause`, `error.cause.cause`, ... in
- * order, at most {@link MAX_CAUSE_DEPTH} entries, skipping empty messages so a
- * blank link cannot produce a dangling separator.
+ * Returns `error`, `error.cause`, `error.cause.cause`, ... in order, at most
+ * {@link MAX_CAUSE_DEPTH} entries.
+ *
+ * The link that carries the actionable detail is rarely the outermost one: a
+ * Drizzle query error wraps the postgres.js error that holds the `code`, so
+ * anything classifying a failure has to walk rather than inspect the top.
  */
-export const causeChainMessages = (input: ThrownValue): string[] => {
-  const messages: string[] = [];
+export const causeChain = (input: ThrownValue): unknown[] => {
+  const chain: unknown[] = [];
   const seen = new Set<unknown>();
   let current = input.error;
-  while (current !== undefined && current !== null && !seen.has(current)) {
+  while (
+    current !== undefined &&
+    current !== null &&
+    !seen.has(current) &&
+    chain.length < MAX_CAUSE_DEPTH
+  ) {
     seen.add(current);
-    const message = messageOf({ error: current });
-    if (message !== "") {
-      messages.push(message);
-    }
-    if (messages.length >= MAX_CAUSE_DEPTH) {
-      break;
-    }
+    chain.push(current);
     current = current instanceof Error ? current.cause : undefined;
   }
-  return messages;
+  return chain;
 };
+
+/**
+ * Returns the messages of the chain, skipping empty ones so a blank link cannot
+ * produce a dangling separator.
+ */
+export const causeChainMessages = (input: ThrownValue): string[] =>
+  causeChain(input)
+    .map((error) => messageOf({ error }))
+    .filter((message) => message !== "");
 
 /** The cause chain as one line, joined with `" <- "`. */
 export const describeCauseChain = (input: ThrownValue): string =>
