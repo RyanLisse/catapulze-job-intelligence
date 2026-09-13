@@ -26,6 +26,8 @@ export interface ClassifiedContractWork {
  */
 const FREELANCE_TERM = String.raw`(?:zzp(?:['’]ers?)?|freelance(?:rs?)?)`;
 const DENIAL = String.raw`(?:niet\s+(?:toegestaan|mogelijk|geschikt|gewenst|welkom|geaccepteerd)|uitgesloten)`;
+/** The copula that may sit between a contract term and what is said about it. */
+const COPULA = String.raw`(?:is|zijn|wordt|worden)`;
 /**
  * Subjects that make "... is niet voor zzp" an exclusion of the contract form
  * rather than of some benefit. "Reiskostenvergoeding is niet voor zzp'ers"
@@ -84,7 +86,7 @@ const FREELANCE_EXCLUSIONS: readonly RegExp[] = [
   // The qualifier guard is the same one row 5 carries: "zzp'ers zijn niet
   // toegestaan zonder KvK" excludes a subset, so the form stays open.
   new RegExp(
-    String.raw`\b${FREELANCE_TERM}\b\s*(?::\s*)?(?:(?:is|zijn|wordt|worden)\s+)?${DENIAL}\b(?!['’\w]*\s+${EXCLUSION_QUALIFIER}\b)`,
+    String.raw`\b${FREELANCE_TERM}\b\s*(?::\s*)?(?:${COPULA}\s+)?${DENIAL}\b(?!['’\w]*\s+${EXCLUSION_QUALIFIER}\b)`,
     "iu"
   ),
   // "niet toegestaan voor zzp", "uitgesloten: freelance"
@@ -123,11 +125,12 @@ const FREELANCE_EXCLUSIONS: readonly RegExp[] = [
  * interim"), which keeps such a sentence one match, so the report names the
  * whole list rather than only its first item.
  *
- * The trailing word is constrained so "geen zzp ervaring vereist" -- a
- * requirement, not an exclusion -- stays out.
+ * The trailing word may carry a copula ("geen zzp of detachering is mogelijk"),
+ * but is otherwise constrained so "geen zzp ervaring vereist" -- a requirement,
+ * not an exclusion -- stays out.
  */
 const EXCLUDED_TERM_LIST = new RegExp(
-  String.raw`\bgeen\s+${COORDINATED_TERM}(?:(?:\s*,\s*(?:geen\s+)?${COORDINATED_TERM})*\s+(?:of|en)\s+(?:geen\s+)?${COORDINATED_TERM})?\b(?:\s+${EXCLUSION_TAIL}|(?=\s*(?:[,:]|$)))`,
+  String.raw`\bgeen\s+${COORDINATED_TERM}(?:(?:\s*,\s*(?:geen\s+)?${COORDINATED_TERM})*\s+(?:of|en)\s+(?:geen\s+)?${COORDINATED_TERM})?\b(?:\s+(?:${COPULA}\s+)?${EXCLUSION_TAIL}|(?=\s*(?:[,:]|$)))`,
   "giu"
 );
 
@@ -191,7 +194,7 @@ const CONTRACT_NEGATION_BEFORE = new RegExp(
   "iu"
 );
 const CONTRACT_NEGATION_AFTER = new RegExp(
-  String.raw`^\s*(?::\s*|(?:mogelijk(?:heid)?)\s*:\s*)?(?:(?:is|zijn|wordt|worden)\s+)?(?:nee(?:n)?|${DENIAL})\b`,
+  String.raw`^\s*(?::\s*|(?:mogelijk(?:heid)?)\s*:\s*)?(?:${COPULA}\s+)?(?:nee(?:n)?|${DENIAL})\b`,
   "iu"
 );
 

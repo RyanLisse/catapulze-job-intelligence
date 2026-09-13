@@ -574,6 +574,28 @@ describe("CTP-491 freelance exclusions", () => {
     ).toBeNull();
   });
 
+  it("excludes a list whose tail carries a copula", () => {
+    for (const description of [
+      "Geen zzp of detachering is mogelijk",
+      "Geen zzp of detachering zijn mogelijk",
+    ]) {
+      expect(matchFreelanceExclusion(description)).toBe(description);
+      expect(
+        classifyContractAndWork("Opdracht", description).contracttype
+      ).toBeNull();
+    }
+  });
+
+  it("keeps the form stated after a copula-free list", () => {
+    const description = "Geen zzp of detachering, wel interim";
+    expect(matchFreelanceExclusion(description)).toBe(
+      "Geen zzp of detachering"
+    );
+    expect(classifyContractAndWork("Opdracht", description).contracttype).toBe(
+      "interim"
+    );
+  });
+
   it("names the phrase when the clause ends in whitespace", () => {
     expect(matchFreelanceExclusion("Geen ZZP \n")).toBe("Geen ZZP");
     expect(matchFreelanceExclusion("Geen ZZP   ")).toBe("Geen ZZP");
