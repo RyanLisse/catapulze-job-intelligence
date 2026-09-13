@@ -6,6 +6,7 @@ import { existsSync, statSync } from "node:fs";
 import {
   buildSshArguments,
   buildSshControlCheckArguments,
+  commandFromArgv,
   runWithSshTunnel,
   tunnelApiBaseUrl,
 } from "./ssh-tunnel";
@@ -177,5 +178,24 @@ describe("production Coolify SSH tunnel", () => {
       })
     ).rejects.toThrow("tunnel_start_failed");
     expect(childLaunches).toBe(0);
+  });
+});
+
+describe("commandFromArgv", () => {
+  it("takes everything after the separator when it survives", () => {
+    expect(
+      commandFromArgv(["bun", "ssh-tunnel.ts", "--", "bun", "deploy.ts"])
+    ).toEqual(["bun", "deploy.ts"]);
+  });
+
+  it("takes everything after the script path when the runtime dropped the separator", () => {
+    expect(
+      commandFromArgv(["bun", "ssh-tunnel.ts", "bun", "deploy.ts"])
+    ).toEqual(["bun", "deploy.ts"]);
+  });
+
+  it("is empty when nothing follows", () => {
+    expect(commandFromArgv(["bun", "ssh-tunnel.ts"])).toEqual([]);
+    expect(commandFromArgv(["bun", "ssh-tunnel.ts", "--"])).toEqual([]);
   });
 });
