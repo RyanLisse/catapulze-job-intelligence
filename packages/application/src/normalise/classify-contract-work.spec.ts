@@ -543,6 +543,37 @@ describe("CTP-491 freelance exclusions", () => {
     ).toBe("vast");
   });
 
+  it("excludes in either subject order", () => {
+    for (const description of [
+      "Deze opdracht is niet voor zzp'ers",
+      "Helaas is deze opdracht niet voor zzp'ers",
+      "Let op, is deze functie niet voor freelancers",
+    ]) {
+      expect(matchFreelanceExclusion(description)).not.toBeNull();
+      expect(
+        classifyContractAndWork("Opdracht", description).contracttype
+      ).toBeNull();
+    }
+  });
+
+  it("reads a repeated determiner as one list", () => {
+    const description = "Geen zzp, geen detachering of interim toegestaan";
+    expect(matchFreelanceExclusion(description)).toBe(description);
+    expect(
+      classifyContractAndWork("Opdracht", description).contracttype
+    ).toBeNull();
+  });
+
+  it("ends the list at the last contract term", () => {
+    // "ervaring" is not a contract form, so it closes the list rather than
+    // extending it, and only the zzp ahead of it is excluded.
+    const description = "Geen zzp, geen ervaring vereist";
+    expect(matchFreelanceExclusion(description)).toBe("Geen zzp");
+    expect(
+      classifyContractAndWork("Opdracht", description).contracttype
+    ).toBeNull();
+  });
+
   it("names the phrase when the clause ends in whitespace", () => {
     expect(matchFreelanceExclusion("Geen ZZP \n")).toBe("Geen ZZP");
     expect(matchFreelanceExclusion("Geen ZZP   ")).toBe("Geen ZZP");

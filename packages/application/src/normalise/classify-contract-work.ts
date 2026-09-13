@@ -31,7 +31,11 @@ const DENIAL = String.raw`(?:niet\s+(?:toegestaan|mogelijk|geschikt|gewenst|welk
  * rather than of some benefit. "Reiskostenvergoeding is niet voor zzp'ers"
  * withholds an allowance; it does not close the vacancy to freelancers.
  */
-const VACANCY_SUBJECT = String.raw`(?:(?:deze|dit|de|het)\s+)?(?:opdracht|functie|rol|vacature|aanvraag|positie|inzet)\s+(?:is|zijn|staat|staan)\s*,?\s*`;
+const VACANCY_NOUN = String.raw`(?:(?:deze|dit|de|het)\s+)?(?:opdracht|functie|rol|vacature|aanvraag|positie|inzet)`;
+const VACANCY_VERB = String.raw`(?:is|zijn|staat|staan)`;
+// Both orders: "deze opdracht is niet ..." and, after a lead-in, the inversion
+// Dutch uses there, "helaas is deze opdracht niet ...".
+const VACANCY_SUBJECT = String.raw`(?:${VACANCY_NOUN}\s+${VACANCY_VERB}|${VACANCY_VERB}\s+${VACANCY_NOUN})\s*,?\s*`;
 /**
  * Qualifiers that narrow an exclusion to a subset, so it is not a refusal.
  * The guard scans past any remaining term suffix, because FREELANCE_TERM can
@@ -115,11 +119,15 @@ const FREELANCE_EXCLUSIONS: readonly RegExp[] = [
  * tail is a contrast rather than a continuation: "geen zzp, detachering
  * mogelijk" offers detachering, it does not exclude it.
  *
+ * The determiner may be repeated per item ("geen zzp, geen detachering of
+ * interim"), which keeps such a sentence one match, so the report names the
+ * whole list rather than only its first item.
+ *
  * The trailing word is constrained so "geen zzp ervaring vereist" -- a
  * requirement, not an exclusion -- stays out.
  */
 const EXCLUDED_TERM_LIST = new RegExp(
-  String.raw`\bgeen\s+${COORDINATED_TERM}(?:(?:\s*,\s*${COORDINATED_TERM})*\s+(?:of|en)\s+${COORDINATED_TERM})?\b(?:\s+${EXCLUSION_TAIL}|(?=\s*(?:[,:]|$)))`,
+  String.raw`\bgeen\s+${COORDINATED_TERM}(?:(?:\s*,\s*(?:geen\s+)?${COORDINATED_TERM})*\s+(?:of|en)\s+(?:geen\s+)?${COORDINATED_TERM})?\b(?:\s+${EXCLUSION_TAIL}|(?=\s*(?:[,:]|$)))`,
   "giu"
 );
 
