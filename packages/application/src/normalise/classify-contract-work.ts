@@ -46,6 +46,12 @@ const VACANCY_SUBJECT = String.raw`(?:(?:deze|dit|de|het)\s+)?(?:opdracht|functi
  */
 const EXCLUSION_QUALIFIER = String.raw`(?:zonder|met|die|welke)`;
 /**
+ * Adverbs that soften a refusal without changing it. They sit either in front
+ * of the whole sentence ("Helaas niet voor zzp'ers") or between the vacancy
+ * subject and the refusal ("Deze opdracht is helaas niet voor zzp'ers").
+ */
+const REFUSAL_LEAD_IN = String.raw`(?:helaas|jammer\s+genoeg|let\s+op[:,]?)`;
+/**
  * Any contract form that can be coordinated behind "geen <freelance term> of".
  * A list excludes every term in it, so the report must name the whole phrase.
  */
@@ -59,24 +65,16 @@ const EXCLUSION_TAIL = String.raw`(?:mogelijk|toegestaan|beschikbaar|gezocht|gew
  * freelance work, so a positive freelance match must never win.
  */
 const FREELANCE_EXCLUSIONS: readonly RegExp[] = [
-  // "zzp niet mogelijk", "zzp is niet toegestaan", "zzp: uitgesloten"
+  // "zzp niet mogelijk", "zzp is niet toegestaan", "zzp: uitgesloten".
+  // The qualifier guard is the same one row 5 carries: "zzp'ers zijn niet
+  // toegestaan zonder KvK" excludes a subset, so the form stays open.
   new RegExp(
-    String.raw`\b${FREELANCE_TERM}\b\s*(?::\s*)?(?:(?:is|zijn|wordt|worden)\s+)?${DENIAL}\b`,
+    String.raw`\b${FREELANCE_TERM}\b\s*(?::\s*)?(?:(?:is|zijn|wordt|worden)\s+)?${DENIAL}\b(?!['’\w]*\s+${EXCLUSION_QUALIFIER}\b)`,
     "iu"
   ),
   // "niet toegestaan voor zzp", "uitgesloten: freelance"
   new RegExp(
-    String.raw`\b${DENIAL}\b(?:\s*:)?\s*(?:(?:voor|als)\s+)?(?:een\s+)?\b${FREELANCE_TERM}\b`,
-    "iu"
-  ),
-  // "geen zzp", "geen zzp mogelijk", "geen zzp'ers gezocht", "geen freelancers."
-  // Accepts a coordinated list ("geen zzp of detachering") so the report names
-  // the whole phrase, not just its freelance head. A comma list needs no
-  // branch: the clause splitter already cuts on commas.
-  // The trailing word is constrained so "geen zzp ervaring vereist" -- a
-  // requirement, not an exclusion -- stays out of the table.
-  new RegExp(
-    String.raw`\bgeen\s+${FREELANCE_TERM}(?:\s+(?:of|en)\s+${COORDINATED_TERM})*\b(?:\s+${EXCLUSION_TAIL}|(?=\s*(?:[.,;:!?]|$)))`,
+    String.raw`\b${DENIAL}\b(?:\s*:)?\s*(?:(?:voor|als)\s+)?(?:een\s+)?\b${FREELANCE_TERM}\b(?!['’\w]*\s+${EXCLUSION_QUALIFIER}\b)`,
     "iu"
   ),
   // "zzp mogelijkheid: nee", "freelance: nee"
@@ -84,16 +82,37 @@ const FREELANCE_EXCLUSIONS: readonly RegExp[] = [
     String.raw`\b${FREELANCE_TERM}\b\s*(?:(?:mogelijk(?:heid)?|toegestaan)\s*)?:\s*nee(?:n)?\b`,
     "iu"
   ),
-  // "niet voor zzp", "niet bedoeld voor freelancers", "deze opdracht is niet
-  // voor zzp'ers". Anchored to the clause start, because mid-clause the same
-  // words usually qualify a benefit rather than the contract form. A trailing
-  // qualifier ("niet voor zzp'ers zonder KvK") narrows the exclusion to a
-  // subset, so it is not a refusal either.
-  new RegExp(
-    String.raw`^\s*(?:${VACANCY_SUBJECT})?niet\s+(?:bedoeld\s+|bestemd\s+|beschikbaar\s+|open\s+)?(?:voor|als)\s+(?:een\s+)?${FREELANCE_TERM}\b(?!['’\w]*\s+${EXCLUSION_QUALIFIER}\b)`,
-    "iu"
-  ),
 ];
+
+/**
+ * "geen zzp", "geen zzp mogelijk", "geen zzp'ers gezocht", "geen freelancers.",
+ * and coordinated lists that may name other contract forms and may span commas
+ * ("geen zzp, detachering of interim toegestaan"). Matched against the whole
+ * sentence rather than a clause, because a list runs straight through its
+ * commas, and every term inside the match is excluded by it.
+ *
+ * The trailing word is constrained so "geen zzp ervaring vereist" -- a
+ * requirement, not an exclusion -- stays out.
+ */
+const EXCLUDED_TERM_LIST = new RegExp(
+  String.raw`\bgeen\s+${FREELANCE_TERM}(?:\s*(?:,|\s(?:of|en))\s*${COORDINATED_TERM})*\b(?:\s+${EXCLUSION_TAIL}|(?=\s*(?:[,:]|$)))`,
+  "giu"
+);
+
+/**
+ * "niet voor zzp", "niet bedoeld voor freelancers", "deze opdracht is helaas
+ * niet voor zzp'ers". Only ever applied to a clause that opens a sentence,
+ * because after a comma the same words contrast with what came before rather
+ * than refuse the vacancy: in "Reiskostenvergoeding geldt voor werknemers,
+ * niet voor zzp'ers" the allowance is withheld, not the contract form.
+ *
+ * A trailing qualifier ("niet voor zzp'ers zonder KvK") narrows the exclusion
+ * to a subset, so it is not a refusal either.
+ */
+const SENTENCE_INITIAL_REFUSAL = new RegExp(
+  String.raw`^\s*(?:${REFUSAL_LEAD_IN}\s+)?(?:${VACANCY_SUBJECT})?(?:${REFUSAL_LEAD_IN}\s+)?niet\s+(?:bedoeld\s+|bestemd\s+|beschikbaar\s+|open\s+)?(?:voor|als)\s+(?:een\s+)?${FREELANCE_TERM}\b(?!['’\w]*\s+${EXCLUSION_QUALIFIER}\b)`,
+  "iu"
+);
 
 // "inhuur" is the domain umbrella for every commercial form — never map it
 // alone to detachering. "interim" has its own branch below.
@@ -106,16 +125,22 @@ const REMOTE = /\b(?<kind>remote|thuiswerk(?:en)?|telecommute|vanuit huis)\b/iu;
 const HYBRID = /\b(?<kind>hybride|hybrid)\b/iu;
 const ONSITE = /\b(?<kind>op locatie|op kantoor|fysiek op kantoor|onsite)\b/iu;
 
-const CONTRACT_CLAUSE_SEPARATOR = /[.!?;,\n]+/u;
+// Sentences bound a refusal; clauses bound a denial inside one. Splitting in
+// two steps keeps the distinction the old single split threw away: a clause
+// that opens a sentence can refuse the vacancy, one after a comma cannot.
+const CONTRACT_SENTENCE_SEPARATOR = /[.!?;\n]+/u;
+const CONTRACT_CLAUSE_SEPARATOR = /,/u;
 // These two suppress a positive match for ANY contract term, not just the
 // freelance ones, so they cannot be folded into FREELANCE_EXCLUSIONS. They do
 // share the denial vocabulary, so both are built from DENIAL: extending that
 // one constant now reaches the exclusion table and the generic suppressor
 // together, which is what let "niet gewenst" slip through before.
 const CONTRACT_NEGATION_BEFORE = new RegExp(
-  // The second alternative carries "geen" across a coordination, so the term
-  // after "geen zzp of ..." is negated too rather than read as the answer.
-  String.raw`(?:\b(?:geen|${DENIAL})\b(?:\s+(?:voor|als))?|\bgeen\s+[\w'’]+\s+(?:of|en))\s*$`,
+  // No "geen X of" alternative here: carrying "geen" across a coordination by
+  // word shape suppressed unrelated prose ("geen budget en detachering is
+  // mogelijk"). EXCLUDED_TERM_LIST does that job precisely instead, by masking
+  // the terms it actually matched.
+  String.raw`\b(?:geen|${DENIAL})\b(?:\s+(?:voor|als))?\s*$`,
   "iu"
 );
 const CONTRACT_NEGATION_AFTER = new RegExp(
@@ -123,8 +148,20 @@ const CONTRACT_NEGATION_AFTER = new RegExp(
   "iu"
 );
 
-const splitContractClauses = (text: string): string[] =>
-  text.split(CONTRACT_CLAUSE_SEPARATOR);
+const splitContractSentences = (text: string): string[] =>
+  text.split(CONTRACT_SENTENCE_SEPARATOR);
+
+const splitContractClauses = (sentence: string): string[] =>
+  sentence.split(CONTRACT_CLAUSE_SEPARATOR);
+
+/**
+ * Blanks out every "geen ..." list in a sentence, preserving offsets so the
+ * surrounding context still reads correctly. A term inside such a list is
+ * excluded by it and must not count as positive evidence anywhere in the
+ * sentence, however many commas the list crosses.
+ */
+const maskExcludedTermLists = (sentence: string): string =>
+  sentence.replace(EXCLUDED_TERM_LIST, (match) => " ".repeat(match.length));
 
 const hasPositiveContractTerm = (
   clauses: string[],
@@ -147,26 +184,51 @@ const hasPositiveContractTerm = (
   return false;
 };
 
-/**
- * The phrase that excludes freelance work, or null when the text states no
- * such exclusion. Matching runs per clause so a denial cannot reach across a
- * sentence boundary. The report-only backfill tool reuses this to name the
- * phrase behind every mislabelled row.
- */
-export const matchFreelanceExclusion = (text: string): string | null => {
-  for (const clause of splitContractClauses(text)) {
+const matchSentenceExclusion = (sentence: string): string | null => {
+  EXCLUDED_TERM_LIST.lastIndex = 0;
+  const listMatch = EXCLUDED_TERM_LIST.exec(sentence);
+  if (listMatch) {
+    return listMatch[0].trim();
+  }
+  const clauses = splitContractClauses(sentence);
+  for (const [index, clause] of clauses.entries()) {
     for (const pattern of FREELANCE_EXCLUSIONS) {
       const match = pattern.exec(clause);
       if (match) {
         return match[0].trim();
       }
     }
+    if (index === 0) {
+      const refusal = SENTENCE_INITIAL_REFUSAL.exec(clause);
+      if (refusal) {
+        return refusal[0].trim();
+      }
+    }
+  }
+  return null;
+};
+
+/**
+ * The phrase that excludes freelance work, or null when the text states no
+ * such exclusion. A denial is matched inside one clause and a refusal only at
+ * the start of a sentence, so neither reaches across a boundary it does not
+ * own. The report-only backfill tool reuses this to name the phrase behind
+ * every mislabelled row.
+ */
+export const matchFreelanceExclusion = (text: string): string | null => {
+  for (const sentence of splitContractSentences(text)) {
+    const match = matchSentenceExclusion(sentence);
+    if (match !== null) {
+      return match;
+    }
   }
   return null;
 };
 
 const classifyContracttype = (text: string): ClassifiedContractType | null => {
-  const clauses = splitContractClauses(text);
+  const clauses = splitContractSentences(text).flatMap((sentence) =>
+    splitContractClauses(maskExcludedTermLists(sentence))
+  );
   const zzpIsNegated = matchFreelanceExclusion(text) !== null;
   const hasPositiveDetachering = hasPositiveContractTerm(clauses, DETACHERING);
   const hasPositiveVast = hasPositiveContractTerm(clauses, VAST);

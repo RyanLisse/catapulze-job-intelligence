@@ -348,6 +348,85 @@ describe("CTP-491 freelance exclusions", () => {
     ).toBeNull();
   });
 
+  it("excludes through a softening lead-in", () => {
+    for (const description of [
+      "Helaas niet voor zzp'ers.",
+      "Deze opdracht is helaas niet voor zzp'ers.",
+      "Let op: niet voor zzp'ers.",
+      "Jammer genoeg niet voor freelancers.",
+    ]) {
+      expect(matchFreelanceExclusion(description)).not.toBeNull();
+      expect(
+        classifyContractAndWork("Opdracht", description).contracttype
+      ).toBeNull();
+    }
+  });
+
+  it("reads a comma fragment as a contrast, not a refusal", () => {
+    const description =
+      "Reiskostenvergoeding geldt voor werknemers, niet voor zzp'ers. Freelance inzet is mogelijk.";
+    expect(matchFreelanceExclusion(description)).toBeNull();
+    expect(classifyContractAndWork("Opdracht", description).contracttype).toBe(
+      "freelance"
+    );
+  });
+
+  it("still refuses when the sentence opens with the vacancy subject", () => {
+    const description =
+      "Deze opdracht is niet voor zzp'ers, wel voor detachering.";
+    expect(matchFreelanceExclusion(description)).not.toBeNull();
+    expect(classifyContractAndWork("Opdracht", description).contracttype).toBe(
+      "detachering"
+    );
+  });
+
+  it("keeps a subset denial classified as freelance", () => {
+    const description =
+      "ZZP'ers zijn niet toegestaan zonder KvK; ZZP'ers met KvK zijn welkom.";
+    expect(matchFreelanceExclusion(description)).toBeNull();
+    expect(classifyContractAndWork("Opdracht", description).contracttype).toBe(
+      "freelance"
+    );
+  });
+
+  it("excludes every term in a comma-separated list", () => {
+    const description = "Geen zzp, detachering of interim toegestaan.";
+    expect(matchFreelanceExclusion(description)).toBe(
+      "Geen zzp, detachering of interim toegestaan"
+    );
+    expect(
+      classifyContractAndWork("Opdracht", description).contracttype
+    ).toBeNull();
+  });
+
+  it("does not carry geen across an unrelated coordination", () => {
+    expect(
+      classifyContractAndWork(
+        "Opdracht",
+        "Geen ervaring en freelance inzet is mogelijk."
+      ).contracttype
+    ).toBe("freelance");
+    expect(
+      classifyContractAndWork(
+        "Opdracht",
+        "geen budget en detachering is mogelijk"
+      ).contracttype
+    ).toBe("detachering");
+  });
+
+  it("stays stable across repeated calls", () => {
+    // The list pattern is global, so a leaked lastIndex would make the second
+    // call disagree with the first. The report tool calls this per row.
+    const description = "Geen zzp, detachering of interim toegestaan.";
+    const first = matchFreelanceExclusion(description);
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      expect(matchFreelanceExclusion(description)).toBe(first);
+      expect(
+        classifyContractAndWork("Opdracht", description).contracttype
+      ).toBeNull();
+    }
+  });
+
   it("names the phrase when the clause ends in whitespace", () => {
     expect(matchFreelanceExclusion("Geen ZZP \n")).toBe("Geen ZZP");
     expect(matchFreelanceExclusion("Geen ZZP   ")).toBe("Geen ZZP");
