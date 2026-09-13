@@ -6,6 +6,8 @@ import {
 } from "./ids";
 import type { BronId, BronStatus, VoorwaardenStatus } from "./ids";
 import {
+  BRON_NAAM_MAX_LENGTH,
+  BronNaamSchema,
   DomainIdString,
   NonNegativeInteger,
   PositiveInteger,
@@ -40,7 +42,7 @@ export const BronConfigSchema = Schema.Struct({
   loginVereist: Schema.Boolean,
   mappingRef: Schema.NullOr(Schema.String),
   method: ConnectorMethodSchema,
-  naam: Schema.String,
+  naam: BronNaamSchema,
   rateLimitPerMinute: PositiveInteger,
   secretRef: Schema.NullOr(Schema.String),
   status: BronStatusSchema,
@@ -102,6 +104,11 @@ export const validateBronConfig = (
 
   if (!input.naam.trim()) {
     issues.push({ field: "naam", message: "naam is required" });
+  } else if (input.naam.length > BRON_NAAM_MAX_LENGTH) {
+    issues.push({
+      field: "naam",
+      message: `naam must be at most ${BRON_NAAM_MAX_LENGTH} characters`,
+    });
   }
 
   if (!isConnectorMethod(input.method)) {

@@ -1,3 +1,4 @@
+import { boundBronReferentie } from "@ji/connectors";
 import type {
   AanvraagLifecycle,
   AanvraagId,
@@ -743,10 +744,29 @@ const curateUnchangedContent = (
   });
 };
 
+/**
+ * CTP-500: every curated write (live ingest and backfill) enters here, so
+ * this is where the draft's `bron_referentie` takes the same bounded form
+ * the staging write gave it in `runConnector`.
+ */
+const withBoundedBronReferentie = (
+  input: CurateObservationInput
+): CurateObservationInput => ({
+  ...input,
+  draft: {
+    ...input.draft,
+    bronReferentie: {
+      ...input.draft.bronReferentie,
+      value: boundBronReferentie(input.draft.bronReferentie.value),
+    },
+  },
+});
+
 export const curateObservation = async (
   store: CurateStore,
-  input: CurateObservationInput
+  rawInput: CurateObservationInput
 ): Promise<CurateObservationResult> => {
+  const input = withBoundedBronReferentie(rawInput);
   const existing = await store.findAanvraagByIdentity(
     input.bronId,
     input.draft.bronReferentie.value

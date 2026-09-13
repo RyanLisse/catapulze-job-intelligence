@@ -28,6 +28,18 @@ describe("bron config validation", () => {
     expect(issues).toHaveLength(0);
   });
 
+  it("rejects a naam past the bron_naam_lower_uidx cap (CTP-500)", () => {
+    expect(
+      validateBronConfig({ ...baseConfig(), naam: "n".repeat(201) })
+    ).toContainEqual({
+      field: "naam",
+      message: "naam must be at most 200 characters",
+    });
+    expect(
+      validateBronConfig({ ...baseConfig(), naam: "n".repeat(200) })
+    ).toHaveLength(0);
+  });
+
   it("requires secret_ref for login connectors", () => {
     const issues = validateBronConfig({
       ...baseConfig(),
