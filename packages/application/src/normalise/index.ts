@@ -1,4 +1,11 @@
 export {
+  classifyContractAndWork,
+  matchFreelanceExclusion,
+  type ClassifiedContractType,
+  type ClassifiedContractWork,
+  type ClassifiedWorkArrangement,
+} from "./classify-contract-work";
+export {
   normaliseInhuurdeskObservation,
   parseInhuurdeskPayload,
 } from "./inhuurdesk";
