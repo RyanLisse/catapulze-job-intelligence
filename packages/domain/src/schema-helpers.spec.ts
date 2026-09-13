@@ -4,7 +4,11 @@ import { Schema } from "effect";
 
 import {
   AanvraagLifecycleSchema,
+  BRON_NAAM_MAX_LENGTH,
+  BRON_REFERENTIE_MAX_LENGTH,
   BronConfigSchema,
+  BronNaamSchema,
+  BronReferentieSchema,
   BronStatusSchema,
   ConnectorMethodSchema,
   LifecycleRedenSchema,
@@ -81,6 +85,37 @@ describe("domain Effect Schema SoT (CTP-470)", () => {
     expect(Schema.is(LifecycleRedenSchema)("manual")).toBe(false);
     expect(Schema.is(UnknownValueSchema)("unknown")).toBe(true);
     expect(Schema.is(UnknownValueSchema)("known")).toBe(false);
+  });
+
+  it("decodes a bron_referentie at the cap and rejects one past it (CTP-500)", () => {
+    const atCap = "r".repeat(BRON_REFERENTIE_MAX_LENGTH);
+    expect(Schema.decodeSync(BronReferentieSchema)(atCap)).toBe(atCap);
+    expect(Schema.decodeSync(BronReferentieSchema)("TN-100")).toBe("TN-100");
+    expect(() =>
+      Schema.decodeSync(BronReferentieSchema)(`${atCap}r`)
+    ).toThrow();
+    expect(() => Schema.decodeSync(BronReferentieSchema)("")).toThrow();
+  });
+
+  it("decodes a bron naam at the cap and rejects one past it (CTP-500)", () => {
+    const atCap = "n".repeat(BRON_NAAM_MAX_LENGTH);
+    expect(Schema.decodeSync(BronNaamSchema)(atCap)).toBe(atCap);
+    expect(() => Schema.decodeSync(BronNaamSchema)(`${atCap}n`)).toThrow();
+    expect(() =>
+      Schema.decodeSync(BronConfigSchema)({
+        bronId: "bron-1",
+        crawlDelayMs: 0,
+        interval: "*/15 * * * *",
+        loginVereist: false,
+        mappingRef: null,
+        method: "json-api",
+        naam: `${atCap}n`,
+        rateLimitPerMinute: 30,
+        secretRef: null,
+        status: "deferred",
+        voorwaardenStatus: "toegestaan",
+      })
+    ).toThrow();
   });
 
   it("exposes shared integer helpers", () => {

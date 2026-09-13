@@ -574,6 +574,45 @@ describe("InMemoryRunLifecycleStore", () => {
 });
 
 describe("runConnector", () => {
+  it("stores an oversized bron_referentie as one bounded key in staging, the observation, and the seen-set (CTP-500)", async () => {
+    const oversized = "vacatures/".concat("x".repeat(3000));
+    const bronId = "bron-bounded-ref";
+    const dependencies = runDependencies("run-bounded-ref");
+
+    const result = await runConnector({
+      ...dependencies,
+      bronId,
+      bronSlug: "bounded-ref",
+      connector: {
+        bronId,
+        discover: () =>
+          Promise.resolve({
+            checkpoint: { page: 1 },
+            hasMore: false,
+            items: [{ bronReferentie: oversized, contentHash: "listing" }],
+          }),
+        fetch: (item) =>
+          Promise.resolve({
+            body: new TextEncoder().encode(item.bronReferentie),
+            bronReferentie: item.bronReferentie,
+            contentHash:
+              "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            contentType: "json" as const,
+            status: "fetched" as const,
+          }),
+        fetchUsesNetwork: false,
+      },
+    });
+
+    const [record] = dependencies.observationRecorder.records;
+    const [observation] = dependencies.observationRecorder.observations;
+    const bounded = record?.bronReferentie ?? "";
+    expect(bounded).toMatch(/^sha256:[0-9a-f]{64}$/u);
+    expect(observation?.bronReferentie).toBe(bounded);
+    expect(result.observedBronReferenties).toEqual([bounded]);
+    expect(result.metrics.new).toBe(1);
+  });
+
   it("limits discovery and network fetches while allowing local fetches to skip the limiter", async () => {
     const acquireCalls: BronId[] = [];
     const limiter = {

@@ -1,3 +1,4 @@
+import { boundBronReferentie } from "@ji/connectors";
 import type { KnownHashStore } from "@ji/connectors";
 import type { BronId } from "@ji/domain";
 import { and, eq } from "drizzle-orm";
@@ -19,6 +20,9 @@ export class PostgresKnownHashStore implements KnownHashStore {
    * hash; reading `content_hash` here would compare hashes of different
    * inputs, which never match, and the skip would silently never fire.
    * NULL (pre-0012 rows, or not yet re-observed) never skips.
+   *
+   * CTP-500: connectors look up with the raw discover reference; the stored
+   * key is the bounded form, so the lookup binds it the same way.
    */
   async get(
     bronId: BronId,
@@ -30,7 +34,7 @@ export class PostgresKnownHashStore implements KnownHashStore {
       .where(
         and(
           eq(sourceRecord.bronId, bronId),
-          eq(sourceRecord.bronReferentie, bronReferentie)
+          eq(sourceRecord.bronReferentie, boundBronReferentie(bronReferentie))
         )
       )
       .limit(1);

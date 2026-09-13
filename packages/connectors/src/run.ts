@@ -10,6 +10,7 @@ import {
   withCriticalPathSession,
 } from "@ji/performance";
 
+import { boundBronReferentie } from "./bron-referentie";
 import type { ConnectorRunProgress } from "./checkpoint";
 import {
   CONNECTOR_OBSERVATION_CONTRACT_VERSION,
@@ -263,6 +264,8 @@ const runConnectorInner = async (
     }
     const contentHash =
       fetched.contentHash || (await hashContent(fetched.body));
+    // CTP-500: the one place a connector's reference becomes a stored key.
+    const bronReferentie = boundBronReferentie(fetched.bronReferentie);
     // RJC-386: content-addressed so every new raw object is digest-validated
     // on readback (see RawObjectDigestMismatchError). Legacy buildRawObjectPath
     // keys stay readable unverified; this is the only writer, so all new
@@ -294,7 +297,7 @@ const runConnectorInner = async (
           key: checkpointKey,
           observation: {
             bronId,
-            bronReferentie: fetched.bronReferentie,
+            bronReferentie,
             contentHash,
             contentType: fetched.contentType,
             contractVersion: CONNECTOR_OBSERVATION_CONTRACT_VERSION,
@@ -304,7 +307,7 @@ const runConnectorInner = async (
           },
           sourceRecord: {
             bronId,
-            bronReferentie: fetched.bronReferentie,
+            bronReferentie,
             contentHash,
             // RJC-357: persist the discover pass's listing-tier hash next to
             // the payload hash so the next poll's known-hash short-circuit
@@ -316,7 +319,7 @@ const runConnectorInner = async (
         }),
       FAILURE_ENVELOPES.observation
     );
-    const observationKey = `${fetched.bronReferentie}\0${contentHash}`;
+    const observationKey = `${bronReferentie}\0${contentHash}`;
     if (countedObservations.has(observationKey)) {
       return;
     }
@@ -353,7 +356,8 @@ const runConnectorInner = async (
       truncated ||= discovery.truncated === true;
 
       for (const item of discovery.items) {
-        observedBronReferenties.add(item.bronReferentie);
+        // CTP-500: missed-polls compares this set against stored keys.
+        observedBronReferenties.add(boundBronReferentie(item.bronReferentie));
         // oxlint-disable-next-line no-await-in-loop -- crawl policy requires sequential fetches
         await persistItem(item, observedAt);
       }

@@ -19,6 +19,7 @@ export {
   fixturePath,
   createFixtureEnvelope,
 } from "./fixtures/load";
+export { boundBronReferentie } from "./bron-referentie";
 export { InMemoryKnownHashStore, type KnownHashStore } from "./known-hash";
 export {
   type CheckpointKey,

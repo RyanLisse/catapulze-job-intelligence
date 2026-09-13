@@ -66,6 +66,10 @@ export {
   type VoorwaardenStatus,
 } from "./ids";
 export {
+  BRON_NAAM_MAX_LENGTH,
+  BRON_REFERENTIE_MAX_LENGTH,
+  BronNaamSchema,
+  BronReferentieSchema,
   DomainIdString,
   FiniteNumber,
   IntegerNumber,

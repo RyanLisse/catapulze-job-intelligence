@@ -20,9 +20,11 @@ export interface ClassifiedContractWork {
 }
 
 /**
- * Every wording the source prose uses for the freelance contract form.
- * Shared by the exclusion table so a phrasing added here is recognised in
- * every negation shape at once.
+ * Every wording the source prose uses for the freelance contract form,
+ * including the plural and possessive spellings ("freelancers", "zzp'ers").
+ * Shared by the positive matcher and the exclusion table, so a phrasing added
+ * here is recognised as evidence and in every negation shape at once, and a
+ * plural can never be excluded on one side yet missed on the other (CTP-502).
  */
 const FREELANCE_TERM = String.raw`(?:zzp(?:['’]ers?)?|freelance(?:rs?)?)`;
 const DENIAL = String.raw`(?:niet\s+(?:toegestaan|mogelijk|geschikt|gewenst|welkom|geaccepteerd)|uitgesloten)`;
@@ -63,14 +65,14 @@ const REFUSAL_LEAD_IN = String.raw`(?:helaas|jammer\s+genoeg|let\s+op[:,]?)`;
  * same strings the classifier answers with and the two cannot drift apart.
  */
 const DETACHERING_TERM = String.raw`detachering|detacheren|deta-?vast`;
-const FREELANCE_MATCH_TERM = String.raw`freelance|zzp|marktplaats\s*\(freelance\)`;
+const FREELANCE_MATCH_TERM = String.raw`${FREELANCE_TERM}|marktplaats\s*\(freelance\)`;
 const VAST_TERM = String.raw`vast\s+dienstverband|vaste\s+aanstelling|vast\s+contract|permanent`;
 const INTERIM_TERM = String.raw`interim`;
 
 /**
  * Any contract form that can appear in a "geen ..." list, in any position.
- * FREELANCE_TERM comes first because it carries the plural and possessive
- * spellings the positive matcher does not need.
+ * FREELANCE_TERM is used directly rather than FREELANCE_MATCH_TERM because the
+ * "marktplaats (freelance)" alias never appears inside a "geen ..." list.
  */
 const COORDINATED_TERM = String.raw`(?:${FREELANCE_TERM}|${DETACHERING_TERM}|${VAST_TERM}|${INTERIM_TERM})`;
 /** Words that confirm "geen <freelance term>" is an exclusion of the form. */
