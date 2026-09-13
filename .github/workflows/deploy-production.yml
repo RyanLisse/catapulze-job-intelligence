@@ -97,16 +97,18 @@ jobs:
           description="Automatic production release ${CANDIDATE_SHA}"
           description+=" workflow=${GITHUB_WORKFLOW} run=${GITHUB_RUN_ID}"
           description+=" attempt=${GITHUB_RUN_ATTEMPT} job=deploy"
-          deployment_id="$(gh api --method POST \
+          # A JSON body: `-F required_contexts='[]'` sends the string "[]" and the
+          # API answers 422 ("is not an array or null").
+          deployment_body="$(jq -cn \
+            --arg ref "${CANDIDATE_SHA}" \
+            --arg description "${description}" \
+            --argjson payload "${metadata}" \
+            '{ref:$ref,environment:"production",description:$description,payload:$payload,auto_merge:false,required_contexts:[]}')"
+          deployment_id="$(printf '%s' "${deployment_body}" | gh api --method POST \
             -H 'Accept: application/vnd.github+json' \
             -H 'X-GitHub-Api-Version: 2022-11-28' \
             "/repos/${GITHUB_REPOSITORY}/deployments" \
-            -f ref="${CANDIDATE_SHA}" \
-            -f environment=production \
-            -f description="${description}" \
-            -f payload="${metadata}" \
-            -F auto_merge=false \
-            -F required_contexts='[]' | jq -er '.id')"
+            --input - | jq -er '.id')"
           gh api --method POST \
             -H 'Accept: application/vnd.github+json' \
             -H 'X-GitHub-Api-Version: 2022-11-28' \
