@@ -162,34 +162,134 @@ classifier is failing.
 
 ## Applying the correction
 
-Apply is a follow-up. This lane ships the report only, and no tool in the
-repository can currently perform this correction.
+`tools/backfill/apply-zzp-negation-labels.ts` corrects the rows the report
+finds. It is bounded the same way the RJC-394 repair lane is: an explicit
+reviewed manifest, a quiescence acknowledgement, a re-read under a row lock,
+one audit event and one `aanvraag.gewijzigd` outbox event per changed row, and
+a rollback keyed on the audit event it wrote.
 
-The RJC-394 repair tool (`tools/backfill/repair-motian-v1-derived-fields.ts`)
-does write `contracttype` with provenance, an audit event and a rollback path,
-but it does not fit this case on two counts. It only fills a derived field that
-is currently null, so it will not touch a row that already says `freelance`,
-which is exactly the set this report finds. It is also bound to rows carrying a
-Motian `v1_id`, which the mislabelled rows need not have.
-
-So the correction needs its own path, and it must carry the same guarantees as
-the existing one: an explicit reviewed manifest, a quiescence gate, one audit
-event and one `aanvraag.gewijzigd` outbox event per changed row, and a rollback.
-See `docs/runbooks/motian-v1-derived-field-repair.md` for the shape to copy.
-
-Re-ingestion is not a second route. It cannot clear a stored `freelance`, on
+Re-ingestion is not an alternative. It cannot clear a stored `freelance`, on
 either curation path. When the content hash is unchanged,
 `buildUnchangedContentPatch` writes `contracttype` only behind
 `if (existing.contracttype === null)`, so a stored value is left alone. When the
 content has changed, the new value goes through
 `coalesceNullable(incoming, existing)`, which is `incoming ?? existing`: the
-fixed classifier returning null for an excluded vacancy is exactly the case
-where the old `freelance` coalesces straight back. Both are in
+classifier returning null for an excluded vacancy is exactly the case where the
+old `freelance` coalesces straight back. Both are in
 `packages/application/src/identity/curate.ts`.
 
-That is deliberate. Curation does not let a later, thinner observation erase a
-field it already holds. It does mean a wrong stored label survives every
-re-ingest, and only a deliberate write clears it.
+### Approve a manifest
+
+The tool reads the report tool's own output. Run the report, delete the
+candidates that should not be corrected, and pass the rest back in. The summary
+keys are ignored, so the file needs no reshaping.
+
+Every candidate is a binding, not an instruction: the row must still be
+labelled `freelance`, still be at the `versie` the manifest records, and its
+CURRENT text must still refuse freelance work. A row that fails any of those is
+rejected with a reason code and never patched. At most 100 candidates per run.
+
+### Dry run
+
+Default mode. One `REPEATABLE READ` read-only snapshot, no locks, no writes.
+
+```bash
+DATABASE_URL=postgres://... bun tools/backfill/apply-zzp-negation-labels.ts \
+  --manifest approved.json --limit 34
+```
+
+`--limit` is required and must be at least the manifest size. It exists so an
+oversized manifest fails before any database work rather than after it.
+
+### Apply
+
+```bash
+DATABASE_URL=postgres://... bun tools/backfill/apply-zzp-negation-labels.ts \
+  --manifest approved.json --limit 34 --apply --ingest-quiesced
+```
+
+`--ingest-quiesced` is your acknowledgement that ingestion is stopped. The tool
+does not verify it; it refuses to write without it. Quiesce ingestion first,
+because a concurrent recurate and this correction both write `contracttype`.
+
+Each row is corrected in its own short transaction, under `FOR UPDATE`, with
+statement, lock and idle-in-transaction timeouts set locally. The whole decision
+is retaken inside that transaction: the manifest is an approval, not evidence.
+
+The same transaction also clears the fallback. `readAanvraagBronFacts` lets
+`bron_specifiek.contracttype` and `bron_specifiek.contract_type` stand in for
+the promoted column whenever it is null, in both the API record and the search
+document (`packages/db/src/aanvraag-stores.ts`). Clearing only the column would
+therefore leave those rows reading as freelance to users the moment the outbox
+event reprojects them, while the report no longer finds them. Confirmed live: 4
+of the 34 rows carry `bron_specifiek->>'contracttype' = 'freelance'`.
+
+Only an alias that would still read as freelance is removed. An alias naming a
+different contract form is left alone, because this lane has evidence against
+freelance and none against detachering. The audit event records every removed
+key with the value it held, so the rollback puts back exactly what was there.
+
+Re-running the same manifest is a no-op. The audit event is looked up before the
+row is judged, so a row this run already corrected reports `unchanged` with the
+original audit id rather than being rejected for no longer being `freelance`.
+
+### Rollback
+
+Keyed on the audit event, one event at a time, the same shape the RJC-394 lane
+uses.
+
+```bash
+DATABASE_URL=postgres://... bun tools/backfill/apply-zzp-negation-labels.ts \
+  --rollback --audit-id <audit-event-uuid> --ingest-quiesced
+```
+
+The audit event carries the previous value, so the rollback restores it exactly:
+the promoted column and every `bron_specifiek` alias key the apply removed, with
+the values they held. Other keys in `bron_specifiek` are never touched, in
+either direction.
+
+It refuses if the row is gone, if its content hash has changed, if the label is
+no longer what this tool left there, or if the audit event belongs to another
+scope, because in each case the row is not this lane's to restore. Rolling back
+twice is a no-op.
+
+After a rollback the row is mislabelled again, and re-running the same manifest
+corrects it once more rather than reporting `unchanged`. The idempotency lookup
+ignores an apply audit that a later rollback reversed.
+
+### Reading the output
+
+Counts, row ids, reason codes and the audit and outbox ids. No vacancy text, no
+opdrachtgever, no URL, and any connection string in an error message is redacted
+before printing, so the output is safe to paste into a ticket.
+
+Reason codes:
+
+| Code | Meaning |
+| --- | --- |
+| `current_row_missing` | the row is gone, or its id is not the approved one |
+| `contracttype_not_freelance` | the label is no longer the one this lane corrects |
+| `versie_mismatch` | the row moved on after the report was taken |
+| `text_no_longer_excludes` | the current text no longer refuses freelance work |
+| `classifier_still_freelance` | the classifier still answers freelance, so there is nothing to correct |
+| `transaction_failed` | the row was not changed; safe to re-run |
+
+The audit event stores the matched phrase capped at 200 characters, with
+`matchedPhraseTruncated` recording when it had to cut. The manifest itself
+accepts whatever the report emitted: a coordinated list can legitimately run
+past that cap, and the manifest must never reject the report that produced it.
+
+A rejected row is a row left alone. Re-run the report to get a fresh manifest
+rather than editing the old one.
+
+### On the box
+
+The tool builds to a single file, so it can be shipped without the repository:
+
+```bash
+bun build --target=bun tools/backfill/apply-zzp-negation-labels.ts \
+  --outfile=apply-zzp-negation-labels.js
+```
 
 Do not hand-edit `curated.aanvraag` rows. The search projection and the audit
 trail both derive from the curated write path, and a direct update leaves them

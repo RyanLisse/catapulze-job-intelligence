@@ -186,6 +186,45 @@ export interface MotianDerivedFieldRepairRollbackAuditMetadata extends MotianDer
   readonly rollbackOfAuditId: string;
 }
 
+/**
+ * The `bron_specifiek` alias keys that shadow `contracttype`. Only the ones
+ * this lane removed appear, with the value they held, so a rollback can put
+ * back exactly what was there.
+ */
+export interface ZzpNegationLabelBronAliasImage {
+  readonly contract_type?: string;
+  readonly contracttype?: string;
+}
+
+export interface ZzpNegationLabelAuditImage {
+  readonly bronSpecifiek: ZzpNegationLabelBronAliasImage;
+  readonly contracttype: string | null;
+}
+
+/**
+ * Strict, bounded metadata for the CTP-491 freelance-label correction lane.
+ * The columns it writes, the row identity it was bound to, and the phrase that
+ * justified the change. The phrase is capped by the writer, so an audit event
+ * can never become a copy of the vacancy text; `matchedPhraseTruncated` says
+ * when the cap was reached.
+ */
+export interface ZzpNegationLabelAuditMetadata {
+  readonly aanvraagId: string;
+  readonly afterimage: ZzpNegationLabelAuditImage;
+  readonly applyVersion: "zzp-negation-label-apply/v1";
+  readonly contentHash: string;
+  readonly manifestSha256: string;
+  readonly matchedPhrase: string;
+  /** True when the phrase was longer than the audit cap and was cut to fit. */
+  readonly matchedPhraseTruncated: boolean;
+  readonly preimage: ZzpNegationLabelAuditImage;
+  readonly versie: number;
+}
+
+export interface ZzpNegationLabelRollbackAuditMetadata extends ZzpNegationLabelAuditMetadata {
+  readonly rollbackOfAuditId: string;
+}
+
 export type AuditEventMetadata =
   | ApprovalAuditMetadata
   | ClearMarkeringAuditMetadata
@@ -194,7 +233,9 @@ export type AuditEventMetadata =
   | MarkeerAuditMetadata
   | MotianDerivedFieldRepairAuditMetadata
   | MotianDerivedFieldRepairRollbackAuditMetadata
-  | SavedSearchAuditMetadata;
+  | SavedSearchAuditMetadata
+  | ZzpNegationLabelAuditMetadata
+  | ZzpNegationLabelRollbackAuditMetadata;
 
 export type AlertEvidenceValue = boolean | null | number | string;
 
