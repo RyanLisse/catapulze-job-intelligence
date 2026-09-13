@@ -58,45 +58,75 @@ export const parseArguments = (argv: readonly string[]): CliArguments => {
  * The pure half: given the freelance-labelled rows, keep only those whose
  * description states an exclusion, and name the phrase that proves it.
  */
-export const buildReport = (
+export interface ReportTally {
+  readonly byBron: Record<string, number>;
+  readonly candidates: MislabelledCandidate[];
+  scanned: number;
+}
+
+export const createTally = (): ReportTally => ({
+  byBron: {},
+  candidates: [],
+  scanned: 0,
+});
+
+/**
+ * Folds one page into the running tally. Only matched rows survive the call:
+ * the descriptions, which dominate the row size, are dropped with the page.
+ */
+export const accumulatePage = (
+  tally: ReportTally,
   rows: readonly CandidateRow[]
-): ZzpNegationReport => {
-  const candidates: MislabelledCandidate[] = [];
-  const byBron: Record<string, number> = {};
+): void => {
   for (const row of rows) {
+    tally.scanned += 1;
     const matchedPhrase = matchFreelanceExclusion(
       `${row.titel}\n${row.beschrijving}`
     );
     if (matchedPhrase === null) {
       continue;
     }
-    candidates.push({
+    tally.candidates.push({
       bron: row.bronNaam,
       id: row.id,
       matchedPhrase,
       titel: row.titel,
       versie: row.versie,
     });
-    byBron[row.bronNaam] = (byBron[row.bronNaam] ?? 0) + 1;
+    tally.byBron[row.bronNaam] = (tally.byBron[row.bronNaam] ?? 0) + 1;
   }
-  return {
-    byBron,
-    candidates,
-    mislabelled: candidates.length,
-    scanned: rows.length,
-  };
+};
+
+export const finaliseReport = (tally: ReportTally): ZzpNegationReport => ({
+  byBron: tally.byBron,
+  candidates: tally.candidates,
+  mislabelled: tally.candidates.length,
+  scanned: tally.scanned,
+});
+
+/** Single-page convenience over the same fold, used by the tests. */
+export const buildReport = (
+  rows: readonly CandidateRow[]
+): ZzpNegationReport => {
+  const tally = createTally();
+  accumulatePage(tally, rows);
+  return finaliseReport(tally);
 };
 
 /**
- * Reads every freelance-labelled row by keyset pagination on the primary key,
- * so the scan covers the whole corpus without holding one long transaction or
- * paying an OFFSET scan per page. The cursor is the last id of the page.
+ * Walks every freelance-labelled row by keyset pagination on the primary key
+ * and folds each page as it arrives, so no description outlives its page.
+ *
+ * The caller runs this inside one REPEATABLE READ transaction. Without a single
+ * snapshot the pages would be taken against a moving table, and a row inserted
+ * or relabelled by ingestion between two pages could be counted twice or
+ * skipped entirely, depending on where its id fell relative to the cursor.
  */
-const readFreelanceRows = async (
-  sql: postgres.Sql,
+const scanFreelanceRows = async (
+  sql: postgres.TransactionSql,
   input: CliArguments
-): Promise<CandidateRow[]> => {
-  const all: CandidateRow[] = [];
+): Promise<ZzpNegationReport> => {
+  const tally = createTally();
   let cursor: string | null = null;
   for (;;) {
     // oxlint-disable-next-line no-await-in-loop -- keyset pages are sequential by design
@@ -110,18 +140,18 @@ const readFreelanceRows = async (
       FROM curated.aanvraag AS aanvraag
       JOIN curated.bron AS bron ON bron.id = aanvraag.bron_id
       WHERE aanvraag.contracttype = 'freelance'
-        AND (${input.bron ?? null}::text IS NULL OR bron.naam = ${input.bron ?? null})
+        AND (${input.bron ?? null}::text IS NULL OR lower(bron.naam) = lower(${input.bron ?? null}))
         AND (${cursor}::uuid IS NULL OR aanvraag.id > ${cursor}::uuid)
       ORDER BY aanvraag.id
       LIMIT ${PAGE_SIZE}
     `;
-    all.push(...page);
+    accumulatePage(tally, page);
     if (page.length < PAGE_SIZE) {
-      return all;
+      return finaliseReport(tally);
     }
     cursor = page.at(-1)?.id ?? null;
     if (cursor === null) {
-      return all;
+      return finaliseReport(tally);
     }
   }
 };
@@ -141,7 +171,11 @@ const runReport = async (input: CliArguments): Promise<ZzpNegationReport> => {
     max: 1,
   });
   try {
-    return buildReport(await readFreelanceRows(sql, input));
+    // One snapshot for every page. READ ONLY is belt and braces over the
+    // connection default, and makes the intent explicit at the transaction.
+    return await sql.begin("isolation level repeatable read read only", (tx) =>
+      scanFreelanceRows(tx, input)
+    );
   } finally {
     await sql.end({ timeout: 5 });
   }

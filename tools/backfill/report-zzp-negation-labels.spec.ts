@@ -1,6 +1,12 @@
 import { describe, expect, it } from "bun:test";
 
-import { buildReport, parseArguments } from "./report-zzp-negation-labels";
+import {
+  accumulatePage,
+  buildReport,
+  createTally,
+  finaliseReport,
+  parseArguments,
+} from "./report-zzp-negation-labels";
 import type { CandidateRow } from "./report-zzp-negation-labels";
 
 const row = (overrides: Partial<CandidateRow> = {}): CandidateRow => ({
@@ -69,5 +75,49 @@ describe("buildReport", () => {
       mislabelled: 0,
       scanned: 0,
     });
+  });
+});
+
+describe("paginated fold", () => {
+  it("adds each page to the running tally", () => {
+    const tally = createTally();
+    accumulatePage(tally, [row({ id: "a" }), row({ id: "b" })]);
+    accumulatePage(tally, [
+      row({ bronNaam: "striive", id: "c" }),
+      row({ beschrijving: "ZZP mogelijk.", bronNaam: "striive", id: "d" }),
+    ]);
+    const report = finaliseReport(tally);
+    expect(report.scanned).toBe(4);
+    expect(report.mislabelled).toBe(3);
+    expect(report.byBron).toEqual({ inhuurdesk: 2, striive: 1 });
+  });
+
+  it("counts a page that matches nothing", () => {
+    const tally = createTally();
+    accumulatePage(tally, [row({ beschrijving: "ZZP mogelijk." })]);
+    const report = finaliseReport(tally);
+    expect(report.scanned).toBe(1);
+    expect(report.mislabelled).toBe(0);
+    expect(report.candidates).toEqual([]);
+  });
+
+  it("keeps no description once the page is folded", () => {
+    // The descriptions dominate the row size, so retaining them across the
+    // whole scan is what the pagination is meant to avoid.
+    const tally = createTally();
+    accumulatePage(tally, [
+      row({ beschrijving: `Geen ZZP mogelijk. ${"x".repeat(5000)}` }),
+    ]);
+    for (const candidate of tally.candidates) {
+      expect(Object.keys(candidate).toSorted()).toEqual([
+        "bron",
+        "id",
+        "matchedPhrase",
+        "titel",
+        "versie",
+      ]);
+      expect(JSON.stringify(candidate)).not.toContain("xxxx");
+    }
+    expect(tally.candidates).toHaveLength(1);
   });
 });

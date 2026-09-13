@@ -96,18 +96,34 @@ a contract form that the text does not state.
 
 ## Report the mislabelled rows
 
-Read-only. The connection is opened in a read-only transaction and the tool
-issues one `SELECT`; there is no write path in it.
+Read-only. The tool issues only `SELECT`s, inside a read-only transaction on a
+read-only connection; there is no write path in it.
 
 ```bash
 DATABASE_URL=postgres://... bun tools/backfill/report-zzp-negation-labels.ts
-DATABASE_URL=postgres://... bun tools/backfill/report-zzp-negation-labels.ts --bron=inhuurdesk
+DATABASE_URL=postgres://... bun tools/backfill/report-zzp-negation-labels.ts --bron=Inhuurdesk
 ```
 
-`--bron` filters on `curated.bron.naam`. There is no limit flag: the scan walks
-the whole corpus by keyset pagination on the primary key, 1000 rows per page,
-so the numbers always describe every freelance-labelled row rather than a
-window. On failure the tool prints the error name and message alongside
+`--bron` filters on `curated.bron.naam` and is case-insensitive, so
+`--bron=Inhuurdesk` and `--bron=inhuurdesk` both work. The examples use the
+stored spelling: `Inhuurdesk`, `Striive`, `TenderNed`, `Harvey Nash`,
+`BlueTrail`, `Flinter`, `CTM`.
+
+There is no limit flag. The scan walks the whole corpus by keyset pagination on
+the primary key, 1000 rows per page, so the numbers always describe every
+freelance-labelled row rather than a window.
+
+Every page runs inside one `REPEATABLE READ` transaction, so the whole scan
+sees a single snapshot. That matters because the pages are taken by cursor: on
+a moving table a row inserted or relabelled by ingestion between two pages
+could be counted twice or skipped entirely, depending on where its id fell
+relative to the cursor. The numbers would still look plausible, which is what
+makes it worth preventing rather than detecting.
+
+Each page is folded as it arrives and then dropped, so memory holds the matched
+rows and the counters, never every description in the corpus.
+
+On failure the tool prints the error name and message alongside
 `"reason": "command_failed"` and exits 1.
 
 ## Reading the numbers
