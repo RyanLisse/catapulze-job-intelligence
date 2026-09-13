@@ -7,9 +7,13 @@ import { migrate } from "drizzle-orm/postgres-js/migrator";
 import postgres from "postgres";
 
 import * as schema from "../../packages/db/src/schema";
+import { PostgresAuditStore } from "../../packages/db/src/user-write-stores";
 import {
   applyZzpNegationLabel,
+  isFreelanceFallback,
   MAX_MANIFEST_ENTRIES,
+  MAX_MATCHED_PHRASE_LENGTH,
+  readFreelanceAliases,
   parseArguments,
   parseManifest,
   planCorrection,
@@ -20,6 +24,7 @@ import {
   ZZP_NEGATION_APPLY_ACTION,
   ZZP_NEGATION_EVENT_TYPE,
   ZZP_NEGATION_ROLLBACK_ACTION,
+  ZZP_NEGATION_SCOPE_ID,
 } from "./apply-zzp-negation-labels";
 import type {
   CurrentAanvraagRow,
@@ -44,6 +49,7 @@ const currentRow = (
 ): CurrentAanvraagRow => ({
   aanvraagId: AANVRAAG_ID,
   beschrijving: "Geen ZZP mogelijk.",
+  bronSpecifiek: {},
   contentHash: "a".repeat(64),
   contracttype: "freelance",
   titel: "Adviseur A",
@@ -187,14 +193,22 @@ describe("parseManifest", () => {
     expect(() => parseManifest(encode({ candidates: tooMany }))).toThrow();
   });
 
-  it("refuses a matched phrase long enough to be a payload", () => {
-    expect(() =>
-      parseManifest(
-        encode({
-          candidates: [manifestEntry({ matchedPhrase: "x".repeat(201) })],
-        })
-      )
-    ).toThrow();
+  it("accepts a phrase longer than the audit cap", () => {
+    // The report emits the whole regex match, and a coordinated list can run
+    // past the cap. The manifest must not reject what the report produced; the
+    // writer truncates for the audit and records that it did.
+    const manifest = parseManifest(
+      encode({
+        candidates: [
+          manifestEntry({
+            matchedPhrase: `Geen zzp${", detachering".repeat(20)} of interim toegestaan`,
+          }),
+        ],
+      })
+    );
+    expect(manifest.candidates[0]?.matchedPhrase.length).toBeGreaterThan(
+      MAX_MATCHED_PHRASE_LENGTH
+    );
   });
 
   it("refuses an unexpected field on a candidate", () => {
@@ -285,6 +299,51 @@ describe("planCorrection", () => {
     });
     expect(plan.kind).toBe("rejected");
     expect(plan.reason).toBe("text_no_longer_excludes");
+  });
+});
+
+describe("readFreelanceAliases", () => {
+  it("names only the aliases that would still read as freelance", () => {
+    expect(readFreelanceAliases({ contracttype: "freelance" })).toEqual({
+      contracttype: "freelance",
+    });
+    expect(
+      readFreelanceAliases({ contract_type: "ZZP", contracttype: "Freelance" })
+    ).toEqual({ contract_type: "ZZP", contracttype: "Freelance" });
+  });
+
+  it("leaves a different contract form alone", () => {
+    // This lane has evidence against freelance, not against detachering.
+    expect(readFreelanceAliases({ contracttype: "detachering" })).toEqual({});
+    expect(
+      readFreelanceAliases({ contracttype: "vast dienstverband" })
+    ).toEqual({});
+  });
+
+  it("survives a missing or malformed column", () => {
+    for (const value of [null, undefined, {}, "freelance", 7]) {
+      expect(readFreelanceAliases(value)).toEqual({});
+    }
+  });
+
+  it("ignores unrelated keys", () => {
+    expect(
+      readFreelanceAliases({ contracttype: "zzp", tarief: "freelance" })
+    ).toEqual({ contracttype: "zzp" });
+  });
+});
+
+describe("isFreelanceFallback", () => {
+  it("accepts the spellings that would resurface the label", () => {
+    for (const value of ["freelance", " Freelance ", "ZZP", "zzp'ers"]) {
+      expect(isFreelanceFallback(value)).toBe(true);
+    }
+  });
+
+  it("rejects other forms and non-strings", () => {
+    for (const value of ["detachering", "interim", "", undefined]) {
+      expect(isFreelanceFallback(value)).toBe(false);
+    }
   });
 });
 
@@ -402,6 +461,7 @@ describe
 
     const seedRow = async (input: {
       readonly beschrijving?: string;
+      readonly bronSpecifiek?: Readonly<Record<string, string>>;
       readonly contracttype?: string | null;
       readonly versie?: number;
     }): Promise<{
@@ -419,7 +479,8 @@ describe
       `;
       await migratorClient`
         INSERT INTO curated.aanvraag (
-          id, beschrijving, bron_id, bron_referentie, content_hash,
+          id, beschrijving, bron_id, bron_referentie, bron_specifiek,
+          content_hash,
           contracttype, eerste_gezien_op, extractie_methode, laatst_gezien_op,
           raw_payload_ref, scrape_run_id, status, titel, versie
         ) VALUES (
@@ -427,6 +488,7 @@ describe
           ${input.beschrijving ?? "Geen ZZP mogelijk."},
           ${BRON_ID},
           ${`ref-${aanvraagId}`},
+          ${JSON.stringify(input.bronSpecifiek ?? {})}::text::jsonb,
           ${contentHash},
           ${input.contracttype === undefined ? "freelance" : input.contracttype},
           ${NOW.toISOString()},
@@ -459,6 +521,18 @@ describe
         SELECT contracttype FROM curated.aanvraag WHERE id = ${aanvraagId}
       `;
       return rows[0]?.contracttype ?? null;
+    };
+
+    const readBronSpecifiek = async (
+      aanvraagId: string
+    ): Promise<Readonly<Record<string, string>>> => {
+      const rows = await migratorClient<
+        { bronSpecifiek: Readonly<Record<string, string>> }[]
+      >`
+        SELECT bron_specifiek AS "bronSpecifiek"
+        FROM curated.aanvraag WHERE id = ${aanvraagId}
+      `;
+      return rows[0]?.bronSpecifiek ?? {};
     };
 
     it("clears the label and writes one audit and one outbox event", async () => {
@@ -577,6 +651,144 @@ describe
       });
       expect(result.reason).toBe("contracttype_not_freelance");
       expect(await readContracttype(seeded.aanvraagId)).toBe("detachering");
+    });
+
+    it("clears the bron_specifiek fallback and restores it on rollback", async () => {
+      // Clearing only the promoted column leaves readAanvraagBronFacts to
+      // resurface the same label in both the API record and the search
+      // document, so the correction would be invisible to users.
+      const bronSpecifiek = {
+        contracttype: "freelance",
+        tarief_eenheid: "uur",
+      };
+      const seeded = await seedRow({ bronSpecifiek });
+      const applied = await applyZzpNegationLabel({
+        database: applicationClient,
+        manifest: seeded.manifest,
+        manifestSha256: "1".repeat(64),
+      });
+
+      expect(applied.status).toBe("applied");
+      expect(await readContracttype(seeded.aanvraagId)).toBeNull();
+      expect(await readBronSpecifiek(seeded.aanvraagId)).toEqual({
+        tarief_eenheid: "uur",
+      });
+
+      const rolledBack = await rollbackZzpNegationLabel({
+        auditId: applied.auditId ?? "",
+        database: applicationClient,
+      });
+      expect(rolledBack.status).toBe("rolled_back");
+      expect(await readContracttype(seeded.aanvraagId)).toBe("freelance");
+      expect(await readBronSpecifiek(seeded.aanvraagId)).toEqual(bronSpecifiek);
+    });
+
+    it("leaves a fallback naming a different contract form alone", async () => {
+      const bronSpecifiek = { contracttype: "detachering" };
+      const seeded = await seedRow({ bronSpecifiek });
+      const applied = await applyZzpNegationLabel({
+        database: applicationClient,
+        manifest: seeded.manifest,
+        manifestSha256: "2".repeat(64),
+      });
+      expect(applied.status).toBe("applied");
+      expect(await readBronSpecifiek(seeded.aanvraagId)).toEqual(bronSpecifiek);
+    });
+
+    it("reapplies after a rollback rather than reporting unchanged", async () => {
+      const seeded = await seedRow({});
+      const manifestSha256 = "3".repeat(64);
+      const first = await applyZzpNegationLabel({
+        database: applicationClient,
+        manifest: seeded.manifest,
+        manifestSha256,
+      });
+      expect(first.status).toBe("applied");
+
+      const rolledBack = await rollbackZzpNegationLabel({
+        auditId: first.auditId ?? "",
+        database: applicationClient,
+      });
+      expect(rolledBack.status).toBe("rolled_back");
+      expect(await readContracttype(seeded.aanvraagId)).toBe("freelance");
+
+      // The first apply audit still exists, but a rollback reversed it, so the
+      // row is mislabelled again and the manifest must be able to correct it.
+      const second = await applyZzpNegationLabel({
+        database: applicationClient,
+        manifest: seeded.manifest,
+        manifestSha256,
+      });
+      expect(second.status).toBe("applied");
+      expect(second.auditId).not.toBe(first.auditId);
+      expect(await readContracttype(seeded.aanvraagId)).toBeNull();
+    });
+
+    it("records a truncated phrase as truncated", async () => {
+      // A real coordinated list the classifier matches whole: 290 characters,
+      // which is what the report would put in the manifest.
+      const longExclusion = `Geen zzp${", detachering".repeat(20)} of interim toegestaan.`;
+      const seeded = await seedRow({ beschrijving: longExclusion });
+      const applied = await applyZzpNegationLabel({
+        database: applicationClient,
+        manifest: seeded.manifest,
+        manifestSha256: "4".repeat(64),
+      });
+      expect(applied.status).toBe("applied");
+
+      const audits = await migratorClient<{ metadata: unknown }[]>`
+        SELECT metadata FROM curated.audit_event
+        WHERE entity_id = ${seeded.aanvraagId}
+      `;
+      // SAFETY: this row is the audit event the apply above just inserted, so
+      // its metadata is the shape applyAuditMetadataSchema wrote.
+      const metadata = audits[0]?.metadata as {
+        matchedPhrase: string;
+        matchedPhraseTruncated: boolean;
+      };
+      expect(metadata.matchedPhraseTruncated).toBe(true);
+      expect(metadata.matchedPhrase.length).toBe(MAX_MATCHED_PHRASE_LENGTH);
+    });
+
+    it("refuses an audit event from another scope", async () => {
+      const seeded = await seedRow({});
+      const applied = await applyZzpNegationLabel({
+        database: applicationClient,
+        manifest: seeded.manifest,
+        manifestSha256: "5".repeat(64),
+      });
+      await migratorClient`
+        UPDATE curated.audit_event
+        SET scope_id = 'other-tenant'
+        WHERE id::text = ${applied.auditId ?? ""}
+      `;
+      const result = await rollbackZzpNegationLabel({
+        auditId: applied.auditId ?? "",
+        database: applicationClient,
+      });
+      expect(result.reason).toBe("audit_not_apply");
+      expect(await readContracttype(seeded.aanvraagId)).toBeNull();
+    });
+
+    it("reads back its own audit trail through the store decoder", async () => {
+      const seeded = await seedRow({ bronSpecifiek: { contracttype: "zzp" } });
+      const applied = await applyZzpNegationLabel({
+        database: applicationClient,
+        manifest: seeded.manifest,
+        manifestSha256: "6".repeat(64),
+      });
+      await rollbackZzpNegationLabel({
+        auditId: applied.auditId ?? "",
+        database: applicationClient,
+      });
+      const store = new PostgresAuditStore(
+        drizzle(applicationClient, { schema })
+      );
+      const events = await store.listByActorId(
+        ZZP_NEGATION_ACTOR_ID,
+        ZZP_NEGATION_SCOPE_ID
+      );
+      expect(events.length).toBeGreaterThanOrEqual(2);
     });
 
     it("restores the previous label on rollback", async () => {

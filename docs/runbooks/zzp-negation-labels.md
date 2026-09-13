@@ -216,6 +216,19 @@ Each row is corrected in its own short transaction, under `FOR UPDATE`, with
 statement, lock and idle-in-transaction timeouts set locally. The whole decision
 is retaken inside that transaction: the manifest is an approval, not evidence.
 
+The same transaction also clears the fallback. `readAanvraagBronFacts` lets
+`bron_specifiek.contracttype` and `bron_specifiek.contract_type` stand in for
+the promoted column whenever it is null, in both the API record and the search
+document (`packages/db/src/aanvraag-stores.ts`). Clearing only the column would
+therefore leave those rows reading as freelance to users the moment the outbox
+event reprojects them, while the report no longer finds them. Confirmed live: 4
+of the 34 rows carry `bron_specifiek->>'contracttype' = 'freelance'`.
+
+Only an alias that would still read as freelance is removed. An alias naming a
+different contract form is left alone, because this lane has evidence against
+freelance and none against detachering. The audit event records every removed
+key with the value it held, so the rollback puts back exactly what was there.
+
 Re-running the same manifest is a no-op. The audit event is looked up before the
 row is judged, so a row this run already corrected reports `unchanged` with the
 original audit id rather than being rejected for no longer being `freelance`.
@@ -230,11 +243,19 @@ DATABASE_URL=postgres://... bun tools/backfill/apply-zzp-negation-labels.ts \
   --rollback --audit-id <audit-event-uuid> --ingest-quiesced
 ```
 
-The audit event carries the previous value, so the rollback restores it exactly.
-It refuses if the row is gone, if its content hash has changed, or if the label
-is no longer what this tool left there, because in each case something else has
-written the row since and the rollback is not ours to make. Rolling back twice
-is a no-op.
+The audit event carries the previous value, so the rollback restores it exactly:
+the promoted column and every `bron_specifiek` alias key the apply removed, with
+the values they held. Other keys in `bron_specifiek` are never touched, in
+either direction.
+
+It refuses if the row is gone, if its content hash has changed, if the label is
+no longer what this tool left there, or if the audit event belongs to another
+scope, because in each case the row is not this lane's to restore. Rolling back
+twice is a no-op.
+
+After a rollback the row is mislabelled again, and re-running the same manifest
+corrects it once more rather than reporting `unchanged`. The idempotency lookup
+ignores an apply audit that a later rollback reversed.
 
 ### Reading the output
 
@@ -252,6 +273,11 @@ Reason codes:
 | `text_no_longer_excludes` | the current text no longer refuses freelance work |
 | `classifier_still_freelance` | the classifier still answers freelance, so there is nothing to correct |
 | `transaction_failed` | the row was not changed; safe to re-run |
+
+The audit event stores the matched phrase capped at 200 characters, with
+`matchedPhraseTruncated` recording when it had to cut. The manifest itself
+accepts whatever the report emitted: a coordinated list can legitimately run
+past that cap, and the manifest must never reject the report that produced it.
 
 A rejected row is a row left alone. Re-run the report to get a fresh manifest
 rather than editing the old one.

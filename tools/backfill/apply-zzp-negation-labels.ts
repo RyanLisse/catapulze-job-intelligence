@@ -22,6 +22,7 @@ import {
 } from "@ji/application/normalise";
 import type {
   ZzpNegationLabelAuditMetadata,
+  ZzpNegationLabelBronAliasImage,
   ZzpNegationLabelRollbackAuditMetadata,
 } from "@ji/application/registry";
 import postgres from "postgres";
@@ -39,13 +40,91 @@ export const ZZP_NEGATION_EVENT_TYPE = "aanvraag.gewijzigd" as const;
 /** The label this lane exists to correct. Nothing else is ever touched. */
 const CORRECTABLE_CONTRACTTYPE = "freelance" as const;
 export const MAX_MANIFEST_ENTRIES = 100;
-/** A justification, not a copy of the vacancy. Anything longer is a bug. */
+/**
+ * The audit cap. A justification belongs in an audit event; a copy of the
+ * vacancy does not. The manifest accepts whatever the report emits, because a
+ * coordinated list can legitimately run past this, and the writer records
+ * `matchedPhraseTruncated` when it had to cut.
+ */
 export const MAX_MATCHED_PHRASE_LENGTH = 200;
+
+/**
+ * The `bron_specifiek` keys `readAanvraagBronFacts` falls back to when the
+ * promoted `contracttype` column is null. Clearing the column alone would let
+ * these resurface the very label being corrected.
+ */
+export const BRON_CONTRACTTYPE_ALIASES = [
+  "contracttype",
+  "contract_type",
+] as const;
+
+export type BronContracttypeAlias = (typeof BRON_CONTRACTTYPE_ALIASES)[number];
+
+/**
+ * Alias values that would still read as freelance after the correction, either
+ * through the API allowlist or the raw search document. Any other value names a
+ * different contract form, and this lane has no evidence against it.
+ */
+const FREELANCE_FALLBACK_VALUES = new Set([
+  "freelance",
+  "zzp",
+  "zzp'er",
+  "zzp'ers",
+  "zzp\u2019er",
+  "zzp\u2019ers",
+]);
 
 /** Keep the transaction short enough that a stalled row cannot hold a lock indefinitely. */
 export const ZZP_NEGATION_STATEMENT_TIMEOUT_MS = 15_000;
 export const ZZP_NEGATION_LOCK_TIMEOUT_MS = 2000;
 export const ZZP_NEGATION_IDLE_TRANSACTION_TIMEOUT_MS = 20_000;
+
+export const isFreelanceFallback = (
+  value: string | undefined
+): value is string =>
+  value !== undefined &&
+  FREELANCE_FALLBACK_VALUES.has(value.trim().toLowerCase());
+
+/**
+ * Parses the two alias keys out of the curated JSON column, the same way
+ * `readAanvraagBronFacts` does. Every other key in the column is dropped here
+ * and never written back. A column that is not an object, or whose alias is not
+ * a string, yields no aliases at all, which leaves the row untouched: the safe
+ * direction when the shape is not what this lane understands.
+ */
+const bronAliasReadSchema = z
+  .object({
+    contract_type: z.string().optional(),
+    contracttype: z.string().optional(),
+  })
+  // oxlint-disable-next-line promise/prefer-await-to-then -- Zod's synchronous fallback API, not Promise.catch
+  .catch({});
+
+/**
+ * The alias keys that currently hold a freelance value, with those values.
+ * An alias naming a different contract form is left alone: this lane has
+ * evidence against freelance and none against detachering.
+ */
+/** The image under construction; the exported shape is readonly. */
+interface MutableBronAliasImage {
+  contract_type?: string;
+  contracttype?: string;
+}
+
+export const readFreelanceAliases = (
+  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- curated JSON I/O boundary, parsed by bronAliasReadSchema before field access
+  bronSpecifiek: unknown
+): ZzpNegationLabelBronAliasImage => {
+  const parsed = bronAliasReadSchema.parse(bronSpecifiek);
+  const image: MutableBronAliasImage = {};
+  if (isFreelanceFallback(parsed.contract_type)) {
+    image.contract_type = parsed.contract_type;
+  }
+  if (isFreelanceFallback(parsed.contracttype)) {
+    image.contracttype = parsed.contracttype;
+  }
+  return image;
+};
 
 export type ZzpNegationOperation = "apply" | "report" | "rollback";
 
@@ -94,6 +173,8 @@ export interface ZzpNegationRollbackResult {
 export interface CurrentAanvraagRow {
   readonly aanvraagId: string;
   readonly beschrijving: string;
+  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- curated JSON column, read through readBronAliases
+  readonly bronSpecifiek: unknown;
   readonly contentHash: string;
   readonly contracttype: string | null;
   readonly titel: string;
@@ -104,7 +185,7 @@ const manifestCandidateSchema = z
   .object({
     bron: z.string().trim().min(1),
     id: z.string().uuid(),
-    matchedPhrase: z.string().trim().min(1).max(MAX_MATCHED_PHRASE_LENGTH),
+    matchedPhrase: z.string().trim().min(1),
     titel: z.string(),
     versie: z.number().int().nonnegative(),
   })
@@ -283,15 +364,25 @@ export const planCorrection = (input: {
   }
   return {
     kind: "correct",
-    matchedPhrase: matchedPhrase.slice(0, MAX_MATCHED_PHRASE_LENGTH),
+    matchedPhrase,
     nextContracttype,
   };
 };
 
 type ZzpNegationSql = postgres.Sql | postgres.TransactionSql;
 
+const bronAliasImageSchema = z
+  .object({
+    contract_type: z.string().optional(),
+    contracttype: z.string().optional(),
+  })
+  .strict();
+
 const auditImageSchema = z
-  .object({ contracttype: z.string().nullable() })
+  .object({
+    bronSpecifiek: bronAliasImageSchema,
+    contracttype: z.string().nullable(),
+  })
   .strict();
 
 const applyAuditMetadataSchema = z
@@ -302,6 +393,7 @@ const applyAuditMetadataSchema = z
     contentHash: z.string().regex(/^[0-9a-f]{64}$/u),
     manifestSha256: z.string().regex(/^[0-9a-f]{64}$/u),
     matchedPhrase: z.string().min(1).max(MAX_MATCHED_PHRASE_LENGTH),
+    matchedPhraseTruncated: z.boolean(),
     preimage: auditImageSchema,
     versie: z.number().int().nonnegative(),
   })
@@ -323,7 +415,9 @@ interface StoredAuditRow {
   readonly entityId: string;
   readonly entityType: string;
   readonly id: string;
+  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- audit JSON column, parsed by applyAuditMetadataSchema
   readonly metadata: unknown;
+  readonly scopeId: string | null;
 }
 
 const readCurrentRow = async (
@@ -338,6 +432,7 @@ const readCurrentRow = async (
         id::text AS "aanvraagId",
         titel AS "titel",
         beschrijving AS "beschrijving",
+        bron_specifiek AS "bronSpecifiek",
         contracttype,
         content_hash AS "contentHash",
         versie
@@ -362,7 +457,8 @@ const readAudit = async (
       entity_id AS "entityId",
       entity_type AS "entityType",
       id::text AS id,
-      metadata
+      metadata,
+      scope_id AS "scopeId"
     FROM curated.audit_event
     WHERE id::text = ${auditId}
     LIMIT 1
@@ -384,19 +480,44 @@ const configureTransaction = async (
   );
 };
 
-const writeContracttype = async (input: {
+const clearContracttype = async (input: {
   readonly aanvraagId: string;
+  readonly removedAliases: ZzpNegationLabelBronAliasImage;
   readonly transaction: postgres.TransactionSql;
   readonly value: string | null;
 }): Promise<void> => {
+  // `- text[]` drops the alias keys; everything else in bron_specifiek stays.
+  const aliasKeys = Object.keys(input.removedAliases);
   const rows = await input.transaction<{ id: string }[]>`
     UPDATE curated.aanvraag
-    SET contracttype = ${input.value}
+    SET contracttype = ${input.value},
+        bron_specifiek = bron_specifiek - ${aliasKeys}::text[]
     WHERE id::text = ${input.aanvraagId}
     RETURNING id::text AS id
   `;
   if (rows.length !== 1) {
     throw new Error("Freelance-label correction updated no unique row");
+  }
+};
+
+const restoreContracttype = async (input: {
+  readonly aanvraagId: string;
+  readonly restoredAliases: ZzpNegationLabelBronAliasImage;
+  readonly transaction: postgres.TransactionSql;
+  readonly value: string | null;
+}): Promise<void> => {
+  // `|| jsonb` merges the removed keys back with the values they held.
+  const rows = await input.transaction<{ id: string }[]>`
+    UPDATE curated.aanvraag
+    SET contracttype = ${input.value},
+        bron_specifiek = bron_specifiek || ${JSON.stringify(
+          input.restoredAliases
+        )}::text::jsonb
+    WHERE id::text = ${input.aanvraagId}
+    RETURNING id::text AS id
+  `;
+  if (rows.length !== 1) {
+    throw new Error("Freelance-label rollback updated no unique row");
   }
 };
 
@@ -475,16 +596,26 @@ const readExistingApplyAudit = async (
   manifestSha256: string
 ): Promise<string | null> => {
   const rows = await transaction<{ id: string }[]>`
-    SELECT id::text AS id
-    FROM curated.audit_event
-    WHERE action = ${ZZP_NEGATION_APPLY_ACTION}
-      AND actor_id = ${ZZP_NEGATION_ACTOR_ID}
-      AND entity_type = 'aanvraag'
-      AND entity_id = ${aanvraagId}
-      AND scope_id = ${ZZP_NEGATION_SCOPE_ID}
-      AND metadata->>'applyVersion' = ${ZZP_NEGATION_APPLY_VERSION}
-      AND metadata->>'manifestSha256' = ${manifestSha256}
-    ORDER BY created_at ASC, id ASC
+    SELECT applied.id::text AS id
+    FROM curated.audit_event AS applied
+    WHERE applied.action = ${ZZP_NEGATION_APPLY_ACTION}
+      AND applied.actor_id = ${ZZP_NEGATION_ACTOR_ID}
+      AND applied.entity_type = 'aanvraag'
+      AND applied.entity_id = ${aanvraagId}
+      AND applied.scope_id = ${ZZP_NEGATION_SCOPE_ID}
+      AND applied.metadata->>'applyVersion' = ${ZZP_NEGATION_APPLY_VERSION}
+      AND applied.metadata->>'manifestSha256' = ${manifestSha256}
+      AND NOT EXISTS (
+        SELECT 1
+        FROM curated.audit_event AS reversed
+        WHERE reversed.action = ${ZZP_NEGATION_ROLLBACK_ACTION}
+          AND reversed.actor_id = ${ZZP_NEGATION_ACTOR_ID}
+          AND reversed.entity_type = 'aanvraag'
+          AND reversed.entity_id = applied.entity_id
+          AND reversed.scope_id = ${ZZP_NEGATION_SCOPE_ID}
+          AND reversed.metadata->>'rollbackOfAuditId' = applied.id::text
+      )
+    ORDER BY applied.created_at ASC, applied.id ASC
     LIMIT 1
   `;
   return rows[0]?.id ?? null;
@@ -557,19 +688,27 @@ export const applyZzpNegationLabel = async (input: {
         }
 
         const nextContracttype = plan.nextContracttype ?? null;
-        await writeContracttype({
+        const removedAliases = readFreelanceAliases(locked.bronSpecifiek);
+        await clearContracttype({
           aanvraagId: manifest.id,
+          removedAliases,
           transaction,
           value: nextContracttype,
         });
+        const matchedPhrase = plan.matchedPhrase ?? "";
         const metadata: ZzpNegationLabelAuditMetadata = {
           aanvraagId: manifest.id,
-          afterimage: { contracttype: nextContracttype },
+          afterimage: { bronSpecifiek: {}, contracttype: nextContracttype },
           applyVersion: ZZP_NEGATION_APPLY_VERSION,
           contentHash: locked.contentHash,
           manifestSha256: input.manifestSha256,
-          matchedPhrase: plan.matchedPhrase ?? "",
-          preimage: { contracttype: locked.contracttype },
+          matchedPhrase: matchedPhrase.slice(0, MAX_MATCHED_PHRASE_LENGTH),
+          matchedPhraseTruncated:
+            matchedPhrase.length > MAX_MATCHED_PHRASE_LENGTH,
+          preimage: {
+            bronSpecifiek: removedAliases,
+            contracttype: locked.contracttype,
+          },
           versie: locked.versie,
         };
         const auditId = await insertAudit({
@@ -620,7 +759,8 @@ export const rollbackZzpNegationLabel = async (input: {
     audit.action !== ZZP_NEGATION_APPLY_ACTION ||
     audit.actorId !== ZZP_NEGATION_ACTOR_ID ||
     audit.auditClass !== "effect" ||
-    audit.entityType !== "aanvraag"
+    audit.entityType !== "aanvraag" ||
+    audit.scopeId !== ZZP_NEGATION_SCOPE_ID
   ) {
     return { reason: "audit_not_apply", status: "rejected" };
   }
@@ -677,15 +817,16 @@ export const rollbackZzpNegationLabel = async (input: {
           };
         }
 
-        await writeContracttype({
+        await restoreContracttype({
           aanvraagId: original.aanvraagId,
+          restoredAliases: original.preimage.bronSpecifiek,
           transaction,
           value: original.preimage.contracttype,
         });
         const metadata: ZzpNegationLabelRollbackAuditMetadata = {
           ...original,
-          afterimage: { contracttype: original.preimage.contracttype },
-          preimage: { contracttype: original.afterimage.contracttype },
+          afterimage: original.preimage,
+          preimage: original.afterimage,
           rollbackOfAuditId: input.auditId,
         };
         const rollbackAuditId = await insertAudit({
