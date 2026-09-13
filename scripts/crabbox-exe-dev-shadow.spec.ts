@@ -32,6 +32,8 @@ const unitDiagnosticsScript = path.join(
 );
 const sourceSha = "a".repeat(40);
 const realGit = Bun.which("git") ?? "";
+const realRm = Bun.which("rm") ?? "/bin/rm";
+const cleanupFixtureExitStatuses = [0, 23] as const;
 const launcherFixtureTimeoutMs = 30_000;
 const nodeImage =
   "node:24-slim@sha256:ba849c60be29959425b8734d57b8b4b7d56f98edd9504c9af091d5281095a71e";
@@ -55,6 +57,7 @@ const createLauncherFixture = (
   const argumentsFile = path.join(workspace, "arguments");
   const environmentFile = path.join(workspace, "environment");
   const gitStateFile = path.join(workspace, "git-state");
+  const rmFailureMarker = path.join(workspace, "rm-failure-marker");
   const materializedWorkspaceFile = path.join(
     workspace,
     "materialized-workspace"
@@ -141,6 +144,23 @@ if [[ -n "\${CAPTURE_GIT_STATE:-}" ]]; then
     printf 'manifest-ls-files-exit=%s\\n' "$git_exit_status" >>"$CAPTURE_GIT_STATE"
   fi
 fi
+exit "\${CRABBOX_FIXTURE_EXIT_STATUS:-0}"
+`
+  );
+  createExecutable(
+    path.join(binDirectory, "rm"),
+    `#!/usr/bin/env bash
+set -euo pipefail
+if [[ "$*" == *"/ji-exe-dev-shadow."* ]]; then
+  if [[ -n "\${CRABBOX_FIXTURE_RM_ALWAYS_FAIL:-}" ]]; then
+    exit 42
+  fi
+  if [[ -n "\${CRABBOX_FIXTURE_RM_FAIL_ONCE:-}" && ! -e "$RM_FAILURE_MARKER" ]]; then
+    : >"$RM_FAILURE_MARKER"
+    exit 1
+  fi
+fi
+exec "$REAL_RM" "$@"
 `
   );
 
@@ -150,6 +170,7 @@ fi
     environmentFile,
     gitStateFile,
     materializedWorkspaceFile,
+    rmFailureMarker,
     workspace,
   };
 };
@@ -166,7 +187,25 @@ const launcherEnvironment = (
   EXPECTED_WORKSPACE_ROOT: fixture.workspace,
   PATH: `${fixture.binDirectory}:${process.env.PATH ?? "/usr/bin:/bin"}`,
   REAL_GIT: realGit,
+  REAL_RM: realRm,
+  RM_FAILURE_MARKER: fixture.rmFailureMarker,
 });
+
+const cleanupMaterializedWorkspace = (
+  fixture: ReturnType<typeof createLauncherFixture>
+): void => {
+  if (!existsSync(fixture.materializedWorkspaceFile)) {
+    return;
+  }
+  const materializedWorkspace = readFileSync(
+    fixture.materializedWorkspaceFile,
+    "utf-8"
+  ).trim();
+  if (materializedWorkspace.length === 0) {
+    return;
+  }
+  rmSync(path.dirname(materializedWorkspace), { force: true, recursive: true });
+};
 
 const writeInputManifest = (workspace: string, entries: string[]): string => {
   const manifest = entries
@@ -220,6 +259,59 @@ describe("exe.dev shadow scripts", () => {
       rmSync(fixture.workspace, { force: true, recursive: true });
     }
   });
+
+  test("retries transient materialization cleanup and preserves Crabbox status", () => {
+    const fixture = createLauncherFixture();
+    try {
+      const result = Bun.spawnSync(["bash", launcher, "--dry-run"], {
+        env: {
+          ...launcherEnvironment(fixture),
+          CRABBOX_FIXTURE_EXIT_STATUS: "23",
+          CRABBOX_FIXTURE_RM_FAIL_ONCE: "1",
+        },
+        stderr: "pipe",
+        stdout: "pipe",
+      });
+
+      expect(result.exitCode).toBe(23);
+      expect(result.stderr.toString()).toBe("");
+      expect(existsSync(fixture.rmFailureMarker)).toBe(true);
+      const materializedWorkspace = readFileSync(
+        fixture.materializedWorkspaceFile,
+        "utf-8"
+      ).trim();
+      expect(existsSync(materializedWorkspace)).toBe(false);
+    } finally {
+      cleanupMaterializedWorkspace(fixture);
+      rmSync(fixture.workspace, { force: true, recursive: true });
+    }
+  });
+
+  for (const originalExitStatus of cleanupFixtureExitStatuses) {
+    test(`reports permanent materialization cleanup failure without changing status ${originalExitStatus}`, () => {
+      const fixture = createLauncherFixture();
+      try {
+        const result = Bun.spawnSync(["bash", launcher, "--dry-run"], {
+          env: {
+            ...launcherEnvironment(fixture),
+            CRABBOX_FIXTURE_EXIT_STATUS: String(originalExitStatus),
+            CRABBOX_FIXTURE_RM_ALWAYS_FAIL: "1",
+          },
+          stderr: "pipe",
+          stdout: "pipe",
+        });
+
+        expect(result.exitCode).toBe(originalExitStatus);
+        expect(result.stderr.toString()).toContain(
+          "failed to clean up materialization workspace after 3 attempts"
+        );
+        expect(result.stderr.toString()).not.toContain("rm:");
+      } finally {
+        cleanupMaterializedWorkspace(fixture);
+        rmSync(fixture.workspace, { force: true, recursive: true });
+      }
+    });
+  }
 
   test("seeds the materialized workspace with a tracked input manifest", () => {
     const fixture = createLauncherFixture();
