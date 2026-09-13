@@ -186,6 +186,31 @@ export interface MotianDerivedFieldRepairRollbackAuditMetadata extends MotianDer
   readonly rollbackOfAuditId: string;
 }
 
+export interface ZzpNegationLabelAuditImage {
+  readonly contracttype: string | null;
+}
+
+/**
+ * Strict, bounded metadata for the CTP-491 freelance-label correction lane.
+ * Only the one column it writes, the row identity it was bound to, and the
+ * phrase that justified the change. The phrase is a short excerpt, capped by
+ * the writer, so an audit event can never become a copy of the vacancy text.
+ */
+export interface ZzpNegationLabelAuditMetadata {
+  readonly aanvraagId: string;
+  readonly afterimage: ZzpNegationLabelAuditImage;
+  readonly applyVersion: "zzp-negation-label-apply/v1";
+  readonly contentHash: string;
+  readonly manifestSha256: string;
+  readonly matchedPhrase: string;
+  readonly preimage: ZzpNegationLabelAuditImage;
+  readonly versie: number;
+}
+
+export interface ZzpNegationLabelRollbackAuditMetadata extends ZzpNegationLabelAuditMetadata {
+  readonly rollbackOfAuditId: string;
+}
+
 export type AuditEventMetadata =
   | ApprovalAuditMetadata
   | ClearMarkeringAuditMetadata
@@ -194,7 +219,9 @@ export type AuditEventMetadata =
   | MarkeerAuditMetadata
   | MotianDerivedFieldRepairAuditMetadata
   | MotianDerivedFieldRepairRollbackAuditMetadata
-  | SavedSearchAuditMetadata;
+  | SavedSearchAuditMetadata
+  | ZzpNegationLabelAuditMetadata
+  | ZzpNegationLabelRollbackAuditMetadata;
 
 export type AlertEvidenceValue = boolean | null | number | string;
 
