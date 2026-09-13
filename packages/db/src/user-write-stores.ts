@@ -76,6 +76,29 @@ const motianRepairAuditBaseSchema = {
   sourceAbsentFields: z.array(motianRepairFieldNameSchema),
   v1Id: z.string().min(1),
 } as const;
+const zzpNegationBronAliasImageSchema = z
+  .object({
+    contract_type: z.string().optional(),
+    contracttype: z.string().optional(),
+  })
+  .strict();
+const zzpNegationImageSchema = z
+  .object({
+    bronSpecifiek: zzpNegationBronAliasImageSchema,
+    contracttype: z.string().nullable(),
+  })
+  .strict();
+const zzpNegationAuditBaseSchema = {
+  aanvraagId: z.string().min(1),
+  afterimage: zzpNegationImageSchema,
+  applyVersion: z.literal("zzp-negation-label-apply/v1"),
+  contentHash: z.string().regex(/^[0-9a-f]{64}$/u),
+  manifestSha256: z.string().regex(/^[0-9a-f]{64}$/u),
+  matchedPhrase: z.string().min(1).max(200),
+  matchedPhraseTruncated: z.boolean(),
+  preimage: zzpNegationImageSchema,
+  versie: z.number().int().nonnegative(),
+} as const;
 const auditMetadataSchema: z.ZodType<AuditEventMetadata> = z.union([
   z
     .object({
@@ -131,6 +154,13 @@ const auditMetadataSchema: z.ZodType<AuditEventMetadata> = z.union([
   z
     .object({
       ...motianRepairAuditBaseSchema,
+      rollbackOfAuditId: z.string().min(1),
+    })
+    .strict(),
+  z.object(zzpNegationAuditBaseSchema).strict(),
+  z
+    .object({
+      ...zzpNegationAuditBaseSchema,
       rollbackOfAuditId: z.string().min(1),
     })
     .strict(),
