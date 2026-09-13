@@ -71,7 +71,9 @@ interface ManifestFixture {
   readonly scanned?: number;
 }
 
-type TestBronSpecifiek = Readonly<Record<string, string | number | null>>;
+type TestBronSpecifiek =
+  | Readonly<Record<string, string | number | null>>
+  | readonly (string | number | null)[];
 
 const encode = (value: ManifestFixture): Uint8Array =>
   new TextEncoder().encode(JSON.stringify(value));
@@ -886,6 +888,26 @@ describe
         ZZP_NEGATION_APPLY_ACTION,
         ZZP_NEGATION_ROLLBACK_ACTION,
       ]);
+    });
+
+    it("preserves array bron_specifiek when rollback has no aliases", async () => {
+      const bronSpecifiek = ["legacy-contract-label", "second-entry"] as const;
+      const seeded = await seedRow({ bronSpecifiek });
+      const applied = await applyZzpNegationLabel({
+        database: applicationClient,
+        manifest: seeded.manifest,
+        manifestSha256: "8".repeat(64),
+      });
+      expect(applied.status).toBe("applied");
+      expect(await readBronSpecifiek(seeded.aanvraagId)).toEqual(bronSpecifiek);
+
+      const rolledBack = await rollbackZzpNegationLabel({
+        auditId: applied.auditId ?? "",
+        database: applicationClient,
+      });
+      expect(rolledBack.status).toBe("rolled_back");
+      expect(await readContracttype(seeded.aanvraagId)).toBe("freelance");
+      expect(await readBronSpecifiek(seeded.aanvraagId)).toEqual(bronSpecifiek);
     });
 
     it("refuses rollback when a removed alias is repopulated", async () => {
