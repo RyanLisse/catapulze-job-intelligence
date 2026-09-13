@@ -20,6 +20,15 @@ disabled unless the protected variable `PRODUCTION_DEPLOY_ENABLED` is exactly
 `1` or `true`; leave it unset/false until the first Coolify sequence has been
 witnessed by an operator.
 
+The SSH route remains the existing configured host route unless the protected
+variable `PRODUCTION_DEPLOY_TAILSCALE_ENABLED` is exactly `1`. When enabled,
+the job first joins the production tailnet with an ephemeral
+`tag:catapulze-deploy` node,
+waits for `COOLIFY_SSH_TAILSCALE_HOST` to answer, and then uses the Tailscale
+host and known-hosts variables for the same pinned SSH tunnel. The opt-in
+action is pinned to `tailscale/github-action` v4.1.3; it does not change the
+Coolify API or deployment ordering.
+
 The successful release gate writes a short-lived, sanitized evidence file. The
 deploy driver reads and rechecks that file immediately before its first
 application PATCH, together with a fresh `main` ref read. A GitHub deployment
@@ -137,6 +146,11 @@ printed):
 | `COOLIFY_SSH_PORT` | SSH port, normally `22` |
 | `COOLIFY_SSH_KNOWN_HOSTS` | pinned host-key record for the tunnel target |
 | `COOLIFY_SSH_PRIVATE_KEY` | process-scoped protected SSH private key |
+| `COOLIFY_SSH_TAILSCALE_HOST` | verified Tailscale IP or MagicDNS name for the Coolify host when the opt-in route is enabled |
+| `COOLIFY_SSH_TAILSCALE_KNOWN_HOSTS` | pinned host-key record whose hostname matches `COOLIFY_SSH_TAILSCALE_HOST` |
+| `PRODUCTION_DEPLOY_TAILSCALE_ENABLED` | protected route switch; only the exact value `1` enables the ephemeral Tailscale step |
+| `TS_OAUTH_CLIENT_ID` | protected Tailscale OAuth client ID used only by the ephemeral-node action |
+| `TS_OAUTH_SECRET` | protected Tailscale OAuth client secret used only by the ephemeral-node action |
 | `PRODUCTION_API_URL` | public API origin; currently the `api.23-88-60-222.sslip.io` rehearsal origin |
 | `PRODUCTION_WEB_URL` | public web origin; currently the `app.23-88-60-222.sslip.io` rehearsal origin |
 | `PRODUCTION_PROJECTOR_SCHEMA_HASH` | expected search projector schema hash |
@@ -199,6 +213,46 @@ The tunnel writes the injected private key and known-hosts record under a
 `ExitOnForwardFailure=yes`, and `IdentitiesOnly=yes`, and removes the files and
 terminates the tunnel in a `finally` cleanup after the deployment child exits.
 The private key is not passed to the child process or printed.
+
+### Optional Tailscale route
+
+Provision the following in the protected GitHub `production` environment before
+setting `PRODUCTION_DEPLOY_TAILSCALE_ENABLED=1`:
+
+- `TS_OAUTH_CLIENT_ID` and `TS_OAUTH_SECRET` for a Tailscale OAuth client with
+  the writable `auth_keys` scope and permission to issue
+  `tag:catapulze-deploy`. Select this tag on the client, or use a documented
+  tag-owner chain that grants it. Reserve ownership of this tag for the deploy
+  automation and review existing grants; the ACL entry below adds access and
+  does not remove broader existing grants.
+- `COOLIFY_SSH_TAILSCALE_HOST`, normally the verified `catapulze-prod`
+  MagicDNS name or `100.97.7.79` address.
+- `COOLIFY_SSH_TAILSCALE_KNOWN_HOSTS`, captured from the same host and pinned
+  to the verified SSH key. Its host field must match
+  `COOLIFY_SSH_TAILSCALE_HOST`.
+
+Tag the production box as `tag:catapulze-prod` and add the following narrow
+Tailscale ACL entry to the existing tailnet policy:
+
+```json
+{
+  "acls": [
+    {
+      "action": "accept",
+      "src": ["tag:catapulze-deploy"],
+      "dst": ["tag:catapulze-prod:22"]
+    }
+  ]
+}
+```
+
+The workflow validates all four Tailscale inputs without printing their values.
+The action's `ping` input then verifies the configured target before the SSH
+tunnel starts. Keep the production box's public SSH firewall closed to GitHub
+runner addresses; this route does not require opening port 22 globally and does not
+use a self-hosted runner on the production box. Leave the switch unset or
+different from `1` until the OAuth client, tag, ACL, target host, and matching
+known-hosts record have each been tested by an operator.
 
 The Coolify sequence is:
 
