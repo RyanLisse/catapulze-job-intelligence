@@ -637,3 +637,28 @@ describe("CTP-491 freelance exclusions", () => {
     ).toBe("freelance");
   });
 });
+
+describe("CTP-502 plural freelance forms", () => {
+  it("reads a plural or possessive as positive evidence", () => {
+    // The positive matcher shares FREELANCE_TERM with the exclusion table, so
+    // "freelancers" is no longer a spelling only a negation can see.
+    for (const description of ["Freelancers welkom.", "Zzp'ers gezocht."]) {
+      expect(matchFreelanceExclusion(description)).toBeNull();
+      expect(
+        classifyContractAndWork("Opdracht", description).contracttype
+      ).toBe("freelance");
+    }
+  });
+
+  it("still lets an exclusion of the plural win", () => {
+    for (const description of [
+      "Niet geschikt voor freelancers.",
+      "Geen zzp'ers.",
+    ]) {
+      expect(matchFreelanceExclusion(description)).not.toBeNull();
+      expect(
+        classifyContractAndWork("Opdracht", description).contracttype
+      ).toBeNull();
+    }
+  });
+});
