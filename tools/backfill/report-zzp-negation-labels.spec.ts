@@ -13,27 +13,23 @@ const row = (overrides: Partial<CandidateRow> = {}): CandidateRow => ({
 });
 
 describe("parseArguments", () => {
-  it("defaults the limit and leaves bron unset", () => {
-    expect(parseArguments([])).toEqual({ bron: undefined, limit: 500 });
+  it("leaves bron unset by default", () => {
+    expect(parseArguments([])).toEqual({ bron: undefined });
   });
 
-  it("reads an explicit limit and bron", () => {
-    expect(parseArguments(["--limit=25", "--bron=striive"])).toEqual({
-      bron: "striive",
-      limit: 25,
-    });
+  it("reads an explicit bron", () => {
+    expect(parseArguments(["--bron=striive"])).toEqual({ bron: "striive" });
   });
 
-  it("rejects an out-of-range limit and unknown flags", () => {
-    expect(() => parseArguments(["--limit=0"])).toThrow();
-    expect(() => parseArguments(["--limit=5001"])).toThrow();
+  it("rejects unknown flags", () => {
     expect(() => parseArguments(["--apply"])).toThrow();
+    expect(() => parseArguments(["--limit=25"])).toThrow();
   });
 });
 
 describe("buildReport", () => {
   it("reports the matched phrase for an excluded row", () => {
-    const report = buildReport([row()], 500);
+    const report = buildReport([row()]);
     expect(report.mislabelled).toBe(1);
     expect(report.scanned).toBe(1);
     expect(report.candidates[0]).toEqual({
@@ -46,32 +42,32 @@ describe("buildReport", () => {
   });
 
   it("keeps a genuinely freelance row out of the report", () => {
-    const report = buildReport(
-      [row({ beschrijving: "ZZP mogelijk, tarief in overleg." })],
-      500
-    );
+    const report = buildReport([
+      row({ beschrijving: "ZZP mogelijk, tarief in overleg." }),
+    ]);
     expect(report.mislabelled).toBe(0);
     expect(report.scanned).toBe(1);
     expect(report.candidates).toEqual([]);
   });
 
   it("counts per bron", () => {
-    const report = buildReport(
-      [
-        row({ id: "a" }),
-        row({ bronNaam: "striive", id: "b" }),
-        row({ bronNaam: "striive", id: "c" }),
-        row({ beschrijving: "ZZP mogelijk.", bronNaam: "striive", id: "d" }),
-      ],
-      500
-    );
+    const report = buildReport([
+      row({ id: "a" }),
+      row({ bronNaam: "striive", id: "b" }),
+      row({ bronNaam: "striive", id: "c" }),
+      row({ beschrijving: "ZZP mogelijk.", bronNaam: "striive", id: "d" }),
+    ]);
     expect(report.byBron).toEqual({ inhuurdesk: 1, striive: 2 });
     expect(report.mislabelled).toBe(3);
     expect(report.scanned).toBe(4);
   });
 
-  it("flags a truncated scan when the limit is reached", () => {
-    expect(buildReport([row()], 1).truncated).toBe(true);
-    expect(buildReport([row()], 500).truncated).toBe(false);
+  it("reports an empty scan without candidates", () => {
+    expect(buildReport([])).toEqual({
+      byBron: {},
+      candidates: [],
+      mislabelled: 0,
+      scanned: 0,
+    });
   });
 });

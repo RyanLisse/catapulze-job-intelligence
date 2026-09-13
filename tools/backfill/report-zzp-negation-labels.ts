@@ -11,13 +11,11 @@
 import { matchFreelanceExclusion } from "@ji/application/normalise";
 import postgres from "postgres";
 
-const DEFAULT_LIMIT = 500;
-const MAX_LIMIT = 5000;
+const PAGE_SIZE = 1000;
 const REPORT_STATEMENT_TIMEOUT_MS = 30_000;
 
 export interface CliArguments {
   readonly bron?: string;
-  readonly limit: number;
 }
 
 export interface CandidateRow {
@@ -41,18 +39,11 @@ export interface ZzpNegationReport {
   readonly candidates: readonly MislabelledCandidate[];
   readonly mislabelled: number;
   readonly scanned: number;
-  readonly truncated: boolean;
 }
 
 export const parseArguments = (argv: readonly string[]): CliArguments => {
-  let limit = DEFAULT_LIMIT;
   let bron: string | undefined;
   for (const argument of argv) {
-    const limitMatch = /^--limit=(?<value>\d+)$/u.exec(argument);
-    if (limitMatch?.groups?.value) {
-      limit = Math.trunc(Number(limitMatch.groups.value));
-      continue;
-    }
     const bronMatch = /^--bron=(?<value>.+)$/u.exec(argument);
     if (bronMatch?.groups?.value) {
       bron = bronMatch.groups.value.trim();
@@ -60,10 +51,7 @@ export const parseArguments = (argv: readonly string[]): CliArguments => {
     }
     throw new Error(`Unknown argument: ${argument}`);
   }
-  if (limit < 1 || limit > MAX_LIMIT) {
-    throw new Error(`--limit must be between 1 and ${MAX_LIMIT}`);
-  }
-  return { bron, limit };
+  return { bron };
 };
 
 /**
@@ -71,8 +59,7 @@ export const parseArguments = (argv: readonly string[]): CliArguments => {
  * description states an exclusion, and name the phrase that proves it.
  */
 export const buildReport = (
-  rows: readonly CandidateRow[],
-  limit: number
+  rows: readonly CandidateRow[]
 ): ZzpNegationReport => {
   const candidates: MislabelledCandidate[] = [];
   const byBron: Record<string, number> = {};
@@ -97,29 +84,46 @@ export const buildReport = (
     candidates,
     mislabelled: candidates.length,
     scanned: rows.length,
-    truncated: rows.length >= limit,
   };
 };
 
+/**
+ * Reads every freelance-labelled row by keyset pagination on the primary key,
+ * so the scan covers the whole corpus without holding one long transaction or
+ * paying an OFFSET scan per page. The cursor is the last id of the page.
+ */
 const readFreelanceRows = async (
   sql: postgres.Sql,
   input: CliArguments
 ): Promise<CandidateRow[]> => {
-  const rows = await sql<CandidateRow[]>`
-    SELECT
-      aanvraag.id::text AS "id",
-      aanvraag.titel AS "titel",
-      aanvraag.beschrijving AS "beschrijving",
-      aanvraag.versie AS "versie",
-      bron.naam AS "bronNaam"
-    FROM curated.aanvraag AS aanvraag
-    JOIN curated.bron AS bron ON bron.id = aanvraag.bron_id
-    WHERE aanvraag.contracttype = 'freelance'
-      AND (${input.bron ?? null}::text IS NULL OR bron.naam = ${input.bron ?? null})
-    ORDER BY aanvraag.id
-    LIMIT ${input.limit}
-  `;
-  return [...rows];
+  const all: CandidateRow[] = [];
+  let cursor: string | null = null;
+  for (;;) {
+    // oxlint-disable-next-line no-await-in-loop -- keyset pages are sequential by design
+    const page: postgres.RowList<CandidateRow[]> = await sql<CandidateRow[]>`
+      SELECT
+        aanvraag.id::text AS "id",
+        aanvraag.titel AS "titel",
+        aanvraag.beschrijving AS "beschrijving",
+        aanvraag.versie AS "versie",
+        bron.naam AS "bronNaam"
+      FROM curated.aanvraag AS aanvraag
+      JOIN curated.bron AS bron ON bron.id = aanvraag.bron_id
+      WHERE aanvraag.contracttype = 'freelance'
+        AND (${input.bron ?? null}::text IS NULL OR bron.naam = ${input.bron ?? null})
+        AND (${cursor}::uuid IS NULL OR aanvraag.id > ${cursor}::uuid)
+      ORDER BY aanvraag.id
+      LIMIT ${PAGE_SIZE}
+    `;
+    all.push(...page);
+    if (page.length < PAGE_SIZE) {
+      return all;
+    }
+    cursor = page.at(-1)?.id ?? null;
+    if (cursor === null) {
+      return all;
+    }
+  }
 };
 
 const runReport = async (input: CliArguments): Promise<ZzpNegationReport> => {
@@ -137,7 +141,7 @@ const runReport = async (input: CliArguments): Promise<ZzpNegationReport> => {
     max: 1,
   });
   try {
-    return buildReport(await readFreelanceRows(sql, input), input.limit);
+    return buildReport(await readFreelanceRows(sql, input));
   } finally {
     await sql.end({ timeout: 5 });
   }
@@ -151,12 +155,19 @@ const main = async (): Promise<void> => {
 if (import.meta.main) {
   try {
     await main();
-  } catch {
+  } catch (error) {
     console.error(
-      JSON.stringify({ reason: "command_failed", status: "error" })
+      JSON.stringify({
+        error:
+          error instanceof Error
+            ? { message: error.message, name: error.name }
+            : { message: String(error), name: "UnknownError" },
+        reason: "command_failed",
+        status: "error",
+      })
     );
     process.exitCode = 1;
   }
 }
 
-export { DEFAULT_LIMIT, MAX_LIMIT, runReport };
+export { PAGE_SIZE, runReport };

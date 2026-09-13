@@ -25,7 +25,19 @@ export interface ClassifiedContractWork {
  * every negation shape at once.
  */
 const FREELANCE_TERM = String.raw`(?:zzp(?:['’]ers?)?|freelance(?:rs?)?)`;
-const DENIAL = String.raw`(?:niet toegestaan|niet mogelijk|uitgesloten|niet geschikt)`;
+const DENIAL = String.raw`(?:niet\s+(?:toegestaan|mogelijk|geschikt|gewenst|welkom|geaccepteerd)|uitgesloten)`;
+/**
+ * Subjects that make "... is niet voor zzp" an exclusion of the contract form
+ * rather than of some benefit. "Reiskostenvergoeding is niet voor zzp'ers"
+ * withholds an allowance; it does not close the vacancy to freelancers.
+ */
+const VACANCY_SUBJECT = String.raw`(?:(?:deze|dit|de|het)\s+)?(?:opdracht|functie|rol|vacature|aanvraag|positie|inzet)\s+(?:is|zijn)\s+`;
+/**
+ * Qualifiers that narrow an exclusion to a subset, so it is not a refusal.
+ * The guard scans past any remaining term suffix, because FREELANCE_TERM can
+ * backtrack to a shorter spelling ("zzp" out of "zzp'ers") and step over it.
+ */
+const EXCLUSION_QUALIFIER = String.raw`(?:zonder|met|die|welke)`;
 /** Words that confirm "geen <freelance term>" is an exclusion of the form. */
 const EXCLUSION_TAIL = String.raw`(?:mogelijk|toegestaan|beschikbaar|gezocht|gewenst|welkom|geaccepteerd)`;
 
@@ -46,10 +58,13 @@ const FREELANCE_EXCLUSIONS: readonly RegExp[] = [
     "iu"
   ),
   // "geen zzp", "geen zzp mogelijk", "geen zzp'ers gezocht", "geen freelancers."
+  // Accepts a coordinated list ("geen zzp of freelance") so the second term
+  // cannot reach the positive path. A comma list needs no branch: the clause
+  // splitter already cuts on commas.
   // The trailing word is constrained so "geen zzp ervaring vereist" -- a
   // requirement, not an exclusion -- stays out of the table.
   new RegExp(
-    String.raw`\bgeen\s+${FREELANCE_TERM}\b(?:\s+${EXCLUSION_TAIL}|(?=\s*[.,;:!?]|$))`,
+    String.raw`\bgeen\s+${FREELANCE_TERM}(?:\s+(?:of|en)\s+${FREELANCE_TERM})*\b(?:\s+${EXCLUSION_TAIL}|(?=\s*(?:[.,;:!?]|$)))`,
     "iu"
   ),
   // "zzp mogelijkheid: nee", "freelance: nee"
@@ -57,9 +72,13 @@ const FREELANCE_EXCLUSIONS: readonly RegExp[] = [
     String.raw`\b${FREELANCE_TERM}\b\s*(?:(?:mogelijk(?:heid)?|toegestaan)\s*)?:\s*nee(?:n)?\b`,
     "iu"
   ),
-  // "niet voor zzp", "niet bedoeld voor freelancers"
+  // "niet voor zzp", "niet bedoeld voor freelancers", "deze opdracht is niet
+  // voor zzp'ers". Anchored to the clause start, because mid-clause the same
+  // words usually qualify a benefit rather than the contract form. A trailing
+  // qualifier ("niet voor zzp'ers zonder KvK") narrows the exclusion to a
+  // subset, so it is not a refusal either.
   new RegExp(
-    String.raw`\bniet\s+(?:bedoeld\s+|bestemd\s+|beschikbaar\s+|open\s+)?(?:voor|als)\s+(?:een\s+)?${FREELANCE_TERM}\b`,
+    String.raw`^\s*(?:${VACANCY_SUBJECT})?niet\s+(?:bedoeld\s+|bestemd\s+|beschikbaar\s+|open\s+)?(?:voor|als)\s+(?:een\s+)?${FREELANCE_TERM}\b(?!['’\w]*\s+${EXCLUSION_QUALIFIER}\b)`,
     "iu"
   ),
 ];
@@ -76,10 +95,19 @@ const HYBRID = /\b(?<kind>hybride|hybrid)\b/iu;
 const ONSITE = /\b(?<kind>op locatie|op kantoor|fysiek op kantoor|onsite)\b/iu;
 
 const CONTRACT_CLAUSE_SEPARATOR = /[.!?;,\n]+/u;
-const CONTRACT_NEGATION_BEFORE =
-  /\b(?:geen|niet toegestaan|niet mogelijk|uitgesloten|niet geschikt)\b(?:\s+(?:voor|als))?\s*$/iu;
-const CONTRACT_NEGATION_AFTER =
-  /^\s*(?::\s*|(?:mogelijk(?:heid)?)\s*:\s*)?(?:(?:is|zijn|wordt|worden)\s+)?(?:nee(?:n)?|niet toegestaan|niet mogelijk|uitgesloten|niet geschikt)\b/iu;
+// These two suppress a positive match for ANY contract term, not just the
+// freelance ones, so they cannot be folded into FREELANCE_EXCLUSIONS. They do
+// share the denial vocabulary, so both are built from DENIAL: extending that
+// one constant now reaches the exclusion table and the generic suppressor
+// together, which is what let "niet gewenst" slip through before.
+const CONTRACT_NEGATION_BEFORE = new RegExp(
+  String.raw`\b(?:geen|${DENIAL})\b(?:\s+(?:voor|als))?\s*$`,
+  "iu"
+);
+const CONTRACT_NEGATION_AFTER = new RegExp(
+  String.raw`^\s*(?::\s*|(?:mogelijk(?:heid)?)\s*:\s*)?(?:(?:is|zijn|wordt|worden)\s+)?(?:nee(?:n)?|${DENIAL})\b`,
+  "iu"
+);
 
 const splitContractClauses = (text: string): string[] =>
   text.split(CONTRACT_CLAUSE_SEPARATOR);

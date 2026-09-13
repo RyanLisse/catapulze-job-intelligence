@@ -45,11 +45,14 @@ issues one `SELECT`; there is no write path in it.
 
 ```bash
 DATABASE_URL=postgres://... bun tools/backfill/report-zzp-negation-labels.ts
-DATABASE_URL=postgres://... bun tools/backfill/report-zzp-negation-labels.ts --bron=inhuurdesk --limit=100
+DATABASE_URL=postgres://... bun tools/backfill/report-zzp-negation-labels.ts --bron=inhuurdesk
 ```
 
-`--limit` defaults to 500 and is capped at 5000. `--bron` filters on
-`curated.bron.naam`.
+`--bron` filters on `curated.bron.naam`. There is no limit flag: the scan walks
+the whole corpus by keyset pagination on the primary key, 1000 rows per page,
+so the numbers always describe every freelance-labelled row rather than a
+window. On failure the tool prints the error name and message alongside
+`"reason": "command_failed"` and exits 1.
 
 ## Reading the numbers
 
@@ -66,13 +69,12 @@ DATABASE_URL=postgres://... bun tools/backfill/report-zzp-negation-labels.ts --b
     }
   ],
   "mislabelled": 4,
-  "scanned": 120,
-  "truncated": false
+  "scanned": 120
 }
 ```
 
-- `scanned` is how many `contracttype = 'freelance'` rows the query returned,
-  bounded by `--limit`. It is not the size of the corpus.
+- `scanned` is how many `contracttype = 'freelance'` rows exist, across every
+  page. It is the whole labelled population, not a window.
 - `mislabelled` is how many of those state an exclusion. Every one is a row the
   current classifier would leave unknown or reclassify.
 - `matchedPhrase` is the exact substring that proved the exclusion. Read it
@@ -80,33 +82,30 @@ DATABASE_URL=postgres://... bun tools/backfill/report-zzp-negation-labels.ts --b
   row.
 - `byBron` shows which connector produced the bad labels, which is usually the
   faster lead than the row list.
-- `truncated` is true when `scanned` hit `--limit`, so more rows may exist. Raise
-  the limit or narrow with `--bron` and run again.
-
 `mislabelled: 0` with a healthy `scanned` is the expected steady state once the
 corrected rows have been applied and re-ingested.
 
 ## Applying the correction
 
-This lane adds no write path. `contracttype` is one of the five derived fields
-the existing RJC-394 repair tool already writes with provenance, so route the
-correction through it rather than writing a second one:
+Apply is a follow-up. This lane ships the report only, and no tool in the
+repository can currently perform this correction.
 
-```bash
-bun tools/backfill/repair-motian-v1-derived-fields.ts --manifest=candidates.json
-bun tools/backfill/repair-motian-v1-derived-fields.ts --manifest=candidates.json --apply --ingest-quiesced
-```
+The RJC-394 repair tool (`tools/backfill/repair-motian-v1-derived-fields.ts`)
+does write `contracttype` with provenance, an audit event and a rollback path,
+but it does not fit this case on two counts. It only fills a derived field that
+is currently null, so it will not touch a row that already says `freelance`,
+which is exactly the set this report finds. It is also bound to rows carrying a
+Motian `v1_id`, which the mislabelled rows need not have.
 
-See `docs/runbooks/motian-v1-derived-field-repair.md` for the manifest contract,
-the quiescence gate, the audit event, and the rollback path.
+So the correction needs its own path, and it must carry the same guarantees as
+the existing one: an explicit reviewed manifest, a quiescence gate, one audit
+event and one `aanvraag.gewijzigd` outbox event per changed row, and a rollback.
+See `docs/runbooks/motian-v1-derived-field-repair.md` for the shape to copy.
 
-Two limits apply. That tool recovers a derived field from the immutable raw
-object and only fills fields that are currently null, so it repairs a row whose
-`contracttype` is absent; it does not overwrite a row that already says
-`freelance`. It is also bound to rows carrying a Motian `v1_id`. For anything
-outside that set, the correction is a follow-up: either a targeted write path
-with the same provenance and audit guarantees, or a re-ingest of the affected
-`bron` so the fixed classifier recurates the row.
+Re-ingesting the affected `bron` is the other route. The fixed classifier
+recurates the row through the normal curated write path, which produces the
+provenance and the projection update for free. Prefer this where the source
+still publishes the vacancy.
 
 Do not hand-edit `curated.aanvraag` rows. The search projection and the audit
 trail both derive from the curated write path, and a direct update leaves them

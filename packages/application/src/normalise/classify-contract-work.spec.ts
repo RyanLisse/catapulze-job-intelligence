@@ -251,6 +251,88 @@ describe("CTP-491 freelance exclusions", () => {
     }
   });
 
+  it("keeps a benefit qualification classified as freelance", () => {
+    // "niet voor zzp" mid-clause withholds an allowance; it does not close
+    // the vacancy. Only a clause-initial refusal is an exclusion.
+    for (const description of [
+      "Reiskostenvergoeding geldt niet voor zzp'ers",
+      "De reiskostenvergoeding is niet voor zzp'ers",
+      "Het bonusbudget is niet voor zzp'ers",
+    ]) {
+      expect(matchFreelanceExclusion(description)).toBeNull();
+      expect(
+        classifyContractAndWork("Opdracht", description).contracttype
+      ).toBe("freelance");
+    }
+  });
+
+  it("keeps a qualified exclusion classified as freelance", () => {
+    // A subset is excluded, so the contract form itself stays open.
+    for (const description of [
+      "niet voor zzp'ers zonder KvK",
+      "Niet voor zzp'ers met een BV",
+    ]) {
+      expect(matchFreelanceExclusion(description)).toBeNull();
+      expect(
+        classifyContractAndWork("Opdracht", description).contracttype
+      ).toBe("freelance");
+    }
+  });
+
+  it("still excludes when the vacancy itself is the subject", () => {
+    for (const description of [
+      "Deze opdracht is niet voor zzp'ers",
+      "Deze functie is niet voor freelancers",
+    ]) {
+      expect(matchFreelanceExclusion(description)).not.toBeNull();
+      expect(
+        classifyContractAndWork("Opdracht", description).contracttype
+      ).toBeNull();
+    }
+  });
+
+  it("covers every denial in the shared vocabulary", () => {
+    for (const description of [
+      "ZZP'ers worden niet geaccepteerd",
+      "ZZP niet gewenst",
+      "ZZP niet welkom",
+      "ZZP niet geaccepteerd",
+    ]) {
+      expect(matchFreelanceExclusion(description)).not.toBeNull();
+      expect(
+        classifyContractAndWork("Opdracht", description).contracttype
+      ).toBeNull();
+    }
+  });
+
+  it("excludes every term in a coordinated list", () => {
+    for (const description of [
+      "Geen zzp'ers of freelancers",
+      "Geen zzp of freelance",
+      "Geen zzp en freelance",
+      "Geen freelance of zzp",
+    ]) {
+      expect(matchFreelanceExclusion(description)).not.toBeNull();
+      expect(
+        classifyContractAndWork("Opdracht", description).contracttype
+      ).toBeNull();
+    }
+  });
+
+  it("names the phrase when the clause ends in whitespace", () => {
+    expect(matchFreelanceExclusion("Geen ZZP \n")).toBe("Geen ZZP");
+    expect(matchFreelanceExclusion("Geen ZZP   ")).toBe("Geen ZZP");
+  });
+
+  it("suppresses a negated alternative through the shared vocabulary", () => {
+    expect(
+      classifyContractAndWork(
+        "Opdracht",
+        "Detachering niet gewenst, ZZP mogelijk."
+      ).contracttype
+    ).toBe("freelance");
+  });
+
   it("does not read a requirement as an exclusion", () => {
     expect(
       matchFreelanceExclusion("Geen zzp ervaring vereist, freelance mogelijk.")
