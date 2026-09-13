@@ -427,6 +427,55 @@ describe("CTP-491 freelance exclusions", () => {
     }
   });
 
+  it("excludes through a lead-in that carries its own comma", () => {
+    for (const description of [
+      "Let op, niet voor zzp'ers.",
+      "Let op: niet voor zzp'ers.",
+      "Helaas, niet voor freelancers.",
+    ]) {
+      expect(matchFreelanceExclusion(description)).not.toBeNull();
+      expect(
+        classifyContractAndWork("Opdracht", description).contracttype
+      ).toBeNull();
+    }
+  });
+
+  it("excludes with the adverb set off by commas", () => {
+    const description = "Deze rol is, helaas, niet voor zzp'ers";
+    expect(matchFreelanceExclusion(description)).not.toBeNull();
+    expect(
+      classifyContractAndWork("Opdracht", description).contracttype
+    ).toBeNull();
+  });
+
+  it("reads a comma-only tail as a contrast, not a list", () => {
+    // A Dutch list closes with of or en. Without one the second term is being
+    // offered, not excluded.
+    for (const description of [
+      "Geen zzp, detachering mogelijk",
+      "Geen zzp, wel detachering mogelijk",
+    ]) {
+      expect(
+        classifyContractAndWork("Opdracht", description).contracttype
+      ).toBe("detachering");
+    }
+  });
+
+  it("still excludes a list that closes with a conjunction", () => {
+    expect(
+      classifyContractAndWork(
+        "Opdracht",
+        "Geen zzp, detachering of interim toegestaan."
+      ).contracttype
+    ).toBeNull();
+    expect(
+      classifyContractAndWork(
+        "Opdracht",
+        "Geen zzp of freelance; detachering wel"
+      ).contracttype
+    ).toBe("detachering");
+  });
+
   it("names the phrase when the clause ends in whitespace", () => {
     expect(matchFreelanceExclusion("Geen ZZP \n")).toBe("Geen ZZP");
     expect(matchFreelanceExclusion("Geen ZZP   ")).toBe("Geen ZZP");

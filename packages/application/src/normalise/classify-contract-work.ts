@@ -31,7 +31,7 @@ const DENIAL = String.raw`(?:niet\s+(?:toegestaan|mogelijk|geschikt|gewenst|welk
  * rather than of some benefit. "Reiskostenvergoeding is niet voor zzp'ers"
  * withholds an allowance; it does not close the vacancy to freelancers.
  */
-const VACANCY_SUBJECT = String.raw`(?:(?:deze|dit|de|het)\s+)?(?:opdracht|functie|rol|vacature|aanvraag|positie|inzet)\s+(?:is|zijn|staat|staan)\s+`;
+const VACANCY_SUBJECT = String.raw`(?:(?:deze|dit|de|het)\s+)?(?:opdracht|functie|rol|vacature|aanvraag|positie|inzet)\s+(?:is|zijn|staat|staan)\s*,?\s*`;
 /**
  * Qualifiers that narrow an exclusion to a subset, so it is not a refusal.
  * The guard scans past any remaining term suffix, because FREELANCE_TERM can
@@ -91,26 +91,32 @@ const FREELANCE_EXCLUSIONS: readonly RegExp[] = [
  * sentence rather than a clause, because a list runs straight through its
  * commas, and every term inside the match is excluded by it.
  *
+ * A list must close with "of" or "en", the way Dutch lists do. A comma-only
+ * tail is a contrast rather than a continuation: "geen zzp, detachering
+ * mogelijk" offers detachering, it does not exclude it.
+ *
  * The trailing word is constrained so "geen zzp ervaring vereist" -- a
  * requirement, not an exclusion -- stays out.
  */
 const EXCLUDED_TERM_LIST = new RegExp(
-  String.raw`\bgeen\s+${FREELANCE_TERM}(?:\s*(?:,|\s(?:of|en))\s*${COORDINATED_TERM})*\b(?:\s+${EXCLUSION_TAIL}|(?=\s*(?:[,:]|$)))`,
+  String.raw`\bgeen\s+${FREELANCE_TERM}(?:(?:\s*,\s*${COORDINATED_TERM})*\s+(?:of|en)\s+${COORDINATED_TERM})?\b(?:\s+${EXCLUSION_TAIL}|(?=\s*(?:[,:]|$)))`,
   "giu"
 );
 
 /**
  * "niet voor zzp", "niet bedoeld voor freelancers", "deze opdracht is helaas
- * niet voor zzp'ers". Only ever applied to a clause that opens a sentence,
- * because after a comma the same words contrast with what came before rather
- * than refuse the vacancy: in "Reiskostenvergoeding geldt voor werknemers,
- * niet voor zzp'ers" the allowance is withheld, not the contract form.
+ * niet voor zzp'ers". Matched against the whole sentence and anchored at its
+ * start, so a lead-in may carry its own comma ("Let op, niet voor zzp'ers")
+ * while a refusal that only follows one is still excluded: in
+ * "Reiskostenvergoeding geldt voor werknemers, niet voor zzp'ers" the sentence
+ * opens with the allowance, so the anchor never reaches the refusal and the
+ * freelance label stands.
  *
  * A trailing qualifier ("niet voor zzp'ers zonder KvK") narrows the exclusion
  * to a subset, so it is not a refusal either.
  */
 const SENTENCE_INITIAL_REFUSAL = new RegExp(
-  String.raw`^\s*(?:${REFUSAL_LEAD_IN}\s+)?(?:${VACANCY_SUBJECT})?(?:${REFUSAL_LEAD_IN}\s+)?niet\s+(?:bedoeld\s+|bestemd\s+|beschikbaar\s+|open\s+)?(?:voor|als)\s+(?:een\s+)?${FREELANCE_TERM}\b(?!['’\w]*\s+${EXCLUSION_QUALIFIER}\b)`,
+  String.raw`^\s*(?:${REFUSAL_LEAD_IN},?\s+)?(?:${VACANCY_SUBJECT})?(?:${REFUSAL_LEAD_IN},?\s+)?niet\s+(?:bedoeld\s+|bestemd\s+|beschikbaar\s+|open\s+)?(?:voor|als)\s+(?:een\s+)?${FREELANCE_TERM}\b(?!['’\w]*\s+${EXCLUSION_QUALIFIER}\b)`,
   "iu"
 );
 
@@ -126,8 +132,15 @@ const HYBRID = /\b(?<kind>hybride|hybrid)\b/iu;
 const ONSITE = /\b(?<kind>op locatie|op kantoor|fysiek op kantoor|onsite)\b/iu;
 
 // Sentences bound a refusal; clauses bound a denial inside one. Splitting in
-// two steps keeps the distinction the old single split threw away: a clause
-// that opens a sentence can refuse the vacancy, one after a comma cannot.
+// two steps keeps the distinction the old single split threw away: a refusal
+// anchored at the start of a sentence can close the vacancy, one that merely
+// follows a comma cannot.
+//
+// Known ceiling: the split is punctuation-only, so an abbreviation ends a
+// sentence. In "alleen voor werknemers, d.w.z. niet voor zzp'ers" the "d.w.z."
+// starts a new sentence whose first words are the refusal, which reads as an
+// exclusion although the prose only restates the restriction above it.
+// Fixing it needs an abbreviation list or a real segmenter, not a wider regex.
 const CONTRACT_SENTENCE_SEPARATOR = /[.!?;\n]+/u;
 const CONTRACT_CLAUSE_SEPARATOR = /,/u;
 // These two suppress a positive match for ANY contract term, not just the
@@ -190,18 +203,15 @@ const matchSentenceExclusion = (sentence: string): string | null => {
   if (listMatch) {
     return listMatch[0].trim();
   }
-  const clauses = splitContractClauses(sentence);
-  for (const [index, clause] of clauses.entries()) {
+  const refusal = SENTENCE_INITIAL_REFUSAL.exec(sentence);
+  if (refusal) {
+    return refusal[0].trim();
+  }
+  for (const clause of splitContractClauses(sentence)) {
     for (const pattern of FREELANCE_EXCLUSIONS) {
       const match = pattern.exec(clause);
       if (match) {
         return match[0].trim();
-      }
-    }
-    if (index === 0) {
-      const refusal = SENTENCE_INITIAL_REFUSAL.exec(clause);
-      if (refusal) {
-        return refusal[0].trim();
       }
     }
   }
