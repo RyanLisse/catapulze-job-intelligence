@@ -408,12 +408,18 @@ const readRequired = (name: string): string => {
   return value;
 };
 
+/**
+ * The command to run behind the tunnel is everything after `--`, or, when the
+ * runtime already consumed that separator (bun drops a `--` that directly
+ * follows the script path), everything after the script path itself.
+ */
+export const commandFromArgv = (argv: readonly string[]): string[] => {
+  const separator = argv.indexOf("--");
+  return separator === -1 ? argv.slice(2) : argv.slice(separator + 1);
+};
+
 const main = async (): Promise<void> => {
-  const separator = process.argv.indexOf("--");
-  const command: string[] = [];
-  if (separator !== -1) {
-    command.push(...process.argv.slice(separator + 1));
-  }
+  const command = commandFromArgv(process.argv);
   if (command.length === 0) {
     throw new SshTunnelError("invalid_configuration", "command is required");
   }
