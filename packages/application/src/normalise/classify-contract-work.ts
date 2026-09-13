@@ -31,13 +31,25 @@ const DENIAL = String.raw`(?:niet\s+(?:toegestaan|mogelijk|geschikt|gewenst|welk
  * rather than of some benefit. "Reiskostenvergoeding is niet voor zzp'ers"
  * withholds an allowance; it does not close the vacancy to freelancers.
  */
-const VACANCY_SUBJECT = String.raw`(?:(?:deze|dit|de|het)\s+)?(?:opdracht|functie|rol|vacature|aanvraag|positie|inzet)\s+(?:is|zijn)\s+`;
+const VACANCY_SUBJECT = String.raw`(?:(?:deze|dit|de|het)\s+)?(?:opdracht|functie|rol|vacature|aanvraag|positie|inzet)\s+(?:is|zijn|staat|staan)\s+`;
 /**
  * Qualifiers that narrow an exclusion to a subset, so it is not a refusal.
  * The guard scans past any remaining term suffix, because FREELANCE_TERM can
  * backtrack to a shorter spelling ("zzp" out of "zzp'ers") and step over it.
+ *
+ * Known ceiling: the guard is word-level, so two idioms that begin with a
+ * qualifier but do not narrow anything read as freelance today --
+ * "niet voor zzp'ers met ingang van 1 januari" (a date, not a subset) and
+ * "niet voor zzp'ers zonder uitzondering" (which strengthens the refusal).
+ * Separating those from a real subset needs the words after the qualifier,
+ * not just its presence. Left as is until the prose justifies the rule.
  */
 const EXCLUSION_QUALIFIER = String.raw`(?:zonder|met|die|welke)`;
+/**
+ * Any contract form that can be coordinated behind "geen <freelance term> of".
+ * A list excludes every term in it, so the report must name the whole phrase.
+ */
+const COORDINATED_TERM = String.raw`(?:${FREELANCE_TERM}|detachering|interim|vast\s+dienstverband)`;
 /** Words that confirm "geen <freelance term>" is an exclusion of the form. */
 const EXCLUSION_TAIL = String.raw`(?:mogelijk|toegestaan|beschikbaar|gezocht|gewenst|welkom|geaccepteerd)`;
 
@@ -58,13 +70,13 @@ const FREELANCE_EXCLUSIONS: readonly RegExp[] = [
     "iu"
   ),
   // "geen zzp", "geen zzp mogelijk", "geen zzp'ers gezocht", "geen freelancers."
-  // Accepts a coordinated list ("geen zzp of freelance") so the second term
-  // cannot reach the positive path. A comma list needs no branch: the clause
-  // splitter already cuts on commas.
+  // Accepts a coordinated list ("geen zzp of detachering") so the report names
+  // the whole phrase, not just its freelance head. A comma list needs no
+  // branch: the clause splitter already cuts on commas.
   // The trailing word is constrained so "geen zzp ervaring vereist" -- a
   // requirement, not an exclusion -- stays out of the table.
   new RegExp(
-    String.raw`\bgeen\s+${FREELANCE_TERM}(?:\s+(?:of|en)\s+${FREELANCE_TERM})*\b(?:\s+${EXCLUSION_TAIL}|(?=\s*(?:[.,;:!?]|$)))`,
+    String.raw`\bgeen\s+${FREELANCE_TERM}(?:\s+(?:of|en)\s+${COORDINATED_TERM})*\b(?:\s+${EXCLUSION_TAIL}|(?=\s*(?:[.,;:!?]|$)))`,
     "iu"
   ),
   // "zzp mogelijkheid: nee", "freelance: nee"
@@ -101,7 +113,9 @@ const CONTRACT_CLAUSE_SEPARATOR = /[.!?;,\n]+/u;
 // one constant now reaches the exclusion table and the generic suppressor
 // together, which is what let "niet gewenst" slip through before.
 const CONTRACT_NEGATION_BEFORE = new RegExp(
-  String.raw`\b(?:geen|${DENIAL})\b(?:\s+(?:voor|als))?\s*$`,
+  // The second alternative carries "geen" across a coordination, so the term
+  // after "geen zzp of ..." is negated too rather than read as the answer.
+  String.raw`(?:\b(?:geen|${DENIAL})\b(?:\s+(?:voor|als))?|\bgeen\s+[\w'’]+\s+(?:of|en))\s*$`,
   "iu"
 );
 const CONTRACT_NEGATION_AFTER = new RegExp(

@@ -319,6 +319,35 @@ describe("CTP-491 freelance exclusions", () => {
     }
   });
 
+  it("excludes every term in a mixed coordinated list", () => {
+    // The second term is another contract form, so the list must not hand it
+    // back as the answer.
+    expect(matchFreelanceExclusion("Geen zzp of detachering")).toBe(
+      "Geen zzp of detachering"
+    );
+    expect(
+      classifyContractAndWork("Opdracht", "Geen zzp of detachering")
+        .contracttype
+    ).toBeNull();
+  });
+
+  it("keeps a form stated outside the excluded list", () => {
+    expect(
+      classifyContractAndWork(
+        "Opdracht",
+        "Geen ZZP of detachering, alleen vast dienstverband"
+      ).contracttype
+    ).toBe("vast");
+  });
+
+  it("excludes when the vacancy does not stand open", () => {
+    const description = "Deze opdracht staat niet open voor zzp'ers";
+    expect(matchFreelanceExclusion(description)).not.toBeNull();
+    expect(
+      classifyContractAndWork("Opdracht", description).contracttype
+    ).toBeNull();
+  });
+
   it("names the phrase when the clause ends in whitespace", () => {
     expect(matchFreelanceExclusion("Geen ZZP \n")).toBe("Geen ZZP");
     expect(matchFreelanceExclusion("Geen ZZP   ")).toBe("Geen ZZP");
