@@ -1,7 +1,8 @@
 /**
  * Shared contracttype / werkvorm classifier for Dutch inhuur prose.
- * Negation-aware: an explicit ZZP exclusion wins over a bare zzp match.
- * If no other contract form is stated, an exclusion remains unknown.
+ * Negation-aware: an explicit ZZP or freelance exclusion wins over a bare
+ * zzp/freelance match. If no other contract form is stated, an exclusion
+ * remains unknown.
  * Emits only literals accepted by the web mapContractType allowlist.
  */
 
@@ -18,14 +19,82 @@ export interface ClassifiedContractWork {
   readonly werkvorm: ClassifiedWorkArrangement | null;
 }
 
-const ZZP_NEGATION =
-  /\bzzp(?:['’]ers?)?\b\s*(?::\s*)?(?:(?:is|zijn|wordt|worden)\s+)?(?:niet toegestaan|niet mogelijk|uitgesloten|niet geschikt)\b/iu;
-const ZZP_NEGATION_REVERSE =
-  /\b(?:niet toegestaan|niet mogelijk|uitgesloten|niet geschikt)\b(?:\s*:)?\s*(?:(?:voor|als)\s+)?(?:een\s+)?\bzzp(?:['’]ers?)?\b/iu;
-const ZZP_NEGATION_GEEN =
-  /\bgeen\s+zzp(?:['’]ers?)?\b(?:\s+(?:mogelijk|toegestaan|beschikbaar)|(?=\s*[.,;:!?]|$))/iu;
-const ZZP_NEGATION_BOOLEAN =
-  /\bzzp(?:['’]ers?)?\b\s*(?:(?:mogelijk(?:heid)?|toegestaan)\s*)?:\s*nee(?:n)?\b/iu;
+/**
+ * Every wording the source prose uses for the freelance contract form.
+ * Shared by the exclusion table so a phrasing added here is recognised in
+ * every negation shape at once.
+ */
+const FREELANCE_TERM = String.raw`(?:zzp(?:['’]ers?)?|freelance(?:rs?)?)`;
+const DENIAL = String.raw`(?:niet\s+(?:toegestaan|mogelijk|geschikt|gewenst|welkom|geaccepteerd)|uitgesloten)`;
+/**
+ * Subjects that make "... is niet voor zzp" an exclusion of the contract form
+ * rather than of some benefit. "Reiskostenvergoeding is niet voor zzp'ers"
+ * withholds an allowance; it does not close the vacancy to freelancers.
+ */
+const VACANCY_SUBJECT = String.raw`(?:(?:deze|dit|de|het)\s+)?(?:opdracht|functie|rol|vacature|aanvraag|positie|inzet)\s+(?:is|zijn|staat|staan)\s+`;
+/**
+ * Qualifiers that narrow an exclusion to a subset, so it is not a refusal.
+ * The guard scans past any remaining term suffix, because FREELANCE_TERM can
+ * backtrack to a shorter spelling ("zzp" out of "zzp'ers") and step over it.
+ *
+ * Known ceiling: the guard is word-level, so two idioms that begin with a
+ * qualifier but do not narrow anything read as freelance today --
+ * "niet voor zzp'ers met ingang van 1 januari" (a date, not a subset) and
+ * "niet voor zzp'ers zonder uitzondering" (which strengthens the refusal).
+ * Separating those from a real subset needs the words after the qualifier,
+ * not just its presence. Left as is until the prose justifies the rule.
+ */
+const EXCLUSION_QUALIFIER = String.raw`(?:zonder|met|die|welke)`;
+/**
+ * Any contract form that can be coordinated behind "geen <freelance term> of".
+ * A list excludes every term in it, so the report must name the whole phrase.
+ */
+const COORDINATED_TERM = String.raw`(?:${FREELANCE_TERM}|detachering|interim|vast\s+dienstverband)`;
+/** Words that confirm "geen <freelance term>" is an exclusion of the form. */
+const EXCLUSION_TAIL = String.raw`(?:mogelijk|toegestaan|beschikbaar|gezocht|gewenst|welkom|geaccepteerd)`;
+
+/**
+ * Explicit exclusions of the freelance contract form, one row per sentence
+ * shape. Order does not matter: a hit in any row means the text excludes
+ * freelance work, so a positive freelance match must never win.
+ */
+const FREELANCE_EXCLUSIONS: readonly RegExp[] = [
+  // "zzp niet mogelijk", "zzp is niet toegestaan", "zzp: uitgesloten"
+  new RegExp(
+    String.raw`\b${FREELANCE_TERM}\b\s*(?::\s*)?(?:(?:is|zijn|wordt|worden)\s+)?${DENIAL}\b`,
+    "iu"
+  ),
+  // "niet toegestaan voor zzp", "uitgesloten: freelance"
+  new RegExp(
+    String.raw`\b${DENIAL}\b(?:\s*:)?\s*(?:(?:voor|als)\s+)?(?:een\s+)?\b${FREELANCE_TERM}\b`,
+    "iu"
+  ),
+  // "geen zzp", "geen zzp mogelijk", "geen zzp'ers gezocht", "geen freelancers."
+  // Accepts a coordinated list ("geen zzp of detachering") so the report names
+  // the whole phrase, not just its freelance head. A comma list needs no
+  // branch: the clause splitter already cuts on commas.
+  // The trailing word is constrained so "geen zzp ervaring vereist" -- a
+  // requirement, not an exclusion -- stays out of the table.
+  new RegExp(
+    String.raw`\bgeen\s+${FREELANCE_TERM}(?:\s+(?:of|en)\s+${COORDINATED_TERM})*\b(?:\s+${EXCLUSION_TAIL}|(?=\s*(?:[.,;:!?]|$)))`,
+    "iu"
+  ),
+  // "zzp mogelijkheid: nee", "freelance: nee"
+  new RegExp(
+    String.raw`\b${FREELANCE_TERM}\b\s*(?:(?:mogelijk(?:heid)?|toegestaan)\s*)?:\s*nee(?:n)?\b`,
+    "iu"
+  ),
+  // "niet voor zzp", "niet bedoeld voor freelancers", "deze opdracht is niet
+  // voor zzp'ers". Anchored to the clause start, because mid-clause the same
+  // words usually qualify a benefit rather than the contract form. A trailing
+  // qualifier ("niet voor zzp'ers zonder KvK") narrows the exclusion to a
+  // subset, so it is not a refusal either.
+  new RegExp(
+    String.raw`^\s*(?:${VACANCY_SUBJECT})?niet\s+(?:bedoeld\s+|bestemd\s+|beschikbaar\s+|open\s+)?(?:voor|als)\s+(?:een\s+)?${FREELANCE_TERM}\b(?!['’\w]*\s+${EXCLUSION_QUALIFIER}\b)`,
+    "iu"
+  ),
+];
+
 // "inhuur" is the domain umbrella for every commercial form — never map it
 // alone to detachering. "interim" has its own branch below.
 const DETACHERING = /\b(?<kind>detachering|detacheren|deta-?vast)\b/iu;
@@ -38,10 +107,21 @@ const HYBRID = /\b(?<kind>hybride|hybrid)\b/iu;
 const ONSITE = /\b(?<kind>op locatie|op kantoor|fysiek op kantoor|onsite)\b/iu;
 
 const CONTRACT_CLAUSE_SEPARATOR = /[.!?;,\n]+/u;
-const CONTRACT_NEGATION_BEFORE =
-  /\b(?:geen|niet toegestaan|niet mogelijk|uitgesloten|niet geschikt)\b(?:\s+(?:voor|als))?\s*$/iu;
-const CONTRACT_NEGATION_AFTER =
-  /^\s*(?::\s*|(?:mogelijk(?:heid)?)\s*:\s*)?(?:(?:is|zijn|wordt|worden)\s+)?(?:nee(?:n)?|niet toegestaan|niet mogelijk|uitgesloten|niet geschikt)\b/iu;
+// These two suppress a positive match for ANY contract term, not just the
+// freelance ones, so they cannot be folded into FREELANCE_EXCLUSIONS. They do
+// share the denial vocabulary, so both are built from DENIAL: extending that
+// one constant now reaches the exclusion table and the generic suppressor
+// together, which is what let "niet gewenst" slip through before.
+const CONTRACT_NEGATION_BEFORE = new RegExp(
+  // The second alternative carries "geen" across a coordination, so the term
+  // after "geen zzp of ..." is negated too rather than read as the answer.
+  String.raw`(?:\b(?:geen|${DENIAL})\b(?:\s+(?:voor|als))?|\bgeen\s+[\w'’]+\s+(?:of|en))\s*$`,
+  "iu"
+);
+const CONTRACT_NEGATION_AFTER = new RegExp(
+  String.raw`^\s*(?::\s*|(?:mogelijk(?:heid)?)\s*:\s*)?(?:(?:is|zijn|wordt|worden)\s+)?(?:nee(?:n)?|${DENIAL})\b`,
+  "iu"
+);
 
 const splitContractClauses = (text: string): string[] =>
   text.split(CONTRACT_CLAUSE_SEPARATOR);
@@ -67,15 +147,27 @@ const hasPositiveContractTerm = (
   return false;
 };
 
+/**
+ * The phrase that excludes freelance work, or null when the text states no
+ * such exclusion. Matching runs per clause so a denial cannot reach across a
+ * sentence boundary. The report-only backfill tool reuses this to name the
+ * phrase behind every mislabelled row.
+ */
+export const matchFreelanceExclusion = (text: string): string | null => {
+  for (const clause of splitContractClauses(text)) {
+    for (const pattern of FREELANCE_EXCLUSIONS) {
+      const match = pattern.exec(clause);
+      if (match) {
+        return match[0].trim();
+      }
+    }
+  }
+  return null;
+};
+
 const classifyContracttype = (text: string): ClassifiedContractType | null => {
   const clauses = splitContractClauses(text);
-  const zzpIsNegated = clauses.some(
-    (clause) =>
-      ZZP_NEGATION.test(clause) ||
-      ZZP_NEGATION_REVERSE.test(clause) ||
-      ZZP_NEGATION_GEEN.test(clause) ||
-      ZZP_NEGATION_BOOLEAN.test(clause)
-  );
+  const zzpIsNegated = matchFreelanceExclusion(text) !== null;
   const hasPositiveDetachering = hasPositiveContractTerm(clauses, DETACHERING);
   const hasPositiveVast = hasPositiveContractTerm(clauses, VAST);
   const hasPositiveInterim = hasPositiveContractTerm(clauses, INTERIM);

@@ -1,7 +1,11 @@
 import { describe, expect, it } from "bun:test";
 
 import onefellowFixture from "../../../../fixtures/connectors/onefellow/listing-page-0.json";
-import { classifyContractAndWork } from "./classify-contract-work";
+import {
+  classifyContractAndWork,
+  matchFreelanceExclusion,
+} from "./classify-contract-work";
+import type { ClassifiedContractType } from "./classify-contract-work";
 import { parseOnefellowPayload } from "./onefellow";
 
 describe("classifyContractAndWork", () => {
@@ -158,5 +162,230 @@ describe("classifyContractAndWork", () => {
     expect(
       classifyContractAndWork("Rol", "Remote werken is ook mogelijk.").werkvorm
     ).toBe("Remote");
+  });
+});
+
+describe("CTP-491 freelance exclusions", () => {
+  const excluded = [
+    "Geen ZZP mogelijk.",
+    "Geen ZZP.",
+    "Geen ZZP'ers.",
+    "Geen zzp\u2019ers gezocht.",
+    "ZZP niet mogelijk.",
+    "ZZP is niet mogelijk.",
+    "ZZP niet toegestaan.",
+    "Geen freelance.",
+    "Geen freelancers.",
+    "Freelance niet mogelijk.",
+    "Freelance is niet toegestaan.",
+    "Niet voor ZZP.",
+    "Niet voor zzp'ers.",
+    "Niet bedoeld voor freelancers.",
+  ];
+
+  it("never labels an excluded vacancy freelance", () => {
+    for (const description of excluded) {
+      expect(
+        classifyContractAndWork("Adviseur A", description).contracttype
+      ).toBeNull();
+    }
+  });
+
+  it("names the phrase behind every exclusion", () => {
+    for (const description of excluded) {
+      expect(matchFreelanceExclusion(description)).not.toBeNull();
+    }
+  });
+
+  it("keeps the proven alternative after an exclusion", () => {
+    expect(
+      classifyContractAndWork(
+        "Adviseur A",
+        "Geen ZZP mogelijk. Uitsluitend detachering."
+      ).contracttype
+    ).toBe("detachering");
+    expect(
+      classifyContractAndWork("Adviseur A", "Niet voor ZZP, wel detachering.")
+        .contracttype
+    ).toBe("detachering");
+  });
+
+  it("invents no contract form for a bare exclusion", () => {
+    expect(matchFreelanceExclusion("Uitsluitend detachering.")).toBeNull();
+    expect(
+      classifyContractAndWork("Adviseur A", "Uitsluitend detachering.")
+        .contracttype
+    ).toBe("detachering");
+  });
+
+  it("keeps the positive controls classifying as before", () => {
+    expect(
+      classifyContractAndWork("Adviseur A", "ZZP mogelijk.").contracttype
+    ).toBe("freelance");
+    expect(
+      classifyContractAndWork("Adviseur A", "Freelance of detachering.")
+        .contracttype
+    ).toBe("detachering");
+    expect(
+      classifyContractAndWork("Adviseur A", "Geschikt voor zzp'ers.")
+        .contracttype
+    ).toBe("freelance");
+    for (const description of ["ZZP mogelijk.", "Geschikt voor zzp'ers."]) {
+      expect(matchFreelanceExclusion(description)).toBeNull();
+    }
+  });
+
+  it("replays the exclusions recorded in the connector fixtures", () => {
+    const recorded: readonly [string, ClassifiedContractType | null][] = [
+      ["Inzet als zzp\u2019er: niet toegestaan", null],
+      ["Deze functie is niet geschikt voor een zzp'er", null],
+      ["ZZP mogelijk:  Nee alleen op basis van detachering", "detachering"],
+      ["Uren: 36 per week ZZP: Nee  Locatie: Arnhem", null],
+      ["ZZP mogelijkheid: Nee Tarief: tussen 95,00 en 109,00", null],
+      ["FIN (Belastingdienst) / ZZP is NIET toegestaan", null],
+    ];
+    for (const [description, expected] of recorded) {
+      expect(
+        classifyContractAndWork("Opdracht", description).contracttype
+      ).toBe(expected);
+    }
+  });
+
+  it("keeps a benefit qualification classified as freelance", () => {
+    // "niet voor zzp" mid-clause withholds an allowance; it does not close
+    // the vacancy. Only a clause-initial refusal is an exclusion.
+    for (const description of [
+      "Reiskostenvergoeding geldt niet voor zzp'ers",
+      "De reiskostenvergoeding is niet voor zzp'ers",
+      "Het bonusbudget is niet voor zzp'ers",
+    ]) {
+      expect(matchFreelanceExclusion(description)).toBeNull();
+      expect(
+        classifyContractAndWork("Opdracht", description).contracttype
+      ).toBe("freelance");
+    }
+  });
+
+  it("keeps a qualified exclusion classified as freelance", () => {
+    // A subset is excluded, so the contract form itself stays open.
+    for (const description of [
+      "niet voor zzp'ers zonder KvK",
+      "Niet voor zzp'ers met een BV",
+    ]) {
+      expect(matchFreelanceExclusion(description)).toBeNull();
+      expect(
+        classifyContractAndWork("Opdracht", description).contracttype
+      ).toBe("freelance");
+    }
+  });
+
+  it("still excludes when the vacancy itself is the subject", () => {
+    for (const description of [
+      "Deze opdracht is niet voor zzp'ers",
+      "Deze functie is niet voor freelancers",
+    ]) {
+      expect(matchFreelanceExclusion(description)).not.toBeNull();
+      expect(
+        classifyContractAndWork("Opdracht", description).contracttype
+      ).toBeNull();
+    }
+  });
+
+  it("covers every denial in the shared vocabulary", () => {
+    for (const description of [
+      "ZZP'ers worden niet geaccepteerd",
+      "ZZP niet gewenst",
+      "ZZP niet welkom",
+      "ZZP niet geaccepteerd",
+    ]) {
+      expect(matchFreelanceExclusion(description)).not.toBeNull();
+      expect(
+        classifyContractAndWork("Opdracht", description).contracttype
+      ).toBeNull();
+    }
+  });
+
+  it("excludes every term in a coordinated list", () => {
+    for (const description of [
+      "Geen zzp'ers of freelancers",
+      "Geen zzp of freelance",
+      "Geen zzp en freelance",
+      "Geen freelance of zzp",
+    ]) {
+      expect(matchFreelanceExclusion(description)).not.toBeNull();
+      expect(
+        classifyContractAndWork("Opdracht", description).contracttype
+      ).toBeNull();
+    }
+  });
+
+  it("excludes every term in a mixed coordinated list", () => {
+    // The second term is another contract form, so the list must not hand it
+    // back as the answer.
+    expect(matchFreelanceExclusion("Geen zzp of detachering")).toBe(
+      "Geen zzp of detachering"
+    );
+    expect(
+      classifyContractAndWork("Opdracht", "Geen zzp of detachering")
+        .contracttype
+    ).toBeNull();
+  });
+
+  it("keeps a form stated outside the excluded list", () => {
+    expect(
+      classifyContractAndWork(
+        "Opdracht",
+        "Geen ZZP of detachering, alleen vast dienstverband"
+      ).contracttype
+    ).toBe("vast");
+  });
+
+  it("excludes when the vacancy does not stand open", () => {
+    const description = "Deze opdracht staat niet open voor zzp'ers";
+    expect(matchFreelanceExclusion(description)).not.toBeNull();
+    expect(
+      classifyContractAndWork("Opdracht", description).contracttype
+    ).toBeNull();
+  });
+
+  it("names the phrase when the clause ends in whitespace", () => {
+    expect(matchFreelanceExclusion("Geen ZZP \n")).toBe("Geen ZZP");
+    expect(matchFreelanceExclusion("Geen ZZP   ")).toBe("Geen ZZP");
+  });
+
+  it("suppresses a negated alternative through the shared vocabulary", () => {
+    expect(
+      classifyContractAndWork(
+        "Opdracht",
+        "Detachering niet gewenst, ZZP mogelijk."
+      ).contracttype
+    ).toBe("freelance");
+  });
+
+  it("does not read a requirement as an exclusion", () => {
+    expect(
+      matchFreelanceExclusion("Geen zzp ervaring vereist, freelance mogelijk.")
+    ).toBeNull();
+    expect(
+      classifyContractAndWork(
+        "Opdracht",
+        "Geen zzp ervaring vereist, freelance mogelijk."
+      ).contracttype
+    ).toBe("freelance");
+  });
+
+  it("leaves a soft warning classified as freelance", () => {
+    // Striive prose: a discouragement, not an exclusion, so it stays freelance.
+    expect(
+      matchFreelanceExclusion(
+        "Opdracht is minder geschikt voor ZZP\u2019ers ivm wet DBA"
+      )
+    ).toBeNull();
+    expect(
+      classifyContractAndWork(
+        "Opdracht",
+        "Opdracht is minder geschikt voor ZZP\u2019ers ivm wet DBA"
+      ).contracttype
+    ).toBe("freelance");
   });
 });
