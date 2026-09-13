@@ -17,11 +17,11 @@ description joined together. `zzp`, `zzp'er`, `zzp'ers`, `freelance`,
 
 Scope differs by row, and the difference matters. The text is cut into
 sentences (on `.`, `!`, `?`, `;` and line breaks) and each sentence into clauses
-(on commas). The three denial rows match inside one clause. The `geen` row
-matches across a whole sentence, because a list runs straight through its
-commas. The refusal row matches only a clause that opens a sentence, because
-after a comma the same words contrast with what came before rather than refuse
-the vacancy.
+(on commas). The three denial rows match inside one clause. The `geen` row and
+the refusal row both match across a whole sentence, the first because a list
+runs straight through its commas, the second because it is anchored at the
+start of the sentence. That anchor is the point: a refusal that merely follows
+a comma contrasts with what came before rather than refusing the vacancy.
 
 | Shape | Matches |
 | --- | --- |
@@ -29,13 +29,16 @@ the vacancy.
 | denial then term | `niet toegestaan voor zzp`, `niet geschikt voor een zzp'er` |
 | `geen` then term or list (whole sentence) | `geen zzp`, `geen zzp mogelijk`, `geen zzp'ers gezocht`, `geen freelancers.`, `geen zzp of freelance`, `geen zzp, detachering of interim toegestaan` |
 | labelled answer | `zzp: nee`, `zzp mogelijkheid: nee`, `zzp toegestaan: nee` |
-| not intended for (sentence start only) | `niet voor zzp`, `niet bedoeld voor freelancers`, `deze opdracht staat niet open voor zzp'ers`, `helaas niet voor zzp'ers`, `deze opdracht is helaas niet voor zzp'ers` |
+| not intended for (anchored at sentence start) | `niet voor zzp`, `niet bedoeld voor freelancers`, `deze opdracht staat niet open voor zzp'ers`, `helaas niet voor zzp'ers`, `let op, niet voor zzp'ers`, `deze rol is, helaas, niet voor zzp'ers` |
 
-Several shapes are deliberately left out, and two are known misses.
+Several shapes are deliberately left out, and three are known misses.
 
 The `geen` row accepts a coordinated list, the list may span commas, and it may
 name other contract forms: `geen zzp, detachering of interim toegestaan`
-excludes all three, so none may come back as the answer. Everything the list
+excludes all three, so none may come back as the answer. The list must close
+with `of` or `en`, the way a Dutch list does. A comma-only tail is a contrast
+that offers the second form rather than excluding it, so `geen zzp, detachering
+mogelijk` reports `detachering`. Everything the list
 matched is struck out of the evidence for that sentence, so `geen ZZP of
 detachering, alleen vast dienstverband` reports `vast`, taking the form stated
 outside the excluded list.
@@ -54,6 +57,12 @@ detachering`.
 A denial that names a subset leaves the form open, in the denial rows as well as
 the refusal row: `zzp'ers zijn niet toegestaan zonder KvK` excludes ZZP'ers
 without a KvK registration, not ZZP'ers.
+
+An abbreviation ends a sentence, because the split is punctuation-only. In
+`alleen voor werknemers, d.w.z. niet voor zzp'ers` the fragment after `d.w.z.`
+reads as sentence-initial and so as an exclusion, although the prose only
+restates the restriction above it. Fixing that needs an abbreviation list or a
+real segmenter, not a wider pattern.
 
 `minder geschikt voor zzp'ers` (seen in Striive prose) is a warning about risk,
 not a refusal, so it still classifies as freelance. Promote it only with a
