@@ -542,16 +542,27 @@ const restoreContracttype = async (input: {
   readonly transaction: postgres.TransactionSql;
   readonly value: string | null;
 }): Promise<void> => {
-  // `|| jsonb` merges the removed keys back with the values they held.
-  const rows = await input.transaction<{ id: string }[]>`
-    UPDATE curated.aanvraag
-    SET contracttype = ${input.value},
-        bron_specifiek = bron_specifiek || ${JSON.stringify(
-          input.restoredAliases
-        )}::text::jsonb
-    WHERE id::text = ${input.aanvraagId}
-    RETURNING id::text AS id
-  `;
+  const restoredKeys = Object.keys(input.restoredAliases);
+  // Do not evaluate a JSONB merge for an empty preimage. Legacy rows can hold
+  // scalar or array JSON, and `jsonb || '{}'` changes an array's shape even
+  // though this rollback has no alias to restore.
+  const rows =
+    restoredKeys.length === 0
+      ? await input.transaction<{ id: string }[]>`
+          UPDATE curated.aanvraag
+          SET contracttype = ${input.value}
+          WHERE id::text = ${input.aanvraagId}
+          RETURNING id::text AS id
+        `
+      : await input.transaction<{ id: string }[]>`
+          UPDATE curated.aanvraag
+          SET contracttype = ${input.value},
+              bron_specifiek = bron_specifiek || ${JSON.stringify(
+                input.restoredAliases
+              )}::text::jsonb
+          WHERE id::text = ${input.aanvraagId}
+          RETURNING id::text AS id
+        `;
   if (rows.length !== 1) {
     throw new Error("Freelance-label rollback updated no unique row");
   }
