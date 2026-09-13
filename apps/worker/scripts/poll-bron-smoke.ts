@@ -6,10 +6,7 @@ import {
   SOURCES,
   SUPPORTED_BRON_SLUGS,
 } from "@ji/application/sources";
-import type {
-  SourceDefinition,
-  SupportedBronSlug,
-} from "@ji/application/sources";
+import type { SupportedBronSlug } from "@ji/application/sources";
 import { config as loadEnv } from "dotenv";
 
 import {
@@ -18,6 +15,7 @@ import {
   requireManticoreUrl,
   runBronIngestPipeline,
 } from "../src/poll-bron-run";
+import { ensureMissingSliceABronnen } from "../src/smoke-seed";
 
 // scriptDir is apps/worker/scripts; the repo root is three levels up.
 const scriptDir = import.meta.dirname;
@@ -80,59 +78,14 @@ const parseArgs = (): SmokeArgs => {
   return { activate, targets, testImport } satisfies SmokeArgs;
 };
 
-/**
- * `bron_ready_policy_check` (packages/db/src/migrations/0001_u3_durable_ingestion.sql)
- * forbids `status = 'ready'` unless `voorwaarden_status = 'toegestaan'`. Only
- * seed a source as immediately pollable when its own definition says its
- * terms have been cleared; otherwise leave it `deferred` (the schema
- * default) so the constraint holds regardless of which bronnen a fresh
- * database already has rows for.
- */
-const seedStatusFor = (
-  voorwaardenStatus: SourceDefinition["seed"]["voorwaardenStatus"]
-): "deferred" | "ready" =>
-  voorwaardenStatus === "toegestaan" ? "ready" : "deferred";
-
 const ensureSliceABronnen = async (
   runtime: ReturnType<typeof createPollBronRuntime>,
   targets: SupportedBronSlug[]
 ): Promise<void> => {
-  const { bron } = await import("@ji/db/schema/index");
-  /* oxlint-disable no-await-in-loop -- bron seed rows are upserted one at a time */
-  for (const slug of targets) {
-    const definition = SOURCES[slug];
-    const status = seedStatusFor(definition.seed.voorwaardenStatus);
-    await runtime.database
-      .insert(bron)
-      .values({
-        actief: false,
-        categorie: "overheidsportaal",
-        crawlDelayMs: definition.seed.crawlDelayMs,
-        id: definition.bronId,
-        ingestieType: definition.seed.methode,
-        interval: "*/15 * * * *",
-        loginVereist: false,
-        mappingRef: `fixtures/connectors/${definition.slug}/mapping.json`,
-        naam: definition.naam,
-        rateLimitPerMinute: 30,
-        retentionDays: 90,
-        secretRef: null,
-        status,
-        voorwaardenStatus: definition.seed.voorwaardenStatus,
-      })
-      .onConflictDoUpdate({
-        set: {
-          crawlDelayMs: definition.seed.crawlDelayMs,
-          interval: "*/15 * * * *",
-          rateLimitPerMinute: 30,
-          status,
-          updatedAt: new Date(),
-          voorwaardenStatus: definition.seed.voorwaardenStatus,
-        },
-        target: bron.id,
-      });
-  }
-  /* oxlint-enable no-await-in-loop */
+  await ensureMissingSliceABronnen(
+    runtime.database,
+    targets.map((slug) => SOURCES[slug])
+  );
 };
 
 const main = async (): Promise<void> => {
