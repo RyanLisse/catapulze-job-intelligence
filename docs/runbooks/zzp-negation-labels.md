@@ -27,21 +27,37 @@ a comma contrasts with what came before rather than refusing the vacancy.
 | --- | --- |
 | term then denial | `zzp niet mogelijk`, `zzp is niet toegestaan`, `freelance uitgesloten` |
 | denial then term | `niet toegestaan voor zzp`, `niet geschikt voor een zzp'er` |
-| `geen` then term or list (whole sentence) | `geen zzp`, `geen zzp mogelijk`, `geen zzp'ers gezocht`, `geen freelancers.`, `geen zzp of freelance`, `geen zzp, detachering of interim toegestaan` |
+| `geen` then term or list (whole sentence) | `geen zzp`, `geen zzp mogelijk`, `geen zzp'ers gezocht`, `geen freelancers.`, `geen zzp of freelance`, `geen detachering of zzp toegestaan`, `geen zzp, geen detachering of interim toegestaan` |
 | labelled answer | `zzp: nee`, `zzp mogelijkheid: nee`, `zzp toegestaan: nee` |
-| not intended for (anchored at sentence start) | `niet voor zzp`, `niet bedoeld voor freelancers`, `deze opdracht staat niet open voor zzp'ers`, `helaas niet voor zzp'ers`, `let op, niet voor zzp'ers`, `deze rol is, helaas, niet voor zzp'ers` |
+| not intended for (anchored at sentence start) | `niet voor zzp`, `niet bedoeld voor freelancers`, `deze opdracht staat niet open voor zzp'ers`, `helaas niet voor zzp'ers`, `let op, niet voor zzp'ers`, `deze rol is, helaas, niet voor zzp'ers`, `helaas is deze opdracht niet voor zzp'ers` |
 
 Several shapes are deliberately left out, and three are known misses.
 
-The `geen` row accepts a coordinated list, the list may span commas, and it may
-name other contract forms: `geen zzp, detachering of interim toegestaan`
-excludes all three, so none may come back as the answer. The list must close
-with `of` or `en`, the way a Dutch list does. A comma-only tail is a contrast
-that offers the second form rather than excluding it, so `geen zzp, detachering
-mogelijk` reports `detachering`. Everything the list
-matched is struck out of the evidence for that sentence, so `geen ZZP of
-detachering, alleen vast dienstverband` reports `vast`, taking the form stated
-outside the excluded list.
+The `geen` row accepts a coordinated list. Any position may be any contract
+form, so `geen detachering of zzp toegestaan` excludes both whichever comes
+first, and the forms are exactly the aliases the classifier itself answers with
+(`detachering`, `detacheren`, `deta-vast`, `interim`, `vast dienstverband`,
+`vaste aanstelling`, `vast contract`, `permanent`, and the ZZP and freelance
+spellings). The list may span commas and may repeat its determiner, as in
+`geen zzp, geen detachering of interim toegestaan`.
+
+Every position must BE a contract form, never an arbitrary word. That is why
+`geen ervaring en freelance inzet is mogelijk` keeps its freelance label, and
+why the list in `geen zzp, geen ervaring vereist` ends at the zzp.
+
+The list must close with `of` or `en`, the way a Dutch list does. A comma-only
+tail is a contrast that offers the second form rather than excluding it, so
+`geen zzp, detachering mogelijk` reports `detachering`.
+
+Everything the list matched is struck out of the evidence for that sentence, so
+`geen ZZP of detachering, alleen vast dienstverband` reports `vast`, taking the
+form stated outside the excluded list.
+
+A match always strikes out the terms it names, but it only counts as a
+freelance exclusion, and so only reaches this report, when a ZZP or freelance
+spelling is among them. `geen detachering of interim, wel zzp` rules out those
+two and leaves ZZP free to be the answer, so that row is genuinely freelance
+and the report leaves it alone.
 
 `geen zzp ervaring vereist` is a requirement, not an exclusion, so the `geen`
 row only fires when the next word confirms exclusion (`mogelijk`, `toegestaan`,
