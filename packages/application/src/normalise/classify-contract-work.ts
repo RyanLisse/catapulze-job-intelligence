@@ -52,10 +52,21 @@ const EXCLUSION_QUALIFIER = String.raw`(?:zonder|met|die|welke)`;
  */
 const REFUSAL_LEAD_IN = String.raw`(?:helaas|jammer\s+genoeg|let\s+op[:,]?)`;
 /**
- * Any contract form that can be coordinated behind "geen <freelance term> of".
- * A list excludes every term in it, so the report must name the whole phrase.
+ * The wordings each positive matcher accepts. Declared here as sources rather
+ * than inside the matchers, so the coordinated group below is built from the
+ * same strings the classifier answers with and the two cannot drift apart.
  */
-const COORDINATED_TERM = String.raw`(?:${FREELANCE_TERM}|detachering|interim|vast\s+dienstverband)`;
+const DETACHERING_TERM = String.raw`detachering|detacheren|deta-?vast`;
+const FREELANCE_MATCH_TERM = String.raw`freelance|zzp|marktplaats\s*\(freelance\)`;
+const VAST_TERM = String.raw`vast\s+dienstverband|vaste\s+aanstelling|vast\s+contract|permanent`;
+const INTERIM_TERM = String.raw`interim`;
+
+/**
+ * Any contract form that can appear in a "geen ..." list, in any position.
+ * FREELANCE_TERM comes first because it carries the plural and possessive
+ * spellings the positive matcher does not need.
+ */
+const COORDINATED_TERM = String.raw`(?:${FREELANCE_TERM}|${DETACHERING_TERM}|${VAST_TERM}|${INTERIM_TERM})`;
 /** Words that confirm "geen <freelance term>" is an exclusion of the form. */
 const EXCLUSION_TAIL = String.raw`(?:mogelijk|toegestaan|beschikbaar|gezocht|gewenst|welkom|geaccepteerd)`;
 
@@ -91,6 +102,15 @@ const FREELANCE_EXCLUSIONS: readonly RegExp[] = [
  * sentence rather than a clause, because a list runs straight through its
  * commas, and every term inside the match is excluded by it.
  *
+ * Every position is any contract form, so "geen detachering of zzp" excludes
+ * both whichever comes first. Every term must be a contract form though, never
+ * an arbitrary word, or "geen ervaring en freelance inzet is mogelijk" would
+ * lose its answer.
+ *
+ * A match always masks the terms it covers, but it only counts as a FREELANCE
+ * exclusion when a freelance term is among them: "geen detachering of interim"
+ * rules out those two and leaves ZZP free to be the answer.
+ *
  * A list must close with "of" or "en", the way Dutch lists do. A comma-only
  * tail is a contrast rather than a continuation: "geen zzp, detachering
  * mogelijk" offers detachering, it does not exclude it.
@@ -99,7 +119,7 @@ const FREELANCE_EXCLUSIONS: readonly RegExp[] = [
  * requirement, not an exclusion -- stays out.
  */
 const EXCLUDED_TERM_LIST = new RegExp(
-  String.raw`\bgeen\s+${FREELANCE_TERM}(?:(?:\s*,\s*${COORDINATED_TERM})*\s+(?:of|en)\s+${COORDINATED_TERM})?\b(?:\s+${EXCLUSION_TAIL}|(?=\s*(?:[,:]|$)))`,
+  String.raw`\bgeen\s+${COORDINATED_TERM}(?:(?:\s*,\s*${COORDINATED_TERM})*\s+(?:of|en)\s+${COORDINATED_TERM})?\b(?:\s+${EXCLUSION_TAIL}|(?=\s*(?:[,:]|$)))`,
   "giu"
 );
 
@@ -122,10 +142,16 @@ const SENTENCE_INITIAL_REFUSAL = new RegExp(
 
 // "inhuur" is the domain umbrella for every commercial form — never map it
 // alone to detachering. "interim" has its own branch below.
-const DETACHERING = /\b(?<kind>detachering|detacheren|deta-?vast)\b/iu;
-const FREELANCE = /\b(?<kind>freelance|zzp|marktplaats\s*\(freelance\))\b/iu;
-const VAST = /\b(?<kind>vast dienstverband|vaste aanstelling|permanent)\b/iu;
-const INTERIM = /\b(?<kind>interim)\b/iu;
+const DETACHERING = new RegExp(
+  String.raw`\b(?<kind>${DETACHERING_TERM})\b`,
+  "iu"
+);
+const FREELANCE = new RegExp(
+  String.raw`\b(?<kind>${FREELANCE_MATCH_TERM})\b`,
+  "iu"
+);
+const VAST = new RegExp(String.raw`\b(?<kind>${VAST_TERM})\b`, "iu");
+const INTERIM = new RegExp(String.raw`\b(?<kind>${INTERIM_TERM})\b`, "iu");
 
 const REMOTE = /\b(?<kind>remote|thuiswerk(?:en)?|telecommute|vanuit huis)\b/iu;
 const HYBRID = /\b(?<kind>hybride|hybrid)\b/iu;
@@ -197,11 +223,17 @@ const hasPositiveContractTerm = (
   return false;
 };
 
+const NAMES_FREELANCE_TERM = new RegExp(
+  String.raw`\b${FREELANCE_TERM}\b`,
+  "iu"
+);
+
 const matchSentenceExclusion = (sentence: string): string | null => {
   EXCLUDED_TERM_LIST.lastIndex = 0;
-  const listMatch = EXCLUDED_TERM_LIST.exec(sentence);
-  if (listMatch) {
-    return listMatch[0].trim();
+  for (const listMatch of sentence.matchAll(EXCLUDED_TERM_LIST)) {
+    if (NAMES_FREELANCE_TERM.test(listMatch[0])) {
+      return listMatch[0].trim();
+    }
   }
   const refusal = SENTENCE_INITIAL_REFUSAL.exec(sentence);
   if (refusal) {

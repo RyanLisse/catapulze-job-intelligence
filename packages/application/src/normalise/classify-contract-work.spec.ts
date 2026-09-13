@@ -419,7 +419,7 @@ describe("CTP-491 freelance exclusions", () => {
     // call disagree with the first. The report tool calls this per row.
     const description = "Geen zzp, detachering of interim toegestaan.";
     const first = matchFreelanceExclusion(description);
-    for (let attempt = 0; attempt < 3; attempt += 1) {
+    for (const _attempt of Array.from({ length: 3 })) {
       expect(matchFreelanceExclusion(description)).toBe(first);
       expect(
         classifyContractAndWork("Opdracht", description).contracttype
@@ -474,6 +474,73 @@ describe("CTP-491 freelance exclusions", () => {
         "Geen zzp of freelance; detachering wel"
       ).contracttype
     ).toBe("detachering");
+  });
+
+  it("excludes a list whichever contract form heads it", () => {
+    for (const description of [
+      "Geen detachering of zzp toegestaan",
+      "Geen vast dienstverband of zzp",
+    ]) {
+      expect(matchFreelanceExclusion(description)).not.toBeNull();
+      expect(
+        classifyContractAndWork("Opdracht", description).contracttype
+      ).toBeNull();
+    }
+  });
+
+  it("leaves the form the list does not name", () => {
+    // The list masks detachering and interim, so ZZP is free to answer.
+    const description = "Geen detachering of interim, wel zzp";
+    expect(matchFreelanceExclusion(description)).toBeNull();
+    expect(classifyContractAndWork("Opdracht", description).contracttype).toBe(
+      "freelance"
+    );
+  });
+
+  it("covers every alias the positive matchers accept", () => {
+    for (const description of [
+      "Geen zzp of vaste aanstelling",
+      "Geen zzp of deta-vast",
+      "Geen zzp of detavast",
+      "Geen zzp of permanent",
+      "Geen zzp of vast contract",
+      "Geen zzp of detacheren",
+      "Geen zzp of interim",
+    ]) {
+      expect(matchFreelanceExclusion(description)).not.toBeNull();
+      expect(
+        classifyContractAndWork("Opdracht", description).contracttype
+      ).toBeNull();
+    }
+  });
+
+  it("still requires a contract form behind geen", () => {
+    // An arbitrary word must never open a list, or the sentence loses its
+    // answer to a mask it should not have produced.
+    expect(
+      classifyContractAndWork(
+        "Opdracht",
+        "Geen ervaring en freelance inzet is mogelijk."
+      ).contracttype
+    ).toBe("freelance");
+    expect(
+      classifyContractAndWork(
+        "Opdracht",
+        "geen budget en detachering is mogelijk"
+      ).contracttype
+    ).toBe("detachering");
+  });
+
+  it("classifies the vast aliases the coordinated group shares", () => {
+    // Deriving the list from the positive matchers widened these two.
+    expect(
+      classifyContractAndWork("Opdracht", "Vast contract aangeboden.")
+        .contracttype
+    ).toBe("vast");
+    expect(
+      classifyContractAndWork("Opdracht", "Vast  dienstverband met doorgroei.")
+        .contracttype
+    ).toBe("vast");
   });
 
   it("names the phrase when the clause ends in whitespace", () => {
