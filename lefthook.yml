@@ -27,5 +27,9 @@ pre-commit:
 
 pre-push:
   jobs:
+    # A script job, not a command job: lefthook skips command jobs with
+    # "no matching push files" when the push list is empty, and it builds that
+    # list without deletions, so a deletion-only push landed ungated (CTP-503).
     - name: gate
-      run: PATH="./node_modules/.bin:$PATH" bun run gate
+      script: gate.sh
+      runner: bash
