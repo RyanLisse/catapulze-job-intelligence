@@ -67,6 +67,8 @@ export type BronContracttypeAlias = (typeof BRON_CONTRACTTYPE_ALIASES)[number];
  */
 const FREELANCE_FALLBACK_VALUES = new Set([
   "freelance",
+  "freelancer",
+  "freelancers",
   "zzp",
   "zzp'er",
   "zzp'ers",
@@ -80,25 +82,35 @@ export const ZZP_NEGATION_LOCK_TIMEOUT_MS = 2000;
 export const ZZP_NEGATION_IDLE_TRANSACTION_TIMEOUT_MS = 20_000;
 
 export const isFreelanceFallback = (
-  value: string | undefined
+  value: string | null | undefined
 ): value is string =>
+  value !== null &&
   value !== undefined &&
   FREELANCE_FALLBACK_VALUES.has(value.trim().toLowerCase());
 
 /**
  * Parses the two alias keys out of the curated JSON column, the same way
  * `readAanvraagBronFacts` does. Every other key in the column is dropped here
- * and never written back. A column that is not an object, or whose alias is not
- * a string, yields no aliases at all, which leaves the row untouched: the safe
- * direction when the shape is not what this lane understands.
+ * and never written back. A column that is not an object yields no aliases;
+ * malformed aliases are ignored independently so a valid sibling can still be
+ * corrected.
  */
+const sourceTextSchema = z
+  .string()
+  .refine((value) => value.trim() !== "")
+  .nullable()
+  .optional()
+  // oxlint-disable-next-line promise/prefer-await-to-then -- Zod's synchronous fallback API, not Promise.catch
+  .catch(null);
+
 const bronAliasReadSchema = z
   .object({
-    contract_type: z.string().optional(),
-    contracttype: z.string().optional(),
+    contract_type: sourceTextSchema,
+    contracttype: sourceTextSchema,
   })
   // oxlint-disable-next-line promise/prefer-await-to-then -- Zod's synchronous fallback API, not Promise.catch
   .catch({});
+const bronSpecifiekObjectSchema = z.record(z.string(), z.unknown());
 
 /**
  * The alias keys that currently hold a freelance value, with those values.
@@ -124,6 +136,30 @@ export const readFreelanceAliases = (
     image.contracttype = parsed.contracttype;
   }
   return image;
+};
+
+/**
+ * Checks raw JSON shape and key presence, rather than parsing values. A
+ * foreign writer can repopulate an alias with null or a non-string while
+ * leaving the hash and promoted column unchanged; either value still makes
+ * the row unsafe to restore because `restoreContracttype` would overwrite
+ * that key. An unknown JSON shape is also unsafe when there is an alias to
+ * restore, because merging into it could discard data this lane cannot read.
+ */
+export const hasRestorableAliasConflict = (
+  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- raw JSON key-presence check at the database boundary
+  bronSpecifiek: unknown,
+  restoredAliases: ZzpNegationLabelBronAliasImage
+): boolean => {
+  const restoredKeys = Object.keys(restoredAliases);
+  if (restoredKeys.length === 0) {
+    return false;
+  }
+  const parsed = bronSpecifiekObjectSchema.safeParse(bronSpecifiek);
+  if (!parsed.success) {
+    return true;
+  }
+  return restoredKeys.some((key) => Object.hasOwn(parsed.data, key));
 };
 
 export type ZzpNegationOperation = "apply" | "report" | "rollback";
@@ -743,9 +779,9 @@ export const applyZzpNegationLabel = async (input: {
  * Restore the previous label for one apply audit event.
  *
  * Only rows this tool changed and has not changed since: the content hash must
- * still match what was recorded, and the label must still equal the
- * after-image, or something else has written the row and the rollback is not
- * ours to make.
+ * still match what was recorded, the label must still equal the after-image,
+ * and every alias key removed by the apply must still be absent. Otherwise
+ * something else has written the row and the rollback is not ours to make.
  */
 export const rollbackZzpNegationLabel = async (input: {
   readonly auditId: string;
@@ -810,6 +846,18 @@ export const rollbackZzpNegationLabel = async (input: {
           };
         }
         if (locked.contracttype !== original.afterimage.contracttype) {
+          return {
+            aanvraagId: original.aanvraagId,
+            reason: "current_row_mismatch",
+            status: "rejected",
+          };
+        }
+        if (
+          hasRestorableAliasConflict(
+            locked.bronSpecifiek,
+            original.preimage.bronSpecifiek
+          )
+        ) {
           return {
             aanvraagId: original.aanvraagId,
             reason: "current_row_mismatch",

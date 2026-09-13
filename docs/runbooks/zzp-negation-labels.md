@@ -249,9 +249,11 @@ the values they held. Other keys in `bron_specifiek` are never touched, in
 either direction.
 
 It refuses if the row is gone, if its content hash has changed, if the label is
-no longer what this tool left there, or if the audit event belongs to another
-scope, because in each case the row is not this lane's to restore. Rolling back
-twice is a no-op.
+no longer what this tool left there, if an alias key removed by the apply has
+reappeared in `bron_specifiek` (including with a null or non-string value), or
+if the audit event belongs to another scope, because in each case the row is
+not this lane's to restore. Unrelated `bron_specifiek` keys remain untouched
+when a rollback is safe. Rolling back twice is a no-op.
 
 After a rollback the row is mislabelled again, and re-running the same manifest
 corrects it once more rather than reporting `unchanged`. The idempotency lookup

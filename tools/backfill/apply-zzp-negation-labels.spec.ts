@@ -6,10 +6,12 @@ import { drizzle } from "drizzle-orm/postgres-js";
 import { migrate } from "drizzle-orm/postgres-js/migrator";
 import postgres from "postgres";
 
+import { readAanvraagBronFacts } from "../../packages/db/src/aanvraag-read-mapping";
 import * as schema from "../../packages/db/src/schema";
 import { PostgresAuditStore } from "../../packages/db/src/user-write-stores";
 import {
   applyZzpNegationLabel,
+  hasRestorableAliasConflict,
   isFreelanceFallback,
   MAX_MANIFEST_ENTRIES,
   MAX_MATCHED_PHRASE_LENGTH,
@@ -68,6 +70,8 @@ interface ManifestFixture {
   readonly mislabelled?: number;
   readonly scanned?: number;
 }
+
+type TestBronSpecifiek = Readonly<Record<string, string | number | null>>;
 
 const encode = (value: ManifestFixture): Uint8Array =>
   new TextEncoder().encode(JSON.stringify(value));
@@ -320,6 +324,15 @@ describe("readFreelanceAliases", () => {
     ).toEqual({});
   });
 
+  it("keeps a valid alias when its sibling is null or malformed", () => {
+    expect(
+      readFreelanceAliases({ contract_type: null, contracttype: "freelance" })
+    ).toEqual({ contracttype: "freelance" });
+    expect(
+      readFreelanceAliases({ contract_type: 42, contracttype: "zzp" })
+    ).toEqual({ contracttype: "zzp" });
+  });
+
   it("survives a missing or malformed column", () => {
     for (const value of [null, undefined, {}, "freelance", 7]) {
       expect(readFreelanceAliases(value)).toEqual({});
@@ -335,15 +348,49 @@ describe("readFreelanceAliases", () => {
 
 describe("isFreelanceFallback", () => {
   it("accepts the spellings that would resurface the label", () => {
-    for (const value of ["freelance", " Freelance ", "ZZP", "zzp'ers"]) {
+    for (const value of [
+      "freelance",
+      "freelancer",
+      "freelancers",
+      " Freelance ",
+      "ZZP",
+      "zzp'ers",
+    ]) {
       expect(isFreelanceFallback(value)).toBe(true);
     }
   });
 
   it("rejects other forms and non-strings", () => {
-    for (const value of ["detachering", "interim", "", undefined]) {
+    for (const value of ["detachering", "interim", "", null, undefined]) {
       expect(isFreelanceFallback(value)).toBe(false);
     }
+  });
+});
+
+describe("hasRestorableAliasConflict", () => {
+  const restoredAliases = { contracttype: "freelance" } as const;
+
+  it("treats a present null or non-string alias as a conflict", () => {
+    expect(
+      hasRestorableAliasConflict({ contracttype: null }, restoredAliases)
+    ).toBe(true);
+    expect(
+      hasRestorableAliasConflict({ contracttype: 42 }, restoredAliases)
+    ).toBe(true);
+  });
+
+  it("ignores absent aliases and unrelated keys", () => {
+    expect(
+      hasRestorableAliasConflict({ tarief_eenheid: "uur" }, restoredAliases)
+    ).toBe(false);
+    expect(hasRestorableAliasConflict({}, restoredAliases)).toBe(false);
+    expect(hasRestorableAliasConflict(null, {})).toBe(false);
+  });
+
+  it("fails closed for an unknown JSON shape when an alias must be restored", () => {
+    expect(hasRestorableAliasConflict(null, restoredAliases)).toBe(true);
+    expect(hasRestorableAliasConflict("freelance", restoredAliases)).toBe(true);
+    expect(hasRestorableAliasConflict([], restoredAliases)).toBe(true);
   });
 });
 
@@ -461,7 +508,7 @@ describe
 
     const seedRow = async (input: {
       readonly beschrijving?: string;
-      readonly bronSpecifiek?: Readonly<Record<string, string>>;
+      readonly bronSpecifiek?: TestBronSpecifiek;
       readonly contracttype?: string | null;
       readonly versie?: number;
     }): Promise<{
@@ -525,10 +572,8 @@ describe
 
     const readBronSpecifiek = async (
       aanvraagId: string
-    ): Promise<Readonly<Record<string, string>>> => {
-      const rows = await migratorClient<
-        { bronSpecifiek: Readonly<Record<string, string>> }[]
-      >`
+    ): Promise<TestBronSpecifiek> => {
+      const rows = await migratorClient<{ bronSpecifiek: TestBronSpecifiek }[]>`
         SELECT bron_specifiek AS "bronSpecifiek"
         FROM curated.aanvraag WHERE id = ${aanvraagId}
       `;
@@ -683,6 +728,29 @@ describe
       expect(await readBronSpecifiek(seeded.aanvraagId)).toEqual(bronSpecifiek);
     });
 
+    it.each(["freelancer", "freelancers"])(
+      "clears the %s alias with a null sibling on apply",
+      async (alias) => {
+        const seeded = await seedRow({
+          bronSpecifiek: { contract_type: null, contracttype: alias },
+        });
+        expect(
+          readAanvraagBronFacts(await readBronSpecifiek(seeded.aanvraagId))
+            .contracttype
+        ).toBe(alias);
+        const applied = await applyZzpNegationLabel({
+          database: applicationClient,
+          manifest: seeded.manifest,
+          manifestSha256: "7".repeat(64),
+        });
+        expect(applied.status).toBe("applied");
+        expect(await readContracttype(seeded.aanvraagId)).toBeNull();
+        const stored = await readBronSpecifiek(seeded.aanvraagId);
+        expect(stored).toEqual({ contract_type: null });
+        expect(readAanvraagBronFacts(stored).contracttype).toBeNull();
+      }
+    );
+
     it("leaves a fallback naming a different contract form alone", async () => {
       const bronSpecifiek = { contracttype: "detachering" };
       const seeded = await seedRow({ bronSpecifiek });
@@ -818,6 +886,60 @@ describe
         ZZP_NEGATION_APPLY_ACTION,
         ZZP_NEGATION_ROLLBACK_ACTION,
       ]);
+    });
+
+    it("refuses rollback when a removed alias is repopulated", async () => {
+      for (const [aliasKey, foreignAliasValue] of [
+        ["contracttype", null],
+        ["contract_type", 42],
+      ] as const) {
+        /* oxlint-disable no-await-in-loop -- each scenario uses its own serial fixture row */
+        const seeded = await seedRow({
+          bronSpecifiek: {
+            [aliasKey]: "freelance",
+            tarief_eenheid: "uur",
+          },
+        });
+        const applied = await applyZzpNegationLabel({
+          database: applicationClient,
+          manifest: seeded.manifest,
+          manifestSha256: "9".repeat(64),
+        });
+        expect(applied.status).toBe("applied");
+
+        // Simulate a foreign writer that changes only the alias JSON. The
+        // content hash and promoted contracttype remain exactly as applied.
+        await migratorClient`
+          UPDATE curated.aanvraag
+          SET bron_specifiek = bron_specifiek || ${JSON.stringify({
+            [aliasKey]: foreignAliasValue,
+          })}::text::jsonb
+          WHERE id = ${seeded.aanvraagId}
+        `;
+
+        const result = await rollbackZzpNegationLabel({
+          auditId: applied.auditId ?? "",
+          database: applicationClient,
+        });
+        expect(result).toEqual({
+          aanvraagId: seeded.aanvraagId,
+          reason: "current_row_mismatch",
+          status: "rejected",
+        });
+        expect(await readContracttype(seeded.aanvraagId)).toBeNull();
+        expect(await readBronSpecifiek(seeded.aanvraagId)).toEqual({
+          [aliasKey]: foreignAliasValue,
+          tarief_eenheid: "uur",
+        });
+
+        const hashes = await migratorClient<{ contentHash: string }[]>`
+          SELECT content_hash AS "contentHash"
+          FROM curated.aanvraag
+          WHERE id = ${seeded.aanvraagId}
+        `;
+        expect(hashes[0]?.contentHash).toBe(seeded.contentHash);
+        /* oxlint-enable no-await-in-loop */
+      }
     });
 
     it("rolls back only once", async () => {
