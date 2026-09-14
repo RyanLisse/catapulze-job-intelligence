@@ -29,7 +29,7 @@ Status: **klaar om te bouwen** — eerste nieuwe bron; rung 1 (officiële API, C
 | `aanbestedingNaam` | `titel` | |
 | `opdrachtgeverNaam` | `opdrachtgever_naam` → `organisatie` | |
 | `cpvCodes[{code, omschrijving, isHoofdOpdracht}]` | `bron_specifiek.cpv[]` + `vakgebied_bron` | |
-| `nutsCodes[]` | `locatie_provincie` (afleiden) | |
+| `nutsCodes[]` | `locatie_tekst` (NUTS-label; CTP-506) | string of `{code,omschrijving}`; meest specifieke code wint |
 | `procedureCode.code`, `opdrachtAardCode.code` | `bron_specifiek.procedure`, `.opdracht_aard` | `IDA` = dynamisch aankoopsysteem (enige structurele DAS-marker; alleen in detail); `RAA` = raamovereenkomst |
 | `aankondigingCode.code` | `bron_specifiek.aankondiging` | `AAO`/`VAK` open; `AGO`/`VBE` droppen |
 | `publicatieDatum` (detail: volledige ISO) | `gepubliceerd_op` | listing heeft alleen datum |
@@ -65,7 +65,7 @@ Geverifieerd: alle URL's hierboven met HTTP-status; headless Chrome gebruikt voo
 
 ## Contractstart (RJC-432)
 
-De gemodelleerde TenderNed-API publiceert geen contractstart. `publicatieDatum` is uitsluitend publicatiemetadata en blijft als `bron_specifiek.publicatie_datum` bewaard; de canonieke `startDatum` is `UNKNOWN` met provenance `n/a (not published by source)`. Parser `tenderned/v2` maakt deze semantische correctie herkenbaar voor gecontroleerde replay. De publicatiedatum mag nooit in de dedupidentiteit terechtkomen.
+De gemodelleerde TenderNed-API publiceert geen contractstart. `publicatieDatum` is uitsluitend publicatiemetadata en blijft als `bron_specifiek.publicatie_datum` bewaard; de canonieke `startDatum` is `UNKNOWN` met provenance `n/a (not published by source)`. Parser `tenderned/v3` (locatie uit NUTS; v2 was de contractstart-correctie) maakt semantische correcties herkenbaar voor gecontroleerde replay. De publicatiedatum mag nooit in de dedupidentiteit terechtkomen.
 
 ## Sluitingsdatum (RJC-377)
 
