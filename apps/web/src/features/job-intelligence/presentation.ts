@@ -38,8 +38,8 @@ export const werkvormLabels = {
 } as const;
 
 export const queryScopeLabels = {
-  all: "Alles",
-  title: "Titel",
+  all: "Volledige vacature",
+  title: "Titel + opdrachtgever",
 } as const;
 
 export const freshnessLabels = {

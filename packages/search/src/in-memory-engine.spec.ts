@@ -406,7 +406,7 @@ describe("InMemorySearchEngine partitions (RJC-383)", () => {
 });
 
 describe("InMemorySearchEngine CTP-493 parity", () => {
-  it("defaults queryScope to title (titel + opdrachtgever), not description", async () => {
+  it("defaults queryScope to all (full vacature); title scope excludes description-only", async () => {
     const engine = await seeded([
       document("title-hit", {
         beschrijving: "unrelated body",
@@ -425,25 +425,25 @@ describe("InMemorySearchEngine CTP-493 parity", () => {
       }),
     ]);
 
-    const titleScoped = await engine.search({
+    const defaultScoped = await engine.search({
       ast: { kind: "term", value: "Azure" },
       filters: {},
       limit: 10,
       offset: 0,
     });
-    expect(titleScoped.hits.map((hit) => hit.id).toSorted()).toEqual([
+    expect(defaultScoped.hits.map((hit) => hit.id).toSorted()).toEqual([
+      "body-only",
       "company-hit",
       "title-hit",
     ]);
 
-    const allScoped = await engine.search({
+    const titleScoped = await engine.search({
       ast: { kind: "term", value: "Azure" },
-      filters: { queryScope: "all" },
+      filters: { queryScope: "title" },
       limit: 10,
       offset: 0,
     });
-    expect(allScoped.hits.map((hit) => hit.id).toSorted()).toEqual([
-      "body-only",
+    expect(titleScoped.hits.map((hit) => hit.id).toSorted()).toEqual([
       "company-hit",
       "title-hit",
     ]);

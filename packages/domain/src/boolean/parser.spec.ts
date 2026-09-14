@@ -104,4 +104,11 @@ describe("parseBooleanQuery", () => {
       value: 'platform "engineer"',
     });
   });
+
+  it("accepts case-insensitive AND/OR/NOT (CTP-508)", () => {
+    expect(expectOk("azure and data or cloud")).toEqual(
+      expectOk("azure AND data OR cloud")
+    );
+    expect(expectOk("not intern")).toEqual(expectOk("NOT intern"));
+  });
 });

@@ -48,7 +48,7 @@ const DEFAULT_CACHE_TTL_SECONDS = 120;
 const FACETS_CACHE_TTL_SECONDS = 120;
 
 const normalizeQueryScope = (value: QueryScope | undefined): QueryScope =>
-  value === "all" ? "all" : DEFAULT_QUERY_SCOPE;
+  value === "title" || value === "all" ? value : DEFAULT_QUERY_SCOPE;
 
 const normalizePublicationFilter = (
   value: string | undefined
@@ -59,7 +59,7 @@ const normalizePublicationFilter = (
   return Number.isNaN(Date.parse(value)) ? undefined : value;
 };
 
-/** Omitted scope defaults to title; publication bounds stay ISO strings. */
+/** Omitted scope defaults to all (CTP-508); publication bounds stay ISO strings. */
 export const normalizeSearchFilters = (
   filters: SearchFilters | undefined
 ): SearchFilters => {

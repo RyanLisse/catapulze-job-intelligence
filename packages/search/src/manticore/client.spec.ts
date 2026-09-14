@@ -657,7 +657,7 @@ describe("ManticoreSearchEngine document mapping", () => {
           must: [
             {
               query_string:
-                '@(titel,opdrachtgever_naam) Azure "platform engineer"',
+                '@(titel,beschrijving,opdrachtgever_naam) Azure "platform engineer"',
             },
           ],
         },

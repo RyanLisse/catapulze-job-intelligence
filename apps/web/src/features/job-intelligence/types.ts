@@ -179,9 +179,9 @@ export const JOB_WERKVORMEN = ["hybride", "op_locatie", "remote"] as const;
 export type JobWerkvorm = (typeof JOB_WERKVORMEN)[number];
 
 /** Query text scope (title vs all) — distinct from archive JobSearchScope. */
-export const JOB_QUERY_SCOPES = ["title", "all"] as const;
+export const JOB_QUERY_SCOPES = ["all", "title"] as const;
 export type JobQueryScope = (typeof JOB_QUERY_SCOPES)[number];
-export const DEFAULT_JOB_QUERY_SCOPE: JobQueryScope = "title";
+export const DEFAULT_JOB_QUERY_SCOPE: JobQueryScope = "all";
 
 /** Canonical NL provinces for the province facet (index fill often sparse). */
 export const NL_PROVINCES = [
