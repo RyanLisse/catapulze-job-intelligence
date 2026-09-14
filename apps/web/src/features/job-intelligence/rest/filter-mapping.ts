@@ -116,6 +116,40 @@ export const mapUiFiltersToApi = (
   } else {
     mapped.tariefMin = filters.minRate;
   }
+  if (filters.maxRate === null) {
+    // no max rate
+  } else {
+    mapped.tariefMax = filters.maxRate;
+  }
+  if (filters.werkvormen.length > 0) {
+    mapped.werkvormen = [...filters.werkvormen];
+  }
+  if (filters.provincies.length > 0) {
+    mapped.provincies = [...filters.provincies];
+  }
+  if (filters.skills.length > 0) {
+    mapped.skills = [...filters.skills];
+  }
+  if (filters.urenPerWeekMin === null) {
+    // no hours min
+  } else {
+    mapped.urenPerWeekMin = filters.urenPerWeekMin;
+  }
+  if (filters.urenPerWeekMax === null) {
+    // no hours max
+  } else {
+    mapped.urenPerWeekMax = filters.urenPerWeekMax;
+  }
+  if (filters.publicatiedatumVanaf) {
+    mapped.publicatiedatumVanaf = filters.publicatiedatumVanaf;
+  }
+  if (filters.publicatiedatumTot) {
+    mapped.publicatiedatumTot = filters.publicatiedatumTot;
+  }
+  // queryScope defaults to title on the engine; only send when non-default.
+  if (filters.queryScope !== "title") {
+    mapped.queryScope = filters.queryScope;
+  }
   if (freshnessDays === undefined) {
     // no freshness filter
   } else {
@@ -164,6 +198,9 @@ export const mapApiFacetsToUi = (
     count: bucket.count,
     value: locationLabel(bucket.value),
   })),
+  // Proven gap: SearchFacets has no provincie/werkvorm/skills buckets yet.
+  provincies: [],
+  skills: [],
   sources: facets.bron_id.flatMap((bucket) => {
     const mapped = mapSourceFacet(bucket, bronCatalog);
     return mapped ? [mapped] : [];
@@ -173,6 +210,7 @@ export const mapApiFacetsToUi = (
       ? [{ count: bucket.count, value: bucket.value }]
       : []
   ),
+  werkvormen: [],
 });
 
 export const buildSearchRequestBody = (input: {

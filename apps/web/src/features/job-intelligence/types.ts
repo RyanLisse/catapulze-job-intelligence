@@ -174,13 +174,55 @@ export interface JobListing {
   readonly startDate?: string | null;
 }
 
+/** Motian-parity work arrangement → SearchFilters.werkvormen. */
+export const JOB_WERKVORMEN = ["hybride", "op_locatie", "remote"] as const;
+export type JobWerkvorm = (typeof JOB_WERKVORMEN)[number];
+
+/** Query text scope (title vs all) — distinct from archive JobSearchScope. */
+export const JOB_QUERY_SCOPES = ["title", "all"] as const;
+export type JobQueryScope = (typeof JOB_QUERY_SCOPES)[number];
+export const DEFAULT_JOB_QUERY_SCOPE: JobQueryScope = "title";
+
+/** Canonical NL provinces for the province facet (index fill often sparse). */
+export const NL_PROVINCES = [
+  "Drenthe",
+  "Flevoland",
+  "Friesland",
+  "Gelderland",
+  "Groningen",
+  "Limburg",
+  "Noord-Brabant",
+  "Noord-Holland",
+  "Overijssel",
+  "Utrecht",
+  "Zeeland",
+  "Zuid-Holland",
+] as const;
+
 export interface JobSearchFilters {
   readonly sources: readonly JobSource[];
   readonly contractTypes: readonly JobContractType[];
   readonly locations: readonly string[];
   readonly status: readonly JobSearchStatus[];
   readonly freshness: FreshnessFilter;
+  /** Hourly rate lower bound → tariefMin. */
   readonly minRate: number | null;
+  /** Hourly rate upper bound → tariefMax. */
+  readonly maxRate: number | null;
+  /** Work arrangement → werkvormen. */
+  readonly werkvormen: readonly JobWerkvorm[];
+  /** Province → provincies (sparse OK; no invented facet counts). */
+  readonly provincies: readonly string[];
+  /** Skills → skills (often empty until enrichment). */
+  readonly skills: readonly string[];
+  /** Hours/week → urenPerWeekMin/Max. */
+  readonly urenPerWeekMin: number | null;
+  readonly urenPerWeekMax: number | null;
+  /** Posted between → publicatiedatumVanaf/Tot (YYYY-MM-DD). */
+  readonly publicatiedatumVanaf: string | null;
+  readonly publicatiedatumTot: string | null;
+  /** Title vs all → SearchFilters.queryScope (not archive scope). */
+  readonly queryScope: JobQueryScope;
 }
 
 export interface JobSearchState {
@@ -213,6 +255,14 @@ export interface JobSearchFacets {
   readonly contractTypes: readonly FacetCount<JobContractType>[];
   readonly locations: readonly FacetCount[];
   readonly status: readonly FacetCount<JobSearchStatus>[];
+  /**
+   * Optional Motian-parity facets. Live SearchFacets only return
+   * bron/contract/locatie/locatie_land/status today — these stay empty
+   * until a follow-up facet endpoint; selected URL values still wire.
+   */
+  readonly provincies?: readonly FacetCount[];
+  readonly werkvormen?: readonly FacetCount<JobWerkvorm>[];
+  readonly skills?: readonly FacetCount[];
 }
 
 export interface JobSearchResponse {
@@ -265,9 +315,18 @@ export const DEFAULT_JOB_SEARCH_STATE: JobSearchState = {
     contractTypes: [],
     freshness: "all",
     locations: [],
+    maxRate: null,
     minRate: null,
+    provincies: [],
+    publicatiedatumTot: null,
+    publicatiedatumVanaf: null,
+    queryScope: DEFAULT_JOB_QUERY_SCOPE,
+    skills: [],
     sources: [],
     status: [],
+    urenPerWeekMax: null,
+    urenPerWeekMin: null,
+    werkvormen: [],
   },
   page: 1,
   pageSize: JOB_PAGE_SIZE,
