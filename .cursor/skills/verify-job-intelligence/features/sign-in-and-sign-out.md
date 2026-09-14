@@ -5,7 +5,7 @@ A returning user signs in from `Welcome Back`, sees the dashboard, then signs ou
 ## Sub-features
 
 - `signin-open` `/login` shows heading `Welcome Back`, labels `Email` / `Password`, button `Sign In`.
-- `signin-submit` valid email/password for a **provisioned** account reaches `/dashboard` with paragraph `Welcome <name>` and text `API: This is private`.
+- `signin-submit` valid email/password for a **provisioned** account reaches `/dashboard` with paragraph `Welcome <name>` and the live overview (or its truthful loading/error/empty state).
 - `signout` the user-menu button showing the account name exposes `Uitloggen` and returns to `/`.
 
 ## How to get to it (user POV)
@@ -24,7 +24,7 @@ Preconditions:
 Browser path:
 
 - **Open sign-in.** Load `/login`. Heading is `Welcome Back`. No `Create Account`, `Sign Up`, or sign-up switch copy.
-- **Submit (when provisioned).** Fill labeled `Email` and `Password`, choose `Sign In`. Land on `/dashboard` with paragraph `Welcome <name>` and client-rendered `API: This is private`.
+- **Submit (when provisioned).** Fill labeled `Email` and `Password`, choose `Sign In`. Land on `/dashboard` with paragraph `Welcome <name>` and the live overview (or its truthful loading/error/empty state).
 - **Sign out (when provisioned).** Open the header button whose name is the user name, choose `Uitloggen`. URL becomes `/`. Header shows button `Inloggen` again.
 - **Proof.** Save screenshot/HTML under `artifacts/sign-in-and-sign-out/`. When provisioned: after sign-in, `GET /dashboard` with cookies is 200; after sign-out, `GET /dashboard` redirects to `/login`. When not provisioned: record `signin-submit` and `signout` as unreachable in `meta.json` with the prerequisite.
 
@@ -35,4 +35,4 @@ Browser path:
 - Shared local sessions: signing out here signs out that browser profile on 3001.
 - Dashboard welcome is a `<p>Welcome {name}</p>`, not a heading.
 - Do not look for menu item `Sign Out`; the live label is `Uitloggen`.
-- `API: This is private` is client-rendered via React Query; wait for it after the welcome paragraph.
+- The overview is client-rendered after the server guard; wait for its live result, error, or empty state after the welcome paragraph.

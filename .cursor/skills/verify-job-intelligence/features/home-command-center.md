@@ -1,6 +1,6 @@
 # Home command center
 
-The public home page (`/`) is a recruiter command center with preview metrics and links into job search. API reachability is verified by doctor via tRPC `healthCheck`; home no longer shows an on-page API status section.
+The public home page (`/`) is a recruiter landing page. Anonymous visitors see the login path without fabricated counts. Authenticated recruiters see a live overview backed by the search capability, including its true total and returned facets; `NEXT_PUBLIC_USE_FIXTURES=1` is an explicit demo mode. API reachability is verified by doctor via tRPC `healthCheck`; home does not show an on-page API status section.
 
 ## Sub-features
 
@@ -9,8 +9,9 @@ The public home page (`/`) is a recruiter command center with preview metrics an
 - `home-cta-search` primary link `Open job search` routes to `/jobs`.
 - `home-cta-example` secondary link `Bekijk een zoekvoorbeeld` routes to `/jobs?q=Azure&freshness=30d`.
 - `home-health-ok` tRPC `healthCheck` returns `OK` (doctor-only; not rendered on home).
-- `home-kpis` five KPI tiles (`Opdrachten in preview`, `Actief`, `Bronnen`, `Met remote optie`, `Zoekvoorbeelden`) derived from the fixture set.
-- `home-panels` seven panels: `Opdrachten per publicatieweek`, `Opdrachten per bron`, `Opdrachten per locatie`, `Verdeling van het uurtarief`, `Dekking van de previewdata`, `Opgeslagen zoekvoorbeelden`, `Skills in de previewset` (plus three capability cards below the panels).
+- `home-authenticated-overview` a signed-in recruiter sees `Beschikbare opdrachten`, an optional API-provided archive total, and source, location, contract, and status facets.
+- `home-filter-links` each returned facet links into `/jobs` with the corresponding server filter.
+- `home-states` loading, live API error, and empty-index states are explicit and contain no replacement numbers.
 
 ## How to get to it (user POV)
 
@@ -23,18 +24,19 @@ The public home page (`/`) is a recruiter command center with preview metrics an
 Preconditions:
 
 - Doctor reports `ok: true`.
-- No session is required.
+- Anonymous checks require no session. The authenticated overview requires a provisioned recruiter-capable account.
 
-- **Open home.** Load `/`. Run `bun .cursor/skills/verify-job-intelligence/scripts/control.mjs http http://localhost:3001/`. Status `200`; body contains `Vind de juiste opdracht` and `Job Intelligence`. Body does **not** contain `API status` or `Connected`.
+- **Open home anonymously.** Load `/`. Run `bun .cursor/skills/verify-job-intelligence/scripts/control.mjs http http://localhost:3001/`. Status `200`; body contains `Vind de juiste opdracht`, `Inloggen`, and `Job Intelligence`. Body contains no preview KPI numbers.
 - **API health (doctor).** Run `bun .cursor/skills/verify-job-intelligence/scripts/control.mjs doctor`. `healthBody` contains `OK`.
 - **CTAs.** In a browser, choose `Open job search` and land on `/jobs`.
-- **Proof.** Run `bun .cursor/skills/verify-job-intelligence/scripts/control.mjs snapshot home-command-center`. `artifacts/home-command-center/home.html` contains the recruiter H1; `trpc-healthCheck.txt` contains `OK`.
+- **Authenticated overview.** Sign in with a provisioned recruiter account. The overview must show live totals/facets or a truthful loading/error/empty state; choose a source, location, contract, or status facet and land on `/jobs` with that filter in the URL.
+- **Proof.** Run `bun .cursor/skills/verify-job-intelligence/scripts/control.mjs snapshot home-command-center`. `artifacts/home-command-center/home.html` contains the recruiter H1; `trpc-healthCheck.txt` contains `OK`. Capture the authenticated overview separately when credentials are available.
 
 ## Gotchas
 
 - Do not expect `API status` or a browser `Connected` label on home — those belonged to the old skeleton and were removed in U9.
 - Opening the app at `127.0.0.1:3001` while env uses `localhost` can block Next.js dev chunks. Drive at `localhost:3001`.
-- Fixture metrics and charts on home are synthetic preview data, not live ingest counts.
-- Home is the approved dark console dashboard (KPI tiles + panels), not the older ink hero band. The H1 and both CTAs are unchanged; the surrounding layout is not.
-- `WeeklyVolumeChart`, `HorizontalBars`, and `RateHistogram` in `apps/web/src/components/dashboard/charts.tsx` use **recharts** (`apps/web/package.json`). Only `CoverageBars` on home is pure CSS in `page.tsx`.
-- Do not treat preview copy about U7 REST as evidence that production ingest is wired.
+- Anonymous home is intentionally a landing page; it does not show fixture or live metrics.
+- Fixture overview data is synthetic and appears only when `NEXT_PUBLIC_USE_FIXTURES=1` is explicitly enabled. It is labeled as demo data.
+- A returned search `total` is authoritative even when the adapter hydrates only one result for the overview request. Never count the page items as a global metric.
+- The operator-only `/v1/dashboard` capability is not used by the recruiter overview.
