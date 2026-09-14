@@ -42,7 +42,8 @@ const aanvraagWireRecord = Schema.StructWithRest(
   [UnknownRecord]
 );
 
-export const SEARCH_MAX_LIMIT = 100;
+/** Max search page size (CTP-509). Window remains SEARCH_WINDOW_LIMIT; over-limit is a validation error (never silent truncate). */
+export const SEARCH_MAX_LIMIT = 1000;
 
 const DEFAULT_SEARCH_PAGE_SIZE = 20;
 

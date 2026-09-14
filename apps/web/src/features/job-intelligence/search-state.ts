@@ -7,6 +7,7 @@ import {
   FRESHNESS_FILTERS,
   JOB_CONTRACT_TYPES,
   JOB_PAGE_SIZE,
+  JOB_PAGE_SIZE_OPTIONS,
   JOB_SEARCH_STATUS_VALUES,
   PREVIEW_STATUSES,
   selectableJobSortOptions,
@@ -15,6 +16,7 @@ import type {
   FacetCount,
   FreshnessFilter,
   JobListing,
+  JobPageSize,
   JobSearchRequest,
   JobSearchResponse,
   JobSearchState,
@@ -27,7 +29,8 @@ export type SearchParamInput =
   | URLSearchParams
   | Readonly<Record<string, string | readonly string[] | undefined>>;
 
-const MAX_PAGE_SIZE = 100;
+/** Fixture/client clamp — lockstep with SEARCH_MAX_LIMIT (CTP-509). */
+const MAX_PAGE_SIZE = 1000;
 const FIXTURE_NOW = Date.parse("2026-08-30T12:00:00.000Z");
 
 const isOneOf = <T extends string>(
@@ -70,6 +73,15 @@ const parsePositiveInteger = (
   return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : fallback;
 };
 
+const isJobPageSize = (value: number): value is JobPageSize =>
+  JOB_PAGE_SIZE_OPTIONS.some((option) => option === value);
+
+/** Allowlist only CTP-509 sizes; unknown values fall back to default (no silent oversize). */
+export const parseJobPageSize = (value: string | null): JobPageSize => {
+  const parsed = parsePositiveInteger(value, JOB_PAGE_SIZE);
+  return isJobPageSize(parsed) ? parsed : JOB_PAGE_SIZE;
+};
+
 const parseMinRate = (value: string | null): number | null => {
   if (value === null || value.trim() === "") {
     return null;
@@ -106,6 +118,10 @@ export const parseJobSearchState = (
       ),
     },
     page: parsePositiveInteger(readFirst(input, "page"), 1),
+    // Motian uses `perPage`; accept `pageSize` as alias.
+    pageSize: parseJobPageSize(
+      readFirst(input, "perPage") ?? readFirst(input, "pageSize")
+    ),
     previewStatus: isOneOf(previewStatus, PREVIEW_STATUSES)
       ? previewStatus
       : "ready",
@@ -153,6 +169,9 @@ export const serializeJobSearchState = (
   }
   if (state.page > 1) {
     params.set("page", String(state.page));
+  }
+  if (state.pageSize !== JOB_PAGE_SIZE) {
+    params.set("perPage", String(state.pageSize));
   }
   if (state.selectedJobId) {
     params.set("job", state.selectedJobId);
@@ -295,7 +314,10 @@ const isFreshEnough = (
   );
 };
 
-const matchesFilters = (job: JobListing, state: JobSearchState): boolean => {
+const matchesFilters = (
+  job: JobListing,
+  state: Pick<JobSearchState, "filters" | "scope">
+): boolean => {
   const { filters } = state;
   const searchStatus =
     job.status === "closed" ? ("closed" as const) : ("active" as const);

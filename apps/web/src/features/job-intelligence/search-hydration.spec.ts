@@ -6,6 +6,7 @@ process.env.NEXT_PUBLIC_SERVER_URL ??= "http://server.test";
 
 const { createRestJobDataAdapter } = await import("./rest-job-data-adapter");
 const { parseJobSearchState } = await import("./search-state");
+const { JOB_PAGE_SIZE } = await import("./types");
 
 const BRON_ID = "00000000-0000-4000-8000-000000000001";
 const SEARCH_RESULT_COUNT = 100;
@@ -187,7 +188,7 @@ describe("search hydration call count (RJC-379)", () => {
     globalThis.fetch = originalFetch;
   });
 
-  it("hydrates a 100-hit search in O(1) HTTP calls, not per id", async () => {
+  it("hydrates a full page in O(1) HTTP calls, not per id", async () => {
     recordedRequests.length = 0;
     const adapter = createRestJobDataAdapter({
       baseUrl: "http://server.test",
@@ -198,8 +199,8 @@ describe("search hydration call count (RJC-379)", () => {
 
     expect(response.status).toBe("ready");
     expect(response.total).toBe(SEARCH_RESULT_COUNT);
-    // RJC-378: only the displayed page is hydrated, never a 100-hit window.
-    expect(response.items).toHaveLength(8);
+    // RJC-378: only the displayed page is hydrated, never the full window.
+    expect(response.items).toHaveLength(JOB_PAGE_SIZE);
 
     // Exactly: 1x bron catalog + 1x search + 1x batch hydration. The old
     // per-id loop issued 2 GETs per hit (200 extra calls for 100 hits) and
@@ -324,13 +325,13 @@ describe("server-side sort, filter and pagination (RJC-378)", () => {
       // RJC-394: ENRICHED_SEARCH_DATA_AVAILABLE is on, so the location
       // filter now sends the `locatie` key.
       filters: { locatie: ["NL"] },
-      limit: 8,
-      offset: 16,
+      limit: JOB_PAGE_SIZE,
+      offset: JOB_PAGE_SIZE * 2,
       query: "Azure",
       sort: "newest",
     });
     expect(response.page).toBe(3);
-    expect(response.items).toHaveLength(8);
+    expect(response.items).toHaveLength(JOB_PAGE_SIZE);
     // The hydrated ids are exactly the server's page, in server order.
     const hydrated = z
       .object({ ids: z.array(z.string()) })
@@ -358,14 +359,14 @@ describe("server-side sort, filter and pagination (RJC-378)", () => {
     expect(all.archiveTotal).toBeNull();
   });
 
-  it("derives totalPages from the true total, not the old 100-hit window", async () => {
+  it("derives totalPages from the true total, not a fixed hit window", async () => {
     recordedRequests.length = 0;
     searchTotal = 300;
 
     const response = await search("q=Azure");
 
     expect(response.total).toBe(300);
-    expect(response.totalPages).toBe(38);
+    expect(response.totalPages).toBe(Math.ceil(300 / JOB_PAGE_SIZE));
   });
 
   it("caps totalPages at the retrievable window when the total exceeds it", async () => {
@@ -375,7 +376,7 @@ describe("server-side sort, filter and pagination (RJC-378)", () => {
     const response = await search("q=Azure");
 
     expect(response.total).toBe(3000);
-    expect(response.totalPages).toBe(WINDOW_LIMIT / 8);
+    expect(response.totalPages).toBe(Math.floor(WINDOW_LIMIT / JOB_PAGE_SIZE));
   });
 
   it("falls back to the last page once when the requested page is past the end", async () => {
@@ -384,8 +385,9 @@ describe("server-side sort, filter and pagination (RJC-378)", () => {
 
     const response = await search("q=Azure&page=9");
 
-    expect(response.page).toBe(3);
-    expect(response.items).toHaveLength(4);
+    // Default page size is 50 (CTP-509), so 20 hits fit on a single page.
+    expect(response.page).toBe(1);
+    expect(response.items).toHaveLength(20);
     expect(
       recordedRequests.filter(
         (request) => request.path === "/v1/aanvragen/search"

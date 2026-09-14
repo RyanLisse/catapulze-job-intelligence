@@ -266,7 +266,7 @@ describe("batch_get_aanvragen (RJC-379)", () => {
     const tooMany = await invoker(
       {
         ids: Array.from(
-          { length: 101 },
+          { length: 1001 },
           (_, index) =>
             `00000000-0000-4000-8000-${String(index).padStart(12, "0")}`
         ),
