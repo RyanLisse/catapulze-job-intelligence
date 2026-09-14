@@ -31,6 +31,11 @@ const ACTIVE_STATES = new Set([
   "waiting",
 ]);
 const HEALTHY_APPLICATION_STATES = new Set(["healthy", "running:healthy"]);
+const TRANSIENT_APPLICATION_STATES = new Set([
+  "running",
+  "running:unknown",
+  "starting",
+]);
 
 export type FetchInput = Request | string | URL;
 
@@ -544,6 +549,51 @@ const application = async (
     );
   }
   return value as ApplicationRecord;
+};
+
+const waitForApplicationHealthy = async (
+  api: CoolifyApi,
+  uuid: string,
+  role: Role,
+  expectedSha: string,
+  timeoutMs: number,
+  pollIntervalMs: number,
+  sleepImpl: (milliseconds: number) => Promise<void>,
+  absoluteDeadlineAt: number,
+  nowImpl: () => number
+): Promise<ApplicationRecord> => {
+  const deadline = Math.min(nowImpl() + timeoutMs, absoluteDeadlineAt);
+  let lastStatus = "unknown";
+  while (nowImpl() <= deadline) {
+    const after = await application(api, uuid, role);
+    if (after.git_commit_sha !== expectedSha) {
+      throw new DeploymentError(
+        "application_readback_failed",
+        `${role} application did not read back candidate and healthy`,
+        role
+      );
+    }
+    const status = after.status ?? "unknown";
+    if (HEALTHY_APPLICATION_STATES.has(status)) {
+      return after;
+    }
+    if (!TRANSIENT_APPLICATION_STATES.has(status)) {
+      throw new DeploymentError(
+        "application_readback_failed",
+        `${role} application did not read back candidate and healthy`,
+        role
+      );
+    }
+    lastStatus = status;
+    await sleepImpl(
+      Math.min(pollIntervalMs, Math.max(0, deadline - nowImpl()))
+    );
+  }
+  throw new DeploymentError(
+    "application_readback_failed",
+    `${role} application remained ${lastStatus} after deployment`,
+    role
+  );
 };
 
 const readActualDeployedSha = async (
@@ -1265,17 +1315,17 @@ const deployRole = async (
     );
     deploymentFinished = true;
     pending.deploymentStatus = deploymentStatus;
-    const after = await application(api, uuid, role);
-    if (
-      after.git_commit_sha !== config.candidateSha ||
-      !HEALTHY_APPLICATION_STATES.has(after.status ?? "")
-    ) {
-      throw new DeploymentError(
-        "application_readback_failed",
-        `${role} application did not read back candidate and healthy`,
-        role
-      );
-    }
+    await waitForApplicationHealthy(
+      api,
+      uuid,
+      role,
+      config.candidateSha,
+      timeoutMs,
+      pollIntervalMs,
+      sleepImpl,
+      deadline.at - deadline.rollbackReserveMs,
+      nowImpl
+    );
     await validatePublic(config, role, config.candidateSha);
     return pending;
   } catch (error) {
@@ -1356,11 +1406,19 @@ const rollbackRole = async (
     deadline.at,
     nowImpl
   );
-  const after = await application(api, evidence.applicationUuid, evidence.role);
-  if (
-    after.git_commit_sha !== evidence.previousSha ||
-    !HEALTHY_APPLICATION_STATES.has(after.status ?? "")
-  ) {
+  try {
+    await waitForApplicationHealthy(
+      api,
+      evidence.applicationUuid,
+      evidence.role,
+      evidence.previousSha,
+      timeoutMs,
+      pollIntervalMs,
+      sleepImpl,
+      deadline.at,
+      nowImpl
+    );
+  } catch {
     throw new DeploymentError(
       "rollback_readback_failed",
       `${evidence.role} rollback did not restore the previous SHA`,
@@ -1530,7 +1588,7 @@ export const runCoolifyDeploy = async (
     if (rollbackFailures.length > 0) {
       throw new DeploymentError(
         "rollback_incomplete",
-        rollbackFailures.join(", ")
+        `original:${safeReason(error)}; rollback:${rollbackFailures.join(", ")}`
       );
     }
     throw error;

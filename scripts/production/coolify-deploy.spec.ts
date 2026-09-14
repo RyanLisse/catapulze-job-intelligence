@@ -51,6 +51,7 @@ interface HarnessOptions {
   readonly dashboardLocation?: string;
   /** Number of `/projector/runtime` reads that still report the previous SHA. */
   readonly projectorRuntimeLagPolls?: number;
+  readonly applicationStatusSequence?: Partial<Record<Role, readonly string[]>>;
 }
 
 interface HarnessState {
@@ -61,6 +62,7 @@ interface HarnessState {
   finishedRaceDeployment: string | undefined;
   candidateDeployments: number;
   projectorRuntimeReads: number;
+  applicationReads: Record<Role, number>;
 }
 
 const json = (body: unknown, status = 200): Response =>
@@ -113,6 +115,7 @@ const releaseBaseline = {
 
 const makeHarness = (options: HarnessOptions = {}) => {
   const state: HarnessState = {
+    applicationReads: { projector: 0, server: 0, web: 0 },
     calls: [],
     cancelledDeployment: undefined,
     candidateDeployments: 0,
@@ -239,9 +242,12 @@ const makeHarness = (options: HarnessOptions = {}) => {
           `harness could not read an application UUID from ${path}`
         );
         const role = roleForUuid(uuid);
+        const sequence = options.applicationStatusSequence?.[role];
+        const readIndex = state.applicationReads[role];
+        state.applicationReads[role] += 1;
         return json({
           git_commit_sha: state.sha[role],
-          status: "healthy",
+          status: sequence?.[readIndex] ?? sequence?.at(-1) ?? "healthy",
           uuid,
         });
       }
@@ -412,6 +418,38 @@ describe("production Coolify deployment contract", () => {
       ({ method, url }) => method === "PATCH" && url.includes("/applications/")
     );
     expect(candidatePatches).toHaveLength(3);
+  });
+
+  it("waits for a transient post-finished application state to become healthy", async () => {
+    const harness = makeHarness({
+      applicationStatusSequence: {
+        server: ["healthy", "running:unknown", "healthy"],
+      },
+    });
+
+    const evidence = await runCoolifyDeploy({
+      ...harness.config,
+      sleepImpl: async () => {},
+    });
+
+    expect(evidence).toHaveLength(3);
+    expect(harness.state.applicationReads.server).toBe(4);
+  });
+
+  it("fails and rolls back when a transient application state never converges", async () => {
+    const harness = makeHarness({
+      applicationStatusSequence: { server: ["healthy", "starting"] },
+    });
+
+    await expect(
+      runCoolifyDeploy({
+        ...harness.config,
+        deadlineMs: 3000,
+        rollbackReserveMs: 1000,
+        sleepImpl: async () => {},
+      })
+    ).rejects.toThrow("rollback_readback_failed");
+    expect(harness.state.sha.server).toBe(previousSha);
   });
 
   it.each(["server", "web", "projector"] as const)(
