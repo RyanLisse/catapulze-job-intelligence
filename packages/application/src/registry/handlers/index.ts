@@ -592,7 +592,7 @@ export const createRemoveSavedSearchHandler =
 
 /**
  * Cap on an explicit snapshot selection. Matches the search hydration window
- * (BATCH_GET_AANVRAGEN_MAX_IDS / searchAanvragen limit max 100): a recruiter
+ * (BATCH_GET_AANVRAGEN_MAX_IDS / searchAanvragen limit max SEARCH_MAX_LIMIT): a recruiter
  * selects from results that arrive at most 100 per request, so a selection
  * larger than one hydrated window cannot have been reviewed as a unit.
  */

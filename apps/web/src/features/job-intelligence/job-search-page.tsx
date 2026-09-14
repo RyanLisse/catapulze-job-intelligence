@@ -12,6 +12,7 @@ import { JobActiveFilters } from "./job-active-filters";
 import { JobDetail } from "./job-detail";
 import { JobFilters } from "./job-filters";
 import { JobResults } from "./job-results";
+import { JobResultsMap } from "./job-results-map";
 import { createJobSearchMutations } from "./job-search-mutations";
 import { JobSearchQueryBar } from "./job-search-query-bar";
 import {
@@ -35,6 +36,13 @@ import type {
 } from "./markering-sync";
 import { validateBooleanPreview } from "./presentation";
 import type { CapabilityDiscoveryDocument } from "./rest-job-data-adapter";
+import {
+  readStoredJobPageSize,
+  readStoredResultsViewMode,
+  writeStoredJobPageSize,
+  writeStoredResultsViewMode,
+} from "./results-prefs";
+import { JobResultsToolbar } from "./results-toolbar";
 import { runAsync } from "./run-async";
 import {
   parseJobSearchState,
@@ -55,6 +63,7 @@ import type {
   JobSourceOption,
   MarkeringSyncState,
   PreviewStatus,
+  ResultsViewMode,
 } from "./types";
 
 const MARKERING_POLL_INTERVAL_MS = 5000;
@@ -246,6 +255,7 @@ interface JobResultsPanelProps {
   readonly response: JobSearchResponse;
   readonly selectedJobId: string | null;
   readonly syntaxError: string | null;
+  readonly viewMode: ResultsViewMode;
 }
 
 const IncompleteEmptyResult = ({
@@ -286,6 +296,7 @@ const JobResultsPanel = ({
   response,
   selectedJobId,
   syntaxError,
+  viewMode,
 }: JobResultsPanelProps) => (
   <section
     aria-label="Zoekresultaten"
@@ -325,11 +336,19 @@ const JobResultsPanel = ({
           complete={response.complete}
           onRetry={onRetryIncomplete}
         />
-        <JobResults
-          jobs={response.items}
-          selectedJobId={selectedJobId}
-          onSelect={onSelect}
-        />
+        {viewMode === "map" ? (
+          <JobResultsMap
+            jobs={response.items}
+            selectedJobId={selectedJobId}
+            onSelect={onSelect}
+          />
+        ) : (
+          <JobResults
+            jobs={response.items}
+            selectedJobId={selectedJobId}
+            onSelect={onSelect}
+          />
+        )}
       </>
     ) : null}
   </section>
@@ -365,9 +384,17 @@ const JobSearchPageContent = ({
   readonly liveData: boolean;
 }) => {
   const searchParams = useSearchParams();
-  const state = useMemo(
-    () => parseJobSearchState(new URLSearchParams(searchParams.toString())),
-    [searchParams]
+  const state = useMemo(() => {
+    const params = new URLSearchParams(searchParams.toString());
+    const parsed = parseJobSearchState(params);
+    const hasExplicitPageSize = params.has("perPage") || params.has("pageSize");
+    if (hasExplicitPageSize) {
+      return parsed;
+    }
+    return { ...parsed, pageSize: readStoredJobPageSize() };
+  }, [searchParams]);
+  const [viewMode, setViewMode] = useState<ResultsViewMode>(() =>
+    readStoredResultsViewMode()
   );
   const requestKey = canonicalSearchRequest(state);
   const searchRequest = useMemo(
@@ -397,6 +424,10 @@ const JobSearchPageContent = ({
     useState<MarkeringSyncState>("idle");
   const [sources, setSources] = useState<readonly JobSourceOption[]>([]);
   const detailTriggerRef = useRef<HTMLButtonElement | null>(null);
+  useEffect(() => {
+    writeStoredJobPageSize(state.pageSize);
+  }, [state.pageSize]);
+
   const lastAppliedMarkering = useRef(emptyMarkeringReadbackState());
   const selectedJobIdRef = useRef<string | null>(state.selectedJobId);
   const markeringMutationsInFlight = useRef(new Set<string>());
@@ -721,6 +752,27 @@ const JobSearchPageContent = ({
             sources={sources}
           />
 
+          {displayStatus === "ready" || displayStatus === "loading" ? (
+            <JobResultsToolbar
+              pageSize={state.pageSize}
+              total={response.total}
+              viewMode={viewMode}
+              onPageSizeChange={(nextPageSize) => {
+                writeStoredJobPageSize(nextPageSize);
+                writeState(
+                  withResetPage(state, {
+                    pageSize: nextPageSize,
+                    selectedJobId: null,
+                  })
+                );
+              }}
+              onViewModeChange={(nextViewMode) => {
+                writeStoredResultsViewMode(nextViewMode);
+                setViewMode(nextViewMode);
+              }}
+            />
+          ) : null}
+
           <JobResultsPanel
             displayStatus={displayStatus}
             isRefreshing={isRefreshing}
@@ -734,6 +786,7 @@ const JobSearchPageContent = ({
             response={response}
             selectedJobId={state.selectedJobId}
             syntaxError={syntaxError}
+            viewMode={viewMode}
           />
 
           {displayStatus === "ready" ? (

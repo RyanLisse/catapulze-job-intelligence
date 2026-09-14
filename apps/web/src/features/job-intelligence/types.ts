@@ -16,7 +16,14 @@ export type JobMarkeringStatus = MarkeringStatus;
 export type JobSearchScope = SearchScope;
 export type JobSort = SearchSort;
 export type JobSearchStatus = (typeof JOB_SEARCH_STATUS_VALUES)[number];
-export const JOB_PAGE_SIZE = 8;
+/** CTP-509: Motian-style results page sizes (explicit API cap SEARCH_MAX_LIMIT=1000). */
+export const JOB_PAGE_SIZE_OPTIONS = [50, 100, 500, 1000] as const;
+export type JobPageSize = (typeof JOB_PAGE_SIZE_OPTIONS)[number];
+export const JOB_PAGE_SIZE: JobPageSize = 50;
+
+export const RESULTS_VIEW_MODES = ["list", "map"] as const;
+export type ResultsViewMode = (typeof RESULTS_VIEW_MODES)[number];
+export const DEFAULT_RESULTS_VIEW_MODE: ResultsViewMode = "list";
 
 export const JOB_CONTRACT_TYPES = [
   "interim",
@@ -182,11 +189,17 @@ export interface JobSearchState {
   readonly scope: JobSearchScope;
   readonly sort: JobSort;
   readonly page: number;
+  /** Results page size — allowlisted JOB_PAGE_SIZE_OPTIONS (CTP-509). */
+  readonly pageSize: JobPageSize;
   readonly selectedJobId: string | null;
   readonly previewStatus: PreviewStatus;
 }
 
-export interface JobSearchRequest extends JobSearchState {
+export interface JobSearchRequest extends Omit<JobSearchState, "pageSize"> {
+  /**
+   * Page size for the request. UI uses JOB_PAGE_SIZE_OPTIONS; overview may use 1.
+   * Search API rejects values above SEARCH_MAX_LIMIT (no silent truncate).
+   */
   readonly pageSize?: number;
 }
 
@@ -257,6 +270,7 @@ export const DEFAULT_JOB_SEARCH_STATE: JobSearchState = {
     status: [],
   },
   page: 1,
+  pageSize: JOB_PAGE_SIZE,
   previewStatus: "ready",
   query: "",
   scope: "active",
