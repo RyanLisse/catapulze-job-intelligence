@@ -220,39 +220,61 @@ Provision the following in the protected GitHub `production` environment before
 setting `PRODUCTION_DEPLOY_TAILSCALE_ENABLED=1`:
 
 - `TS_OAUTH_CLIENT_ID` and `TS_OAUTH_SECRET` for a Tailscale OAuth client with
-  the writable `auth_keys` scope and permission to issue
+  the minimum writable `auth_keys` scope, restricted to issuing
   `tag:catapulze-deploy`. Select this tag on the client, or use a documented
-  tag-owner chain that grants it. Reserve ownership of this tag for the deploy
-  automation and review existing grants; the ACL entry below adds access and
-  does not remove broader existing grants.
+  tag-owner chain that grants it. Do not grant this client `tag:catapulze-prod`
+  or a wildcard tag. Reserve ownership of the deploy tag for this automation.
 - `COOLIFY_SSH_TAILSCALE_HOST`, normally the verified `catapulze-prod`
   MagicDNS name or `100.97.7.79` address.
 - `COOLIFY_SSH_TAILSCALE_KNOWN_HOSTS`, captured from the same host and pinned
   to the verified SSH key. Its host field must match
   `COOLIFY_SSH_TAILSCALE_HOST`.
 
-Tag the production box as `tag:catapulze-prod` and add the following narrow
-Tailscale ACL entry to the existing tailnet policy:
+Tag the production box as `tag:catapulze-prod` and add the following narrow,
+additive Tailscale grant to the existing tailnet policy:
 
 ```json
 {
-  "acls": [
+  "grants": [
     {
-      "action": "accept",
       "src": ["tag:catapulze-deploy"],
-      "dst": ["tag:catapulze-prod:22"]
+      "dst": ["tag:catapulze-prod"],
+      "ip": ["tcp:22"]
     }
   ]
 }
 ```
+
+Tailscale policy entries are additive and have no deny rule that can undo a
+broader grant. Preserve existing member and production connectivity. If the
+existing member/prod rule uses `src: ["*"]`, replace that source only after
+inventory confirms every intended source is `autogroup:member` or
+`tag:catapulze-prod`; otherwise enumerate every existing source tag so access
+is preserved. A wildcard destination may remain in that existing member/prod
+rule when it is intentional, but the deploy grant above must keep its exact
+source tag, exact production destination, and `tcp:22` restriction. The deploy
+tag must not be included in any broader source set.
 
 The workflow validates all four Tailscale inputs without printing their values.
 The action's `ping` input then verifies the configured target before the SSH
 tunnel starts. Keep the production box's public SSH firewall closed to GitHub
 runner addresses; this route does not require opening port 22 globally and does not
 use a self-hosted runner on the production box. Leave the switch unset or
-different from `1` until the OAuth client, tag, ACL, target host, and matching
+different from `1` until the OAuth client, tag, grant, target host, and matching
 known-hosts record have each been tested by an operator.
+
+The grant above permits only TCP 22 from the deploy tag to the production tag.
+It does not permit database, Coolify HTTP, or other service ports. The
+`COOLIFY_SSH_TAILSCALE_KNOWN_HOSTS` record must be captured from that same
+target and its host field must exactly match `COOLIFY_SSH_TAILSCALE_HOST`
+(including the MagicDNS name or address used by the action); otherwise strict
+host-key checking must fail closed.
+
+After policy propagation, test the boundary from a node carrying
+`tag:catapulze-deploy`: TCP 22 to the tagged production host must connect;
+UDP 22, TCP 80/443, and TCP 22 to an untagged host must all be denied. Run the
+same checks from a member and production node to confirm their existing access
+was preserved.
 
 The Coolify sequence is:
 
