@@ -4,6 +4,7 @@ import {
   applyEnrichmentOverlayToAanvraagFacts,
   applyEnrichmentOverlayToSearchFacts,
 } from "@ji/application/enrichment";
+import { parseWeeklyHoursRange } from "@ji/application/normalise";
 import type {
   AanvraagRecord,
   AanvraagStore,
@@ -220,12 +221,24 @@ export class PostgresRawPayloadStore implements RawPayloadStore {
   }
 }
 
+const parsePublicationDate = (value: string | null): Date | null => {
+  if (value === null) {
+    return null;
+  }
+  const parsed = Date.parse(value);
+  return Number.isNaN(parsed) ? null : new Date(parsed);
+};
+
 const toSearchDocument = (row: AanvraagRow): SearchDocument => {
   const bronFacts = readAanvraagBronFacts(row.bronSpecifiek);
+  const hours = parseWeeklyHoursRange(row.urenPerWeek);
+  const publication = row.publicatiedatum ?? bronFacts.publicatiedatum;
   return {
     beschrijving: row.beschrijving,
     bronId: row.bronId,
     contracttype: row.contracttype ?? bronFacts.contracttype,
+    // No first-class curated end-client column yet.
+    eindklantNaam: null,
     id: row.id,
     laatstGezienOp: row.laatstGezienOp,
     // Preserve an explicitly unknown location. `locatieLand` defaults to NL
@@ -233,12 +246,22 @@ const toSearchDocument = (row: AanvraagRow): SearchDocument => {
     // location; carrying it here makes the country facet lie.
     locatie: row.locatieTekst,
     locatieLand: row.locatieTekst === null ? null : row.locatieLand,
+    opdrachtgeverNaam: row.opdrachtgeverNaam ?? bronFacts.opdrachtgeverNaam,
+    // No canonical province column; never derive from locatieTekst.
+    provincie: null,
+    publicatiedatum: parsePublicationDate(publication),
+    // No canonical skills relation yet.
+    skills: [],
     sluitingsdatum: row.sluitingsdatum ?? undefined,
     // SAFETY: curated.status is constrained to AanvraagLifecycle at write time.
     status: row.status as AanvraagLifecycle,
+    tariefEenheid: row.tariefEenheid,
     tariefMax: row.tariefMax ? Number(row.tariefMax) : null,
     tariefMin: row.tariefMin ? Number(row.tariefMin) : null,
     titel: row.titel,
+    urenPerWeekMax: hours.max,
+    urenPerWeekMin: hours.min,
+    werkvorm: row.werkvorm ?? bronFacts.werkvorm,
   };
 };
 
@@ -270,8 +293,10 @@ export class PostgresSearchDocumentLoader implements BulkSearchDocumentLoader {
         ...document,
         contracttype: overlaid.contracttype,
         locatie: overlaid.locatie,
+        tariefEenheid: overlaid.tariefEenheid ?? null,
         tariefMax: overlaid.tariefMax,
         tariefMin: overlaid.tariefMin,
+        werkvorm: overlaid.werkvorm ?? null,
       });
     }
     return documents;

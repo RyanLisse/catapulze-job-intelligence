@@ -1,3 +1,4 @@
+import { publicatiedatumTotExclusiveUtc } from "../filter-match";
 import type { SearchFilters, SearchMode, SearchSort } from "../types";
 import { emptySearchFacets, SEARCH_WINDOW_LIMIT } from "../types";
 import { hashDocumentId } from "./id-hash";
@@ -274,7 +275,13 @@ export const parseManticoreSearchResponse = (
   };
 };
 
+const asPublicationFilterDate = (value: Date | string): Date | null => {
+  const parsed = value instanceof Date ? value : new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+};
+
 /** AND-ed attribute filters; an empty list means "no filter". */
+// oxlint-disable-next-line eslint/complexity -- one clause per SearchFilters key
 export const buildFilterClauses = (
   filters: SearchFilters
 ): ManticoreFilterClause[] => {
@@ -308,6 +315,56 @@ export const buildFilterClauses = (
     must.push({ range: { tarief_min: { lte: filters.tariefMax } } });
   }
 
+  if (filters.provincies && filters.provincies.length > 0) {
+    must.push({ in: { provincie: [...filters.provincies] } });
+  }
+
+  if (filters.werkvormen && filters.werkvormen.length > 0) {
+    must.push({ in: { werkvorm: [...filters.werkvormen] } });
+  }
+
+  if (filters.tariefEenheid && filters.tariefEenheid.length > 0) {
+    must.push({ in: { tarief_eenheid: [...filters.tariefEenheid] } });
+  }
+
+  if (filters.urenPerWeekMin !== undefined) {
+    must.push({
+      range: { uren_per_week_max: { gte: filters.urenPerWeekMin } },
+    });
+  }
+
+  if (filters.urenPerWeekMax !== undefined) {
+    must.push({
+      range: { uren_per_week_min: { lte: filters.urenPerWeekMax } },
+    });
+  }
+
+  if (filters.publicatiedatumVanaf !== undefined) {
+    const from = asPublicationFilterDate(filters.publicatiedatumVanaf);
+    if (from !== null) {
+      must.push({
+        range: {
+          publicatiedatum: {
+            gte: Math.floor(from.getTime() / 1000),
+          },
+        },
+      });
+    }
+  }
+
+  if (filters.publicatiedatumTot !== undefined) {
+    const to = asPublicationFilterDate(filters.publicatiedatumTot);
+    if (to !== null) {
+      must.push({
+        range: {
+          publicatiedatum: {
+            lt: Math.floor(publicatiedatumTotExclusiveUtc(to).getTime() / 1000),
+          },
+        },
+      });
+    }
+  }
+
   if (filters.freshnessDays !== undefined) {
     const cutoff =
       Math.floor(Date.now() / 1000) - filters.freshnessDays * 86_400;
@@ -321,11 +378,11 @@ const ASC: ManticoreSortDirection = "asc";
 const DESC: ManticoreSortDirection = "desc";
 
 /**
- * Sort clauses per SearchSort (RJC-378). `id` (Manticore's numeric doc id)
- * is always the final tiebreak so a page boundary never shifts between
- * requests. Missing rates are indexed as 0 and missing deadlines as
- * SLUITINGSDATUM_MISSING_SENTINEL (engine.ts), so plain attribute sorts put
- * them last without an expression — nothing extra to evaluate per match.
+ * Sort clauses per SearchSort (RJC-378 / CTP-493). `id` (Manticore's numeric
+ * doc id) is always the final tiebreak so a page boundary never shifts between
+ * requests. Missing publication dates and deadlines use far-future/past
+ * sentinels; comparable rates use 0 when the period is unknown so desc sorts
+ * put unknowns last (asc rate-low still surfaces 0 first — see engine docs).
  */
 export const buildManticoreSort = (
   sort: SearchSort,
@@ -338,13 +395,25 @@ export const buildManticoreSort = (
         : [{ "WEIGHT()": DESC }, { id: ASC }];
     }
     case "newest": {
-      return [{ laatst_gezien_op: DESC }, { id: ASC }];
+      return [{ publicatiedatum: DESC }, { id: ASC }];
+    }
+    case "oldest": {
+      return [{ publicatiedatum: ASC }, { id: ASC }];
     }
     case "rate-high": {
-      return [{ tarief_max: DESC }, { id: ASC }];
+      return [{ comparable_tarief: DESC }, { id: ASC }];
+    }
+    case "rate-low": {
+      return [{ comparable_tarief: ASC }, { id: ASC }];
     }
     case "closing-soon": {
       return [{ sluitingsdatum: ASC }, { id: ASC }];
+    }
+    case "title-asc": {
+      return [{ titel_keyword: ASC }, { id: ASC }];
+    }
+    case "company-asc": {
+      return [{ opdrachtgever_naam_keyword: ASC }, { id: ASC }];
     }
     default: {
       const _exhaustive: never = sort;

@@ -4,6 +4,11 @@ import { evaluateBooleanAst } from "./adapter";
 import { compareCodepoints } from "./ast-hash";
 import { matchesSearchFilters } from "./filter-match";
 import { DEFAULT_SEARCH_SCOPE } from "./partition";
+import {
+  DEFAULT_QUERY_SCOPE,
+  emptySearchFacets,
+  SEARCH_WINDOW_LIMIT,
+} from "./types";
 import type {
   EngineSearchParams,
   SearchDocument,
@@ -12,7 +17,6 @@ import type {
   SearchIndexBatch,
   SearchIndexBatchResult,
 } from "./types";
-import { emptySearchFacets, SEARCH_WINDOW_LIMIT } from "./types";
 import { InMemorySearchVersionStore } from "./version";
 import type { SearchVersion, SearchVersionStore } from "./version";
 
@@ -121,10 +125,18 @@ export class PostgresFtsFallbackEngine implements SearchEngine {
         return true;
       }
 
+      const queryScope = params.filters.queryScope ?? DEFAULT_QUERY_SCOPE;
+      if (queryScope === "title") {
+        return evaluateBooleanAst(
+          params.ast,
+          document.titel,
+          document.opdrachtgeverNaam ?? ""
+        );
+      }
       return evaluateBooleanAst(
         params.ast,
         document.titel,
-        document.beschrijving
+        `${document.beschrijving} ${document.opdrachtgeverNaam ?? ""}`
       );
     });
 

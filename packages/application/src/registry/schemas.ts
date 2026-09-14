@@ -31,9 +31,18 @@ const searchFilters = Schema.Struct({
   freshnessDays: optionalField(PositiveInteger),
   locatie: optionalField(Schema.Array(Schema.String)),
   locatieLand: optionalField(Schema.Array(Schema.String)),
+  provincies: optionalField(Schema.Array(Schema.String)),
+  publicatiedatumTot: optionalField(IsoDateTimeString),
+  publicatiedatumVanaf: optionalField(IsoDateTimeString),
+  queryScope: optionalField(Schema.Literals(["title", "all"] as const)),
+  skills: optionalField(Schema.Array(Schema.String)),
   status: optionalField(Schema.Array(AanvraagLifecycleSchema)),
+  tariefEenheid: optionalField(Schema.Array(Schema.String)),
   tariefMax: optionalField(FiniteNumber),
   tariefMin: optionalField(FiniteNumber),
+  urenPerWeekMax: optionalField(FiniteNumber),
+  urenPerWeekMin: optionalField(FiniteNumber),
+  werkvormen: optionalField(Schema.Array(Schema.String)),
 });
 
 export const searchFiltersSchema = toCapabilitySchema(searchFilters);
@@ -122,8 +131,12 @@ export const DEFAULT_SEARCH_SCOPE: SearchScope = "active";
 export const SEARCH_SORT_OPTIONS = [
   "relevance",
   "newest",
+  "oldest",
   "rate-high",
+  "rate-low",
   "closing-soon",
+  "title-asc",
+  "company-asc",
 ] as const;
 export type SearchSort = (typeof SEARCH_SORT_OPTIONS)[number];
 

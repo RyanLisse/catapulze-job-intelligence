@@ -20,13 +20,22 @@ const seedDocument = (index: number): SearchDocument => ({
   beschrijving: "Azure platform engineer",
   bronId: "00000000-0000-4000-8000-000000000001",
   contracttype: "detachering",
+  eindklantNaam: null,
   id: `00000000-0000-4000-8000-${String(index).padStart(12, "0")}`,
   laatstGezienOp: new Date(Date.UTC(2026, 7, 1 + index)),
   locatieLand: "NL",
+  opdrachtgeverNaam: null,
+  provincie: null,
+  publicatiedatum: new Date(Date.UTC(2026, 7, 1 + index)),
+  skills: [],
   status: "active",
+  tariefEenheid: null,
   tariefMax: 100 + index,
   tariefMin: 80,
   titel: `Azure engineer ${index}`,
+  urenPerWeekMax: null,
+  urenPerWeekMin: null,
+  werkvorm: null,
 });
 
 // RJC-378: the API owns sort, filter and pagination; the client receives the
@@ -88,7 +97,7 @@ describe("search_aanvragen paging contract (RJC-378)", () => {
     expect(firstPage.value.incomplete).toBe(false);
     expect(firstPage.value.windowLimit).toBe(SEARCH_WINDOW_LIMIT);
     expect(firstPage.value.ids).toHaveLength(8);
-    // newest first: index 11 was seen last
+    // newest first: index 11 has the latest publicatiedatum
     expect(firstPage.value.ids[0]).toBe(seedDocument(11).id);
     expect(secondPage.value.ids).toHaveLength(4);
     expect(secondPage.value.ids.at(-1)).toBe(seedDocument(0).id);

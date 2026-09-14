@@ -30,15 +30,31 @@ describe("buildManticoreSort", () => {
       { id: "asc" },
     ]);
     expect(buildManticoreSort("newest")).toEqual([
-      { laatst_gezien_op: "desc" },
+      { publicatiedatum: "desc" },
+      { id: "asc" },
+    ]);
+    expect(buildManticoreSort("oldest")).toEqual([
+      { publicatiedatum: "asc" },
       { id: "asc" },
     ]);
     expect(buildManticoreSort("rate-high")).toEqual([
-      { tarief_max: "desc" },
+      { comparable_tarief: "desc" },
+      { id: "asc" },
+    ]);
+    expect(buildManticoreSort("rate-low")).toEqual([
+      { comparable_tarief: "asc" },
       { id: "asc" },
     ]);
     expect(buildManticoreSort("closing-soon")).toEqual([
       { sluitingsdatum: "asc" },
+      { id: "asc" },
+    ]);
+    expect(buildManticoreSort("title-asc")).toEqual([
+      { titel_keyword: "asc" },
+      { id: "asc" },
+    ]);
+    expect(buildManticoreSort("company-asc")).toEqual([
+      { opdrachtgever_naam_keyword: "asc" },
       { id: "asc" },
     ]);
     expect(buildManticoreSort("relevance", "hybrid")).toEqual([
@@ -147,7 +163,7 @@ describe("buildManticoreSearchRequest", () => {
       "Azure"
     );
 
-    expect(request.sort).toEqual([{ laatst_gezien_op: "desc" }, { id: "asc" }]);
+    expect(request.sort).toEqual([{ publicatiedatum: "desc" }, { id: "asc" }]);
     expect(request._source).toEqual(["document_id"]);
   });
 
@@ -366,13 +382,22 @@ describe("ManticoreSearchEngine document mapping", () => {
       beschrijving: "b",
       bronId: "bron-1",
       contracttype: null,
+      eindklantNaam: null,
       id: "doc-1",
       laatstGezienOp: new Date("2026-08-01T00:00:00.000Z"),
       locatieLand: "NL",
+      opdrachtgeverNaam: null,
+      provincie: null,
+      publicatiedatum: null,
+      skills: [],
       status: "active",
+      tariefEenheid: null,
       tariefMax: null,
       tariefMin: null,
       titel: "t",
+      urenPerWeekMax: null,
+      urenPerWeekMin: null,
+      werkvorm: null,
     } as const;
     await engine.upsertDocument(document);
 
@@ -401,15 +426,24 @@ describe("ManticoreSearchEngine document mapping", () => {
       beschrijving: "b",
       bronId: "bron-1",
       contracttype: null,
+      eindklantNaam: null,
       id: "doc-2",
       laatstGezienOp: new Date("2026-08-01T00:00:00.000Z"),
       locatie: "Amsterdam",
       locatieLand: "NL",
+      opdrachtgeverNaam: null,
+      provincie: null,
+      publicatiedatum: null,
+      skills: [],
       sluitingsdatum: new Date("2026-09-05T12:00:00.000Z"),
       status: "active",
+      tariefEenheid: null,
       tariefMax: 120,
       tariefMin: 90,
       titel: "t",
+      urenPerWeekMax: null,
+      urenPerWeekMin: null,
+      werkvorm: null,
     });
 
     const [replace] = client.bodies;
@@ -433,14 +467,23 @@ describe("ManticoreSearchEngine document mapping", () => {
       beschrijving: "b",
       bronId: "bron-1",
       contracttype: null,
+      eindklantNaam: null,
       id: "doc-unknown-location",
       laatstGezienOp: new Date("2026-08-01T00:00:00.000Z"),
       locatie: null,
       locatieLand: "NL",
+      opdrachtgeverNaam: null,
+      provincie: null,
+      publicatiedatum: null,
+      skills: [],
       status: "active",
+      tariefEenheid: null,
       tariefMax: null,
       tariefMin: null,
       titel: "t",
+      urenPerWeekMax: null,
+      urenPerWeekMin: null,
+      werkvorm: null,
     });
 
     const [replace] = client.bodies;
@@ -464,13 +507,22 @@ describe("ManticoreSearchEngine document mapping", () => {
       beschrijving: "b",
       bronId: "bron-1",
       contracttype: null,
+      eindklantNaam: null,
       id: "doc-hybrid",
       laatstGezienOp: new Date("2026-08-01T00:00:00.000Z"),
       locatieLand: "NL",
+      opdrachtgeverNaam: null,
+      provincie: null,
+      publicatiedatum: null,
+      skills: [],
       status: "active",
+      tariefEenheid: null,
       tariefMax: null,
       tariefMin: null,
       titel: "t",
+      urenPerWeekMax: null,
+      urenPerWeekMin: null,
+      werkvorm: null,
     } as const;
 
     await engine.upsertDocument(document);
@@ -511,13 +563,22 @@ describe("ManticoreSearchEngine document mapping", () => {
       beschrijving: "b",
       bronId: "bron-1",
       contracttype: null,
+      eindklantNaam: null,
       id: "doc-env-hybrid",
       laatstGezienOp: new Date("2026-08-01T00:00:00.000Z"),
       locatieLand: "NL",
+      opdrachtgeverNaam: null,
+      provincie: null,
+      publicatiedatum: null,
+      skills: [],
       status: "active",
+      tariefEenheid: null,
       tariefMax: null,
       tariefMin: null,
       titel: "t",
+      urenPerWeekMax: null,
+      urenPerWeekMin: null,
+      werkvorm: null,
     } as const;
 
     await enabled.upsertDocument(document);
@@ -595,7 +656,8 @@ describe("ManticoreSearchEngine document mapping", () => {
           filter: [{ in: { status: ["active"] } }],
           must: [
             {
-              query_string: '@(titel,beschrijving) Azure "platform engineer"',
+              query_string:
+                '@(titel,opdrachtgever_naam) Azure "platform engineer"',
             },
           ],
         },

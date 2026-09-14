@@ -2,6 +2,7 @@ import { describe, expect, it } from "bun:test";
 
 import { createTestSliceARegistry } from "@ji/application/registry";
 import type { TestSliceARegistryBundle } from "@ji/application/registry";
+import { SEARCH_DOCUMENT_PARITY_DEFAULTS } from "@ji/search";
 import {
   Client,
   StreamableHTTPClientTransport,
@@ -156,6 +157,7 @@ describe("MCP 2026-07-28 protocol boundary", () => {
     const bundle = createTestSliceARegistry();
     seedAanvraag(bundle);
     await bundle.deps.engine.upsertDocument({
+      ...SEARCH_DOCUMENT_PARITY_DEFAULTS,
       beschrijving: "Azure platform engineer",
       bronId: "00000000-0000-4000-8000-000000000001",
       contracttype: "detachering",

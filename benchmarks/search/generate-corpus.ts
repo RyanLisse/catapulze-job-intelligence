@@ -25,6 +25,15 @@ export interface CorpusRecord {
   contracttype: string | null;
   id: string;
   laatstGezienOp: string;
+  eindklantNaam: null;
+  opdrachtgeverNaam: null;
+  provincie: null;
+  publicatiedatum: null;
+  skills: [];
+  tariefEenheid: null;
+  urenPerWeekMax: null;
+  urenPerWeekMin: null;
+  werkvorm: null;
   locatieLand: string;
   status: "active" | "closed" | "stale" | "unknown";
   tariefMax: number | null;
@@ -202,13 +211,22 @@ export const generateCorpus = function* generateCorpus(
       beschrijving,
       bronId: pick(rng, BRON_IDS),
       contracttype: pick(rng, CONTRACTTYPES),
+      eindklantNaam: null,
       id: `bench-doc-${index}`,
       laatstGezienOp: new Date(REFERENCE_TIMESTAMP_MS - ageMs).toISOString(),
       locatieLand: pick(rng, LOCATIE_LANDEN),
+      opdrachtgeverNaam: null,
+      provincie: null,
+      publicatiedatum: null,
+      skills: [],
       status: pick(rng, STATUSES),
+      tariefEenheid: null,
       tariefMax,
       tariefMin,
       titel,
+      urenPerWeekMax: null,
+      urenPerWeekMin: null,
+      werkvorm: null,
     };
   }
 };

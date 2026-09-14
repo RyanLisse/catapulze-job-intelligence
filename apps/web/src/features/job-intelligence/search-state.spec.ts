@@ -369,7 +369,11 @@ describe("selectableJobSortOptions", () => {
     expect(selectableJobSortOptions(false)).toEqual([
       "relevance",
       "newest",
+      "oldest",
       "rate-high",
+      "rate-low",
+      "title-asc",
+      "company-asc",
     ]);
     expect(selectableJobSortOptions(true)).toContain("closing-soon");
   });

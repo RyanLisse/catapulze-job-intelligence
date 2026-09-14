@@ -4,6 +4,7 @@ import {
   createTestSliceARegistry,
   permissionsForRole,
 } from "@ji/application/registry";
+import { SEARCH_DOCUMENT_PARITY_DEFAULTS } from "@ji/search";
 
 import { invokeMcpTool } from "../../../../server/src/capabilities/rest";
 import { buildBronCatalog } from "./rest/bron-catalog";
@@ -150,6 +151,7 @@ describe("AE5 UI query parity with MCP search_aanvragen", () => {
     const bundle = createTestSliceARegistry();
     const aanvraagId = "00000000-0000-4000-8000-000000000011";
     await bundle.deps.engine.upsertDocument({
+      ...SEARCH_DOCUMENT_PARITY_DEFAULTS,
       beschrijving: "Azure kubernetes platform",
       bronId: "00000000-0000-4000-8000-000000000001",
       contracttype: "detachering",

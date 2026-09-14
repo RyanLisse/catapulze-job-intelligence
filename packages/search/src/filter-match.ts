@@ -27,6 +27,100 @@ const matchesLocatieLandFilter = (
   return lands.includes(document.locatieLand);
 };
 
+const matchesExactOptional = (
+  value: string | null,
+  allowed: readonly string[] | undefined
+): boolean => {
+  if (allowed === undefined) {
+    return true;
+  }
+  return value !== null && allowed.includes(value);
+};
+
+const overlapsRange = (
+  documentMin: number | null,
+  documentMax: number | null,
+  filterMin: number | undefined,
+  filterMax: number | undefined
+): boolean => {
+  if (
+    filterMin !== undefined &&
+    (documentMax === null || documentMax < filterMin)
+  ) {
+    return false;
+  }
+  if (
+    filterMax !== undefined &&
+    (documentMin === null || documentMin > filterMax)
+  ) {
+    return false;
+  }
+  return true;
+};
+
+/** Inclusive API end date compiled as `< next UTC day`. */
+export const publicatiedatumTotExclusiveUtc = (inclusiveEnd: Date): Date => {
+  const exclusive = new Date(
+    Date.UTC(
+      inclusiveEnd.getUTCFullYear(),
+      inclusiveEnd.getUTCMonth(),
+      inclusiveEnd.getUTCDate() + 1
+    )
+  );
+  return exclusive;
+};
+
+const asFilterDate = (value: Date | string): Date | null => {
+  const parsed = value instanceof Date ? value : new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+};
+
+const matchesPublicationRange = (
+  document: SearchDocument,
+  filters: SearchFilters
+): boolean => {
+  if (
+    filters.publicatiedatumVanaf === undefined &&
+    filters.publicatiedatumTot === undefined
+  ) {
+    return true;
+  }
+  if (document.publicatiedatum === null) {
+    return false;
+  }
+  const posted = document.publicatiedatum.getTime();
+  if (filters.publicatiedatumVanaf !== undefined) {
+    const from = asFilterDate(filters.publicatiedatumVanaf);
+    if (from === null || posted < from.getTime()) {
+      return false;
+    }
+  }
+  if (filters.publicatiedatumTot !== undefined) {
+    const to = asFilterDate(filters.publicatiedatumTot);
+    if (to === null) {
+      return false;
+    }
+    const exclusive = publicatiedatumTotExclusiveUtc(to).getTime();
+    if (posted >= exclusive) {
+      return false;
+    }
+  }
+  return true;
+};
+
+const matchesSkillsFilter = (
+  document: SearchDocument,
+  skills: SearchFilters["skills"]
+): boolean => {
+  if (skills === undefined) {
+    return true;
+  }
+  if (skills.length === 0) {
+    return true;
+  }
+  return skills.every((skill) => document.skills.includes(skill));
+};
+
 /** Shared in-process equivalent of Manticore's AND-ed attribute filters. */
 export const matchesSearchFilters = (
   document: SearchDocument,
@@ -55,17 +149,45 @@ export const matchesSearchFilters = (
     return false;
   }
 
+  if (!matchesExactOptional(document.provincie, filters.provincies)) {
+    return false;
+  }
+
+  if (!matchesExactOptional(document.werkvorm, filters.werkvormen)) {
+    return false;
+  }
+
+  if (!matchesExactOptional(document.tariefEenheid, filters.tariefEenheid)) {
+    return false;
+  }
+
+  if (!matchesSkillsFilter(document, filters.skills)) {
+    return false;
+  }
+
   if (
-    filters.tariefMin !== undefined &&
-    (document.tariefMax === null || document.tariefMax < filters.tariefMin)
+    !overlapsRange(
+      document.tariefMin,
+      document.tariefMax,
+      filters.tariefMin,
+      filters.tariefMax
+    )
   ) {
     return false;
   }
 
   if (
-    filters.tariefMax !== undefined &&
-    (document.tariefMin === null || document.tariefMin > filters.tariefMax)
+    !overlapsRange(
+      document.urenPerWeekMin,
+      document.urenPerWeekMax,
+      filters.urenPerWeekMin,
+      filters.urenPerWeekMax
+    )
   ) {
+    return false;
+  }
+
+  if (!matchesPublicationRange(document, filters)) {
     return false;
   }
 

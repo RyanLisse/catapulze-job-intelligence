@@ -403,13 +403,22 @@ describe.skipIf(!manticoreLiveUrl)(
           beschrijving: `Mixed CaSe token ${runToken}`,
           bronId: "bron-live",
           contracttype: "detachering",
+          eindklantNaam: null,
           id: documentId,
           laatstGezienOp: new Date("2026-08-01T00:00:00.000Z"),
           locatieLand: "NL",
+          opdrachtgeverNaam: null,
+          provincie: null,
+          publicatiedatum: null,
+          skills: [],
           status: "active",
+          tariefEenheid: null,
           tariefMax: 120,
           tariefMin: 80,
           titel: "Case sensitivity check",
+          urenPerWeekMax: null,
+          urenPerWeekMin: null,
+          werkvorm: null,
         });
         await engine.applyBatch({ appliedSequence: 1n, mutations: [] });
 

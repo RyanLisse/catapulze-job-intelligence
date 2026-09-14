@@ -7,13 +7,22 @@ const makeDocument = (id: string): SearchDocument => ({
   beschrijving: "beschrijving",
   bronId: "bron-1",
   contracttype: null,
+  eindklantNaam: null,
   id,
   laatstGezienOp: new Date("2026-01-01T00:00:00.000Z"),
   locatieLand: "NL",
+  opdrachtgeverNaam: null,
+  provincie: null,
+  publicatiedatum: null,
+  skills: [],
   status: "active",
+  tariefEenheid: null,
   tariefMax: null,
   tariefMin: null,
   titel: "titel",
+  urenPerWeekMax: null,
+  urenPerWeekMin: null,
+  werkvorm: null,
 });
 
 describe("PostgresFtsFallbackEngine filter-only browse (RJC-430)", () => {

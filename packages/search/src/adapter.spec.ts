@@ -19,13 +19,22 @@ const sampleDocument = (
   beschrijving: "Azure platform engineer role with senior responsibilities",
   bronId: "bron-1",
   contracttype: "detachering",
+  eindklantNaam: null,
   id: "doc-1",
   laatstGezienOp: new Date("2026-08-01T00:00:00.000Z"),
   locatieLand: "NL",
+  opdrachtgeverNaam: null,
+  provincie: null,
+  publicatiedatum: null,
+  skills: [],
   status: "active",
+  tariefEenheid: null,
   tariefMax: 120,
   tariefMin: 80,
   titel: "Platform engineer Azure",
+  urenPerWeekMax: null,
+  urenPerWeekMin: null,
+  werkvorm: null,
   ...overrides,
 });
 
@@ -167,11 +176,16 @@ describe("SearchAdapter", () => {
       cache: new MemoryResultCache(),
       engine,
     });
-    const first = await cachedAdapter.search({ query: "a AND b AND c" });
+    const first = await cachedAdapter.search({
+      filters: { queryScope: "all" },
+      query: "a AND b AND c",
+    });
     const cachedSecond = await cachedAdapter.search({
+      filters: { queryScope: "all" },
       query: "a,term:b AND c",
     });
     const freshSecond = await new SearchAdapter({ engine }).search({
+      filters: { queryScope: "all" },
       query: "a,term:b AND c",
     });
 

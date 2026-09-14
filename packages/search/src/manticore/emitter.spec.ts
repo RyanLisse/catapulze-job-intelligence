@@ -22,7 +22,7 @@ describe("manticore emitter", () => {
     });
 
     expect(queryString).toBe(
-      '@(titel,beschrijving) (Azure | "platform engineer") -intern'
+      '@(titel,beschrijving,opdrachtgever_naam) (Azure | "platform engineer") -intern'
     );
     expect(emitMatch({ kind: "term", value: "Azure" })).toBe("Azure");
   });

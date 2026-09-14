@@ -3,19 +3,22 @@ import { describe, expect, it } from "bun:test";
 import { InMemorySearchEngine } from "./in-memory-engine";
 import { hashDocumentId } from "./manticore/id-hash";
 import type { SearchDocument, SearchSort } from "./types";
-import { SEARCH_WINDOW_LIMIT } from "./types";
+import { SEARCH_DOCUMENT_PARITY_DEFAULTS, SEARCH_WINDOW_LIMIT } from "./types";
 
 const document = (
   id: string,
   overrides: Partial<SearchDocument> = {}
 ): SearchDocument => ({
+  ...SEARCH_DOCUMENT_PARITY_DEFAULTS,
   beschrijving: "Azure platform engineer",
   bronId: "bron-1",
   contracttype: "detachering",
   id,
   laatstGezienOp: new Date("2026-08-01T00:00:00.000Z"),
   locatieLand: "NL",
+  skills: [],
   status: "active",
+  tariefEenheid: "uur",
   tariefMax: 100,
   tariefMin: 80,
   titel: "Engineer",
@@ -64,23 +67,44 @@ const idsFor = async (
 // Manticore: one primary key per sort, document id as the final tiebreak,
 // missing rates and deadlines last.
 describe("InMemorySearchEngine sorting", () => {
-  it("newest orders by laatstGezienOp desc with id as tiebreak", async () => {
+  it("newest orders by publicatiedatum desc with id as tiebreak", async () => {
     const engine = await seeded([
-      document("b", { laatstGezienOp: new Date("2026-08-02T00:00:00Z") }),
-      document("c", { laatstGezienOp: new Date("2026-08-03T00:00:00Z") }),
-      document("a", { laatstGezienOp: new Date("2026-08-02T00:00:00Z") }),
+      document("b", { publicatiedatum: new Date("2026-08-02T00:00:00Z") }),
+      document("c", { publicatiedatum: new Date("2026-08-03T00:00:00Z") }),
+      document("a", { publicatiedatum: new Date("2026-08-02T00:00:00Z") }),
+      document("none", { publicatiedatum: null }),
     ]);
 
     expect(await idsFor(engine, "newest")).toEqual([
       "c",
       ...byHash(["a", "b"]),
+      "none",
+    ]);
+  });
+
+  it("oldest orders by publicatiedatum asc with unknowns last", async () => {
+    const engine = await seeded([
+      document("b", { publicatiedatum: new Date("2026-08-02T00:00:00Z") }),
+      document("c", { publicatiedatum: new Date("2026-08-03T00:00:00Z") }),
+      document("a", { publicatiedatum: new Date("2026-08-02T00:00:00Z") }),
+      document("none", { publicatiedatum: null }),
+    ]);
+
+    expect(await idsFor(engine, "oldest")).toEqual([
+      ...byHash(["a", "b"]),
+      "c",
+      "none",
     ]);
   });
 
   it("rate-high orders by tariefMax desc, missing rates last, id tiebreak", async () => {
     const engine = await seeded([
       document("b", { tariefMax: 120 }),
-      document("none", { tariefMax: null, tariefMin: null }),
+      document("none", {
+        tariefEenheid: null,
+        tariefMax: null,
+        tariefMin: null,
+      }),
       document("a", { tariefMax: 120 }),
       document("low", { tariefMax: 90 }),
     ]);
@@ -378,5 +402,105 @@ describe("InMemorySearchEngine partitions (RJC-383)", () => {
       scope: "all",
     });
     expect(all.total).toBe(1);
+  });
+});
+
+describe("InMemorySearchEngine CTP-493 parity", () => {
+  it("defaults queryScope to title (titel + opdrachtgever), not description", async () => {
+    const engine = await seeded([
+      document("title-hit", {
+        beschrijving: "unrelated body",
+        opdrachtgeverNaam: "Gemeente X",
+        titel: "Azure specialist",
+      }),
+      document("company-hit", {
+        beschrijving: "unrelated",
+        opdrachtgeverNaam: "Azure BV",
+        titel: "Something else",
+      }),
+      document("body-only", {
+        beschrijving: "Azure in description only",
+        opdrachtgeverNaam: "Other",
+        titel: "Other",
+      }),
+    ]);
+
+    const titleScoped = await engine.search({
+      ast: { kind: "term", value: "Azure" },
+      filters: {},
+      limit: 10,
+      offset: 0,
+    });
+    expect(titleScoped.hits.map((hit) => hit.id).toSorted()).toEqual([
+      "company-hit",
+      "title-hit",
+    ]);
+
+    const allScoped = await engine.search({
+      ast: { kind: "term", value: "Azure" },
+      filters: { queryScope: "all" },
+      limit: 10,
+      offset: 0,
+    });
+    expect(allScoped.hits.map((hit) => hit.id).toSorted()).toEqual([
+      "body-only",
+      "company-hit",
+      "title-hit",
+    ]);
+  });
+
+  it("filters werkvorm, hours overlap, tarief eenheid, and inclusive publication end", async () => {
+    const engine = await seeded([
+      document("match", {
+        publicatiedatum: new Date("2026-08-10T15:00:00.000Z"),
+        tariefEenheid: "uur",
+        urenPerWeekMax: 40,
+        urenPerWeekMin: 32,
+        werkvorm: "Hybride",
+      }),
+      document("other", {
+        publicatiedatum: new Date("2026-08-20T15:00:00.000Z"),
+        tariefEenheid: "dag",
+        urenPerWeekMax: 24,
+        urenPerWeekMin: 16,
+        werkvorm: "Remote",
+      }),
+    ]);
+
+    const result = await engine.search({
+      ast: null,
+      filters: {
+        publicatiedatumTot: "2026-08-10T00:00:00.000Z",
+        publicatiedatumVanaf: "2026-08-10T00:00:00.000Z",
+        tariefEenheid: ["uur"],
+        urenPerWeekMax: 36,
+        urenPerWeekMin: 36,
+        werkvormen: ["Hybride"],
+      },
+      limit: 10,
+      offset: 0,
+    });
+    expect(result.hits.map((hit) => hit.id)).toEqual(["match"]);
+  });
+
+  it("keeps eindklant/provincie unknown and skills empty by default", async () => {
+    const engine = await seeded([document("x")]);
+    const stored = await engine.search({
+      ast: null,
+      filters: { provincies: ["Utrecht"], skills: ["Java"] },
+      limit: 10,
+      offset: 0,
+    });
+    expect(stored.total).toBe(0);
+  });
+
+  it("sorts title-asc and company-asc with unknowns last for company", async () => {
+    const engine = await seeded([
+      document("b", { opdrachtgeverNaam: "Zebra", titel: "Beta" }),
+      document("a", { opdrachtgeverNaam: "Acme", titel: "Alpha" }),
+      document("none", { opdrachtgeverNaam: null, titel: "Gamma" }),
+    ]);
+    expect(await idsFor(engine, "title-asc")).toEqual(["a", "b", "none"]);
+    expect(await idsFor(engine, "company-asc")).toEqual(["a", "b", "none"]);
   });
 });

@@ -29,8 +29,12 @@ describe("web contracts from SoT (CTP-475)", () => {
     expect([...SEARCH_SORT_OPTIONS]).toEqual([
       "relevance",
       "newest",
+      "oldest",
       "rate-high",
+      "rate-low",
       "closing-soon",
+      "title-asc",
+      "company-asc",
     ]);
   });
 

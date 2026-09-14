@@ -15,6 +15,11 @@ export {
   unknownTariefSnapshot,
 } from "./tarief";
 export {
+  formatHoursPerWeek,
+  parseWeeklyHoursRange,
+  type WeeklyHoursRange,
+} from "./hours";
+export {
   normaliseTenderNedObservation,
   parseTenderNedPayload,
 } from "./tenderned";

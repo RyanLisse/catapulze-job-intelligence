@@ -47,9 +47,13 @@ export const searchStatusLabels = {
 
 export const sortLabels = {
   "closing-soon": "Sluitingsdatum",
+  "company-asc": "Opdrachtgever A–Z",
   newest: "Nieuwste eerst",
+  oldest: "Oudste eerst",
   "rate-high": "Hoogste tarief per periode",
+  "rate-low": "Laagste tarief per periode",
   relevance: "Relevantie",
+  "title-asc": "Titel A–Z",
 } satisfies Record<JobSort, string>;
 
 const dateFormatter = new Intl.DateTimeFormat("nl-NL", {

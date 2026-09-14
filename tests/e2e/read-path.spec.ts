@@ -52,13 +52,22 @@ class CurateSearchDocumentLoader implements SearchDocumentLoader {
       beschrijving: row.beschrijving,
       bronId: row.bronId,
       contracttype: null,
+      eindklantNaam: null,
       id: row.aanvraagId,
       laatstGezienOp: row.laatstGezienOp,
       locatieLand: row.locatieLand,
+      opdrachtgeverNaam: null,
+      provincie: null,
+      publicatiedatum: null,
+      skills: [],
       status: row.status,
+      tariefEenheid: null,
       tariefMax: row.tariefMax ? Number(row.tariefMax) : null,
       tariefMin: row.tariefMin ? Number(row.tariefMin) : null,
       titel: row.titel,
+      urenPerWeekMax: null,
+      urenPerWeekMin: null,
+      werkvorm: null,
     });
   }
 }

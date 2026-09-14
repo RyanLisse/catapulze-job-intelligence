@@ -60,7 +60,10 @@ describe("generateCorpus", () => {
     const results = await Promise.all(
       profile.queries.map(async (query) => ({
         query,
-        result: await adapter.search({ query: query.query }),
+        result: await adapter.search({
+          filters: { queryScope: "all" },
+          query: query.query,
+        }),
       }))
     );
 
