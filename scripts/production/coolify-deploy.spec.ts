@@ -462,6 +462,24 @@ describe("production Coolify deployment contract", () => {
     expect(harness.state.sha.server).toBe(previousSha);
   });
 
+  it("rejects a terminal unhealthy application state without retrying it", async () => {
+    const harness = makeHarness({
+      applicationStatusSequence: {
+        server: ["healthy", "healthy", "healthy", "crashed"],
+      },
+    });
+
+    await expect(
+      runCoolifyDeploy({ ...harness.config, sleepImpl: async () => {} })
+    ).rejects.toThrow("application_readback_failed");
+    expect(harness.state.applicationReads.server).toBe(6);
+    expect(
+      harness.state.calls.filter(
+        ({ method, url }) => method === "PATCH" && url.includes("server-uuid")
+      )
+    ).toHaveLength(2);
+  });
+
   it.each(["server", "web", "projector"] as const)(
     "rolls back a failure in the %s role",
     async (failRole) => {
