@@ -1613,3 +1613,42 @@ describe("Neon v1 backfill run", () => {
     expect(Object.keys(result.metrics.platforms)).toHaveLength(7);
   });
 });
+
+describe("Starapple CSS-as-description guard (CTP-492 AC6)", () => {
+  const cssBlob = [
+    ".recruiter-card { font-family: Arial, sans-serif; }",
+    ".contact { color: #333; }",
+    "@media (max-width: 600px) { .recruiter-card { display: none; } }",
+  ].join("\n");
+
+  it("falls back to title when Starapple description is stylesheet chrome", () => {
+    const draft = mapV1JobToDraft({
+      ...sampleJob(),
+      description: cssBlob,
+      platform: "starapple-nl",
+    });
+    expect(draft.beschrijving.value).toBe(
+      "Platform engineer Azure (starapple-nl/ext-000001)"
+    );
+  });
+
+  it("keeps real Starapple vacancy prose", () => {
+    const prose =
+      "Senior React developer for a healthcare platform in Utrecht.";
+    const draft = mapV1JobToDraft({
+      ...sampleJob(),
+      description: prose,
+      platform: "starapple",
+    });
+    expect(draft.beschrijving.value).toBe(prose);
+  });
+
+  it("does not apply the Starapple CSS guard to other platforms", () => {
+    const draft = mapV1JobToDraft({
+      ...sampleJob(),
+      description: cssBlob,
+      platform: "nationalevacaturebank",
+    });
+    expect(draft.beschrijving.value).toBe(cssBlob);
+  });
+});

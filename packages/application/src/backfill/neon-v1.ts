@@ -454,9 +454,43 @@ const lifecycleForJob = (
   return sourceIsClosed ? "closed" : "active";
 };
 
-const descriptionForJob = (job: NeonV1JobRow): string =>
-  job.description?.trim() ||
+/**
+ * Starapple Motian samples sometimes store recruiter chrome / CSS (font stacks,
+ * selectors, brace blocks) in `description` instead of vacancy prose. Reject
+ * that source-aware for starapple* only — never invent replacement copy beyond
+ * the existing title fallback used when description is absent (CTP-492 AC6).
+ */
+const STARAPPLE_CSS_DESCRIPTION =
+  /(?:@media|@keyframes|:root\b|font-family\s*:|\{[\s\S]*?\}|\.[a-zA-Z_-][\w-]*\s*\{)/u;
+
+const isStarapplePlatform = (platform: string): boolean => {
+  const normalized = platform.trim().toLowerCase();
+  return normalized === "starapple" || normalized === "starapple-nl";
+};
+
+const descriptionLooksLikeCss = (description: string): boolean => {
+  const sample = description.slice(0, 4000);
+  if (!STARAPPLE_CSS_DESCRIPTION.test(sample)) {
+    return false;
+  }
+  // Require brace density typical of stylesheets, not incidental "{amount}" prose.
+  const braces = (sample.match(/[{}]/gu) ?? []).length;
+  return braces >= 4;
+};
+
+const titleFallbackDescription = (job: NeonV1JobRow): string =>
   `${job.title} (${job.platform}/${job.external_id})`;
+
+const descriptionForJob = (job: NeonV1JobRow): string => {
+  const trimmed = job.description?.trim() ?? "";
+  if (trimmed.length === 0) {
+    return titleFallbackDescription(job);
+  }
+  if (isStarapplePlatform(job.platform) && descriptionLooksLikeCss(trimmed)) {
+    return titleFallbackDescription(job);
+  }
+  return trimmed;
+};
 
 const opdrachtgeverForJob = (job: NeonV1JobRow): string | typeof UNKNOWN =>
   job.end_client?.trim() || job.company?.trim() || UNKNOWN;
