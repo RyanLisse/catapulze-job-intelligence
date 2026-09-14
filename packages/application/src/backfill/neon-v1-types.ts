@@ -6,7 +6,7 @@ import type { JsonValue } from "../normalise";
 
 export const NEON_V1_BACKFILL_CONTRACT_VERSION = "neon-v1-backfill/v1" as const;
 
-export const NEON_V1_PARSER_VERSION = "neon-v1/2026-08-29";
+export const NEON_V1_PARSER_VERSION = "neon-v1/2026-09-14-starapple-css";
 
 export const NEON_V1_DEFAULT_CONCURRENCY = 16;
 
