@@ -1,9 +1,11 @@
+/* oxlint-disable anti-slop/no-unknown-parameters, anti-slop/no-runtime-typeof -- the private listing API is an untrusted JSON boundary and is narrowed before projection. */
 import { loadConnectorFixture } from "../fixtures/load";
 import { resolveHttpTimeoutMs, withHttpTimeout } from "../http-timeout";
 import { findJobPosting, extractJsonLdBlocks } from "../json-ld";
 import type { JsonLdNode } from "../json-ld";
 import {
-  OPDRACHTOVERHEID_PAGE_SIZE,
+  OPDRACHTOVERHEID_MAX_LISTING_BODY_BYTES,
+  OPDRACHTOVERHEID_MAX_RECORDS,
   OPDRACHTOVERHEID_SEARCH_PATH,
 } from "./types";
 import type {
@@ -13,8 +15,9 @@ import type {
 
 export interface OpdrachtoverheidListingPage {
   items: OpdrachtoverheidTender[];
-  /** True when the API returned a full page, meaning more records may exist
-   * beyond this one. Bounded separately by `OPDRACHTOVERHEID_MAX_PAGES`. */
+  /** True when this listing must be treated as incomplete. Live responses are
+   * always true because the private API has no verified EOF signal; finite
+   * fixtures may be complete when they are under the bound. */
   hasMore: boolean;
 }
 
@@ -38,48 +41,180 @@ export interface OpdrachtoverheidClientOptions {
 
 const DEFAULT_BASE_URL = "https://kbenp-match-api.azurewebsites.net";
 
-const readJson = async <Payload>(response: Response): Promise<Payload> => {
+const responseTooLarge = (): Error =>
+  new Error(
+    `Opdrachtoverheid listing response exceeds ${OPDRACHTOVERHEID_MAX_LISTING_BODY_BYTES} bytes`
+  );
+
+const parseJson = <Payload>(text: string): Payload =>
+  // SAFETY: Callers validate source-specific response shape at the parser
+  // boundary after this wire-level JSON decode.
+  JSON.parse(text) as Payload;
+
+export const readBoundedOpdrachtoverheidJson = async <Payload>(
+  response: Response,
+  signal?: AbortSignal
+): Promise<Payload> => {
+  const throwIfAborted = (): void => {
+    if (signal?.aborted) {
+      throw (
+        signal.reason ??
+        new DOMException("The operation was aborted", "AbortError")
+      );
+    }
+  };
+
   if (!response.ok) {
     throw new Error(
       `Opdrachtoverheid request failed with status ${response.status}`
     );
   }
-  // SAFETY: Opdrachtoverheid's private search endpoint returns the shape
-  // observed by the live probe (see types.ts doc comment).
-  return (await response.json()) as Payload;
+
+  const contentLength = response.headers.get("content-length");
+  const declaredLength = contentLength ? Number(contentLength) : Number.NaN;
+  if (
+    Number.isFinite(declaredLength) &&
+    declaredLength > OPDRACHTOVERHEID_MAX_LISTING_BODY_BYTES
+  ) {
+    try {
+      await response.body?.cancel();
+    } catch {
+      // The size violation is the actionable error.
+    }
+    throw responseTooLarge();
+  }
+
+  throwIfAborted();
+  if (!response.body) {
+    const text = await response.text();
+    throwIfAborted();
+    if (
+      new TextEncoder().encode(text).byteLength >
+      OPDRACHTOVERHEID_MAX_LISTING_BODY_BYTES
+    ) {
+      throw responseTooLarge();
+    }
+    return parseJson<Payload>(text);
+  }
+
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let totalBytes = 0;
+  const cancelReader = async (reason?: unknown): Promise<void> => {
+    try {
+      await reader.cancel(reason);
+    } catch {
+      // The original timeout or size error remains the actionable error.
+    }
+  };
+  const abortReader = (): void => {
+    void cancelReader(signal?.reason);
+  };
+  signal?.addEventListener("abort", abortReader, { once: true });
+  try {
+    while (true) {
+      throwIfAborted();
+      // oxlint-disable-next-line no-await-in-loop -- stream chunks are ordered and must be bounded cumulatively
+      const chunk = await reader.read();
+      if (chunk.done) {
+        break;
+      }
+      totalBytes += chunk.value.byteLength;
+      if (totalBytes > OPDRACHTOVERHEID_MAX_LISTING_BODY_BYTES) {
+        // oxlint-disable-next-line no-await-in-loop -- consume cancellation before reporting the size violation
+        await cancelReader(responseTooLarge());
+        throw responseTooLarge();
+      }
+      chunks.push(chunk.value);
+    }
+    throwIfAborted();
+  } finally {
+    signal?.removeEventListener("abort", abortReader);
+    reader.releaseLock();
+  }
+
+  const body = new Uint8Array(totalBytes);
+  let offset = 0;
+  for (const chunk of chunks) {
+    body.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return parseJson<Payload>(new TextDecoder().decode(body));
 };
 
 /**
- * Pagination quirk discovered by live probing on 2026-08-31: the endpoint's
- * own `offset` parameter always throws `"An error occurred during fuzzy
- * search"` for any value other than 0, regardless of `limit`. The working
- * scheme is cumulative `limit` growth from `offset: 0` — requesting
- * `limit: pageSize * (page + 1)` returns every record seen so far, and the
- * new page's records are the tail beyond what earlier pages already
- * returned. This is undocumented, private-API behaviour and may change
- * without notice; see `docs/sources/opdrachtoverheid.md`.
+ * Live probing found that offset values other than 0 fail. More importantly,
+ * cumulative limits and repeated requests can reorder records, so tail
+ * slicing cannot identify a stable next page. Each run takes one bounded
+ * snapshot from offset 0, deduplicates tender IDs, and reports every live
+ * response as truncated because no upstream EOF contract has been verified.
+ * This private API may change without notice.
  *
- * Sort order / liveness risk (probed live 2026-08-31): the endpoint does
- * NOT return active-tenders-first. Of a 400-record cumulative-`limit`
- * capture, only 3 records had `tender_active: true`, and only 1 of the
- * first 25 (page 0) did — `tender_first_seen` values were oldest-first
- * (starting 2022-01-25), consistent with a stable insertion-order sort. No
- * working sort field was found: adding `sort`/`order`/`sort_by`/`orderBy`
- * keys to the request body made the endpoint hang past a 20s timeout with
- * zero bytes received (not a fast error — an actual stall), and an
- * `active: true` filter key was silently accepted but had no filtering
- * effect (still returned closed records). Given the private API accepts no
- * verified sort/filter control, liveness is handled downstream instead:
- * `normalise/opdrachtoverheid.ts` derives `bronSaysClosed` from the
- * bron's own `tender_active`/`tender_status` fields (not a hard-coded
- * `true`), so ingesting oldest-first data still produces a correct
- * `closed` lifecycle rather than a false `active` one. Also probed: a
- * cumulative `limit: 500` request returned in full (no data cap observed
- * up to 500); `limit: 1000` reliably timed out. This is a request-latency
- * ceiling, not a confirmed content cap — `OPDRACHTOVERHEID_MAX_PAGES` is
- * set to keep the largest cumulative request comfortably under the
- * confirmed-safe 500 threshold (see types.ts).
+ * The endpoint does not reliably return active tenders first and accepts no
+ * verified sort or filter control. Liveness is handled downstream from the
+ * source's tender_active and tender_status fields. The established
+ * 400-record bound remains the request budget and completeness limit.
  */
+const deduplicateTenders = (
+  tenders: OpdrachtoverheidTender[]
+): OpdrachtoverheidTender[] => {
+  const seenTenderIds = new Set<string>();
+  return tenders.filter((tender) => {
+    if (!tender.tender_id) {
+      return true;
+    }
+    if (seenTenderIds.has(tender.tender_id)) {
+      return false;
+    }
+    seenTenderIds.add(tender.tender_id);
+    return true;
+  });
+};
+
+const hasValidTenderId = (value: unknown): value is OpdrachtoverheidTender => {
+  if (typeof value !== "object" || value === null || !("tender_id" in value)) {
+    return false;
+  }
+  return (
+    typeof value.tender_id === "string" && value.tender_id.trim().length > 0
+  );
+};
+
+export const parseOpdrachtoverheidListing = (
+  body: unknown
+): OpdrachtoverheidListingPage => {
+  if (
+    typeof body !== "object" ||
+    body === null ||
+    !("negometrix_tenders" in body) ||
+    !Array.isArray(body.negometrix_tenders)
+  ) {
+    throw new Error("Opdrachtoverheid listing response has invalid items");
+  }
+  const all = body.negometrix_tenders;
+  if (!all.every(hasValidTenderId)) {
+    throw new Error(
+      "Opdrachtoverheid listing response contains an invalid tender_id"
+    );
+  }
+  if (all.length > OPDRACHTOVERHEID_MAX_RECORDS) {
+    throw new Error(
+      `Opdrachtoverheid listing returned ${all.length} records; maximum supported snapshot is ${OPDRACHTOVERHEID_MAX_RECORDS}`
+    );
+  }
+  return {
+    hasMore: all.length === OPDRACHTOVERHEID_MAX_RECORDS,
+    items: deduplicateTenders(all),
+  };
+};
+
+const parseLiveOpdrachtoverheidListing = (
+  body: unknown
+): OpdrachtoverheidListingPage => {
+  const listing = parseOpdrachtoverheidListing(body);
+  return { ...listing, hasMore: true };
+};
+
 export const createOpdrachtoverheidClient = (
   options: OpdrachtoverheidClientOptions = {}
 ): OpdrachtoverheidClient => {
@@ -106,34 +241,34 @@ export const createOpdrachtoverheidClient = (
         return findJobPosting(blocks) ?? null;
       }, timeoutMs);
     },
-    fetchListing: async (page) => {
+    fetchListing: async (_page) => {
       if (!liveEnabled) {
-        if (page > 0) {
-          return { hasMore: false, items: [] };
-        }
         const fixture =
           await loadConnectorFixture<OpdrachtoverheidListingResponse>(
             listingFixturePath
           );
-        return { hasMore: false, items: fixture.payload.negometrix_tenders };
+        return parseOpdrachtoverheidListing(fixture.payload);
       }
 
-      const requestedLimit = OPDRACHTOVERHEID_PAGE_SIZE * (page + 1);
       const body = await withHttpTimeout(async (signal) => {
         const response = await fetchImpl(
           `${baseUrl}${OPDRACHTOVERHEID_SEARCH_PATH}`,
           {
-            body: JSON.stringify({ limit: requestedLimit, offset: 0 }),
+            body: JSON.stringify({
+              limit: OPDRACHTOVERHEID_MAX_RECORDS,
+              offset: 0,
+            }),
             headers: { "Content-Type": "application/json" },
             method: "POST",
             signal,
           }
         );
-        return await readJson<OpdrachtoverheidListingResponse>(response);
+        return await readBoundedOpdrachtoverheidJson<OpdrachtoverheidListingResponse>(
+          response,
+          signal
+        );
       }, timeoutMs);
-      const all = body.negometrix_tenders;
-      const items = all.slice(page * OPDRACHTOVERHEID_PAGE_SIZE);
-      return { hasMore: all.length === requestedLimit, items };
+      return parseLiveOpdrachtoverheidListing(body);
     },
   };
 };

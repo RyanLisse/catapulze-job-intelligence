@@ -1,13 +1,13 @@
 # Opdrachtoverheid — ingest-recept (geverifieerd 2026-08-31)
 
-Status: **probe afgerond; connector nog niet gebouwd** — adapter-categorie `json-api` met `json-ld`-fallback; ~375 detail-URL's in de sitemap. Geen technische blocker; aggregator-overlap, privé-API-risico en voorwaardenstatus blijven expliciet.
+Status: **probe en connector actief** — adapter-categorie `json-api` met `json-ld`-fallback; ~375 detail-URL's in de sitemap. Geen technische blocker; aggregator-overlap, privé-API-risico en voorwaardenstatus blijven expliciet.
 
 ## Endpoints
 
 | Doel | URL | Opmerking |
 |---|---|---|
 | Listing | `GET https://www.opdrachtoverheid.nl` | Nuxt 3; client-rendered, infinite scroll. |
-| JSON-search | `POST https://kbenp-match-api.azurewebsites.net/search` | Geen auth-header waargenomen; 25 records per offset-pagina. |
+| JSON-search | `POST https://kbenp-match-api.azurewebsites.net/search` | Geen auth-header waargenomen; één bounded snapshot met `limit: 400` en `offset: 0`. |
 | Sitemap | `GET https://www.opdrachtoverheid.nl/sitemap.xml` | 375 `/inhuuropdracht/`-URL's; 864 URL's totaal. |
 | Detail/fallback | `GET https://www.opdrachtoverheid.nl/inhuuropdracht/<organisatie>/<titel>/<web_key>` | SSR met dubbele JobPosting JSON-LD. |
 
@@ -34,7 +34,14 @@ Voor Opdrachtoverheid is dit een ongedocumenteerd, privé endpoint; het kan zond
 
 ## Ingest-patroon
 
-- POST de geobserveerde filter-body en page met `offset` in stappen van 25; houd de requestfrequentie laag.
+- POST één snapshot met `limit: 400` en `offset: 0`; de API levert geen stabiele
+  page-boundary omdat dezelfde of cumulatieve limits records kunnen herordenen.
+  Dedupliceer `tender_id` binnen de response.
+- Live responses worden altijd als truncated/incompleet gerapporteerd: ook een
+  kortere response bewijst niet dat de bron volledig is, omdat een upstream EOF-
+  contract ontbreekt. De eindige fixture mag wel compleet zijn. Responses boven
+  400 records worden afgewezen als onveilige overschrijding van de bestaande
+  budgetgrens.
 - Bewaar `tender_source` en `tender_url` vóór normalisatie en gebruik ze bij cross-source deduplicatie.
 - Gebruik bij API-falen de sitemap en parse JobPosting uit de SSR-details; gebruik geen uitgesloten filter-querystrings.
 

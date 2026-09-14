@@ -3,12 +3,12 @@ import { Effect } from "effect";
 import type { FetchImpl, ReadIoFault } from "../effect-runtime";
 import {
   httpRequest,
-  readJsonBody,
   readTextBody,
   runReadIoPromise,
   ValidationFault,
 } from "../effect-runtime";
 import { loadConnectorFixture } from "../fixtures/load";
+import { resolveHttpTimeoutMs } from "../http-timeout";
 import { extractJsonLdBlocks, findJobPosting } from "../json-ld";
 import type { JsonLdNode } from "../json-ld";
 import type {
@@ -16,9 +16,13 @@ import type {
   OpdrachtoverheidClientOptions,
   OpdrachtoverheidListingPage,
 } from "./client";
+import {
+  parseOpdrachtoverheidListing,
+  readBoundedOpdrachtoverheidJson,
+} from "./client";
 import type { OpdrachtoverheidListingResponse } from "./types";
 import {
-  OPDRACHTOVERHEID_PAGE_SIZE,
+  OPDRACHTOVERHEID_MAX_RECORDS,
   OPDRACHTOVERHEID_SEARCH_PATH,
 } from "./types";
 
@@ -35,18 +39,49 @@ export interface OpdrachtoverheidEffectClientOptions extends Omit<
 const isLive = (options: OpdrachtoverheidEffectClientOptions): boolean =>
   options.liveEnabled ?? process.env.OPDRACHTOVERHEID_LIVE === "1";
 
+const parseListingEffect = (
+  body: OpdrachtoverheidListingResponse,
+  live: boolean
+): Effect.Effect<OpdrachtoverheidListingPage, ValidationFault> =>
+  Effect.try({
+    catch: (cause) =>
+      new ValidationFault({
+        cause,
+        message: "Invalid Opdrachtoverheid listing response",
+      }),
+    try: () => {
+      const listing = parseOpdrachtoverheidListing(body);
+      return live ? { ...listing, hasMore: true } : listing;
+    },
+  });
+
+const readListingEffect = (
+  response: Response
+): Effect.Effect<OpdrachtoverheidListingResponse, ValidationFault> =>
+  Effect.tryPromise({
+    catch: (cause) =>
+      new ValidationFault({
+        cause,
+        message: "Invalid Opdrachtoverheid listing response",
+        status: response.status,
+      }),
+    try: (signal) =>
+      readBoundedOpdrachtoverheidJson<OpdrachtoverheidListingResponse>(
+        response,
+        signal
+      ),
+  });
+
 export const fetchListingEffect = (
   options: OpdrachtoverheidEffectClientOptions,
-  page: number
+  _page: number
 ): Effect.Effect<OpdrachtoverheidListingPage, ReadIoFault> => {
   const listingFixturePath =
     options.listingFixturePath ?? "opdrachtoverheid/listing-page-0.json";
   const baseUrl = options.baseUrl ?? DEFAULT_BASE_URL;
+  const timeoutMs = resolveHttpTimeoutMs(options.timeoutMs);
 
   if (!isLive(options)) {
-    if (page > 0) {
-      return Effect.succeed({ hasMore: false, items: [] });
-    }
     return Effect.tryPromise({
       catch: (cause) =>
         new ValidationFault({
@@ -58,31 +93,30 @@ export const fetchListingEffect = (
           listingFixturePath
         ),
     }).pipe(
-      Effect.map((fixture) => ({
-        hasMore: false,
-        items: fixture.payload.negometrix_tenders,
-      }))
+      Effect.flatMap((fixture) => parseListingEffect(fixture.payload, false))
     );
   }
 
-  const requestedLimit = OPDRACHTOVERHEID_PAGE_SIZE * (page + 1);
   return httpRequest({
     fetchImpl: options.fetchImpl,
     init: {
-      body: JSON.stringify({ limit: requestedLimit, offset: 0 }),
+      body: JSON.stringify({ limit: OPDRACHTOVERHEID_MAX_RECORDS, offset: 0 }),
       headers: { "Content-Type": "application/json" },
       method: "POST",
     },
     url: `${baseUrl}${OPDRACHTOVERHEID_SEARCH_PATH}`,
   }).pipe(
-    Effect.flatMap((response) =>
-      readJsonBody<OpdrachtoverheidListingResponse>(response)
-    ),
-    Effect.map((body) => {
-      const all = body.negometrix_tenders;
-      const items = all.slice(page * OPDRACHTOVERHEID_PAGE_SIZE);
-      return { hasMore: all.length === requestedLimit, items };
-    })
+    Effect.flatMap(readListingEffect),
+    Effect.flatMap((body) => parseListingEffect(body, true)),
+    Effect.timeout(timeoutMs),
+    Effect.catchTag("TimeoutError", (cause) =>
+      Effect.fail(
+        new ValidationFault({
+          cause,
+          message: `Opdrachtoverheid listing timed out after ${timeoutMs}ms`,
+        })
+      )
+    )
   );
 };
 
