@@ -3,7 +3,11 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
-import { SearchAdapter, InMemorySearchEngine } from "@ji/search";
+import {
+  InMemorySearchEngine,
+  SearchAdapter,
+  SEARCH_DOCUMENT_PARITY_DEFAULTS,
+} from "@ji/search";
 
 import { readRecords } from "./core";
 
@@ -18,6 +22,7 @@ describe("search critical path integration", () => {
     try {
       const engine = new InMemorySearchEngine();
       await engine.upsertDocument({
+        ...SEARCH_DOCUMENT_PARITY_DEFAULTS,
         beschrijving: "Azure platform engineer",
         bronId: "bron-1",
         contracttype: "detachering",
