@@ -51,7 +51,17 @@ interface HarnessOptions {
   readonly dashboardLocation?: string;
   /** Number of `/projector/runtime` reads that still report the previous SHA. */
   readonly projectorRuntimeLagPolls?: number;
+  readonly applicationStatusStages?: Partial<
+    Record<
+      Role,
+      { before: string; after: readonly string[]; rollback: readonly string[] }
+    >
+  >;
+  readonly onApplicationRead?: (role: Role, stage: ApplicationStage) => void;
+  readonly applicationShaAfter?: Partial<Record<Role, string>>;
 }
+
+type ApplicationStage = "after" | "before" | "rollback";
 
 interface HarnessState {
   readonly calls: { method: string; url: string }[];
@@ -61,6 +71,10 @@ interface HarnessState {
   finishedRaceDeployment: string | undefined;
   candidateDeployments: number;
   projectorRuntimeReads: number;
+  readonly rollbackRoles: Set<Role>;
+  readonly finishedRoles: Set<Role>;
+  readonly rollbackFinishedRoles: Set<Role>;
+  readonly stageReads: Record<ApplicationStage, Record<Role, number>>;
 }
 
 const json = (body: unknown, status = 200): Response =>
@@ -117,12 +131,20 @@ const makeHarness = (options: HarnessOptions = {}) => {
     cancelledDeployment: undefined,
     candidateDeployments: 0,
     finishedRaceDeployment: undefined,
+    finishedRoles: new Set(),
     mainReads: 0,
     projectorRuntimeReads: 0,
+    rollbackFinishedRoles: new Set(),
+    rollbackRoles: new Set(),
     sha: {
       projector: options.baselineMismatch ? candidateSha : previousSha,
       server: previousSha,
       web: options.baselineMismatch ? candidateSha : previousSha,
+    },
+    stageReads: {
+      after: { projector: 0, server: 0, web: 0 },
+      before: { projector: 0, server: 0, web: 0 },
+      rollback: { projector: 0, server: 0, web: 0 },
     },
   };
 
@@ -227,11 +249,24 @@ const makeHarness = (options: HarnessOptions = {}) => {
           options.failureMode === "wrong-sha" &&
           deploymentUuid.includes("server-deployment");
         const rollback = deploymentUuid.includes("rollback");
-        return json({
+        const detail = {
           commit: rollback || wrongSha ? previousSha : candidateSha,
           deployment_uuid: deploymentUuid,
           status: "finished",
-        });
+        };
+        const deploymentRole = deploymentUuid.split("-")[0];
+        if (
+          deploymentRole === "projector" ||
+          deploymentRole === "server" ||
+          deploymentRole === "web"
+        ) {
+          if (rollback) {
+            state.rollbackFinishedRoles.add(deploymentRole);
+          } else {
+            state.finishedRoles.add(deploymentRole);
+          }
+        }
+        return json(detail);
       }
       if (path.startsWith("/applications/") && method === "GET") {
         const uuid = must(
@@ -239,9 +274,28 @@ const makeHarness = (options: HarnessOptions = {}) => {
           `harness could not read an application UUID from ${path}`
         );
         const role = roleForUuid(uuid);
+        const stages = options.applicationStatusStages?.[role];
+        const stage: ApplicationStage = state.rollbackRoles.has(role)
+          ? state.rollbackFinishedRoles.has(role)
+            ? "rollback"
+            : "before"
+          : state.finishedRoles.has(role)
+            ? "after"
+            : "before";
+        const readIndex = state.stageReads[stage][role];
+        state.stageReads[stage][role] += 1;
+        options.onApplicationRead?.(role, stage);
         return json({
-          git_commit_sha: state.sha[role],
-          status: "healthy",
+          git_commit_sha:
+            stage === "after"
+              ? (options.applicationShaAfter?.[role] ?? state.sha[role])
+              : state.sha[role],
+          status:
+            stage === "before"
+              ? (stages?.before ?? "healthy")
+              : (stages?.[stage][readIndex] ??
+                stages?.[stage].at(-1) ??
+                "healthy"),
           uuid,
         });
       }
@@ -256,6 +310,9 @@ const makeHarness = (options: HarnessOptions = {}) => {
           return json({ uuid: "wrong-rollback-uuid" });
         }
         state.sha[role] = requestedSha;
+        if (requestedSha === previousSha) {
+          state.rollbackRoles.add(role);
+        }
         if (options.patchFailsAfterMutation && requestedSha === candidateSha) {
           throw new Error("simulated uncertain PATCH");
         }
@@ -414,6 +471,281 @@ describe("production Coolify deployment contract", () => {
     expect(candidatePatches).toHaveLength(3);
   });
 
+  it("waits for a post-finished transient application state with positive fake-clock sleeps", async () => {
+    const harness = makeHarness({
+      applicationStatusStages: {
+        server: {
+          after: ["running:unknown", "healthy"],
+          before: "healthy",
+          rollback: [],
+        },
+      },
+    });
+    let clock = 0;
+    const sleeps: number[] = [];
+
+    const evidence = await runCoolifyDeploy({
+      ...harness.config,
+      deadlineMs: 200_000,
+      nowImpl: () => clock,
+      rollbackReserveMs: 50_000,
+      sleepImpl: async (milliseconds) => {
+        sleeps.push(milliseconds);
+        clock += milliseconds;
+      },
+      timeoutMs: 120_000,
+    });
+
+    expect(evidence).toHaveLength(3);
+    expect(harness.state.stageReads.before.server).toBeGreaterThan(1);
+    expect(harness.state.stageReads.after.server).toBe(2);
+    expect(sleeps).toEqual([100]);
+    expect(sleeps.every((milliseconds) => milliseconds > 0)).toBe(true);
+    expect(
+      harness.state.calls.filter(
+        ({ method, url }) =>
+          method === "PATCH" && url.includes("/applications/")
+      )
+    ).toHaveLength(3);
+  });
+
+  it("caps application convergence at 90 seconds even when the role timeout is longer", async () => {
+    const harness = makeHarness({
+      applicationStatusStages: {
+        server: {
+          after: ["starting"],
+          before: "healthy",
+          rollback: ["healthy"],
+        },
+      },
+    });
+    let clock = 0;
+    const sleeps: number[] = [];
+
+    await expect(
+      runCoolifyDeploy({
+        ...harness.config,
+        deadlineMs: 200_000,
+        nowImpl: () => clock,
+        pollIntervalMs: 45_000,
+        rollbackReserveMs: 50_000,
+        sleepImpl: async (milliseconds) => {
+          sleeps.push(milliseconds);
+          clock += milliseconds;
+        },
+        timeoutMs: 120_000,
+      })
+    ).rejects.toThrow("application_readback_failed");
+    expect(sleeps).toEqual([45_000, 45_000]);
+    expect(harness.state.stageReads.after.server).toBe(2);
+    expect(harness.state.stageReads.rollback.server).toBe(1);
+  });
+
+  it("uses the shorter absolute deployment deadline for application health", async () => {
+    const harness = makeHarness({
+      applicationStatusStages: {
+        server: {
+          after: ["starting"],
+          before: "healthy",
+          rollback: ["healthy"],
+        },
+      },
+    });
+    let clock = 0;
+    const sleeps: number[] = [];
+
+    await expect(
+      runCoolifyDeploy({
+        ...harness.config,
+        deadlineMs: 120_000,
+        nowImpl: () => clock,
+        pollIntervalMs: 20_000,
+        rollbackReserveMs: 80_000,
+        sleepImpl: async (milliseconds) => {
+          sleeps.push(milliseconds);
+          clock += milliseconds;
+        },
+        timeoutMs: 120_000,
+      })
+    ).rejects.toThrow("application_readback_failed");
+    expect(sleeps).toEqual([20_000, 20_000]);
+    expect(harness.state.stageReads.after.server).toBe(2);
+    expect(harness.state.stageReads.rollback.server).toBe(1);
+  });
+
+  it("rejects a healthy response that arrives after the absolute application deadline", async () => {
+    let clock = 0;
+    const harness = makeHarness({
+      applicationStatusStages: {
+        server: {
+          after: ["healthy"],
+          before: "healthy",
+          rollback: ["healthy"],
+        },
+      },
+      onApplicationRead: (role, stage) => {
+        if (role === "server" && stage === "after") {
+          clock = 90_000;
+        }
+      },
+    });
+
+    await expect(
+      runCoolifyDeploy({
+        ...harness.config,
+        deadlineMs: 200_000,
+        nowImpl: () => clock,
+        rollbackReserveMs: 50_000,
+        sleepImpl: async () => {},
+        timeoutMs: 120_000,
+      })
+    ).rejects.toThrow("application_readback_failed");
+    expect(harness.state.stageReads.after.server).toBe(1);
+    expect(harness.state.stageReads.rollback.server).toBe(1);
+  });
+
+  it.each(["crashed", "unsupported-status"])(
+    "rejects terminal application status %s without retrying",
+    async (status) => {
+      const harness = makeHarness({
+        applicationStatusStages: {
+          server: { after: [status], before: "healthy", rollback: ["healthy"] },
+        },
+      });
+      const sleeps: number[] = [];
+
+      await expect(
+        runCoolifyDeploy({
+          ...harness.config,
+          sleepImpl: async (milliseconds) => {
+            sleeps.push(milliseconds);
+          },
+        })
+      ).rejects.toThrow("application_readback_failed");
+      expect(harness.state.stageReads.after.server).toBe(1);
+      expect(sleeps).toHaveLength(0);
+    }
+  );
+
+  it("rejects a wrong application SHA without retrying", async () => {
+    const harness = makeHarness({
+      applicationShaAfter: { server: previousSha },
+      applicationStatusStages: {
+        server: {
+          after: ["healthy"],
+          before: "healthy",
+          rollback: ["healthy"],
+        },
+      },
+    });
+    const sleeps: number[] = [];
+
+    await expect(
+      runCoolifyDeploy({
+        ...harness.config,
+        sleepImpl: async (milliseconds) => {
+          sleeps.push(milliseconds);
+        },
+      })
+    ).rejects.toThrow("application_readback_failed");
+    expect(harness.state.stageReads.after.server).toBe(1);
+    expect(sleeps).toHaveLength(0);
+  });
+
+  it("waits for rollback application convergence before completing rollback", async () => {
+    const harness = makeHarness({
+      applicationStatusStages: {
+        server: {
+          after: ["healthy"],
+          before: "healthy",
+          rollback: ["running:unknown", "healthy"],
+        },
+      },
+      failRole: "web",
+      failureMode: "public",
+    });
+    let clock = 0;
+    const sleeps: number[] = [];
+
+    await expect(
+      runCoolifyDeploy({
+        ...harness.config,
+        nowImpl: () => clock,
+        sleepImpl: async (milliseconds) => {
+          sleeps.push(milliseconds);
+          clock += milliseconds;
+        },
+      })
+    ).rejects.toThrow("web_readback_failed");
+    expect(harness.state.stageReads.rollback.server).toBe(2);
+    expect(sleeps).toEqual([100]);
+  });
+
+  it("uses the shorter absolute deadline after a finished deployment", async () => {
+    const harness = makeHarness({
+      applicationStatusStages: {
+        server: {
+          after: ["starting"],
+          before: "healthy",
+          rollback: ["healthy"],
+        },
+      },
+    });
+    let clock = 0;
+    const sleeps: number[] = [];
+
+    await expect(
+      runCoolifyDeploy({
+        ...harness.config,
+        deadlineMs: 5000,
+        nowImpl: () => clock,
+        pollIntervalMs: 1000,
+        rollbackReserveMs: 1000,
+        sleepImpl: async (milliseconds) => {
+          sleeps.push(milliseconds);
+          clock += milliseconds;
+        },
+        timeoutMs: 120_000,
+      })
+    ).rejects.toThrow("application_readback_failed");
+    expect(sleeps).toEqual([1000, 1000, 1000, 1000]);
+    expect(harness.state.stageReads.after.server).toBe(4);
+    expect(harness.state.stageReads.rollback.server).toBe(1);
+    expect(harness.state.cancelledDeployment).toBeUndefined();
+  });
+
+  it("uses the remaining absolute deadline while rolling back", async () => {
+    const harness = makeHarness({
+      applicationStatusStages: {
+        server: {
+          after: ["starting", "healthy"],
+          before: "healthy",
+          rollback: ["starting"],
+        },
+      },
+      failRole: "web",
+      failureMode: "public",
+    });
+    let clock = 0;
+
+    await expect(
+      runCoolifyDeploy({
+        ...harness.config,
+        deadlineMs: 3000,
+        nowImpl: () => clock,
+        pollIntervalMs: 1000,
+        rollbackReserveMs: 1000,
+        sleepImpl: async (milliseconds) => {
+          clock += milliseconds;
+        },
+        timeoutMs: 120_000,
+      })
+    ).rejects.toThrow(
+      "rollback_incomplete: original:web_readback_failed; rollback:server:rollback_readback_failed"
+    );
+    expect(harness.state.stageReads.rollback.server).toBe(2);
+  });
+
   it.each(["server", "web", "projector"] as const)(
     "rolls back a failure in the %s role",
     async (failRole) => {
@@ -537,7 +869,7 @@ describe("production Coolify deployment contract", () => {
     });
 
     await expect(runCoolifyDeploy(harness.config)).rejects.toThrow(
-      "rollback_incomplete"
+      "rollback_incomplete: original:web_readback_failed; rollback:web:rollback_pin_readback_failed, server:rollback_pin_readback_failed"
     );
   });
 
