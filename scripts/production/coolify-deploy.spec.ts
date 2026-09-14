@@ -471,75 +471,81 @@ describe("production Coolify deployment contract", () => {
     expect(candidatePatches).toHaveLength(3);
   });
 
-  it("waits for a post-finished transient application state with positive fake-clock sleeps", async () => {
-    const harness = makeHarness({
-      applicationStatusStages: {
-        server: {
-          after: ["running:unknown", "healthy"],
-          before: "healthy",
-          rollback: [],
+  it.each(["running:unknown", "running:unhealthy"])(
+    "waits for post-finished transient application state %s with positive fake-clock sleeps",
+    async (transientStatus) => {
+      const harness = makeHarness({
+        applicationStatusStages: {
+          server: {
+            after: [transientStatus, "healthy"],
+            before: "healthy",
+            rollback: [],
+          },
         },
-      },
-    });
-    let clock = 0;
-    const sleeps: number[] = [];
+      });
+      let clock = 0;
+      const sleeps: number[] = [];
 
-    const evidence = await runCoolifyDeploy({
-      ...harness.config,
-      deadlineMs: 200_000,
-      nowImpl: () => clock,
-      rollbackReserveMs: 50_000,
-      sleepImpl: async (milliseconds) => {
-        sleeps.push(milliseconds);
-        clock += milliseconds;
-      },
-      timeoutMs: 120_000,
-    });
-
-    expect(evidence).toHaveLength(3);
-    expect(harness.state.stageReads.before.server).toBeGreaterThan(1);
-    expect(harness.state.stageReads.after.server).toBe(2);
-    expect(sleeps).toEqual([100]);
-    expect(sleeps.every((milliseconds) => milliseconds > 0)).toBe(true);
-    expect(
-      harness.state.calls.filter(
-        ({ method, url }) =>
-          method === "PATCH" && url.includes("/applications/")
-      )
-    ).toHaveLength(3);
-  });
-
-  it("caps application convergence at 90 seconds even when the role timeout is longer", async () => {
-    const harness = makeHarness({
-      applicationStatusStages: {
-        server: {
-          after: ["starting"],
-          before: "healthy",
-          rollback: ["healthy"],
-        },
-      },
-    });
-    let clock = 0;
-    const sleeps: number[] = [];
-
-    await expect(
-      runCoolifyDeploy({
+      const evidence = await runCoolifyDeploy({
         ...harness.config,
         deadlineMs: 200_000,
         nowImpl: () => clock,
-        pollIntervalMs: 45_000,
         rollbackReserveMs: 50_000,
         sleepImpl: async (milliseconds) => {
           sleeps.push(milliseconds);
           clock += milliseconds;
         },
         timeoutMs: 120_000,
-      })
-    ).rejects.toThrow("application_readback_failed");
-    expect(sleeps).toEqual([45_000, 45_000]);
-    expect(harness.state.stageReads.after.server).toBe(2);
-    expect(harness.state.stageReads.rollback.server).toBe(1);
-  });
+      });
+
+      expect(evidence).toHaveLength(3);
+      expect(harness.state.stageReads.before.server).toBeGreaterThan(1);
+      expect(harness.state.stageReads.after.server).toBe(2);
+      expect(sleeps).toEqual([100]);
+      expect(sleeps.every((milliseconds) => milliseconds > 0)).toBe(true);
+      expect(
+        harness.state.calls.filter(
+          ({ method, url }) =>
+            method === "PATCH" && url.includes("/applications/")
+        )
+      ).toHaveLength(3);
+    }
+  );
+
+  it.each(["starting", "running:unhealthy"])(
+    "caps perpetual application status %s at 90 seconds even when the role timeout is longer",
+    async (transientStatus) => {
+      const harness = makeHarness({
+        applicationStatusStages: {
+          server: {
+            after: [transientStatus],
+            before: "healthy",
+            rollback: ["healthy"],
+          },
+        },
+      });
+      let clock = 0;
+      const sleeps: number[] = [];
+
+      await expect(
+        runCoolifyDeploy({
+          ...harness.config,
+          deadlineMs: 200_000,
+          nowImpl: () => clock,
+          pollIntervalMs: 45_000,
+          rollbackReserveMs: 50_000,
+          sleepImpl: async (milliseconds) => {
+            sleeps.push(milliseconds);
+            clock += milliseconds;
+          },
+          timeoutMs: 120_000,
+        })
+      ).rejects.toThrow("application_readback_failed");
+      expect(sleeps).toEqual([45_000, 45_000]);
+      expect(harness.state.stageReads.after.server).toBe(2);
+      expect(harness.state.stageReads.rollback.server).toBe(1);
+    }
+  );
 
   it("uses the shorter absolute deployment deadline for application health", async () => {
     const harness = makeHarness({
@@ -680,7 +686,7 @@ describe("production Coolify deployment contract", () => {
             sleeps.push(milliseconds);
           },
         })
-      ).rejects.toThrow("application_readback_failed");
+      ).rejects.toThrow("observed unknown");
       expect(harness.state.stageReads.after.server).toBe(1);
       expect(sleeps).toHaveLength(0);
     }
@@ -706,39 +712,42 @@ describe("production Coolify deployment contract", () => {
           sleeps.push(milliseconds);
         },
       })
-    ).rejects.toThrow("application_readback_failed");
+    ).rejects.toThrow("observed healthy");
     expect(harness.state.stageReads.after.server).toBe(1);
     expect(sleeps).toHaveLength(0);
   });
 
-  it("waits for rollback application convergence before completing rollback", async () => {
-    const harness = makeHarness({
-      applicationStatusStages: {
-        server: {
-          after: ["healthy"],
-          before: "healthy",
-          rollback: ["running:unknown", "healthy"],
+  it.each(["running:unknown", "running:unhealthy"])(
+    "waits for rollback application convergence from %s before completing rollback",
+    async (transientStatus) => {
+      const harness = makeHarness({
+        applicationStatusStages: {
+          server: {
+            after: ["healthy"],
+            before: "healthy",
+            rollback: [transientStatus, "healthy"],
+          },
         },
-      },
-      failRole: "web",
-      failureMode: "public",
-    });
-    let clock = 0;
-    const sleeps: number[] = [];
+        failRole: "web",
+        failureMode: "public",
+      });
+      let clock = 0;
+      const sleeps: number[] = [];
 
-    await expect(
-      runCoolifyDeploy({
-        ...harness.config,
-        nowImpl: () => clock,
-        sleepImpl: async (milliseconds) => {
-          sleeps.push(milliseconds);
-          clock += milliseconds;
-        },
-      })
-    ).rejects.toThrow("web_readback_failed");
-    expect(harness.state.stageReads.rollback.server).toBe(2);
-    expect(sleeps).toEqual([100]);
-  });
+      await expect(
+        runCoolifyDeploy({
+          ...harness.config,
+          nowImpl: () => clock,
+          sleepImpl: async (milliseconds) => {
+            sleeps.push(milliseconds);
+            clock += milliseconds;
+          },
+        })
+      ).rejects.toThrow("web_readback_failed");
+      expect(harness.state.stageReads.rollback.server).toBe(2);
+      expect(sleeps).toEqual([100]);
+    }
+  );
 
   it("uses the shorter absolute deadline after a finished deployment", async () => {
     const harness = makeHarness({

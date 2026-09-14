@@ -31,11 +31,27 @@ const ACTIVE_STATES = new Set([
   "waiting",
 ]);
 const HEALTHY_APPLICATION_STATES = new Set(["healthy", "running:healthy"]);
+// Coolify 4.3.19 writes plain `running` immediately after its own health check
+// passes. Its Application model serializes that DB value as `running:unhealthy`
+// until the asynchronous server-status aggregation writes `running:healthy`. This
+// post-finished convergence loop therefore treats it as transient, not terminal.
 const TRANSIENT_APPLICATION_STATES = new Set([
   "running",
   "running:unknown",
+  "running:unhealthy",
   "starting",
 ]);
+const OBSERVED_APPLICATION_STATES = new Set([
+  ...HEALTHY_APPLICATION_STATES,
+  ...TRANSIENT_APPLICATION_STATES,
+  "degraded:unhealthy",
+  "exited:unhealthy",
+  "paused:unknown",
+  "restarting:unknown",
+  "starting:unhealthy",
+]);
+const safeApplicationStatus = (status: string): string =>
+  OBSERVED_APPLICATION_STATES.has(status) ? status : "unknown";
 const APPLICATION_HEALTH_CONVERGENCE_MS = 90_000;
 
 export type FetchInput = Request | string | URL;
@@ -586,21 +602,29 @@ const waitForApplicationHealthy = async (
     if (nowImpl() >= deadline) {
       break;
     }
+    const status = safeApplicationStatus(after.status ?? "unknown");
     if (after.git_commit_sha !== expectedSha) {
       throw new DeploymentError(
         "application_readback_failed",
-        `${role} application did not read back candidate and healthy`,
+        `${
+          role
+        } application did not read back candidate and healthy; observed ${
+          status
+        }`,
         role
       );
     }
-    const status = after.status ?? "unknown";
     if (HEALTHY_APPLICATION_STATES.has(status)) {
       return after;
     }
     if (!TRANSIENT_APPLICATION_STATES.has(status)) {
       throw new DeploymentError(
         "application_readback_failed",
-        `${role} application did not read back candidate and healthy`,
+        `${
+          role
+        } application did not read back candidate and healthy; observed ${
+          status
+        }`,
         role
       );
     }
