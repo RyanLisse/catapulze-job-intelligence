@@ -181,6 +181,37 @@ describe("JobResults list card summary (CTP-483)", () => {
   });
 });
 
+describe("JobResults seven-column parity (CTP-493)", () => {
+  it("keeps the reference columns visible and adds hours to mobile cards", () => {
+    if (!plainJob) {
+      throw new Error("Expected job-001 fixture");
+    }
+    const markup = renderToStaticMarkup(
+      createElement(JobResults, {
+        jobs: [{ ...plainJob, hoursPerWeek: "36" }],
+        onSelect: () => {},
+        selectedJobId: null,
+      })
+    );
+
+    for (const header of [
+      "Title",
+      "Company",
+      "Location",
+      "Rate",
+      "Hrs",
+      "Platform",
+      "Posted",
+    ]) {
+      expect(markup).toMatch(new RegExp(`<th[^>]*>${header}</th>`, "u"));
+    }
+    expect(markup).toContain("overflow-x-auto");
+    expect(markup).toContain("min-w-[960px]");
+    expect(markup).toContain("Gemeente Amsterdam");
+    expect(markup).toContain(">36<");
+  });
+});
+
 describe("CTP-482 aangevuld provenance badge", () => {
   it("renders aangevuld badge with tooltip above UI threshold only", () => {
     if (!plainJob) {
