@@ -4,6 +4,7 @@ import {
   createTestSliceARegistry,
   permissionsForRole,
 } from "@ji/application/registry";
+import { SEARCH_DOCUMENT_PARITY_DEFAULTS } from "@ji/search";
 
 import { invokeMcpTool } from "./rest";
 
@@ -29,6 +30,7 @@ describe("AE5 REST vs MCP parity", () => {
   it("returns matching ids, count, and facets for search_aanvragen", async () => {
     const bundle = createTestSliceARegistry();
     await bundle.deps.engine.upsertDocument({
+      ...SEARCH_DOCUMENT_PARITY_DEFAULTS,
       beschrijving: "DevOps Azure kubernetes",
       bronId: "00000000-0000-4000-8000-000000000001",
       contracttype: "detachering",
@@ -41,6 +43,7 @@ describe("AE5 REST vs MCP parity", () => {
       titel: "Azure DevOps engineer",
     });
     await bundle.deps.engine.upsertDocument({
+      ...SEARCH_DOCUMENT_PARITY_DEFAULTS,
       beschrijving: "Java backend",
       bronId: "00000000-0000-4000-8000-000000000001",
       contracttype: "detachering",

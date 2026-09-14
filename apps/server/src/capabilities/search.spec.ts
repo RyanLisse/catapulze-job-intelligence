@@ -4,6 +4,7 @@ import {
   createTestSliceARegistry,
   permissionsForRole,
 } from "@ji/application/registry";
+import { SEARCH_DOCUMENT_PARITY_DEFAULTS } from "@ji/search";
 
 import { createRestCapabilityHandler, restRoutesFromRegistry } from "./rest";
 
@@ -53,6 +54,7 @@ describe("REST search contract", () => {
   it("returns hits for a valid authenticated search", async () => {
     const bundle = createTestSliceARegistry();
     await bundle.deps.engine.upsertDocument({
+      ...SEARCH_DOCUMENT_PARITY_DEFAULTS,
       beschrijving: "Azure kubernetes",
       bronId: "00000000-0000-4000-8000-000000000001",
       contracttype: "detachering",
@@ -110,6 +112,7 @@ describe("REST search contract", () => {
     await Promise.all(
       documents.map((document) =>
         bundle.deps.engine.upsertDocument({
+          ...SEARCH_DOCUMENT_PARITY_DEFAULTS,
           beschrijving: "Lifecycle status fixture",
           bronId: "00000000-0000-4000-8000-000000000001",
           contracttype: null,
