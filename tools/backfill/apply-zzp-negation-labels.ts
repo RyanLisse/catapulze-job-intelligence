@@ -188,7 +188,8 @@ export type ZzpNegationRollbackReason =
   | "content_hash_mismatch"
   | "current_row_missing"
   | "current_row_mismatch"
-  | "rollback_transaction_failed";
+  | "rollback_transaction_failed"
+  | "versie_mismatch";
 
 export interface ZzpNegationApplyResult {
   readonly aanvraagId: string;
@@ -846,6 +847,14 @@ export const rollbackZzpNegationLabel = async (input: {
             aanvraagId: original.aanvraagId,
             auditId: existingRollbackId,
             status: "unchanged",
+          };
+        }
+
+        if (locked.versie !== original.versie) {
+          return {
+            aanvraagId: original.aanvraagId,
+            reason: "versie_mismatch",
+            status: "rejected",
           };
         }
 

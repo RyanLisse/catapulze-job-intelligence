@@ -985,6 +985,66 @@ describe
       expect(second.auditId).toBe(first.auditId);
     });
 
+    it("refuses rollback after a version-only advance", async () => {
+      const seeded = await seedRow({});
+      const applied = await applyZzpNegationLabel({
+        database: applicationClient,
+        manifest: seeded.manifest,
+        manifestSha256: "a".repeat(64),
+      });
+      expect(applied.status).toBe("applied");
+
+      await migratorClient`
+        UPDATE curated.aanvraag
+        SET versie = versie + 1
+        WHERE id = ${seeded.aanvraagId}
+      `;
+
+      const result = await rollbackZzpNegationLabel({
+        auditId: applied.auditId ?? "",
+        database: applicationClient,
+      });
+      expect(result).toEqual({
+        aanvraagId: seeded.aanvraagId,
+        reason: "versie_mismatch",
+        status: "rejected",
+      });
+
+      const row = await migratorClient<
+        { contentHash: string; contracttype: string | null; versie: number }[]
+      >`
+        SELECT
+          content_hash AS "contentHash",
+          contracttype,
+          versie
+        FROM curated.aanvraag
+        WHERE id = ${seeded.aanvraagId}
+      `;
+      expect(row[0]).toEqual({
+        contentHash: seeded.contentHash,
+        contracttype: null,
+        versie: seeded.manifest.versie + 1,
+      });
+
+      const audits = await migratorClient<{ action: string }[]>`
+        SELECT action
+        FROM curated.audit_event
+        WHERE entity_id = ${seeded.aanvraagId}
+        ORDER BY created_at ASC, id ASC
+      `;
+      expect(audits.map((audit) => audit.action)).toEqual([
+        ZZP_NEGATION_APPLY_ACTION,
+      ]);
+
+      const outbox = await migratorClient<{ eventType: string }[]>`
+        SELECT event_type AS "eventType"
+        FROM curated.outbox_event
+        WHERE aggregate_id = ${seeded.aanvraagId}
+      `;
+      expect(outbox).toHaveLength(1);
+      expect(outbox[0]?.eventType).toBe(ZZP_NEGATION_EVENT_TYPE);
+    });
+
     it("refuses to roll back a row something else has since written", async () => {
       const seeded = await seedRow({});
       const applied = await applyZzpNegationLabel({
