@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import type { Page } from "@playwright/test";
+import type { Page, Route } from "@playwright/test";
 
 const COMMA_LOCATION = "Amsterdam, Noord-Holland";
 const COMMA_QUERY = `"${COMMA_LOCATION}"`;
@@ -8,6 +8,7 @@ const DETAIL_ID = "00000000-0000-4000-8000-000000000104";
 const DETAIL_TITLE = "SYNTHETIC volledige detailopdracht";
 const DETAIL_END_MARKER = "SYNTHETIC_DETAIL_END_MARKER_CTP_492";
 const LIVE_CATALOG_LABEL = "SYNTHETIC Catalogus Live";
+const LIVE_CATALOG_BRON_ID = "00000000-0000-4000-8000-000000000002";
 const HISTORICAL_CATALOG_LABEL = "SYNTHETIC Historisch Archief";
 const CLOSED_TITLE = "SYNTHETIC gesloten archiefopdracht";
 const RATE_CASES = [
@@ -42,6 +43,261 @@ const waitForSearchResponse = (page: Page) =>
       response.ok(),
     { timeout: 15_000 }
   );
+
+const REST_CORS_HEADERS = {
+  "access-control-allow-credentials": "true",
+  "access-control-allow-origin": "http://localhost:3001",
+} as const;
+
+const fulfillRestSearchResponse = async (
+  route: Route,
+  body: string,
+  status: number
+) => {
+  if (route.request().method() === "OPTIONS") {
+    await route.fallback();
+    return;
+  }
+  await route.fulfill({
+    body,
+    contentType: "application/json",
+    headers: REST_CORS_HEADERS,
+    status,
+  });
+};
+
+const emptySearchResponse = {
+  archiveTotal: 0,
+  facets: {
+    bron_id: [],
+    contracttype: [],
+    locatie: [],
+    locatie_land: [],
+    status: [],
+  },
+  hits: [],
+  ids: [],
+  incomplete: false,
+  indexVersion: 0,
+  parserVersion: 1,
+  scope: "active",
+  total: 0,
+  windowLimit: 1000,
+} as const;
+
+test("renders the REST total and hands returned facets to search", async ({
+  page,
+}) => {
+  const overviewSearchResponse = page.waitForResponse(
+    (response) =>
+      response.request().method() === "POST" &&
+      response.url() === "http://localhost:3100/v1/aanvragen/search" &&
+      response.ok(),
+    { timeout: 15_000 }
+  );
+  const searchBodies: unknown[] = [];
+  page.on("request", (request) => {
+    const url = new URL(request.url());
+    if (
+      request.method() === "POST" &&
+      url.origin === "http://localhost:3100" &&
+      url.pathname === "/v1/aanvragen/search"
+    ) {
+      searchBodies.push(request.postDataJSON());
+    }
+  });
+
+  await page.goto("/", { waitUntil: "domcontentloaded" });
+  const searchResponse = await overviewSearchResponse;
+  // SAFETY: the successful response comes from the typed synthetic search handler.
+  const searchBody = (await searchResponse.json()) as {
+    readonly facets: {
+      readonly bron_id: readonly { count: number; value: string }[];
+    };
+    readonly ids: readonly string[];
+    readonly total: number;
+  };
+  await expect(page.getByText("Live overzicht", { exact: true })).toBeVisible();
+  await expect(
+    page.getByText("Beschikbare opdrachten", { exact: true }).locator("..")
+  ).toContainText("8");
+  await expect(
+    page.getByText("In archief", { exact: true }).locator("..")
+  ).toContainText("1");
+  expect(searchBody.total).toBe(8);
+  expect(searchBody.ids).toHaveLength(1);
+  expect(searchBody.facets.bron_id).toEqual(
+    expect.arrayContaining([
+      {
+        count: 1,
+        value: LIVE_CATALOG_BRON_ID,
+      },
+    ])
+  );
+  expect(searchBodies).toEqual([
+    expect.objectContaining({
+      limit: 1,
+      offset: 0,
+      query: "",
+      sort: "relevance",
+    }),
+  ]);
+
+  const liveSourceLink = page.getByRole("link", {
+    name: new RegExp(`^${LIVE_CATALOG_LABEL}`, "u"),
+  });
+  await expect(liveSourceLink).toHaveAttribute(
+    "href",
+    "/jobs?source=synthetic-catalogus-live"
+  );
+  const filteredSearchResponse = waitForSearchResponse(page);
+  await liveSourceLink.click();
+  await expect(page).toHaveURL(
+    "http://localhost:3001/jobs?source=synthetic-catalogus-live"
+  );
+  await filteredSearchResponse;
+  expect(searchBodies.at(-1)).toEqual(
+    expect.objectContaining({
+      filters: expect.objectContaining({ bronIds: [LIVE_CATALOG_BRON_ID] }),
+    })
+  );
+  await expect(
+    page.getByRole("checkbox", {
+      name: new RegExp(`^${LIVE_CATALOG_LABEL}`, "u"),
+    })
+  ).toBeChecked();
+});
+
+test("renders the live overview after the dashboard server session guard", async ({
+  page,
+}) => {
+  await page.goto("/dashboard", { waitUntil: "domcontentloaded" });
+  await expect(page).toHaveURL("http://localhost:3001/dashboard");
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText("Dashboard");
+  await expect(
+    page.getByText("Welcome Search Audit", { exact: true })
+  ).toBeVisible();
+  await expect(
+    page
+      .getByRole("main")
+      .getByText("Beschikbare opdrachten", { exact: true })
+      .locator("..")
+  ).toContainText("8");
+  await expect(
+    page.getByText("API: This is private", { exact: true })
+  ).toHaveCount(0);
+});
+
+test("keeps the server-authenticated dashboard when browser session lookup fails", async ({
+  page,
+}) => {
+  await page.route("**/api/auth/get-session", (route) =>
+    route.fulfill({
+      body: JSON.stringify({ message: "synthetic session lookup outage" }),
+      contentType: "application/json",
+      headers: REST_CORS_HEADERS,
+      status: 503,
+    })
+  );
+  const failedSession = page.waitForResponse(
+    (response) =>
+      response.url().includes("/api/auth/get-session") &&
+      response.status() === 503
+  );
+  await page.goto("/dashboard", { waitUntil: "domcontentloaded" });
+  await failedSession;
+  await expect(
+    page.getByText("Welcome Search Audit", { exact: true })
+  ).toBeVisible();
+  await expect(
+    page
+      .getByRole("main")
+      .getByText("Beschikbare opdrachten", { exact: true })
+      .locator("..")
+  ).toContainText("8");
+  await expect(
+    page.getByRole("main").getByRole("button", { name: "Inloggen" })
+  ).toHaveCount(0);
+});
+
+test("keeps anonymous home free of fabricated overview metrics", async ({
+  page,
+}) => {
+  await page.route("**/api/auth/get-session", (route) =>
+    route.fulfill({
+      body: "null",
+      contentType: "application/json",
+      headers: REST_CORS_HEADERS,
+      status: 200,
+    })
+  );
+
+  await page.goto("/", { waitUntil: "domcontentloaded" });
+  await expect(
+    page.getByRole("heading", { name: "Vind de juiste opdracht vóór de rest." })
+  ).toBeVisible();
+  await expect(
+    page
+      .getByRole("main")
+      .getByRole("button", { exact: true, name: "Inloggen" })
+  ).toBeVisible();
+  await expect(
+    page.getByText("Beschikbare opdrachten", { exact: true })
+  ).toHaveCount(0);
+  await expect(page.getByText("In archief", { exact: true })).toHaveCount(0);
+  await expect(page.getByText("Demogegevens", { exact: true })).toHaveCount(0);
+});
+
+test("shows a truthful live overview error when the REST search fails", async ({
+  page,
+}) => {
+  await page.route("**/v1/aanvragen/search", (route) =>
+    fulfillRestSearchResponse(
+      route,
+      JSON.stringify({
+        error: {
+          code: "INTERNAL_ERROR",
+          message: "synthetic overview outage",
+        },
+      }),
+      503
+    )
+  );
+
+  await page.goto("/", { waitUntil: "domcontentloaded" });
+  await expect(page.getByRole("main").getByRole("alert")).toContainText(
+    "De actuele aantallen konden niet worden geladen."
+  );
+  await expect(
+    page.getByRole("button", { name: "Opnieuw proberen" })
+  ).toBeVisible();
+  await expect(
+    page.getByText("Beschikbare opdrachten", { exact: true })
+  ).toHaveCount(0);
+});
+
+test("shows an explicit empty state for a successful zero-hit REST search", async ({
+  page,
+}) => {
+  await page.route("**/v1/aanvragen/search", (route) =>
+    fulfillRestSearchResponse(route, JSON.stringify(emptySearchResponse), 200)
+  );
+
+  await page.goto("/", { waitUntil: "domcontentloaded" });
+  await expect(
+    page.getByRole("heading", {
+      name: "Geen beschikbare opdrachten gevonden.",
+    })
+  ).toBeVisible();
+  await expect(
+    page.getByText("Beschikbare opdrachten", { exact: true })
+  ).toHaveCount(0);
+  await expect(
+    page
+      .getByRole("main")
+      .getByRole("button", { exact: true, name: "Open job search" })
+  ).toBeVisible();
+});
 
 test("browses empty and filter-only searches and preserves comma URL state", async ({
   context,
@@ -233,6 +489,45 @@ test("shows catalog labels, historical archive filters, and closed results", asy
       url.searchParams.get("source") === "synthetic-historisch-archief"
   );
   await expect(closedRow).toBeVisible();
+});
+
+test("clears the full search state from the sidebar", async ({ page }) => {
+  await openJobs(
+    page,
+    "/jobs?archief=1&q=archief&source=synthetic-historisch-archief&sort=closing-soon&page=2"
+  );
+
+  const results = page.getByRole("region", { name: "Zoekresultaten" });
+  const searchInput = page.getByLabel("Zoek opdrachten met Boolean-logica");
+  const archiveToggle = page.getByRole("checkbox", {
+    name: "Ook in archief zoeken",
+  });
+  const historicalSourceFilter = page.getByRole("checkbox", {
+    name: new RegExp(`^${HISTORICAL_CATALOG_LABEL}`, "u"),
+  });
+  const sortSelect = page.getByRole("combobox", {
+    name: "Resultaten sorteren",
+  });
+
+  await expect(searchInput).toHaveValue("archief");
+  await expect(archiveToggle).toBeChecked();
+  await expect(historicalSourceFilter).toBeChecked();
+  await expect(sortSelect).toHaveValue("closing-soon");
+
+  const sidebarClear = page
+    .locator("aside")
+    .getByRole("button", { name: "Alles wissen" });
+  await expect(sidebarClear).toBeVisible();
+  await Promise.all([waitForSearchResponse(page), sidebarClear.click()]);
+
+  await expect(page).toHaveURL("http://localhost:3001/jobs");
+  await expect(searchInput).toHaveValue("");
+  await expect(archiveToggle).not.toBeChecked();
+  await expect(historicalSourceFilter).not.toBeChecked();
+  await expect(sortSelect).toHaveValue("relevance");
+  await expect(
+    results.getByRole("row").filter({ hasText: DETAIL_TITLE })
+  ).toBeVisible();
 });
 
 test("filters closed status in the archive and preserves it in the URL", async ({

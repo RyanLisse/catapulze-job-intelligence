@@ -63,7 +63,7 @@ Harness:
   - Jobs active-filter chips: each chip removes one filter, `Alles wissen` resets query and filters
   - Jobs pagination buttons `Vorige` / `Volgende` with accessible names `Vorige pagina` / `Volgende pagina`
   - Login heading `Welcome Back`, labels `Email` / `Password`, button `Sign In` (public sign-up disabled — no `Create Account` / `Sign Up` UI)
-  - Dashboard paragraph `Welcome <name>`, text `API: This is private`
+  - Dashboard paragraph `Welcome <name>`, live overview headings or its loading/error/empty state
   - Theme toggle `sr-only` name `Thema wijzigen`, menu items `Licht` / `Donker` / `Systeem`
 
 The UI ships the approved dark console design and `next-themes` defaults to

@@ -59,15 +59,6 @@ import type {
 
 const MARKERING_POLL_INTERVAL_MS = 5000;
 
-const emptyFilters: JobSearchFilters = {
-  contractTypes: [],
-  freshness: "all",
-  locations: [],
-  minRate: null,
-  sources: [],
-  status: [],
-};
-
 const resolveDisplayStatus = (
   syntaxError: string | null,
   responseStatus: PreviewStatus
@@ -633,7 +624,7 @@ const JobSearchPageContent = ({
   const filterProps = {
     facets: response.facets,
     filters: state.filters,
-    onClear: () => updateFilters(emptyFilters),
+    onClear: clearEverything,
     onContractToggle: (value: JobContractType) =>
       updateFilters({
         ...state.filters,

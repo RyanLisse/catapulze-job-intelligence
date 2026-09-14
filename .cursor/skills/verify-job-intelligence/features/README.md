@@ -38,7 +38,7 @@ Each feature file starts with an H1 and one paragraph, then exactly four H2s: `S
 
 ## Features
 
-- [Home command center](./home-command-center.md) covers the public `/` recruiter landing and doctor tRPC `healthCheck`.
+- [Home command center](./home-command-center.md) covers the public `/` recruiter landing, authenticated live overview, and doctor tRPC `healthCheck`.
 - [Job search](./job-search.md) covers Boolean search at `/jobs` (fixtures or REST).
 - [Dashboard guard](./dashboard-guard.md) covers unauthenticated `/dashboard` redirect to `/login`.
 - [Sign up](./sign-up.md) covers disabled public sign-up (no UI path; Better Auth rejects email sign-up).
