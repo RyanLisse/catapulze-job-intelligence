@@ -247,13 +247,14 @@ additive Tailscale grant to the existing tailnet policy:
 
 Tailscale policy entries are additive and have no deny rule that can undo a
 broader grant. Preserve existing member and production connectivity. If the
-existing member/prod rule uses `src: ["*"]`, replace that source only after
-inventory confirms every intended source is `autogroup:member` or
-`tag:catapulze-prod`; otherwise enumerate every existing source tag so access
-is preserved. A wildcard destination may remain in that existing member/prod
-rule when it is intentional, but the deploy grant above must keep its exact
-source tag, exact production destination, and `tcp:22` restriction. The deploy
-tag must not be included in any broader source set.
+existing member/prod rule uses `src: ["*"]`, replace that source only after a
+tailnet inventory confirms every intended user, shared user/device identity,
+tag, subnet, and CIDR range; preserve each intended source explicitly. Do not
+assume that enumerating tags covers shared users, devices, subnet routers, or
+other routed ranges. A wildcard destination may remain in that existing
+member/prod rule when it is intentional, but the deploy grant above must keep
+its exact source tag, exact production destination, and `tcp:22` restriction.
+The deploy tag must not be included in any broader source set.
 
 The workflow validates all four Tailscale inputs without printing their values.
 The action's `ping` input then verifies the configured target before the SSH

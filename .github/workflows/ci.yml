@@ -52,6 +52,9 @@ jobs:
               - ".qlty/**"
               - ".yamllint.yml"
               - "lefthook.yml"
+              # Deployment-runbook changes must carry the full build, smoke,
+              # and restore evidence required by the production release gate.
+              - "docs/runbooks/automatic-production-deploy.md"
 
   # Never gate the test suite on paths: spec-only and dependency-only changes
   # must still produce a full gate duration and JUnit report. The changes
