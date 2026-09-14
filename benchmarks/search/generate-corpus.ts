@@ -211,13 +211,22 @@ export const generateCorpus = function* generateCorpus(
       beschrijving,
       bronId: pick(rng, BRON_IDS),
       contracttype: pick(rng, CONTRACTTYPES),
+      eindklantNaam: null,
       id: `bench-doc-${index}`,
       laatstGezienOp: new Date(REFERENCE_TIMESTAMP_MS - ageMs).toISOString(),
       locatieLand: pick(rng, LOCATIE_LANDEN),
+      opdrachtgeverNaam: null,
+      provincie: null,
+      publicatiedatum: null,
+      skills: [],
       status: pick(rng, STATUSES),
+      tariefEenheid: null,
       tariefMax,
       tariefMin,
       titel,
+      urenPerWeekMax: null,
+      urenPerWeekMin: null,
+      werkvorm: null,
     };
   }
 };
