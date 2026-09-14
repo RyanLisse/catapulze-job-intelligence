@@ -2,6 +2,7 @@ import {
   ArrowUpRight,
   Building2,
   CalendarClock,
+  Clock3,
   MapPin,
   RadioTower,
 } from "lucide-react";
@@ -25,9 +26,11 @@ interface JobResultsProps {
 const ResultTitleButton = ({
   job,
   onSelect,
+  showOrganization = true,
 }: {
   readonly job: JobListing;
   readonly onSelect: JobResultsProps["onSelect"];
+  readonly showOrganization?: boolean;
 }) => (
   <button
     type="button"
@@ -41,9 +44,11 @@ const ResultTitleButton = ({
         className="mt-0.5 size-3 shrink-0 opacity-0 transition-opacity group-hover:opacity-100"
       />
     </span>
-    <span className="mt-0.5 block text-[11px] text-muted-foreground">
-      {job.organization ?? "Onbekend"}
-    </span>
+    {showOrganization ? (
+      <span className="mt-0.5 block text-[11px] text-muted-foreground">
+        {job.organization ?? "Onbekend"}
+      </span>
+    ) : null}
   </button>
 );
 
@@ -85,28 +90,40 @@ const JobStatus = ({ job }: { readonly job: JobListing }) => {
 };
 
 const DesktopResults = ({ jobs, onSelect, selectedJobId }: JobResultsProps) => (
-  <div className="hidden min-[800px]:block">
-    <table className="w-full table-fixed text-left text-xs">
+  <div className="hidden overflow-x-auto min-[800px]:block">
+    <table className="min-w-[960px] w-full table-fixed text-left text-xs">
       <caption className="sr-only">Gevonden opdrachten</caption>
+      <colgroup>
+        <col className="w-[28%]" />
+        <col className="w-[17%]" />
+        <col className="w-[16%]" />
+        <col className="w-[12%]" />
+        <col className="w-[8%]" />
+        <col className="w-[11%]" />
+        <col className="w-[8%]" />
+      </colgroup>
       <thead className="bg-secondary/60 text-[11px] tracking-wide text-muted-foreground uppercase">
         <tr>
-          <th scope="col" className="w-[38%] px-3 py-2 font-medium xl:w-[32%]">
-            Opdracht
+          <th scope="col" className="px-3 py-2 font-medium">
+            Title
           </th>
-          <th
-            scope="col"
-            className="hidden w-[16%] px-3 py-2 font-medium xl:table-cell"
-          >
-            Locatie
+          <th scope="col" className="px-3 py-2 font-medium">
+            Company
           </th>
-          <th scope="col" className="w-[18%] px-3 py-2 font-medium">
-            Tarief
+          <th scope="col" className="px-3 py-2 font-medium">
+            Location
           </th>
-          <th scope="col" className="w-[16%] px-3 py-2 font-medium">
-            Bron
+          <th scope="col" className="px-3 py-2 font-medium">
+            Rate
           </th>
-          <th scope="col" className="w-[16%] px-3 py-2 font-medium xl:w-[18%]">
-            Timing
+          <th scope="col" className="px-3 py-2 font-medium">
+            Hrs
+          </th>
+          <th scope="col" className="px-3 py-2 font-medium">
+            Platform
+          </th>
+          <th scope="col" className="px-3 py-2 font-medium">
+            Posted
           </th>
         </tr>
       </thead>
@@ -119,7 +136,11 @@ const DesktopResults = ({ jobs, onSelect, selectedJobId }: JobResultsProps) => (
             }`}
           >
             <td className="px-3 py-2.5 align-top">
-              <ResultTitleButton job={job} onSelect={onSelect} />
+              <ResultTitleButton
+                job={job}
+                onSelect={onSelect}
+                showOrganization={false}
+              />
               <div className="mt-1.5 flex flex-wrap items-center gap-2">
                 <JobStatus job={job} />
                 <span className="text-[10px] text-muted-foreground">
@@ -127,16 +148,22 @@ const DesktopResults = ({ jobs, onSelect, selectedJobId }: JobResultsProps) => (
                 </span>
               </div>
             </td>
-            <td className="hidden px-3 py-2.5 align-top text-muted-foreground xl:table-cell">
+            <td className="truncate px-3 py-2.5 align-top text-muted-foreground">
+              {job.organization ?? "Onbekend"}
+            </td>
+            <td className="truncate px-3 py-2.5 align-top text-muted-foreground">
               {job.location ?? "Onbekend"}
               <span className="mt-0.5 block text-[10px]">
                 {formatRemote(job)}
               </span>
             </td>
             <td className="px-3 py-2.5 align-top font-mono text-muted-foreground">
-              {formatRate(job)}
+              <span className="whitespace-nowrap">{formatRate(job)}</span>
             </td>
-            <td className="px-3 py-2.5 align-top text-muted-foreground">
+            <td className="px-3 py-2.5 align-top font-mono text-muted-foreground">
+              {job.hoursPerWeek ?? "Onbekend"}
+            </td>
+            <td className="truncate px-3 py-2.5 align-top text-muted-foreground">
               {primarySource(job)}
               <span className="mt-0.5 block font-mono text-[10px]">
                 {job.sourceRecords[0]?.reference ?? "—"}
@@ -199,6 +226,14 @@ const MobileResults = ({ jobs, onSelect, selectedJobId }: JobResultsProps) => (
             />
             <dt className="sr-only">Tarief</dt>
             <dd className="font-mono">{formatRate(job)}</dd>
+          </div>
+          <div className="flex items-start gap-2">
+            <Clock3
+              aria-hidden="true"
+              className="mt-0.5 size-3.5 text-muted-foreground"
+            />
+            <dt className="sr-only">Uren per week</dt>
+            <dd className="font-mono">{job.hoursPerWeek ?? "Onbekend"}</dd>
           </div>
           <div className="flex items-start gap-2">
             <Building2
