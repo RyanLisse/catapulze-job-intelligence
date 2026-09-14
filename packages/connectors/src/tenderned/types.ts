@@ -30,7 +30,8 @@ export interface TenderNedDetail extends TenderNedListingItem {
     isHoofdOpdracht?: boolean;
     omschrijving?: string;
   }[];
-  nutsCodes?: string[];
+  /** Live API returns `{code, omschrijving}[]`; fixtures may use string codes. */
+  nutsCodes?: (string | TenderNedCode)[];
   opdrachtAardCode?: TenderNedCode;
   procedureCode?: TenderNedCode;
   publicatieDatum?: string;
@@ -48,7 +49,8 @@ export interface TenderNedFilters {
   typeOpdracht?: string;
 }
 
-export const TENDER_NED_PARSER_VERSION = "tenderned/v2" as const;
+/** v3: map nutsCodes → locatie_tekst (CTP-506). */
+export const TENDER_NED_PARSER_VERSION = "tenderned/v3" as const;
 
 export const TENDER_NED_MAX_PAGE_SIZE = 100;
 

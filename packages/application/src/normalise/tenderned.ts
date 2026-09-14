@@ -7,6 +7,10 @@ import {
 import { UNKNOWN } from "@ji/domain";
 import { resolveLifecycleStatus } from "@ji/domain/lifecycle";
 
+import {
+  nutsCodesToLocatieTekst,
+  parseTenderNedNutsEntries,
+} from "./tenderned-nuts";
 import { field } from "./types";
 import type { NormalisedAanvraagDraft } from "./types";
 
@@ -58,7 +62,12 @@ export const parseTenderNedPayload = (
       {
         aankondiging: detail.aankondigingCode?.code ?? null,
         cpv: cpv ?? [],
-        nuts_codes: detail.nutsCodes ?? [],
+        // Normalise to plain JSON (string | {code,omschrijving}) for JsonValue.
+        nuts_codes: parseTenderNedNutsEntries(detail.nutsCodes).map((entry) =>
+          entry.omschrijving
+            ? { code: entry.code, omschrijving: entry.omschrijving }
+            : entry.code
+        ),
         opdracht_aard: detail.opdrachtAardCode?.code ?? null,
         procedure: detail.procedureCode?.code ?? null,
         publicatie_id: publicatieId,
@@ -76,7 +85,11 @@ export const parseTenderNedPayload = (
     extractieMethode: "api",
     lifecycle,
     locatieLand: field("NL", parserVersion, "detail.nutsCodes"),
-    locatieTekst: field(UNKNOWN, parserVersion, "detail.nutsCodes"),
+    locatieTekst: field(
+      nutsCodesToLocatieTekst(detail.nutsCodes),
+      parserVersion,
+      "detail.nutsCodes"
+    ),
     opdrachtgeverNaam: field(
       detail.opdrachtgeverNaam?.trim() || UNKNOWN,
       parserVersion,

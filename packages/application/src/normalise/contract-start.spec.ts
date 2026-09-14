@@ -68,7 +68,7 @@ describe("contract-start provenance (RJC-432)", () => {
       "hash-tenderned"
     );
 
-    expect(draft.parserVersion).toBe("tenderned/v2");
+    expect(draft.parserVersion).toBe("tenderned/v3");
     expect(draft.startDatum.value).toBe(UNKNOWN);
     expect(draft.startDatum.provenance.sourcePath).toBe(
       "n/a (not published by source)"

@@ -234,6 +234,21 @@ describe("normalise tenderned", () => {
 
     expect(draft.lifecycle).not.toBe("closed");
   });
+
+  it("maps fixture nutsCodes NL329 to locatie_tekst Groot-Amsterdam (CTP-506)", async () => {
+    const fixture = await loadConnectorFixture<
+      TenderNedFetchedPayload["detail"]
+    >("tenderned/detail-pub-001.json");
+    const detail = fixture.payload;
+    const draft = parseTenderNedPayload(
+      { detail, listing: detail, publicatieId: detail.publicatieId },
+      TENDER_NED_HASH
+    );
+
+    expect(detail.nutsCodes).toEqual(["NL329"]);
+    expect(draft.locatieTekst.value).toBe("Groot-Amsterdam");
+    expect(draft.parserVersion).toBe("tenderned/v3");
+  });
 });
 
 const buildNeedstaffingPayload = (
