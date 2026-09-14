@@ -12,7 +12,7 @@ import {
   rollbackOrder,
   runCoolifyDeploy,
 } from "./coolify-deploy";
-import type { FetchInput } from "./coolify-deploy";
+import type { FetchInput, FetchLike } from "./coolify-deploy";
 
 const must = <T>(value: T | undefined, reason: string): T => {
   if (value === undefined) {
@@ -570,6 +570,65 @@ describe("production Coolify deployment contract", () => {
     ).rejects.toThrow("application_readback_failed");
     expect(sleeps).toEqual([20_000, 20_000]);
     expect(harness.state.stageReads.after.server).toBe(2);
+    expect(harness.state.stageReads.rollback.server).toBe(1);
+  });
+
+  it("aborts a health read when only a short absolute budget remains", async () => {
+    const harness = makeHarness({
+      applicationStatusStages: {
+        server: {
+          after: ["starting", "healthy"],
+          before: "healthy",
+          rollback: ["healthy"],
+        },
+      },
+    });
+    let clock = 0;
+    let finishedApplicationReads = 0;
+    let abortObserved = false;
+    const fetchImpl: FetchLike = async (input, init) => {
+      const url = String(input);
+      if (
+        url.includes("/applications/server-uuid") &&
+        harness.state.finishedRoles.has("server") &&
+        !abortObserved
+      ) {
+        finishedApplicationReads += 1;
+        if (finishedApplicationReads === 2) {
+          const signal = init?.signal;
+          if (!signal) {
+            throw new Error("health read did not receive an abort signal");
+          }
+          return new Promise<Response>((_resolve, reject) => {
+            signal.addEventListener(
+              "abort",
+              () => {
+                abortObserved = true;
+                reject(signal.reason);
+              },
+              { once: true }
+            );
+          });
+        }
+      }
+      return harness.fetchImpl(input, init);
+    };
+
+    await expect(
+      runCoolifyDeploy({
+        ...harness.config,
+        deadlineMs: 2001,
+        fetchImpl,
+        nowImpl: () => clock,
+        rollbackReserveMs: 1000,
+        sleepImpl: async () => {
+          clock = 1000;
+        },
+        timeoutMs: 120_000,
+      })
+    ).rejects.toThrow("coolify_transport_error");
+    expect(abortObserved).toBe(true);
+    expect(harness.state.stageReads.after.server).toBe(1);
     expect(harness.state.stageReads.rollback.server).toBe(1);
   });
 

@@ -471,12 +471,20 @@ class CoolifyApi {
     };
   }
 
-  async get(path: string, context = path): Promise<unknown> {
+  async get(
+    path: string,
+    context = path,
+    timeoutMs = this.requestTimeoutMs
+  ): Promise<unknown> {
+    const requestTimeoutMs = Math.max(
+      1,
+      Math.min(this.requestTimeoutMs, timeoutMs)
+    );
     let response: Response;
     try {
       response = await this.fetchImpl(`${this.baseUrl}${path}`, {
         headers: this.headers,
-        signal: AbortSignal.timeout(this.requestTimeoutMs),
+        signal: AbortSignal.timeout(requestTimeoutMs),
       });
     } catch {
       throw new DeploymentError(
@@ -538,9 +546,10 @@ const rolePath = (uuid: string): string =>
 const application = async (
   api: CoolifyApi,
   uuid: string,
-  role: Role
+  role: Role,
+  timeoutMs?: number
 ): Promise<ApplicationRecord> => {
-  const body = await api.get(rolePath(uuid), `${role} application`);
+  const body = await api.get(rolePath(uuid), `${role} application`, timeoutMs);
   const value = asObject(body, `${role} application`);
   if (value.uuid !== uuid) {
     throw new DeploymentError(
@@ -569,7 +578,11 @@ const waitForApplicationHealthy = async (
   );
   let lastStatus = "unknown";
   while (nowImpl() < deadline) {
-    const after = await application(api, uuid, role);
+    const remainingMs = deadline - nowImpl();
+    if (remainingMs <= 0) {
+      break;
+    }
+    const after = await application(api, uuid, role, Math.max(1, remainingMs));
     if (nowImpl() >= deadline) {
       break;
     }
