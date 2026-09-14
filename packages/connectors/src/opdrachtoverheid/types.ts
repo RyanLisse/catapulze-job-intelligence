@@ -90,14 +90,18 @@ export const OPDRACHTOVERHEID_PARSER_VERSION = "opdrachtoverheid/v3" as const;
 
 export const OPDRACHTOVERHEID_SEARCH_PATH = "/search";
 
-/** Records per page as observed live (`limit` in the request body). */
+/** Historical page size observed live; retained for the existing 400-record
+ * snapshot budget. */
 export const OPDRACHTOVERHEID_PAGE_SIZE = 25;
 
-/** Safety bound on cumulative-limit pagination (see client.ts) so a
- * misbehaving or changed private API cannot loop forever. ~375 detail URLs
- * were counted in the sitemap on 2026-08-31, and a cumulative `limit: 500`
- * request was confirmed live to return in full within the request timeout,
- * while `limit: 1000` reliably timed out (see client.ts docblock for the
- * full sort-order/cap probe). 16 pages * 25 = 400 stays comfortably inside
- * the confirmed-safe 500 ceiling with room for the sitemap's growth. */
+/** Existing row bound for one request. It preserves the prior 16 * 25 = 400
+ * budget while avoiding unstable cumulative-limit pagination. */
 export const OPDRACHTOVERHEID_MAX_PAGES = 16;
+
+export const OPDRACHTOVERHEID_MAX_RECORDS =
+  OPDRACHTOVERHEID_PAGE_SIZE * OPDRACHTOVERHEID_MAX_PAGES;
+
+/** Byte bound for the private listing response before JSON parsing. This is
+ * deliberately independent from the 400-record completeness bound because
+ * upstream fields are not size constrained. */
+export const OPDRACHTOVERHEID_MAX_LISTING_BODY_BYTES = 8 * 1024 * 1024;

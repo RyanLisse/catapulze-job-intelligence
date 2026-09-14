@@ -17,7 +17,6 @@ import {
   hashOpdrachtoverheidListingItem,
   hashOpdrachtoverheidPayload,
 } from "./hash";
-import { OPDRACHTOVERHEID_MAX_PAGES } from "./types";
 import type {
   OpdrachtoverheidFetchedPayload,
   OpdrachtoverheidLocationDetail,
@@ -103,10 +102,12 @@ export const createOpdrachtoverheidConnector = (
   return {
     bronId: options.bronId,
     discover: async (
-      checkpoint: ConnectorCheckpoint | null
+      _checkpoint: ConnectorCheckpoint | null
     ): Promise<ConnectorDiscoverResult> => {
-      const page = checkpoint?.page ?? 0;
-      const listing = await client.fetchListing(page);
+      // The private API can reorder records between equal and cumulative
+      // limits, so there is no stable page boundary. One bounded snapshot per
+      // discovery avoids omissions and duplicate observations.
+      const listing = await client.fetchListing(0);
       const items: DiscoverItem[] = await Promise.all(
         listing.items.map(async (rawTender) => {
           const tender = projectOpdrachtoverheidTender(rawTender);
@@ -117,13 +118,11 @@ export const createOpdrachtoverheidConnector = (
           };
         })
       );
-      const withinCap = page + 1 < OPDRACHTOVERHEID_MAX_PAGES;
       return {
-        checkpoint: { page: page + 1 },
-        hasMore: listing.hasMore && withinCap,
+        checkpoint: { page: 1 },
+        hasMore: false,
         items,
-        // RJC-397: the cap stopped us while the API still reported more.
-        truncated: listing.hasMore && !withinCap,
+        truncated: listing.hasMore,
       };
     },
     fetch: async (item) => {

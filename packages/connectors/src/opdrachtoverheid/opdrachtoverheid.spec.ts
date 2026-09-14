@@ -1,3 +1,4 @@
+/* oxlint-disable eslint/require-await, unicorn/prefer-response-static-json, no-await-in-loop, eslint/no-plusplus, eslint/prefer-named-capture-group, anti-slop/require-safety-comment-for-type-assertion -- source fetch doubles stay readable and preserve response-order assertions. */
 import { describe, expect, it } from "bun:test";
 
 import {
@@ -15,7 +16,10 @@ import type {
   OpdrachtoverheidFetchedPayload,
   OpdrachtoverheidTender,
 } from "./types";
-import { OPDRACHTOVERHEID_MAX_PAGES } from "./types";
+import {
+  OPDRACHTOVERHEID_MAX_LISTING_BODY_BYTES,
+  OPDRACHTOVERHEID_MAX_RECORDS,
+} from "./types";
 
 const retryPolicy = {
   initialDelayMs: 0,
@@ -114,64 +118,258 @@ describe("Opdrachtoverheid connector", () => {
     ).toBe(5);
   });
 
-  it("advances through cumulative-limit pages until the API returns a short page", async () => {
-    const bronId = "bron-opdrachtoverheid-pages";
+  it("takes one bounded snapshot without pagination omissions", async () => {
     const tenders = [
       buildTender("T-1", "One"),
       buildTender("T-2", "Two"),
       buildTender("T-3", "Three"),
     ];
+    let requestCount = 0;
+    let requestBody: { limit?: number; offset?: number } | undefined;
+    const client = createOpdrachtoverheidClient({
+      fetchImpl: Object.assign(
+        async (_input: string | URL | Request, init?: RequestInit) => {
+          requestCount += 1;
+          requestBody = JSON.parse(String(init?.body)) as {
+            limit?: number;
+            offset?: number;
+          };
+          return new Response(JSON.stringify({ negometrix_tenders: tenders }));
+        },
+        { preconnect: () => {} }
+      ),
+      liveEnabled: true,
+    });
+    const listing = await client.fetchListing(7);
+
+    expect(listing.items.map((tender) => tender.tender_id)).toEqual([
+      "T-1",
+      "T-2",
+      "T-3",
+    ]);
+    expect(listing.hasMore).toBe(true);
+    expect(requestCount).toBe(1);
+    expect(requestBody).toEqual({
+      limit: OPDRACHTOVERHEID_MAX_RECORDS,
+      offset: 0,
+    });
+  });
+
+  it("starts a fresh snapshot when resuming from a checkpoint", async () => {
+    const pages: number[] = [];
     const client: OpdrachtoverheidClient = {
       fetchDetailJsonLd: () => Promise.resolve(null),
-      // Mirrors the live API's real pagination quirk: `offset` always
-      // throws, so the client requests a growing `limit` from offset 0 and
-      // slices the new tail. This stub returns the same cumulative shape.
       fetchListing: (page) => {
-        const requestedLimit = 2 * (page + 1);
-        const all = tenders.slice(0, requestedLimit);
+        pages.push(page);
         return Promise.resolve({
-          hasMore: all.length === requestedLimit,
-          items: all.slice(page * 2),
+          hasMore: false,
+          items: [buildTender("T-checkpoint", "Checkpoint")],
         });
       },
     };
-    const connector = createOpdrachtoverheidConnector({ bronId, client });
 
-    const first = await connector.discover(null);
-    expect(first.hasMore).toBe(true);
-    expect(first.items).toHaveLength(2);
+    const result = await createOpdrachtoverheidConnector({
+      bronId: "bron-opdrachtoverheid-checkpoint",
+      client,
+    }).discover({ page: 9 });
 
-    const second = await connector.discover(first.checkpoint);
-    expect(second.hasMore).toBe(false);
-    expect(second.truncated).toBe(false);
-    expect(second.items).toHaveLength(1);
+    expect(result.items).toHaveLength(1);
+    expect(pages).toEqual([0]);
   });
 
-  it("reports truncated when the page cap stops the walk while the API still has more (RJC-397)", async () => {
-    const client: OpdrachtoverheidClient = {
-      fetchDetailJsonLd: () => Promise.resolve(null),
-      fetchListing: () =>
-        Promise.resolve({
-          hasMore: true,
-          items: [buildTender("T-CAP", "Cap")],
-        }),
-    };
-    const connector = createOpdrachtoverheidConnector({
-      bronId: "bron-opdrachtoverheid-cap",
-      client,
+  it("deduplicates tender IDs and does not cache a prior poll", async () => {
+    const snapshots = [
+      [
+        buildTender("T-A", "A"),
+        buildTender("T-B", "B"),
+        buildTender("T-A", "A repeated"),
+      ],
+      [
+        buildTender("T-B", "B reordered"),
+        buildTender("T-C", "C"),
+        buildTender("T-B", "B repeated"),
+      ],
+    ];
+    let requestCount = 0;
+    const client = createOpdrachtoverheidClient({
+      fetchImpl: Object.assign(
+        async () =>
+          new Response(
+            JSON.stringify({
+              negometrix_tenders: snapshots[requestCount++] ?? [],
+            })
+          ),
+        { preconnect: () => {} }
+      ),
+      liveEnabled: true,
     });
 
-    const beforeCap = await connector.discover({
-      page: OPDRACHTOVERHEID_MAX_PAGES - 2,
-    });
-    expect(beforeCap.hasMore).toBe(true);
-    expect(beforeCap.truncated).toBe(false);
+    const first = await client.fetchListing(0);
+    const second = await client.fetchListing(0);
 
-    const atCap = await connector.discover({
-      page: OPDRACHTOVERHEID_MAX_PAGES - 1,
+    expect(first.items.map((tender) => tender.tender_id)).toEqual([
+      "T-A",
+      "T-B",
+    ]);
+    expect(second.items.map((tender) => tender.tender_id)).toEqual([
+      "T-B",
+      "T-C",
+    ]);
+    expect(requestCount).toBe(2);
+  });
+
+  it("fails closed for underfull live snapshots and keeps fixtures complete", async () => {
+    const fullSnapshot = Array.from(
+      { length: OPDRACHTOVERHEID_MAX_RECORDS },
+      (_, index) => buildTender(`T-FULL-${index}`, `Full ${index}`)
+    );
+    const fullClient = createOpdrachtoverheidClient({
+      fetchImpl: Object.assign(
+        async () =>
+          new Response(JSON.stringify({ negometrix_tenders: fullSnapshot })),
+        { preconnect: () => {} }
+      ),
+      liveEnabled: true,
     });
-    expect(atCap.hasMore).toBe(false);
-    expect(atCap.truncated).toBe(true);
+    const fullResult = await createOpdrachtoverheidConnector({
+      bronId: "bron-opdrachtoverheid-full",
+      client: fullClient,
+    }).discover(null);
+
+    expect(fullResult.items).toHaveLength(OPDRACHTOVERHEID_MAX_RECORDS);
+    expect(fullResult.hasMore).toBe(false);
+    expect(fullResult.truncated).toBe(true);
+
+    const underfullLiveClient = createOpdrachtoverheidClient({
+      fetchImpl: Object.assign(
+        async () =>
+          new Response(
+            JSON.stringify({
+              negometrix_tenders: fullSnapshot.slice(
+                0,
+                OPDRACHTOVERHEID_MAX_RECORDS - 1
+              ),
+            })
+          ),
+        { preconnect: () => {} }
+      ),
+      liveEnabled: true,
+    });
+    const underfullResult = await createOpdrachtoverheidConnector({
+      bronId: "bron-opdrachtoverheid-underfull",
+      client: underfullLiveClient,
+    }).discover(null);
+
+    expect(underfullResult.items).toHaveLength(
+      OPDRACHTOVERHEID_MAX_RECORDS - 1
+    );
+    expect(underfullResult.hasMore).toBe(false);
+    expect(underfullResult.truncated).toBe(true);
+
+    const fixtureListing = await createOpdrachtoverheidClient({
+      liveEnabled: false,
+    }).fetchListing(0);
+    expect(fixtureListing.hasMore).toBe(false);
+
+    const run = await runConnector({
+      bronId: "bron-opdrachtoverheid-underfull-run",
+      bronSlug: "opdrachtoverheid",
+      checkpoint: null,
+      connector: createOpdrachtoverheidConnector({
+        bronId: "bron-opdrachtoverheid-underfull-run",
+        client: underfullLiveClient,
+      }),
+      limiter: new CrawlDelayLimiter({ crawlDelayMs: 0 }),
+      objectStore: new InMemoryObjectStore(),
+      observationRecorder: new InMemoryObservationRecorder(),
+      rawRetentionDays: 90,
+      retryPolicy,
+      runKind: "test",
+      runLifecycleStore: new InMemoryRunLifecycleStore(),
+      scrapeRunId: "run-oo-underfull",
+    });
+    expect(run.completeness).toEqual({
+      complete: false,
+      reason: "truncated",
+    });
+  });
+
+  it("rejects a response larger than the bounded snapshot", async () => {
+    const client = createOpdrachtoverheidClient({
+      fetchImpl: Object.assign(
+        async () =>
+          new Response(
+            JSON.stringify({
+              negometrix_tenders: Array.from(
+                { length: OPDRACHTOVERHEID_MAX_RECORDS + 1 },
+                (_, index) => buildTender(`T-OVER-${index}`, `Over ${index}`)
+              ),
+            })
+          ),
+        { preconnect: () => {} }
+      ),
+      liveEnabled: true,
+    });
+
+    await expect(client.fetchListing(0)).rejects.toThrow(
+      "maximum supported snapshot"
+    );
+  });
+
+  it("rejects a listing body over the byte bound from its header", async () => {
+    const client = createOpdrachtoverheidClient({
+      fetchImpl: Object.assign(
+        async () =>
+          new Response("{}", {
+            headers: {
+              "content-length": String(
+                OPDRACHTOVERHEID_MAX_LISTING_BODY_BYTES + 1
+              ),
+            },
+          }),
+        { preconnect: () => {} }
+      ),
+      liveEnabled: true,
+    });
+
+    await expect(client.fetchListing(0)).rejects.toThrow(
+      "listing response exceeds"
+    );
+  });
+
+  it("rejects a listing body over the byte bound while streaming", async () => {
+    const client = createOpdrachtoverheidClient({
+      fetchImpl: Object.assign(
+        async () =>
+          new Response("x".repeat(OPDRACHTOVERHEID_MAX_LISTING_BODY_BYTES + 1)),
+        { preconnect: () => {} }
+      ),
+      liveEnabled: true,
+    });
+
+    await expect(client.fetchListing(0)).rejects.toThrow(
+      "listing response exceeds"
+    );
+  });
+
+  it("rejects malformed listing shapes and tender IDs", async () => {
+    for (const payload of [
+      {},
+      { negometrix_tenders: [{}] },
+      { negometrix_tenders: [{ tender_id: "  " }] },
+    ]) {
+      const client = createOpdrachtoverheidClient({
+        fetchImpl: Object.assign(
+          async () => new Response(JSON.stringify(payload)),
+          { preconnect: () => {} }
+        ),
+        liveEnabled: true,
+      });
+
+      await expect(client.fetchListing(0)).rejects.toThrow(
+        /invalid (items|tender_id)/u
+      );
+    }
   });
 
   it("rejects an item whose listing payload is missing tender_id", async () => {

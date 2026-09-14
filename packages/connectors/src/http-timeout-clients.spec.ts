@@ -160,7 +160,7 @@ describe("native connector HTTP timeouts", () => {
       timeoutMs: TIMEOUT_MS,
     });
     await expect(opdrachtoverheid.fetchListing(0)).resolves.toEqual({
-      hasMore: false,
+      hasMore: true,
       items: [],
     });
 
