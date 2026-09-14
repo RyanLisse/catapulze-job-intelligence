@@ -26,7 +26,7 @@ const seedDocument = (index: number): SearchDocument => ({
   locatieLand: "NL",
   opdrachtgeverNaam: null,
   provincie: null,
-  publicatiedatum: null,
+  publicatiedatum: new Date(Date.UTC(2026, 7, 1 + index)),
   skills: [],
   status: "active",
   tariefEenheid: null,
@@ -97,7 +97,7 @@ describe("search_aanvragen paging contract (RJC-378)", () => {
     expect(firstPage.value.incomplete).toBe(false);
     expect(firstPage.value.windowLimit).toBe(SEARCH_WINDOW_LIMIT);
     expect(firstPage.value.ids).toHaveLength(8);
-    // newest first: index 11 was seen last
+    // newest first: index 11 has the latest publicatiedatum
     expect(firstPage.value.ids[0]).toBe(seedDocument(11).id);
     expect(secondPage.value.ids).toHaveLength(4);
     expect(secondPage.value.ids.at(-1)).toBe(seedDocument(0).id);
