@@ -2,6 +2,8 @@
 set -euo pipefail
 
 readonly EXPECTED_CRABBOX_VERSION="0.46.0"
+readonly MATERIALIZATION_CLEANUP_ATTEMPTS=3
+readonly MATERIALIZATION_CLEANUP_RETRY_DELAY_SECONDS="0.05"
 
 dry_run="false"
 for argument in "$@"; do
@@ -124,11 +126,32 @@ materialized_workspace="${materialization_root}/workspace"
 source_archive="${materialization_root}/source.tar"
 mkdir -p "$materialized_workspace"
 
-# shellcheck disable=SC2329 # invoked indirectly by the EXIT trap
+# shellcheck disable=SC2329 # invoked by the EXIT trap cleanup helper
 cleanup_materialization() {
-  rm -rf -- "$materialization_root"
+  local cleanup_status=0
+  local attempt
+  for ((attempt = 1; attempt <= MATERIALIZATION_CLEANUP_ATTEMPTS; attempt += 1)); do
+    cleanup_status=0
+    rm -rf -- "$materialization_root" 2>/dev/null || cleanup_status=$?
+    if [[ "$cleanup_status" -eq 0 ]]; then
+      return 0
+    fi
+    if [[ "$attempt" -lt "$MATERIALIZATION_CLEANUP_ATTEMPTS" ]]; then
+      sleep "$MATERIALIZATION_CLEANUP_RETRY_DELAY_SECONDS"
+    fi
+  done
+  printf 'exe.dev shadow: failed to clean up materialization workspace after %s attempts: %s\n' \
+    "$MATERIALIZATION_CLEANUP_ATTEMPTS" "$materialization_root" >&2
+  return "$cleanup_status"
 }
-trap cleanup_materialization EXIT
+
+# shellcheck disable=SC2329 # invoked indirectly by the EXIT trap
+cleanup_on_exit() {
+  local original_exit_status="$?"
+  cleanup_materialization || true
+  return "$original_exit_status"
+}
+trap cleanup_on_exit EXIT
 
 # Bash defers a trapped signal until a foreground child returns, so a bare
 # INT/TERM handler would let a paid Crabbox run continue to completion. Run
