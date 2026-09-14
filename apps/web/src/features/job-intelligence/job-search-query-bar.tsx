@@ -2,10 +2,11 @@
 
 import { Loader2, Search, SlidersHorizontal, X } from "lucide-react";
 
-import { sortLabels } from "./presentation";
-import type { JobSearchState } from "./types";
+import { queryScopeLabels, sortLabels } from "./presentation";
+import type { JobQueryScope, JobSearchState } from "./types";
 import {
   ENRICHED_SEARCH_DATA_AVAILABLE,
+  JOB_QUERY_SCOPES,
   selectableJobSortOptions,
 } from "./types";
 
@@ -13,6 +14,9 @@ const sortOptions = selectableJobSortOptions(ENRICHED_SEARCH_DATA_AVAILABLE);
 
 const isJobSort = (value: string): value is JobSearchState["sort"] =>
   sortOptions.some((candidate) => candidate === value);
+
+const isJobQueryScope = (value: string): value is JobQueryScope =>
+  JOB_QUERY_SCOPES.some((candidate) => candidate === value);
 
 const selectClass =
   "min-h-11 rounded-md border border-input bg-background px-3 text-xs font-medium text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring";
@@ -27,10 +31,12 @@ interface JobSearchQueryBarProps {
   readonly onOpenFilters: () => void;
   readonly onQueryDraftChange: (value: string) => void;
   readonly onResetQueryDraft: () => void;
+  readonly onQueryScopeChange: (scope: JobQueryScope) => void;
   readonly onScopeChange: (scope: JobSearchState["scope"]) => void;
   readonly onSortChange: (sort: JobSearchState["sort"]) => void;
   readonly onSubmit: (event?: React.FormEvent<HTMLFormElement>) => void;
   readonly queryDraft: string;
+  readonly queryScope: JobQueryScope;
   readonly scope: JobSearchState["scope"];
   readonly sort: JobSearchState["sort"];
   readonly syntaxError: string | null;
@@ -45,11 +51,13 @@ export const JobSearchQueryBar = ({
   onClearQueryDraft,
   onOpenFilters,
   onQueryDraftChange,
+  onQueryScopeChange,
   onResetQueryDraft,
   onScopeChange,
   onSortChange,
   onSubmit,
   queryDraft,
+  queryScope,
   scope,
   sort,
   syntaxError,
@@ -105,6 +113,27 @@ export const JobSearchQueryBar = ({
           </p>
         ) : null}
       </div>
+
+      <label className="flex min-h-11 items-center gap-2 text-xs text-muted-foreground">
+        <span className="hidden sm:inline">Zoek in</span>
+        <select
+          aria-label="Zoekbereik titel of alles"
+          value={queryScope}
+          onChange={(event) => {
+            const { value } = event.target;
+            if (isJobQueryScope(value)) {
+              onQueryScopeChange(value);
+            }
+          }}
+          className={selectClass}
+        >
+          {JOB_QUERY_SCOPES.map((value) => (
+            <option key={value} value={value}>
+              {queryScopeLabels[value]}
+            </option>
+          ))}
+        </select>
+      </label>
 
       <label className="flex min-h-11 items-center gap-2 text-xs text-muted-foreground">
         <span className="hidden sm:inline">Sorteren</span>

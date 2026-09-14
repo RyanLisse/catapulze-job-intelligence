@@ -10,7 +10,7 @@ import { CapabilityDiscovery } from "./capability-discovery";
 import { fixtureJobDataAdapter } from "./fixtures";
 import { JobActiveFilters } from "./job-active-filters";
 import { JobDetail } from "./job-detail";
-import { JobFilters } from "./job-filters";
+import { countActiveJobFilters, JobFilters } from "./job-filters";
 import { JobResults } from "./job-results";
 import { JobResultsMap } from "./job-results-map";
 import { createJobSearchMutations } from "./job-search-mutations";
@@ -56,11 +56,13 @@ import type {
   JobDataAdapter,
   JobIntelligenceActions,
   JobListing,
+  JobQueryScope,
   JobSearchFilters,
   JobSearchResponse,
   JobSearchState,
   JobSource,
   JobSourceOption,
+  JobWerkvorm,
   MarkeringSyncState,
   PreviewStatus,
   ResultsViewMode,
@@ -148,12 +150,7 @@ const canonicalSearchRequest = (state: JobSearchState): string => {
 };
 
 const countActiveFilters = (filters: JobSearchFilters): number =>
-  filters.sources.length +
-  filters.contractTypes.length +
-  filters.locations.length +
-  filters.status.length +
-  (filters.freshness === "all" ? 0 : 1) +
-  (filters.minRate === null ? 0 : 1);
+  countActiveJobFilters(filters);
 
 const buildJobsUrl = (state: JobSearchState): string => {
   const params = serializeJobSearchState(state).toString();
@@ -663,13 +660,39 @@ const JobSearchPageContent = ({
       }),
     onFreshnessChange: (value: JobSearchFilters["freshness"]) =>
       updateFilters({ ...state.filters, freshness: value }),
+    onHoursRangeChange: (min: number | null, max: number | null) =>
+      updateFilters({
+        ...state.filters,
+        urenPerWeekMax: max,
+        urenPerWeekMin: min,
+      }),
     onLocationToggle: (value: string) =>
       updateFilters({
         ...state.filters,
         locations: toggleSearchFilter(state.filters.locations, value),
       }),
-    onMinRateChange: (value: number | null) =>
-      updateFilters({ ...state.filters, minRate: value }),
+    onPostedRangeChange: (from: string | null, to: string | null) =>
+      updateFilters({
+        ...state.filters,
+        publicatiedatumTot: to,
+        publicatiedatumVanaf: from,
+      }),
+    onProvinceToggle: (value: string) =>
+      updateFilters({
+        ...state.filters,
+        provincies: toggleSearchFilter(state.filters.provincies, value),
+      }),
+    onRateRangeChange: (min: number | null, max: number | null) =>
+      updateFilters({
+        ...state.filters,
+        maxRate: max,
+        minRate: min,
+      }),
+    onSkillToggle: (value: string) =>
+      updateFilters({
+        ...state.filters,
+        skills: toggleSearchFilter(state.filters.skills, value),
+      }),
     onSourceToggle: (value: JobSource) =>
       updateFilters({
         ...state.filters,
@@ -680,8 +703,16 @@ const JobSearchPageContent = ({
         ...state.filters,
         status: toggleSearchFilter(state.filters.status, value),
       }),
+    onWerkvormToggle: (value: JobWerkvorm) =>
+      updateFilters({
+        ...state.filters,
+        werkvormen: toggleSearchFilter(state.filters.werkvormen, value),
+      }),
     sources,
   };
+
+  const onQueryScopeChange = (queryScope: JobQueryScope) =>
+    updateFilters({ ...state.filters, queryScope });
 
   return (
     <main
@@ -723,6 +754,7 @@ const JobSearchPageContent = ({
             onClearQueryDraft={() => setQueryDraft("")}
             onOpenFilters={() => setFiltersOpen(true)}
             onQueryDraftChange={setQueryDraft}
+            onQueryScopeChange={onQueryScopeChange}
             onResetQueryDraft={() => setQueryDraft(state.query)}
             onScopeChange={(scope) =>
               writeState(withResetPage(state, { scope, selectedJobId: null }))
@@ -732,6 +764,7 @@ const JobSearchPageContent = ({
             }
             onSubmit={submitSearch}
             queryDraft={queryDraft}
+            queryScope={state.filters.queryScope}
             scope={state.scope}
             sort={state.sort}
             syntaxError={syntaxError}
@@ -743,11 +776,17 @@ const JobSearchPageContent = ({
             onClearAll={clearEverything}
             onContractToggle={filterProps.onContractToggle}
             onFreshnessChange={filterProps.onFreshnessChange}
+            onHoursRangeChange={filterProps.onHoursRangeChange}
             onLocationToggle={filterProps.onLocationToggle}
-            onMinRateChange={filterProps.onMinRateChange}
+            onPostedRangeChange={filterProps.onPostedRangeChange}
+            onProvinceToggle={filterProps.onProvinceToggle}
             onQueryClear={clearQuery}
+            onQueryScopeChange={onQueryScopeChange}
+            onRateRangeChange={filterProps.onRateRangeChange}
+            onSkillToggle={filterProps.onSkillToggle}
             onSourceToggle={filterProps.onSourceToggle}
             onStatusToggle={filterProps.onStatusToggle}
+            onWerkvormToggle={filterProps.onWerkvormToggle}
             query={state.query}
             sources={sources}
           />

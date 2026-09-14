@@ -2,13 +2,16 @@ import { parseBooleanQuery } from "@ji/domain";
 import type { BooleanNode } from "@ji/domain";
 
 import {
+  DEFAULT_JOB_QUERY_SCOPE,
   DEFAULT_JOB_SEARCH_STATE,
   ENRICHED_SEARCH_DATA_AVAILABLE,
   FRESHNESS_FILTERS,
   JOB_CONTRACT_TYPES,
   JOB_PAGE_SIZE,
   JOB_PAGE_SIZE_OPTIONS,
+  JOB_QUERY_SCOPES,
   JOB_SEARCH_STATUS_VALUES,
+  JOB_WERKVORMEN,
   PREVIEW_STATUSES,
   selectableJobSortOptions,
 } from "./types";
@@ -17,11 +20,13 @@ import type {
   FreshnessFilter,
   JobListing,
   JobPageSize,
+  JobQueryScope,
   JobSearchRequest,
   JobSearchResponse,
   JobSearchState,
   JobSearchStatus,
   JobSort,
+  JobWerkvorm,
   PreviewStatus,
 } from "./types";
 
@@ -91,6 +96,28 @@ const parseMinRate = (value: string | null): number | null => {
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
 };
 
+const parseOptionalNonNegNumber = (value: string | null): number | null =>
+  parseMinRate(value);
+
+/** Accept YYYY-MM-DD only; reject garbage so URL state stays shareable. */
+const parseIsoDate = (value: string | null): string | null => {
+  if (value === null || value.trim() === "") {
+    return null;
+  }
+  const trimmed = value.trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/u.test(trimmed)) {
+    return null;
+  }
+  const parsed = Date.parse(`${trimmed}T00:00:00.000Z`);
+  return Number.isFinite(parsed) ? trimmed : null;
+};
+
+const isJobQueryScope = (value: string | null): value is JobQueryScope =>
+  value !== null && JOB_QUERY_SCOPES.some((item) => item === value);
+
+const isJobWerkvorm = (value: string): value is JobWerkvorm =>
+  JOB_WERKVORMEN.some((item) => item === value);
+
 export const parseJobSearchState = (
   input: SearchParamInput,
   enrichedDataAvailable: boolean = ENRICHED_SEARCH_DATA_AVAILABLE
@@ -98,6 +125,8 @@ export const parseJobSearchState = (
   const freshness = readFirst(input, "freshness");
   const sort = readFirst(input, "sort");
   const previewStatus = readFirst(input, "preview");
+
+  const queryScopeRaw = readFirst(input, "queryScope");
 
   return {
     filters: {
@@ -107,7 +136,15 @@ export const parseJobSearchState = (
       ),
       freshness: isOneOf(freshness, FRESHNESS_FILTERS) ? freshness : "all",
       locations: [...new Set(readValues(input, "location"))],
+      maxRate: parseOptionalNonNegNumber(readFirst(input, "maxRate")),
       minRate: parseMinRate(readFirst(input, "minRate")),
+      provincies: [...new Set(readValues(input, "province"))],
+      publicatiedatumTot: parseIsoDate(readFirst(input, "to")),
+      publicatiedatumVanaf: parseIsoDate(readFirst(input, "from")),
+      queryScope: isJobQueryScope(queryScopeRaw)
+        ? queryScopeRaw
+        : DEFAULT_JOB_QUERY_SCOPE,
+      skills: [...new Set(readValues(input, "skill"))],
       // RJC-368: sources are opaque bron slugs from the live register, not a
       // fixed enum, so any provided value passes through (deduped); an
       // unrecognized slug simply matches zero bronnen/facets downstream.
@@ -116,6 +153,11 @@ export const parseJobSearchState = (
         readValues(input, "status"),
         JOB_SEARCH_STATUS_VALUES
       ),
+      urenPerWeekMax: parseOptionalNonNegNumber(readFirst(input, "hoursMax")),
+      urenPerWeekMin: parseOptionalNonNegNumber(readFirst(input, "hoursMin")),
+      werkvormen: [
+        ...new Set(readValues(input, "arrangement").filter(isJobWerkvorm)),
+      ],
     },
     page: parsePositiveInteger(readFirst(input, "page"), 1),
     // Motian uses `perPage`; accept `pageSize` as alias.
@@ -133,6 +175,39 @@ export const parseJobSearchState = (
       ? sort
       : "relevance",
   };
+};
+
+const appendMotianParityFilters = (
+  params: URLSearchParams,
+  filters: JobSearchState["filters"]
+): void => {
+  if (filters.maxRate !== null) {
+    params.set("maxRate", String(filters.maxRate));
+  }
+  for (const werkvorm of filters.werkvormen) {
+    params.append("arrangement", werkvorm);
+  }
+  for (const province of filters.provincies) {
+    params.append("province", province);
+  }
+  for (const skill of filters.skills) {
+    params.append("skill", skill);
+  }
+  if (filters.urenPerWeekMin !== null) {
+    params.set("hoursMin", String(filters.urenPerWeekMin));
+  }
+  if (filters.urenPerWeekMax !== null) {
+    params.set("hoursMax", String(filters.urenPerWeekMax));
+  }
+  if (filters.publicatiedatumVanaf) {
+    params.set("from", filters.publicatiedatumVanaf);
+  }
+  if (filters.publicatiedatumTot) {
+    params.set("to", filters.publicatiedatumTot);
+  }
+  if (filters.queryScope !== DEFAULT_JOB_QUERY_SCOPE) {
+    params.set("queryScope", filters.queryScope);
+  }
 };
 
 export const serializeJobSearchState = (
@@ -161,6 +236,7 @@ export const serializeJobSearchState = (
   if (state.filters.minRate !== null) {
     params.set("minRate", String(state.filters.minRate));
   }
+  appendMotianParityFilters(params, state.filters);
   if (state.scope === "all") {
     params.set("archief", "1");
   }
@@ -417,6 +493,9 @@ const buildFacets = (jobs: readonly JobListing[]) => ({
   locations: countFacets(
     jobs.flatMap(({ location }) => (location ? [location] : []))
   ),
+  // Fixture has no province/skills/werkvorm facet source — keep empty (sparse OK).
+  provincies: [] as const,
+  skills: [] as const,
   sources: countFacets(
     jobs.flatMap((job) => job.sourceRecords.map(({ name }) => name))
   ),
@@ -425,6 +504,7 @@ const buildFacets = (jobs: readonly JobListing[]) => ({
       job.status === "closed" ? "closed" : "active"
     )
   ),
+  werkvormen: [] as const,
 });
 
 const previewMessage = {

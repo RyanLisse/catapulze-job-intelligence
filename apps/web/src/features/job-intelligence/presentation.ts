@@ -31,6 +31,17 @@ export const contractLabels = {
   vast: "Vast",
 } satisfies Record<JobContractType, string>;
 
+export const werkvormLabels = {
+  hybride: "Hybride",
+  op_locatie: "Op locatie",
+  remote: "Remote",
+} as const;
+
+export const queryScopeLabels = {
+  all: "Alles",
+  title: "Titel",
+} as const;
+
 export const freshnessLabels = {
   "24h": "Afgelopen 24 uur",
   "30d": "Afgelopen 30 dagen",

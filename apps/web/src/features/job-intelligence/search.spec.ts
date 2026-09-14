@@ -146,6 +146,35 @@ describe("REST search request mapping", () => {
   });
 });
 
+describe("CTP-507 Motian filter mapping", () => {
+  it("maps Motian-parity UI filters to SearchFilters keys", () => {
+    const bronCatalog = buildBronCatalog([]);
+    const state = parseJobSearchState(
+      new URLSearchParams(
+        "arrangement=hybride&province=Noord-Holland&skill=Python&minRate=90&maxRate=120&hoursMin=16&hoursMax=32&from=2026-07-01&to=2026-07-31&queryScope=all"
+      )
+    );
+
+    expect(mapUiFiltersToApi(state.filters, bronCatalog)).toEqual({
+      provincies: ["Noord-Holland"],
+      publicatiedatumTot: "2026-07-31",
+      publicatiedatumVanaf: "2026-07-01",
+      queryScope: "all",
+      skills: ["Python"],
+      tariefMax: 120,
+      tariefMin: 90,
+      urenPerWeekMax: 32,
+      urenPerWeekMin: 16,
+      werkvormen: ["hybride"],
+    });
+
+    const titleOnly = parseJobSearchState(new URLSearchParams("minRate=50"));
+    expect(mapUiFiltersToApi(titleOnly.filters, bronCatalog)).toEqual({
+      tariefMin: 50,
+    });
+  });
+});
+
 describe("AE5 UI query parity with MCP search_aanvragen", () => {
   it("returns matching ids and total for the same mapped arguments", async () => {
     const bundle = createTestSliceARegistry();

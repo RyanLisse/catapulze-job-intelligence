@@ -1,12 +1,13 @@
 "use client";
 
 import { ChevronDown } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import {
   contractLabels,
   freshnessLabels,
   searchStatusLabels,
+  werkvormLabels,
 } from "./presentation";
 import type {
   FacetCount,
@@ -16,8 +17,14 @@ import type {
   JobSearchStatus,
   JobSource,
   JobSourceOption,
+  JobWerkvorm,
 } from "./types";
-import { FRESHNESS_FILTERS, JOB_SEARCH_STATUS_VALUES } from "./types";
+import {
+  FRESHNESS_FILTERS,
+  JOB_SEARCH_STATUS_VALUES,
+  JOB_WERKVORMEN,
+  NL_PROVINCES,
+} from "./types";
 
 const DEFAULT_VISIBLE_OPTIONS = 6;
 
@@ -33,20 +40,40 @@ const isFreshnessFilter = (
 ): value is JobSearchFilters["freshness"] =>
   FRESHNESS_FILTERS.some((candidate) => candidate === value);
 
-const countActiveFilters = (filters: JobSearchFilters): number =>
-  filters.sources.length +
-  filters.contractTypes.length +
-  filters.locations.length +
-  filters.status.length +
-  (filters.freshness === "all" ? 0 : 1) +
-  (filters.minRate === null ? 0 : 1);
+export const countActiveJobFilters = (filters: JobSearchFilters): number => {
+  let n =
+    filters.sources.length +
+    filters.contractTypes.length +
+    filters.locations.length +
+    filters.status.length +
+    filters.werkvormen.length +
+    filters.provincies.length +
+    filters.skills.length;
+  if (filters.freshness !== "all") {
+    n += 1;
+  }
+  if (filters.minRate !== null || filters.maxRate !== null) {
+    n += 1;
+  }
+  if (filters.urenPerWeekMin !== null || filters.urenPerWeekMax !== null) {
+    n += 1;
+  }
+  if (filters.publicatiedatumVanaf || filters.publicatiedatumTot) {
+    n += 1;
+  }
+  if (filters.queryScope !== "title") {
+    n += 1;
+  }
+  return n;
+};
 
 interface FacetGroupProps {
   readonly children: React.ReactNode;
+  readonly note?: string;
   readonly title: string;
 }
 
-const FacetGroup = ({ children, title }: FacetGroupProps) => {
+const FacetGroup = ({ children, note, title }: FacetGroupProps) => {
   const [open, setOpen] = useState(true);
 
   return (
@@ -64,7 +91,14 @@ const FacetGroup = ({ children, title }: FacetGroupProps) => {
           className={`size-3.5 transition-transform ${open ? "" : "-rotate-90"}`}
         />
       </button>
-      {open ? <div className="mt-2 space-y-1.5">{children}</div> : null}
+      {open ? (
+        <div className="mt-2 space-y-1.5">
+          {note ? (
+            <p className="text-[11px] text-muted-foreground">{note}</p>
+          ) : null}
+          {children}
+        </div>
+      ) : null}
     </fieldset>
   );
 };
@@ -125,16 +159,187 @@ const findFacetCount = <T extends string>(
   value: T
 ): number => facets.find((facet) => facet.value === value)?.count ?? 0;
 
+const parseOptionalRangeValue = (raw: string): number | null => {
+  if (raw.trim() === "") {
+    return null;
+  }
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
+};
+
+const RangeGroup = ({
+  max,
+  maxPlaceholder,
+  min,
+  minPlaceholder,
+  note,
+  onApply,
+  title,
+}: {
+  readonly max: number | null;
+  readonly maxPlaceholder: string;
+  readonly min: number | null;
+  readonly minPlaceholder: string;
+  readonly note?: string;
+  readonly onApply: (min: number | null, max: number | null) => void;
+  readonly title: string;
+}) => {
+  const [a, setA] = useState(min === null ? "" : String(min));
+  const [b, setB] = useState(max === null ? "" : String(max));
+
+  useEffect(() => {
+    setA(min === null ? "" : String(min));
+    setB(max === null ? "" : String(max));
+  }, [min, max]);
+
+  return (
+    <div className="border-b border-border py-3">
+      <p className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">
+        {title}
+      </p>
+      {note ? (
+        <p className="mt-1 text-[11px] text-muted-foreground">{note}</p>
+      ) : null}
+      <div className="mt-2 flex items-center gap-2">
+        <input
+          value={a}
+          onChange={(event) => setA(event.target.value)}
+          placeholder={minPlaceholder}
+          inputMode="numeric"
+          aria-label={`${title} minimum`}
+          className="h-8 min-w-0 flex-1 rounded-md border border-input bg-background px-2 text-xs outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30"
+        />
+        <span className="text-xs text-muted-foreground">–</span>
+        <input
+          value={b}
+          onChange={(event) => setB(event.target.value)}
+          placeholder={maxPlaceholder}
+          inputMode="numeric"
+          aria-label={`${title} maximum`}
+          className="h-8 min-w-0 flex-1 rounded-md border border-input bg-background px-2 text-xs outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30"
+        />
+        <button
+          type="button"
+          className="h-8 shrink-0 rounded-md border border-input bg-secondary px-2 text-xs outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring"
+          onClick={() =>
+            onApply(parseOptionalRangeValue(a), parseOptionalRangeValue(b))
+          }
+        >
+          OK
+        </button>
+      </div>
+    </div>
+  );
+};
+
+const DateGroup = ({
+  from,
+  onApply,
+  to,
+}: {
+  readonly from: string | null;
+  readonly onApply: (from: string | null, to: string | null) => void;
+  readonly to: string | null;
+}) => (
+  <div className="border-b border-border py-3">
+    <p className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">
+      Gepubliceerd tussen
+    </p>
+    <div className="mt-2 flex items-center gap-2">
+      <input
+        type="date"
+        value={from ?? ""}
+        onChange={(event) => onApply(event.target.value || null, to)}
+        aria-label="Publicatiedatum vanaf"
+        className="h-8 min-w-0 flex-1 rounded-md border border-input bg-background px-2 text-xs outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30"
+      />
+      <input
+        type="date"
+        value={to ?? ""}
+        onChange={(event) => onApply(from, event.target.value || null)}
+        aria-label="Publicatiedatum tot"
+        className="h-8 min-w-0 flex-1 rounded-md border border-input bg-background px-2 text-xs outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30"
+      />
+    </div>
+  </div>
+);
+
+const SkillPicker = ({
+  onToggle,
+  options,
+  selected,
+}: {
+  readonly onToggle: (value: string) => void;
+  readonly options: readonly FacetCount[];
+  readonly selected: readonly string[];
+}) => {
+  const [term, setTerm] = useState("");
+  const normalized = term.trim().toLocaleLowerCase("nl-NL");
+  const filtered = useMemo(() => {
+    const base = [
+      ...selected.map((skill) => ({
+        count: findFacetCount(options, skill),
+        value: skill,
+      })),
+      ...options.filter((option) => !selected.includes(option.value)),
+    ];
+    if (!normalized) {
+      return base;
+    }
+    return base.filter((option) =>
+      option.value.toLocaleLowerCase("nl-NL").includes(normalized)
+    );
+  }, [normalized, options, selected]);
+
+  return (
+    <FacetGroup
+      title="Skills"
+      note="Skills-facet is vaak leeg tot enrichment; geselecteerde waarden worden wel doorgestuurd."
+    >
+      <input
+        value={term}
+        onChange={(event) => setTerm(event.target.value)}
+        placeholder="Filter skills…"
+        aria-label="Filter skills"
+        className="h-8 w-full rounded-md border border-input bg-background px-2 text-xs outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30"
+      />
+      <div className="max-h-56 space-y-1.5 overflow-y-auto pr-1">
+        {filtered.length === 0 ? (
+          <p className="text-xs text-muted-foreground">Geen skills</p>
+        ) : null}
+        {filtered.map((option) => (
+          <FacetOption
+            key={option.value}
+            value={option.value}
+            label={option.value}
+            count={option.count}
+            checked={selected.includes(option.value)}
+            onChange={onToggle}
+          />
+        ))}
+      </div>
+    </FacetGroup>
+  );
+};
+
 interface JobFiltersProps {
   readonly facets: JobSearchFacets;
   readonly filters: JobSearchFilters;
   readonly onClear: () => void;
   readonly onContractToggle: (value: JobContractType) => void;
   readonly onFreshnessChange: (value: JobSearchFilters["freshness"]) => void;
+  readonly onHoursRangeChange: (min: number | null, max: number | null) => void;
   readonly onLocationToggle: (value: string) => void;
-  readonly onMinRateChange: (value: number | null) => void;
+  readonly onPostedRangeChange: (
+    from: string | null,
+    to: string | null
+  ) => void;
+  readonly onProvinceToggle: (value: string) => void;
+  readonly onRateRangeChange: (min: number | null, max: number | null) => void;
+  readonly onSkillToggle: (value: string) => void;
   readonly onSourceToggle: (value: JobSource) => void;
   readonly onStatusToggle: (value: JobSearchStatus) => void;
+  readonly onWerkvormToggle: (value: JobWerkvorm) => void;
   readonly sources: readonly JobSourceOption[];
 }
 
@@ -144,21 +349,47 @@ export const JobFilters = ({
   onClear,
   onContractToggle,
   onFreshnessChange,
+  onHoursRangeChange,
   onLocationToggle,
-  onMinRateChange,
+  onPostedRangeChange,
+  onProvinceToggle,
+  onRateRangeChange,
+  onSkillToggle,
   onSourceToggle,
   onStatusToggle,
+  onWerkvormToggle,
   sources,
 }: JobFiltersProps) => {
   const [showAllSources, setShowAllSources] = useState(false);
   const [showAllLocations, setShowAllLocations] = useState(false);
-  const activeCount = countActiveFilters(filters);
+  const [showAllProvinces, setShowAllProvinces] = useState(false);
+  const activeCount = countActiveJobFilters(filters);
   const visibleSources = showAllSources
     ? sources
     : sources.slice(0, DEFAULT_VISIBLE_OPTIONS);
   const visibleLocations = showAllLocations
     ? facets.locations
     : facets.locations.slice(0, DEFAULT_VISIBLE_OPTIONS);
+
+  const provinceOptions = useMemo(() => {
+    const facetMap = new Map(
+      (facets.provincies ?? []).map((facet) => [facet.value, facet.count])
+    );
+    const values = [
+      ...NL_PROVINCES,
+      ...filters.provincies.filter(
+        (province) => !NL_PROVINCES.some((known) => known === province)
+      ),
+    ];
+    return values.map((value) => ({
+      count: facetMap.get(value) ?? 0,
+      value,
+    }));
+  }, [facets.provincies, filters.provincies]);
+
+  const visibleProvinces = showAllProvinces
+    ? provinceOptions
+    : provinceOptions.slice(0, DEFAULT_VISIBLE_OPTIONS);
 
   return (
     <div className="px-4 pb-4 min-[800px]:px-0">
@@ -227,6 +458,19 @@ export const JobFilters = ({
         ))}
       </FacetGroup>
 
+      <FacetGroup title="Werkvorm">
+        {JOB_WERKVORMEN.map((werkvorm) => (
+          <FacetOption
+            key={werkvorm}
+            value={werkvorm}
+            label={werkvormLabels[werkvorm]}
+            count={findFacetCount(facets.werkvormen ?? [], werkvorm)}
+            checked={filters.werkvormen.includes(werkvorm)}
+            onChange={onWerkvormToggle}
+          />
+        ))}
+      </FacetGroup>
+
       <FacetGroup title="Locatie">
         {facets.locations.length === 0 ? (
           <p className="text-xs text-muted-foreground">Geen locaties</p>
@@ -251,7 +495,56 @@ export const JobFilters = ({
         ) : null}
       </FacetGroup>
 
-      <FacetGroup title="Gepubliceerd">
+      <FacetGroup
+        title="Provincie"
+        note="Provincie-facet ontbreekt in SearchFacets API (alleen bron/contract/locatie/status). Waarden worden wel gefilterd; index-vulling is vaak spaarzaam."
+      >
+        {visibleProvinces.map(({ count, value }) => (
+          <FacetOption
+            key={value}
+            value={value}
+            label={value}
+            count={count}
+            checked={filters.provincies.includes(value)}
+            onChange={onProvinceToggle}
+          />
+        ))}
+        {provinceOptions.length > DEFAULT_VISIBLE_OPTIONS ? (
+          <ShowAllToggle
+            hiddenLabel="provincies"
+            onToggle={() => setShowAllProvinces((previous) => !previous)}
+            showAll={showAllProvinces}
+            total={provinceOptions.length}
+          />
+        ) : null}
+      </FacetGroup>
+
+      <SkillPicker
+        options={facets.skills ?? []}
+        selected={filters.skills}
+        onToggle={onSkillToggle}
+      />
+
+      <RangeGroup
+        title="Uurtarief (€)"
+        note="Min–max → tariefMin/tariefMax"
+        min={filters.minRate}
+        max={filters.maxRate}
+        minPlaceholder="min"
+        maxPlaceholder="max"
+        onApply={onRateRangeChange}
+      />
+
+      <RangeGroup
+        title="Uren per week"
+        min={filters.urenPerWeekMin}
+        max={filters.urenPerWeekMax}
+        minPlaceholder="min"
+        maxPlaceholder="max"
+        onApply={onHoursRangeChange}
+      />
+
+      <FacetGroup title="Versheid (snelkeuze)">
         <label className="sr-only" htmlFor="freshness-filter">
           Filter op publicatiedatum
         </label>
@@ -274,27 +567,11 @@ export const JobFilters = ({
         </select>
       </FacetGroup>
 
-      <FacetGroup title="Minimum uurtarief">
-        <div className="relative">
-          <span className="pointer-events-none absolute inset-y-0 left-2.5 flex items-center text-xs text-muted-foreground">
-            €
-          </span>
-          <input
-            type="number"
-            inputMode="numeric"
-            min="0"
-            step="5"
-            value={filters.minRate ?? ""}
-            onChange={(event) => {
-              const value = event.target.valueAsNumber;
-              onMinRateChange(Number.isFinite(value) ? value : null);
-            }}
-            aria-label="Minimum uurtarief"
-            placeholder="Geen minimum"
-            className="min-h-9 w-full rounded-md border border-input bg-background pr-2 pl-6 text-xs outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30"
-          />
-        </div>
-      </FacetGroup>
+      <DateGroup
+        from={filters.publicatiedatumVanaf}
+        to={filters.publicatiedatumTot}
+        onApply={onPostedRangeChange}
+      />
     </div>
   );
 };

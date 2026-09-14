@@ -94,6 +94,43 @@ describe("job search URL state", () => {
       "active"
     );
   });
+
+  it("round-trips Motian-parity filters and queryScope (CTP-507)", () => {
+    const original = parseJobSearchState(
+      new URLSearchParams(
+        "arrangement=hybride&arrangement=remote&province=Utrecht&skill=Azure&minRate=80&maxRate=140&hoursMin=24&hoursMax=40&from=2026-08-01&to=2026-08-31&queryScope=all"
+      )
+    );
+
+    expect(original.filters.werkvormen).toEqual(["hybride", "remote"]);
+    expect(original.filters.provincies).toEqual(["Utrecht"]);
+    expect(original.filters.skills).toEqual(["Azure"]);
+    expect(original.filters.minRate).toBe(80);
+    expect(original.filters.maxRate).toBe(140);
+    expect(original.filters.urenPerWeekMin).toBe(24);
+    expect(original.filters.urenPerWeekMax).toBe(40);
+    expect(original.filters.publicatiedatumVanaf).toBe("2026-08-01");
+    expect(original.filters.publicatiedatumTot).toBe("2026-08-31");
+    expect(original.filters.queryScope).toBe("all");
+    // queryScope is distinct from archive scope
+    expect(original.scope).toBe("active");
+
+    expect(parseJobSearchState(serializeJobSearchState(original))).toEqual(
+      original
+    );
+
+    const defaults = parseJobSearchState(new URLSearchParams("q=x"));
+    expect(defaults.filters.queryScope).toBe("title");
+    expect(serializeJobSearchState(defaults).has("queryScope")).toBe(false);
+    expect(
+      parseJobSearchState(new URLSearchParams("arrangement=onsite")).filters
+        .werkvormen
+    ).toEqual([]);
+    expect(
+      parseJobSearchState(new URLSearchParams("from=not-a-date")).filters
+        .publicatiedatumVanaf
+    ).toBeNull();
+  });
 });
 
 describe("fixture job search", () => {
