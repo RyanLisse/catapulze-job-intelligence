@@ -203,7 +203,7 @@ describe("JobResults seven-column parity (CTP-493)", () => {
       "Platform",
       "Posted",
     ]) {
-      expect(markup).toMatch(new RegExp(`<th[^>]*>${header}</th>`));
+      expect(markup).toMatch(new RegExp(`<th[^>]*>${header}</th>`, "u"));
     }
     expect(markup).toContain("overflow-x-auto");
     expect(markup).toContain("min-w-[960px]");
