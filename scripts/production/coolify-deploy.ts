@@ -36,6 +36,7 @@ const TRANSIENT_APPLICATION_STATES = new Set([
   "running:unknown",
   "starting",
 ]);
+const APPLICATION_HEALTH_CONVERGENCE_MS = 90_000;
 
 export type FetchInput = Request | string | URL;
 
@@ -562,10 +563,16 @@ const waitForApplicationHealthy = async (
   absoluteDeadlineAt: number,
   nowImpl: () => number
 ): Promise<ApplicationRecord> => {
-  const deadline = Math.min(nowImpl() + timeoutMs, absoluteDeadlineAt);
+  const deadline = Math.min(
+    nowImpl() + Math.min(timeoutMs, APPLICATION_HEALTH_CONVERGENCE_MS),
+    absoluteDeadlineAt
+  );
   let lastStatus = "unknown";
-  while (nowImpl() <= deadline) {
+  while (nowImpl() < deadline) {
     const after = await application(api, uuid, role);
+    if (nowImpl() >= deadline) {
+      break;
+    }
     if (after.git_commit_sha !== expectedSha) {
       throw new DeploymentError(
         "application_readback_failed",
