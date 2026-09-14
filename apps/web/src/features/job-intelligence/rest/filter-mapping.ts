@@ -1,5 +1,8 @@
 import type { SearchFilters } from "../contracts";
-import { ENRICHED_SEARCH_DATA_AVAILABLE } from "../types";
+import {
+  DEFAULT_JOB_QUERY_SCOPE,
+  ENRICHED_SEARCH_DATA_AVAILABLE,
+} from "../types";
 import type {
   FacetCount,
   FreshnessFilter,
@@ -146,8 +149,8 @@ export const mapUiFiltersToApi = (
   if (filters.publicatiedatumTot) {
     mapped.publicatiedatumTot = filters.publicatiedatumTot;
   }
-  // queryScope defaults to title on the engine; only send when non-default.
-  if (filters.queryScope !== "title") {
+  // queryScope defaults to all (CTP-508 full vacature); only send when non-default.
+  if (filters.queryScope !== DEFAULT_JOB_QUERY_SCOPE) {
     mapped.queryScope = filters.queryScope;
   }
   if (freshnessDays === undefined) {

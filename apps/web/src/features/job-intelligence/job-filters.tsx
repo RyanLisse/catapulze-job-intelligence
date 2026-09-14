@@ -20,6 +20,7 @@ import type {
   JobWerkvorm,
 } from "./types";
 import {
+  DEFAULT_JOB_QUERY_SCOPE,
   FRESHNESS_FILTERS,
   JOB_SEARCH_STATUS_VALUES,
   JOB_WERKVORMEN,
@@ -61,7 +62,7 @@ export const countActiveJobFilters = (filters: JobSearchFilters): number => {
   if (filters.publicatiedatumVanaf || filters.publicatiedatumTot) {
     n += 1;
   }
-  if (filters.queryScope !== "title") {
+  if (filters.queryScope !== DEFAULT_JOB_QUERY_SCOPE) {
     n += 1;
   }
   return n;

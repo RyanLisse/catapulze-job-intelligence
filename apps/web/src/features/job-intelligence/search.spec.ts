@@ -159,7 +159,6 @@ describe("CTP-507 Motian filter mapping", () => {
       provincies: ["Noord-Holland"],
       publicatiedatumTot: "2026-07-31",
       publicatiedatumVanaf: "2026-07-01",
-      queryScope: "all",
       skills: ["Python"],
       tariefMax: 120,
       tariefMin: 90,
@@ -168,8 +167,16 @@ describe("CTP-507 Motian filter mapping", () => {
       werkvormen: ["hybride"],
     });
 
-    const titleOnly = parseJobSearchState(new URLSearchParams("minRate=50"));
+    const defaultScope = parseJobSearchState(new URLSearchParams("minRate=50"));
+    expect(mapUiFiltersToApi(defaultScope.filters, bronCatalog)).toEqual({
+      tariefMin: 50,
+    });
+
+    const titleOnly = parseJobSearchState(
+      new URLSearchParams("minRate=50&queryScope=title")
+    );
     expect(mapUiFiltersToApi(titleOnly.filters, bronCatalog)).toEqual({
+      queryScope: "title",
       tariefMin: 50,
     });
   });

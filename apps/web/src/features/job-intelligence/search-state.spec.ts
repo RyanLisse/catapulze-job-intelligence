@@ -120,7 +120,7 @@ describe("job search URL state", () => {
     );
 
     const defaults = parseJobSearchState(new URLSearchParams("q=x"));
-    expect(defaults.filters.queryScope).toBe("title");
+    expect(defaults.filters.queryScope).toBe("all");
     expect(serializeJobSearchState(defaults).has("queryScope")).toBe(false);
     expect(
       parseJobSearchState(new URLSearchParams("arrangement=onsite")).filters

@@ -101,8 +101,9 @@ export const JobSearchQueryBar = ({
             </button>
           ) : null}
         </div>
-        <p id="job-query-hint" className="sr-only">
-          Gebruik AND, OR, NOT, haakjes en aanhalingstekens.
+        <p id="job-query-hint" className="mt-1.5 text-xs text-muted-foreground">
+          Boolean: AND, OR, NOT, haakjes en "frases". Standaard zoekt in de
+          volledige vacature (titel + beschrijving).
         </p>
         {syntaxError ? (
           <p

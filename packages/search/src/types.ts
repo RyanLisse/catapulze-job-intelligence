@@ -36,7 +36,7 @@ export type SearchSort = (typeof SEARCH_SORT_OPTIONS)[number];
 export type SearchMode = "hybrid" | "lexical";
 
 /** Default query text scope: title + company, not full description. */
-export const DEFAULT_QUERY_SCOPE = "title" as const;
+export const DEFAULT_QUERY_SCOPE = "all" as const;
 
 export const QUERY_SCOPE_OPTIONS = ["title", "all"] as const;
 
@@ -134,7 +134,7 @@ export interface SearchFilters {
   provincies?: readonly string[];
   /**
    * Title scope searches titel + opdrachtgeverNaam; all searches full text.
-   * Defaults to {@link DEFAULT_QUERY_SCOPE} when omitted.
+   * Defaults to {@link DEFAULT_QUERY_SCOPE} when omitted (CTP-508: full vacature = titel+beschrijving+opdrachtgever).
    */
   queryScope?: QueryScope;
   skills?: readonly string[];
