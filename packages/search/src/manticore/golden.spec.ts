@@ -59,7 +59,7 @@ describe("Manticore golden queries", () => {
 
     const queryString = buildQueryString(parsed.ast);
     expect(queryString).toBe(
-      '@(titel,beschrijving) (Azure | "platform engineer") -intern'
+      '@(titel,beschrijving,opdrachtgever_naam) (Azure | "platform engineer") -intern'
     );
 
     const request = buildManticoreSearchRequest(
@@ -93,13 +93,13 @@ describe("Manticore golden queries", () => {
 
     const first = await engine.search({
       ast: parsed.ast,
-      filters: {},
+      filters: { queryScope: "all" },
       limit: 20,
       offset: 0,
     });
     const second = await engine.search({
       ast: parsed.ast,
-      filters: {},
+      filters: { queryScope: "all" },
       limit: 20,
       offset: 0,
     });
@@ -112,7 +112,7 @@ describe("Manticore golden queries", () => {
     }
     expect(firstRequest.query).toEqual({
       query_string:
-        '@(titel,beschrijving) (Azure | "platform engineer") -intern',
+        '@(titel,beschrijving,opdrachtgever_naam) (Azure | "platform engineer") -intern',
     });
   });
 

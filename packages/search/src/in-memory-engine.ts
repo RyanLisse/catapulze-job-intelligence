@@ -25,6 +25,7 @@ import type {
   SearchSort,
 } from "./types";
 import {
+  DEFAULT_QUERY_SCOPE,
   documentLocatie,
   emptySearchFacets,
   SEARCH_WINDOW_LIMIT,
@@ -115,6 +116,59 @@ const byId = (left: SearchDocument, right: SearchDocument): number =>
  * are stable. Missing rates sort as 0 (last under desc) and missing
  * deadlines sort last, exactly as the indexed sentinels make Manticore behave.
  */
+const publicationTime = (document: SearchDocument): number | null =>
+  document.publicatiedatum?.getTime() ?? null;
+
+/** Comparable rate only when an explicit period is present (CTP-493). */
+const comparableRate = (
+  document: SearchDocument,
+  prefer: "max" | "min"
+): number | null => {
+  if (document.tariefEenheid === null) {
+    return null;
+  }
+  return prefer === "max" ? document.tariefMax : document.tariefMin;
+};
+
+const compareNullableNumberDesc = (
+  left: number | null,
+  right: number | null
+): number | null => {
+  if (left === null && right === null) {
+    return null;
+  }
+  if (left === null) {
+    return 1;
+  }
+  if (right === null) {
+    return -1;
+  }
+  if (left === right) {
+    return null;
+  }
+  return right < left ? -1 : 1;
+};
+
+const compareNullableNumberAsc = (
+  left: number | null,
+  right: number | null
+): number | null => {
+  if (left === null && right === null) {
+    return null;
+  }
+  if (left === null) {
+    return 1;
+  }
+  if (right === null) {
+    return -1;
+  }
+  if (left === right) {
+    return null;
+  }
+  return left < right ? -1 : 1;
+};
+
+// oxlint-disable-next-line eslint/complexity -- exhaustive SearchSort switch
 const compareDocuments = (
   left: SearchDocument,
   right: SearchDocument,
@@ -127,13 +181,34 @@ const compareDocuments = (
     }
     case "newest": {
       return (
-        right.laatstGezienOp.getTime() - left.laatstGezienOp.getTime() ||
-        byId(left, right)
+        compareNullableNumberDesc(
+          publicationTime(left),
+          publicationTime(right)
+        ) ?? byId(left, right)
+      );
+    }
+    case "oldest": {
+      return (
+        compareNullableNumberAsc(
+          publicationTime(left),
+          publicationTime(right)
+        ) ?? byId(left, right)
       );
     }
     case "rate-high": {
       return (
-        (right.tariefMax ?? 0) - (left.tariefMax ?? 0) || byId(left, right)
+        compareNullableNumberDesc(
+          comparableRate(left, "max"),
+          comparableRate(right, "max")
+        ) ?? byId(left, right)
+      );
+    }
+    case "rate-low": {
+      return (
+        compareNullableNumberAsc(
+          comparableRate(left, "min"),
+          comparableRate(right, "min")
+        ) ?? byId(left, right)
       );
     }
     case "closing-soon": {
@@ -143,6 +218,24 @@ const compareDocuments = (
         return leftDeadline < rightDeadline ? -1 : 1;
       }
       return byId(left, right);
+    }
+    case "title-asc": {
+      return compareCodepoints(left.titel, right.titel) || byId(left, right);
+    }
+    case "company-asc": {
+      const leftCompany = left.opdrachtgeverNaam ?? "";
+      const rightCompany = right.opdrachtgeverNaam ?? "";
+      // Unknown company sorts last under A–Z.
+      if (left.opdrachtgeverNaam === null && right.opdrachtgeverNaam === null) {
+        return byId(left, right);
+      }
+      if (left.opdrachtgeverNaam === null) {
+        return 1;
+      }
+      if (right.opdrachtgeverNaam === null) {
+        return -1;
+      }
+      return compareCodepoints(leftCompany, rightCompany) || byId(left, right);
     }
     default: {
       const _exhaustive: never = sort;
@@ -220,10 +313,19 @@ export class InMemorySearchEngine implements SearchEngine {
           return true;
         }
 
+        const queryScope = params.filters.queryScope ?? DEFAULT_QUERY_SCOPE;
+        if (queryScope === "title") {
+          return evaluateBooleanAst(
+            params.ast,
+            document.titel,
+            document.opdrachtgeverNaam ?? ""
+          );
+        }
+
         return evaluateBooleanAst(
           params.ast,
           document.titel,
-          document.beschrijving
+          `${document.beschrijving} ${document.opdrachtgeverNaam ?? ""}`
         );
       };
       const matched: SearchDocument[] = [];

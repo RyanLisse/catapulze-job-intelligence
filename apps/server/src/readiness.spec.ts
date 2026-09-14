@@ -12,7 +12,7 @@ const okCheckpoint = () => ({
   appliedSequence: 42n,
   generation: 1,
   schemaHash:
-    "aanvragen-v8[active|archive]:beschrijving,bron_id,contracttype,document_id,index_version,laatst_gezien_op,locatie,locatie_land,sluitingsdatum,status,tarief_max,tarief_min,titel,projection_hash;locatie=nullable-omitted;locatie_land=nullable-omitted",
+    "aanvragen-v10[active|archive]:beschrijving,bron_id,contracttype,document_id,index_version,laatst_gezien_op,locatie,locatie_land,opdrachtgever_naam,provincie,publicatiedatum,sluitingsdatum,status,tarief_eenheid,tarief_max,tarief_min,titel,uren_per_week_max,uren_per_week_min,werkvorm,projection_hash;locatie=nullable-omitted;locatie_land=nullable-omitted;eindklant=null;skills=empty-default",
 });
 
 const baseDeps = (overrides: Partial<ReadinessDeps> = {}): ReadinessDeps => ({

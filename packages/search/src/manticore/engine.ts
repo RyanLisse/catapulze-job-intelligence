@@ -23,6 +23,7 @@ import type {
   SearchMutationFailure,
 } from "../types";
 import {
+  DEFAULT_QUERY_SCOPE,
   documentLocatie,
   mutationId,
   SEARCH_INDEX_NAME,
@@ -43,7 +44,13 @@ import {
 import type { ManticoreHttpClient } from "./client";
 import { FetchManticoreEffectClient } from "./client-effect";
 import { isEffectSearchEnabled } from "./effect-flag";
-import { buildBoolJson, buildKnnQueryText, buildQueryString } from "./emitter";
+import {
+  buildBoolJson,
+  buildKnnQueryText,
+  buildQueryString,
+  SEARCH_TEXT_FIELDS,
+  SEARCH_TITLE_SCOPE_FIELDS,
+} from "./emitter";
 import type { ManticoreBoolQuery } from "./emitter";
 import { hashDocumentId } from "./id-hash";
 import type {
@@ -86,13 +93,25 @@ const HYBRID_FACET_NAMES = [
  */
 export const SLUITINGSDATUM_MISSING_SENTINEL = 4_102_444_800;
 
+/** Epoch 0: newest (desc) keeps unknown publication dates last. */
+export const PUBLICATIEDATUM_MISSING_SENTINEL = 0;
+
+/** Sorts unknown companies last under company-asc. */
+export const COMPANY_MISSING_KEYWORD = "\uFFFF";
+
 const epochSeconds = (value: Date): number =>
   Math.floor(value.getTime() / 1000);
 
+const comparableTarief = (document: SearchDocument): number => {
+  if (document.tariefEenheid === null) {
+    return 0;
+  }
+  return document.tariefMax ?? document.tariefMin ?? 0;
+};
+
 /**
  * The content-bearing projection, deliberately excluding the derived
- * `projection_hash`. Keeping this object in the old field order preserves
- * the canonical hash bytes across the v3 -> v4 schema transition.
+ * `projection_hash`. New CTP-493 attributes are additive for schema v10.
  */
 const documentToManticoreFields = (
   document: SearchDocument,
@@ -105,14 +124,28 @@ const documentToManticoreFields = (
       : [];
   const locationEntries: [string, string | number][] =
     location === undefined ? [] : [["locatie", location]];
+  const company = document.opdrachtgeverNaam ?? "";
   const entries: [string, string | number][] = [
     ["beschrijving", document.beschrijving],
     ["bron_id", document.bronId],
+    ["comparable_tarief", comparableTarief(document)],
     ["contracttype", document.contracttype ?? ""],
     ["document_id", document.id],
     ["index_version", indexVersion],
     ["laatst_gezien_op", epochSeconds(document.laatstGezienOp)],
     ...countryEntries,
+    ["opdrachtgever_naam", company],
+    [
+      "opdrachtgever_naam_keyword",
+      document.opdrachtgeverNaam === null ? COMPANY_MISSING_KEYWORD : company,
+    ],
+    ["provincie", document.provincie ?? ""],
+    [
+      "publicatiedatum",
+      document.publicatiedatum
+        ? epochSeconds(document.publicatiedatum)
+        : PUBLICATIEDATUM_MISSING_SENTINEL,
+    ],
     [
       "sluitingsdatum",
       document.sluitingsdatum
@@ -120,9 +153,14 @@ const documentToManticoreFields = (
         : SLUITINGSDATUM_MISSING_SENTINEL,
     ],
     ["status", document.status],
+    ["tarief_eenheid", document.tariefEenheid ?? ""],
     ["tarief_max", document.tariefMax ?? 0],
     ["tarief_min", document.tariefMin ?? 0],
     ["titel", document.titel],
+    ["titel_keyword", document.titel],
+    ["uren_per_week_max", document.urenPerWeekMax ?? 0],
+    ["uren_per_week_min", document.urenPerWeekMin ?? 0],
+    ["werkvorm", document.werkvorm ?? ""],
     ...locationEntries,
   ];
   // SAFETY: entries contains every required Manticore field exactly once;
@@ -526,7 +564,11 @@ export class ManticoreSearchEngine implements SearchEngine {
     const scope: SearchScope = params.scope ?? DEFAULT_SEARCH_SCOPE;
     const { archiveCountRequest, facetRequests, request } =
       recordCriticalPathPhaseSync("search-serialization", () => {
-        const queryString = buildQueryString(params.ast);
+        const textFields =
+          (params.filters.queryScope ?? DEFAULT_QUERY_SCOPE) === "title"
+            ? SEARCH_TITLE_SCOPE_FIELDS
+            : SEARCH_TEXT_FIELDS;
+        const queryString = buildQueryString(params.ast, textFields);
         const requestedMode = params.mode ?? "lexical";
         const mode =
           requestedMode === "hybrid" &&
@@ -692,16 +734,19 @@ export class ManticoreSearchEngine implements SearchEngine {
 }
 
 export const buildRecordedQuery = (
-  ast: BooleanNode | null
+  ast: BooleanNode | null,
+  queryScope: "all" | "title" = DEFAULT_QUERY_SCOPE
 ): ManticoreBoolQuery | ManticoreQueryBody | null => {
   if (ast === null) {
     return null;
   }
 
-  const queryString = buildQueryString(ast);
+  const textFields =
+    queryScope === "title" ? SEARCH_TITLE_SCOPE_FIELDS : SEARCH_TEXT_FIELDS;
+  const queryString = buildQueryString(ast, textFields);
   if (queryString !== null) {
     return { query_string: queryString };
   }
 
-  return buildBoolJson(ast);
+  return buildBoolJson(ast, textFields);
 };

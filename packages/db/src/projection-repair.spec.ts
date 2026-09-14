@@ -217,11 +217,15 @@ const seedAanvraag = async (
       laatstGezienOp: NOW,
       locatieLand: location?.land ?? "NL",
       locatieTekst: location?.tekst ?? null,
+      opdrachtgeverNaam: null,
+      publicatiedatum: null,
       rawPayloadRef: "raw/hero/A.html",
       scrapeRunId: runId,
       status: "active",
+      tariefEenheid: null,
       titel: "titel",
       versie: 1,
+      werkvorm: null,
     })
     .returning({ id: aanvraag.id });
   if (!row) {

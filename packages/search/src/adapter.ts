@@ -28,6 +28,7 @@ import { Singleflight } from "./cache/singleflight";
 import { DEFAULT_SEARCH_SCOPE } from "./partition";
 import type { SearchScope } from "./partition";
 import type {
+  QueryScope,
   ResultCache,
   SearchAdapterInput,
   SearchAdapterResult,
@@ -37,6 +38,7 @@ import type {
   SearchMode,
   SearchSort,
 } from "./types";
+import { DEFAULT_QUERY_SCOPE } from "./types";
 import type { SearchVersion } from "./version";
 
 const DEFAULT_LIMIT = 20;
@@ -45,8 +47,35 @@ const DEFAULT_SORT = "relevance";
 const DEFAULT_CACHE_TTL_SECONDS = 120;
 const FACETS_CACHE_TTL_SECONDS = 120;
 
+const normalizeQueryScope = (value: QueryScope | undefined): QueryScope =>
+  value === "all" ? "all" : DEFAULT_QUERY_SCOPE;
+
+const normalizePublicationFilter = (
+  value: string | undefined
+): string | undefined => {
+  if (value === undefined) {
+    return undefined;
+  }
+  return Number.isNaN(Date.parse(value)) ? undefined : value;
+};
+
+/** Omitted scope defaults to title; publication bounds stay ISO strings. */
+export const normalizeSearchFilters = (
+  filters: SearchFilters | undefined
+): SearchFilters => {
+  const source = filters ?? {};
+  return {
+    ...source,
+    publicatiedatumTot: normalizePublicationFilter(source.publicatiedatumTot),
+    publicatiedatumVanaf: normalizePublicationFilter(
+      source.publicatiedatumVanaf
+    ),
+    queryScope: normalizeQueryScope(source.queryScope),
+  };
+};
+
 const normalizeFilters = (filters: SearchFilters | undefined): SearchFilters =>
-  filters ?? {};
+  normalizeSearchFilters(filters);
 
 export interface SearchAdapterOptions {
   cache?: ResultCache;

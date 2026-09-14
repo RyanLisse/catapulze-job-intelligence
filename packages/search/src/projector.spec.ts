@@ -18,13 +18,22 @@ const document: SearchDocument = {
   beschrijving: "Senior Azure platform engineer",
   bronId: "bron-1",
   contracttype: "detachering",
+  eindklantNaam: null,
   id: "aanvraag-1",
   laatstGezienOp: new Date("2026-08-01T00:00:00.000Z"),
   locatieLand: "NL",
+  opdrachtgeverNaam: null,
+  provincie: null,
+  publicatiedatum: null,
+  skills: [],
   status: "active",
+  tariefEenheid: null,
   tariefMax: 120,
   tariefMin: 80,
   titel: "Platform engineer Azure",
+  urenPerWeekMax: null,
+  urenPerWeekMin: null,
+  werkvorm: null,
 };
 
 class StaticLoader implements SearchDocumentLoader {
@@ -486,7 +495,7 @@ describe("outbox projector", () => {
     // point silently cannot rewrite every existing known-location row.
     expect(
       projectionHash(knownLocation, new Date("2026-09-01T00:00:00.000Z"))
-    ).toBe("active:8rs48ad2bj.1rt3o4jniia");
+    ).toBe("active:20tzf4foqud.oeu8japzyt");
   });
 
   it("consumes a late mutation (delete or upsert) as a no-op when an equal or newer sequence was already applied", async () => {

@@ -22,8 +22,12 @@ export const SEARCH_WINDOW_LIMIT = 1000;
 export const SEARCH_SORT_OPTIONS = [
   "relevance",
   "newest",
+  "oldest",
   "rate-high",
+  "rate-low",
   "closing-soon",
+  "title-asc",
+  "company-asc",
 ] as const;
 
 export type SearchSort = (typeof SEARCH_SORT_OPTIONS)[number];
@@ -31,10 +35,40 @@ export type SearchSort = (typeof SEARCH_SORT_OPTIONS)[number];
 /** Execution strategy selected by SearchAdapter for one parsed query. */
 export type SearchMode = "hybrid" | "lexical";
 
+/** Default query text scope: title + company, not full description. */
+export const DEFAULT_QUERY_SCOPE = "title" as const;
+
+export const QUERY_SCOPE_OPTIONS = ["title", "all"] as const;
+
+export type QueryScope = (typeof QUERY_SCOPE_OPTIONS)[number];
+
+/**
+ * Honest unknowns for CTP-493 parity fields that lack a curated source yet.
+ * Callers constructing fixtures should spread these rather than invent values.
+ */
+const EMPTY_SKILLS: readonly string[] = [];
+
+export const SEARCH_DOCUMENT_PARITY_DEFAULTS = {
+  eindklantNaam: null,
+  opdrachtgeverNaam: null,
+  provincie: null,
+  publicatiedatum: null,
+  skills: EMPTY_SKILLS,
+  tariefEenheid: null,
+  urenPerWeekMax: null,
+  urenPerWeekMin: null,
+  werkvorm: null,
+} as const;
+
 export interface SearchDocument {
   beschrijving: string;
   bronId: string;
   contracttype: string | null;
+  /**
+   * End-client when a first-class curated source exists. Stay null until then;
+   * never infer from opdrachtgever or prose.
+   */
+  eindklantNaam: string | null;
   id: string;
   laatstGezienOp: Date;
   /**
@@ -46,12 +80,32 @@ export interface SearchDocument {
   locatie?: string | null;
   /** Country code when the source also published a reliable location. */
   locatieLand: string | null;
+  /** Company/client scope source; never derived from title or description. */
+  opdrachtgeverNaam: string | null;
+  /**
+   * Canonical province only. Legacy rows stay null; never derive from
+   * locatieTekst.
+   */
+  provincie: string | null;
+  /**
+   * Source-published posting timestamp. Never populated from laatstGezienOp.
+   */
+  publicatiedatum: Date | null;
+  /** Exact source-published skill identifiers/names; default [] when absent. */
+  skills: readonly string[];
   /** Deadline; absent/null when the bron does not publish one. */
   sluitingsdatum?: Date | null;
   status: AanvraagLifecycle;
+  /** Explicit rate period from curated tarief_eenheid; overlap keeps min/max. */
+  tariefEenheid: string | null;
   tariefMax: number | null;
   tariefMin: number | null;
   titel: string;
+  /** Explicit numeric weekly-hours upper bound; ambiguous text stays null. */
+  urenPerWeekMax: number | null;
+  /** Explicit numeric weekly-hours lower bound; ambiguous text stays null. */
+  urenPerWeekMin: number | null;
+  werkvorm: string | null;
 }
 
 /** The `locatie` attribute value both engines index and facet on. */
@@ -71,9 +125,26 @@ export interface SearchFilters {
   /** Exact match on the indexed `locatie` attribute (see documentLocatie). */
   locatie?: readonly string[];
   locatieLand?: readonly string[];
+  /**
+   * Inclusive publication end at the API boundary (ISO-8601). Engines compile
+   * as `< next UTC day`.
+   */
+  publicatiedatumTot?: string;
+  publicatiedatumVanaf?: string;
+  provincies?: readonly string[];
+  /**
+   * Title scope searches titel + opdrachtgeverNaam; all searches full text.
+   * Defaults to {@link DEFAULT_QUERY_SCOPE} when omitted.
+   */
+  queryScope?: QueryScope;
+  skills?: readonly string[];
   status?: readonly AanvraagLifecycle[];
+  tariefEenheid?: readonly string[];
   tariefMax?: number;
   tariefMin?: number;
+  urenPerWeekMax?: number;
+  urenPerWeekMin?: number;
+  werkvormen?: readonly string[];
 }
 
 export interface SearchFacetBucket {

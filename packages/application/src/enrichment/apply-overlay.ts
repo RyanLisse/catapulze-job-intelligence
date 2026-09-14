@@ -37,8 +37,10 @@ export interface AanvraagEnrichmentFacts {
 export interface SearchEnrichmentFacts {
   contracttype: string | null;
   locatie?: string | null;
+  tariefEenheid?: string | null;
   tariefMax: number | null;
   tariefMin: number | null;
+  werkvorm?: string | null;
 }
 
 const isMissingText = (value: string | null | undefined): boolean =>
@@ -181,6 +183,7 @@ export const applyEnrichmentOverlayToAanvraagFacts = (
 };
 
 /** Overlay enrichment onto a search document before projection/index writes. */
+// oxlint-disable-next-line eslint/complexity -- one branch per enrichment field
 export const applyEnrichmentOverlayToSearchFacts = (
   facts: SearchEnrichmentFacts,
   rows: readonly EnrichmentOverlayRow[]
@@ -188,8 +191,10 @@ export const applyEnrichmentOverlayToSearchFacts = (
   const next: SearchEnrichmentFacts = {
     contracttype: facts.contracttype,
     locatie: facts.locatie,
+    tariefEenheid: facts.tariefEenheid ?? null,
     tariefMax: facts.tariefMax,
     tariefMin: facts.tariefMin,
+    werkvorm: facts.werkvorm ?? null,
   };
 
   for (const row of rows) {
@@ -211,12 +216,22 @@ export const applyEnrichmentOverlayToSearchFacts = (
       }
       next.tariefMax = parseTariefNumber(value.max);
       next.tariefMin = parseTariefNumber(value.min);
+      if (isFillableGap(next.tariefEenheid) && !isMissingText(value.eenheid)) {
+        next.tariefEenheid = value.eenheid;
+      }
       continue;
     }
     if (row.field === "contract" && isFillableGap(next.contracttype)) {
       const value = asContract(row.value);
       if (value && !isMissingText(value.contracttype)) {
         next.contracttype = value.contracttype;
+      }
+      continue;
+    }
+    if (row.field === "remote" && isFillableGap(next.werkvorm)) {
+      const value = asRemote(row.value);
+      if (value && !isMissingText(value.werkvorm)) {
+        next.werkvorm = value.werkvorm;
       }
     }
   }

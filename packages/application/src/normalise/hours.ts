@@ -61,3 +61,67 @@ export const formatHoursPerWeek = (
     ? formattedMin.value
     : `${formattedMin.value}–${formattedMax.value}`;
 };
+
+export interface WeeklyHoursRange {
+  readonly max: number | null;
+  readonly min: number | null;
+}
+
+const HOURS_NUMBER = String.raw`(\d+(?:[.,]\d+)?)`;
+const EXACT_HOURS = new RegExp(`^${HOURS_NUMBER}$`, "u");
+const RANGE_HOURS = new RegExp(
+  `^${HOURS_NUMBER}\\s*[-–—]\\s*${HOURS_NUMBER}$`,
+  "u"
+);
+const MIN_ONLY_HOURS = new RegExp(`^[≥>=]\\s*${HOURS_NUMBER}$`, "u");
+const MAX_ONLY_HOURS = new RegExp(`^[≤<=]\\s*${HOURS_NUMBER}$`, "u");
+
+const toHoursNumber = (raw: string): number | null => {
+  const numeric = Number(raw.replace(",", "."));
+  return Number.isFinite(numeric) ? numeric : null;
+};
+
+/**
+ * Parses curated `uren_per_week` text into numeric bounds for search filters.
+ * Ambiguous free text (not an exact number, en-dash range, or ≥/≤ bound)
+ * stays unknown — never invent endpoints.
+ */
+export const parseWeeklyHoursRange = (
+  raw: string | null | undefined
+): WeeklyHoursRange => {
+  if (raw === null || raw === undefined) {
+    return { max: null, min: null };
+  }
+  const trimmed = raw.trim();
+  if (trimmed === "") {
+    return { max: null, min: null };
+  }
+
+  const exact = EXACT_HOURS.exec(trimmed);
+  if (exact?.[1] !== undefined) {
+    const value = toHoursNumber(exact[1]);
+    return { max: value, min: value };
+  }
+
+  const range = RANGE_HOURS.exec(trimmed);
+  if (range?.[1] !== undefined && range[2] !== undefined) {
+    const min = toHoursNumber(range[1]);
+    const max = toHoursNumber(range[2]);
+    if (min === null || max === null || min > max) {
+      return { max: null, min: null };
+    }
+    return { max, min };
+  }
+
+  const minOnly = MIN_ONLY_HOURS.exec(trimmed);
+  if (minOnly?.[1] !== undefined) {
+    return { max: null, min: toHoursNumber(minOnly[1]) };
+  }
+
+  const maxOnly = MAX_ONLY_HOURS.exec(trimmed);
+  if (maxOnly?.[1] !== undefined) {
+    return { max: toHoursNumber(maxOnly[1]), min: null };
+  }
+
+  return { max: null, min: null };
+};

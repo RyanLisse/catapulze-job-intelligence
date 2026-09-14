@@ -57,13 +57,22 @@ const sampleDocument = (id: string): SearchDocument => ({
   beschrijving: "Senior Azure platform engineer",
   bronId: "bron-1",
   contracttype: "detachering",
+  eindklantNaam: null,
   id,
   laatstGezienOp: new Date("2026-08-01T00:00:00.000Z"),
   locatieLand: "NL",
+  opdrachtgeverNaam: null,
+  provincie: null,
+  publicatiedatum: null,
+  skills: [],
   status: "active",
+  tariefEenheid: null,
   tariefMax: 120,
   tariefMin: 80,
   titel: "Platform engineer Azure",
+  urenPerWeekMax: null,
+  urenPerWeekMin: null,
+  werkvorm: null,
 });
 
 class MapLoader implements BulkSearchDocumentLoader {

@@ -75,13 +75,22 @@ describe("resolveSearchPartition (RJC-383)", () => {
       beschrijving: "",
       bronId: "b",
       contracttype: null,
+      eindklantNaam: null,
       id: "d",
       laatstGezienOp: daysAgo(1),
       locatieLand: "NL",
+      opdrachtgeverNaam: null,
+      provincie: null,
+      publicatiedatum: null,
+      skills: [],
       status: "active",
+      tariefEenheid: null,
       tariefMax: null,
       tariefMin: null,
       titel: "t",
+      urenPerWeekMax: null,
+      urenPerWeekMin: null,
+      werkvorm: null,
     };
     expect(documentPartition(base, NOW)).toBe("active");
     expect(documentPartition({ ...base, sluitingsdatum: null }, NOW)).toBe(

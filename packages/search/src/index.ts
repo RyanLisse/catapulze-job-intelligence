@@ -1,5 +1,6 @@
 export {
   SearchAdapter,
+  normalizeSearchFilters,
   evaluateBooleanAst,
   isSearchHybridEnabled,
 } from "./adapter";
@@ -69,7 +70,10 @@ export {
 export {
   SEARCH_INDEX_NAME,
   SEARCH_TEST_INDEX_NAME,
+  SEARCH_DOCUMENT_PARITY_DEFAULTS,
   SEARCH_SORT_OPTIONS,
+  DEFAULT_QUERY_SCOPE,
+  QUERY_SCOPE_OPTIONS,
   SEARCH_WINDOW_LIMIT,
   documentLocatie,
   emptySearchFacets,
@@ -89,6 +93,7 @@ export {
   type SearchIndexMutation,
   type SearchMutationFailure,
   type SearchMode,
+  type QueryScope,
   type SearchSort,
 } from "./types";
 export {
@@ -96,6 +101,8 @@ export {
   InMemorySearchVersionStore,
   isStaleSearchVersion,
   SEARCH_SCHEMA_HASH,
+  SEARCH_SCHEMA_HASH_V10,
+  SEARCH_SCHEMA_HASH_V8,
   SearchIndexSchemaMismatchError,
   startSearchGeneration,
   ZERO_SEQUENCE,

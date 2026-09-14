@@ -160,13 +160,17 @@ const seedContractCases = async (
         eindDatum: key === "canonical" ? "2027-02-28" : null,
         extractieMethode: "html_parser",
         laatstGezienOp: NOW,
+        opdrachtgeverNaam: null,
+        publicatiedatum: null,
         rawPayloadRef: `raw/synthetic-contract/${key}.json`,
         scrapeRunId: runId,
         startDatum: key === "canonical" ? "2026-10-01" : null,
         status: "active",
+        tariefEenheid: null,
         titel: `Synthetic contract case ${key}`,
         urenPerWeek: key === "canonical" ? "32" : null,
         versie: 1,
+        werkvorm: null,
       }))
     )
     .returning({ bronReferentie: aanvraag.bronReferentie, id: aanvraag.id });

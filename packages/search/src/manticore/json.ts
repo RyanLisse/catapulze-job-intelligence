@@ -109,6 +109,8 @@ export const parseManticoreBulkPayload = (
 export interface ManticoreIndexedDocument {
   beschrijving: string;
   bron_id: string;
+  /** Comparable rate for sorting; 0 when period unknown (desc unknowns last). */
+  comparable_tarief: number;
   contracttype: string;
   // The original SearchDocument.id (a string, UUID in production). Manticore's
   // own reserved "id" attribute is the numeric ManticoreReplaceBody.id/
@@ -122,13 +124,25 @@ export interface ManticoreIndexedDocument {
   locatie?: string;
   /** Omitted when the curated source did not publish a location. */
   locatie_land?: string;
+  opdrachtgever_naam: string;
+  /** Keyword copy for company-asc sorts. */
+  opdrachtgever_naam_keyword: string;
+  provincie: string;
+  // Epoch seconds; PUBLICATIEDATUM_MISSING_SENTINEL when unknown.
+  publicatiedatum: number;
   // Epoch seconds; SLUITINGSDATUM_MISSING_SENTINEL when the bron publishes no
   // deadline, so `sluitingsdatum asc` puts missing deadlines last natively.
   sluitingsdatum: number;
   status: string;
+  tarief_eenheid: string;
   tarief_max: number;
   tarief_min: number;
   titel: string;
+  /** Keyword copy for title-asc sorts. */
+  titel_keyword: string;
+  uren_per_week_max: number;
+  uren_per_week_min: number;
+  werkvorm: string;
   /** Canonical source projection hash; lets reconciliation inspect actual RT content. */
   projection_hash: string;
 }
@@ -165,9 +179,13 @@ export interface ManticoreIdSortEntry {
 }
 
 export interface ManticoreAttributeSortEntry {
+  comparable_tarief?: ManticoreSortDirection;
   laatst_gezien_op?: ManticoreSortDirection;
+  opdrachtgever_naam_keyword?: ManticoreSortDirection;
+  publicatiedatum?: ManticoreSortDirection;
   sluitingsdatum?: ManticoreSortDirection;
   tarief_max?: ManticoreSortDirection;
+  titel_keyword?: ManticoreSortDirection;
 }
 
 export interface ManticoreTermsAgg {
@@ -223,15 +241,21 @@ export interface ManticoreInFilter {
     contracttype?: string[];
     locatie?: string[];
     locatie_land?: string[];
+    provincie?: string[];
     status?: string[];
+    tarief_eenheid?: string[];
+    werkvorm?: string[];
   };
 }
 
 export interface ManticoreRangeFilter {
   range: {
     laatst_gezien_op?: { gte: number };
+    publicatiedatum?: { gte?: number; lt?: number };
     tarief_max?: { gte: number };
     tarief_min?: { lte: number };
+    uren_per_week_max?: { gte: number };
+    uren_per_week_min?: { lte: number };
   };
 }
 

@@ -136,13 +136,22 @@ const seedDocuments = (count: number): SearchDocument[] =>
     beschrijving: `Document ${index} about Azure platform engineer work`,
     bronId: `bron-${index % 5}`,
     contracttype: index % 2 === 0 ? "detachering" : "interim",
+    eindklantNaam: null,
     id: `doc-${index}`,
     laatstGezienOp: new Date(Date.now() - index * 3_600_000),
     locatieLand: index % 3 === 0 ? "NL" : "BE",
+    opdrachtgeverNaam: null,
+    provincie: null,
+    publicatiedatum: null,
+    skills: [],
     status: "active",
+    tariefEenheid: null,
     tariefMax: 100 + (index % 40),
     tariefMin: 60 + (index % 20),
     titel: `Platform engineer ${index}`,
+    urenPerWeekMax: null,
+    urenPerWeekMin: null,
+    werkvorm: null,
   }));
 
 // Unbounded Promise.all over the whole corpus opens one HTTP connection per

@@ -51,9 +51,18 @@ export const emitMatch = (node: BooleanNode): string => {
   }
 };
 
-export const SEARCH_TEXT_FIELDS = "titel,beschrijving" as const;
+export const SEARCH_TEXT_FIELDS =
+  "titel,beschrijving,opdrachtgever_naam" as const;
+export const SEARCH_TITLE_SCOPE_FIELDS = "titel,opdrachtgever_naam" as const;
 
-export const buildQueryString = (ast: BooleanNode | null): string | null => {
+export type SearchTextFieldSet =
+  | typeof SEARCH_TEXT_FIELDS
+  | typeof SEARCH_TITLE_SCOPE_FIELDS;
+
+export const buildQueryString = (
+  ast: BooleanNode | null,
+  fields: SearchTextFieldSet = SEARCH_TEXT_FIELDS
+): string | null => {
   if (ast === null) {
     return null;
   }
@@ -63,7 +72,7 @@ export const buildQueryString = (ast: BooleanNode | null): string | null => {
     return null;
   }
 
-  return `@(${SEARCH_TEXT_FIELDS}) ${match}`;
+  return `@(${fields}) ${match}`;
 };
 
 const collectPositiveText = (node: BooleanNode): string[] => {
@@ -117,12 +126,16 @@ export type ManticoreQueryClause =
   | ManticoreMatchClause
   | ManticoreQueryStringClause;
 
-const clauseForNode = (node: BooleanNode): ManticoreQueryStringClause => ({
-  query_string: `@(${SEARCH_TEXT_FIELDS}) ${emitMatch(node)}`,
+const clauseForNode = (
+  node: BooleanNode,
+  fields: SearchTextFieldSet
+): ManticoreQueryStringClause => ({
+  query_string: `@(${fields}) ${emitMatch(node)}`,
 });
 
 export const buildBoolJson = (
-  ast: BooleanNode | null
+  ast: BooleanNode | null,
+  fields: SearchTextFieldSet = SEARCH_TEXT_FIELDS
 ): ManticoreBoolQuery | null => {
   if (ast === null) {
     return null;
@@ -131,15 +144,15 @@ export const buildBoolJson = (
   switch (ast.kind) {
     case "term":
     case "phrase": {
-      return { bool: { must: [clauseForNode(ast)] } };
+      return { bool: { must: [clauseForNode(ast, fields)] } };
     }
     case "not": {
-      return { bool: { must_not: [clauseForNode(ast.operand)] } };
+      return { bool: { must_not: [clauseForNode(ast.operand, fields)] } };
     }
     case "and": {
       return {
         bool: {
-          must: ast.operands.map((operand) => clauseForNode(operand)),
+          must: ast.operands.map((operand) => clauseForNode(operand, fields)),
         },
       };
     }
@@ -147,7 +160,7 @@ export const buildBoolJson = (
       return {
         bool: {
           minimum_should_match: 1,
-          should: ast.operands.map((operand) => clauseForNode(operand)),
+          should: ast.operands.map((operand) => clauseForNode(operand, fields)),
         },
       };
     }

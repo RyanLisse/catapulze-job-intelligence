@@ -20,13 +20,22 @@ const seedDocument = (index: number): SearchDocument => ({
   beschrijving: "Azure platform engineer",
   bronId: "00000000-0000-4000-8000-000000000001",
   contracttype: "detachering",
+  eindklantNaam: null,
   id: `00000000-0000-4000-8000-${String(index).padStart(12, "0")}`,
   laatstGezienOp: new Date(Date.UTC(2026, 7, 1 + index)),
   locatieLand: "NL",
+  opdrachtgeverNaam: null,
+  provincie: null,
+  publicatiedatum: null,
+  skills: [],
   status: "active",
+  tariefEenheid: null,
   tariefMax: 100 + index,
   tariefMin: 80,
   titel: `Azure engineer ${index}`,
+  urenPerWeekMax: null,
+  urenPerWeekMin: null,
+  werkvorm: null,
 });
 
 // RJC-378: the API owns sort, filter and pagination; the client receives the

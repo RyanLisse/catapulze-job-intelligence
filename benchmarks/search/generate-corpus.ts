@@ -25,6 +25,15 @@ export interface CorpusRecord {
   contracttype: string | null;
   id: string;
   laatstGezienOp: string;
+  eindklantNaam: null;
+  opdrachtgeverNaam: null;
+  provincie: null;
+  publicatiedatum: null;
+  skills: [];
+  tariefEenheid: null;
+  urenPerWeekMax: null;
+  urenPerWeekMin: null;
+  werkvorm: null;
   locatieLand: string;
   status: "active" | "closed" | "stale" | "unknown";
   tariefMax: number | null;
