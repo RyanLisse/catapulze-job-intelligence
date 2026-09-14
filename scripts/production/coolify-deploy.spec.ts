@@ -423,30 +423,40 @@ describe("production Coolify deployment contract", () => {
   it("waits for a transient post-finished application state to become healthy", async () => {
     const harness = makeHarness({
       applicationStatusSequence: {
-        server: ["healthy", "running:unknown", "healthy"],
+        server: ["healthy", "healthy", "healthy", "running:unknown", "healthy"],
       },
     });
+    let sleeps = 0;
 
     const evidence = await runCoolifyDeploy({
       ...harness.config,
-      sleepImpl: async () => {},
+      sleepImpl: async () => {
+        sleeps += 1;
+      },
     });
 
     expect(evidence).toHaveLength(3);
-    expect(harness.state.applicationReads.server).toBe(4);
+    expect(harness.state.applicationReads.server).toBe(5);
+    expect(sleeps).toBeGreaterThan(0);
   });
 
   it("fails and rolls back when a transient application state never converges", async () => {
     const harness = makeHarness({
-      applicationStatusSequence: { server: ["healthy", "starting"] },
+      applicationStatusSequence: {
+        server: ["healthy", "healthy", "healthy", "starting"],
+      },
     });
+    let clock = 0;
 
     await expect(
       runCoolifyDeploy({
         ...harness.config,
         deadlineMs: 3000,
+        nowImpl: () => clock,
         rollbackReserveMs: 1000,
-        sleepImpl: async () => {},
+        sleepImpl: async () => {
+          clock += 1000;
+        },
       })
     ).rejects.toThrow("rollback_readback_failed");
     expect(harness.state.sha.server).toBe(previousSha);
