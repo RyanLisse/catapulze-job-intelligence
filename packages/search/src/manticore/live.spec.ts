@@ -35,7 +35,8 @@ describe.skipIf(!manticoreUrl)(
       // top-10 hits. Search on a run-unique token instead — no other document,
       // past or present, can match it. Hyphens are stripped: the boolean
       // parser treats a leading "-" as NOT, and a bare term should stay a
-      // single unbroken token.
+      // single unbroken token. Put the token in titel: DEFAULT_QUERY_SCOPE is
+      // "title" (titel + opdrachtgever), so a description-only token misses.
       const runToken = `livespec${crypto.randomUUID().replaceAll("-", "")}`;
       const parsed = parseBooleanQuery(runToken);
       if (!parsed.ok) {
@@ -60,7 +61,7 @@ describe.skipIf(!manticoreUrl)(
           tariefEenheid: null,
           tariefMax: 120,
           tariefMin: 80,
-          titel: "Platform engineer Azure",
+          titel: `Platform engineer Azure ${runToken}`,
           urenPerWeekMax: null,
           urenPerWeekMin: null,
           werkvorm: null,
