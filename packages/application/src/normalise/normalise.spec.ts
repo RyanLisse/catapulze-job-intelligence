@@ -286,7 +286,7 @@ describe("normalise needstaffing", () => {
     expect(draft.tarief.min).toBe("98");
     expect(draft.tarief.max).toBe("102");
     expect(draft.tarief.eenheid).toBe(UNKNOWN);
-    expect(draft.parserVersion).toBe("needstaffing/v3");
+    expect(draft.parserVersion).toBe("needstaffing/v4");
     expect(draft.startDatum.value).toBe("2026-09-26");
     expect(draft.bronReferentie.value).toBe("15520");
     expect(draft.bronUrl.value).toBe(

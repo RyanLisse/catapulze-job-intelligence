@@ -71,8 +71,8 @@ describe("parseOnefellowTarief", () => {
     });
   });
 
-  it("returns UNKNOWN when max_rate is empty (7/50 sampled records had it -- 2026-08-31 probe)", () => {
-    expect(parseOnefellowTarief("")).toEqual({
+  it("returns UNKNOWN when both max_rate and salary are empty (7/50 sampled records had max_rate -- 2026-08-31 probe)", () => {
+    expect(parseOnefellowTarief("", "")).toEqual({
       eenheid: UNKNOWN,
       max: UNKNOWN,
       min: UNKNOWN,
@@ -81,6 +81,24 @@ describe("parseOnefellowTarief", () => {
     expect(parseOnefellowTarief()).toEqual({
       eenheid: UNKNOWN,
       max: UNKNOWN,
+      min: UNKNOWN,
+      valuta: "EUR",
+    });
+  });
+
+  it("parses the salary text when max_rate is absent", () => {
+    expect(parseOnefellowTarief(undefined, "€90 - €100 per uur")).toEqual({
+      eenheid: "uur",
+      max: "100",
+      min: "90",
+      valuta: "EUR",
+    });
+  });
+
+  it("prefers max_rate over salary text when both are present", () => {
+    expect(parseOnefellowTarief("122", "€90 - €100 per uur")).toEqual({
+      eenheid: "uur",
+      max: "122",
       min: UNKNOWN,
       valuta: "EUR",
     });
@@ -174,7 +192,10 @@ describe("parseOnefellowPayload", () => {
     expect(draft.opdrachtgeverNaam.value).toBe("N.V. Nederlandse Gasunie");
     expect(draft.locatieTekst.value).toBe("Groningen");
     expect(draft.locatieLand.value).toBe("NL");
-    expect(draft.startDatum.value).toBe("2026-09-30");
+    // 1790805600 is 2026-10-01T00:00:00+02:00 in Europe/Amsterdam -- the
+    // source's own free-text "Startdatum: 1 oktober 2026" (job 920,
+    // captured 2026-08-31) confirms the local date, not the UTC date.
+    expect(draft.startDatum.value).toBe("2026-10-01");
     expect(draft.tarief).toEqual({
       eenheid: UNKNOWN,
       max: UNKNOWN,
@@ -186,11 +207,81 @@ describe("parseOnefellowPayload", () => {
     expect(draft.extractieMethode).toBe("api");
     expect(draft.bronSpecifiek.value).toMatchObject({
       duration: "5 jaar met optie tot verlenging",
+      duur: "5 jaar met optie tot verlenging",
+      eind_datum: null,
       status_bron: "Open",
       uren_max: "28",
       uren_min: "24",
       uren_per_week: "24–28",
       werkvorm: "remote",
+    });
+  });
+
+  it("reads start_date as the Europe/Amsterdam local calendar date, not UTC (RJC-off-by-one)", () => {
+    // Same instant, job 1006 (2026-08-31 capture): 1789336800 is
+    // 2026-09-14T00:00:00+02:00 locally but 2026-09-13T22:00:00Z in UTC --
+    // the source's own "Start opdracht: 14-09-2026" confirms local.
+    const draft = parseOnefellowPayload(
+      buildPayload({ start_date: 1_789_336_800 }),
+      "hash-start-local"
+    );
+    expect(draft.startDatum.value).toBe("2026-09-14");
+  });
+
+  it("returns UNKNOWN for a missing start_date instead of guessing", () => {
+    const draft = parseOnefellowPayload(
+      buildPayload({ start_date: undefined }),
+      "hash-start-absent"
+    );
+    expect(draft.startDatum.value).toBe(UNKNOWN);
+  });
+
+  it("promotes a literal DD-MM-YYYY duration value to eind_datum (job 944, captured 2026-08-31)", () => {
+    const draft = parseOnefellowPayload(
+      buildPayload({ duration: "30-09-2029" }),
+      "hash-eind-datum"
+    );
+    expect(draft.bronSpecifiek.value).toMatchObject({
+      duration: "30-09-2029",
+      duur: null,
+      eind_datum: "2029-09-30",
+    });
+  });
+
+  it("keeps a calendar-invalid DD-MM-YYYY duration as duur text instead of promoting it (CTP-517 review)", () => {
+    const draft = parseOnefellowPayload(
+      buildPayload({ duration: "31-02-2026" }),
+      "hash-eind-datum-invalid"
+    );
+    expect(draft.bronSpecifiek.value).toMatchObject({
+      duration: "31-02-2026",
+      duur: "31-02-2026",
+      eind_datum: null,
+    });
+  });
+
+  it("omits both duur and eind_datum when duration is absent", () => {
+    const draft = parseOnefellowPayload(
+      buildPayload({ duration: undefined }),
+      "hash-looptijd-absent"
+    );
+    expect(draft.bronSpecifiek.value).toMatchObject({
+      duration: null,
+      duur: null,
+      eind_datum: null,
+    });
+  });
+
+  it("falls back to the salary text when max_rate is absent", () => {
+    const draft = parseOnefellowPayload(
+      buildPayload({ max_rate: "", salary: "€90 - €100 per uur" }),
+      "hash-tarief-salary"
+    );
+    expect(draft.tarief).toEqual({
+      eenheid: "uur",
+      max: "100",
+      min: "90",
+      valuta: "EUR",
     });
   });
 

@@ -156,6 +156,92 @@ const trimFields = <Item extends NeedstaffingInfoFields>(item: Item): Item => {
   return trimmed;
 };
 
+/** The "Locatie" icon field carries both city and werkvorm in one string --
+ * confirmed live 2026-09-15 across the current listing: a slash form
+ * ("Leeuwarden/Hybride") and a trailing-parenthetical form ("Maasland
+ * (volledig op locatie)", "Huis ter Heide (2 dagen op locatie)", "Utrecht
+ * (op locatie)"). Both are structural delimiters around the same field, not
+ * prose to mine -- split on them and keep the remainder verbatim as
+ * werkvorm text (CTP-514 F07: "free text as published"). But the delimiter
+ * alone isn't proof of werkvorm content: "Utrecht/Amersfoort" (two cities)
+ * or "Amsterdam (Zuidas)" (a district) would otherwise misread as werkvorm
+ * (advisor review). Gate the second half on a werkvorm keyword; when it
+ * doesn't match, keep the whole string as locatie and leave werkvorm
+ * undefined -- never a guess. Neither shape observed in the wider listing
+ * capture -> same fallback. */
+const LOCATIE_PAREN_PATTERN = /^(?<locatie>.*?)\s*\((?<werkvorm>[^)]+)\)\s*$/u;
+const WERKVORM_KEYWORD_PATTERN =
+  /hybride|remote|thuis|locatie|kantoor|afstand/iu;
+
+export interface NeedstaffingLocatieSplit {
+  locatie: string | undefined;
+  werkvorm: string | undefined;
+}
+
+export const splitNeedstaffingLocatie = (
+  raw?: string
+): NeedstaffingLocatieSplit => {
+  if (!raw) {
+    return { locatie: raw, werkvorm: undefined };
+  }
+  const slashIndex = raw.indexOf("/");
+  if (slashIndex !== -1) {
+    const locatie = raw.slice(0, slashIndex).trim();
+    const werkvorm = raw.slice(slashIndex + 1).trim();
+    if (werkvorm && WERKVORM_KEYWORD_PATTERN.test(werkvorm)) {
+      return { locatie: locatie || undefined, werkvorm };
+    }
+    return { locatie: raw, werkvorm: undefined };
+  }
+  const parenMatch = LOCATIE_PAREN_PATTERN.exec(raw);
+  if (parenMatch?.groups?.locatie && parenMatch.groups.werkvorm) {
+    const werkvorm = parenMatch.groups.werkvorm.trim();
+    if (WERKVORM_KEYWORD_PATTERN.test(werkvorm)) {
+      return { locatie: parenMatch.groups.locatie.trim(), werkvorm };
+    }
+    return { locatie: raw, werkvorm: undefined };
+  }
+  return { locatie: raw, werkvorm: undefined };
+};
+
+const applyLocatieWerkvormSplit = <Item extends NeedstaffingInfoFields>(
+  item: Item
+): Item => {
+  const { locatie, werkvorm } = splitNeedstaffingLocatie(item.locatie);
+  return { ...item, locatie, werkvorm: werkvorm ?? item.werkvorm };
+};
+
+const COMPETENTIES_HEADING_PATTERN = /<h2>\s*Competenties\s*<\/h2>\s*<ul>/iu;
+const LIST_ITEM_PATTERN = /<li>(?<text>.*?)<\/li>/gsu;
+const STRIP_TAGS_PATTERN = /<[^>]+>/gu;
+
+/** Reads the vacancy body's `<h2>Competenties</h2>` list (structured,
+ * contract-allowed -- CTP-514 F15 names "competenties" explicitly) into
+ * plain skill strings. Confirmed live 2026-09-15, joborder 15570. Absent
+ * heading/list -> empty array, never a guess. */
+export const extractNeedstaffingCompetenties = (html: string): string[] => {
+  const headingMatch = COMPETENTIES_HEADING_PATTERN.exec(html);
+  if (!headingMatch) {
+    return [];
+  }
+  const listStart = headingMatch.index + headingMatch[0].length;
+  const listEnd = html.indexOf("</ul>", listStart);
+  if (listEnd === -1) {
+    return [];
+  }
+  const listHtml = html.slice(listStart, listEnd);
+  const items: string[] = [];
+  for (const match of listHtml.matchAll(LIST_ITEM_PATTERN)) {
+    const text = decodeNeedstaffingEntities(
+      (match.groups?.text ?? "").replaceAll(STRIP_TAGS_PATTERN, "")
+    ).trim();
+    if (text) {
+      items.push(text);
+    }
+  }
+  return items;
+};
+
 export const parseNeedstaffingListing = async (
   html: string
 ): Promise<NeedstaffingListingPage> => {
@@ -169,7 +255,11 @@ export const parseNeedstaffingListing = async (
       current.titel = decodeNeedstaffingEntities(current.titel).trim();
       // SAFETY: the guard above confirmed `id` and `titel` are set, the only
       // required fields of NeedstaffingListingItem.
-      items.push(trimFields(current as NeedstaffingListingItem));
+      items.push(
+        applyLocatieWerkvormSplit(
+          trimFields(current as NeedstaffingListingItem)
+        )
+      );
     }
     current = null;
   };
@@ -301,13 +391,17 @@ export const parseNeedstaffingDetail = async (
   const titel = decodeNeedstaffingEntities(detail.titel ?? "").trim();
   // SAFETY: `id` was set at construction; the rewriter above only ever adds
   // the remaining NeedstaffingDetail fields.
-  const trimmed = trimFields(detail as NeedstaffingDetail);
+  const trimmed = applyLocatieWerkvormSplit(
+    trimFields(detail as NeedstaffingDetail)
+  );
   const { min: tariefMin, max: tariefMax } = parseNeedstaffingTariefBand(
     trimmed.tarief
   );
+  const competenties = extractNeedstaffingCompetenties(html);
 
   return {
     ...trimmed,
+    competenties: competenties.length > 0 ? competenties : undefined,
     id,
     referentie: extractNeedstaffingReferentie(titel),
     tariefMax,
@@ -365,6 +459,7 @@ export const createNeedstaffingClient = (
     options.listingFixturePath ?? "needstaffing/listing-page-0.json";
   const detailFixtures = options.detailFixtures ?? {
     "15520": "needstaffing/detail-15520.json",
+    "15570": "needstaffing/detail-15570-full-2026-09-15.json",
   };
   const baseUrl = options.baseUrl ?? DEFAULT_BASE_URL;
 

@@ -4,6 +4,7 @@ import { NEEDSTAFFING_PARSER_VERSION } from "@ji/connectors/needstaffing";
 import { UNKNOWN } from "@ji/domain";
 import { resolveLifecycleStatus } from "@ji/domain/lifecycle";
 
+import { normaliseSkills } from "./skills";
 import {
   closingMomentInstant,
   field,
@@ -69,6 +70,24 @@ const tariefEenheid = (value: string | undefined): "uur" | typeof UNKNOWN =>
 const descriptionText = (html: string): string =>
   decodeHtmlEntities(stripHtml(html)).replaceAll(/\s+/gu, " ").trim();
 
+/** `detail.uren` is a leading number (or range) sometimes followed by a unit
+ * word -- confirmed live: "36" (2026-08-31, detail-15520.json) vs "36 uur"
+ * (2026-09-15, detail-15570-full-2026-09-15.json). Keep only the number(s),
+ * never the unit text, so `uren_per_week` stays the plain numeric string the
+ * CTP-514 data contract expects. */
+const UREN_LEADING_NUMBER_PATTERN = /^(?<value>\d+(?:\s*-\s*\d+)?)/u;
+
+const parseNeedstaffingUren = (raw: string | undefined): string | null => {
+  const trimmed = raw?.trim();
+  if (!trimmed) {
+    return null;
+  }
+  const match = UREN_LEADING_NUMBER_PATTERN.exec(trimmed);
+  return match?.groups?.value
+    ? match.groups.value.replaceAll(/\s+/gu, "")
+    : null;
+};
+
 export const parseNeedstaffingPayload = (
   payload: NeedstaffingFetchedPayload,
   contentHash: string
@@ -76,6 +95,8 @@ export const parseNeedstaffingPayload = (
   const { detail, listing, raw } = payload;
   const parserVersion = NEEDSTAFFING_PARSER_VERSION;
   const beschrijving = descriptionText(raw.html) || detail.titel;
+  const uren = parseNeedstaffingUren(detail.uren);
+  const skills = normaliseSkills(detail.competenties);
   // The detail page's own "Deadline voor reageren" block (`detail.deadline`)
   // is a real, per-listing closing moment -- confirmed live 2026-08-31
   // (fixtures/connectors/needstaffing/detail-15520.json). Previously this
@@ -99,10 +120,21 @@ export const parseNeedstaffingPayload = (
     bronSpecifiek: field(
       {
         deadline: epochToIsoDate(detail.deadline),
+        // `periode` ("4 maanden", "Onbepaalde tijd", confirmed live
+        // 2026-08-31: detail-15520.json) is the only looptijd signal this
+        // connector's typed fields expose -- there is no separate end-date
+        // field on the header or in the typed detail shape, so it can only
+        // ever become `duur`, never `eind_datum` (CTP-514 data contract).
+        duur: detail.periode ?? null,
         periode: detail.periode ?? null,
         referentie: detail.referentie ?? null,
-        uren: detail.uren ?? null,
-        uren_per_week: detail.uren ?? null,
+        // `skills` is only populated from the detail page's structured
+        // Competenties `<ul>` (client.ts:extractNeedstaffingCompetenties) --
+        // never from free-text mining of the vacancy body.
+        skills: skills.length > 0 ? skills : null,
+        uren,
+        uren_per_week: uren,
+        werkvorm: detail.werkvorm ?? null,
       },
       parserVersion,
       "detail"
