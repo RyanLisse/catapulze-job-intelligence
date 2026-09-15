@@ -18,6 +18,11 @@ import {
 } from "./types";
 import type { NormalisedAanvraagDraft } from "./types";
 
+// An array-valued employmentType (seen in the wild: some sources publish
+// ["FULL_TIME", "CONTRACTOR"] instead of a single string) is not a string, so
+// asText returns "" for it and the caller falls through to null/UNKNOWN. That
+// leaves the prose classifier (classifyContractAndWork) as the only path to a
+// contracttype for those records; documented here, not changed by CTP-514.
 const asText = (value: JsonLdValue | undefined): string =>
   typeof value === "string" ? value : "";
 

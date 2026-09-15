@@ -44,6 +44,11 @@ describe("findProvincieInText", () => {
     );
   });
 
+  test("takes the last match, since source text puts the city before the province (Striive)", () => {
+    expect(findProvincieInText("Zeeland Noord-Brabant")).toBe("Noord-Brabant");
+    expect(findProvincieInText("Utrecht Overijssel")).toBe("Overijssel");
+  });
+
   test("returns null when only a city or nothing is named", () => {
     expect(findProvincieInText("Senior developer Amsterdam")).toBeNull();
     expect(findProvincieInText("Projectleider NB 32 uur")).toBeNull();

@@ -84,7 +84,14 @@ export const toCanonicalProvincie = (
 /**
  * Finds a province name embedded in a longer source string, such as a title
  * "Projectleider (Zuid-Holland)" or a location "Amsterdam, Noord-Holland".
- * Returns `null` when the string names no province; a city alone never counts.
+ * Returns `null` when the string names no province. "Utrecht" and
+ * "Groningen" are both a city and a province name; a bare match on either
+ * resolves by that name coincidence, not by inferring a province from a
+ * city -- callers must not read this as city -> province derivation.
+ *
+ * Returns the LAST match, not the first: real source text puts the city
+ * before the province ("Rotterdam Zuid-Holland", "<stad> <provincie>"), so
+ * scanning to the end picks the province over an earlier city-shaped token.
  */
 export const findProvincieInText = (
   text: string | null | undefined
@@ -93,6 +100,7 @@ export const findProvincieInText = (
     return null;
   }
   const parts = text.split(/[\s,;|/()[\]]+/u).filter(Boolean);
+  let match: Provincie | null = null;
   for (let index = 0; index < parts.length; index += 1) {
     const token = parts[index] ?? "";
     if (token.length < MIN_SCAN_TOKEN_LENGTH) {
@@ -100,14 +108,15 @@ export const findProvincieInText = (
     }
     const single = toCanonicalProvincie(token);
     if (single !== null) {
-      return single;
+      match = single;
+      continue;
     }
     const pair = toCanonicalProvincie(
       `${parts[index]} ${parts[index + 1] ?? ""}`
     );
     if (pair !== null) {
-      return pair;
+      match = pair;
     }
   }
-  return null;
+  return match;
 };
