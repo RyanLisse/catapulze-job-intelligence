@@ -450,6 +450,36 @@ describe("curateObservation unchanged content enqueues its own events (CTP-498)"
     expect(store.versies[1]?.snapshot).toMatchObject({ status: "closed" });
   });
 
+  it("overwrites a wrong non-null startDatum on an unchanged observation", async () => {
+    const store = new InMemoryCurateStore();
+    const base = observation("START-DATUM-1", "hash-stable");
+    await curateObservation(store, {
+      ...base,
+      draft: {
+        ...base.draft,
+        startDatum: { provenance, value: "2026-10-04" },
+      },
+    });
+
+    const result = await curateObservation(store, {
+      ...base,
+      draft: {
+        ...base.draft,
+        startDatum: { provenance, value: "2026-10-05" },
+      },
+      observedAt: later,
+    });
+
+    expect(result.status).toBe("unchanged");
+    expect(result.outboxEventId).toBeTruthy();
+    expect(store.aanvragen[0]).toMatchObject({
+      startDatum: "2026-10-05",
+      versie: 1,
+    });
+    expect(store.versies).toHaveLength(1);
+    expect(store.outboxEvents).toHaveLength(2);
+  });
+
   it("enqueues an upsert event and no new versie when only laatstGezienOp moves", async () => {
     const store = await seedActive(new InMemoryCurateStore());
 

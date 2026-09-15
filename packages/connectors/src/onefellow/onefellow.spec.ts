@@ -2,6 +2,7 @@ import { describe, expect, it } from "bun:test";
 
 import {
   CrawlDelayLimiter,
+  hashContent,
   InMemoryObjectStore,
   InMemoryObservationRecorder,
   InMemoryRunLifecycleStore,
@@ -11,7 +12,12 @@ import {
 import { createOnefellowClient } from "./client";
 import type { OnefellowClient } from "./client";
 import { createOnefellowConnector } from "./connector";
-import { onefellowBronReferentie, onefellowDetailUrl } from "./types";
+import { hashOnefellowListingItem } from "./hash";
+import {
+  ONEFELLOW_PARSER_VERSION,
+  onefellowBronReferentie,
+  onefellowDetailUrl,
+} from "./types";
 import type { OnefellowFetchedPayload, OnefellowJob } from "./types";
 
 const retryPolicy = {
@@ -23,6 +29,48 @@ const retryPolicy = {
 };
 
 describe("Onefellow helpers", () => {
+  it("includes the parser version in the listing hash payload", async () => {
+    const item: OnefellowJob = {
+      address_city: "Amsterdam",
+      company: "Example BV",
+      company_city: "Amsterdam",
+      description: "Description",
+      duration: "6 maanden",
+      hours: "32",
+      joborder_id: 920,
+      max_rate: "100",
+      salary: "",
+      start_date: 1_790_812_800,
+      status: "open",
+      teaser: "Teaser",
+      time_deadline: 1_793_404_800,
+      title: "Developer",
+      workplace_type: "hybrid",
+    };
+    const canonical = JSON.stringify({
+      address_city: item.address_city ?? null,
+      company: item.company ?? null,
+      company_city: item.company_city ?? null,
+      description: item.description ?? null,
+      duration: item.duration ?? null,
+      hours: item.hours ?? null,
+      joborder_id: item.joborder_id,
+      max_rate: item.max_rate ?? null,
+      parser_version: ONEFELLOW_PARSER_VERSION,
+      salary: item.salary ?? null,
+      start_date: item.start_date ?? null,
+      status: item.status ?? null,
+      teaser: item.teaser ?? null,
+      time_deadline: item.time_deadline ?? null,
+      title: item.title,
+      workplace_type: item.workplace_type ?? null,
+    });
+
+    expect(await hashOnefellowListingItem(item)).toBe(
+      await hashContent(new TextEncoder().encode(canonical))
+    );
+  });
+
   it("stringifies joborder_id for bronReferentie", () => {
     expect(onefellowBronReferentie({ joborder_id: 920 })).toBe("920");
   });

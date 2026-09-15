@@ -679,11 +679,9 @@ const buildUnchangedContentPatch = (
       patch.opdrachtgeverNaam = value;
     }
   }
-  if (existing.startDatum === null) {
-    const value = draftTextColumn(draft.startDatum.value);
-    if (value !== null) {
-      patch.startDatum = value;
-    }
+  const startDatum = draftTextColumn(draft.startDatum.value);
+  if (startDatum !== null && startDatum !== existing.startDatum) {
+    patch.startDatum = startDatum;
   }
   if (existing.publicatiedatum === null) {
     const value = readBronText(

@@ -1,4 +1,5 @@
 import { hashContent } from "../object-store";
+import { ONEFELLOW_PARSER_VERSION } from "./types";
 import type { OnefellowJob } from "./types";
 
 /** Canonical JSON of the whitelisted fields that matter for change
@@ -18,6 +19,7 @@ export const hashOnefellowListingItem = (
     hours: item.hours ?? null,
     joborder_id: item.joborder_id,
     max_rate: item.max_rate ?? null,
+    parser_version: ONEFELLOW_PARSER_VERSION,
     salary: item.salary ?? null,
     start_date: item.start_date ?? null,
     status: item.status ?? null,
