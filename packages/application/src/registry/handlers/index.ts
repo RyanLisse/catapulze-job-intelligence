@@ -70,6 +70,9 @@ const domainFailure = (
   details?: SliceADomainFailureDetails
 ) => ({ error: { code, details, message }, ok: false as const });
 
+/** Moves one nullable-fallback branch out of previewAanvraag to stay under the complexity budget. */
+const orNull = <T>(value: T | null | undefined): T | null => value ?? null;
+
 const previewAanvraag = (record: AanvraagRecord) => ({
   beschrijving: previewText(record.beschrijving),
   bronId: record.bronId,
@@ -80,6 +83,7 @@ const previewAanvraag = (record: AanvraagRecord) => ({
   enrichedFields: record.enrichedFields ?? [],
   id: record.id,
   locatie: record.locatie ?? null,
+  locatieLand: orNull(record.locatieLand),
   mode: "preview" as const,
   opdrachtgeverNaam: record.opdrachtgeverNaam ?? null,
   opleidingsniveau: record.opleidingsniveau ?? null,

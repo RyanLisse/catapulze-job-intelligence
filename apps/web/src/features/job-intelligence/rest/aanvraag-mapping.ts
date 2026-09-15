@@ -31,6 +31,7 @@ export interface AanvraagPreview {
   readonly eindDatum?: string | null;
   readonly id: string;
   readonly locatie?: string | null;
+  readonly locatieLand?: string | null;
   readonly opdrachtgeverNaam?: string | null;
   readonly opleidingsniveau?: string | null;
   readonly provincie?: string | null;
@@ -205,7 +206,7 @@ export const mapAanvraagToJobListing = (input: {
   return {
     closingAt: input.aanvraag.sluitingsdatum ?? null,
     contractType: mapContractType(input.aanvraag.contracttype ?? null),
-    country: null,
+    country: input.aanvraag.locatieLand === "NL" ? "NL" : null,
     description: input.aanvraag.beschrijving,
     educationLevel: optionalText(input.aanvraag.opleidingsniveau),
     endDate: optionalText(input.aanvraag.eindDatum),

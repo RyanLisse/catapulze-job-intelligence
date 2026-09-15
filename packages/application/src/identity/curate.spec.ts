@@ -163,6 +163,57 @@ describe("curateObservation commercial columns and coalesce tombstones", () => {
     expect(aanvraag?.contracttype).toBeTruthy();
   });
 
+  it("canonicalizes a raw 'temporary' contract_type token to interim (CTP-514/CTP-526)", async () => {
+    const store = new InMemoryCurateStore();
+    const base = observation("COL-CONTRACT-1", "hash-contract-1");
+    await curateObservation(store, {
+      ...base,
+      draft: {
+        ...base.draft,
+        bronSpecifiek: { provenance, value: { contract_type: "temporary" } },
+      },
+    });
+    const [aanvraag] = store.aanvragen;
+    expect(aanvraag?.contracttype).toBe("interim");
+    // SAFETY: test fixture set bronSpecifiek.value to a literal with contract_type above
+    const bronSpecifiek = aanvraag?.bronSpecifiek as { contract_type?: string };
+    expect(bronSpecifiek.contract_type).toBe("temporary");
+  });
+
+  it("canonicalizes a raw 'CONTRACTOR' contract_type token to freelance (CTP-514/CTP-526)", async () => {
+    const store = new InMemoryCurateStore();
+    const base = observation("COL-CONTRACT-2", "hash-contract-2");
+    await curateObservation(store, {
+      ...base,
+      draft: {
+        ...base.draft,
+        bronSpecifiek: { provenance, value: { contract_type: "CONTRACTOR" } },
+      },
+    });
+    const [aanvraag] = store.aanvragen;
+    expect(aanvraag?.contracttype).toBe("freelance");
+    // SAFETY: test fixture set bronSpecifiek.value to a literal with contract_type above
+    const bronSpecifiek = aanvraag?.bronSpecifiek as { contract_type?: string };
+    expect(bronSpecifiek.contract_type).toBe("CONTRACTOR");
+  });
+
+  it("leaves the column null for an hours/employment token like 'FULL_TIME' that isn't a contract form (CTP-514/CTP-526)", async () => {
+    const store = new InMemoryCurateStore();
+    const base = observation("COL-CONTRACT-3", "hash-contract-3");
+    await curateObservation(store, {
+      ...base,
+      draft: {
+        ...base.draft,
+        bronSpecifiek: { provenance, value: { contract_type: "FULL_TIME" } },
+      },
+    });
+    const [aanvraag] = store.aanvragen;
+    expect(aanvraag?.contracttype).toBeNull();
+    // SAFETY: test fixture set bronSpecifiek.value to a literal with contract_type above
+    const bronSpecifiek = aanvraag?.bronSpecifiek as { contract_type?: string };
+    expect(bronSpecifiek.contract_type).toBe("FULL_TIME");
+  });
+
   it("preserves commercial fields when a sparse re-scrape sends UNKNOWN", async () => {
     const store = new InMemoryCurateStore();
     const rich = observation("COL-2", "hash-rich");

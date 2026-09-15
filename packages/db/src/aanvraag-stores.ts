@@ -48,6 +48,8 @@ const toAanvraagRecord = (
     id: row.id,
     // locatie_land defaults to NL and is therefore not proof of a published location.
     locatie: row.locatieTekst,
+    // Preserve an explicitly unknown location, same rule as toSearchDocument.
+    locatieLand: row.locatieTekst === null ? null : row.locatieLand,
     opdrachtgeverNaam: row.opdrachtgeverNaam ?? bronFacts.opdrachtgeverNaam,
     opleidingsniveau: bronFacts.opleidingsniveau,
     // No curated province column; only a canonical name the source published.

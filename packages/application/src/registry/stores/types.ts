@@ -75,6 +75,8 @@ export interface AanvraagRecord {
   readonly eindDatum?: string | null;
   readonly id: string;
   readonly locatie?: string | null;
+  /** ISO-2 country the source published; null when it did not (CTP-514, F05). */
+  readonly locatieLand?: string | null;
   readonly opdrachtgeverNaam?: string | null;
   readonly opleidingsniveau?: string | null;
   /** Canonical NL province the source published (CTP-514, F04). Never derived. */
