@@ -248,6 +248,18 @@ describe("parseOnefellowPayload", () => {
     });
   });
 
+  it("keeps a calendar-invalid DD-MM-YYYY duration as duur text instead of promoting it (CTP-517 review)", () => {
+    const draft = parseOnefellowPayload(
+      buildPayload({ duration: "31-02-2026" }),
+      "hash-eind-datum-invalid"
+    );
+    expect(draft.bronSpecifiek.value).toMatchObject({
+      duration: "31-02-2026",
+      duur: "31-02-2026",
+      eind_datum: null,
+    });
+  });
+
   it("omits both duur and eind_datum when duration is absent", () => {
     const draft = parseOnefellowPayload(
       buildPayload({ duration: undefined }),

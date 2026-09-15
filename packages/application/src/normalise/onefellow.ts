@@ -8,7 +8,7 @@ import { resolveLifecycleStatus } from "@ji/domain/lifecycle";
 
 import { formatHoursPerWeek } from "./hours";
 import { parseTariefFromText } from "./tarief";
-import { field, stripHtml } from "./types";
+import { field, isValidCalendarDate, stripHtml } from "./types";
 import type { NormalisedAanvraagDraft, NormalisedTarief } from "./types";
 
 /** Named entities confirmed across the real Onefellow listing capture
@@ -192,7 +192,11 @@ const DURATION_DATE_PATTERN = /^(?<day>\d{2})-(?<month>\d{2})-(?<year>\d{4})$/u;
  * a literal `DD-MM-YYYY` end date in the same field instead of a phrase.
  * Detect that shape explicitly and promote it to `eind_datum`; anything
  * else stays `duur` text, per the CTP-514 data contract (eind_datum only
- * from an explicit date, duur when only a duration is published). */
+ * from an explicit date, duur when only a duration is published). A
+ * date-shaped but calendar-invalid value (`31-02-2026`, codex review,
+ * RJC-514 amendment) falls back to `duur` text instead of persisting an
+ * impossible date -- `new Date` never throws on an out-of-range day/month,
+ * it silently rolls over into a neighbouring real date. */
 const parseOnefellowLooptijd = (duration?: string): OnefellowLooptijd => {
   const trimmed = duration?.trim();
   if (!trimmed) {
@@ -200,7 +204,12 @@ const parseOnefellowLooptijd = (duration?: string): OnefellowLooptijd => {
   }
   const match = trimmed.match(DURATION_DATE_PATTERN);
   const { day, month, year } = match?.groups ?? {};
-  if (day && month && year) {
+  if (
+    day &&
+    month &&
+    year &&
+    isValidCalendarDate(Number(year), Number(month), Number(day))
+  ) {
     return { duur: null, eindDatum: `${year}-${month}-${day}` };
   }
   return { duur: trimmed, eindDatum: null };

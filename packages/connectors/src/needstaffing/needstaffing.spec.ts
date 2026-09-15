@@ -407,6 +407,19 @@ describe("Needstaffing connector", () => {
     expect(fetched).toBeNull();
   });
 
+  it("re-hashes a listing row when only werkvorm changes (CTP-517 review)", async () => {
+    const base: NeedstaffingListingItem = {
+      id: "15900",
+      locatie: "Den Haag",
+      titel: "Interim Projectleider",
+      werkvorm: "Hybride",
+    };
+    const changed: NeedstaffingListingItem = { ...base, werkvorm: "Remote" };
+    const baseHash = await hashNeedstaffingListingItem(base);
+    const changedHash = await hashNeedstaffingListingItem(changed);
+    expect(changedHash).not.toBe(baseHash);
+  });
+
   it("rejects a detail page with an empty/missing titel instead of ingesting it", async () => {
     const bronId = "bron-needstaffing-malformed";
     const items: NeedstaffingListingItem[] = [

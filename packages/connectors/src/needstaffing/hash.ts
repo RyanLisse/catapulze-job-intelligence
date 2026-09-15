@@ -14,6 +14,7 @@ export const hashNeedstaffingListingItem = (
     tarief: item.tarief ?? null,
     titel: item.titel,
     uren: item.uren ?? null,
+    werkvorm: item.werkvorm ?? null,
   });
   return hashContent(new TextEncoder().encode(canonical));
 };
