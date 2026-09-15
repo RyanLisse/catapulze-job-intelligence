@@ -81,3 +81,22 @@ describe("tarief parser regressions (bugbot)", () => {
     });
   });
 });
+
+describe("parseTariefFromText salaris vs inhuur tarief", () => {
+  it("labels jobboard salaris ranges as maand, not uur", () => {
+    const parsed = parseTariefFromText(
+      "Een maandsalaris tussen de € 3.150,00 en € 6.500,00"
+    );
+    expect(parsed).toMatchObject({
+      eenheid: "maand",
+      max: "6500.00",
+      min: "3150.00",
+      valuta: "EUR",
+    });
+  });
+
+  it("keeps labeled uurtarief as uur", () => {
+    const parsed = parseTariefFromText("Uurtarief €90 - €110 all-in");
+    expect(parsed.eenheid).toBe("uur");
+  });
+});

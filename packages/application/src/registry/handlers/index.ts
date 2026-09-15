@@ -82,6 +82,7 @@ const previewAanvraag = (record: AanvraagRecord) => ({
   locatie: record.locatie ?? null,
   mode: "preview" as const,
   opdrachtgeverNaam: record.opdrachtgeverNaam ?? null,
+  opleidingsniveau: record.opleidingsniveau ?? null,
   publicatiedatum: record.publicatiedatum ?? null,
   rawPayloadRef: record.rawPayloadRef,
   scrapeRunId: record.scrapeRunId,

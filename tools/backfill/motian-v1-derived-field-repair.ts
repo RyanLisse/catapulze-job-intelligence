@@ -16,7 +16,7 @@ import {
 import { mapV1JobToDraft } from "../../packages/application/src/backfill/neon-v1";
 
 export const MOTIAN_V1_DERIVED_FIELD_REPAIR_VERSION =
-  "motian-v1-derived-field-repair/v1" as const;
+  "motian-v1-derived-field-repair/v2" as const;
 
 export const MOTIAN_DERIVED_FIELD_NAMES = [
   "opdrachtgeverNaam",
@@ -24,6 +24,11 @@ export const MOTIAN_DERIVED_FIELD_NAMES = [
   "publicatiedatum",
   "startDatum",
   "sluitingsdatum",
+  "urenPerWeek",
+  "tariefMin",
+  "tariefMax",
+  "tariefEenheid",
+  "opleidingsniveau",
 ] as const;
 
 export type MotianDerivedFieldName =
@@ -41,9 +46,14 @@ export interface MotianDerivedFieldRepairManifestEntry {
 export interface CurrentMotianDerivedFieldRow extends MotianDerivedFieldRepairManifestEntry {
   readonly contracttype: string | null;
   readonly opdrachtgeverNaam: string | null;
+  readonly opleidingsniveau: string | null;
   readonly publicatiedatum: string | null;
   readonly sluitingsdatum: Date | null;
   readonly startDatum: string | null;
+  readonly tariefEenheid: string | null;
+  readonly tariefMax: string | null;
+  readonly tariefMin: string | null;
+  readonly urenPerWeek: string | null;
 }
 
 export interface RawObjectForMotianRepair {
@@ -64,9 +74,14 @@ export type MotianDerivedFieldRepairReason =
 export interface MotianDerivedFieldRepairPatch {
   readonly contracttype?: string;
   readonly opdrachtgeverNaam?: string;
+  readonly opleidingsniveau?: string;
   readonly publicatiedatum?: string;
   readonly sluitingsdatum?: Date;
   readonly startDatum?: string;
+  readonly tariefEenheid?: string;
+  readonly tariefMax?: string;
+  readonly tariefMin?: string;
+  readonly urenPerWeek?: string;
 }
 
 type MutableMotianDerivedFieldRepairPatch = {
@@ -117,7 +132,7 @@ const sourceBronTextSchema = z.string().trim().min(1);
 
 const sourceBronText = (
   value: JsonValue,
-  key: "contracttype" | "publicatiedatum"
+  key: "contracttype" | "opleidingsniveau" | "publicatiedatum" | "uren_per_week"
 ): string | undefined => {
   const bronSpecifiek = bronSpecifiekSchema.safeParse(value);
   if (!bronSpecifiek.success) {
@@ -189,6 +204,23 @@ const mapMotianRawObject = (
   }
 };
 
+const applyNullableSourceField = <T extends string>(input: {
+  readonly current: T | null;
+  readonly field: MotianDerivedFieldName;
+  readonly patch: MutableMotianDerivedFieldRepairPatch;
+  readonly sourceAbsentFields: MotianDerivedFieldName[];
+  readonly value: T | undefined;
+  readonly write: (value: T) => void;
+}): void => {
+  if (input.value === undefined) {
+    input.sourceAbsentFields.push(input.field);
+    return;
+  }
+  if (input.current === null) {
+    input.write(input.value);
+  }
+};
+
 const planFields = (
   current: CurrentMotianDerivedFieldRow,
   job: ReturnType<typeof decodeMotianV1RawRow>
@@ -201,34 +233,92 @@ const planFields = (
   const sourceAbsentFields: MotianDerivedFieldName[] = [];
   const bronSpecifiek = draft.bronSpecifiek.value;
 
-  const opdrachtgeverNaam = sourceText(draft.opdrachtgeverNaam.value);
-  if (opdrachtgeverNaam === undefined) {
-    sourceAbsentFields.push("opdrachtgeverNaam");
-  } else if (current.opdrachtgeverNaam === null) {
-    patch.opdrachtgeverNaam = opdrachtgeverNaam;
-  }
-  const contracttype = sourceBronText(bronSpecifiek, "contracttype");
-  if (contracttype === undefined) {
-    sourceAbsentFields.push("contracttype");
-  } else if (current.contracttype === null) {
-    patch.contracttype = contracttype;
-  }
-  const publicatiedatum = sourceBronText(bronSpecifiek, "publicatiedatum");
-  if (publicatiedatum === undefined) {
-    sourceAbsentFields.push("publicatiedatum");
-  } else if (current.publicatiedatum === null) {
-    patch.publicatiedatum = publicatiedatum;
-  }
-  const startDatum = sourceText(draft.startDatum.value);
-  if (startDatum === undefined) {
-    sourceAbsentFields.push("startDatum");
-  } else if (current.startDatum === null) {
-    patch.startDatum = startDatum;
-  }
+  applyNullableSourceField({
+    current: current.opdrachtgeverNaam,
+    field: "opdrachtgeverNaam",
+    patch,
+    sourceAbsentFields,
+    value: sourceText(draft.opdrachtgeverNaam.value),
+    write: (value) => {
+      patch.opdrachtgeverNaam = value;
+    },
+  });
+  applyNullableSourceField({
+    current: current.contracttype,
+    field: "contracttype",
+    patch,
+    sourceAbsentFields,
+    value: sourceBronText(bronSpecifiek, "contracttype"),
+    write: (value) => {
+      patch.contracttype = value;
+    },
+  });
+  applyNullableSourceField({
+    current: current.publicatiedatum,
+    field: "publicatiedatum",
+    patch,
+    sourceAbsentFields,
+    value: sourceBronText(bronSpecifiek, "publicatiedatum"),
+    write: (value) => {
+      patch.publicatiedatum = value;
+    },
+  });
+  applyNullableSourceField({
+    current: current.startDatum,
+    field: "startDatum",
+    patch,
+    sourceAbsentFields,
+    value: sourceText(draft.startDatum.value),
+    write: (value) => {
+      patch.startDatum = value;
+    },
+  });
   if (draft.sluitingsdatum === undefined) {
     sourceAbsentFields.push("sluitingsdatum");
   } else if (current.sluitingsdatum === null) {
     patch.sluitingsdatum = draft.sluitingsdatum;
+  }
+
+  applyNullableSourceField({
+    current: current.urenPerWeek,
+    field: "urenPerWeek",
+    patch,
+    sourceAbsentFields,
+    value: sourceBronText(bronSpecifiek, "uren_per_week"),
+    write: (value) => {
+      patch.urenPerWeek = value;
+    },
+  });
+  applyNullableSourceField({
+    current: current.opleidingsniveau,
+    field: "opleidingsniveau",
+    patch,
+    sourceAbsentFields,
+    value: sourceBronText(bronSpecifiek, "opleidingsniveau"),
+    write: (value) => {
+      patch.opleidingsniveau = value;
+    },
+  });
+
+  const tariefMin = sourceText(draft.tarief.min);
+  const tariefMax = sourceText(draft.tarief.max);
+  const tariefEenheid = sourceText(draft.tarief.eenheid);
+  if (tariefMin === undefined && tariefMax === undefined) {
+    sourceAbsentFields.push("tariefMin", "tariefMax", "tariefEenheid");
+  } else if (
+    current.tariefMin === null &&
+    current.tariefMax === null &&
+    current.tariefEenheid === null
+  ) {
+    if (tariefMin !== undefined) {
+      patch.tariefMin = tariefMin;
+    }
+    if (tariefMax !== undefined) {
+      patch.tariefMax = tariefMax;
+    }
+    if (tariefEenheid !== undefined) {
+      patch.tariefEenheid = tariefEenheid;
+    }
   }
 
   return { patch, sourceAbsentFields };

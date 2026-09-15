@@ -220,13 +220,18 @@ const bulkToolSource = () =>
   Bun.file(`${import.meta.dir}/repair-motian-v1-derived-fields-bulk.ts`).text();
 
 describe("candidate selection predicate", () => {
-  it("covers exactly the five derived fields the bounded tool repairs", () => {
+  it("covers exactly the derived fields the bounded tool repairs", () => {
     expect(MOTIAN_BULK_CANDIDATE_NULL_COLUMNS).toEqual([
       "contracttype",
       "opdrachtgever_naam",
+      "opleidingsniveau",
       "publicatiedatum",
       "sluitingsdatum",
       "start_datum",
+      "tarief_eenheid",
+      "tarief_max",
+      "tarief_min",
+      "uren_per_week",
     ]);
     expect(MOTIAN_BULK_CANDIDATE_NULL_COLUMNS).toHaveLength(
       MOTIAN_DERIVED_FIELD_NAMES.length
@@ -236,6 +241,10 @@ describe("candidate selection predicate", () => {
   it("tests every one of those columns for null and nothing else", async () => {
     const text = await bulkToolSource();
     for (const column of MOTIAN_BULK_CANDIDATE_NULL_COLUMNS) {
+      if (column === "opleidingsniveau") {
+        expect(text).toContain("bron_specifiek->>'opleidingsniveau'");
+        continue;
+      }
       expect(text).toContain(`${column} IS NULL`);
     }
     expect(text.match(/ IS NULL/gu)).toHaveLength(
@@ -243,8 +252,8 @@ describe("candidate selection predicate", () => {
     );
   });
 
-  it("does not select on uren_per_week, which the repair never writes", async () => {
-    expect(await bulkToolSource()).not.toContain("uren_per_week");
+  it("selects on uren_per_week now that commercial Motian repair writes it", async () => {
+    expect(await bulkToolSource()).toContain("uren_per_week IS NULL");
   });
 
   it("keeps the v1_id and content addressed raw pointer clauses", async () => {

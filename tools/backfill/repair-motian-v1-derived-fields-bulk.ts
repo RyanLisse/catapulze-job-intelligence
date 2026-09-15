@@ -498,6 +498,11 @@ export const selectBulkCandidates = async (input: {
         OR publicatiedatum IS NULL
         OR sluitingsdatum IS NULL
         OR start_datum IS NULL
+        OR uren_per_week IS NULL
+        OR tarief_min IS NULL
+        OR tarief_max IS NULL
+        OR tarief_eenheid IS NULL
+        OR NULLIF(trim(bron_specifiek->>'opleidingsniveau'), '') IS NULL
       )
       AND id > ${input.cursor}::uuid
     ORDER BY id

@@ -71,6 +71,7 @@ export interface AanvraagRecord {
   readonly id: string;
   readonly locatie?: string | null;
   readonly opdrachtgeverNaam?: string | null;
+  readonly opleidingsniveau?: string | null;
   readonly publicatiedatum?: string | null;
   readonly rawPayloadRef: string;
   readonly startDatum?: string | null;
@@ -152,19 +153,29 @@ export type MotianDerivedFieldRepairFieldName =
   | "contracttype"
   | "publicatiedatum"
   | "startDatum"
-  | "sluitingsdatum";
+  | "sluitingsdatum"
+  | "urenPerWeek"
+  | "tariefMin"
+  | "tariefMax"
+  | "tariefEenheid"
+  | "opleidingsniveau";
 
 export interface MotianDerivedFieldRepairAuditFieldImage {
   readonly contracttype: string | null;
   readonly opdrachtgeverNaam: string | null;
+  readonly opleidingsniveau: string | null;
   readonly publicatiedatum: string | null;
   readonly sluitingsdatum: string | null;
   readonly startDatum: string | null;
+  readonly tariefEenheid: string | null;
+  readonly tariefMax: string | null;
+  readonly tariefMin: string | null;
+  readonly urenPerWeek: string | null;
 }
 
 /**
  * Strict, bounded metadata for the Motian v1 derived-field repair lane.
- * Values are limited to the five nullable derived columns; raw payloads and
+ * Values are limited to the nullable derived commercial columns; raw payloads and
  * arbitrary source JSON never belong in an audit event.
  */
 export interface MotianDerivedFieldRepairAuditMetadata {
@@ -177,7 +188,7 @@ export interface MotianDerivedFieldRepairAuditMetadata {
   readonly manifestSha256: string;
   readonly preimage: MotianDerivedFieldRepairAuditFieldImage;
   readonly rawPayloadRef: string;
-  readonly repairVersion: "motian-v1-derived-field-repair/v1";
+  readonly repairVersion: "motian-v1-derived-field-repair/v2";
   readonly sourceAbsentFields: readonly MotianDerivedFieldRepairFieldName[];
   readonly v1Id: string;
 }

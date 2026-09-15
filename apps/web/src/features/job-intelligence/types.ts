@@ -163,6 +163,7 @@ export interface JobListing {
   readonly status: JobLifecycleStatus;
   readonly summary: string;
   readonly description: string;
+  readonly educationLevel?: string | null;
   readonly endDate?: string | null;
   readonly hoursPerWeek?: string | null;
   readonly remote: boolean | null;

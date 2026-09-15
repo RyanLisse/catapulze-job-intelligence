@@ -14,6 +14,8 @@ export {
 export { bluetrailConfig } from "./configs/bluetrail";
 export { heroConfig } from "./configs/hero";
 export { proActConfig } from "./configs/pro-act";
+export { nationaleVacaturebankConfig } from "./configs/nationalevacaturebank";
+export { werkzoekenConfig } from "./configs/werkzoeken";
 export {
   extractJobPosting,
   extractJsonLdNodes,

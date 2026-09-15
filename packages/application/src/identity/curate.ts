@@ -591,6 +591,62 @@ const ensureDedupGroep = (
  * source that stops publishing a deadline must never silently erase a value
  * already stored from an earlier observation.
  */
+
+const mergeOpleidingsniveauPatch = (
+  draft: NormalisedAanvraagDraft,
+  existing: StoredAanvraag
+): BronSpecifiekJson | undefined => {
+  const nextEducation = explicitBronText(
+    draft,
+    "opleidingsniveau",
+    "education_level"
+  );
+  if (nextEducation === null) {
+    return undefined;
+  }
+  const existingBron = asBronSpecifiekRecord(existing.bronSpecifiek);
+  if (
+    readBronText(existingBron, "opleidingsniveau", "education_level") !== null
+  ) {
+    return undefined;
+  }
+  // SAFETY: BronSpecifiekRecord is a string-keyed JSON object; BronSpecifiekJson
+  // is the same JsonValue object shape at the curate boundary.
+  return {
+    ...existingBron,
+    ...asBronSpecifiekRecord(draft.bronSpecifiek.value),
+    opleidingsniveau: nextEducation,
+  } as BronSpecifiekJson;
+};
+
+const fillNullCommercialColumns = (
+  draft: NormalisedAanvraagDraft,
+  existing: StoredAanvraag,
+  patch: Partial<StoredAanvraag>
+): void => {
+  if (existing.urenPerWeek === null) {
+    const value = explicitBronText(draft, "uren_per_week", "uren_per_week_raw");
+    if (value !== null) {
+      patch.urenPerWeek = value;
+    }
+  }
+  if (
+    existing.tariefMin === null &&
+    existing.tariefMax === null &&
+    existing.tariefEenheid === null
+  ) {
+    const min = tariefColumn(draft.tarief.min);
+    const max = tariefColumn(draft.tarief.max);
+    const eenheid = tariefColumn(draft.tarief.eenheid);
+    if (min !== null || max !== null) {
+      patch.tariefMin = min;
+      patch.tariefMax = max;
+      patch.tariefEenheid = eenheid;
+      patch.tariefValuta = draft.tarief.valuta;
+    }
+  }
+};
+
 const buildUnchangedContentPatch = (
   input: CurateObservationInput,
   existing: StoredAanvraag
@@ -644,6 +700,11 @@ const buildUnchangedContentPatch = (
     if (value !== null) {
       patch.werkvorm = value;
     }
+  }
+  fillNullCommercialColumns(draft, existing, patch);
+  const educationPatch = mergeOpleidingsniveauPatch(draft, existing);
+  if (educationPatch !== undefined) {
+    patch.bronSpecifiek = educationPatch;
   }
   if (
     draft.sluitingsdatum !== undefined &&

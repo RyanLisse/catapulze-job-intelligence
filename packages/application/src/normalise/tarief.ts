@@ -24,34 +24,40 @@ const normalizeAmount = (raw: string): string => {
   return trimmed.replace(",", ".");
 };
 
+const hasAny = (lower: string, tokens: readonly string[]): boolean =>
+  tokens.some((token) => lower.includes(token));
+
 const detectEenheid = (lower: string): TariefEenheid | typeof UNKNOWN => {
   // Explicit period wins over all-in / BTW gloss that often sits beside day rates.
-  if (
-    lower.includes(" per dag") ||
-    lower.includes("/dag") ||
-    lower.includes("dagtarief")
-  ) {
+  if (hasAny(lower, [" per dag", "/dag", "dagtarief"])) {
     return "dag";
   }
-  if (
-    lower.includes(" per maand") ||
-    lower.includes("/maand") ||
-    lower.includes("maandtarief")
-  ) {
+  if (hasAny(lower, [" per maand", "/maand", "maandtarief"])) {
     return "maand";
   }
   if (
-    lower.includes(" per uur") ||
-    lower.includes(" p/u") ||
-    lower.includes("/uur") ||
-    lower.includes("uurtarief") ||
-    lower.includes("all-in") ||
-    lower.includes("all in") ||
-    lower.includes("ex btw") ||
-    lower.includes("excl. btw") ||
-    lower.includes("inclusief msp")
+    hasAny(lower, [
+      " per uur",
+      " p/u",
+      "/uur",
+      "uurtarief",
+      "all-in",
+      "all in",
+      "ex btw",
+      "excl. btw",
+      "inclusief msp",
+    ])
   ) {
     return "uur";
+  }
+  // Jobboard "salaris" ranges are monthly (or yearly when labeled), never the
+  // bare-€ → uur default used for Dutch inhuur tarief copy.
+  if (hasAny(lower, ["salaris", "bruto per maand", "maandsalaris"])) {
+    return "maand";
+  }
+  if (hasAny(lower, [" jaarsalaris", " per jaar", "/jaar"])) {
+    // Domain TariefEenheid has no jaar yet; UNKNOWN beats mislabeling as uur.
+    return UNKNOWN;
   }
   // Bare euro amounts in Dutch inhuur listings are almost always hourly.
   if (/€|euro/u.test(lower)) {
@@ -98,7 +104,7 @@ const parseMaxOnly = (lower: string): NormalisedTarief | null => {
 const parseTussenRange = (lower: string): NormalisedTarief | null => {
   const match = lower.match(
     new RegExp(
-      String.raw`tussen\s*€?\s*${MIN_CAPTURE}\s*(?:en|[-–])\s*€?\s*${MAX_CAPTURE}`,
+      String.raw`tussen(?:\s+de)?\s*€?\s*${MIN_CAPTURE}\s*(?:en|[-–])\s*€?\s*${MAX_CAPTURE}`,
       "u"
     )
   );

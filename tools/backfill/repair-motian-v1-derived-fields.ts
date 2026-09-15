@@ -333,9 +333,14 @@ const createEmptyFieldCounts = () =>
   ({
     contracttype: 0,
     opdrachtgeverNaam: 0,
+    opleidingsniveau: 0,
     publicatiedatum: 0,
     sluitingsdatum: 0,
     startDatum: 0,
+    tariefEenheid: 0,
+    tariefMax: 0,
+    tariefMin: 0,
+    urenPerWeek: 0,
   }) satisfies Record<MotianDerivedFieldName, number>;
 
 const runReport = async (input: {
