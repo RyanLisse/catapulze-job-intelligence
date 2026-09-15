@@ -163,11 +163,13 @@ const FacetOption = <T extends string>({
 
 const SelectAllBar = ({
   allSelected,
+  groupLabel,
   noneSelected,
   onClear,
   onSelectAll,
 }: {
   readonly allSelected: boolean;
+  readonly groupLabel: string;
   readonly noneSelected: boolean;
   readonly onClear: () => void;
   readonly onSelectAll: () => void;
@@ -177,6 +179,7 @@ const SelectAllBar = ({
       type="button"
       disabled={allSelected}
       onClick={onSelectAll}
+      aria-label={`Alles selecteren in ${groupLabel}`}
       className="font-medium text-primary outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-default disabled:text-muted-foreground disabled:no-underline"
     >
       Alles selecteren
@@ -186,6 +189,7 @@ const SelectAllBar = ({
       type="button"
       disabled={noneSelected}
       onClick={onClear}
+      aria-label={`Selectie wissen in ${groupLabel}`}
       className="font-medium text-primary outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-default disabled:text-muted-foreground disabled:no-underline"
     >
       Alles wissen
@@ -552,6 +556,7 @@ export const JobFilters = ({
 
       <FacetGroup title="Bron" badgeCount={filters.sources.length}>
         <SelectAllBar
+          groupLabel="Bron"
           allSelected={
             sources.length > 0 &&
             sources.every((source) => filters.sources.includes(source.value))
@@ -584,6 +589,7 @@ export const JobFilters = ({
 
       <FacetGroup title="Contract" badgeCount={filters.contractTypes.length}>
         <SelectAllBar
+          groupLabel="Contract"
           allSelected={contractOptions.every((value) =>
             filters.contractTypes.includes(value)
           )}
@@ -606,6 +612,7 @@ export const JobFilters = ({
 
       <FacetGroup title="Status" badgeCount={filters.status.length}>
         <SelectAllBar
+          groupLabel="Status"
           allSelected={JOB_SEARCH_STATUS_VALUES.every((value) =>
             filters.status.includes(value)
           )}
@@ -627,6 +634,7 @@ export const JobFilters = ({
 
       <FacetGroup title="Werkvorm" badgeCount={filters.werkvormen.length}>
         <SelectAllBar
+          groupLabel="Werkvorm"
           allSelected={JOB_WERKVORMEN.every((value) =>
             filters.werkvormen.includes(value)
           )}
@@ -651,6 +659,7 @@ export const JobFilters = ({
           <p className="text-xs text-muted-foreground">Geen locaties</p>
         ) : (
           <SelectAllBar
+            groupLabel="Locatie"
             allSelected={
               facets.locations.length > 0 &&
               facets.locations.every((location) =>
@@ -692,6 +701,7 @@ export const JobFilters = ({
         note="Provincie-facet ontbreekt in SearchFacets API (alleen bron/contract/locatie/status). Waarden worden wel gefilterd; index-vulling is vaak spaarzaam."
       >
         <SelectAllBar
+          groupLabel="Regio"
           allSelected={
             provinceOptions.length > 0 &&
             provinceOptions.every((province) =>

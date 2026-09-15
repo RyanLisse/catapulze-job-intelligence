@@ -378,6 +378,7 @@ test("browses empty and filter-only searches and preserves comma URL state", asy
     exact: true,
     name: "Zoekterm (Azure verwijderen",
   });
+  // CTP-510/CTP-512: Alles wissen clears filters only; query chip must be removed separately.
   await Promise.all([
     waitForSearchResponse(page),
     malformedQueryChip
@@ -385,10 +386,12 @@ test("browses empty and filter-only searches and preserves comma URL state", asy
       .getByRole("button", { name: "Alles wissen" })
       .click(),
   ]);
+  await expect(locationFilter).not.toBeChecked();
+  await expect(searchInput).toHaveValue("(Azure");
+  await Promise.all([waitForSearchResponse(page), malformedQueryChip.click()]);
   await expect(page).toHaveURL("http://localhost:3001/jobs");
   await expect(searchInput).toHaveValue("");
   await expect(malformedQueryChip).toHaveCount(0);
-  await expect(locationFilter).not.toBeChecked();
   await expect(
     page.getByRole("heading", { name: "Boolean-query klopt nog niet" })
   ).toHaveCount(0);
@@ -493,13 +496,14 @@ test("shows catalog labels, historical archive filters, and closed results", asy
   await expect(closedRow).toBeVisible();
 });
 
-test("clears the full search state from the sidebar", async ({ page }) => {
+test("clears sidebar filters while keeping the zoekterm (CTP-510/CTP-512)", async ({
+  page,
+}) => {
   await openJobs(
     page,
     "/jobs?archief=1&q=archief&source=synthetic-historisch-archief&sort=closing-soon&page=2"
   );
 
-  const results = page.getByRole("region", { name: "Zoekresultaten" });
   const searchInput = page.getByLabel("Zoek opdrachten met Boolean-logica");
   const archiveToggle = page.getByRole("checkbox", {
     name: "Ook in archief zoeken",
@@ -518,18 +522,22 @@ test("clears the full search state from the sidebar", async ({ page }) => {
 
   const sidebarClear = page
     .locator("aside")
-    .getByRole("button", { name: "Alles wissen" });
+    .getByRole("button", { exact: true, name: "Alles wissen" });
   await expect(sidebarClear).toBeVisible();
   await Promise.all([waitForSearchResponse(page), sidebarClear.click()]);
 
-  await expect(page).toHaveURL("http://localhost:3001/jobs");
-  await expect(searchInput).toHaveValue("");
-  await expect(archiveToggle).not.toBeChecked();
+  // Mock resetAll: filters only. Zoekterm / archief / sort blijven.
+  await expect(page).toHaveURL(
+    (url) =>
+      url.searchParams.get("q") === "archief" &&
+      url.searchParams.get("source") === null &&
+      url.searchParams.get("archief") === "1" &&
+      url.searchParams.get("sort") === "closing-soon"
+  );
+  await expect(searchInput).toHaveValue("archief");
+  await expect(archiveToggle).toBeChecked();
   await expect(historicalSourceFilter).not.toBeChecked();
-  await expect(sortSelect).toHaveValue("relevance");
-  await expect(
-    results.getByRole("row").filter({ hasText: DETAIL_TITLE })
-  ).toBeVisible();
+  await expect(sortSelect).toHaveValue("closing-soon");
 });
 
 test("filters closed status in the archive and preserves it in the URL", async ({
