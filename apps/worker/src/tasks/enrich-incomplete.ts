@@ -13,6 +13,9 @@ import {
 } from "./enrich-incomplete-schema";
 import type { EnrichIncompletePayload } from "./enrich-incomplete-schema";
 
+const decodeRawBody = (body: Uint8Array): string =>
+  new TextDecoder("utf-8").decode(body);
+
 export interface EnrichIncompleteResult {
   readonly applyStoredProposals: boolean;
   readonly curatedPersisted: number;
@@ -105,6 +108,11 @@ export const runEnrichIncomplete = async (
     const summary = await candidates.reduce<Promise<EnrichIncompleteResult>>(
       async (accumulatorPromise, candidate) => {
         const accumulator = await accumulatorPromise;
+        const storedRaw = await runtime.objectStore.get(
+          candidate.rawPayloadRef
+        );
+        const rawHtml =
+          storedRaw === null ? null : decodeRawBody(storedRaw.body);
         const result = await runEnrichment({
           aanvraagId: candidate.id,
           beschrijving: candidate.beschrijving,
@@ -112,6 +120,8 @@ export const runEnrichIncomplete = async (
           contracttype: candidate.contracttype,
           enableLlmResidual,
           locatieTekst: candidate.locatieTekst,
+          publicatiedatum: candidate.publicatiedatum,
+          rawHtml,
           tariefEenheid: candidate.tariefEenheid,
           tariefMax: candidate.tariefMax,
           tariefMin: candidate.tariefMin,
@@ -147,6 +157,7 @@ export const runEnrichIncomplete = async (
               bronSpecifiek: candidate.bronSpecifiek,
               contracttype: candidate.contracttype,
               locatieTekst: candidate.locatieTekst,
+              publicatiedatum: candidate.publicatiedatum,
               tariefEenheid: candidate.tariefEenheid,
               tariefMax: candidate.tariefMax,
               tariefMin: candidate.tariefMin,

@@ -11,6 +11,7 @@ const emptyFacts = {
   bronSpecifiek: {},
   contracttype: null,
   locatieTekst: null,
+  publicatiedatum: null,
   tariefEenheid: null,
   tariefMax: null,
   tariefMin: null,

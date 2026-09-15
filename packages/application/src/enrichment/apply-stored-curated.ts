@@ -37,6 +37,7 @@ const tariefValueSchema = z.object({
 });
 const contractValueSchema = z.object({ contracttype: z.string() });
 const remoteValueSchema = z.object({ werkvorm: z.string() });
+const publicatiedatumValueSchema = z.object({ publicatiedatum: z.string() });
 
 const rawRefSchema = z.object({
   excerpt: z.string(),
@@ -70,6 +71,10 @@ const parseFieldValue = (
     }
     case "remote": {
       const parsed = remoteValueSchema.safeParse(value);
+      return parsed.success ? parsed.data : null;
+    }
+    case "publicatiedatum": {
+      const parsed = publicatiedatumValueSchema.safeParse(value);
       return parsed.success ? parsed.data : null;
     }
     default: {

@@ -101,6 +101,7 @@ export class PostgresAanvraagStore implements AanvraagStore {
         contracttype: overlaid.contracttype,
         enrichedFields: [...overlaid.enrichedFields],
         locatie: overlaid.locatie,
+        publicatiedatum: overlaid.publicatiedatum,
         tariefEenheid: overlaid.tariefEenheid,
         tariefMax: overlaid.tariefMax,
         tariefMin: overlaid.tariefMin,

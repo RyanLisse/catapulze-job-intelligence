@@ -3,6 +3,7 @@ export const ENRICHMENT_FIELDS = [
   "tarief",
   "contract",
   "remote",
+  "publicatiedatum",
 ] as const;
 
 export type EnrichmentField = (typeof ENRICHMENT_FIELDS)[number];
@@ -42,9 +43,14 @@ export interface EnrichmentRemoteValue {
   readonly werkvorm: string;
 }
 
+export interface EnrichmentPublicatiedatumValue {
+  readonly publicatiedatum: string;
+}
+
 export type EnrichmentFieldValue =
   | EnrichmentContractValue
   | EnrichmentLocatieValue
+  | EnrichmentPublicatiedatumValue
   | EnrichmentRemoteValue
   | EnrichmentTariefValue;
 
@@ -63,6 +69,7 @@ export interface EnrichmentRunInput {
   readonly contracttype?: string | null;
   readonly enableLlmResidual?: boolean;
   readonly locatieTekst?: string | null;
+  readonly publicatiedatum?: string | null;
   readonly rawHtml?: string | null;
   readonly tariefEenheid?: string | null;
   readonly tariefMax?: string | null;

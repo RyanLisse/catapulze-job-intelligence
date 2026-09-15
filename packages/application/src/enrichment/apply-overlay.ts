@@ -5,6 +5,7 @@ import type {
   EnrichmentField,
   EnrichmentFieldValue,
   EnrichmentLocatieValue,
+  EnrichmentPublicatiedatumValue,
   EnrichmentRemoteValue,
   EnrichmentSource,
   EnrichmentTariefValue,
@@ -27,6 +28,7 @@ export interface EnrichedFieldMeta {
 export interface AanvraagEnrichmentFacts {
   contracttype?: string | null;
   locatie?: string | null;
+  publicatiedatum?: string | null;
   tariefEenheid?: string | null;
   tariefMax?: number | null;
   tariefMin?: number | null;
@@ -97,6 +99,11 @@ const asContract = (
 const asRemote = (value: EnrichmentFieldValue): EnrichmentRemoteValue | null =>
   "werkvorm" in value ? value : null;
 
+const asPublicatiedatum = (
+  value: EnrichmentFieldValue
+): EnrichmentPublicatiedatumValue | null =>
+  "publicatiedatum" in value && !("locatieTekst" in value) ? value : null;
+
 const parseTariefNumber = (raw: string): number | null => {
   if (raw.trim() === "" || raw.trim() === UNKNOWN) {
     return null;
@@ -121,6 +128,7 @@ export const toEnrichedFieldMeta = (
  * Overlay persisted enrichment onto curated aanvraag facts without inventing
  * values when curated already published them.
  */
+// oxlint-disable-next-line eslint/complexity -- one branch per enrichment field
 export const applyEnrichmentOverlayToAanvraagFacts = (
   facts: AanvraagEnrichmentFacts,
   rows: readonly EnrichmentOverlayRow[]
@@ -130,6 +138,7 @@ export const applyEnrichmentOverlayToAanvraagFacts = (
   const next: AanvraagEnrichmentFacts = {
     contracttype: facts.contracttype,
     locatie: facts.locatie,
+    publicatiedatum: facts.publicatiedatum,
     tariefEenheid: facts.tariefEenheid,
     tariefMax: facts.tariefMax,
     tariefMin: facts.tariefMin,
@@ -171,6 +180,16 @@ export const applyEnrichmentOverlayToAanvraagFacts = (
       const value = asRemote(row.value);
       if (value && !isMissingText(value.werkvorm)) {
         next.werkvorm = value.werkvorm;
+      }
+      continue;
+    }
+    if (
+      row.field === "publicatiedatum" &&
+      isFillableGap(next.publicatiedatum)
+    ) {
+      const value = asPublicatiedatum(row.value);
+      if (value && !isMissingText(value.publicatiedatum)) {
+        next.publicatiedatum = value.publicatiedatum;
       }
     }
   }
