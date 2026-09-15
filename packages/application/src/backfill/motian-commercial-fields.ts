@@ -202,77 +202,50 @@ export const motianTariefEenheid = (
   return UNKNOWN;
 };
 
-/**
- * Canonical province for `bronSpecifiek.provincie` (F04). Only two sources
- * count as explicit: the Motian `province` column, and a province name written
- * in the vacancy title (Werkzoeken publishes it there). A city in `location`
- * is deliberately never consulted — that would infer what the source never said.
- */
-export const provincieForMotianJob = (job: NeonV1JobRow): Provincie | null =>
-  toCanonicalProvincie(job.province) ?? findProvincieInText(job.title);
+/** Motian platform slug whose vacancy titles carry the province. */
+const WERKZOEKEN_PLATFORM = "werkzoeken";
 
 /**
- * JSONB members whose value is a published list. Limited to the spellings the
- * CTP-514 field contract names ("skills"/"eisen"/"competenties" arrays) plus
- * the Motian column names themselves; nothing else is searched.
+ * Canonical province for `bronSpecifiek.provincie` (F04). The Motian
+ * `province` column is the only source for every platform. Werkzoeken alone
+ * also publishes it in the vacancy title, so the title is scanned for that
+ * platform only — elsewhere a title token like "Utrecht" is a work location,
+ * and reading it would infer a province the source never stated. A city in
+ * `location` is never consulted.
  */
-const SKILL_LIST_KEYS = [
-  "competences",
-  "competenties",
-  "eisen",
-  "skills",
-  "tags",
-  "wishes",
-] as const;
+export const provincieForMotianJob = (job: NeonV1JobRow): Provincie | null => {
+  const column = toCanonicalProvincie(job.province);
+  if (column !== null) {
+    return column;
+  }
+  if (job.platform.trim().toLowerCase() !== WERKZOEKEN_PLATFORM) {
+    return null;
+  }
+  return findProvincieInText(job.title);
+};
 
 const skillEntrySchema = z.record(z.string(), z.unknown());
 
-/** One list entry: a plain string, or an object with the `name` member the
- * Motian `competences` payload uses. No other label spelling is guessed. */
-const skillLabel = (entry: unknown): string | null => {
-  if (typeof entry === "string") {
-    return entry;
-  }
-  const parsed = skillEntrySchema.safeParse(entry);
-  if (!parsed.success || typeof parsed.data.name !== "string") {
-    return null;
-  }
-  return parsed.data.name;
-};
-
-const collectSkillList = (value: unknown, into: string[]): void => {
-  if (Array.isArray(value)) {
-    for (const entry of value) {
-      const label = skillLabel(entry);
-      if (label !== null) {
-        into.push(label);
-      }
-    }
-    return;
-  }
-  const parsed = skillEntrySchema.safeParse(value);
-  if (!parsed.success) {
-    return;
-  }
-  for (const key of SKILL_LIST_KEYS) {
-    if (Array.isArray(parsed.data[key])) {
-      collectSkillList(parsed.data[key], into);
-    }
-  }
-};
-
 /**
  * Structured skills for `bronSpecifiek.skills` (F15) from the Motian
- * `competences`, `requirements` and `wishes` JSONB columns. Only published
- * lists are read; free-text mining stays out of scope (GAP_ENRICH, CTP-482).
- * Shaping is delegated to the shared {@link normaliseSkills}. Returns null
- * when the source publishes no list, so an absent column never becomes `[]`.
+ * `competences` column, the one list shape a captured Motian payload shows:
+ * an array of objects carrying a `name`. `requirements` and `wishes` are not
+ * read — the CTP-514 audit records those as prose more often than lists, and
+ * mining prose is GAP_ENRICH (CTP-482). Shaping is delegated to the shared
+ * {@link normaliseSkills}. Returns null when `competences` publishes no list,
+ * so an absent column never becomes `[]`.
  */
 export const skillsForMotianJob = (job: NeonV1JobRow): string[] | null => {
-  const collected: string[] = [];
-  collectSkillList(job.competences, collected);
-  collectSkillList(job.requirements, collected);
-  collectSkillList(job.wishes, collected);
-  const skills = normaliseSkills(collected);
+  if (!Array.isArray(job.competences)) {
+    return null;
+  }
+  const names: string[] = [];
+  for (const entry of job.competences) {
+    const parsed = skillEntrySchema.safeParse(entry);
+    if (parsed.success && typeof parsed.data.name === "string") {
+      names.push(parsed.data.name);
+    }
+  }
+  const skills = normaliseSkills(names);
   return skills.length === 0 ? null : skills;
 };
