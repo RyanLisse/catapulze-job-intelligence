@@ -232,13 +232,18 @@ describe.each([
   ["hero", heroConfig],
   ["pro-act", proActConfig],
 ])("%s JSON-LD connector", (slug, config) => {
+  // BlueTrail's listing fixture carries a 3rd sitemap entry
+  // (adviseur-privacy-ibd, added 2026-09-15 to make the live-captured F15
+  // skills fixture reachable from the fixture-mode ingest pipeline).
+  const expectedItemCount = slug === "bluetrail" ? 3 : 2;
+
   it("ingests listing + detail fixtures with found/new/changed/rejected/error metrics", async () => {
     const result = await runFixtureIngest(config, `bron-${slug}-fixture`);
     expect(result.metrics).toMatchObject({
       changed: 0,
       error: 0,
-      found: 2,
-      new: 2,
+      found: expectedItemCount,
+      new: expectedItemCount,
       rejected: 0,
     });
   });
@@ -269,10 +274,10 @@ describe.each([
     await runConnector({ ...sharedInput, scrapeRunId: `run-${slug}-replay-1` });
     await runConnector({ ...sharedInput, scrapeRunId: `run-${slug}-replay-2` });
 
-    expect(recorder.records).toHaveLength(2);
+    expect(recorder.records).toHaveLength(expectedItemCount);
     expect(
       new Set(recorder.records.map((record) => record.bronReferentie)).size
-    ).toBe(2);
+    ).toBe(expectedItemCount);
   });
 
   it("reports a single, non-paginated discovery pass (hasMore: false)", async () => {
@@ -284,7 +289,7 @@ describe.each([
     });
     const result = await connector.discover(null);
     expect(result.hasMore).toBe(false);
-    expect(result.items).toHaveLength(2);
+    expect(result.items).toHaveLength(expectedItemCount);
   });
 });
 
