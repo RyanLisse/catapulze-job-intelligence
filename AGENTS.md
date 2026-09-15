@@ -246,11 +246,12 @@ Where Playwright drives UI proof, scope assertions to visible elements (`:visibl
 
 ## OpenWiki
 
-This repository has a committed `openwiki/` evidence index (see `openwiki/INSTRUCTIONS.md`). It is optional just-in-time context, not required startup reading.
+This repository has a generated `openwiki/` evidence index. It is optional just-in-time context, not required startup reading.
 
 - Treat source code and tests as authoritative. A brief's unknowns and review items are verification gaps, not automatic requirements.
-- Prefer the narrowest quiet validation that proves the changed behavior. Agent completion: run `bun run fix` once after edits, not per-file ultracite.
-- Do not mix `openwiki/` changes into feature commits. Scheduled CI opens PRs on branch `openwiki/update`.
+- Prefer the narrowest quiet validation that proves the changed behavior. Preserve complete failure output.
+
+The scheduled OpenWiki GitHub Actions workflow refreshes the repository wiki. Do not hand-edit generated OpenWiki pages unless explicitly asked; prefer updating source code/docs and letting OpenWiki regenerate.
 
 <!-- OPENWIKI:END -->
 
