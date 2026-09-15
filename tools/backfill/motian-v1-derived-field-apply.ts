@@ -104,6 +104,8 @@ const repairFieldNameSchema = z.enum([
   "tariefMax",
   "tariefEenheid",
   "opleidingsniveau",
+  "provincie",
+  "skills",
 ]);
 
 const repairFieldImageSchema = z
@@ -111,7 +113,9 @@ const repairFieldImageSchema = z
     contracttype: z.string().nullable(),
     opdrachtgeverNaam: z.string().nullable(),
     opleidingsniveau: z.string().nullable(),
+    provincie: z.string().nullable(),
     publicatiedatum: z.string().nullable(),
+    skills: z.string().nullable(),
     sluitingsdatum: z.string().datetime({ offset: true }).nullable(),
     startDatum: z.string().nullable(),
     tariefEenheid: z.string().nullable(),
@@ -151,7 +155,9 @@ const fieldToColumn = {
   contracttype: "contracttype",
   opdrachtgeverNaam: "opdrachtgever_naam",
   opleidingsniveau: "bron_specifiek",
+  provincie: "bron_specifiek",
   publicatiedatum: "publicatiedatum",
+  skills: "bron_specifiek",
   sluitingsdatum: "sluitingsdatum",
   startDatum: "start_datum",
   tariefEenheid: "tarief_eenheid",
@@ -159,6 +165,28 @@ const fieldToColumn = {
   tariefMin: "tarief_min",
   urenPerWeek: "uren_per_week",
 } as const satisfies Record<MotianDerivedFieldName, string>;
+
+/** One projection of every repairable derived field, shared by the read,
+ * update and rollback statements so they can never drift apart. */
+const DERIVED_FIELD_PROJECTION = `
+        id::text AS "aanvraagId",
+        bron_id::text AS "bronId",
+        bron_referentie AS "bronReferentie",
+        content_hash AS "contentHash",
+        raw_payload_ref AS "rawPayloadRef",
+        v1_id AS "v1Id",
+        opdrachtgever_naam AS "opdrachtgeverNaam",
+        contracttype,
+        NULLIF(trim(bron_specifiek->>'opleidingsniveau'), '') AS "opleidingsniveau",
+        NULLIF(trim(bron_specifiek->>'provincie'), '') AS "provincie",
+        publicatiedatum,
+        NULLIF(bron_specifiek->'skills', 'null'::jsonb)::text AS "skills",
+        start_datum AS "startDatum",
+        sluitingsdatum,
+        tarief_eenheid AS "tariefEenheid",
+        tarief_max::text AS "tariefMax",
+        tarief_min::text AS "tariefMin",
+        uren_per_week AS "urenPerWeek"`;
 
 const readCurrentRow = async (
   sql: MotianRepairSql,
@@ -169,22 +197,7 @@ const readCurrentRow = async (
   const rows = await sql.unsafe<CurrentMotianDerivedFieldRow[]>(
     `
       SELECT
-        id::text AS "aanvraagId",
-        bron_id::text AS "bronId",
-        bron_referentie AS "bronReferentie",
-        content_hash AS "contentHash",
-        raw_payload_ref AS "rawPayloadRef",
-        v1_id AS "v1Id",
-        opdrachtgever_naam AS "opdrachtgeverNaam",
-        contracttype,
-        NULLIF(trim(bron_specifiek->>'opleidingsniveau'), '') AS "opleidingsniveau",
-        publicatiedatum,
-        start_datum AS "startDatum",
-        sluitingsdatum,
-        tarief_eenheid AS "tariefEenheid",
-        tarief_max::text AS "tariefMax",
-        tarief_min::text AS "tariefMin",
-        uren_per_week AS "urenPerWeek"
+${DERIVED_FIELD_PROJECTION}
       FROM curated.aanvraag
       WHERE id::text = $1
       LIMIT 1${lockClause}
@@ -232,7 +245,9 @@ const toFieldImage = (
     | "contracttype"
     | "opdrachtgeverNaam"
     | "opleidingsniveau"
+    | "provincie"
     | "publicatiedatum"
+    | "skills"
     | "sluitingsdatum"
     | "startDatum"
     | "tariefEenheid"
@@ -244,7 +259,9 @@ const toFieldImage = (
   contracttype: row.contracttype,
   opdrachtgeverNaam: row.opdrachtgeverNaam,
   opleidingsniveau: row.opleidingsniveau,
+  provincie: row.provincie,
   publicatiedatum: row.publicatiedatum,
+  skills: row.skills,
   sluitingsdatum: row.sluitingsdatum?.toISOString() ?? null,
   startDatum: row.startDatum,
   tariefEenheid: row.tariefEenheid,
@@ -294,6 +311,20 @@ const configureTransaction = async (
   );
 };
 
+/** Derived fields that live inside `bron_specifiek` rather than in a column. */
+const BRON_SPECIFIEK_TEXT_FIELDS = new Set<MotianDerivedFieldName>([
+  "opleidingsniveau",
+  "provincie",
+]);
+
+const bronSpecifiekSet = (key: string, parameter: number, json: boolean) =>
+  `bron_specifiek = jsonb_set(COALESCE(bron_specifiek, '{}'::jsonb), '{${key}}', ${
+    json ? `$${parameter}::jsonb` : `to_jsonb($${parameter}::text)`
+  }, true)`;
+
+const bronSpecifiekDelete = (key: string) =>
+  `bron_specifiek = COALESCE(bron_specifiek, '{}'::jsonb) - '${key}'`;
+
 const updateDerivedFields = async (input: {
   readonly current: CurrentMotianDerivedFieldRow;
   readonly patch: Readonly<
@@ -311,10 +342,10 @@ const updateDerivedFields = async (input: {
     }
     const rendered = value instanceof Date ? value.toISOString() : value;
     values.push(rendered);
-    if (field === "opleidingsniveau") {
-      assignments.push(
-        `bron_specifiek = jsonb_set(COALESCE(bron_specifiek, '{}'::jsonb), '{opleidingsniveau}', to_jsonb($${values.length}::text), true)`
-      );
+    if (BRON_SPECIFIEK_TEXT_FIELDS.has(field)) {
+      assignments.push(bronSpecifiekSet(field, values.length, false));
+    } else if (field === "skills") {
+      assignments.push(bronSpecifiekSet("skills", values.length, true));
     } else {
       assignments.push(`"${fieldToColumn[field]}" = $${values.length}`);
       if (
@@ -339,22 +370,7 @@ const updateDerivedFields = async (input: {
       SET ${assignments.join(", ")}
       WHERE id::text = $${values.length}
       RETURNING
-        id::text AS "aanvraagId",
-        bron_id::text AS "bronId",
-        bron_referentie AS "bronReferentie",
-        content_hash AS "contentHash",
-        raw_payload_ref AS "rawPayloadRef",
-        v1_id AS "v1Id",
-        opdrachtgever_naam AS "opdrachtgeverNaam",
-        contracttype,
-        NULLIF(trim(bron_specifiek->>'opleidingsniveau'), '') AS "opleidingsniveau",
-        publicatiedatum,
-        start_datum AS "startDatum",
-        sluitingsdatum,
-        tarief_eenheid AS "tariefEenheid",
-        tarief_max::text AS "tariefMax",
-        tarief_min::text AS "tariefMin",
-        uren_per_week AS "urenPerWeek"
+${DERIVED_FIELD_PROJECTION}
     `,
     values
   );
@@ -378,16 +394,14 @@ const restoreDerivedFields = async (input: {
     if (value === undefined) {
       continue;
     }
-    if (field === "opleidingsniveau") {
+    if (BRON_SPECIFIEK_TEXT_FIELDS.has(field) || field === "skills") {
       if (value === null) {
-        assignments.push(
-          `bron_specifiek = COALESCE(bron_specifiek, '{}'::jsonb) - 'opleidingsniveau'`
-        );
+        assignments.push(bronSpecifiekDelete(field));
       } else {
         const rendered = value instanceof Date ? value.toISOString() : value;
         values.push(rendered);
         assignments.push(
-          `bron_specifiek = jsonb_set(COALESCE(bron_specifiek, '{}'::jsonb), '{opleidingsniveau}', to_jsonb($${values.length}::text), true)`
+          bronSpecifiekSet(field, values.length, field === "skills")
         );
       }
       continue;
@@ -406,22 +420,7 @@ const restoreDerivedFields = async (input: {
       SET ${assignments.join(", ")}
       WHERE id::text = $${values.length}
       RETURNING
-        id::text AS "aanvraagId",
-        bron_id::text AS "bronId",
-        bron_referentie AS "bronReferentie",
-        content_hash AS "contentHash",
-        raw_payload_ref AS "rawPayloadRef",
-        v1_id AS "v1Id",
-        opdrachtgever_naam AS "opdrachtgeverNaam",
-        contracttype,
-        NULLIF(trim(bron_specifiek->>'opleidingsniveau'), '') AS "opleidingsniveau",
-        publicatiedatum,
-        start_datum AS "startDatum",
-        sluitingsdatum,
-        tarief_eenheid AS "tariefEenheid",
-        tarief_max::text AS "tariefMax",
-        tarief_min::text AS "tariefMin",
-        uren_per_week AS "urenPerWeek"
+${DERIVED_FIELD_PROJECTION}
     `,
     values
   );

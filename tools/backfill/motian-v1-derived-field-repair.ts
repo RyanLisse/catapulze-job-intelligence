@@ -1,3 +1,4 @@
+import { normaliseSkills } from "@ji/application/normalise";
 import type { JsonValue } from "@ji/application/normalise";
 import {
   hashContent,
@@ -16,7 +17,7 @@ import {
 import { mapV1JobToDraft } from "../../packages/application/src/backfill/neon-v1";
 
 export const MOTIAN_V1_DERIVED_FIELD_REPAIR_VERSION =
-  "motian-v1-derived-field-repair/v2" as const;
+  "motian-v1-derived-field-repair/v3" as const;
 
 export const MOTIAN_DERIVED_FIELD_NAMES = [
   "opdrachtgeverNaam",
@@ -29,6 +30,8 @@ export const MOTIAN_DERIVED_FIELD_NAMES = [
   "tariefMax",
   "tariefEenheid",
   "opleidingsniveau",
+  "provincie",
+  "skills",
 ] as const;
 
 export type MotianDerivedFieldName =
@@ -47,7 +50,10 @@ export interface CurrentMotianDerivedFieldRow extends MotianDerivedFieldRepairMa
   readonly contracttype: string | null;
   readonly opdrachtgeverNaam: string | null;
   readonly opleidingsniveau: string | null;
+  readonly provincie: string | null;
   readonly publicatiedatum: string | null;
+  /** `bron_specifiek.skills` as its canonical JSON array text, or null. */
+  readonly skills: string | null;
   readonly sluitingsdatum: Date | null;
   readonly startDatum: string | null;
   readonly tariefEenheid: string | null;
@@ -75,7 +81,9 @@ export interface MotianDerivedFieldRepairPatch {
   readonly contracttype?: string;
   readonly opdrachtgeverNaam?: string;
   readonly opleidingsniveau?: string;
+  readonly provincie?: string;
   readonly publicatiedatum?: string;
+  readonly skills?: string;
   readonly sluitingsdatum?: Date;
   readonly startDatum?: string;
   readonly tariefEenheid?: string;
@@ -132,13 +140,32 @@ const sourceBronTextSchema = z.string().trim().min(1);
 
 const sourceBronText = (
   value: JsonValue,
-  key: "contracttype" | "opleidingsniveau" | "publicatiedatum" | "uren_per_week"
+  key:
+    | "contracttype"
+    | "opleidingsniveau"
+    | "provincie"
+    | "publicatiedatum"
+    | "uren_per_week"
 ): string | undefined => {
   const bronSpecifiek = bronSpecifiekSchema.safeParse(value);
   if (!bronSpecifiek.success) {
     return undefined;
   }
   return sourceBronTextSchema.safeParse(bronSpecifiek.data[key]).data;
+};
+
+/**
+ * `bron_specifiek.skills` as canonical JSON array text, or undefined when the
+ * draft publishes no list. The array is carried as text so the repair/apply
+ * pipeline keeps one uniform string parameter shape.
+ */
+const sourceBronSkills = (value: JsonValue): string | undefined => {
+  const bronSpecifiek = bronSpecifiekSchema.safeParse(value);
+  if (!bronSpecifiek.success) {
+    return undefined;
+  }
+  const skills = normaliseSkills(bronSpecifiek.data.skills);
+  return skills.length === 0 ? undefined : JSON.stringify(skills);
 };
 
 const rejectedPlan = (
@@ -297,6 +324,27 @@ const planFields = (
     value: sourceBronText(bronSpecifiek, "opleidingsniveau"),
     write: (value) => {
       patch.opleidingsniveau = value;
+    },
+  });
+
+  applyNullableSourceField({
+    current: current.provincie,
+    field: "provincie",
+    patch,
+    sourceAbsentFields,
+    value: sourceBronText(bronSpecifiek, "provincie"),
+    write: (value) => {
+      patch.provincie = value;
+    },
+  });
+  applyNullableSourceField({
+    current: current.skills,
+    field: "skills",
+    patch,
+    sourceAbsentFields,
+    value: sourceBronSkills(bronSpecifiek),
+    write: (value) => {
+      patch.skills = value;
     },
   });
 

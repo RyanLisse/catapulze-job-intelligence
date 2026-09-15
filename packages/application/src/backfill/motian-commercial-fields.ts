@@ -4,6 +4,12 @@ import type { TariefEenheid } from "@ji/domain";
 import { z } from "zod";
 
 import { formatHoursPerWeek } from "../normalise/hours";
+import {
+  findProvincieInText,
+  toCanonicalProvincie,
+} from "../normalise/provincie";
+import type { Provincie } from "../normalise/provincie";
+import { normaliseSkills } from "../normalise/skills";
 import type { NeonV1JobRow } from "./neon-v1-types";
 
 const nestedPayloadSchema = z
@@ -194,4 +200,79 @@ export const motianTariefEenheid = (
     return "maand";
   }
   return UNKNOWN;
+};
+
+/**
+ * Canonical province for `bronSpecifiek.provincie` (F04). Only two sources
+ * count as explicit: the Motian `province` column, and a province name written
+ * in the vacancy title (Werkzoeken publishes it there). A city in `location`
+ * is deliberately never consulted — that would infer what the source never said.
+ */
+export const provincieForMotianJob = (job: NeonV1JobRow): Provincie | null =>
+  toCanonicalProvincie(job.province) ?? findProvincieInText(job.title);
+
+/**
+ * JSONB members whose value is a published list. Limited to the spellings the
+ * CTP-514 field contract names ("skills"/"eisen"/"competenties" arrays) plus
+ * the Motian column names themselves; nothing else is searched.
+ */
+const SKILL_LIST_KEYS = [
+  "competences",
+  "competenties",
+  "eisen",
+  "skills",
+  "tags",
+  "wishes",
+] as const;
+
+const skillEntrySchema = z.record(z.string(), z.unknown());
+
+/** One list entry: a plain string, or an object with the `name` member the
+ * Motian `competences` payload uses. No other label spelling is guessed. */
+const skillLabel = (entry: unknown): string | null => {
+  if (typeof entry === "string") {
+    return entry;
+  }
+  const parsed = skillEntrySchema.safeParse(entry);
+  if (!parsed.success || typeof parsed.data.name !== "string") {
+    return null;
+  }
+  return parsed.data.name;
+};
+
+const collectSkillList = (value: unknown, into: string[]): void => {
+  if (Array.isArray(value)) {
+    for (const entry of value) {
+      const label = skillLabel(entry);
+      if (label !== null) {
+        into.push(label);
+      }
+    }
+    return;
+  }
+  const parsed = skillEntrySchema.safeParse(value);
+  if (!parsed.success) {
+    return;
+  }
+  for (const key of SKILL_LIST_KEYS) {
+    if (Array.isArray(parsed.data[key])) {
+      collectSkillList(parsed.data[key], into);
+    }
+  }
+};
+
+/**
+ * Structured skills for `bronSpecifiek.skills` (F15) from the Motian
+ * `competences`, `requirements` and `wishes` JSONB columns. Only published
+ * lists are read; free-text mining stays out of scope (GAP_ENRICH, CTP-482).
+ * Shaping is delegated to the shared {@link normaliseSkills}. Returns null
+ * when the source publishes no list, so an absent column never becomes `[]`.
+ */
+export const skillsForMotianJob = (job: NeonV1JobRow): string[] | null => {
+  const collected: string[] = [];
+  collectSkillList(job.competences, collected);
+  collectSkillList(job.requirements, collected);
+  collectSkillList(job.wishes, collected);
+  const skills = normaliseSkills(collected);
+  return skills.length === 0 ? null : skills;
 };

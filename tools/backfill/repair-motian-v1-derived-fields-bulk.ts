@@ -503,6 +503,8 @@ export const selectBulkCandidates = async (input: {
         OR tarief_max IS NULL
         OR tarief_eenheid IS NULL
         OR NULLIF(trim(bron_specifiek->>'opleidingsniveau'), '') IS NULL
+        OR NULLIF(trim(bron_specifiek->>'provincie'), '') IS NULL
+        OR NULLIF(bron_specifiek->'skills', 'null'::jsonb) IS NULL
       )
       AND id > ${input.cursor}::uuid
     ORDER BY id

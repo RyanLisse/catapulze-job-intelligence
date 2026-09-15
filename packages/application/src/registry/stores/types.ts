@@ -167,13 +167,18 @@ export type MotianDerivedFieldRepairFieldName =
   | "tariefMin"
   | "tariefMax"
   | "tariefEenheid"
-  | "opleidingsniveau";
+  | "opleidingsniveau"
+  | "provincie"
+  | "skills";
 
 export interface MotianDerivedFieldRepairAuditFieldImage {
   readonly contracttype: string | null;
   readonly opdrachtgeverNaam: string | null;
   readonly opleidingsniveau: string | null;
+  readonly provincie: string | null;
   readonly publicatiedatum: string | null;
+  /** `bron_specifiek.skills` as its canonical JSON array text, or null. */
+  readonly skills: string | null;
   readonly sluitingsdatum: string | null;
   readonly startDatum: string | null;
   readonly tariefEenheid: string | null;
@@ -197,7 +202,7 @@ export interface MotianDerivedFieldRepairAuditMetadata {
   readonly manifestSha256: string;
   readonly preimage: MotianDerivedFieldRepairAuditFieldImage;
   readonly rawPayloadRef: string;
-  readonly repairVersion: "motian-v1-derived-field-repair/v2";
+  readonly repairVersion: "motian-v1-derived-field-repair/v3";
   readonly sourceAbsentFields: readonly MotianDerivedFieldRepairFieldName[];
   readonly v1Id: string;
 }
