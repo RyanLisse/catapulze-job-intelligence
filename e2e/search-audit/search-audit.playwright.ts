@@ -385,13 +385,14 @@ test("browses empty and filter-only searches and preserves comma URL state", asy
     .locator("..")
     .getByRole("button", { exact: true, name: "Alles wissen" })
     .click();
-  await expect(locationFilter).not.toBeChecked();
-  await expect(searchInput).toHaveValue("(Azure");
+  // URL is source of truth: location facet checkbox may unmount after
+  // a syntax-error search empties facets.
   await expect(page).toHaveURL(
     (url) =>
       url.searchParams.get("q") === "(Azure" &&
       url.searchParams.get("location") === null
   );
+  await expect(searchInput).toHaveValue("(Azure");
   await Promise.all([waitForSearchResponse(page), malformedQueryChip.click()]);
   await expect(page).toHaveURL("http://localhost:3001/jobs");
   await expect(searchInput).toHaveValue("");
@@ -524,8 +525,10 @@ test("clears sidebar filters while keeping the zoekterm (CTP-510/CTP-512)", asyn
   await expect(historicalSourceFilter).toBeChecked();
   await expect(sortSelect).toHaveValue("closing-soon");
 
-  // Unique after per-facet aria-labels; test-id is belt-and-suspenders.
-  const sidebarClear = page.getByTestId("job-filters-clear-all");
+  // Desktop aside only — JobFilters also mounts in the mobile drawer.
+  const sidebarClear = page
+    .locator("aside")
+    .getByTestId("job-filters-clear-all");
   await expect(sidebarClear).toBeVisible();
   await expect(
     page
