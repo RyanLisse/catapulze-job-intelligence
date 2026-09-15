@@ -104,6 +104,10 @@ describe("Striive connector", () => {
     expect(payload.job.monthlyRateMin).toBeNull();
     expect(payload.job.monthlyRateMax).toBeNull();
     expect(payload.job.rateType).toBeNull();
+    // CTP-524 F06/F15: jobType (contract) and tags (skills) are real live
+    // fields (confirmed 2026-09-15), same treatment as tariff above.
+    expect(payload.job.jobType).toBeNull();
+    expect(payload.job.tags).toBeNull();
   });
 
   it("rejects a listing row missing an id/title", async () => {

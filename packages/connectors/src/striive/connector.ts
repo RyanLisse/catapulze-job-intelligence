@@ -31,6 +31,14 @@ const projectStriiveTarief = (raw: StriiveJob) => ({
   rateType: raw.rateType ?? null,
 });
 
+/** CTP-524 F06/F15: `jobType` (contract/engagement type) and `tags`
+ * (skills) are real live fields (confirmed 2026-09-15), whitelisted for the
+ * same reason as tariff -- commercial facts, not PII. */
+const projectStriiveContractAndSkills = (raw: StriiveJob) => ({
+  jobType: raw.jobType ?? null,
+  tags: raw.tags ?? null,
+});
+
 /** DEC-008: never let more than the whitelisted fields reach
  * `listingPayload` or the stored body. The live endpoint returns a much
  * larger raw record per job -- recruiter name/email/phone and internal
@@ -57,6 +65,7 @@ const projectStriiveJob = (raw: StriiveJob): StriiveJob => ({
   startDate: raw.startDate ?? null,
   title: raw.title,
   ...projectStriiveTarief(raw),
+  ...projectStriiveContractAndSkills(raw),
 });
 
 export const createStriiveConnector = (

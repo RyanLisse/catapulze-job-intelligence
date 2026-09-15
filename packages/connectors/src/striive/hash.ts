@@ -13,6 +13,12 @@ const tariefCanonical = (job: StriiveJob) => ({
   rateType: job.rateType ?? null,
 });
 
+/** CTP-524 F06/F15: jobType (contract) and tags (skills). */
+const contractAndSkillsCanonical = (job: StriiveJob) => ({
+  jobType: job.jobType ?? null,
+  tags: job.tags ?? null,
+});
+
 /** Canonical JSON of the already-whitelisted job fields (see the DEC-008
  * projection in connector.ts) -- every field kept past the connector
  * boundary is change-relevant, so the whole projected job is hashed. */
@@ -36,6 +42,7 @@ export const hashStriiveListingItem = (job: StriiveJob): Promise<string> => {
     startDate: job.startDate ?? null,
     title: job.title,
     ...tariefCanonical(job),
+    ...contractAndSkillsCanonical(job),
   });
   return hashContent(new TextEncoder().encode(canonical));
 };

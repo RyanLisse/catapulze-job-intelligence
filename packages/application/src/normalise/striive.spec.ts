@@ -129,6 +129,39 @@ describe("parseStriivePayload", () => {
     expect(draft.tarief.max).toBe("8000");
   });
 
+  it("maps contract_type from the real jobType/tags field shape when present (CTP-524 F06/F15)", () => {
+    const draft = parseStriivePayload(
+      buildPayload({
+        jobType: "Statement of Work",
+        tags: ["Kubernetes", "Azure", "azure"],
+      }),
+      "hash-contract-skills"
+    );
+    // SAFETY: parseStriivePayload always emits these bron_specifiek fields.
+    const specifiek = draft.bronSpecifiek.value as {
+      contract_type: unknown;
+      skills: unknown;
+    };
+    expect(specifiek.contract_type).toBe("Statement of Work");
+    expect(specifiek.skills).toEqual(["Kubernetes", "Azure"]);
+  });
+
+  it("leaves contract_type null and skills empty for the real live capture (honesty -- CTP-524 F06/F15, ABSENT_SRC in the 2026-09-15 capture)", () => {
+    // fixtures/connectors/striive/listing-live-2026-09-15.json: jobType is
+    // null and tags is [] across the full 25-record live page.
+    const draft = parseStriivePayload(
+      buildPayload({ jobType: null, tags: [] }),
+      "hash-contract-skills-absent"
+    );
+    // SAFETY: parseStriivePayload always emits these bron_specifiek fields.
+    const specifiek = draft.bronSpecifiek.value as {
+      contract_type: unknown;
+      skills: unknown;
+    };
+    expect(specifiek.contract_type).toBeNull();
+    expect(specifiek.skills).toEqual([]);
+  });
+
   it("keeps closingDateClient as sluitingsdatum and closingDateInvoice only in bronSpecifiek", () => {
     const draft = parseStriivePayload(buildPayload(), "hash-3");
     // SAFETY: parseStriivePayload always emits this bron_specifiek field.

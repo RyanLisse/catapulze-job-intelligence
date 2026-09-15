@@ -70,6 +70,16 @@ export interface StriiveJob {
    * documented). Kept verbatim in bronSpecifiek, never used to pick an
    * eenheid -- see `resolveTarief` in normalise/striive.ts. */
   rateType?: number | null;
+  /** VMS engagement/contract-type field (CTP-524, F06) -- confirmed live
+   * 2026-09-15 (`fixtures/connectors/striive/listing-live-2026-09-15.json`),
+   * `null` across the full 25-record capture. Kept whitelisted for when a
+   * broker publishes it, same honest-future-proofing as the tariff fields. */
+  jobType?: string | null;
+  /** Structured skills/tags list (CTP-524, F15) -- confirmed live
+   * 2026-09-15, `[]` across the full 25-record capture. Never confirmed
+   * non-empty, so entry shape is unverified; `normaliseSkills` drops
+   * anything that is not a plain string. */
+  tags?: unknown[] | null;
 }
 
 export interface StriiveListingResponse {

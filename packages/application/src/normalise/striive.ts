@@ -5,6 +5,7 @@ import { resolveLifecycleStatus } from "@ji/domain/lifecycle";
 
 import { formatHoursPerWeek } from "./hours";
 import { findProvincieInText } from "./provincie";
+import { normaliseSkills } from "./skills";
 import {
   closingMomentInstant,
   field,
@@ -130,6 +131,11 @@ export const parseStriivePayload = (
   // `startDatum` exists), so it is kept verbatim in bronSpecifiek too.
   const bronSpecifiek = {
     broker: job.broker ?? null,
+    // CTP-524 F06: real field, confirmed live 2026-09-15
+    // (fixtures/connectors/striive/listing-live-2026-09-15.json) -- null
+    // across the full 25-record capture, whitelisted for when a broker
+    // publishes it (same honest-future-proofing as the tariff fields).
+    contract_type: job.jobType ?? null,
     eind_datum: job.endDate ?? null,
     geo: resolveGeo(job.regionLocation),
     // Striive publishes `location` as "<stad> <provincie>" (e.g. "Assen
@@ -142,6 +148,10 @@ export const parseStriivePayload = (
       referenceCode: job.referenceCode ?? null,
       referenceCodeClient: job.referenceCodeClient ?? null,
     },
+    // CTP-524 F15: real `tags` field, confirmed live 2026-09-15 -- `[]`
+    // across the full 25-record capture, so entry shape is unverified.
+    // normaliseSkills drops anything that is not a plain string.
+    skills: normaliseSkills(job.tags),
     source: job.source ?? null,
     supplier_deadline:
       job.closingDateInvoice === null || job.closingDateInvoice === undefined
