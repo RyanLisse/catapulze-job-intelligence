@@ -9,6 +9,7 @@ import { resolveLifecycleStatus } from "@ji/domain/lifecycle";
 
 import { formatHoursPerWeek } from "./hours";
 import { toCanonicalProvincie } from "./provincie";
+import { normaliseSkills } from "./skills";
 import {
   closingMomentInstant,
   field,
@@ -225,10 +226,16 @@ const resolveOpleidingsniveau = (
  * report). `remote_work_description` is prose and is almost always the
  * placeholder "Geen verdere informatie" (41/42 on the live capture), so it is
  * never used as a werkvorm label. */
+const hybridWorking = (
+  tender: OpdrachtoverheidFetchedPayload["tender"]
+): boolean | null => {
+  const value = undeclaredFields(tender).tender_hybrid_working;
+  return typeof value === "boolean" ? value : null;
+};
+
 const resolveWerkvorm = (
   tender: OpdrachtoverheidFetchedPayload["tender"]
-): string | null =>
-  undeclaredFields(tender).tender_hybrid_working === true ? "Hybride" : null;
+): string | null => (hybridWorking(tender) === true ? "Hybride" : null);
 
 /** `tender_competences` is an HTML block holding a "Wensen" list of weighted
  * requirement sentences and a "Competenties" (sometimes "Vaardigheden") list
@@ -238,8 +245,28 @@ const resolveWerkvorm = (
 const COMPETENTIES_LIST_PATTERN =
   /<h3[^>]*>\s*(?:competenties|vaardigheden)\s*:?\s*<\/h3>\s*<ul[^>]*>(?<items>[\s\S]*?)<\/ul>/iu;
 const LIST_ITEM_PATTERN = /<li[^>]*>(?<item>[\s\S]*?)<\/li>/giu;
-const SKILL_MAX_LENGTH = 80;
-const SKILL_MAX_ENTRIES = 40;
+
+/** `stripHtml` removes tags but never decodes entities, and the source writes
+ * them ("Plannen &amp; organiseren"). Decoding the five XML entities plus
+ * `&nbsp;` covers everything observed in the live capture; anything else is
+ * left verbatim rather than guessed. `&amp;` is decoded last so an escaped
+ * entity ("&amp;lt;") does not decay into a tag. */
+const HTML_ENTITIES: readonly (readonly [RegExp, string])[] = [
+  [/&nbsp;/gu, " "],
+  [/&quot;/gu, '"'],
+  [/&#39;/gu, "'"],
+  [/&lt;/gu, "<"],
+  [/&gt;/gu, ">"],
+  [/&amp;/gu, "&"],
+];
+
+const decodeEntities = (text: string): string => {
+  let decoded = text;
+  for (const [pattern, replacement] of HTML_ENTITIES) {
+    decoded = decoded.replaceAll(pattern, replacement);
+  }
+  return decoded.trim();
+};
 
 const resolveSkills = (
   tender: OpdrachtoverheidFetchedPayload["tender"]
@@ -251,20 +278,11 @@ const resolveSkills = (
   if (!items) {
     return null;
   }
-  const seen = new Set<string>();
-  const skills: string[] = [];
-  for (const match of items.matchAll(LIST_ITEM_PATTERN)) {
-    const skill = stripHtml(match.groups?.item ?? "");
-    const key = skill.toLowerCase();
-    if (!skill || skill.length > SKILL_MAX_LENGTH || seen.has(key)) {
-      continue;
-    }
-    seen.add(key);
-    skills.push(skill);
-    if (skills.length === SKILL_MAX_ENTRIES) {
-      break;
-    }
-  }
+  const skills = normaliseSkills(
+    [...items.matchAll(LIST_ITEM_PATTERN)].map((match) =>
+      decodeEntities(stripHtml(match.groups?.item ?? ""))
+    )
+  );
   return skills.length > 0 ? skills : null;
 };
 
@@ -290,8 +308,7 @@ const resolveBronSpecifiek = (
     skills: resolveSkills(tender),
     tender_first_seen: tender.tender_first_seen ?? null,
     tender_hours_week: tender.tender_hours_week ?? null,
-    tender_hybrid_working:
-      undeclaredFields(tender).tender_hybrid_working ?? null,
+    tender_hybrid_working: hybridWorking(tender),
     tender_source: tender.tender_source ?? null,
     tender_url: tender.tender_url ?? null,
     uren_max: uren.max === UNKNOWN ? null : uren.max,

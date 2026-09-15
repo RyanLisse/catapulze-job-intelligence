@@ -43,6 +43,27 @@ const sample = (name: string): OpdrachtoverheidFetchedPayload => {
   return { jobPosting: found.jobPosting, tender: found.tender };
 };
 
+/** `tender_competences` and `tender_hybrid_working` are published live but not
+ * declared on `OpdrachtoverheidTender` (packages/connectors, outside this
+ * lane), so overrides go through this typed spread. */
+interface UndeclaredTenderFields {
+  readonly tender_competences?: string;
+  readonly tender_hybrid_working?: boolean;
+}
+
+const withUndeclared = (
+  tender: OpdrachtoverheidFetchedPayload["tender"],
+  extra: UndeclaredTenderFields
+): OpdrachtoverheidFetchedPayload["tender"] => ({ ...tender, ...extra });
+
+const bronSpecifiekOf = (
+  payload: OpdrachtoverheidFetchedPayload
+): OpdrachtoverheidBronSpecifiek =>
+  // SAFETY: `resolveBronSpecifiek` builds exactly this shape; the draft field
+  // only widens it to `JsonValue` for storage.
+  parseOpdrachtoverheidPayload(payload, "hash").bronSpecifiek
+    .value as OpdrachtoverheidBronSpecifiek;
+
 const bronSpecifiek = (name: string): OpdrachtoverheidBronSpecifiek =>
   // SAFETY: `resolveBronSpecifiek` builds exactly this shape; the draft field
   // only widens it to `JsonValue` for storage.
@@ -102,6 +123,39 @@ describe("parseOpdrachtoverheidPayload (CTP-526 field gaps)", () => {
 
   it("leaves skills null when the source publishes no competences block", () => {
     expect(bronSpecifiek("bare").skills).toBeNull();
+  });
+
+  it("emits werkvorm Hybride when the source states hybrid work", () => {
+    const base = sample("zero");
+    expect(
+      bronSpecifiekOf({
+        jobPosting: base.jobPosting,
+        tender: withUndeclared(base.tender, { tender_hybrid_working: true }),
+      })
+    ).toMatchObject({ tender_hybrid_working: true, werkvorm: "Hybride" });
+  });
+
+  it("falls back to the JobPosting addressRegion when the API location block is empty", () => {
+    const base = sample("zero");
+    expect(
+      bronSpecifiekOf({
+        jobPosting: base.jobPosting,
+        tender: { ...base.tender, vacancies_location: {} },
+      }).provincie
+    ).toBe("Noord-Holland");
+  });
+
+  it("decodes HTML entities in competence items", () => {
+    const base = sample("zero");
+    expect(
+      bronSpecifiekOf({
+        jobPosting: base.jobPosting,
+        tender: withUndeclared(base.tender, {
+          tender_competences:
+            "<h3>Competenties</h3><ul><li>Plannen &amp; organiseren</li></ul>",
+        }),
+      }).skills
+    ).toEqual(["Plannen & organiseren"]);
   });
 
   it("emits werkvorm only when the source states hybrid work", () => {
