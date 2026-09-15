@@ -1,7 +1,9 @@
 import type { SearchFilters } from "../contracts";
 import {
   DEFAULT_JOB_QUERY_SCOPE,
+  DEFAULT_JOB_SEARCH_STATE,
   ENRICHED_SEARCH_DATA_AVAILABLE,
+  JOB_WERKVORMEN,
 } from "../types";
 import type {
   FacetCount,
@@ -13,6 +15,7 @@ import type {
   JobSearchStatus,
   JobSort,
   JobSource,
+  JobWerkvorm,
 } from "../types";
 import { bronNameToSource } from "./bron-catalog";
 import type { BronCatalogEntry } from "./bron-catalog";
@@ -215,6 +218,70 @@ export const mapApiFacetsToUi = (
   ),
   werkvormen: [],
 });
+
+const daysToFreshness = (days: number | undefined): FreshnessFilter => {
+  if (days === 1) {
+    return "24h";
+  }
+  if (days === 7) {
+    return "7d";
+  }
+  if (days === 30) {
+    return "30d";
+  }
+  return "all";
+};
+
+const isJobWerkvorm = (value: string): value is JobWerkvorm =>
+  JOB_WERKVORMEN.some((candidate) => candidate === value);
+
+/** Reverse of mapUiFiltersToUi for applying saved searches (CTP-510). */
+export const mapApiFiltersToUi = (
+  api: ApiSearchFilters | null | undefined,
+  bronCatalog: ReadonlyMap<string, BronCatalogEntry>,
+  enrichedDataAvailable: boolean = ENRICHED_SEARCH_DATA_AVAILABLE
+): JobSearchFilters => {
+  const base = {
+    ...DEFAULT_JOB_SEARCH_STATE.filters,
+  };
+  if (!api) {
+    return base;
+  }
+
+  const sources: JobSource[] = [];
+  for (const bronId of api.bronIds ?? []) {
+    const bron = bronCatalog.get(bronId);
+    if (bron) {
+      sources.push(bronNameToSource(bron.naam));
+    }
+  }
+
+  const contractTypes = (api.contracttype ?? []).filter(isJobContractType);
+  const locationKey = locationFilterKey(enrichedDataAvailable);
+  const rawLocations = api[locationKey] ?? [];
+  const locations = rawLocations.map(locationLabel);
+  const status = (api.status ?? []).filter(isJobSearchStatus);
+  const werkvormen = (api.werkvormen ?? []).filter(isJobWerkvorm);
+
+  return {
+    ...base,
+    contractTypes,
+    freshness: daysToFreshness(api.freshnessDays),
+    locations,
+    maxRate: api.tariefMax ?? null,
+    minRate: api.tariefMin ?? null,
+    provincies: [...(api.provincies ?? [])],
+    publicatiedatumTot: api.publicatiedatumTot ?? null,
+    publicatiedatumVanaf: api.publicatiedatumVanaf ?? null,
+    queryScope: api.queryScope ?? DEFAULT_JOB_QUERY_SCOPE,
+    skills: [...(api.skills ?? [])],
+    sources: [...new Set(sources)],
+    status,
+    urenPerWeekMax: api.urenPerWeekMax ?? null,
+    urenPerWeekMin: api.urenPerWeekMin ?? null,
+    werkvormen,
+  };
+};
 
 export const buildSearchRequestBody = (input: {
   readonly filters: JobSearchFilters;

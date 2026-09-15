@@ -16,11 +16,13 @@ import {
   buildSearchRequestBody,
   buildSnapshotBody,
   mapApiFacetsToUi,
+  mapApiFiltersToUi,
 } from "./rest/filter-mapping";
-import type { ApiSearchFacets } from "./rest/filter-mapping";
+import type { ApiSearchFacets, ApiSearchFilters } from "./rest/filter-mapping";
 import type {
   JobDataAdapter,
   JobIntelligenceActions,
+  SavedSearchSummary,
   JobListing,
   JobMarkering,
   JobSearchRequest,
@@ -65,8 +67,11 @@ interface ReadRawResponseBody {
 }
 
 interface SavedSearchResponseBody {
+  readonly filters?: ApiSearchFilters | null;
   readonly id: string;
   readonly naam: string;
+  readonly queryText?: string;
+  readonly updatedAt?: string;
 }
 
 interface SnapshotResponseBody {
@@ -502,6 +507,25 @@ export const createRestJobIntelligence = ({
         buildSnapshotBody({ bronCatalog, filters, query, scope, selectedIds })
       );
       return { id: snapshot.id, resultCount: snapshot.resultIds.length };
+    },
+    deleteSavedSearch: async (id) => {
+      await client.delete<{ readonly id: string; readonly removed: true }>(
+        `/v1/saved-searches/${id}`
+      );
+    },
+    listSavedSearches: async () => {
+      const bronCatalog = await loadBronCatalog();
+      const saved =
+        await client.get<readonly SavedSearchResponseBody[]>(
+          "/v1/saved-searches"
+        );
+      return saved.map((item): SavedSearchSummary => ({
+        filters: mapApiFiltersToUi(item.filters, bronCatalog),
+        id: item.id,
+        naam: item.naam,
+        query: item.queryText ?? "",
+        updatedAt: item.updatedAt ?? new Date(0).toISOString(),
+      }));
     },
     markeerAanvraag: async ({ aanvraagId, reden = null, status }) => {
       const result = await client.post<MarkeerResponseBody>(

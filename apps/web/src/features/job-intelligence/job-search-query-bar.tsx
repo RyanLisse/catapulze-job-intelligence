@@ -1,9 +1,16 @@
 "use client";
 
-import { Loader2, Search, SlidersHorizontal, X } from "lucide-react";
+import {
+  List,
+  Loader2,
+  Map as MapIcon,
+  Search,
+  SlidersHorizontal,
+  X,
+} from "lucide-react";
 
 import { queryScopeLabels, sortLabels } from "./presentation";
-import type { JobQueryScope, JobSearchState } from "./types";
+import type { JobQueryScope, JobSearchState, ResultsViewMode } from "./types";
 import {
   ENRICHED_SEARCH_DATA_AVAILABLE,
   JOB_QUERY_SCOPES,
@@ -35,12 +42,14 @@ interface JobSearchQueryBarProps {
   readonly onScopeChange: (scope: JobSearchState["scope"]) => void;
   readonly onSortChange: (sort: JobSearchState["sort"]) => void;
   readonly onSubmit: (event?: React.FormEvent<HTMLFormElement>) => void;
+  readonly onViewModeChange: (viewMode: ResultsViewMode) => void;
   readonly queryDraft: string;
   readonly queryScope: JobQueryScope;
   readonly scope: JobSearchState["scope"];
   readonly sort: JobSearchState["sort"];
   readonly syntaxError: string | null;
   readonly total: number;
+  readonly viewMode: ResultsViewMode;
 }
 
 export const JobSearchQueryBar = ({
@@ -56,12 +65,14 @@ export const JobSearchQueryBar = ({
   onScopeChange,
   onSortChange,
   onSubmit,
+  onViewModeChange,
   queryDraft,
   queryScope,
   scope,
   sort,
   syntaxError,
   total,
+  viewMode,
 }: JobSearchQueryBarProps) => (
   <div className="space-y-2">
     <form role="search" onSubmit={onSubmit} className="flex flex-wrap gap-2">
@@ -88,7 +99,7 @@ export const JobSearchQueryBar = ({
               syntaxError ? "job-query-error" : "job-query-hint"
             }
             placeholder='Bijv. (Azure OR "Power BI") NOT junior'
-            className="min-h-11 w-full rounded-md border border-input bg-card pr-11 pl-9 text-base outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30 sm:text-sm"
+            className="min-h-12 w-full rounded-[10px] border-2 border-primary bg-card pr-11 pl-9 text-base outline-none placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring/30 sm:text-sm"
           />
           {queryDraft ? (
             <button
@@ -209,6 +220,39 @@ export const JobSearchQueryBar = ({
         />
         Ook in archief zoeken
       </label>
+
+      <div
+        aria-label="Weergave"
+        className="ml-auto inline-flex overflow-hidden rounded-md border border-input"
+        role="group"
+      >
+        <button
+          type="button"
+          aria-pressed={viewMode === "list"}
+          onClick={() => onViewModeChange("list")}
+          className={`inline-flex h-9 items-center gap-1.5 px-3 text-xs outline-none focus-visible:ring-2 focus-visible:ring-ring ${
+            viewMode === "list"
+              ? "bg-primary/10 font-medium text-foreground"
+              : "bg-background text-muted-foreground hover:bg-accent/50"
+          }`}
+        >
+          <List aria-hidden="true" className="size-3.5" />
+          Lijst
+        </button>
+        <button
+          type="button"
+          aria-pressed={viewMode === "map"}
+          onClick={() => onViewModeChange("map")}
+          className={`inline-flex h-9 items-center gap-1.5 border-l border-input px-3 text-xs outline-none focus-visible:ring-2 focus-visible:ring-ring ${
+            viewMode === "map"
+              ? "bg-primary/10 font-medium text-foreground"
+              : "bg-background text-muted-foreground hover:bg-accent/50"
+          }`}
+        >
+          <MapIcon aria-hidden="true" className="size-3.5" />
+          Kaart
+        </button>
+      </div>
     </div>
   </div>
 );

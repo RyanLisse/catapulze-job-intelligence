@@ -5,7 +5,6 @@ import { useEffect, useMemo, useState } from "react";
 
 import {
   contractLabels,
-  freshnessLabels,
   searchStatusLabels,
   werkvormLabels,
 } from "./presentation";
@@ -21,7 +20,6 @@ import type {
 } from "./types";
 import {
   DEFAULT_JOB_QUERY_SCOPE,
-  FRESHNESS_FILTERS,
   JOB_SEARCH_STATUS_VALUES,
   JOB_WERKVORMEN,
   NL_PROVINCES,
@@ -36,10 +34,22 @@ const contractOptions: readonly JobContractType[] = [
   "freelance",
 ];
 
-const isFreshnessFilter = (
-  value: string
-): value is JobSearchFilters["freshness"] =>
-  FRESHNESS_FILTERS.some((candidate) => candidate === value);
+const contractInfos = {
+  detachering:
+    "In dienst bij een detacheerder, geplaatst bij de opdrachtgever.",
+  freelance: "Zelfstandig (zzp/freelance) op interim-basis.",
+  interim: "Zelfstandig (zzp/freelance) op interim-basis.",
+  vast: "Vast dienstverband bij de opdrachtgever.",
+} as const satisfies Record<JobContractType, string>;
+
+const RATE_SLIDER = { max: 200, min: 0, step: 5 } as const;
+const HOURS_SLIDER = { max: 40, min: 0, step: 1 } as const;
+
+const CLOSING_PRESETS = [
+  { freshness: "24h" as const, label: "Vandaag" },
+  { freshness: "7d" as const, label: "7 dagen" },
+  { freshness: "30d" as const, label: "14 dagen" },
+] as const;
 
 export const countActiveJobFilters = (filters: JobSearchFilters): number => {
   let n =
@@ -69,12 +79,13 @@ export const countActiveJobFilters = (filters: JobSearchFilters): number => {
 };
 
 interface FacetGroupProps {
+  readonly badgeCount?: number;
   readonly children: React.ReactNode;
   readonly note?: string;
   readonly title: string;
 }
 
-const FacetGroup = ({ children, note, title }: FacetGroupProps) => {
+const FacetGroup = ({ badgeCount, children, note, title }: FacetGroupProps) => {
   const [open, setOpen] = useState(true);
 
   return (
@@ -86,7 +97,14 @@ const FacetGroup = ({ children, note, title }: FacetGroupProps) => {
         onClick={() => setOpen((previous) => !previous)}
         className="flex min-h-9 w-full items-center justify-between text-xs font-semibold tracking-wide text-muted-foreground uppercase outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
       >
-        {title}
+        <span className="inline-flex items-center gap-2">
+          {title}
+          {badgeCount && badgeCount > 0 ? (
+            <span className="rounded-full bg-primary/10 px-1.5 py-0.5 font-mono text-[10px] font-medium normal-case tracking-normal text-primary tabular-nums">
+              {badgeCount}
+            </span>
+          ) : null}
+        </span>
         <ChevronDown
           aria-hidden="true"
           className={`size-3.5 transition-transform ${open ? "" : "-rotate-90"}`}
@@ -107,6 +125,7 @@ const FacetGroup = ({ children, note, title }: FacetGroupProps) => {
 interface FacetOptionProps<T extends string> {
   readonly checked: boolean;
   readonly count: number;
+  readonly info?: string;
   readonly label: string;
   readonly onChange: (value: T) => void;
   readonly value: T;
@@ -115,22 +134,63 @@ interface FacetOptionProps<T extends string> {
 const FacetOption = <T extends string>({
   checked,
   count,
+  info,
   label,
   onChange,
   value,
 }: FacetOptionProps<T>) => (
-  <label className="flex min-h-8 cursor-pointer items-center gap-2 text-xs transition-colors hover:text-primary">
+  <label className="flex min-h-8 cursor-pointer items-center gap-2.5 text-sm transition-colors hover:text-primary">
     <input
       type="checkbox"
       checked={checked}
       onChange={() => onChange(value)}
-      className="size-3.5 shrink-0 accent-[var(--primary)] outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+      className="size-4 shrink-0 accent-[var(--primary)] outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
     />
     <span className="min-w-0 flex-1 truncate">{label}</span>
-    <span className="font-mono text-[10px] text-muted-foreground tabular-nums">
+    {info ? (
+      <span
+        title={info}
+        className="grid size-4 shrink-0 place-items-center rounded-full border border-input text-[10px] text-muted-foreground"
+      >
+        i
+      </span>
+    ) : null}
+    <span className="font-mono text-[11px] text-muted-foreground tabular-nums">
       {count}
     </span>
   </label>
+);
+
+const SelectAllBar = ({
+  allSelected,
+  noneSelected,
+  onClear,
+  onSelectAll,
+}: {
+  readonly allSelected: boolean;
+  readonly noneSelected: boolean;
+  readonly onClear: () => void;
+  readonly onSelectAll: () => void;
+}) => (
+  <div className="mb-1 flex items-center gap-2 text-[12px]">
+    <button
+      type="button"
+      disabled={allSelected}
+      onClick={onSelectAll}
+      className="font-medium text-primary outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-default disabled:text-muted-foreground disabled:no-underline"
+    >
+      Alles selecteren
+    </button>
+    <span className="text-border">|</span>
+    <button
+      type="button"
+      disabled={noneSelected}
+      onClick={onClear}
+      className="font-medium text-primary outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-default disabled:text-muted-foreground disabled:no-underline"
+    >
+      Alles wissen
+    </button>
+  </div>
 );
 
 const ShowAllToggle = ({
@@ -160,74 +220,140 @@ const findFacetCount = <T extends string>(
   value: T
 ): number => facets.find((facet) => facet.value === value)?.count ?? 0;
 
-const parseOptionalRangeValue = (raw: string): number | null => {
-  if (raw.trim() === "") {
-    return null;
-  }
-  const parsed = Number(raw);
-  return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
-};
-
-const RangeGroup = ({
-  max,
-  maxPlaceholder,
-  min,
-  minPlaceholder,
-  note,
+const DualRangeGroup = ({
+  badgeActive,
+  defaultMax,
+  defaultMin,
+  maxBound,
+  minBound,
   onApply,
+  prefix,
+  step,
   title,
+  valueMax,
+  valueMin,
 }: {
-  readonly max: number | null;
-  readonly maxPlaceholder: string;
-  readonly min: number | null;
-  readonly minPlaceholder: string;
-  readonly note?: string;
+  readonly badgeActive: boolean;
+  readonly defaultMax: number;
+  readonly defaultMin: number;
+  readonly maxBound: number;
+  readonly minBound: number;
   readonly onApply: (min: number | null, max: number | null) => void;
+  readonly prefix?: string;
+  readonly step: number;
   readonly title: string;
+  readonly valueMax: number | null;
+  readonly valueMin: number | null;
 }) => {
-  const [a, setA] = useState(min === null ? "" : String(min));
-  const [b, setB] = useState(max === null ? "" : String(max));
+  const lo = valueMin ?? defaultMin;
+  const hi = valueMax ?? defaultMax;
+  const [a, setA] = useState(lo);
+  const [b, setB] = useState(hi);
 
   useEffect(() => {
-    setA(min === null ? "" : String(min));
-    setB(max === null ? "" : String(max));
-  }, [min, max]);
+    setA(valueMin ?? defaultMin);
+    setB(valueMax ?? defaultMax);
+  }, [defaultMax, defaultMin, valueMax, valueMin]);
+
+  const commit = (nextMin: number, nextMax: number) => {
+    const clampedMin = Math.max(minBound, Math.min(nextMin, nextMax));
+    const clampedMax = Math.min(maxBound, Math.max(nextMax, clampedMin));
+    setA(clampedMin);
+    setB(clampedMax);
+    if (clampedMin === defaultMin && clampedMax === defaultMax) {
+      onApply(null, null);
+      return;
+    }
+    onApply(clampedMin, clampedMax);
+  };
+
+  const fillLeft = ((a - minBound) / (maxBound - minBound)) * 100;
+  const fillRight = ((maxBound - b) / (maxBound - minBound)) * 100;
 
   return (
     <div className="border-b border-border py-3">
-      <p className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">
+      <p className="flex items-center gap-2 text-xs font-semibold tracking-wide text-muted-foreground uppercase">
         {title}
+        {badgeActive ? (
+          <span className="rounded-full bg-primary/10 px-1.5 py-0.5 font-mono text-[10px] font-medium normal-case tracking-normal text-primary">
+            •
+          </span>
+        ) : null}
       </p>
-      {note ? (
-        <p className="mt-1 text-[11px] text-muted-foreground">{note}</p>
-      ) : null}
       <div className="mt-2 flex items-center gap-2">
+        <div className="flex min-w-0 flex-1 items-center rounded-md border border-input bg-background px-2">
+          {prefix ? (
+            <span className="text-xs text-muted-foreground">{prefix}</span>
+          ) : null}
+          <input
+            type="number"
+            value={a}
+            min={minBound}
+            max={maxBound}
+            step={step}
+            aria-label={`${title} minimum`}
+            onChange={(event) => setA(Number(event.target.value))}
+            onBlur={() => commit(a, b)}
+            className="h-9 w-full min-w-0 bg-transparent px-1 font-mono text-xs tabular-nums outline-none"
+          />
+        </div>
+        <span className="text-xs text-muted-foreground">tot</span>
+        <div className="flex min-w-0 flex-1 items-center rounded-md border border-input bg-background px-2">
+          {prefix ? (
+            <span className="text-xs text-muted-foreground">{prefix}</span>
+          ) : null}
+          <input
+            type="number"
+            value={b}
+            min={minBound}
+            max={maxBound}
+            step={step}
+            aria-label={`${title} maximum`}
+            onChange={(event) => setB(Number(event.target.value))}
+            onBlur={() => commit(a, b)}
+            className="h-9 w-full min-w-0 bg-transparent px-1 font-mono text-xs tabular-nums outline-none"
+          />
+        </div>
+      </div>
+      <div className="relative mt-3 h-6">
+        <div className="absolute top-1/2 right-2 left-2 h-0.5 -translate-y-1/2 rounded bg-border" />
+        <div
+          className="absolute top-1/2 h-0.5 -translate-y-1/2 rounded bg-primary"
+          style={{
+            left: `calc(0.5rem + ${fillLeft}%)`,
+            right: `calc(0.5rem + ${fillRight}%)`,
+          }}
+        />
         <input
+          type="range"
+          min={minBound}
+          max={maxBound}
+          step={step}
           value={a}
-          onChange={(event) => setA(event.target.value)}
-          placeholder={minPlaceholder}
-          inputMode="numeric"
-          aria-label={`${title} minimum`}
-          className="h-8 min-w-0 flex-1 rounded-md border border-input bg-background px-2 text-xs outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30"
+          aria-label={`${title} van`}
+          onChange={(event) => {
+            const next = Math.min(Number(event.target.value), b - step);
+            setA(next);
+          }}
+          onMouseUp={() => commit(a, b)}
+          onTouchEnd={() => commit(a, b)}
+          className="pointer-events-none absolute inset-0 w-full appearance-none bg-transparent [&::-webkit-slider-thumb]:pointer-events-auto [&::-webkit-slider-thumb]:size-4 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:border-2 [&::-webkit-slider-thumb]:border-primary [&::-webkit-slider-thumb]:bg-background"
         />
-        <span className="text-xs text-muted-foreground">–</span>
         <input
+          type="range"
+          min={minBound}
+          max={maxBound}
+          step={step}
           value={b}
-          onChange={(event) => setB(event.target.value)}
-          placeholder={maxPlaceholder}
-          inputMode="numeric"
-          aria-label={`${title} maximum`}
-          className="h-8 min-w-0 flex-1 rounded-md border border-input bg-background px-2 text-xs outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30"
+          aria-label={`${title} tot`}
+          onChange={(event) => {
+            const next = Math.max(Number(event.target.value), a + step);
+            setB(next);
+          }}
+          onMouseUp={() => commit(a, b)}
+          onTouchEnd={() => commit(a, b)}
+          className="pointer-events-none absolute inset-0 w-full appearance-none bg-transparent [&::-webkit-slider-thumb]:pointer-events-auto [&::-webkit-slider-thumb]:size-4 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:border-2 [&::-webkit-slider-thumb]:border-primary [&::-webkit-slider-thumb]:bg-background"
         />
-        <button
-          type="button"
-          className="h-8 shrink-0 rounded-md border border-input bg-secondary px-2 text-xs outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring"
-          onClick={() =>
-            onApply(parseOptionalRangeValue(a), parseOptionalRangeValue(b))
-          }
-        >
-          OK
-        </button>
       </div>
     </div>
   );
@@ -327,19 +453,25 @@ interface JobFiltersProps {
   readonly facets: JobSearchFacets;
   readonly filters: JobSearchFilters;
   readonly onClear: () => void;
+  readonly onContractTypesChange: (values: readonly JobContractType[]) => void;
   readonly onContractToggle: (value: JobContractType) => void;
   readonly onFreshnessChange: (value: JobSearchFilters["freshness"]) => void;
   readonly onHoursRangeChange: (min: number | null, max: number | null) => void;
+  readonly onLocationsChange: (values: readonly string[]) => void;
   readonly onLocationToggle: (value: string) => void;
   readonly onPostedRangeChange: (
     from: string | null,
     to: string | null
   ) => void;
+  readonly onProvincesChange: (values: readonly string[]) => void;
   readonly onProvinceToggle: (value: string) => void;
   readonly onRateRangeChange: (min: number | null, max: number | null) => void;
   readonly onSkillToggle: (value: string) => void;
+  readonly onSourcesChange: (values: readonly JobSource[]) => void;
   readonly onSourceToggle: (value: JobSource) => void;
+  readonly onStatusChange: (values: readonly JobSearchStatus[]) => void;
   readonly onStatusToggle: (value: JobSearchStatus) => void;
+  readonly onWerkvormenChange: (values: readonly JobWerkvorm[]) => void;
   readonly onWerkvormToggle: (value: JobWerkvorm) => void;
   readonly sources: readonly JobSourceOption[];
 }
@@ -348,16 +480,22 @@ export const JobFilters = ({
   facets,
   filters,
   onClear,
+  onContractTypesChange,
   onContractToggle,
   onFreshnessChange,
   onHoursRangeChange,
+  onLocationsChange,
   onLocationToggle,
   onPostedRangeChange,
+  onProvincesChange,
   onProvinceToggle,
   onRateRangeChange,
   onSkillToggle,
+  onSourcesChange,
   onSourceToggle,
+  onStatusChange,
   onStatusToggle,
+  onWerkvormenChange,
   onWerkvormToggle,
   sources,
 }: JobFiltersProps) => {
@@ -412,7 +550,18 @@ export const JobFilters = ({
         </button>
       </div>
 
-      <FacetGroup title="Bron">
+      <FacetGroup title="Bron" badgeCount={filters.sources.length}>
+        <SelectAllBar
+          allSelected={
+            sources.length > 0 &&
+            sources.every((source) => filters.sources.includes(source.value))
+          }
+          noneSelected={filters.sources.length === 0}
+          onSelectAll={() =>
+            onSourcesChange(sources.map((source) => source.value))
+          }
+          onClear={() => onSourcesChange([])}
+        />
         {visibleSources.map((source) => (
           <FacetOption
             key={source.value}
@@ -433,12 +582,21 @@ export const JobFilters = ({
         ) : null}
       </FacetGroup>
 
-      <FacetGroup title="Contract">
+      <FacetGroup title="Contract" badgeCount={filters.contractTypes.length}>
+        <SelectAllBar
+          allSelected={contractOptions.every((value) =>
+            filters.contractTypes.includes(value)
+          )}
+          noneSelected={filters.contractTypes.length === 0}
+          onSelectAll={() => onContractTypesChange(contractOptions)}
+          onClear={() => onContractTypesChange([])}
+        />
         {contractOptions.map((contract) => (
           <FacetOption
             key={contract}
             value={contract}
             label={contractLabels[contract]}
+            info={contractInfos[contract]}
             count={findFacetCount(facets.contractTypes, contract)}
             checked={filters.contractTypes.includes(contract)}
             onChange={onContractToggle}
@@ -446,7 +604,15 @@ export const JobFilters = ({
         ))}
       </FacetGroup>
 
-      <FacetGroup title="Status">
+      <FacetGroup title="Status" badgeCount={filters.status.length}>
+        <SelectAllBar
+          allSelected={JOB_SEARCH_STATUS_VALUES.every((value) =>
+            filters.status.includes(value)
+          )}
+          noneSelected={filters.status.length === 0}
+          onSelectAll={() => onStatusChange(JOB_SEARCH_STATUS_VALUES)}
+          onClear={() => onStatusChange([])}
+        />
         {JOB_SEARCH_STATUS_VALUES.map((status) => (
           <FacetOption
             key={status}
@@ -459,7 +625,15 @@ export const JobFilters = ({
         ))}
       </FacetGroup>
 
-      <FacetGroup title="Werkvorm">
+      <FacetGroup title="Werkvorm" badgeCount={filters.werkvormen.length}>
+        <SelectAllBar
+          allSelected={JOB_WERKVORMEN.every((value) =>
+            filters.werkvormen.includes(value)
+          )}
+          noneSelected={filters.werkvormen.length === 0}
+          onSelectAll={() => onWerkvormenChange(JOB_WERKVORMEN)}
+          onClear={() => onWerkvormenChange([])}
+        />
         {JOB_WERKVORMEN.map((werkvorm) => (
           <FacetOption
             key={werkvorm}
@@ -472,10 +646,26 @@ export const JobFilters = ({
         ))}
       </FacetGroup>
 
-      <FacetGroup title="Locatie">
+      <FacetGroup title="Locatie" badgeCount={filters.locations.length}>
         {facets.locations.length === 0 ? (
           <p className="text-xs text-muted-foreground">Geen locaties</p>
-        ) : null}
+        ) : (
+          <SelectAllBar
+            allSelected={
+              facets.locations.length > 0 &&
+              facets.locations.every((location) =>
+                filters.locations.includes(location.value)
+              )
+            }
+            noneSelected={filters.locations.length === 0}
+            onSelectAll={() =>
+              onLocationsChange(
+                facets.locations.map((location) => location.value)
+              )
+            }
+            onClear={() => onLocationsChange([])}
+          />
+        )}
         {visibleLocations.map(({ count, value }) => (
           <FacetOption
             key={value}
@@ -497,9 +687,23 @@ export const JobFilters = ({
       </FacetGroup>
 
       <FacetGroup
-        title="Provincie"
+        title="Regio"
+        badgeCount={filters.provincies.length}
         note="Provincie-facet ontbreekt in SearchFacets API (alleen bron/contract/locatie/status). Waarden worden wel gefilterd; index-vulling is vaak spaarzaam."
       >
+        <SelectAllBar
+          allSelected={
+            provinceOptions.length > 0 &&
+            provinceOptions.every((province) =>
+              filters.provincies.includes(province.value)
+            )
+          }
+          noneSelected={filters.provincies.length === 0}
+          onSelectAll={() =>
+            onProvincesChange(provinceOptions.map((province) => province.value))
+          }
+          onClear={() => onProvincesChange([])}
+        />
         {visibleProvinces.map(({ count, value }) => (
           <FacetOption
             key={value}
@@ -512,7 +716,7 @@ export const JobFilters = ({
         ))}
         {provinceOptions.length > DEFAULT_VISIBLE_OPTIONS ? (
           <ShowAllToggle
-            hiddenLabel="provincies"
+            hiddenLabel="regio's"
             onToggle={() => setShowAllProvinces((previous) => !previous)}
             showAll={showAllProvinces}
             total={provinceOptions.length}
@@ -526,46 +730,62 @@ export const JobFilters = ({
         onToggle={onSkillToggle}
       />
 
-      <RangeGroup
-        title="Uurtarief (€)"
-        note="Min–max → tariefMin/tariefMax"
-        min={filters.minRate}
-        max={filters.maxRate}
-        minPlaceholder="min"
-        maxPlaceholder="max"
+      <DualRangeGroup
+        title="Tarief per uur"
+        prefix="€"
+        badgeActive={filters.minRate !== null || filters.maxRate !== null}
+        minBound={RATE_SLIDER.min}
+        maxBound={RATE_SLIDER.max}
+        step={RATE_SLIDER.step}
+        defaultMin={RATE_SLIDER.min}
+        defaultMax={RATE_SLIDER.max}
+        valueMin={filters.minRate}
+        valueMax={filters.maxRate}
         onApply={onRateRangeChange}
       />
 
-      <RangeGroup
+      <DualRangeGroup
         title="Uren per week"
-        min={filters.urenPerWeekMin}
-        max={filters.urenPerWeekMax}
-        minPlaceholder="min"
-        maxPlaceholder="max"
+        badgeActive={
+          filters.urenPerWeekMin !== null || filters.urenPerWeekMax !== null
+        }
+        minBound={HOURS_SLIDER.min}
+        maxBound={HOURS_SLIDER.max}
+        step={HOURS_SLIDER.step}
+        defaultMin={HOURS_SLIDER.min}
+        defaultMax={HOURS_SLIDER.max}
+        valueMin={filters.urenPerWeekMin}
+        valueMax={filters.urenPerWeekMax}
         onApply={onHoursRangeChange}
       />
 
-      <FacetGroup title="Versheid (snelkeuze)">
-        <label className="sr-only" htmlFor="freshness-filter">
-          Filter op publicatiedatum
-        </label>
-        <select
-          id="freshness-filter"
-          value={filters.freshness}
-          onChange={(event) => {
-            const { value } = event.target;
-            if (isFreshnessFilter(value)) {
-              onFreshnessChange(value);
-            }
-          }}
-          className="min-h-9 w-full rounded-md border border-input bg-background px-2 text-xs outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30"
-        >
-          {Object.entries(freshnessLabels).map(([value, label]) => (
-            <option key={value} value={value}>
-              {label}
-            </option>
-          ))}
-        </select>
+      <FacetGroup
+        title="Sluit binnen"
+        badgeCount={filters.freshness === "all" ? 0 : 1}
+        note="Preset op publicatie-freshness (SearchFilters.freshnessDays). Echte sluitingsdatum-filter volgt wanneer de API die kent."
+      >
+        <div className="flex flex-wrap gap-1.5">
+          {CLOSING_PRESETS.map((preset) => {
+            const pressed = filters.freshness === preset.freshness;
+            return (
+              <button
+                key={preset.label}
+                type="button"
+                aria-pressed={pressed}
+                onClick={() =>
+                  onFreshnessChange(pressed ? "all" : preset.freshness)
+                }
+                className={`rounded-full border px-3 py-1 text-xs outline-none focus-visible:ring-2 focus-visible:ring-ring ${
+                  pressed
+                    ? "border-primary bg-primary text-primary-foreground"
+                    : "border-input bg-background text-muted-foreground hover:bg-accent"
+                }`}
+              >
+                {preset.label}
+              </button>
+            );
+          })}
+        </div>
       </FacetGroup>
 
       <DateGroup
