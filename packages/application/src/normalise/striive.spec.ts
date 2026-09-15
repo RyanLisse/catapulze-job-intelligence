@@ -91,11 +91,42 @@ describe("parseStriivePayload", () => {
     expect(specifiek.provincie).toBeNull();
   });
 
-  it("never maps a tarief amount -- every tariff field is confirmed unusable for this source", () => {
-    const draft = parseStriivePayload(buildPayload(), "hash-2");
+  it("never maps a tarief amount when the rate fields are zero (honesty -- CTP-524 F09)", () => {
+    const draft = parseStriivePayload(
+      buildPayload({
+        hasMaxRate: false,
+        hourlyRateMax: 0,
+        hourlyRateMin: 0,
+        monthlyRateMax: 0,
+        monthlyRateMin: 0,
+        rateType: 0,
+      }),
+      "hash-2"
+    );
     expect(draft.tarief.max).toBe(UNKNOWN);
     expect(draft.tarief.min).toBe(UNKNOWN);
     expect(draft.tarief.eenheid).toBe(UNKNOWN);
+  });
+
+  it("maps an hourly rate range into the draft tarief (CTP-524 F09)", () => {
+    const draft = parseStriivePayload(
+      buildPayload({ hourlyRateMax: 95, hourlyRateMin: 75 }),
+      "hash-tarief-hourly"
+    );
+    expect(draft.tarief.eenheid).toBe("uur");
+    expect(draft.tarief.min).toBe("75");
+    expect(draft.tarief.max).toBe("95");
+    expect(draft.tarief.valuta).toBe("EUR");
+  });
+
+  it("maps a monthly rate range into the draft tarief when only monthly rates are real (CTP-524 F09)", () => {
+    const draft = parseStriivePayload(
+      buildPayload({ monthlyRateMax: 8000, monthlyRateMin: 6500 }),
+      "hash-tarief-monthly"
+    );
+    expect(draft.tarief.eenheid).toBe("maand");
+    expect(draft.tarief.min).toBe("6500");
+    expect(draft.tarief.max).toBe("8000");
   });
 
   it("keeps closingDateClient as sluitingsdatum and closingDateInvoice only in bronSpecifiek", () => {

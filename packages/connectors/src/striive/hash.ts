@@ -1,6 +1,18 @@
 import { hashContent } from "../object-store";
 import type { StriiveJob } from "./types";
 
+/** CTP-524: split out so `hashStriiveListingItem` stays under the
+ * complexity limit -- these are the 6 tariff fields added to the
+ * DEC-008 whitelist (commercial facts, not PII; see types.ts). */
+const tariefCanonical = (job: StriiveJob) => ({
+  hasMaxRate: job.hasMaxRate ?? null,
+  hourlyRateMax: job.hourlyRateMax ?? null,
+  hourlyRateMin: job.hourlyRateMin ?? null,
+  monthlyRateMax: job.monthlyRateMax ?? null,
+  monthlyRateMin: job.monthlyRateMin ?? null,
+  rateType: job.rateType ?? null,
+});
+
 /** Canonical JSON of the already-whitelisted job fields (see the DEC-008
  * projection in connector.ts) -- every field kept past the connector
  * boundary is change-relevant, so the whole projected job is hashed. */
@@ -23,6 +35,7 @@ export const hashStriiveListingItem = (job: StriiveJob): Promise<string> => {
     source: job.source ?? null,
     startDate: job.startDate ?? null,
     title: job.title,
+    ...tariefCanonical(job),
   });
   return hashContent(new TextEncoder().encode(canonical));
 };

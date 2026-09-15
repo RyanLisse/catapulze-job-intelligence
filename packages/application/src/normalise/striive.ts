@@ -26,18 +26,56 @@ const numberToStringOrUnknown = (
 const toDateOnly = (raw: string | null | undefined): string | typeof UNKNOWN =>
   raw?.slice(0, 10) || UNKNOWN;
 
-/**
- * Tarief is always UNKNOWN for Striive: the probe (docs/sources/striive.md)
- * and a live 109-record capture on 2026-08-31 both confirmed every tariff
- * field (`hasMaxRate`, `hourlyRateMin/Max`, `monthlyRateMin/Max`,
- * `rateType`) is zero/false across the entire listing -- there is no
- * visible rate for this source, so nothing gets mapped as an amount.
- */
 const UNKNOWN_TARIEF: NormalisedTarief = {
   eenheid: UNKNOWN,
   max: UNKNOWN,
   min: UNKNOWN,
   valuta: "EUR",
+};
+
+/**
+ * Maps Striive's structured rate fields to the draft `tarief` (CTP-524,
+ * F09). A live 109-record capture on 2026-08-31 found every tariff field
+ * zero/false across the whole listing, so this was previously hardcoded to
+ * UNKNOWN_TARIEF; that was a capture-time observation, not a schema
+ * guarantee, so a future capture with real values must be honestly mapped
+ * instead of silently dropped. `rateType`'s encoding was never documented
+ * (only `0` observed live) -- eenheid is derived structurally instead, from
+ * which rate fields are actually populated, never from `rateType`.
+ */
+/** A rate field of exactly 0 is the unusable placeholder the 2026-08-31
+ * probe confirmed across the whole listing, never a real €0 rate. */
+const isRealRate = (value: number | null | undefined): boolean =>
+  isPresent(value) && value > 0;
+
+const rateAmountOrUnknown = (
+  value: number | null | undefined
+): string | typeof UNKNOWN => (isRealRate(value) ? String(value) : UNKNOWN);
+
+const resolveTarief = (job: StriiveFetchedPayload["job"]): NormalisedTarief => {
+  const hourlyMin = job.hourlyRateMin;
+  const hourlyMax = job.hourlyRateMax;
+  const monthlyMin = job.monthlyRateMin;
+  const monthlyMax = job.monthlyRateMax;
+  const hasHourly = isRealRate(hourlyMin) || isRealRate(hourlyMax);
+  const hasMonthly = isRealRate(monthlyMin) || isRealRate(monthlyMax);
+  if (hasHourly) {
+    return {
+      eenheid: "uur",
+      max: rateAmountOrUnknown(hourlyMax),
+      min: rateAmountOrUnknown(hourlyMin),
+      valuta: "EUR",
+    };
+  }
+  if (hasMonthly) {
+    return {
+      eenheid: "maand",
+      max: rateAmountOrUnknown(monthlyMax),
+      min: rateAmountOrUnknown(monthlyMin),
+      valuta: "EUR",
+    };
+  }
+  return UNKNOWN_TARIEF;
 };
 
 /** Projects the GeoJSON point into a plain object literal for bronSpecifiek.
@@ -145,7 +183,7 @@ export const parseStriivePayload = (
       "job.startDate"
     ),
     status: lifecycle,
-    tarief: UNKNOWN_TARIEF,
+    tarief: resolveTarief(job),
     titel: field(job.title, parserVersion, "job.title"),
   };
 };
