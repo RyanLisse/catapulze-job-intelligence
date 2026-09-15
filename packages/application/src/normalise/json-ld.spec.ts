@@ -54,6 +54,15 @@ describe("parseJsonLdPayload -- BlueTrail (label block in surrounding HTML, base
       title: "CIAM Tester",
     },
     labelBlock: {
+      // Real "Competenties:" <ul> inner HTML, captured live 2026-09-15
+      // (fixtures/connectors/bluetrail/detail-adviseur-privacy-ibd-2026-09-15.json).
+      competenties:
+        "<li><span>Analytisch &amp; conceptueel sterk</span></li>" +
+        "<li><span>Communicatief en verbindend</span></li>" +
+        "<li><span>Organisatiesensitief</span></li>" +
+        "<li><span>Overtuigingskracht</span></li>" +
+        "<li><span>Zelfstandig, maar teamgericht</span></li>" +
+        "<li><span>Sterke schrijfvaardigheid</span></li>",
       eindDatum: "31 december 2026",
       locatie: "Apeldoorn",
       referentienummer: "2026-08243",
@@ -146,6 +155,30 @@ describe("parseJsonLdPayload -- BlueTrail (label block in surrounding HTML, base
     const draft = parseJsonLdPayload(payload, HASH);
     expect(draft.opdrachtgeverNaam.value).toBe("Kadaster");
     expect(draft.bronSpecifiek.value).toMatchObject({ eindklant_naam: null });
+  });
+
+  it("maps the structured 'Competenties:' list into skills, trimmed and entity-decoded (F15)", () => {
+    const draft = parseJsonLdPayload(payload, HASH);
+    expect(draft.bronSpecifiek.value).toMatchObject({
+      skills: [
+        "Analytisch & conceptueel sterk",
+        "Communicatief en verbindend",
+        "Organisatiesensitief",
+        "Overtuigingskracht",
+        "Zelfstandig, maar teamgericht",
+        "Sterke schrijfvaardigheid",
+      ],
+    });
+  });
+
+  it("leaves skills empty when the source has no Competenties list (honesty)", () => {
+    const { competenties: _competenties, ...labelBlockWithoutCompetenties } =
+      payload.labelBlock;
+    const draft = parseJsonLdPayload(
+      { ...payload, labelBlock: labelBlockWithoutCompetenties },
+      HASH
+    );
+    expect(draft.bronSpecifiek.value).toMatchObject({ skills: [] });
   });
 
   it("derives bronReferentie from the URL path", () => {

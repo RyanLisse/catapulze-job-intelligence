@@ -342,6 +342,25 @@ describe("BlueTrail label-block extraction", () => {
       urenPerWeek: "32u p/w",
     });
   });
+
+  it("reads the 'Competenties:' list from a live 2026-09-15 capture (F15)", async () => {
+    const client = createJsonLdClient({
+      config: bluetrailConfig,
+      liveEnabled: false,
+    });
+    const detail = await client.fetchDetail(
+      "https://www.bluetrail.nl/opdrachten/Interim/adviseur-privacy-ibd/"
+    );
+    expect(detail.labelBlock.competenties).toContain(
+      "Analytisch &amp; conceptueel sterk"
+    );
+    expect(detail.labelBlock.competenties).toContain(
+      "Sterke schrijfvaardigheid"
+    );
+    // The raw captured block must NOT swallow the following "Eisen"/"Wensen"
+    // sentences -- only the Competenties <ul> itself.
+    expect(detail.labelBlock.competenties).not.toContain("afgeronde hbo");
+  });
 });
 
 describe("Pro-Act label-block extraction from JobPosting description", () => {

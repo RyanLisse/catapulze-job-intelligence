@@ -10,6 +10,7 @@ import { resolveLifecycleStatus } from "@ji/domain/lifecycle";
 
 import { formatHoursPerWeek } from "./hours";
 import { toCanonicalProvincie } from "./provincie";
+import { normaliseSkills } from "./skills";
 import { parseTariefFromText } from "./tarief";
 import {
   closingMomentInstant,
@@ -217,6 +218,41 @@ const hoursTextToPerWeek = (text: string | null | undefined): string | null => {
   );
 };
 
+const LIST_ITEM_PATTERN = /<li>(?<item>[\s\S]*?)<\/li>/gu;
+
+/** Extracts each `<li>` item's plain text out of a raw `<ul>...</ul>` inner-HTML
+ * string (BlueTrail's "Competenties:" label-block field is captured as one raw
+ * block; each item still carries a `<span>` wrapper and possible entities). Empty
+ * or absent input yields an empty list -- never invented entries. */
+/** Decodes the five predefined XML/HTML entities -- BlueTrail's "Competenties:"
+ * list only ever needs `&amp;` (confirmed in the 2026-09-15 live capture). */
+const decodeBasicEntities = (text: string): string =>
+  text
+    .replaceAll("&amp;", "&")
+    .replaceAll("&lt;", "<")
+    .replaceAll("&gt;", ">")
+    .replaceAll("&quot;", '"')
+    .replaceAll("&#039;", "'");
+
+const parseListItems = (html: string | undefined): string[] => {
+  if (!html) {
+    return [];
+  }
+  const items: string[] = [];
+  LIST_ITEM_PATTERN.lastIndex = 0;
+  let match = LIST_ITEM_PATTERN.exec(html);
+  while (match) {
+    const text = decodeBasicEntities(
+      stripHtml(match.groups?.item ?? "")
+    ).trim();
+    if (text) {
+      items.push(text);
+    }
+    match = LIST_ITEM_PATTERN.exec(html);
+  }
+  return items;
+};
+
 interface OpdrachtgeverResolution {
   readonly eindklantNaam: string | null;
   readonly naam: string;
@@ -295,6 +331,13 @@ export const parseJsonLdPayload = (
   const provincie = toCanonicalProvincie(
     asTextOrNull(jobLocationAddress?.addressRegion)
   );
+  // Only BlueTrail's "Wat wordt er van jou gevraagd? > Competenties:" list is
+  // a structured skills/competencies list confirmed on a live capture
+  // (2026-09-15, fixtures/connectors/bluetrail/detail-adviseur-privacy-ibd-2026-09-15.json).
+  // "Eisen"/"Wensen" bullets on the same page are full requirement sentences,
+  // not concise skill tags, so they are left out -- mapping them would be
+  // free-text mining, not the structured-list mapping F15 asks for.
+  const skills = normaliseSkills(parseListItems(labelBlock.competenties));
 
   return {
     beschrijving: field(
@@ -313,6 +356,7 @@ export const parseJsonLdPayload = (
         provincie,
         publicatiedatum: asTextOrNull(jobPosting.datePosted),
         referentienummer: labelBlock.referentienummer ?? null,
+        skills,
         slug: payload.slug,
         sluitings_datum: labelBlock.sluitingsDatum ?? null,
         uren_per_week:
