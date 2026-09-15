@@ -106,6 +106,56 @@ describe("extractLabelBlock", () => {
   });
 });
 
+describe("Pro-Act eindklant label pattern (guards against promoting prose, codex review)", () => {
+  const eindklantField = proActConfig.labelBlock?.eindklant;
+  if (!eindklantField) {
+    throw new Error("expected proActConfig.labelBlock.eindklant to exist");
+  }
+
+  const extractEindklant = (description: string): string | undefined =>
+    extractLabelBlock(
+      "<html></html>",
+      { "@type": "JobPosting", description },
+      { eindklant: eindklantField }
+    ).eindklant;
+
+  it("reads 'eindklant, <Naam>,' phrasing (detail-1 fixture text)", () => {
+    expect(
+      extractEindklant(
+        "Voor onze directe eindklant, Tweede Kamer der Staten-Generaal, zoeken wij"
+      )
+    ).toBe("Tweede Kamer der Staten-Generaal");
+  });
+
+  it("reads 'eindklant de <Naam>,' phrasing (detail-2 fixture text)", () => {
+    expect(
+      extractEindklant("eindklant de Algemene Rekenkamer, gevestigd")
+    ).toBe("Algemene Rekenkamer");
+  });
+
+  it("does not promote a lowercase sentence continuation with no real name", () => {
+    expect(
+      extractEindklant(
+        "Voor onze eindklant zoeken wij een senior developer, die"
+      )
+    ).toBeUndefined();
+  });
+
+  it("does not promote a lowercase common-noun phrase ('een grote gemeente')", () => {
+    expect(
+      extractEindklant("eindklant, een grote gemeente, zoeken")
+    ).toBeUndefined();
+  });
+
+  it("does not promote a digit-led phrase ('1 van de grootste banken van Nederland', advisor review)", () => {
+    expect(
+      extractEindklant(
+        "eindklant, 1 van de grootste banken van Nederland, zoekt"
+      )
+    ).toBeUndefined();
+  });
+});
+
 describe("extractSitemapUrls", () => {
   it("parses <url> entries with and without lastmod, decoding XML entities", () => {
     const xml =
@@ -182,13 +232,18 @@ describe.each([
   ["hero", heroConfig],
   ["pro-act", proActConfig],
 ])("%s JSON-LD connector", (slug, config) => {
+  // BlueTrail's listing fixture carries a 3rd sitemap entry
+  // (adviseur-privacy-ibd, added 2026-09-15 to make the live-captured F15
+  // skills fixture reachable from the fixture-mode ingest pipeline).
+  const expectedItemCount = slug === "bluetrail" ? 3 : 2;
+
   it("ingests listing + detail fixtures with found/new/changed/rejected/error metrics", async () => {
     const result = await runFixtureIngest(config, `bron-${slug}-fixture`);
     expect(result.metrics).toMatchObject({
       changed: 0,
       error: 0,
-      found: 2,
-      new: 2,
+      found: expectedItemCount,
+      new: expectedItemCount,
       rejected: 0,
     });
   });
@@ -219,10 +274,10 @@ describe.each([
     await runConnector({ ...sharedInput, scrapeRunId: `run-${slug}-replay-1` });
     await runConnector({ ...sharedInput, scrapeRunId: `run-${slug}-replay-2` });
 
-    expect(recorder.records).toHaveLength(2);
+    expect(recorder.records).toHaveLength(expectedItemCount);
     expect(
       new Set(recorder.records.map((record) => record.bronReferentie)).size
-    ).toBe(2);
+    ).toBe(expectedItemCount);
   });
 
   it("reports a single, non-paginated discovery pass (hasMore: false)", async () => {
@@ -234,7 +289,7 @@ describe.each([
     });
     const result = await connector.discover(null);
     expect(result.hasMore).toBe(false);
-    expect(result.items).toHaveLength(2);
+    expect(result.items).toHaveLength(expectedItemCount);
   });
 });
 
@@ -300,6 +355,25 @@ describe("BlueTrail label-block extraction", () => {
       urenPerWeek: "32u p/w",
     });
   });
+
+  it("reads the 'Competenties:' list from a live 2026-09-15 capture (F15)", async () => {
+    const client = createJsonLdClient({
+      config: bluetrailConfig,
+      liveEnabled: false,
+    });
+    const detail = await client.fetchDetail(
+      "https://www.bluetrail.nl/opdrachten/Interim/adviseur-privacy-ibd/"
+    );
+    expect(detail.labelBlock.competenties).toContain(
+      "Analytisch &amp; conceptueel sterk"
+    );
+    expect(detail.labelBlock.competenties).toContain(
+      "Sterke schrijfvaardigheid"
+    );
+    // The raw captured block must NOT swallow the following "Eisen"/"Wensen"
+    // sentences -- only the Competenties <ul> itself.
+    expect(detail.labelBlock.competenties).not.toContain("afgeronde hbo");
+  });
 });
 
 describe("Pro-Act label-block extraction from JobPosting description", () => {
@@ -327,10 +401,38 @@ describe("Pro-Act label-block extraction from JobPosting description", () => {
     };
     expect(payload.labelBlock).toMatchObject({
       eindDatum: "30 juni 2027",
+      eindklant: "Tweede Kamer der Staten-Generaal",
       locatie: "hybride",
       startDatum: "1 oktober 2026",
       tarief: "marktconform",
       urenPerWeek: "36 uur per week",
+    });
+  });
+
+  it("reads the eindklant label from the 'eindklant de <naam>,' phrasing too (detail-2 fixture)", async () => {
+    const bronId = "bron-proact-eindklant-2";
+    const connector = createJsonLdConnector({
+      bronId,
+      client: createJsonLdClient({ config: proActConfig, liveEnabled: false }),
+      config: proActConfig,
+    });
+    const discovered = await connector.discover(null);
+    const item = discovered.items.find((entry) =>
+      entry.bronReferentie.includes("iso-8783")
+    );
+    if (!item) {
+      throw new Error("expected an iso-8783 item");
+    }
+    const fetched = await connector.fetch(item);
+    if (!fetched || fetched.status !== "fetched") {
+      throw new Error("expected a fetched result");
+    }
+    // SAFETY: connector.fetch() serialises a JsonLdFetchedPayload as JSON body above.
+    const payload = JSON.parse(new TextDecoder().decode(fetched.body)) as {
+      labelBlock: Record<string, string>;
+    };
+    expect(payload.labelBlock).toMatchObject({
+      eindklant: "Algemene Rekenkamer",
     });
   });
 });

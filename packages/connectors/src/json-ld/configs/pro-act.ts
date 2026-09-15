@@ -20,6 +20,28 @@ export const proActConfig: JsonLdConnectorConfig = {
   },
   labelBlock: {
     eindDatum: { pattern: /Eind:\s*(?<value>[^<\t]+)/u, source: "description" },
+    // "Voor onze directe eindklant, <naam>," or "...eindklant de <naam>,"
+    // (confirmed in both live captures, 2026-08-31) -- an explicit label,
+    // not free-text mining: `hiringOrganization` is always "Pro-Act IT"
+    // itself (the broker), never the real client (docs/sources/pro-act.md).
+    // No `i` flag and the value must start with an uppercase letter
+    // (2-60 chars, no leading digit): guards against sentences like "Voor
+    // onze eindklant zoeken wij een senior developer," where there is no
+    // explicit name at all -- a lowercase-starting capture there must stay
+    // unmatched, not become a fake opdrachtgeverNaam (codex review). A digit
+    // start is excluded too: "eindklant, 1 van de grootste banken van
+    // Nederland," would otherwise be captured as the client name (advisor
+    // review) -- no digit-led Pro-Act client name has been observed.
+    // Residual risk (accepted, docs/sources/pro-act.md): a city name after
+    // "eindklant," (e.g. "eindklant, Den Haag,") would still match -- the
+    // template is confirmed on 2/2 live captures and the result is always
+    // provenance-tagged `labelBlock.eindklant`, so a wrong capture is
+    // auditable rather than silent.
+    eindklant: {
+      pattern:
+        /[Ee]indklant,?\s+(?:de\s+|het\s+)?(?<value>[A-Z][^,.<]{1,59}?),/u,
+      source: "description",
+    },
     locatie: {
       pattern: /Locatie:\s*(?<value>[^<\t]+)/u,
       source: "description",

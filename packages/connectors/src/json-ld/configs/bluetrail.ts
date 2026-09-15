@@ -10,6 +10,8 @@ import type { JsonLdConnectorConfig } from "../types";
  */
 export const bluetrailConfig: JsonLdConnectorConfig = {
   detailFixtures: {
+    "https://www.bluetrail.nl/opdrachten/Interim/adviseur-privacy-ibd/":
+      "bluetrail/detail-adviseur-privacy-ibd-2026-09-15.json",
     "https://www.bluetrail.nl/opdrachten/Interim/ciam-tester/":
       "bluetrail/detail-1.json",
     "https://www.bluetrail.nl/opdrachten/Interim/systeembeheerder/":
@@ -28,6 +30,16 @@ export const bluetrailConfig: JsonLdConnectorConfig = {
   // advisor role), so only the two confirmed filter shapes are excluded here.
   excludePatterns: [/\/opdrachten\/?$/u, /[?&]order=/u, /[?&]_sft_/u],
   labelBlock: {
+    // "Wat wordt er van jou gevraagd? > Competenties:" list (confirmed on a
+    // live capture, 2026-09-15, detail-adviseur-privacy-ibd fixture) -- the
+    // one structured, tag-like list on the page. The raw `<ul>` inner HTML is
+    // captured here; `parseListItems`/`normaliseSkills` in the shared
+    // normaliser turn it into the final `skills` list. "Eisen"/"Wensen" on
+    // the same page are full requirement sentences, not tags -- deliberately
+    // not mapped (see json-ld.ts).
+    competenties: {
+      pattern: /Competenties:<\/strong><br><br><ul>(?<value>[\s\S]*?)<\/ul>/u,
+    },
     eindDatum: { pattern: /<b>Einddatum<\/b>(?<value>[^<]+)/u },
     locatie: { pattern: /<b>Locatie<\/b>(?<value>[^<]+)/u },
     referentienummer: { pattern: /<b>Referentienummer<\/b>(?<value>[^<]+)/u },

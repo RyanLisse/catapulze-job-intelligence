@@ -21,7 +21,14 @@ Status: **probe afgerond; connector nog niet gebouwd** — adapter-categorie `js
 | label `Uren per week` | `uren_per_week` | Zichtbare detailtabel. |
 | labels `Startdatum`, `Einddatum` | `startdatum`, `einddatum` | Zichtbare detailtabel. |
 | label `Sluitingsdatum` | `sluitingsdatum` | Zichtbare detailtabel. |
+| `jobLocation.address.addressRegion` | `provincie` | JobPosting-detail; canonieke provincienaam, zichtbaar bevestigd (o.a. "Gelderland", "Zuid-Holland" in live captures). |
+| lijst "Wat wordt er van jou gevraagd? › Competenties:" | `skills` | Alleen deze lijst is tag-achtig gestructureerd (bevestigd in live capture 2026-09-15, `detail-adviseur-privacy-ibd`). "Eisen"/"Wensen" op dezelfde pagina zijn volledige zinnen, niet gemapt (zou vrije-tekstmining zijn). |
 | `baseSalary` | **niet overnemen** | Waarde `100` zonder bruikbare eenheid; tarief ontbreekt zichtbaar. |
+
+Opleidingsniveau (F14) is in de live capture van 2026-09-15 nergens als waarde
+gerenderd — alleen een CSS-selector (`.job_Opleidingsniveau__c`) voor een
+gerelateerde-vacatures-widget die op deze pagina geen data toont. `ABSENT_SRC`
+op deze steekproef; niet gemapt.
 
 ## Ingest-patroon
 

@@ -1,0 +1,8 @@
+{
+  "contractVersion": "connector-fixture/v1",
+  "source": "hero",
+  "capturedAt": "2026-09-15T00:00:00.000Z",
+  "contentType": "html",
+  "payload": "<html><head><title>Analist Archivering | Interim-opdrachten bij Hero | Hero</title>\n<script type=\"application/ld+json\">{\"@context\": \"https://schema.org\", \"@type\": \"JobPosting\", \"title\": \"Analist Archivering\", \"datePosted\": \"2026-07-07T12:25:41.179513+00:00\", \"hiringOrganization\": {\"@type\": \"Organization\", \"name\": \"Hero Interim Professionals\", \"sameAs\": \"https://hero.eu\", \"logo\": \"https://hero.eu/Hero_logo_blauw_oranje.png\"}, \"url\": \"https://hero.eu/interim-opdrachten/analist-archivering-675068ef\", \"directApply\": false, \"inLanguage\": \"nl\", \"jobLocation\": {\"@type\": \"Place\", \"address\": {\"@type\": \"PostalAddress\", \"addressLocality\": \"Zwolle\", \"addressCountry\": \"NL\"}}, \"employmentType\": \"CONTRACTOR\", \"workHours\": \"16 uur/week\"}</script>\n</head><body></body></html>",
+  "captureNote": "Live capture 2026-09-15, one polite GET via ssh catapulze.exe.xyz curl. Sanitized per DEC-008: recruiter name/email removed. Source: https://hero.eu/interim-opdrachten/analist-archivering-675068ef. JobPosting JSON-LD carries no jobLocationType/werkvorm field (thinner than the existing 2 fixtures -- also lacks description). The listing page (https://hero.eu/interim-opdrachten) exposes werklocatie values (\"Hybride (50/50)\", \"Hybride in overleg\", \"Op locatie\") only as a filter-facet dropdown's option labels, not as a per-job-card badge -- confirms F07 werkvorm is genuinely ABSENT_SRC on this capture, not a parsing gap."
+}

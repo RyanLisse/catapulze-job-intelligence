@@ -16,7 +16,7 @@ Status: **probe afgerond; connector nog niet gebouwd** — adapter-categorie `js
 |---|---|---|
 | `title` | `titel` | JobPosting-detail. |
 | `description` | `beschrijving` | JobPosting; bevat ook gelabelde velden. |
-| eindklant in beschrijving | `opdrachtgever_naam` | Prose; `hiringOrganization` is de broker. |
+| eindklant in beschrijving | `opdrachtgever_naam` | Prose; `hiringOrganization` is de broker. Regex-template `eindklant,? (de\|het )?<Naam>,` bevestigd op 2/2 live captures (25-08-2026). Restrisico (geaccepteerd, advisor review): een plaatsnaam direct na "eindklant," (bv. "eindklant, Den Haag,") zou ook matchen -- geen bekend geval, en elke match is `labelBlock.eindklant`-provenance-getagd, dus auditbaar i.p.v. stil fout. |
 | label `Locatie` | `locatie_omschrijving` | Detailblok; JobPosting bevat in de sample alleen het land. |
 | label `Inzet` | `uren_per_week` | Detailblok. |
 | labels `Start`, `Eind` | `startdatum`, `einddatum` | Detailblok. |
