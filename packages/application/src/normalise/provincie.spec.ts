@@ -46,6 +46,8 @@ describe("findProvincieInText", () => {
 
   test("returns null when only a city or nothing is named", () => {
     expect(findProvincieInText("Senior developer Amsterdam")).toBeNull();
+    expect(findProvincieInText("Projectleider NB 32 uur")).toBeNull();
+    expect(findProvincieInText("Regio ZH/NH")).toBeNull();
     expect(findProvincieInText("")).toBeNull();
     expect(findProvincieInText(null)).toBeNull();
   });

@@ -56,6 +56,11 @@ const ALIASES = new Map<string, Provincie>(
 
 const PROVINCIE_PREFIX = /^provincie\s+/iu;
 
+/** Two-letter abbreviations (NB, NH, ZH) are legal on a dedicated province
+ * field but read as "nota bene" and the like inside running text, so the text
+ * scanner never matches them. */
+const MIN_SCAN_TOKEN_LENGTH = 3;
+
 /**
  * Maps a source-published province spelling to its canonical name, or `null`
  * when the text is not a recognised Dutch province. Case, accents, hyphen and
@@ -89,7 +94,11 @@ export const findProvincieInText = (
   }
   const parts = text.split(/[\s,;|/()[\]]+/u).filter(Boolean);
   for (let index = 0; index < parts.length; index += 1) {
-    const single = toCanonicalProvincie(parts[index]);
+    const token = parts[index] ?? "";
+    if (token.length < MIN_SCAN_TOKEN_LENGTH) {
+      continue;
+    }
+    const single = toCanonicalProvincie(token);
     if (single !== null) {
       return single;
     }
