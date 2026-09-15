@@ -7,12 +7,64 @@ import {
 import { UNKNOWN } from "@ji/domain";
 import { resolveLifecycleStatus } from "@ji/domain/lifecycle";
 
+import { toCanonicalProvincie } from "./provincie";
 import {
   nutsCodesToLocatieTekst,
   parseTenderNedNutsEntries,
 } from "./tenderned-nuts";
 import { field } from "./types";
 import type { NormalisedAanvraagDraft } from "./types";
+
+/** NUTS-2 -> canonical province name (CTP-525, F04). This *is* explicit
+ * source data -- `nutsCodes` is a structured field the API publishes, not an
+ * inference from a city name. Only the 12 NL provinces map; a non-NL or
+ * unrecognised NUTS-2 prefix yields no provincie. */
+const NUTS2_PROVINCIE = {
+  NL11: "Groningen",
+  NL12: "Friesland",
+  NL13: "Drenthe",
+  NL21: "Overijssel",
+  NL22: "Gelderland",
+  NL23: "Flevoland",
+  NL31: "Utrecht",
+  NL32: "Noord-Holland",
+  NL33: "Zuid-Holland",
+  NL34: "Zeeland",
+  NL41: "Noord-Brabant",
+  NL42: "Limburg",
+} satisfies Record<string, string>;
+
+const COUNTRY_PREFIX_PATTERN = /^[A-Z]{2}/u;
+
+/** First recognised NUTS-2 prefix across `nutsCodes`, mapped to its
+ * canonical province name via `toCanonicalProvincie` (never written
+ * directly -- the addendum requires every provincie string to come out of
+ * that helper). */
+const provincieFromNutsCodes = (
+  entries: { code: string }[]
+): ReturnType<typeof toCanonicalProvincie> => {
+  for (const entry of entries) {
+    const nuts2 = entry.code.slice(0, 4);
+    if (!Object.hasOwn(NUTS2_PROVINCIE, nuts2)) {
+      continue;
+    }
+    // SAFETY: Object.hasOwn just confirmed nuts2 is one of
+    // NUTS2_PROVINCIE's own keys.
+    const name = NUTS2_PROVINCIE[nuts2 as keyof typeof NUTS2_PROVINCIE];
+    if (name) {
+      return toCanonicalProvincie(name);
+    }
+  }
+  return null;
+};
+
+/** ISO-2 country prefix of the first `nutsCodes` entry, or `UNKNOWN` when
+ * absent/unrecognised. NUTS codes always start with the ISO-3166-1 alpha-2
+ * country code (CTP-525, F05) -- explicit source data, not a guess. */
+const landFromNutsCodes = (
+  entries: { code: string }[]
+): string | typeof UNKNOWN =>
+  COUNTRY_PREFIX_PATTERN.exec(entries[0]?.code ?? "")?.[0] ?? UNKNOWN;
 
 export const parseTenderNedPayload = (
   payload: TenderNedFetchedPayload,
@@ -50,6 +102,9 @@ export const parseTenderNedPayload = (
     hoofd: entry.isHoofdOpdracht ?? false,
     omschrijving: entry.omschrijving ?? null,
   }));
+  const nutsEntries = parseTenderNedNutsEntries(detail.nutsCodes);
+  const provincie = provincieFromNutsCodes(nutsEntries);
+  const locatieLand = landFromNutsCodes(nutsEntries);
 
   return {
     beschrijving: field(
@@ -70,6 +125,7 @@ export const parseTenderNedPayload = (
         ),
         opdracht_aard: detail.opdrachtAardCode?.code ?? null,
         procedure: detail.procedureCode?.code ?? null,
+        provincie,
         publicatie_id: publicatieId,
         publicatiedatum: detail.publicatieDatum ?? null,
       },
@@ -84,7 +140,10 @@ export const parseTenderNedPayload = (
     contentHash,
     extractieMethode: "api",
     lifecycle,
-    locatieLand: field("NL", parserVersion, "detail.nutsCodes"),
+    // CTP-525 F05: NUTS codes always begin with the ISO-3166-1 alpha-2
+    // country code -- explicit source data. "NL" is no longer a hardcoded
+    // default; an absent/unrecognised nutsCodes prefix reads UNKNOWN.
+    locatieLand: field(locatieLand, parserVersion, "detail.nutsCodes"),
     locatieTekst: field(
       nutsCodesToLocatieTekst(detail.nutsCodes),
       parserVersion,
@@ -96,6 +155,18 @@ export const parseTenderNedPayload = (
       "detail.opdrachtgeverNaam"
     ),
     parserVersion,
+    // CTP-525 F13: NOT-FIXABLE-HERE. `numberOfDaysBeforeAanmeldenInschrijven`
+    // counts down from the FETCH moment, not from `publicatieDatum` -- a
+    // tender published 20 days ago with 10 days left is not "closed 10 days
+    // ago". Deriving it needs the observation/fetch instant
+    // (`ConnectorObservation.observedAt`,
+    // packages/connectors/src/contract.ts:71), but `parseTenderNedPayload`
+    // never receives it: the shared normalise signature is
+    // `(body, contentHash) => NormalisedAanvraagDraft`
+    // (packages/application/src/sources/definition.ts:40), called from
+    // packages/application/src/identity/process.ts:40 without observedAt.
+    // Plumbing that through is outside this lane's file scope. Stays
+    // undefined -- honest-absent, not a guessed deadline.
     // TenderNed's modelled API has no contract-start field. Its
     // `publicatieDatum` is retained above as source-specific publication
     // metadata and must not influence canonical contract-start identity.

@@ -55,8 +55,40 @@ describe("parseStriivePayload", () => {
     );
     expect(draft.startDatum.value).toBe("2026-09-13");
     expect(draft.beschrijving.value).toContain("Beheer van Youforce.");
-    expect(draft.bronSpecifiek.value).toMatchObject({ uren_per_week: "8–24" });
+    expect(draft.bronSpecifiek.value).toMatchObject({
+      provincie: "Drenthe",
+      uren_per_week: "8–24",
+    });
     expect(draft.extractieMethode).toBe("api");
+  });
+
+  it("maps other real location strings to their explicit province (CTP-524 F04)", () => {
+    // Built from the other 2026-08-31 fixture records (listing-page-0.json).
+    const cases: [string, string][] = [
+      ["Pernis Zuid-Holland", "Zuid-Holland"],
+      ["Apeldoorn Gelderland", "Gelderland"],
+      ["Eemshaven Groningen", "Groningen"],
+      ["Almelo Overijssel", "Overijssel"],
+    ];
+    for (const [location, provincie] of cases) {
+      const draft = parseStriivePayload(
+        buildPayload({ location }),
+        "hash-provincie"
+      );
+      // SAFETY: parseStriivePayload always emits bron_specifiek.provincie.
+      const specifiek = draft.bronSpecifiek.value as { provincie: unknown };
+      expect(specifiek.provincie).toBe(provincie);
+    }
+  });
+
+  it("never infers provincie from a city-only location (honesty)", () => {
+    const draft = parseStriivePayload(
+      buildPayload({ location: "Amsterdam" }),
+      "hash-provincie-absent"
+    );
+    // SAFETY: parseStriivePayload always emits bron_specifiek.provincie.
+    const specifiek = draft.bronSpecifiek.value as { provincie: unknown };
+    expect(specifiek.provincie).toBeNull();
   });
 
   it("never maps a tarief amount -- every tariff field is confirmed unusable for this source", () => {

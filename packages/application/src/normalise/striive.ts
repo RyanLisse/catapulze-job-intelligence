@@ -4,6 +4,7 @@ import { UNKNOWN } from "@ji/domain";
 import { resolveLifecycleStatus } from "@ji/domain/lifecycle";
 
 import { formatHoursPerWeek } from "./hours";
+import { findProvincieInText } from "./provincie";
 import {
   closingMomentInstant,
   field,
@@ -93,6 +94,12 @@ export const parseStriivePayload = (
     broker: job.broker ?? null,
     eind_datum: job.endDate ?? null,
     geo: resolveGeo(job.regionLocation),
+    // Striive publishes `location` as "<stad> <provincie>" (e.g. "Assen
+    // Drenthe") -- the province name is explicit source text, not inferred
+    // from the city (docs/sources/striive.md has no dedicated province
+    // field). findProvincieInText only matches a recognised province token;
+    // a city-only location yields null, never a guess.
+    provincie: findProvincieInText(job.location),
     referenties: {
       referenceCode: job.referenceCode ?? null,
       referenceCodeClient: job.referenceCodeClient ?? null,
