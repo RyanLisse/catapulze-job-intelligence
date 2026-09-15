@@ -42,8 +42,8 @@ const NOW = new Date("2026-09-10T00:00:00.000Z");
 
 interface MotianRawFixture {
   readonly application_deadline: string | null;
-  readonly competences?: readonly { readonly name: string }[];
-  readonly education_level?: string;
+  readonly competences: readonly { readonly name: string }[] | null;
+  readonly education_level: string | null;
   readonly archived_at: null;
   readonly company: string | null;
   readonly contract_type: string | null;
@@ -118,9 +118,11 @@ const rawBody = (input: {
     application_deadline: input.applicationDeadline ?? "2026-09-15 09:30:00",
     archived_at: null,
     company: input.company ?? "NVB opdrachtgever",
+    competences: input.competences ?? null,
     contract_type: input.contractType ?? "detachering",
     deleted_at: null,
     description: null,
+    education_level: input.educationLevel ?? null,
     end_client: null,
     external_id: input.externalId,
     external_url: null,
@@ -135,12 +137,6 @@ const rawBody = (input: {
     start_date: input.startDate ?? "2026-10-01 00:00:00",
     status: null,
     title: "Data engineer",
-    ...(input.competences === undefined
-      ? {}
-      : { competences: input.competences }),
-    ...(input.educationLevel === undefined
-      ? {}
-      : { education_level: input.educationLevel }),
   };
   return new TextEncoder().encode(JSON.stringify(body));
 };
@@ -416,9 +412,7 @@ describe
           expect.arrayContaining(["opleidingsniveau", "provincie", "skills"])
         );
 
-        const rows = await applicationClient<
-          { bronSpecifiek: unknown }[]
-        >`
+        const rows = await applicationClient<{ bronSpecifiek: unknown }[]>`
           SELECT bron_specifiek AS "bronSpecifiek"
           FROM curated.aanvraag
           WHERE id = ${fixture.aanvraagId}
@@ -434,9 +428,7 @@ describe
           database: applicationClient,
         });
         expect(rollback.status).toBe("rolled_back");
-        const restored = await applicationClient<
-          { bronSpecifiek: unknown }[]
-        >`
+        const restored = await applicationClient<{ bronSpecifiek: unknown }[]>`
           SELECT bron_specifiek AS "bronSpecifiek"
           FROM curated.aanvraag
           WHERE id = ${fixture.aanvraagId}

@@ -220,18 +220,16 @@ export type MotianDerivedFieldRepairV2AuditFieldImage = Omit<
   "provincie" | "skills"
 >;
 
-export interface MotianDerivedFieldRepairV2AuditMetadata
-  extends Omit<
-    MotianDerivedFieldRepairAuditMetadata,
-    "afterimage" | "preimage" | "repairVersion"
-  > {
+export interface MotianDerivedFieldRepairV2AuditMetadata extends Omit<
+  MotianDerivedFieldRepairAuditMetadata,
+  "afterimage" | "preimage" | "repairVersion"
+> {
   readonly afterimage: MotianDerivedFieldRepairV2AuditFieldImage;
   readonly preimage: MotianDerivedFieldRepairV2AuditFieldImage;
   readonly repairVersion: "motian-v1-derived-field-repair/v2";
 }
 
-export interface MotianDerivedFieldRepairV2RollbackAuditMetadata
-  extends MotianDerivedFieldRepairV2AuditMetadata {
+export interface MotianDerivedFieldRepairV2RollbackAuditMetadata extends MotianDerivedFieldRepairV2AuditMetadata {
   readonly rollbackOfAuditId: string;
 }
 

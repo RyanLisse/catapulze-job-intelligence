@@ -336,17 +336,16 @@ interface BronSpecifiekOp {
 const bronSpecifiekAssignment = (ops: readonly BronSpecifiekOp[]): string => {
   let expression = "COALESCE(bron_specifiek, '{}'::jsonb)";
   for (const op of ops) {
+    // `::text::jsonb`, not `::jsonb`: a bare jsonb cast makes postgres.js
+    // declare the parameter jsonb and JSON-encode the string, storing
+    // `"[\"SQL\"]"` instead of `["SQL"]`.
+    const value = op.json
+      ? `$${op.parameter}::text::jsonb`
+      : `to_jsonb($${op.parameter}::text)`;
     expression =
       op.parameter === null
         ? `(${expression} - '${op.key}')`
-        : `jsonb_set(${expression}, '{${op.key}}', ${
-            op.json
-              ? // `::text::jsonb`, not `::jsonb`: a bare jsonb cast makes
-                // postgres.js declare the parameter jsonb and JSON-encode the
-                // string, storing `"[\"SQL\"]"` instead of `["SQL"]`.
-                `$${op.parameter}::text::jsonb`
-              : `to_jsonb($${op.parameter}::text)`
-          }, true)`;
+        : `jsonb_set(${expression}, '{${op.key}}', ${value}, true)`;
   }
   return `bron_specifiek = ${expression}`;
 };
