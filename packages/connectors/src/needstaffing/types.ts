@@ -5,6 +5,12 @@ export interface NeedstaffingInfoFields {
   start?: string;
   tarief?: string;
   uren?: string;
+  /** Derived from the same "Locatie" icon field, not a separate icon --
+   * confirmed live 2026-09-15 (joborder 15570: "Den Haag/Hybride"; wider
+   * listing capture also shows "<stad> (<toelichting>)" shapes like
+   * "Maasland (volledig op locatie)"). See splitNeedstaffingLocatie in
+   * client.ts. */
+  werkvorm?: string;
 }
 
 /** Lightweight listing-row snapshot used for hashing/dedup before a detail fetch. */
@@ -22,6 +28,11 @@ export interface NeedstaffingListingPage {
 /** Typed fields scraped from the detail page (`/Opdrachten/{id}`). */
 export interface NeedstaffingDetail extends NeedstaffingInfoFields {
   id: string;
+  /** Plain-text `<li>` items from the vacancy body's `<h2>Competenties</h2>`
+   * list -- confirmed live 2026-09-15 (joborder 15570: "Samenwerken",
+   * "Overtuigingskracht", "Omgevingssensitiviteit", "Resultaatgerichtheid").
+   * Absent when the detail page has no Competenties section. */
+  competenties?: string[];
   referentie?: string;
   tariefMax?: string;
   tariefMin?: string;

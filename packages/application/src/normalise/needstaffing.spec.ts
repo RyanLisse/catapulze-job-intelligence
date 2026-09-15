@@ -13,8 +13,14 @@ import {
  * "Operationeel Database Ontwikkelaar 2026-BZB-0457", captured
  * 2026-08-31). The fixture's `vacancy-text` body is deliberately
  * truncated ("verkort t.b.v. fixture") -- werkvorm/niveau/skills are not
- * present anywhere in the captured payload, so this suite does not assert
- * values for them (see the lane report). */
+ * present in THIS record, so this default builder omits them (honesty
+ * case). The fuller 2026-09-15 capture (joborder 15570, see the "fuller
+ * live capture" describe block below) proves the mapping when those
+ * fields ARE published. Niveau is not covered by either fixture: it only
+ * ever appears embedded in an "Eisen" prose sentence ("Minimaal een
+ * afgeronde HBO-opleiding."), not as a structured field -- extracting it
+ * would be free-text mining (GAP_ENRICH, out of scope), see the lane
+ * report. */
 const buildPayload = (
   overrides: Partial<NeedstaffingFetchedPayload["detail"]> = {}
 ): NeedstaffingFetchedPayload => ({
@@ -76,8 +82,10 @@ describe("parseNeedstaffingPayload", () => {
       duur: "4 maanden",
       periode: "4 maanden",
       referentie: "2026-BZB-0457",
+      skills: null,
       uren: "36",
       uren_per_week: "36",
+      werkvorm: null,
     });
   });
 
@@ -98,6 +106,92 @@ describe("parseNeedstaffingPayload", () => {
       "hash-3"
     );
     expect(draft.startDatum.value).toBe(UNKNOWN);
+  });
+});
+
+/** Mirrors what `parseNeedstaffingDetail` now produces from
+ * fixtures/connectors/needstaffing/detail-15570-full-2026-09-15.json (see
+ * packages/connectors/src/needstaffing/needstaffing.spec.ts for the
+ * HTML-parsing assertions this shape is built from): the "Locatie" icon
+ * field ("Den Haag/Hybride") splits into locatie + werkvorm, "Verwacht
+ * aantal uren per week" carries a "uur" unit suffix, and the vacancy
+ * body's Competenties list is captured as competenties. */
+const buildFullerPayload = (
+  overrides: Partial<NeedstaffingFetchedPayload["detail"]> = {}
+): NeedstaffingFetchedPayload => ({
+  detail: {
+    competenties: [
+      "Samenwerken",
+      "Overtuigingskracht",
+      "Omgevingssensitiviteit",
+      "Resultaatgerichtheid",
+    ],
+    deadline: "1789480800000",
+    id: "15570",
+    locatie: "Den Haag",
+    periode: "3 maanden (optie 1x verlenging)",
+    start: "1790726400000",
+    tarief: "€85 - €93",
+    tariefMax: "93",
+    tariefMin: "85",
+    titel: "Senior Procesregisseur Digitale Gegevensuitwisseling 202609A077",
+    uren: "36 uur",
+    werkvorm: "Hybride",
+    ...overrides,
+  },
+  listing: {
+    deadline: "1789480800000",
+    id: "15570",
+    locatie: "Den Haag",
+    opdrachtgeverNaam: "RVO",
+    periode: "3 maanden (optie 1x verlenging)",
+    start: "1790726400000",
+    tarief: "€85 - €93",
+    titel: "Senior Procesregisseur Digitale Gegevensuitwisseling 202609A077",
+    uren: "36 uur",
+    werkvorm: "Hybride",
+  },
+  raw: {
+    html: "Senior Procesregisseur Digitale Gegevensuitwisseling – RVO<p><b>Opdrachtomschrijving</b></p>Digitale ontwikkelingen hebben impact.",
+  },
+});
+
+describe("parseNeedstaffingPayload — fuller live capture (2026-09-15, joborder 15570)", () => {
+  it("maps werkvorm, skills, and unit-suffixed uren from structured fields", () => {
+    const draft = parseNeedstaffingPayload(buildFullerPayload(), "hash-5");
+    expect(draft.bronSpecifiek.value).toMatchObject({
+      duur: "3 maanden (optie 1x verlenging)",
+      skills: [
+        "Samenwerken",
+        "Overtuigingskracht",
+        "Omgevingssensitiviteit",
+        "Resultaatgerichtheid",
+      ],
+      uren: "36",
+      uren_per_week: "36",
+      werkvorm: "Hybride",
+    });
+    // 1790726400000ms is UTC-midnight of the site's own displayed
+    // "30-09-2026" -- confirmed matching UTC-sliced ISO on this second
+    // real record too, same as the 15520 case above: no local-timezone
+    // shift bug reproduced for Need Staffing (unlike Onefellow).
+    expect(draft.startDatum.value).toBe("2026-09-30");
+  });
+
+  it("omits skills when competenties is absent instead of guessing", () => {
+    const draft = parseNeedstaffingPayload(
+      buildFullerPayload({ competenties: undefined }),
+      "hash-6"
+    );
+    expect(draft.bronSpecifiek.value).toMatchObject({ skills: null });
+  });
+
+  it("omits werkvorm when the Locatie field has no split marker", () => {
+    const draft = parseNeedstaffingPayload(
+      buildFullerPayload({ werkvorm: undefined }),
+      "hash-7"
+    );
+    expect(draft.bronSpecifiek.value).toMatchObject({ werkvorm: null });
   });
 });
 

@@ -13,11 +13,13 @@ import {
   buildNeedstaffingRawHtml,
   createNeedstaffingClient,
   decodeNeedstaffingEntities,
+  extractNeedstaffingCompetenties,
   extractNeedstaffingId,
   extractNeedstaffingReferentie,
   parseNeedstaffingDetail,
   parseNeedstaffingListing,
   parseNeedstaffingTariefBand,
+  splitNeedstaffingLocatie,
 } from "./client";
 import type { NeedstaffingClient } from "./client";
 import { createNeedstaffingConnector } from "./connector";
@@ -228,6 +230,34 @@ describe("Needstaffing real fixtures", () => {
     });
   });
 
+  it("parses the fuller live detail capture (2026-09-15, joborder 15570): werkvorm split from Locatie, uren with unit suffix, competenties list", async () => {
+    const fixture = await loadConnectorFixture<string>(
+      "needstaffing/detail-15570-full-2026-09-15.json"
+    );
+    const detail = await parseNeedstaffingDetail(fixture.payload, "15570");
+    expect(detail).toMatchObject({
+      competenties: [
+        "Samenwerken",
+        "Overtuigingskracht",
+        "Omgevingssensitiviteit",
+        "Resultaatgerichtheid",
+      ],
+      locatie: "Den Haag",
+      periode: "3 maanden (optie 1x verlenging)",
+      uren: "36 uur",
+      werkvorm: "Hybride",
+    });
+  });
+
+  it("DEC-008: the fuller live detail capture has no recruiter name/phone/email", async () => {
+    const fixture = await loadConnectorFixture<string>(
+      "needstaffing/detail-15570-full-2026-09-15.json"
+    );
+    expect(fixture.payload).not.toContain("Massood");
+    expect(fixture.payload).not.toContain("0644504179");
+    expect(fixture.payload).not.toContain("massood.haidari@needstaffing.nl");
+  });
+
   it("DEC-008: raw.html from the real detail fixture keeps only the description text (no script, no RESPOND CTA, no contact info)", async () => {
     const fixture = await loadConnectorFixture<string>(
       "needstaffing/detail-15520.json"
@@ -426,5 +456,60 @@ describe("needstaffing page cap (RJC-397)", () => {
     const last = await connector.discover(null);
     expect(last.hasMore).toBe(false);
     expect(last.truncated).toBe(false);
+  });
+});
+
+describe("splitNeedstaffingLocatie — real Locatie field shapes (captured 2026-09-15)", () => {
+  it("splits a slash-delimited werkvorm", () => {
+    expect(splitNeedstaffingLocatie("Leeuwarden/Hybride")).toEqual({
+      locatie: "Leeuwarden",
+      werkvorm: "Hybride",
+    });
+  });
+
+  it("splits a trailing-parenthetical werkvorm", () => {
+    expect(splitNeedstaffingLocatie("Maasland (volledig op locatie)")).toEqual(
+      {
+        locatie: "Maasland",
+        werkvorm: "volledig op locatie",
+      }
+    );
+    expect(
+      splitNeedstaffingLocatie("Huis ter Heide (2 dagen op locatie)")
+    ).toEqual({
+      locatie: "Huis ter Heide",
+      werkvorm: "2 dagen op locatie",
+    });
+  });
+
+  it("leaves a plain city with no werkvorm marker untouched", () => {
+    expect(splitNeedstaffingLocatie("Den Haag")).toEqual({
+      locatie: "Den Haag",
+      werkvorm: undefined,
+    });
+  });
+
+  it("returns undefined for both when locatie is absent", () => {
+    expect(splitNeedstaffingLocatie(undefined)).toEqual({
+      locatie: undefined,
+      werkvorm: undefined,
+    });
+  });
+});
+
+describe("extractNeedstaffingCompetenties", () => {
+  it("reads the Competenties list items as plain skill strings", () => {
+    const html =
+      "<h2>Eisen</h2><ul><li>Niet dit</li></ul><h2>Competenties</h2><ul><li>Samenwerken</li><li>Overtuigingskracht</li></ul>";
+    expect(extractNeedstaffingCompetenties(html)).toEqual([
+      "Samenwerken",
+      "Overtuigingskracht",
+    ]);
+  });
+
+  it("returns an empty array when there is no Competenties section", () => {
+    expect(
+      extractNeedstaffingCompetenties("<h2>Eisen</h2><ul><li>HBO</li></ul>")
+    ).toEqual([]);
   });
 });
