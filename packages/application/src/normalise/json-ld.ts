@@ -8,6 +8,8 @@ import type {
 import { UNKNOWN } from "@ji/domain";
 import { resolveLifecycleStatus } from "@ji/domain/lifecycle";
 
+import { formatHoursPerWeek } from "./hours";
+import { toCanonicalProvincie } from "./provincie";
 import { parseTariefFromText } from "./tarief";
 import {
   closingMomentInstant,
@@ -188,6 +190,68 @@ const tariefFromBaseSalary = (
   };
 };
 
+/** Matches the leading hour count (or dash range) out of free-text weekly-hours
+ * copy such as BlueTrail's "32u p/w", Hero's "36 uur/week", or Pro-Act's "36
+ * uur per week" / "32-40 uur bespreekbaar" -- the source never publishes a
+ * bare number, so `parseWeeklyHoursRange` downstream would otherwise treat
+ * the whole string as unparseable. */
+const HOURS_TEXT_PATTERN =
+  /(?<min>\d+(?:[.,]\d+)?)\s*(?:[-–]\s*(?<max>\d+(?:[.,]\d+)?))?\s*u(?:ur)?\b/iu;
+
+/** Extracts a clean `formatHoursPerWeek`-shaped string ("36" or "32-40") from
+ * free-text weekly-hours copy. Text without a recognisable hour count (e.g.
+ * absent, or "bespreekbaar" alone) yields `null` -- never a guess. */
+const hoursTextToPerWeek = (text: string | null | undefined): string | null => {
+  if (!text) {
+    return null;
+  }
+  const match = HOURS_TEXT_PATTERN.exec(text);
+  if (!match?.groups?.min) {
+    return null;
+  }
+  // A bare "32u p/w" is an exact figure, not an open-ended "at least 32" --
+  // only a real dash range (`match.groups.max`) is a genuine one-sided bound.
+  return formatHoursPerWeek(
+    match.groups.min,
+    match.groups.max ?? match.groups.min
+  );
+};
+
+interface OpdrachtgeverResolution {
+  readonly eindklantNaam: string | null;
+  readonly naam: string;
+  readonly sourcePath: "jobPosting.hiringOrganization" | "labelBlock.eindklant";
+}
+
+/**
+ * `hiringOrganization` is often the broker/platform rather than the true end
+ * client (see the module docblock). When the source explicitly labels an end
+ * client -- e.g. Pro-Act IT's description prose "Voor onze directe
+ * eindklant, <naam>", via the `eindklant` label-block field -- that name
+ * wins for `opdrachtgeverNaam` and is also kept in `bronSpecifiek.eindklant_naam`.
+ * Without an explicit label, the broker stays `opdrachtgeverNaam` and
+ * `eindklant_naam` is null -- never guessed from free-text prose (that is
+ * CTP-482/GAP_ENRICH territory).
+ */
+const resolveOpdrachtgever = (
+  hiringOrganization: JsonLdNode | undefined,
+  labelBlock: Record<string, string>
+): OpdrachtgeverResolution => {
+  const brokerNaam = asText(hiringOrganization?.name).trim() || UNKNOWN;
+  const eindklantNaam = labelBlock.eindklant?.trim() || null;
+  return eindklantNaam
+    ? {
+        eindklantNaam,
+        naam: eindklantNaam,
+        sourcePath: "labelBlock.eindklant",
+      }
+    : {
+        eindklantNaam: null,
+        naam: brokerNaam,
+        sourcePath: "jobPosting.hiringOrganization",
+      };
+};
+
 export const parseJsonLdPayload = (
   payload: JsonLdFetchedPayload,
   contentHash: string
@@ -224,6 +288,13 @@ export const parseJsonLdPayload = (
     seenOpen: true,
     sluitingsdatumPassed,
   });
+  const opdrachtgever = resolveOpdrachtgever(hiringOrganization, labelBlock);
+  // Province is only ever taken from an explicit source field (here,
+  // `jobLocation.address.addressRegion`, confirmed populated for BlueTrail
+  // live captures) -- never inferred from a city name.
+  const provincie = toCanonicalProvincie(
+    asTextOrNull(jobLocationAddress?.addressRegion)
+  );
 
   return {
     beschrijving: field(
@@ -234,16 +305,19 @@ export const parseJsonLdPayload = (
     bronReferentie: field(urlSlugBronReferentie(url), parserVersion, "url"),
     bronSpecifiek: field(
       {
+        contract_type: asTextOrNull(jobPosting.employmentType),
         eind_datum: labelBlock.eindDatum ?? null,
-        employment_type: asTextOrNull(jobPosting.employmentType),
+        eindklant_naam: opdrachtgever.eindklantNaam,
         identifier: jobPosting.identifier ?? null,
         label_block: labelBlock,
+        provincie,
         publicatiedatum: asTextOrNull(jobPosting.datePosted),
         referentienummer: labelBlock.referentienummer ?? null,
         slug: payload.slug,
         sluitings_datum: labelBlock.sluitingsDatum ?? null,
         uren_per_week:
-          labelBlock.urenPerWeek ?? asTextOrNull(jobPosting.workHours) ?? null,
+          hoursTextToPerWeek(labelBlock.urenPerWeek) ??
+          hoursTextToPerWeek(asTextOrNull(jobPosting.workHours)),
         url,
         valid_through: asTextOrNull(jobPosting.validThrough),
       },
@@ -263,9 +337,9 @@ export const parseJsonLdPayload = (
       "labelBlock.locatie"
     ),
     opdrachtgeverNaam: field(
-      asText(hiringOrganization?.name).trim() || UNKNOWN,
+      opdrachtgever.naam,
       parserVersion,
-      "jobPosting.hiringOrganization"
+      opdrachtgever.sourcePath
     ),
     parserVersion,
     sluitingsdatum: closingMomentInstant(sluitingsDatum),

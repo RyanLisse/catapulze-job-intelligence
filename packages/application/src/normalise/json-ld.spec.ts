@@ -40,11 +40,16 @@ describe("parseJsonLdPayload -- BlueTrail (label block in surrounding HTML, base
       },
       datePosted: "2026-08-24",
       description: "Testscenario's opstellen, uitvoeren en rapporteren.",
+      employmentType: "CONTRACTOR",
       hiringOrganization: { "@type": "Organization", name: "Kadaster" },
       identifier: { "@type": "PropertyValue", value: "a0jMI00000Pn1z3YAB" },
       jobLocation: {
         "@type": "Place",
-        address: { "@type": "PostalAddress", addressLocality: "Apeldoorn" },
+        address: {
+          "@type": "PostalAddress",
+          addressLocality: "Apeldoorn",
+          addressRegion: "Gelderland",
+        },
       },
       title: "CIAM Tester",
     },
@@ -96,6 +101,51 @@ describe("parseJsonLdPayload -- BlueTrail (label block in surrounding HTML, base
       slug: "bluetrail",
       sluitings_datum: "2 september 2026",
     });
+  });
+
+  it("maps the explicit jobLocation.address.addressRegion to the canonical provincie (F04)", () => {
+    const draft = parseJsonLdPayload(payload, HASH);
+    expect(draft.bronSpecifiek.value).toMatchObject({
+      provincie: "Gelderland",
+    });
+  });
+
+  it("leaves provincie null when the source publishes no addressRegion (honesty)", () => {
+    const draft = parseJsonLdPayload(
+      {
+        ...payload,
+        jobPosting: {
+          ...payload.jobPosting,
+          jobLocation: {
+            "@type": "Place",
+            address: { "@type": "PostalAddress", addressLocality: "Apeldoorn" },
+          },
+        },
+      },
+      HASH
+    );
+    expect(draft.bronSpecifiek.value).toMatchObject({ provincie: null });
+  });
+
+  it("puts employmentType under the contract_type key curate.ts actually reads (F06)", () => {
+    const draft = parseJsonLdPayload(payload, HASH);
+    expect(draft.bronSpecifiek.value).toMatchObject({
+      contract_type: "CONTRACTOR",
+    });
+    expect(draft.bronSpecifiek.value).not.toMatchObject({
+      employment_type: "CONTRACTOR",
+    });
+  });
+
+  it("cleans the free-text label-block hours into a bare number (F08)", () => {
+    const draft = parseJsonLdPayload(payload, HASH);
+    expect(draft.bronSpecifiek.value).toMatchObject({ uren_per_week: "32" });
+  });
+
+  it("keeps the broker as opdrachtgeverNaam and leaves eindklant_naam null when the source doesn't explicitly label an end client (honesty, F02)", () => {
+    const draft = parseJsonLdPayload(payload, HASH);
+    expect(draft.opdrachtgeverNaam.value).toBe("Kadaster");
+    expect(draft.bronSpecifiek.value).toMatchObject({ eindklant_naam: null });
   });
 
   it("derives bronReferentie from the URL path", () => {
@@ -150,6 +200,21 @@ describe("parseJsonLdPayload -- Hero.eu (thin JobPosting, no label block)", () =
     const draft = parseJsonLdPayload(payload, HASH);
     expect(draft.opdrachtgeverNaam.value).toBe("Hero Interim Professionals");
   });
+
+  it("cleans workHours free text into a bare number (F08)", () => {
+    const draft = parseJsonLdPayload(payload, HASH);
+    expect(draft.bronSpecifiek.value).toMatchObject({ uren_per_week: "36" });
+  });
+
+  it("leaves uren_per_week null when workHours is absent (honesty)", () => {
+    const { workHours: _workHours, ...jobPostingWithoutHours } =
+      payload.jobPosting;
+    const draft = parseJsonLdPayload(
+      { ...payload, jobPosting: jobPostingWithoutHours },
+      HASH
+    );
+    expect(draft.bronSpecifiek.value).toMatchObject({ uren_per_week: null });
+  });
 });
 
 describe("parseJsonLdPayload -- Pro-Act IT (label block embedded in description text)", () => {
@@ -158,12 +223,15 @@ describe("parseJsonLdPayload -- Pro-Act IT (label block embedded in description 
       "@type": "JobPosting",
       datePosted: "2026-08-25",
       description:
-        "<p>Voor onze directe eindklant zijn wij op zoek naar een Senior Azure Operations Engineer.</p>",
+        "<p>Voor onze directe eindklant, Tweede Kamer der Staten-Generaal, zijn wij op zoek naar een Senior Azure Operations Engineer.</p>",
+      employmentType: "FULL_TIME",
       hiringOrganization: { "@type": "Organization", name: "Pro-Act IT" },
       title: "Senior Azure Operations Engineer",
+      validThrough: "2026-09-01",
     },
     labelBlock: {
       eindDatum: "30 juni 2027",
+      eindklant: "Tweede Kamer der Staten-Generaal",
       locatie: "hybride",
       startDatum: "1 oktober 2026",
       tarief: "marktconform",
@@ -183,6 +251,40 @@ describe("parseJsonLdPayload -- Pro-Act IT (label block embedded in description 
   it("leaves tarief UNKNOWN for the literal 'marktconform' text", () => {
     const draft = parseJsonLdPayload(payload, HASH);
     expect(draft.tarief.max).toBe(UNKNOWN);
+  });
+
+  it("promotes the explicitly labelled eindklant over the broker for opdrachtgeverNaam (F02)", () => {
+    const draft = parseJsonLdPayload(payload, HASH);
+    expect(draft.opdrachtgeverNaam.value).toBe(
+      "Tweede Kamer der Staten-Generaal"
+    );
+    expect(draft.bronSpecifiek.value).toMatchObject({
+      eindklant_naam: "Tweede Kamer der Staten-Generaal",
+    });
+  });
+
+  it("puts employmentType under contract_type (F06)", () => {
+    const draft = parseJsonLdPayload(payload, HASH);
+    expect(draft.bronSpecifiek.value).toMatchObject({
+      contract_type: "FULL_TIME",
+    });
+  });
+
+  it("sources publicatiedatum from jobPosting.datePosted, never from a label or scraped_at (F12)", () => {
+    const draft = parseJsonLdPayload(payload, HASH);
+    expect(draft.bronSpecifiek.value).toMatchObject({
+      publicatiedatum: "2026-08-25",
+    });
+  });
+
+  it("leaves publicatiedatum null when datePosted is absent (honesty)", () => {
+    const { datePosted: _datePosted, ...jobPostingWithoutDate } =
+      payload.jobPosting;
+    const draft = parseJsonLdPayload(
+      { ...payload, jobPosting: jobPostingWithoutDate },
+      HASH
+    );
+    expect(draft.bronSpecifiek.value).toMatchObject({ publicatiedatum: null });
   });
 });
 

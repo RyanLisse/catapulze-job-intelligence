@@ -106,6 +106,48 @@ describe("extractLabelBlock", () => {
   });
 });
 
+describe("Pro-Act eindklant label pattern (guards against promoting prose, codex review)", () => {
+  const eindklantField = proActConfig.labelBlock?.eindklant;
+  if (!eindklantField) {
+    throw new Error("expected proActConfig.labelBlock.eindklant to exist");
+  }
+
+  const extractEindklant = (description: string): string | undefined =>
+    extractLabelBlock(
+      "<html></html>",
+      { "@type": "JobPosting", description },
+      { eindklant: eindklantField }
+    ).eindklant;
+
+  it("reads 'eindklant, <Naam>,' phrasing (detail-1 fixture text)", () => {
+    expect(
+      extractEindklant(
+        "Voor onze directe eindklant, Tweede Kamer der Staten-Generaal, zoeken wij"
+      )
+    ).toBe("Tweede Kamer der Staten-Generaal");
+  });
+
+  it("reads 'eindklant de <Naam>,' phrasing (detail-2 fixture text)", () => {
+    expect(
+      extractEindklant("eindklant de Algemene Rekenkamer, gevestigd")
+    ).toBe("Algemene Rekenkamer");
+  });
+
+  it("does not promote a lowercase sentence continuation with no real name", () => {
+    expect(
+      extractEindklant(
+        "Voor onze eindklant zoeken wij een senior developer, die"
+      )
+    ).toBeUndefined();
+  });
+
+  it("does not promote a lowercase common-noun phrase ('een grote gemeente')", () => {
+    expect(
+      extractEindklant("eindklant, een grote gemeente, zoeken")
+    ).toBeUndefined();
+  });
+});
+
 describe("extractSitemapUrls", () => {
   it("parses <url> entries with and without lastmod, decoding XML entities", () => {
     const xml =
@@ -327,10 +369,38 @@ describe("Pro-Act label-block extraction from JobPosting description", () => {
     };
     expect(payload.labelBlock).toMatchObject({
       eindDatum: "30 juni 2027",
+      eindklant: "Tweede Kamer der Staten-Generaal",
       locatie: "hybride",
       startDatum: "1 oktober 2026",
       tarief: "marktconform",
       urenPerWeek: "36 uur per week",
+    });
+  });
+
+  it("reads the eindklant label from the 'eindklant de <naam>,' phrasing too (detail-2 fixture)", async () => {
+    const bronId = "bron-proact-eindklant-2";
+    const connector = createJsonLdConnector({
+      bronId,
+      client: createJsonLdClient({ config: proActConfig, liveEnabled: false }),
+      config: proActConfig,
+    });
+    const discovered = await connector.discover(null);
+    const item = discovered.items.find((entry) =>
+      entry.bronReferentie.includes("iso-8783")
+    );
+    if (!item) {
+      throw new Error("expected an iso-8783 item");
+    }
+    const fetched = await connector.fetch(item);
+    if (!fetched || fetched.status !== "fetched") {
+      throw new Error("expected a fetched result");
+    }
+    // SAFETY: connector.fetch() serialises a JsonLdFetchedPayload as JSON body above.
+    const payload = JSON.parse(new TextDecoder().decode(fetched.body)) as {
+      labelBlock: Record<string, string>;
+    };
+    expect(payload.labelBlock).toMatchObject({
+      eindklant: "Algemene Rekenkamer",
     });
   });
 });
