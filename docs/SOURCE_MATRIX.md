@@ -28,7 +28,7 @@ Verificatie 2026-08-27, read-only met headless Chrome + curl, geen logins, geen 
 | **Striive** (= Staffing MS = Between; HeadFirst) | `striive.com/nl/opdrachten` | titel, opdrachtgever, plaats, provincie — **detail en tarief achter login** | AV art. 4.6: technische voorzieningen niet omzeilen; robots leeg | 124 opdrachten; details → rung 3 |
 | **Opdrachtoverheid** (v1) | v1 HTML; filters publiek (gecheckt 25-08) | tarief per uur (filter), regio, organisatietype | — | listing laadt dynamisch |
 | **Nationale Vacaturebank** (v1) | v1 HTML/JSON-LD | vacaturenummer, salaris, dienstverband | — | |
-| **Werkzoeken** (v1) | v1 HTML/JSON-LD | salaris, dienstverband, opleidingsniveau, aggregator-bron | — | |
+| **Werkzoeken** (v1) | v1 HTML/JSON-LD (Motian corpus today) | salaris, dienstverband, opleidingsniveau, aggregator-bron; provincie from Motian `province` or title (#284) | Cloudflare **managed challenge** on all public URLs (403 `cf-mitigated: challenge`, verified 2026-09-16) — headers alone fail; ops cookie jar per `sources/werkzoeken.md` (CTP-528) | live HTTP gated; no CAPTCHA solvers |
 | **Starapple** (v1) | v1 | techstack-tags, salaris/tarief, freelance vs vast | — | |
 | **Flextender** (v1) | filters publiek (gecheckt 25-08); opdrachten achter login | DAS-procedure, gunningscriteria, aanbestedende dienst | — | details → rung 3 |
 

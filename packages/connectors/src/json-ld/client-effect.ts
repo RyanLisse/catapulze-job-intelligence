@@ -2,7 +2,9 @@ import { Effect } from "effect";
 
 import type { FetchImpl, ReadIoFault } from "../effect-runtime";
 import {
+  AuthFault,
   httpRequest,
+  mapHttpStatusToFault,
   readTextBody,
   runReadIoPromise,
   ValidationFault,
@@ -11,10 +13,22 @@ import { loadConnectorFixture } from "../fixtures/load";
 import type { JsonLdClient, JsonLdDetailPayload } from "./client";
 import { extractListingLinks, extractSitemapUrls } from "./client";
 import { extractJobPosting, extractLabelBlock } from "./extract";
+import {
+  buildLiveFetchHeaders,
+  cloudflareChallengeError,
+  cookieEnvVarForLiveGate,
+  isCloudflareChallenge,
+  toLiveFetchHeadersInit,
+} from "./live-fetch";
 import type { JsonLdConnectorConfig, JsonLdDiscoveryUrl } from "./types";
 
 export interface JsonLdEffectClientOptions {
   config: JsonLdConnectorConfig;
+  /**
+   * Ops Cookie header for Cloudflare/consent-gated boards (CTP-528). Wins over
+   * `${LIVE_ENV_PREFIX}_COOKIE` when both are set. Never commit real values.
+   */
+  cookieHeader?: string | null;
   detailFixtures?: Record<string, string>;
   fetchImpl?: FetchImpl;
   listingFixturePath?: string;
@@ -73,6 +87,50 @@ const resolveLiveEnabled = (options: JsonLdEffectClientOptions): boolean =>
     ? process.env[options.config.liveEnvVar] === "1"
     : false);
 
+const liveRequestInit = (options: JsonLdEffectClientOptions): RequestInit => ({
+  headers: toLiveFetchHeadersInit(
+    buildLiveFetchHeaders({
+      cookieHeader: options.cookieHeader,
+      liveEnvVar: options.config.liveEnvVar,
+    })
+  ),
+});
+
+const readLiveBodyEffect = (
+  options: JsonLdEffectClientOptions,
+  url: string,
+  response: Response
+): Effect.Effect<string, ReadIoFault> =>
+  readTextBody(response).pipe(
+    Effect.flatMap((body): Effect.Effect<string, ReadIoFault> => {
+      const cookieEnvVar = cookieEnvVarForLiveGate(options.config.liveEnvVar);
+      if (isCloudflareChallenge(response, body)) {
+        const error = cloudflareChallengeError({
+          cookieEnvVar,
+          slug: options.config.slug,
+          url,
+        });
+        return Effect.fail(
+          new AuthFault({
+            cause: error,
+            message: error.message,
+            status: response.status,
+          })
+        );
+      }
+      if (!response.ok) {
+        return Effect.fail(
+          mapHttpStatusToFault({
+            message: `${options.config.slug} request failed with status ${response.status}`,
+            retryAfterHeader: response.headers.get("Retry-After"),
+            status: response.status,
+          })
+        );
+      }
+      return Effect.succeed(body);
+    })
+  );
+
 export const fetchListingEffect = (
   options: JsonLdEffectClientOptions
 ): Effect.Effect<JsonLdDiscoveryUrl[], ReadIoFault> => {
@@ -97,9 +155,13 @@ export const fetchListingEffect = (
 
   return httpRequest({
     fetchImpl: options.fetchImpl,
+    init: liveRequestInit(options),
+    mapHttpErrors: false,
     url: config.discovery.url,
   }).pipe(
-    Effect.flatMap(readTextBody),
+    Effect.flatMap((response) =>
+      readLiveBodyEffect(options, config.discovery.url, response)
+    ),
     Effect.map((raw) => parseListingSource(config, raw))
   );
 };
@@ -134,9 +196,11 @@ export const fetchDetailEffect = (
 
   return httpRequest({
     fetchImpl: options.fetchImpl,
+    init: liveRequestInit(options),
+    mapHttpErrors: false,
     url,
   }).pipe(
-    Effect.flatMap(readTextBody),
+    Effect.flatMap((response) => readLiveBodyEffect(options, url, response)),
     Effect.map((html) => buildDetailPayload(config, url, html))
   );
 };
