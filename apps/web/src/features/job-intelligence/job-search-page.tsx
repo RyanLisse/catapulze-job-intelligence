@@ -13,6 +13,7 @@ import { JobDetail } from "./job-detail";
 import { countActiveJobFilters, JobFilters } from "./job-filters";
 import { JobResults } from "./job-results";
 import { JobResultsMap } from "./job-results-map";
+import { JobSavedSearches } from "./job-saved-searches";
 import { createJobSearchMutations } from "./job-search-mutations";
 import { JobSearchQueryBar } from "./job-search-query-bar";
 import {
@@ -66,6 +67,7 @@ import type {
   MarkeringSyncState,
   PreviewStatus,
   ResultsViewMode,
+  SavedSearchSummary,
 } from "./types";
 
 const MARKERING_POLL_INTERVAL_MS = 5000;
@@ -409,6 +411,10 @@ const JobSearchPageContent = ({
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [retryNonce, setRetryNonce] = useState(0);
+  const [activeSavedSearchId, setActiveSavedSearchId] = useState<string | null>(
+    null
+  );
+  const [savedSearchRefreshKey, setSavedSearchRefreshKey] = useState(0);
   const [savedSearchMessage, setSavedSearchMessage] = useState<string | null>(
     null
   );
@@ -576,8 +582,21 @@ const JobSearchPageContent = ({
     );
   };
 
+  const clearFilters = () => {
+    writeState(
+      withResetPage(state, {
+        filters: { ...resetJobSearchState().filters },
+        previewStatus: "ready",
+        selectedJobId: null,
+      }),
+      "push"
+    );
+    setActiveSavedSearchId(null);
+  };
+
   const clearEverything = () => {
     setQueryDraft("");
+    setActiveSavedSearchId(null);
     writeState(resetJobSearchState(), "push");
   };
 
@@ -652,12 +671,14 @@ const JobSearchPageContent = ({
   const filterProps = {
     facets: response.facets,
     filters: state.filters,
-    onClear: clearEverything,
+    onClear: clearFilters,
     onContractToggle: (value: JobContractType) =>
       updateFilters({
         ...state.filters,
         contractTypes: toggleSearchFilter(state.filters.contractTypes, value),
       }),
+    onContractTypesChange: (values: readonly JobContractType[]) =>
+      updateFilters({ ...state.filters, contractTypes: [...values] }),
     onFreshnessChange: (value: JobSearchFilters["freshness"]) =>
       updateFilters({ ...state.filters, freshness: value }),
     onHoursRangeChange: (min: number | null, max: number | null) =>
@@ -671,6 +692,8 @@ const JobSearchPageContent = ({
         ...state.filters,
         locations: toggleSearchFilter(state.filters.locations, value),
       }),
+    onLocationsChange: (values: readonly string[]) =>
+      updateFilters({ ...state.filters, locations: [...values] }),
     onPostedRangeChange: (from: string | null, to: string | null) =>
       updateFilters({
         ...state.filters,
@@ -682,6 +705,8 @@ const JobSearchPageContent = ({
         ...state.filters,
         provincies: toggleSearchFilter(state.filters.provincies, value),
       }),
+    onProvincesChange: (values: readonly string[]) =>
+      updateFilters({ ...state.filters, provincies: [...values] }),
     onRateRangeChange: (min: number | null, max: number | null) =>
       updateFilters({
         ...state.filters,
@@ -698,6 +723,10 @@ const JobSearchPageContent = ({
         ...state.filters,
         sources: toggleSearchFilter(state.filters.sources, value),
       }),
+    onSourcesChange: (values: readonly JobSource[]) =>
+      updateFilters({ ...state.filters, sources: [...values] }),
+    onStatusChange: (values: readonly JobSearchFilters["status"][number][]) =>
+      updateFilters({ ...state.filters, status: [...values] }),
     onStatusToggle: (value: JobSearchFilters["status"][number]) =>
       updateFilters({
         ...state.filters,
@@ -708,6 +737,8 @@ const JobSearchPageContent = ({
         ...state.filters,
         werkvormen: toggleSearchFilter(state.filters.werkvormen, value),
       }),
+    onWerkvormenChange: (values: readonly JobWerkvorm[]) =>
+      updateFilters({ ...state.filters, werkvormen: [...values] }),
     sources,
   };
 
@@ -734,7 +765,10 @@ const JobSearchPageContent = ({
             selectedJobId: null,
           })
         }
-        onSaveSearch={saveCurrentSearch}
+        onSaveSearch={async () => {
+          await saveCurrentSearch();
+          setSavedSearchRefreshKey((value) => value + 1);
+        }}
         previewStatus={state.previewStatus}
         savedSearchMessage={savedSearchMessage}
         snapshotMessage={snapshotMessage}
@@ -742,6 +776,38 @@ const JobSearchPageContent = ({
 
       <div className={`grid items-start gap-6 ${gridColumns}`}>
         <aside className="hidden min-[800px]:block min-[800px]:sticky min-[800px]:top-20 min-[800px]:max-h-[calc(100dvh-6rem)] min-[800px]:overflow-y-auto min-[800px]:pr-2">
+          <div className="px-0 pb-2">
+            <JobSavedSearches
+              actions={actions}
+              activeId={activeSavedSearchId}
+              canSave={
+                Boolean(state.query.trim()) ||
+                countActiveJobFilters(state.filters) > 0
+              }
+              filters={state.filters}
+              isSaving={isSavingSearch}
+              query={state.query}
+              refreshKey={savedSearchRefreshKey}
+              onApply={(saved: SavedSearchSummary) => {
+                setQueryDraft(saved.query);
+                setActiveSavedSearchId(saved.id);
+                writeState(
+                  withResetPage(state, {
+                    filters: saved.filters,
+                    previewStatus: "ready",
+                    query: saved.query,
+                    selectedJobId: null,
+                  }),
+                  "push"
+                );
+              }}
+              onSaved={(saved) => {
+                setActiveSavedSearchId(saved.id);
+                setSavedSearchMessage(`Opgeslagen als “${saved.naam}”.`);
+                setSavedSearchRefreshKey((value) => value + 1);
+              }}
+            />
+          </div>
           <JobFilters {...filterProps} />
         </aside>
 
@@ -763,17 +829,22 @@ const JobSearchPageContent = ({
               writeState(withResetPage(state, { selectedJobId: null, sort }))
             }
             onSubmit={submitSearch}
+            onViewModeChange={(nextViewMode) => {
+              writeStoredResultsViewMode(nextViewMode);
+              setViewMode(nextViewMode);
+            }}
             queryDraft={queryDraft}
             queryScope={state.filters.queryScope}
             scope={state.scope}
             sort={state.sort}
             syntaxError={syntaxError}
             total={response.total}
+            viewMode={viewMode}
           />
 
           <JobActiveFilters
             filters={state.filters}
-            onClearAll={clearEverything}
+            onClearAll={clearFilters}
             onContractToggle={filterProps.onContractToggle}
             onFreshnessChange={filterProps.onFreshnessChange}
             onHoursRangeChange={filterProps.onHoursRangeChange}
@@ -795,7 +866,6 @@ const JobSearchPageContent = ({
             <JobResultsToolbar
               pageSize={state.pageSize}
               total={response.total}
-              viewMode={viewMode}
               onPageSizeChange={(nextPageSize) => {
                 writeStoredJobPageSize(nextPageSize);
                 writeState(
@@ -804,10 +874,6 @@ const JobSearchPageContent = ({
                     selectedJobId: null,
                   })
                 );
-              }}
-              onViewModeChange={(nextViewMode) => {
-                writeStoredResultsViewMode(nextViewMode);
-                setViewMode(nextViewMode);
               }}
             />
           ) : null}
@@ -901,7 +967,38 @@ const JobSearchPageContent = ({
             <X aria-hidden="true" className="size-4" />
           </button>
         </div>
-        <div className="max-h-[calc(90dvh-8rem)] overflow-y-auto overscroll-contain">
+        <div className="max-h-[calc(90dvh-8rem)] overflow-y-auto overscroll-contain px-4 pt-3">
+          <JobSavedSearches
+            actions={actions}
+            activeId={activeSavedSearchId}
+            canSave={
+              Boolean(state.query.trim()) ||
+              countActiveJobFilters(state.filters) > 0
+            }
+            filters={state.filters}
+            isSaving={isSavingSearch}
+            query={state.query}
+            refreshKey={savedSearchRefreshKey}
+            onApply={(saved: SavedSearchSummary) => {
+              setQueryDraft(saved.query);
+              setActiveSavedSearchId(saved.id);
+              writeState(
+                withResetPage(state, {
+                  filters: saved.filters,
+                  previewStatus: "ready",
+                  query: saved.query,
+                  selectedJobId: null,
+                }),
+                "push"
+              );
+              setFiltersOpen(false);
+            }}
+            onSaved={(saved) => {
+              setActiveSavedSearchId(saved.id);
+              setSavedSearchMessage(`Opgeslagen als “${saved.naam}”.`);
+              setSavedSearchRefreshKey((value) => value + 1);
+            }}
+          />
           <JobFilters {...filterProps} />
         </div>
         <div className="sticky bottom-0 border-t border-border bg-card p-3">

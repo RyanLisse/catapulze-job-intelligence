@@ -69,6 +69,15 @@ export const createCapabilityClient = (options: CapabilityClientOptions) => {
   const baseUrl = options.baseUrl.replace(/\/$/u, "");
 
   return {
+    delete: async <T>(path: string): Promise<T> => {
+      const response = await fetch(`${baseUrl}${path}`, {
+        credentials: "include",
+        headers: mergeHeaders(),
+        method: "DELETE",
+      });
+      return parseJsonResponse<T>(response);
+    },
+
     get: async <T>(
       path: string,
       requestOptions: CapabilityRequestOptions = {}

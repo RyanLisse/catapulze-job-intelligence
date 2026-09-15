@@ -27,6 +27,8 @@ const baseActions = (
 ): JobIntelligenceActions => ({
   createSavedSearch,
   createSnapshot: () => Promise.resolve({ id: "snapshot-1", resultCount: 1 }),
+  deleteSavedSearch: () => Promise.resolve(),
+  listSavedSearches: () => Promise.resolve([]),
   markeerAanvraag: () => Promise.resolve({ reden: null, status: "relevant" }),
 });
 

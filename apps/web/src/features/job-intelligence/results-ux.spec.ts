@@ -17,15 +17,16 @@ import {
 import { JOB_PAGE_SIZE, JOB_PAGE_SIZE_OPTIONS } from "./types";
 
 describe("CTP-509 page size options", () => {
-  it("exposes 50/100/500/1000 and defaults to 50", () => {
-    expect([...JOB_PAGE_SIZE_OPTIONS]).toEqual([50, 100, 500, 1000]);
+  it("exposes 25/50/100/500/1000 and defaults to 50", () => {
+    expect([...JOB_PAGE_SIZE_OPTIONS]).toEqual([25, 50, 100, 500, 1000]);
     expect(JOB_PAGE_SIZE).toBe(50);
   });
 
   it("parses Motian perPage allowlist and rejects unknown sizes", () => {
+    expect(parseJobPageSize("25")).toBe(25);
     expect(parseJobPageSize("100")).toBe(100);
     expect(parseJobPageSize("1000")).toBe(1000);
-    expect(parseJobPageSize("25")).toBe(JOB_PAGE_SIZE);
+    expect(parseJobPageSize("26")).toBe(JOB_PAGE_SIZE);
     expect(parseJobPageSize("1001")).toBe(JOB_PAGE_SIZE);
   });
 

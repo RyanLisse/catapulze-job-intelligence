@@ -17,7 +17,7 @@ export type JobSearchScope = SearchScope;
 export type JobSort = SearchSort;
 export type JobSearchStatus = (typeof JOB_SEARCH_STATUS_VALUES)[number];
 /** CTP-509: Motian-style results page sizes (explicit API cap SEARCH_MAX_LIMIT=1000). */
-export const JOB_PAGE_SIZE_OPTIONS = [50, 100, 500, 1000] as const;
+export const JOB_PAGE_SIZE_OPTIONS = [25, 50, 100, 500, 1000] as const;
 export type JobPageSize = (typeof JOB_PAGE_SIZE_OPTIONS)[number];
 export const JOB_PAGE_SIZE: JobPageSize = 50;
 
@@ -301,6 +301,14 @@ export interface JobDataAdapter {
   readonly search: (request: JobSearchRequest) => Promise<JobSearchResponse>;
 }
 
+export interface SavedSearchSummary {
+  readonly filters: JobSearchFilters;
+  readonly id: string;
+  readonly naam: string;
+  readonly query: string;
+  readonly updatedAt: string;
+}
+
 export interface JobIntelligenceActions {
   readonly createSavedSearch: (input: {
     readonly filters: JobSearchFilters;
@@ -313,6 +321,8 @@ export interface JobIntelligenceActions {
     readonly scope: JobSearchScope;
     readonly selectedIds: readonly string[];
   }) => Promise<{ readonly id: string; readonly resultCount: number }>;
+  readonly deleteSavedSearch: (id: string) => Promise<void>;
+  readonly listSavedSearches: () => Promise<readonly SavedSearchSummary[]>;
   readonly markeerAanvraag: (input: {
     readonly aanvraagId: string;
     readonly reden?: string | null;
