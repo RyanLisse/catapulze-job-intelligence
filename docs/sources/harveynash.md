@@ -52,7 +52,14 @@ Consultantnaam, consultant-e-mail en consultantcategorie worden niet genormalise
 
 Er staan twee verschillende data in elke listing: de vrije tekst "Deadline voor het voorstellen van kandidaten" (`detail.facts.deadline`) en `jsonLd.validThrough` (de eigen geldigheidsdatum van de JobPosting, komt exact overeen met de search-listing's `expires_at` unix-tijd — bevestigd live 2026-08-31). Eerdere framing noemde `facts.deadline` "leverancier-intern" en gebruikte `validThrough` als het Striive-`closingDateClient`-analogon (RJC-376) — dat was onjuist: voor dit product is de kandidaat-inleverdeadline juist het moment waarop de aanvraag voor een Catapulze-gebruiker niet meer actionable is, dus `facts.deadline` is het echte analogon van `closingDateClient`, niet `validThrough`.
 
-De code gebruikt `validThrough` desondanks nog steeds — als de conservatieve, LATERE grens: `facts.deadline` komt via jaartal-inferentie uit losse vrije tekst (`resolveHarveyNashDeadline`) en kan zelf UNKNOWN zijn; een onbekende deadline mag nooit als "al gesloten" gelezen worden. **Judgment call, te bevestigen door Ryan:** de waarschijnlijk juiste fix is `deadline === UNKNOWN ? validThrough : deadline` (regel ~216 in `harveynash.ts`) — niet doorgevoerd in deze pass. De twee data kunnen uiteenlopen (in de fixture: deadline "04-09" vs. validThrough "2026-09-07").
+**Toegepast (CTP-519, F13):** `sluitingsdatum` gebruikt nu de resolved `facts.deadline` wanneer die niet `UNKNOWN` is, en valt alleen terug op `validThrough` wanneer de vrije-tekst deadline zelf niet oplosbaar was (`resolveHarveyNashDeadline` gaf `UNKNOWN`). Een onbekende deadline mag nog steeds nooit als "al gesloten" gelezen worden — de fallback-volgorde behoudt dat gedrag. De twee data kunnen uiteenlopen (in de fixture: deadline "04-09" vs. validThrough "2026-09-07"); zie `packages/application/src/normalise/harveynash.ts` (`sluitingsdatumRaw`) en de bijbehorende tests in `harveynash.spec.ts`.
+
+## Overige CTP-519 veldmapping-fixes
+
+- **F04 provincie** — `bronSpecifiek.provincie` via `findProvincieInText(detail.facts.locatie)` (bv. "Bunnik , Utrecht" → `"Utrecht"`); `null` wanneer de locatietekst geen erkende provincie noemt.
+- **F09 tarief eenheid** — `parseHarveyNashRichttarief` herkent nu ook "all-in"/"ex btw"/"excl. btw"/"exclusief btw" als het Nederlandse inhuur-uurtarief-conventie (zelfde tokenset als `normalise/tarief.ts`'s `detectEenheid`), niet alleen de letterlijke woorden "uur"/"dag"/"maand".
+- **F11 eind/duur** — `bronSpecifiek.duur` (bv. `"24 maanden"`) geëxtraheerd uit het gelabelde "Duur van de opdracht:" paragraaf in `jsonLd.description`; `bronSpecifiek.eind_datum` blijft `null` (Harvey Nash publiceert nooit een expliciete einddatum, alleen een looptijd).
+- **F07 werkvorm** — `bronSpecifiek.werkvorm` (bv. `"Hybride"`) geëxtraheerd uit het gelabelde "Op locatie of vanuit huis:" paragraaf, zelfde mechanisme als `duur`.
 
 ## Known-hash short-circuit (RJC-357 / RJC-401)
 
