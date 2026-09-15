@@ -42,6 +42,8 @@ const NOW = new Date("2026-09-10T00:00:00.000Z");
 
 interface MotianRawFixture {
   readonly application_deadline: string | null;
+  readonly competences: readonly { readonly name: string }[] | null;
+  readonly education_level: string | null;
   readonly archived_at: null;
   readonly company: string | null;
   readonly contract_type: string | null;
@@ -54,7 +56,7 @@ interface MotianRawFixture {
   readonly location: null;
   readonly platform: "nationalevacaturebank";
   readonly posted_at: string | null;
-  readonly province: null;
+  readonly province: string | null;
   readonly rate_max: null;
   readonly rate_min: null;
   readonly scraped_at: null;
@@ -105,17 +107,22 @@ const rawBody = (input: {
   readonly v1Id: string;
   readonly applicationDeadline?: string | null;
   readonly company?: string | null;
+  readonly competences?: readonly { readonly name: string }[];
   readonly contractType?: string | null;
+  readonly educationLevel?: string;
   readonly postedAt?: string | null;
+  readonly province?: string | null;
   readonly startDate?: string | null;
 }): Uint8Array => {
   const body: MotianRawFixture = {
     application_deadline: input.applicationDeadline ?? "2026-09-15 09:30:00",
     archived_at: null,
     company: input.company ?? "NVB opdrachtgever",
+    competences: input.competences ?? null,
     contract_type: input.contractType ?? "detachering",
     deleted_at: null,
     description: null,
+    education_level: input.educationLevel ?? null,
     end_client: null,
     external_id: input.externalId,
     external_url: null,
@@ -123,7 +130,7 @@ const rawBody = (input: {
     location: null,
     platform: "nationalevacaturebank",
     posted_at: input.postedAt ?? "2026-09-10 08:10:11",
-    province: null,
+    province: input.province ?? null,
     rate_max: null,
     rate_min: null,
     scraped_at: null,
@@ -179,6 +186,11 @@ describe
     const seedFixture = async (
       input: {
         readonly fields?: Partial<DerivedFields>;
+        readonly raw?: {
+          readonly competences?: readonly { readonly name: string }[];
+          readonly educationLevel?: string;
+          readonly province?: string;
+        };
         readonly suffix?: string;
       } = {}
     ): Promise<Fixture> => {
@@ -187,7 +199,11 @@ describe
       const runId = crypto.randomUUID();
       const v1Id = `motian-${suffix}`;
       const bronReferentie = `external-${suffix}`;
-      const body = rawBody({ externalId: bronReferentie, v1Id });
+      const body = rawBody({
+        ...input.raw,
+        externalId: bronReferentie,
+        v1Id,
+      });
       const contentHash = await hashContent(body);
       const rawPayloadRef = buildContentAddressedRawObjectPath({
         bronSlug: "nationalevacaturebank",
@@ -374,6 +390,63 @@ describe
       };
     };
 
+    it("persists opleidingsniveau, provincie, and skills together in one bron_specifiek update", async () => {
+      const fixture = await seedFixture({
+        raw: {
+          competences: [{ name: "SQL" }, { name: "Python" }],
+          educationLevel: "HBO",
+          province: "Utrecht",
+        },
+      });
+      try {
+        const reader = rawReader(fixture);
+        const result = await applyMotianV1DerivedFieldRepair({
+          database: applicationClient,
+          manifest: fixture.manifest,
+          manifestSha256: "b".repeat(64),
+          readRawObject: reader.readRawObject,
+        });
+
+        expect(result.status).toBe("applied");
+        expect(result.changedFields).toEqual(
+          expect.arrayContaining(["opleidingsniveau", "provincie", "skills"])
+        );
+
+        const rows = await applicationClient<{ bronSpecifiek: unknown }[]>`
+          SELECT bron_specifiek AS "bronSpecifiek"
+          FROM curated.aanvraag
+          WHERE id = ${fixture.aanvraagId}
+        `;
+        expect(rows[0]?.bronSpecifiek).toMatchObject({
+          opleidingsniveau: "HBO",
+          provincie: "Utrecht",
+          skills: ["SQL", "Python"],
+        });
+
+        const rollback = await rollbackMotianV1DerivedFieldRepair({
+          auditId: result.auditId ?? "",
+          database: applicationClient,
+        });
+        expect(rollback.status).toBe("rolled_back");
+        const restored = await applicationClient<{ bronSpecifiek: unknown }[]>`
+          SELECT bron_specifiek AS "bronSpecifiek"
+          FROM curated.aanvraag
+          WHERE id = ${fixture.aanvraagId}
+        `;
+        expect(restored[0]?.bronSpecifiek).not.toMatchObject({
+          opleidingsniveau: "HBO",
+        });
+        expect(restored[0]?.bronSpecifiek).not.toMatchObject({
+          provincie: "Utrecht",
+        });
+        expect(restored[0]?.bronSpecifiek).not.toMatchObject({
+          skills: ["SQL", "Python"],
+        });
+      } finally {
+        await cleanupFixture(fixture);
+      }
+    });
+
     it("updates null derived fields atomically and preserves version, raw identity, and history", async () => {
       const fixture = await seedFixture({
         fields: { contracttype: "existing contract" },
@@ -493,7 +566,7 @@ describe
             eventType: MOTIAN_REPAIR_EVENT_TYPE,
             payload: {
               content_hash: fixture.contentHash,
-              parser_version: "motian-v1-derived-field-repair/v2",
+              parser_version: "motian-v1-derived-field-repair/v3",
             },
           },
         ]);
@@ -854,7 +927,7 @@ describe
             'aanvraag',
             ${JSON.stringify({
               aanvraagId: entityId,
-              repairVersion: "motian-v1-derived-field-repair/v2",
+              repairVersion: "motian-v1-derived-field-repair/v3",
             })}::text::jsonb,
             ${actorScope}
           )

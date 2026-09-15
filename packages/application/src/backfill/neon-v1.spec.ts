@@ -1708,3 +1708,86 @@ describe("Starapple CSS-as-description guard (CTP-492 AC6)", () => {
     expect(draft.beschrijving.value).toBe(cssBlob);
   });
 });
+
+// SAFETY: bronSpecifiek is the allowlisted Motian JSON object this mapper builds.
+const bron = (job: NeonV1JobRow): Record<string, JsonValue> =>
+  mapV1JobToDraft(job).bronSpecifiek.value as Record<string, JsonValue>;
+
+describe("Motian legacy field mapping (CTP-515/527/528/529/530)", () => {
+  it("maps the Motian province column to a canonical provincie", () => {
+    expect(bron({ ...sampleJob(), province: "zuid-holland" }).provincie).toBe(
+      "Zuid-Holland"
+    );
+    expect(bron({ ...sampleJob(), province: "Fryslân" }).provincie).toBe(
+      "Friesland"
+    );
+  });
+
+  it("reads provincie from a Werkzoeken title when the column is absent", () => {
+    expect(
+      bron({
+        ...sampleJob(),
+        location: "Rotterdam",
+        platform: "werkzoeken",
+        title: "Projectleider Vastgoed (Zuid-Holland)",
+      }).provincie
+    ).toBe("Zuid-Holland");
+    expect(
+      bron({
+        ...sampleJob(),
+        platform: "werkzoeken",
+        title: "Data engineer (Utrecht)",
+      }).provincie
+    ).toBe("Utrecht");
+  });
+
+  it("does not read a title province on platforms other than Werkzoeken", () => {
+    for (const platform of ["flextender", "starapple-nl", "mipublic"]) {
+      expect(
+        bron({ ...sampleJob(), platform, title: "Developer Utrecht" }).provincie
+      ).toBeNull();
+    }
+  });
+
+  it("never infers provincie from a city alone", () => {
+    expect(
+      bron({
+        ...sampleJob(),
+        location: "Amersfoort",
+        title: "Scrum master Amersfoort",
+      }).provincie
+    ).toBeNull();
+  });
+
+  it("collects skills from the Motian competences list", () => {
+    const draft = bron({
+      ...sampleJob(),
+      competences: [
+        { name: "TypeScript" },
+        { name: "Azure" },
+        { name: "azure" },
+      ],
+    });
+    expect(draft.skills).toEqual(["TypeScript", "Azure"]);
+  });
+
+  it("leaves skills absent when Motian publishes no competences list", () => {
+    expect(
+      bron({ ...sampleJob(), requirements: { education: ["HBO"] } }).skills
+    ).toBeNull();
+  });
+
+  it("maps eind_datum from the typed end_date column", () => {
+    expect(
+      bron({ ...sampleJob(), end_date: "2027-03-31T00:00:00.000Z" }).eind_datum
+    ).toBe("2027-03-31T00:00:00.000Z");
+  });
+
+  it("ignores an unparsable application deadline instead of storing Invalid Date", () => {
+    const draft = mapV1JobToDraft({
+      ...sampleJob(),
+      application_deadline: "zo spoedig mogelijk",
+    });
+    expect(draft.sluitingsdatum).toBeUndefined();
+  });
+});

@@ -225,7 +225,9 @@ describe("candidate selection predicate", () => {
       "contracttype",
       "opdrachtgever_naam",
       "opleidingsniveau",
+      "provincie",
       "publicatiedatum",
+      "skills",
       "sluitingsdatum",
       "start_datum",
       "tarief_eenheid",
@@ -241,8 +243,12 @@ describe("candidate selection predicate", () => {
   it("tests every one of those columns for null and nothing else", async () => {
     const text = await bulkToolSource();
     for (const column of MOTIAN_BULK_CANDIDATE_NULL_COLUMNS) {
-      if (column === "opleidingsniveau") {
-        expect(text).toContain("bron_specifiek->>'opleidingsniveau'");
+      if (column === "skills") {
+        expect(text).toContain("bron_specifiek->'skills'");
+        continue;
+      }
+      if (column === "opleidingsniveau" || column === "provincie") {
+        expect(text).toContain(`bron_specifiek->>'${column}'`);
         continue;
       }
       expect(text).toContain(`${column} IS NULL`);

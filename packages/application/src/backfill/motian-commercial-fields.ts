@@ -4,6 +4,12 @@ import type { TariefEenheid } from "@ji/domain";
 import { z } from "zod";
 
 import { formatHoursPerWeek } from "../normalise/hours";
+import {
+  findProvincieInText,
+  toCanonicalProvincie,
+} from "../normalise/provincie";
+import type { Provincie } from "../normalise/provincie";
+import { normaliseSkills } from "../normalise/skills";
 import type { NeonV1JobRow } from "./neon-v1-types";
 
 const nestedPayloadSchema = z
@@ -194,4 +200,52 @@ export const motianTariefEenheid = (
     return "maand";
   }
   return UNKNOWN;
+};
+
+/** Motian platform slug whose vacancy titles carry the province. */
+const WERKZOEKEN_PLATFORM = "werkzoeken";
+
+/**
+ * Canonical province for `bronSpecifiek.provincie` (F04). The Motian
+ * `province` column is the only source for every platform. Werkzoeken alone
+ * also publishes it in the vacancy title, so the title is scanned for that
+ * platform only — elsewhere a title token like "Utrecht" is a work location,
+ * and reading it would infer a province the source never stated. A city in
+ * `location` is never consulted.
+ */
+export const provincieForMotianJob = (job: NeonV1JobRow): Provincie | null => {
+  const column = toCanonicalProvincie(job.province);
+  if (column !== null) {
+    return column;
+  }
+  if (job.platform.trim().toLowerCase() !== WERKZOEKEN_PLATFORM) {
+    return null;
+  }
+  return findProvincieInText(job.title);
+};
+
+const skillEntrySchema = z.record(z.string(), z.unknown());
+
+/**
+ * Structured skills for `bronSpecifiek.skills` (F15) from the Motian
+ * `competences` column, the one list shape a captured Motian payload shows:
+ * an array of objects carrying a `name`. `requirements` and `wishes` are not
+ * read — the CTP-514 audit records those as prose more often than lists, and
+ * mining prose is GAP_ENRICH (CTP-482). Shaping is delegated to the shared
+ * {@link normaliseSkills}. Returns null when `competences` publishes no list,
+ * so an absent column never becomes `[]`.
+ */
+export const skillsForMotianJob = (job: NeonV1JobRow): string[] | null => {
+  if (!Array.isArray(job.competences)) {
+    return null;
+  }
+  const names: string[] = [];
+  for (const entry of job.competences) {
+    const parsed = skillEntrySchema.safeParse(entry);
+    if (parsed.success && typeof parsed.data.name === "string") {
+      names.push(parsed.data.name);
+    }
+  }
+  const skills = normaliseSkills(names);
+  return skills.length === 0 ? null : skills;
 };

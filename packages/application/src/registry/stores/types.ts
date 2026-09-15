@@ -171,13 +171,18 @@ export type MotianDerivedFieldRepairFieldName =
   | "tariefMin"
   | "tariefMax"
   | "tariefEenheid"
-  | "opleidingsniveau";
+  | "opleidingsniveau"
+  | "provincie"
+  | "skills";
 
 export interface MotianDerivedFieldRepairAuditFieldImage {
   readonly contracttype: string | null;
   readonly opdrachtgeverNaam: string | null;
   readonly opleidingsniveau: string | null;
+  readonly provincie: string | null;
   readonly publicatiedatum: string | null;
+  /** `bron_specifiek.skills` as its canonical JSON array text, or null. */
+  readonly skills: string | null;
   readonly sluitingsdatum: string | null;
   readonly startDatum: string | null;
   readonly tariefEenheid: string | null;
@@ -201,12 +206,34 @@ export interface MotianDerivedFieldRepairAuditMetadata {
   readonly manifestSha256: string;
   readonly preimage: MotianDerivedFieldRepairAuditFieldImage;
   readonly rawPayloadRef: string;
-  readonly repairVersion: "motian-v1-derived-field-repair/v2";
+  readonly repairVersion: "motian-v1-derived-field-repair/v3";
   readonly sourceAbsentFields: readonly MotianDerivedFieldRepairFieldName[];
   readonly v1Id: string;
 }
 
 export interface MotianDerivedFieldRepairRollbackAuditMetadata extends MotianDerivedFieldRepairAuditMetadata {
+  readonly rollbackOfAuditId: string;
+}
+
+/**
+ * Field image as the v2 repair wrote it, before CTP-514 added `provincie` and
+ * `skills`. Kept so audits already stored by the v2 lane still decode.
+ */
+export type MotianDerivedFieldRepairV2AuditFieldImage = Omit<
+  MotianDerivedFieldRepairAuditFieldImage,
+  "provincie" | "skills"
+>;
+
+export interface MotianDerivedFieldRepairV2AuditMetadata extends Omit<
+  MotianDerivedFieldRepairAuditMetadata,
+  "afterimage" | "preimage" | "repairVersion"
+> {
+  readonly afterimage: MotianDerivedFieldRepairV2AuditFieldImage;
+  readonly preimage: MotianDerivedFieldRepairV2AuditFieldImage;
+  readonly repairVersion: "motian-v1-derived-field-repair/v2";
+}
+
+export interface MotianDerivedFieldRepairV2RollbackAuditMetadata extends MotianDerivedFieldRepairV2AuditMetadata {
   readonly rollbackOfAuditId: string;
 }
 
@@ -257,6 +284,8 @@ export type AuditEventMetadata =
   | MarkeerAuditMetadata
   | MotianDerivedFieldRepairAuditMetadata
   | MotianDerivedFieldRepairRollbackAuditMetadata
+  | MotianDerivedFieldRepairV2AuditMetadata
+  | MotianDerivedFieldRepairV2RollbackAuditMetadata
   | SavedSearchAuditMetadata
   | ZzpNegationLabelAuditMetadata
   | ZzpNegationLabelRollbackAuditMetadata;

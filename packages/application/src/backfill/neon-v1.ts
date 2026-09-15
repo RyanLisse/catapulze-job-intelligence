@@ -19,7 +19,9 @@ import type { NormalisedAanvraagDraft } from "../normalise";
 import {
   educationLevelForMotianJob,
   motianTariefEenheid,
+  provincieForMotianJob,
   rateBoundsForMotianJob,
+  skillsForMotianJob,
   weeklyHoursForMotianJob,
 } from "./motian-commercial-fields";
 import { resolveMotianV1Binding } from "./motian-v1-bindings";
@@ -428,9 +430,12 @@ const sourceSpecificFieldsForJob = (job: NeonV1JobRow) => {
         ? null
         : String(source.duration_months),
     // Keep the source timestamp exactly as persisted; do not normalize it.
-    eind_datum: source.end_date ?? null,
+    eind_datum: source.end_date ?? job.end_date ?? null,
     min_uren_per_week: hours.min_uren_per_week,
     opleidingsniveau: educationLevel,
+    // Only from the Motian `province` column or a province named in the title.
+    provincie: provincieForMotianJob(job),
+    skills: skillsForMotianJob(job),
     uren_per_week: hours.uren_per_week,
     werkvorm: source.work_arrangement ?? job.work_arrangement ?? null,
   };
@@ -490,6 +495,15 @@ const descriptionForJob = (job: NeonV1JobRow): string => {
   return trimmed;
 };
 
+/** The Motian closing instant, or null when the source publishes none/unparsable. */
+const closingMoment = (value: string | null | undefined): Date | null => {
+  if (!value) {
+    return null;
+  }
+  const parsed = new Date(value);
+  return Number.isFinite(parsed.getTime()) ? parsed : null;
+};
+
 const opdrachtgeverForJob = (job: NeonV1JobRow): string | typeof UNKNOWN =>
   job.end_client?.trim() || job.company?.trim() || UNKNOWN;
 
@@ -526,6 +540,7 @@ export const mapV1JobToDraft = (job: NeonV1JobRow): NormalisedAanvraagDraft => {
   const parserVersion = NEON_V1_PARSER_VERSION;
   const sourceStatus = sourceStatusForJob(job);
   const lifecycle = lifecycleForJob(job, sourceStatus);
+  const applicationDeadline = closingMoment(job.application_deadline);
 
   return {
     beschrijving: field(descriptionForJob(job), parserVersion, "description"),
@@ -555,9 +570,7 @@ export const mapV1JobToDraft = (job: NeonV1JobRow): NormalisedAanvraagDraft => {
       "company"
     ),
     parserVersion,
-    sluitingsdatum: job.application_deadline
-      ? new Date(job.application_deadline)
-      : undefined,
+    sluitingsdatum: applicationDeadline ?? undefined,
     startDatum: field(
       job.start_date?.slice(0, 10) || UNKNOWN,
       parserVersion,

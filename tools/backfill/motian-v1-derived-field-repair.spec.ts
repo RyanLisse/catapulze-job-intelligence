@@ -23,12 +23,14 @@ const AANVRAAG_ID = "00000000-0000-4000-8000-000000000901";
 
 interface MotianRawFixture {
   readonly application_deadline?: string | null;
+  readonly competences?: unknown;
   readonly company?: string | null;
   readonly contract_type?: string | null;
   readonly external_id: string;
   readonly id: string;
   readonly platform: string;
   readonly posted_at?: string | null;
+  readonly province?: string | null;
   readonly start_date?: string | null;
   readonly title: string;
 }
@@ -94,7 +96,9 @@ const candidate = async (
       contracttype: null,
       opdrachtgeverNaam: null,
       opleidingsniveau: null,
+      provincie: null,
       publicatiedatum: null,
+      skills: null,
       sluitingsdatum: null,
       startDatum: null,
       tariefEenheid: null,
@@ -109,6 +113,47 @@ const candidate = async (
 };
 
 describe("planMotianV1DerivedFieldRepair", () => {
+  it("fills null bron_specifiek provincie and skills from the raw Motian row", async () => {
+    const input = await candidate({
+      body: rawBody({
+        competences: [{ name: "TypeScript" }, { name: "typescript" }],
+        province: "zuid-holland",
+      }),
+    });
+
+    const plan = await planMotianV1DerivedFieldRepair(input);
+
+    expect(plan).toMatchObject({
+      kind: "patch",
+      patch: { provincie: "Zuid-Holland", skills: '["TypeScript"]' },
+    });
+  });
+
+  it("leaves an already filled provincie untouched", async () => {
+    const input = await candidate({
+      body: rawBody({ province: "utrecht" }),
+      current: { provincie: "Flevoland" },
+    });
+
+    const plan = await planMotianV1DerivedFieldRepair(input);
+
+    expect(plan).toMatchObject({ kind: "patch" });
+    expect(
+      plan.kind === "patch" ? plan.patch.provincie : "unreachable"
+    ).toBeUndefined();
+  });
+
+  it("reports provincie and skills absent when the source publishes neither", async () => {
+    const plan = await planMotianV1DerivedFieldRepair(await candidate());
+
+    expect(plan.kind === "patch" ? plan.sourceAbsentFields : []).toContain(
+      "provincie"
+    );
+    expect(plan.kind === "patch" ? plan.sourceAbsentFields : []).toContain(
+      "skills"
+    );
+  });
+
   it("plans only null fields and keeps Motian legacy timestamps in UTC", async () => {
     const input = await candidate();
 
@@ -124,6 +169,8 @@ describe("planMotianV1DerivedFieldRepair", () => {
       sourceAbsentFields: [
         "urenPerWeek",
         "opleidingsniveau",
+        "provincie",
+        "skills",
         "tariefMin",
         "tariefMax",
         "tariefEenheid",
@@ -154,6 +201,8 @@ describe("planMotianV1DerivedFieldRepair", () => {
         "sluitingsdatum",
         "urenPerWeek",
         "opleidingsniveau",
+        "provincie",
+        "skills",
         "tariefMin",
         "tariefMax",
         "tariefEenheid",
@@ -183,6 +232,8 @@ describe("planMotianV1DerivedFieldRepair", () => {
         "sluitingsdatum",
         "urenPerWeek",
         "opleidingsniveau",
+        "provincie",
+        "skills",
         "tariefMin",
         "tariefMax",
         "tariefEenheid",
@@ -296,6 +347,8 @@ describe("planMotianV1DerivedFieldRepair", () => {
         "sluitingsdatum",
         "urenPerWeek",
         "opleidingsniveau",
+        "provincie",
+        "skills",
         "tariefMin",
         "tariefMax",
         "tariefEenheid",
@@ -325,6 +378,8 @@ describe("planMotianV1DerivedFieldRepair", () => {
         "sluitingsdatum",
         "urenPerWeek",
         "opleidingsniveau",
+        "provincie",
+        "skills",
         "tariefMin",
         "tariefMax",
         "tariefEenheid",
