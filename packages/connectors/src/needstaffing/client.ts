@@ -179,7 +179,7 @@ export interface NeedstaffingLocatieSplit {
 }
 
 export const splitNeedstaffingLocatie = (
-  raw: string | undefined
+  raw?: string
 ): NeedstaffingLocatieSplit => {
   if (!raw) {
     return { locatie: raw, werkvorm: undefined };
