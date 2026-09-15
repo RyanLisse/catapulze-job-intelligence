@@ -16,6 +16,7 @@ import { curateObservation } from "../identity/curate";
 import type { CurateStore } from "../identity/curate";
 import { field } from "../normalise";
 import type { NormalisedAanvraagDraft } from "../normalise";
+import { isMotianJobClosed, resolveMotianBronUrl } from "./motian-bron-url";
 import {
   educationLevelForMotianJob,
   motianTariefEenheid,
@@ -447,15 +448,8 @@ const sourceStatusForJob = (job: NeonV1JobRow): string | null =>
 const lifecycleForJob = (
   job: NeonV1JobRow,
   sourceStatus: string | null
-): "active" | "closed" => {
-  const sourceHasArchiveSignal =
-    (job.archived_at !== null && job.archived_at !== undefined) ||
-    (job.deleted_at !== null && job.deleted_at !== undefined);
-  const sourceIsClosed =
-    sourceHasArchiveSignal ||
-    (sourceStatus !== null && sourceStatus.toLowerCase() !== "open");
-  return sourceIsClosed ? "closed" : "active";
-};
+): "active" | "closed" =>
+  isMotianJobClosed(job, sourceStatus) ? "closed" : "active";
 
 /**
  * Starapple Motian samples sometimes store recruiter chrome / CSS (font stacks,
@@ -550,11 +544,7 @@ export const mapV1JobToDraft = (job: NeonV1JobRow): NormalisedAanvraagDraft => {
       parserVersion,
       "bron_specifiek"
     ),
-    bronUrl: field(
-      job.external_url?.trim() || UNKNOWN,
-      parserVersion,
-      "external_url"
-    ),
+    bronUrl: field(resolveMotianBronUrl(job), parserVersion, "motian_bron_url"),
     contentHash: "",
     extractieMethode: "api",
     lifecycle,

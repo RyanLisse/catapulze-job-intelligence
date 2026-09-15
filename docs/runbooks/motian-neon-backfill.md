@@ -27,6 +27,8 @@ Both paths persist curated rows and outbox events to Postgres. Search reads the 
 
 Excluded: `monsterboard`, `indeed` (catalog-only, no job rows).
 
+Starapple bron-URLs are canonicalized to `https://www.starapple.nl/vacatures/{slug}/`, using a recognized Starapple vacatures URL when available and otherwise the Motian `external_id`; whitespace, underscores, duplicate dashes and casing are normalized. Closed, archived or deleted Motian rows point to a Wayback archive redirect for that canonical URL, while rows without a derivable slug remain `UNKNOWN`.
+
 The production migration uses the explicit **`production + full`** contract. It selects every row for the seven normalized platforms, including source rows whose platform is legacy `starapple`; it deliberately applies **no** `status`, `deleted_at`, or `archived_at` filter. `active` is retained only for fixture/backwards-compatible development use (`status = 'open'`, not deleted, not archived). `NEON_V1_INCLUDE_CLOSED=1` is a legacy active-scope widening switch and is ignored by `full`.
 
 ## Production contract and raw fidelity
