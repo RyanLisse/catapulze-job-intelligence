@@ -146,6 +146,14 @@ describe("Pro-Act eindklant label pattern (guards against promoting prose, codex
       extractEindklant("eindklant, een grote gemeente, zoeken")
     ).toBeUndefined();
   });
+
+  it("does not promote a digit-led phrase ('1 van de grootste banken van Nederland', advisor review)", () => {
+    expect(
+      extractEindklant(
+        "eindklant, 1 van de grootste banken van Nederland, zoekt"
+      )
+    ).toBeUndefined();
+  });
 });
 
 describe("extractSitemapUrls", () => {

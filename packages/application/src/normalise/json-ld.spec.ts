@@ -239,6 +239,19 @@ describe("parseJsonLdPayload -- Hero.eu (thin JobPosting, no label block)", () =
     expect(draft.bronSpecifiek.value).toMatchObject({ uren_per_week: "36" });
   });
 
+  it("formats a dash-range hours text via formatHoursPerWeek's literal en-dash output (F08)", () => {
+    const draft = parseJsonLdPayload(
+      {
+        ...payload,
+        jobPosting: { ...payload.jobPosting, workHours: "32-40 uur" },
+      },
+      HASH
+    );
+    expect(draft.bronSpecifiek.value).toMatchObject({
+      uren_per_week: "32–40",
+    });
+  });
+
   it("leaves uren_per_week null when workHours is absent (honesty)", () => {
     const { workHours: _workHours, ...jobPostingWithoutHours } =
       payload.jobPosting;
@@ -301,6 +314,16 @@ describe("parseJsonLdPayload -- Pro-Act IT (label block embedded in description 
     expect(draft.bronSpecifiek.value).toMatchObject({
       contract_type: "FULL_TIME",
     });
+  });
+
+  it("leaves contract_type null when employmentType is absent (honesty, F06)", () => {
+    const { employmentType: _employmentType, ...jobPostingWithoutType } =
+      payload.jobPosting;
+    const draft = parseJsonLdPayload(
+      { ...payload, jobPosting: jobPostingWithoutType },
+      HASH
+    );
+    expect(draft.bronSpecifiek.value).toMatchObject({ contract_type: null });
   });
 
   it("sources publicatiedatum from jobPosting.datePosted, never from a label or scraped_at (F12)", () => {
