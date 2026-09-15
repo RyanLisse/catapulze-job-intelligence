@@ -50,7 +50,7 @@ Recruiternaam, e-mail en telefoon worden niet genormaliseerd of gelogd.
 
 ## Known-hash short-circuit (RJC-357 / RJC-401)
 
-`listingHashCoversDetail: true` — de fetch her-serialiseert de DEC-008-projectie zonder tweede request, en `hashStriiveListingItem` hasht alle velden van `StriiveJob` (het docblock daar zegt dit expliciet; CTP-524 breidde dit uit met de 6 tariefvelden). Alles wat de normaliser leest (incl. `closingDateClient` → `sluitingsdatum`) zit dus in de listing-hash. Een nieuw `StriiveJob`-veld hoort ook in de hash.
+`listingHashCoversDetail: true` — de fetch her-serialiseert de DEC-008-projectie zonder tweede request, en `hashStriiveListingItem` hasht alle velden van `StriiveJob` (het docblock daar zegt dit expliciet; CTP-524 breidde dit uit met 8 sleutels: 6 tariefvelden plus `jobType` en `tags`). Alles wat de normaliser leest (incl. `closingDateClient` → `sluitingsdatum`) zit dus in de listing-hash. Een nieuw `StriiveJob`-veld hoort ook in de hash. Omdat de hash-vorm veranderde, hasht elke Striive-rij bij de eerstvolgende poll opnieuw anders dan de vorige run — eenmalige churn van ~104 rijen, geen echte inhoudswijziging.
 
 ## CTP-524 vervolgonderzoek: contract_type en skills (2026-09-15)
 

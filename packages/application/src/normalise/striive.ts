@@ -53,6 +53,9 @@ const rateAmountOrUnknown = (
   value: number | null | undefined
 ): string | typeof UNKNOWN => (isRealRate(value) ? String(value) : UNKNOWN);
 
+/** `hourlyRateClient` (the client-facing bill rate) is deliberately never
+ * read here -- it is not the supplier tarief this draft field represents,
+ * and mapping it would misattribute a different party's rate. */
 const resolveTarief = (job: StriiveFetchedPayload["job"]): NormalisedTarief => {
   const hourlyMin = job.hourlyRateMin;
   const hourlyMax = job.hourlyRateMax;
@@ -60,10 +63,14 @@ const resolveTarief = (job: StriiveFetchedPayload["job"]): NormalisedTarief => {
   const monthlyMax = job.monthlyRateMax;
   const hasHourly = isRealRate(hourlyMin) || isRealRate(hourlyMax);
   const hasMonthly = isRealRate(monthlyMin) || isRealRate(monthlyMax);
+  // `hasMaxRate: false` is the source's own signal that no upper bound is
+  // published, even when hourlyRateMax/monthlyRateMax happens to carry a
+  // number -- honour it over the raw max field.
+  const maxHonoured = job.hasMaxRate === false;
   if (hasHourly) {
     return {
       eenheid: "uur",
-      max: rateAmountOrUnknown(hourlyMax),
+      max: maxHonoured ? UNKNOWN : rateAmountOrUnknown(hourlyMax),
       min: rateAmountOrUnknown(hourlyMin),
       valuta: "EUR",
     };
@@ -71,7 +78,7 @@ const resolveTarief = (job: StriiveFetchedPayload["job"]): NormalisedTarief => {
   if (hasMonthly) {
     return {
       eenheid: "maand",
-      max: rateAmountOrUnknown(monthlyMax),
+      max: maxHonoured ? UNKNOWN : rateAmountOrUnknown(monthlyMax),
       min: rateAmountOrUnknown(monthlyMin),
       valuta: "EUR",
     };

@@ -119,6 +119,20 @@ describe("parseStriivePayload", () => {
     expect(draft.tarief.valuta).toBe("EUR");
   });
 
+  it("honours hasMaxRate: false over a populated hourlyRateMax (CTP-524 F09)", () => {
+    const draft = parseStriivePayload(
+      buildPayload({
+        hasMaxRate: false,
+        hourlyRateMax: 95,
+        hourlyRateMin: 75,
+      }),
+      "hash-tarief-has-max-rate-false"
+    );
+    expect(draft.tarief.eenheid).toBe("uur");
+    expect(draft.tarief.min).toBe("75");
+    expect(draft.tarief.max).toBe(UNKNOWN);
+  });
+
   it("maps a monthly rate range into the draft tarief when only monthly rates are real (CTP-524 F09)", () => {
     const draft = parseStriivePayload(
       buildPayload({ monthlyRateMax: 8000, monthlyRateMin: 6500 }),

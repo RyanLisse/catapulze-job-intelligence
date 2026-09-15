@@ -94,6 +94,28 @@ describe("parseTenderNedPayload", () => {
     expect(draft.locatieLand.value).toBe(UNKNOWN);
   });
 
+  it("derives NL from a bare country-level nutsCode with no province (honesty)", () => {
+    const draft = parseTenderNedPayload(
+      buildPayload({ nutsCodes: ["NL"] }),
+      "hash-10"
+    );
+    expect(draft.locatieLand.value).toBe("NL");
+    // SAFETY: parseTenderNedPayload always emits bron_specifiek.provincie.
+    const specifiek = draft.bronSpecifiek.value as { provincie: unknown };
+    expect(specifiek.provincie).toBeNull();
+  });
+
+  it("finds the province in a later, more specific nutsCode when an earlier entry is country-level only", () => {
+    const draft = parseTenderNedPayload(
+      buildPayload({ nutsCodes: ["NL", "NL329"] }),
+      "hash-11"
+    );
+    expect(draft.locatieLand.value).toBe("NL");
+    // SAFETY: parseTenderNedPayload always emits bron_specifiek.provincie.
+    const specifiek = draft.bronSpecifiek.value as { provincie: unknown };
+    expect(specifiek.provincie).toBe("Noord-Holland");
+  });
+
   it("normaliseTenderNedObservation round-trips a serialised payload", () => {
     const payload = buildPayload();
     const body = new TextEncoder().encode(JSON.stringify(payload));
