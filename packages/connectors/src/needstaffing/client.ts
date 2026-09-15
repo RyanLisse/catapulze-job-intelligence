@@ -162,10 +162,16 @@ const trimFields = <Item extends NeedstaffingInfoFields>(item: Item): Item => {
  * (volledig op locatie)", "Huis ter Heide (2 dagen op locatie)", "Utrecht
  * (op locatie)"). Both are structural delimiters around the same field, not
  * prose to mine -- split on them and keep the remainder verbatim as
- * werkvorm text (CTP-514 F07: "free text as published"). Neither shape
- * observed in the wider listing capture -> locatie stays the whole string
- * and werkvorm stays absent. */
+ * werkvorm text (CTP-514 F07: "free text as published"). But the delimiter
+ * alone isn't proof of werkvorm content: "Utrecht/Amersfoort" (two cities)
+ * or "Amsterdam (Zuidas)" (a district) would otherwise misread as werkvorm
+ * (advisor review). Gate the second half on a werkvorm keyword; when it
+ * doesn't match, keep the whole string as locatie and leave werkvorm
+ * undefined -- never a guess. Neither shape observed in the wider listing
+ * capture -> same fallback. */
 const LOCATIE_PAREN_PATTERN = /^(?<locatie>.*?)\s*\((?<werkvorm>[^)]+)\)\s*$/u;
+const WERKVORM_KEYWORD_PATTERN =
+  /hybride|remote|thuis|locatie|kantoor|afstand/iu;
 
 export interface NeedstaffingLocatieSplit {
   locatie: string | undefined;
@@ -182,17 +188,18 @@ export const splitNeedstaffingLocatie = (
   if (slashIndex !== -1) {
     const locatie = raw.slice(0, slashIndex).trim();
     const werkvorm = raw.slice(slashIndex + 1).trim();
-    return {
-      locatie: locatie || undefined,
-      werkvorm: werkvorm || undefined,
-    };
+    if (werkvorm && WERKVORM_KEYWORD_PATTERN.test(werkvorm)) {
+      return { locatie: locatie || undefined, werkvorm };
+    }
+    return { locatie: raw, werkvorm: undefined };
   }
   const parenMatch = LOCATIE_PAREN_PATTERN.exec(raw);
   if (parenMatch?.groups?.locatie && parenMatch.groups.werkvorm) {
-    return {
-      locatie: parenMatch.groups.locatie.trim(),
-      werkvorm: parenMatch.groups.werkvorm.trim(),
-    };
+    const werkvorm = parenMatch.groups.werkvorm.trim();
+    if (WERKVORM_KEYWORD_PATTERN.test(werkvorm)) {
+      return { locatie: parenMatch.groups.locatie.trim(), werkvorm };
+    }
+    return { locatie: raw, werkvorm: undefined };
   }
   return { locatie: raw, werkvorm: undefined };
 };
@@ -249,7 +256,9 @@ export const parseNeedstaffingListing = async (
       // SAFETY: the guard above confirmed `id` and `titel` are set, the only
       // required fields of NeedstaffingListingItem.
       items.push(
-        applyLocatieWerkvormSplit(trimFields(current as NeedstaffingListingItem))
+        applyLocatieWerkvormSplit(
+          trimFields(current as NeedstaffingListingItem)
+        )
       );
     }
     current = null;

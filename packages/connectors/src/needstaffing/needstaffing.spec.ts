@@ -253,9 +253,14 @@ describe("Needstaffing real fixtures", () => {
     const fixture = await loadConnectorFixture<string>(
       "needstaffing/detail-15570-full-2026-09-15.json"
     );
-    expect(fixture.payload).not.toContain("Massood");
-    expect(fixture.payload).not.toContain("0644504179");
-    expect(fixture.payload).not.toContain("massood.haidari@needstaffing.nl");
+    // Shape-only assertions -- asserting the real recruiter's name/number/
+    // email here would put the exact PII this test exists to keep out
+    // directly into the spec source (advisor review). The sanitized
+    // contact block is gone entirely, no mobile-shaped number remains, and
+    // the only surviving mailto is the site's own generic address.
+    expect(fixture.payload).not.toContain("vacancy-contact-info");
+    expect(fixture.payload).not.toMatch(/\b06\d{8}\b/u);
+    expect(fixture.payload).not.toMatch(/mailto:(?!info@needstaffing\.nl)/u);
   });
 
   it("DEC-008: raw.html from the real detail fixture keeps only the description text (no script, no RESPOND CTA, no contact info)", async () => {
@@ -468,12 +473,10 @@ describe("splitNeedstaffingLocatie — real Locatie field shapes (captured 2026-
   });
 
   it("splits a trailing-parenthetical werkvorm", () => {
-    expect(splitNeedstaffingLocatie("Maasland (volledig op locatie)")).toEqual(
-      {
-        locatie: "Maasland",
-        werkvorm: "volledig op locatie",
-      }
-    );
+    expect(splitNeedstaffingLocatie("Maasland (volledig op locatie)")).toEqual({
+      locatie: "Maasland",
+      werkvorm: "volledig op locatie",
+    });
     expect(
       splitNeedstaffingLocatie("Huis ter Heide (2 dagen op locatie)")
     ).toEqual({
@@ -489,8 +492,22 @@ describe("splitNeedstaffingLocatie — real Locatie field shapes (captured 2026-
     });
   });
 
+  it("does not read a second slash-separated city as werkvorm (advisor review)", () => {
+    expect(splitNeedstaffingLocatie("Utrecht/Amersfoort")).toEqual({
+      locatie: "Utrecht/Amersfoort",
+      werkvorm: undefined,
+    });
+  });
+
+  it("does not read a parenthetical district as werkvorm (advisor review)", () => {
+    expect(splitNeedstaffingLocatie("Amsterdam (Zuidas)")).toEqual({
+      locatie: "Amsterdam (Zuidas)",
+      werkvorm: undefined,
+    });
+  });
+
   it("returns undefined for both when locatie is absent", () => {
-    expect(splitNeedstaffingLocatie(undefined)).toEqual({
+    expect(splitNeedstaffingLocatie()).toEqual({
       locatie: undefined,
       werkvorm: undefined,
     });
