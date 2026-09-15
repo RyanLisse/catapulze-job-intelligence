@@ -1,5 +1,6 @@
 import { UNKNOWN } from "@ji/domain";
 
+import { extractJobPostingCommercialFacts } from "../normalise/jobposting-html";
 import { parseTariefFromText } from "../normalise/tarief";
 import { stripHtml } from "../normalise/types";
 import type {
@@ -16,7 +17,7 @@ const LABELED_REMOTE_PATTERN =
   /(?:Werkvorm|Remote|Thuiswerken|Hybride werken)\s*:\s*(?<value>.+)/iu;
 
 const NEXT_LABEL =
-  /\s+(?:Tarief|Contract(?:vorm|type)?|Type opdracht|Werkvorm|Remote|Thuiswerken|Hybride werken|Locatie|Standplaats|Werklocatie)\s*:/iu;
+  /\s+(?:Tarief|Contract(?:vorm|type)?|Type opdracht|Werkvorm|Remote|Thuiswerken|Hybride werken|Locatie|Standplaats|Werklocatie|Gepubliceerd|Publicatiedatum)\s*:/iu;
 
 const trimAtNextLabel = (raw: string): string => {
   const match = raw.match(NEXT_LABEL);
@@ -37,6 +38,16 @@ const excerpt = (text: string, match: string): string => {
   const start = Math.max(0, index - 20);
   const end = Math.min(text.length, index + match.length + 40);
   return text.slice(start, end).trim();
+};
+
+/** Absolute ISO date/datetime only — never relative “N dagen geleden”. */
+const isHonestTimestamp = (raw: string): boolean => {
+  const trimmed = raw.trim();
+  if (!/^\d{4}-\d{2}-\d{2}/u.test(trimmed)) {
+    return false;
+  }
+  const parsed = Date.parse(trimmed);
+  return Number.isFinite(parsed);
 };
 
 const labeledProposal = (
@@ -138,13 +149,38 @@ const extractTarief = (text: string): EnrichmentProposal | null => {
   };
 };
 
-const extractors = {
+const extractPublicatiedatumFromJobPosting = (
+  rawHtml: string | null | undefined
+): EnrichmentProposal | null => {
+  if (!rawHtml) {
+    return null;
+  }
+  const facts = extractJobPostingCommercialFacts(rawHtml);
+  const stamped = facts.publicatiedatum;
+  if (stamped === null || !isHonestTimestamp(stamped)) {
+    return null;
+  }
+  const rawRef: EnrichmentRawRef = {
+    excerpt: `datePosted: ${stamped}`,
+    field: "publicatiedatum",
+    sourcePath: "rawHtml.jobPosting.datePosted",
+  };
+  return {
+    confidence: 0.95,
+    field: "publicatiedatum",
+    rawRefs: [rawRef],
+    source: "deterministic",
+    value: { publicatiedatum: stamped.trim() },
+  };
+};
+
+const textExtractors = {
   contract: extractContract,
   locatie: extractLocatie,
   remote: extractRemote,
   tarief: extractTarief,
 } satisfies Record<
-  EnrichmentField,
+  Exclude<EnrichmentField, "publicatiedatum">,
   (text: string) => EnrichmentProposal | null
 >;
 
@@ -156,11 +192,15 @@ export const extractDeterministicEnrichment = (input: {
   const htmlText = input.rawHtml ? stripHtml(input.rawHtml) : "";
   const beschrijvingText = stripHtml(input.beschrijving);
   const combined = normalizeWhitespace(`${beschrijvingText} ${htmlText}`);
-  if (!combined) {
-    return [];
-  }
   return input.fields.flatMap((field) => {
-    const proposal = extractors[field](combined);
+    if (field === "publicatiedatum") {
+      const proposal = extractPublicatiedatumFromJobPosting(input.rawHtml);
+      return proposal ? [proposal] : [];
+    }
+    if (!combined) {
+      return [];
+    }
+    const proposal = textExtractors[field](combined);
     return proposal ? [proposal] : [];
   });
 };

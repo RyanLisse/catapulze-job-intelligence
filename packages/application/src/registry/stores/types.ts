@@ -55,7 +55,12 @@ export interface AanvraagVersieRecord {
 
 export interface AanvraagEnrichedField {
   readonly confidence: number;
-  readonly field: "contract" | "locatie" | "remote" | "tarief";
+  readonly field:
+    | "contract"
+    | "locatie"
+    | "publicatiedatum"
+    | "remote"
+    | "tarief";
   readonly source: "deterministic" | "llm";
 }
 

@@ -147,3 +147,33 @@ describe("enrichment overlay", () => {
     expect(overlaid.werkvorm).toBe(CLEARED);
   });
 });
+
+describe("enrichment overlay publicatiedatum", () => {
+  it("fills missing publicatiedatum from enrichment rows", () => {
+    const overlaid = applyEnrichmentOverlayToAanvraagFacts(
+      {
+        contracttype: null,
+        locatie: null,
+        publicatiedatum: null,
+        tariefEenheid: null,
+        tariefMax: null,
+        tariefMin: null,
+        tariefValuta: null,
+        werkvorm: null,
+      },
+      [
+        {
+          confidence: 0.95,
+          field: "publicatiedatum",
+          source: "deterministic",
+          value: { publicatiedatum: "2026-08-10T22:00:00Z" },
+        },
+      ]
+    );
+
+    expect(overlaid.publicatiedatum).toBe("2026-08-10T22:00:00Z");
+    expect(overlaid.enrichedFields.map((entry) => entry.field)).toContain(
+      "publicatiedatum"
+    );
+  });
+});

@@ -131,7 +131,12 @@ export interface JobMarkering {
   readonly updatedAt?: string;
 }
 
-export type JobEnrichedFieldName = "locatie" | "tarief" | "contract" | "remote";
+export type JobEnrichedFieldName =
+  | "locatie"
+  | "tarief"
+  | "contract"
+  | "remote"
+  | "publicatiedatum";
 
 export interface JobEnrichedField {
   readonly confidence: number;

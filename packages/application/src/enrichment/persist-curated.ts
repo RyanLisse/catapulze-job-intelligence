@@ -7,6 +7,7 @@ import type {
   EnrichmentFieldValue,
   EnrichmentLocatieValue,
   EnrichmentProposal,
+  EnrichmentPublicatiedatumValue,
   EnrichmentRemoteValue,
   EnrichmentTariefValue,
 } from "./types";
@@ -20,6 +21,7 @@ export interface CuratedCommercialFacts {
   readonly bronSpecifiek?: unknown;
   readonly contracttype: string | null;
   readonly locatieTekst: string | null;
+  readonly publicatiedatum: string | null;
   readonly tariefEenheid: string | null;
   readonly tariefMax: string | null;
   readonly tariefMin: string | null;
@@ -31,6 +33,7 @@ export interface CuratedEnrichmentPatch {
   readonly contracttype?: string;
   readonly fields: readonly EnrichmentField[];
   readonly locatieTekst?: string;
+  readonly publicatiedatum?: string;
   readonly tariefEenheid?: string;
   readonly tariefMax?: string;
   readonly tariefMin?: string;
@@ -41,6 +44,7 @@ export interface CuratedEnrichmentPatch {
 class PatchBuilder {
   contracttype?: string;
   locatieTekst?: string;
+  publicatiedatum?: string;
   tariefEenheid?: string;
   tariefMax?: string;
   tariefMin?: string;
@@ -84,6 +88,11 @@ class PatchBuilder {
     this.fields.push("remote");
   }
 
+  addPublicatiedatum(value: string): void {
+    this.publicatiedatum = value;
+    this.fields.push("publicatiedatum");
+  }
+
   build(): CuratedEnrichmentPatch | null {
     if (this.fields.length === 0) {
       return null;
@@ -109,6 +118,9 @@ class PatchBuilder {
     }
     if (this.werkvorm !== undefined) {
       Object.assign(result, { werkvorm: this.werkvorm });
+    }
+    if (this.publicatiedatum !== undefined) {
+      Object.assign(result, { publicatiedatum: this.publicatiedatum });
     }
     return result;
   }
@@ -148,6 +160,11 @@ const asContract = (
 const asRemote = (value: EnrichmentFieldValue): EnrichmentRemoteValue | null =>
   "werkvorm" in value ? value : null;
 
+const asPublicatiedatum = (
+  value: EnrichmentFieldValue
+): EnrichmentPublicatiedatumValue | null =>
+  "publicatiedatum" in value && !("locatieTekst" in value) ? value : null;
+
 const locatieCleared = (
   facts: CuratedCommercialFacts,
   bronCleared: ReadonlySet<string>
@@ -169,6 +186,15 @@ const remoteCleared = (
   facts: CuratedCommercialFacts,
   bronCleared: ReadonlySet<string>
 ): boolean => isClearedText(facts.werkvorm) || bronCleared.has("werkvorm");
+
+const publicatiedatumCleared = (
+  facts: CuratedCommercialFacts,
+  bronCleared: ReadonlySet<string>
+): boolean =>
+  isClearedText(facts.publicatiedatum) ||
+  bronCleared.has("publicatiedatum") ||
+  bronCleared.has("gepubliceerd_op") ||
+  bronCleared.has("publicatie_datum");
 
 const tariefCleared = (
   facts: CuratedCommercialFacts,
@@ -279,6 +305,29 @@ const tryAddRemote = (
   builder.addRemote(value.werkvorm.trim());
 };
 
+const tryAddPublicatiedatum = (
+  builder: PatchBuilder,
+  facts: CuratedCommercialFacts,
+  bronCleared: ReadonlySet<string>,
+  proposal: EnrichmentProposal
+): void => {
+  if (
+    publicatiedatumCleared(facts, bronCleared) ||
+    !isMissingText(facts.publicatiedatum)
+  ) {
+    return;
+  }
+  const value = asPublicatiedatum(proposal.value);
+  if (
+    !value ||
+    isMissingText(value.publicatiedatum) ||
+    isClearedText(value.publicatiedatum)
+  ) {
+    return;
+  }
+  builder.addPublicatiedatum(value.publicatiedatum.trim());
+};
+
 const applyProposal = (
   builder: PatchBuilder,
   facts: CuratedCommercialFacts,
@@ -303,6 +352,10 @@ const applyProposal = (
     }
     case "remote": {
       tryAddRemote(builder, facts, bronCleared, proposal);
+      return;
+    }
+    case "publicatiedatum": {
+      tryAddPublicatiedatum(builder, facts, bronCleared, proposal);
       return;
     }
     default: {

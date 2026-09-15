@@ -34,6 +34,7 @@ export interface IncompleteAanvraagFacts {
   readonly bronSpecifiek: unknown;
   readonly contracttype?: string | null;
   readonly locatieTekst: string | null;
+  readonly publicatiedatum?: string | null;
   readonly tariefEenheid: string | null;
   readonly tariefMax: string | null;
   readonly tariefMin: string | null;
@@ -146,9 +147,32 @@ const isRemoteIncomplete = (facts: IncompleteAanvraagFacts): boolean => {
   return isUnknownText(bronFacts.werkvorm);
 };
 
+const isPublicatiedatumIncomplete = (
+  facts: IncompleteAanvraagFacts
+): boolean => {
+  if (
+    isClearedText(facts.publicatiedatum) ||
+    !isUnknownText(facts.publicatiedatum)
+  ) {
+    return false;
+  }
+  const bronCleared = readDurableClearedKeys(facts.bronSpecifiek);
+  if (
+    durableClearedIntersects(bronCleared, [
+      "publicatiedatum",
+      "gepubliceerd_op",
+      "publicatie_datum",
+    ])
+  ) {
+    return false;
+  }
+  return true;
+};
+
 const fieldIncomplete = {
   contract: isContractIncomplete,
   locatie: isLocatieIncomplete,
+  publicatiedatum: isPublicatiedatumIncomplete,
   remote: isRemoteIncomplete,
   tarief: isTariefIncomplete,
 } satisfies Record<

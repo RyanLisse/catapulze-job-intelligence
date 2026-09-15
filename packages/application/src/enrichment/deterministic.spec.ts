@@ -68,3 +68,38 @@ describe("deterministic enrichment", () => {
     ).toEqual({ werkvorm: "Volledig remote" });
   });
 });
+
+const NVB_JOBPOSTING_HTML = `<html><head>
+<script type="application/ld+json">
+{"@context":"https://schema.org/","@type":"JobPosting","datePosted":"2026-08-10T22:00:00Z","title":"Adviseur"}
+</script>
+</head><body>35 dagen geleden</body></html>`;
+
+describe("deterministic publicatiedatum enrich", () => {
+  it("fills publicatiedatum from JobPosting datePosted in rawHtml", () => {
+    const proposals = extractDeterministicEnrichment({
+      beschrijving: "35 dagen geleden",
+      fields: ["publicatiedatum"],
+      rawHtml: NVB_JOBPOSTING_HTML,
+    });
+
+    expect(proposals).toEqual([
+      expect.objectContaining({
+        confidence: 0.95,
+        field: "publicatiedatum",
+        source: "deterministic",
+        value: { publicatiedatum: "2026-08-10T22:00:00Z" },
+      }),
+    ]);
+  });
+
+  it("does not invent publicatiedatum from relative age text alone", () => {
+    const proposals = extractDeterministicEnrichment({
+      beschrijving: "Gepubliceerd: 35 dagen geleden",
+      fields: ["publicatiedatum"],
+      rawHtml: "<html><body>35 dagen geleden</body></html>",
+    });
+
+    expect(proposals).toEqual([]);
+  });
+});

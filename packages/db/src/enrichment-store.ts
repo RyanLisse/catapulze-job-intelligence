@@ -26,6 +26,7 @@ export interface IncompleteAanvraagCandidate {
   readonly id: string;
   readonly locatieTekst: string | null;
   readonly missingFields: readonly EnrichmentField[];
+  readonly publicatiedatum: string | null;
   readonly rawPayloadRef: string;
   readonly tariefEenheid: string | null;
   readonly tariefMax: string | null;
@@ -40,6 +41,7 @@ export interface PendingCuratedApplyCandidate {
   readonly id: string;
   readonly locatieTekst: string | null;
   readonly patch: CuratedEnrichmentPatch;
+  readonly publicatiedatum: string | null;
   readonly tariefEenheid: string | null;
   readonly tariefMax: string | null;
   readonly tariefMin: string | null;
@@ -98,6 +100,7 @@ export class PostgresEnrichmentStore {
         contracttype: aanvraag.contracttype,
         id: aanvraag.id,
         locatieTekst: aanvraag.locatieTekst,
+        publicatiedatum: aanvraag.publicatiedatum,
         rawPayloadRef: aanvraag.rawPayloadRef,
         tariefEenheid: aanvraag.tariefEenheid,
         tariefMax: aanvraag.tariefMax,
@@ -125,6 +128,9 @@ export class PostgresEnrichmentStore {
             NULLIF(trim(${aanvraag.werkvorm}), ''),
             NULLIF(trim(${aanvraag.bronSpecifiek}->>'werkvorm'), '')
           ) IS NULL
+          OR ${aanvraag.publicatiedatum} IS NULL
+          OR trim(${aanvraag.publicatiedatum}) = ''
+          OR ${aanvraag.publicatiedatum} = 'unknown'
         )`
       )
       .limit(limit);
@@ -135,6 +141,7 @@ export class PostgresEnrichmentStore {
         bronSpecifiek: row.bronSpecifiek,
         contracttype: row.contracttype,
         locatieTekst: row.locatieTekst,
+        publicatiedatum: row.publicatiedatum,
         tariefEenheid: row.tariefEenheid,
         tariefMax: toNumericString(
           row.tariefMax === null ? null : String(row.tariefMax)
@@ -155,6 +162,7 @@ export class PostgresEnrichmentStore {
           id: row.id,
           locatieTekst: row.locatieTekst,
           missingFields,
+          publicatiedatum: row.publicatiedatum,
           rawPayloadRef: row.rawPayloadRef,
           tariefEenheid: row.tariefEenheid,
           tariefMax: toNumericString(
@@ -233,6 +241,7 @@ export class PostgresEnrichmentStore {
     const setValues = values as typeof values & {
       contracttype?: string;
       locatieTekst?: string;
+      publicatiedatum?: string;
       tariefEenheid?: string;
       tariefMax?: string;
       tariefMin?: string;
@@ -260,6 +269,9 @@ export class PostgresEnrichmentStore {
     if (patch.werkvorm !== undefined) {
       setValues.werkvorm = patch.werkvorm;
     }
+    if (patch.publicatiedatum !== undefined) {
+      setValues.publicatiedatum = patch.publicatiedatum;
+    }
     await this.database
       .update(aanvraag)
       .set(setValues)
@@ -283,6 +295,7 @@ export class PostgresEnrichmentStore {
         field: aanvraagEnrichment.field,
         id: aanvraag.id,
         locatieTekst: aanvraag.locatieTekst,
+        publicatiedatum: aanvraag.publicatiedatum,
         rawRefs: aanvraagEnrichment.rawRefs,
         source: aanvraagEnrichment.source,
         tariefEenheid: aanvraag.tariefEenheid,
@@ -316,6 +329,9 @@ export class PostgresEnrichmentStore {
             NULLIF(trim(${aanvraag.werkvorm}), ''),
             NULLIF(trim(${aanvraag.bronSpecifiek}->>'werkvorm'), '')
           ) IS NULL
+          OR ${aanvraag.publicatiedatum} IS NULL
+          OR trim(${aanvraag.publicatiedatum}) = ''
+          OR ${aanvraag.publicatiedatum} = 'unknown'
         )`
       )
       .limit(limit * 8);
@@ -333,6 +349,7 @@ export class PostgresEnrichmentStore {
           source: string;
           value: unknown;
         }[];
+        publicatiedatum: string | null;
         tariefEenheid: string | null;
         tariefMax: string | null;
         tariefMin: string | null;
@@ -366,6 +383,7 @@ export class PostgresEnrichmentStore {
         contracttype: row.contracttype,
         locatieTekst: row.locatieTekst,
         proposals: [proposal],
+        publicatiedatum: row.publicatiedatum,
         tariefEenheid: row.tariefEenheid,
         tariefMax: toNumericString(
           row.tariefMax === null ? null : String(row.tariefMax)
@@ -388,6 +406,7 @@ export class PostgresEnrichmentStore {
           bronSpecifiek: candidate.bronSpecifiek,
           contracttype: candidate.contracttype,
           locatieTekst: candidate.locatieTekst,
+          publicatiedatum: candidate.publicatiedatum,
           tariefEenheid: candidate.tariefEenheid,
           tariefMax: candidate.tariefMax,
           tariefMin: candidate.tariefMin,
@@ -405,6 +424,7 @@ export class PostgresEnrichmentStore {
         id,
         locatieTekst: candidate.locatieTekst,
         patch,
+        publicatiedatum: candidate.publicatiedatum,
         tariefEenheid: candidate.tariefEenheid,
         tariefMax: candidate.tariefMax,
         tariefMin: candidate.tariefMin,

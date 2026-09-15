@@ -296,6 +296,8 @@ export const JobDetail = ({
           />
           <DetailField
             label="Gepubliceerd"
+            aangevuld={isFieldAangevuld(job, "publicatiedatum")}
+            aangevuldField="publicatiedatum"
             value={formatDate(job.publishedAt)}
           />
           <DetailField label="Sluit" value={formatDate(job.closingAt)} />

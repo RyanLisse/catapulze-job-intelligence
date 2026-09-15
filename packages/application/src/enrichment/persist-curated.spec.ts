@@ -9,6 +9,7 @@ const emptyFacts = {
   bronSpecifiek: {},
   contracttype: null,
   locatieTekst: null,
+  publicatiedatum: null,
   tariefEenheid: null,
   tariefMax: null,
   tariefMin: null,
@@ -182,6 +183,42 @@ describe("planCuratedEnrichmentPatch", () => {
         werkvorm: null,
       },
       [locatieProposal, tariefProposal, contractProposal, remoteProposal]
+    );
+
+    expect(patch).toBeNull();
+  });
+});
+
+describe("planCuratedEnrichmentPatch publicatiedatum", () => {
+  it("fills null curated publicatiedatum from JobPosting proposal", () => {
+    const patch = planCuratedEnrichmentPatch(emptyFacts, [
+      {
+        confidence: 0.95,
+        field: "publicatiedatum",
+        rawRefs: [],
+        source: "deterministic",
+        value: { publicatiedatum: "2026-08-10T22:00:00Z" },
+      },
+    ]);
+
+    expect(patch).toEqual({
+      fields: ["publicatiedatum"],
+      publicatiedatum: "2026-08-10T22:00:00Z",
+    });
+  });
+
+  it("does not overwrite an existing publicatiedatum", () => {
+    const patch = planCuratedEnrichmentPatch(
+      { ...emptyFacts, publicatiedatum: "2026-07-01T00:00:00Z" },
+      [
+        {
+          confidence: 0.95,
+          field: "publicatiedatum",
+          rawRefs: [],
+          source: "deterministic",
+          value: { publicatiedatum: "2026-08-10T22:00:00Z" },
+        },
+      ]
     );
 
     expect(patch).toBeNull();

@@ -383,7 +383,7 @@ export const aanvraagEnrichment = curatedSchema.table(
     index("aanvraag_enrichment_aanvraag_id_idx").on(table.aanvraagId),
     check(
       "aanvraag_enrichment_field_check",
-      sql`${table.field} IN ('locatie', 'tarief', 'contract', 'remote')`
+      sql`${table.field} IN ('locatie', 'tarief', 'contract', 'remote', 'publicatiedatum')`
     ),
     check(
       "aanvraag_enrichment_source_check",
