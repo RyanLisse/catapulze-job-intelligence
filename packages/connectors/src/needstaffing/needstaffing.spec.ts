@@ -228,6 +228,22 @@ describe("Needstaffing real fixtures", () => {
       id: "15520",
       periode: "4 maanden",
     });
+    // Joborder 15570 (added to this fixture so it's reachable from the
+    // e2e evidence run's discover() -> fetch() walk, not just from the
+    // standalone parseNeedstaffingDetail spec above) carries a real
+    // werkvorm split at the listing level too.
+    expect(listing.items[1]).toMatchObject({
+      id: "15570",
+      locatie: "Den Haag",
+      werkvorm: "Hybride",
+    });
+  });
+
+  it("resolves joborder 15570's detail fetch to the fuller live capture (fixture-mode default client)", async () => {
+    const client = createNeedstaffingClient({ liveEnabled: false });
+    const detailHtml = await client.fetchDetailHtml("15570");
+    expect(detailHtml).toContain("Senior Procesregisseur");
+    expect(detailHtml).not.toContain("vacancy-contact-info");
   });
 
   it("parses the fuller live detail capture (2026-09-15, joborder 15570): werkvorm split from Locatie, uren with unit suffix, competenties list", async () => {
