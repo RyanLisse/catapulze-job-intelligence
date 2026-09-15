@@ -5,6 +5,7 @@ import { UNKNOWN } from "@ji/domain";
 import { resolveLifecycleStatus } from "@ji/domain/lifecycle";
 
 import { formatHoursPerWeek } from "./hours";
+import { findProvincieInText } from "./provincie";
 import { parseTariefFromText } from "./tarief";
 import {
   closingMomentInstant,
@@ -103,6 +104,12 @@ export const parseInhuurdeskPayload = (
         eind_datum: assignment.endDate ?? null,
         gepubliceerd_op: assignment.publishedDate ?? null,
         has_max_rate: assignment.hasMaxRate ?? null,
+        // CTP-520 F04: `location` is almost always a bare city/site name
+        // ("Arnhem Bellevue", "Gemeentehuis") with no province -- honest
+        // `null` in that (common) case. `findProvincieInText` only ever
+        // resolves an explicit province token already in the text (e.g.
+        // "Amsterdam, Noord-Holland"), never derives one from a city name.
+        provincie: findProvincieInText(assignment.location ?? null),
         segment: assignment.segmentName ?? null,
         supplier_deadline: assignment.closingDateInvoice ?? null,
         uren_max: assignment.hoursPerWeekMax ?? null,

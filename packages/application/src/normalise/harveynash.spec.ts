@@ -144,6 +144,11 @@ describe("parseHarveyNashRichttarief — real 'Salaris' field text", () => {
     expect(tarief.max).toBe("106.50");
     expect(tarief.min).toBe(UNKNOWN);
     expect(tarief.valuta).toBe("EUR");
+    // CTP-519 F09: this real text names no "uur"/"dag"/"maand" word at all --
+    // "all-in exclusief btw" is itself the Dutch-inhuur convention for an
+    // hourly rate (same token set `./tarief.ts`'s `detectEenheid` treats as
+    // "uur"), so eenheid must resolve to "uur", not UNKNOWN.
+    expect(tarief.eenheid).toBe("uur");
   });
 
   it("detects the eenheid from surrounding text when present", () => {
@@ -185,8 +190,62 @@ describe("parseHarveyNashPayload", () => {
       deadline_raw: "04-09 om 09:00",
       deadline_resolved: "2026-09-04",
       job_ref: "BBBH121494_1788161094",
+      provincie: "Utrecht",
       reference: "BBBH121494_1788161094",
       uren_per_week: "36",
+    });
+  });
+
+  it("maps provincie from the explicit 'stad , provincie' locatie text (CTP-519 F04)", () => {
+    const draft = parseHarveyNashPayload(buildPayload(), "hash-provincie");
+    expect(draft.bronSpecifiek.value).toMatchObject({ provincie: "Utrecht" });
+  });
+
+  it("leaves provincie null when the locatie text names no recognised province", () => {
+    const base = buildPayload();
+    const draft = parseHarveyNashPayload(
+      buildPayload({
+        facts: { ...base.detail.facts, locatie: "Amsterdam" },
+      }),
+      "hash-no-provincie"
+    );
+    expect(draft.bronSpecifiek.value).toMatchObject({ provincie: null });
+  });
+
+  it("extracts duur and werkvorm from the real labelled description paragraphs (CTP-519 F11, F07)", () => {
+    // Real labelled paragraphs from fixtures/connectors/harveynash/
+    // detail-endpoints-specialist.json's JobPosting description.
+    const description =
+      "<p>Verwachte startdatum: 01-11-2026</p><p>Duur van de opdracht: 24 maanden</p><p>Aantal uren per week:   36</p><p>Op locatie of vanuit huis:  Hybride</p>";
+    const base = buildPayload();
+    const draft = parseHarveyNashPayload(
+      buildPayload({
+        jsonLd: { ...base.detail.jsonLd, description },
+      }),
+      "hash-duur-werkvorm"
+    );
+    expect(draft.bronSpecifiek.value).toMatchObject({
+      duur: "24 maanden",
+      eind_datum: null,
+      werkvorm: "Hybride",
+    });
+  });
+
+  it("leaves duur and werkvorm null (never guessed) when the description names neither (honesty)", () => {
+    const base = buildPayload();
+    const draft = parseHarveyNashPayload(
+      buildPayload({
+        jsonLd: {
+          ...base.detail.jsonLd,
+          description: "<p>Geen aanvullende informatie.</p>",
+        },
+      }),
+      "hash-no-duur-werkvorm"
+    );
+    expect(draft.bronSpecifiek.value).toMatchObject({
+      duur: null,
+      eind_datum: null,
+      werkvorm: null,
     });
   });
 
@@ -263,65 +322,97 @@ describe("parseHarveyNashPayload", () => {
   });
 });
 
-describe("parseHarveyNashPayload — closing lifecycle (RJC-377)", () => {
-  it("closes once jsonLd.validThrough has passed", () => {
+// CTP-519: docs/sources/harveynash.md and the RJC-377 comment had already
+// documented the correct mechanism but left it unapplied -- `sluitingsdatum`
+// used to always read `jsonLd.validThrough` (the JobPosting's own generic
+// listing-validity date) and ignore `facts.deadline` ("Deadline voor het
+// voorstellen van kandidaten") entirely, even though the candidate
+// submission deadline is the real moment an aanvraag stops being actionable
+// for a Catapulze user. The fix: prefer the *resolved* `facts.deadline`,
+// falling back to `validThrough` only when the deadline free text itself
+// could not be resolved.
+const buildDeadlineFacts = (
+  deadline?: string
+): HarveyNashFetchedPayload["detail"]["facts"] => {
+  const base: HarveyNashFetchedPayload["detail"]["facts"] = {
+    jobRef: "BBBH121494_1788161094",
+    locatie: "Bunnik , Utrecht",
+    richttarief: "Max tarief 106.50 euro all-in exclusief btw",
+    start: "01-11-2026",
+    uren: "36",
+  };
+  if (deadline !== undefined) {
+    base.deadline = deadline;
+  }
+  return base;
+};
+
+describe("parseHarveyNashPayload — closing lifecycle (CTP-519 F13 fix, was RJC-377)", () => {
+  it("closes once the resolved facts.deadline has passed, even while validThrough is still far in the future", () => {
     const draft = parseHarveyNashPayload(
       buildPayload({
-        jsonLd: { validThrough: "2000-01-01T00:00:00.000Z" },
+        facts: buildDeadlineFacts("2000-01-01"),
+        jsonLd: { validThrough: "2099-01-01T00:00:00.000Z" },
       }),
-      "hash-closed-past"
+      "hash-deadline-closed-past"
     );
 
     expect(draft.lifecycle).toBe("closed");
     expect(draft.status).toBe("closed");
+    // sluitingsdatum tracks the same closing-moment source as lifecycle.
+    expect(draft.sluitingsdatum?.toISOString()).toBe(
+      "2000-01-01T22:59:59.999Z"
+    );
   });
 
-  it("stays active while jsonLd.validThrough is still in the future", () => {
+  it("stays active while the resolved facts.deadline is still in the future, even when validThrough has already passed", () => {
     const draft = parseHarveyNashPayload(
       buildPayload({
-        jsonLd: { validThrough: "2099-01-01T00:00:00.000Z" },
+        facts: buildDeadlineFacts("2099-01-01"),
+        jsonLd: { validThrough: "2000-01-01T00:00:00.000Z" },
       }),
-      "hash-active-future"
+      "hash-deadline-active-future"
     );
 
     expect(draft.lifecycle).toBe("active");
     expect(draft.status).toBe("active");
   });
 
-  it("uses the client-facing validThrough, not the supplier-facing facts.deadline, when they diverge", () => {
-    // facts.deadline ("04-09 om 09:00" -> candidate-submission cutoff) is in
-    // the past relative to the fixture's own publishedAt anchor, but
-    // validThrough is what must drive lifecycle (RJC-377 judgment call).
-    const draft = parseHarveyNashPayload(
+  it("falls back to validThrough when facts.deadline cannot be resolved (no deadline text)", () => {
+    const closed = parseHarveyNashPayload(
       buildPayload({
-        facts: {
-          deadline: "01-01 om 09:00",
-          jobRef: "BBBH121494_1788161094",
-          locatie: "Bunnik , Utrecht",
-          richttarief: "Max tarief 106.50 euro all-in exclusief btw",
-          start: "01-11-2026",
-          uren: "36",
-        },
+        facts: buildDeadlineFacts(),
+        jsonLd: { validThrough: "2000-01-01T00:00:00.000Z" },
+      }),
+      "hash-fallback-closed"
+    );
+    expect(closed.lifecycle).toBe("closed");
+
+    const active = parseHarveyNashPayload(
+      buildPayload({
+        facts: buildDeadlineFacts(),
         jsonLd: { validThrough: "2099-01-01T00:00:00.000Z" },
       }),
-      "hash-supplier-vs-client"
+      "hash-fallback-active"
     );
-
-    expect(draft.lifecycle).toBe("active");
+    expect(active.lifecycle).toBe("active");
   });
 
-  it("stays unknown/open rather than auto-closing when validThrough is absent", () => {
+  it("stays unknown/open rather than auto-closing when neither facts.deadline nor validThrough resolve", () => {
     const draft = parseHarveyNashPayload(
-      buildPayload({ jsonLd: {} }),
+      buildPayload({ facts: buildDeadlineFacts(), jsonLd: {} }),
       "hash-no-valid-through"
     );
 
     expect(draft.lifecycle).not.toBe("closed");
   });
 
-  it("rejects an impossible calendar date in validThrough (Feb 30) rather than rolling it over (codex review)", () => {
+  it("rejects an impossible calendar date in validThrough (Feb 30) used as the fallback, rather than rolling it over (codex review)", () => {
     const draft = parseHarveyNashPayload(
-      buildPayload({ jsonLd: { validThrough: "2026-02-30T23:59:59.999Z" } }),
+      buildPayload({
+        facts: buildDeadlineFacts(),
+        jsonLd: { validThrough: "2026-02-30T23:59:59.999Z" },
+      }),
       "hash-invalid-calendar-date"
     );
 

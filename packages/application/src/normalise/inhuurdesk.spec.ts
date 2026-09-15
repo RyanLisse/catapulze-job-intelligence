@@ -68,6 +68,7 @@ describe("parseInhuurdeskPayload (live schema, captured 2026-09-03)", () => {
       eind_datum: "2026-12-14T00:00:00",
       gepubliceerd_op: "2026-09-03T11:46:00",
       has_max_rate: false,
+      provincie: null,
       segment: "Techniek Binnen",
       supplier_deadline: "2026-09-08T08:00:00",
       uren_max: 36,
@@ -75,6 +76,23 @@ describe("parseInhuurdeskPayload (live schema, captured 2026-09-03)", () => {
       uren_per_week: "36",
     });
     expect(draft.extractieMethode).toBe("api");
+  });
+
+  it("maps provincie from an explicit 'stad, provincie' location text (CTP-520 F04)", () => {
+    const draft = parseInhuurdeskPayload(
+      buildPayload({ location: "Amsterdam, Noord-Holland" }),
+      "hash-provincie"
+    );
+    expect(draft.bronSpecifiek.value).toMatchObject({
+      provincie: "Noord-Holland",
+    });
+  });
+
+  it("leaves provincie null for the real bare city/site location text (honesty)", () => {
+    // Real: "Arnhem Bellevue", "Gemeentehuis", "Schiedam" -- none of the 21
+    // live 2026-09-03 records ever include a province name.
+    const draft = parseInhuurdeskPayload(buildPayload(), "hash-no-provincie");
+    expect(draft.bronSpecifiek.value).toMatchObject({ provincie: null });
   });
 
   it("keeps zero hourly rates as UNKNOWN (0 means not published)", () => {
