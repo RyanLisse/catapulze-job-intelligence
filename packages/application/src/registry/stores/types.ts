@@ -212,6 +212,30 @@ export interface MotianDerivedFieldRepairRollbackAuditMetadata extends MotianDer
 }
 
 /**
+ * Field image as the v2 repair wrote it, before CTP-514 added `provincie` and
+ * `skills`. Kept so audits already stored by the v2 lane still decode.
+ */
+export type MotianDerivedFieldRepairV2AuditFieldImage = Omit<
+  MotianDerivedFieldRepairAuditFieldImage,
+  "provincie" | "skills"
+>;
+
+export interface MotianDerivedFieldRepairV2AuditMetadata
+  extends Omit<
+    MotianDerivedFieldRepairAuditMetadata,
+    "afterimage" | "preimage" | "repairVersion"
+  > {
+  readonly afterimage: MotianDerivedFieldRepairV2AuditFieldImage;
+  readonly preimage: MotianDerivedFieldRepairV2AuditFieldImage;
+  readonly repairVersion: "motian-v1-derived-field-repair/v2";
+}
+
+export interface MotianDerivedFieldRepairV2RollbackAuditMetadata
+  extends MotianDerivedFieldRepairV2AuditMetadata {
+  readonly rollbackOfAuditId: string;
+}
+
+/**
  * The `bron_specifiek` alias keys that shadow `contracttype`. Only the ones
  * this lane removed appear, with the value they held, so a rollback can put
  * back exactly what was there.
@@ -258,6 +282,8 @@ export type AuditEventMetadata =
   | MarkeerAuditMetadata
   | MotianDerivedFieldRepairAuditMetadata
   | MotianDerivedFieldRepairRollbackAuditMetadata
+  | MotianDerivedFieldRepairV2AuditMetadata
+  | MotianDerivedFieldRepairV2RollbackAuditMetadata
   | SavedSearchAuditMetadata
   | ZzpNegationLabelAuditMetadata
   | ZzpNegationLabelRollbackAuditMetadata;

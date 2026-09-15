@@ -317,13 +317,39 @@ const BRON_SPECIFIEK_TEXT_FIELDS = new Set<MotianDerivedFieldName>([
   "provincie",
 ]);
 
-const bronSpecifiekSet = (key: string, parameter: number, json: boolean) =>
-  `bron_specifiek = jsonb_set(COALESCE(bron_specifiek, '{}'::jsonb), '{${key}}', ${
-    json ? `$${parameter}::jsonb` : `to_jsonb($${parameter}::text)`
-  }, true)`;
+const isBronSpecifiekField = (field: MotianDerivedFieldName): boolean =>
+  BRON_SPECIFIEK_TEXT_FIELDS.has(field) || field === "skills";
 
-const bronSpecifiekDelete = (key: string) =>
-  `bron_specifiek = COALESCE(bron_specifiek, '{}'::jsonb) - '${key}'`;
+/** One `bron_specifiek` write: a `jsonb_set` when `parameter` is set, else a key delete. */
+interface BronSpecifiekOp {
+  readonly json: boolean;
+  readonly key: string;
+  readonly parameter: number | null;
+}
+
+/**
+ * Folds every `bron_specifiek` write of one statement into a single assignment.
+ * Postgres rejects an UPDATE that assigns the same column twice (42701), and
+ * every SET expression is evaluated against the pre-update row, so separate
+ * `jsonb_set` assignments can neither coexist nor accumulate: they must nest.
+ */
+const bronSpecifiekAssignment = (ops: readonly BronSpecifiekOp[]): string => {
+  let expression = "COALESCE(bron_specifiek, '{}'::jsonb)";
+  for (const op of ops) {
+    expression =
+      op.parameter === null
+        ? `(${expression} - '${op.key}')`
+        : `jsonb_set(${expression}, '{${op.key}}', ${
+            op.json
+              ? // `::text::jsonb`, not `::jsonb`: a bare jsonb cast makes
+                // postgres.js declare the parameter jsonb and JSON-encode the
+                // string, storing `"[\"SQL\"]"` instead of `["SQL"]`.
+                `$${op.parameter}::text::jsonb`
+              : `to_jsonb($${op.parameter}::text)`
+          }, true)`;
+  }
+  return `bron_specifiek = ${expression}`;
+};
 
 const updateDerivedFields = async (input: {
   readonly current: CurrentMotianDerivedFieldRow;
@@ -334,6 +360,7 @@ const updateDerivedFields = async (input: {
 }): Promise<CurrentMotianDerivedFieldRow> => {
   const assignments: string[] = [];
   const values: (string | null)[] = [];
+  const bronSpecifiekOps: BronSpecifiekOp[] = [];
   let setTariefValuta = false;
   for (const field of MOTIAN_DERIVED_FIELD_NAMES) {
     const value = input.patch[field];
@@ -342,10 +369,12 @@ const updateDerivedFields = async (input: {
     }
     const rendered = value instanceof Date ? value.toISOString() : value;
     values.push(rendered);
-    if (BRON_SPECIFIEK_TEXT_FIELDS.has(field)) {
-      assignments.push(bronSpecifiekSet(field, values.length, false));
-    } else if (field === "skills") {
-      assignments.push(bronSpecifiekSet("skills", values.length, true));
+    if (isBronSpecifiekField(field)) {
+      bronSpecifiekOps.push({
+        json: field === "skills",
+        key: field,
+        parameter: values.length,
+      });
     } else {
       assignments.push(`"${fieldToColumn[field]}" = $${values.length}`);
       if (
@@ -356,6 +385,9 @@ const updateDerivedFields = async (input: {
         setTariefValuta = true;
       }
     }
+  }
+  if (bronSpecifiekOps.length > 0) {
+    assignments.push(bronSpecifiekAssignment(bronSpecifiekOps));
   }
   if (setTariefValuta) {
     assignments.push(`"tarief_valuta" = 'EUR'`);
@@ -389,26 +421,32 @@ const restoreDerivedFields = async (input: {
 }): Promise<CurrentMotianDerivedFieldRow> => {
   const assignments: string[] = [];
   const values: (string | null)[] = [];
+  const bronSpecifiekOps: BronSpecifiekOp[] = [];
   for (const field of MOTIAN_DERIVED_FIELD_NAMES) {
     const value = input.patch[field];
     if (value === undefined) {
       continue;
     }
-    if (BRON_SPECIFIEK_TEXT_FIELDS.has(field) || field === "skills") {
+    if (isBronSpecifiekField(field)) {
       if (value === null) {
-        assignments.push(bronSpecifiekDelete(field));
+        bronSpecifiekOps.push({ json: false, key: field, parameter: null });
       } else {
         const rendered = value instanceof Date ? value.toISOString() : value;
         values.push(rendered);
-        assignments.push(
-          bronSpecifiekSet(field, values.length, field === "skills")
-        );
+        bronSpecifiekOps.push({
+          json: field === "skills",
+          key: field,
+          parameter: values.length,
+        });
       }
       continue;
     }
     const rendered = value instanceof Date ? value.toISOString() : value;
     values.push(rendered);
     assignments.push(`"${fieldToColumn[field]}" = $${values.length}`);
+  }
+  if (bronSpecifiekOps.length > 0) {
+    assignments.push(bronSpecifiekAssignment(bronSpecifiekOps));
   }
   if (assignments.length === 0) {
     return input.current;

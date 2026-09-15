@@ -90,6 +90,20 @@ const motianRepairAuditBaseSchema = {
   sourceAbsentFields: z.array(motianRepairFieldNameSchema),
   v1Id: z.string().min(1),
 } as const;
+/**
+ * Images written by the v2 repair predate CTP-514's `provincie`/`skills`
+ * fields; stored v2 audit rows must keep decoding after the v3 bump.
+ */
+const motianRepairV2FieldImageSchema = motianRepairFieldImageSchema.omit({
+  provincie: true,
+  skills: true,
+});
+const motianRepairV2AuditBaseSchema = {
+  ...motianRepairAuditBaseSchema,
+  afterimage: motianRepairV2FieldImageSchema,
+  preimage: motianRepairV2FieldImageSchema,
+  repairVersion: z.literal("motian-v1-derived-field-repair/v2"),
+} as const;
 const zzpNegationBronAliasImageSchema = z
   .object({
     contract_type: z.string().optional(),
@@ -168,6 +182,13 @@ const auditMetadataSchema: z.ZodType<AuditEventMetadata> = z.union([
   z
     .object({
       ...motianRepairAuditBaseSchema,
+      rollbackOfAuditId: z.string().min(1),
+    })
+    .strict(),
+  z.object(motianRepairV2AuditBaseSchema).strict(),
+  z
+    .object({
+      ...motianRepairV2AuditBaseSchema,
       rollbackOfAuditId: z.string().min(1),
     })
     .strict(),

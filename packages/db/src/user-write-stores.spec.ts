@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import path from "node:path";
 
+import type { MotianDerivedFieldRepairV2AuditMetadata } from "@ji/application/registry";
 import { and, eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/postgres-js";
 import { migrate } from "drizzle-orm/postgres-js/migrator";
@@ -442,6 +443,62 @@ describe
         await migratorDatabase
           .delete(auditEvent)
           .where(eq(auditEvent.scopeId, otherScopeId));
+      }
+    });
+
+    it("decodes a stored v2 Motian repair audit image after the v3 field bump", async () => {
+      const scopeId = `motian-v2-audit-${crypto.randomUUID()}`;
+      const actorId = `motian-v2-actor-${crypto.randomUUID()}`;
+      const applicationClient = postgres(applicationUrl, { max: 1 });
+      const v2Image = {
+        contracttype: "detachering",
+        opdrachtgeverNaam: "NVB opdrachtgever",
+        opleidingsniveau: "HBO",
+        publicatiedatum: "2026-09-10T08:10:11.000Z",
+        sluitingsdatum: "2026-09-15T09:30:00.000Z",
+        startDatum: "2026-10-01",
+        tariefEenheid: null,
+        tariefMax: null,
+        tariefMin: null,
+        urenPerWeek: "36",
+      };
+      const metadata: MotianDerivedFieldRepairV2AuditMetadata = {
+        aanvraagId: crypto.randomUUID(),
+        afterimage: v2Image,
+        bronId: crypto.randomUUID(),
+        bronReferentie: "external-v2",
+        changedFields: ["opleidingsniveau"],
+        contentHash: "a".repeat(64),
+        manifestSha256: "b".repeat(64),
+        preimage: { ...v2Image, opleidingsniveau: null },
+        rawPayloadRef: "raw/nationalevacaturebank/2026/09/10/x.json",
+        repairVersion: "motian-v1-derived-field-repair/v2",
+        sourceAbsentFields: [],
+        v1Id: "motian-v2-row",
+      };
+      try {
+        await migratorDatabase.insert(auditEvent).values({
+          action: "motian_v1_derived_field_repair_apply",
+          actorId,
+          actorType: "service",
+          auditClass: "effect",
+          entityId: metadata.aanvraagId,
+          entityType: "aanvraag",
+          id: crypto.randomUUID(),
+          metadata,
+          scopeId,
+        });
+        const store = new PostgresAuditStore(
+          drizzle(applicationClient, { schema })
+        );
+        const events = await store.listByActorId(actorId, scopeId);
+        expect(events).toHaveLength(1);
+        expect(events[0]?.metadata).toEqual(metadata);
+      } finally {
+        await applicationClient.end({ timeout: 5 });
+        await migratorDatabase
+          .delete(auditEvent)
+          .where(eq(auditEvent.scopeId, scopeId));
       }
     });
 
