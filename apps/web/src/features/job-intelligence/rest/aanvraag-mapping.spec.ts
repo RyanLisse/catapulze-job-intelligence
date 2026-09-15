@@ -49,3 +49,23 @@ describe("mapAanvraagToJobListing country (CTP-514/CTP-523)", () => {
     expect(job.country).toBeNull();
   });
 });
+
+describe("mapAanvraagToJobListing duration/duur (CTP-514/CTP-519)", () => {
+  it("maps a published duur to duration", () => {
+    const job = mapAanvraagToJobListing({
+      aanvraag: baseAanvraag({ duur: "4 maanden" }),
+      bronCatalog,
+      versies: [],
+    });
+    expect(job.duration).toBe("4 maanden");
+  });
+
+  it("maps an absent duur to null", () => {
+    const job = mapAanvraagToJobListing({
+      aanvraag: baseAanvraag({ duur: null }),
+      bronCatalog,
+      versies: [],
+    });
+    expect(job.duration).toBeNull();
+  });
+});

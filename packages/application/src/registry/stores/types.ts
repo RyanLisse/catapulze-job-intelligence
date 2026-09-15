@@ -70,6 +70,8 @@ export interface AanvraagRecord {
   readonly bronReferentie: string;
   readonly bronUrl?: string | null;
   readonly contracttype?: string | null;
+  /** Duration text the source published when only a duration is given, not an end date (CTP-514, F11). */
+  readonly duur?: string | null;
   /** Provenance for fields filled by the enrichment worker (CTP-482). */
   readonly enrichedFields?: readonly AanvraagEnrichedField[];
   readonly eindDatum?: string | null;

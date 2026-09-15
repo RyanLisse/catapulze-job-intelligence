@@ -494,4 +494,24 @@ describe("AE3 detail skills/provincie mapping (CTP-514)", () => {
     expect(job.skills).toEqual([]);
     expect(job.provincie).toBeNull();
   });
+
+  it("surfaces the duur (looptijd) the API returned", () => {
+    const job = mapAanvraagToJobListing({
+      aanvraag: { ...baseAanvraag, duur: "4 maanden" },
+      bronCatalog,
+      versies: [],
+    });
+
+    expect(job.duration).toBe("4 maanden");
+  });
+
+  it("stays null when the API returned no duur", () => {
+    const job = mapAanvraagToJobListing({
+      aanvraag: baseAanvraag,
+      bronCatalog,
+      versies: [],
+    });
+
+    expect(job.duration).toBeNull();
+  });
 });

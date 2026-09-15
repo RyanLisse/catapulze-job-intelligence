@@ -43,6 +43,7 @@ const toAanvraagRecord = (
     bronReferentie: row.bronReferentie,
     bronUrl: row.bronUrl,
     contracttype: row.contracttype ?? bronFacts.contracttype,
+    duur: bronFacts.duur,
     eindDatum: row.eindDatum,
     enrichedFields: [],
     id: row.id,

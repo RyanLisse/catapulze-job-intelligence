@@ -133,6 +133,7 @@ describe("batch_get_aanvragen (RJC-379)", () => {
       "bronReferentie",
       "bronUrl",
       "contracttype",
+      "duur",
       "eindDatum",
       "enrichedFields",
       "id",
@@ -159,6 +160,7 @@ describe("batch_get_aanvragen (RJC-379)", () => {
     ]);
     expect(item?.aanvraag).toMatchObject({
       contracttype: null,
+      duur: null,
       eindDatum: null,
       locatie: null,
       locatieLand: null,

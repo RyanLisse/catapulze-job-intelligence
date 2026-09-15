@@ -172,6 +172,8 @@ export interface JobListing {
   readonly description: string;
   readonly educationLevel?: string | null;
   readonly endDate?: string | null;
+  /** Duration text the source published when only a duration, not an end date, is given. */
+  readonly duration?: string | null;
   readonly hoursPerWeek?: string | null;
   readonly remote: boolean | null;
   /** Curated source wording when a bron explicitly publishes the work form. */

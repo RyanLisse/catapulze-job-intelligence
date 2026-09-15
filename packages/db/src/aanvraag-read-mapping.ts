@@ -3,6 +3,8 @@ import { z } from "zod";
 
 export interface AanvraagBronFacts {
   readonly contracttype: string | null;
+  /** Duration text the source published when only a duration, not an end date, is given (CTP-514, F11). */
+  readonly duur: string | null;
   readonly opdrachtgeverNaam: string | null;
   readonly opleidingsniveau: string | null;
   /** One of the 12 canonical NL province names, or null. Never derived here. */
@@ -40,6 +42,7 @@ const provincieSchema = z
 const bronFactsInputSchema = z.object({
   contract_type: sourceTextSchema,
   contracttype: sourceTextSchema,
+  duur: sourceTextSchema,
   education_level: sourceTextSchema,
   gepubliceerd_op: sourceTextSchema,
   json_ld_date_posted: sourceTextSchema,
@@ -96,6 +99,7 @@ export const readAanvraagBronFacts = (
   if (!parsed.success) {
     return {
       contracttype: null,
+      duur: null,
       opdrachtgeverNaam: null,
       opleidingsniveau: null,
       provincie: null,
@@ -108,6 +112,7 @@ export const readAanvraagBronFacts = (
   const values = parsed.data;
   return {
     contracttype: firstSourceText(values.contracttype, values.contract_type),
+    duur: values.duur ?? null,
     opdrachtgeverNaam: firstSourceText(
       values.opdrachtgeverNaam,
       values.opdrachtgever_naam

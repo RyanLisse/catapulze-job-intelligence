@@ -23,6 +23,7 @@ export interface AanvraagPreview {
   readonly bronReferentie: string;
   readonly bronUrl?: string | null;
   readonly contracttype?: string | null;
+  readonly duur?: string | null;
   readonly enrichedFields?: readonly {
     readonly confidence: number;
     readonly field: "contract" | "locatie" | "remote" | "tarief";
@@ -208,6 +209,7 @@ export const mapAanvraagToJobListing = (input: {
     contractType: mapContractType(input.aanvraag.contracttype ?? null),
     country: input.aanvraag.locatieLand === "NL" ? "NL" : null,
     description: input.aanvraag.beschrijving,
+    duration: optionalText(input.aanvraag.duur),
     educationLevel: optionalText(input.aanvraag.opleidingsniveau),
     endDate: optionalText(input.aanvraag.eindDatum),
     enrichedFields: input.aanvraag.enrichedFields ?? [],

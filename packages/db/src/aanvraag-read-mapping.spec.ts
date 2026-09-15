@@ -41,6 +41,7 @@ describe("readAanvraagBronFacts", () => {
       })
     ).toEqual({
       contracttype: "detachering",
+      duur: null,
       opdrachtgeverNaam: null,
       opleidingsniveau: null,
       provincie: null,
@@ -82,6 +83,11 @@ describe("readAanvraagBronFacts", () => {
     // "noord holland" never went through toCanonicalProvincie, so the read
     // path refuses it rather than canonicalising on the source's behalf.
     expect(facts.provincie).toBeNull();
+  });
+
+  it("reads the duur (looptijd) text emitted by harveynash/onefellow/needstaffing", () => {
+    expect(readAanvraagBronFacts({ duur: "4 maanden" }).duur).toBe("4 maanden");
+    expect(readAanvraagBronFacts({}).duur).toBeNull();
   });
 
   it("passes a canonical province through unchanged", () => {
