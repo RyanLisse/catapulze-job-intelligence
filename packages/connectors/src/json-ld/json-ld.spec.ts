@@ -232,6 +232,10 @@ describe.each([
   ["hero", heroConfig],
   ["pro-act", proActConfig],
 ])("%s JSON-LD connector", (slug, config) => {
+  it("exports parser version v2", () => {
+    expect(config.parserVersion).toBe(`${slug}/v2`);
+  });
+
   // BlueTrail's listing fixture carries a 3rd sitemap entry
   // (adviseur-privacy-ibd, added 2026-09-15 to make the live-captured F15
   // skills fixture reachable from the fixture-mode ingest pipeline).

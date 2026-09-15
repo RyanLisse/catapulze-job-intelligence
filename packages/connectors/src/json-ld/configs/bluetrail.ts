@@ -49,6 +49,6 @@ export const bluetrailConfig: JsonLdConnectorConfig = {
   },
   listingFixturePath: "bluetrail/listing-page-0.json",
   liveEnvVar: "BLUETRAIL_LIVE",
-  parserVersion: "bluetrail/v1",
+  parserVersion: "bluetrail/v2",
   slug: "bluetrail",
 };

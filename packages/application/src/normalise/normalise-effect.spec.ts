@@ -74,7 +74,7 @@ const jsonLdBody = (): Uint8Array => {
       startDatum: "1 september 2026",
       urenPerWeek: "32u p/w",
     },
-    parserVersion: "bluetrail/v1",
+    parserVersion: "bluetrail/v2",
     slug: "bluetrail",
     url: "https://www.bluetrail.nl/opdrachten/Interim/ciam-tester/",
   };

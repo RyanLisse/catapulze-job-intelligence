@@ -27,6 +27,6 @@ export const heroConfig: JsonLdConnectorConfig = {
   excludePatterns: [/\/api\//u],
   listingFixturePath: "hero/listing-page-0.json",
   liveEnvVar: "HERO_LIVE",
-  parserVersion: "hero/v1",
+  parserVersion: "hero/v2",
   slug: "hero",
 };

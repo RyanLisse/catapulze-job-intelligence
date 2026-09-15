@@ -70,7 +70,7 @@ describe("parseJsonLdPayload -- BlueTrail (label block in surrounding HTML, base
       startDatum: "1 september 2026",
       urenPerWeek: "32u p/w",
     },
-    parserVersion: "bluetrail/v1",
+    parserVersion: "bluetrail/v2",
     slug: "bluetrail",
     url: "https://www.bluetrail.nl/opdrachten/Interim/ciam-tester/",
   };
@@ -206,7 +206,7 @@ describe("parseJsonLdPayload -- Hero.eu (thin JobPosting, no label block)", () =
       workHours: "36 uur/week",
     },
     labelBlock: {},
-    parserVersion: "hero/v1",
+    parserVersion: "hero/v2",
     slug: "hero",
     url: "https://hero.eu/interim-opdrachten/devops-engineer-1f2fde9f",
   };
@@ -283,7 +283,7 @@ describe("parseJsonLdPayload -- Pro-Act IT (label block embedded in description 
       tarief: "marktconform",
       urenPerWeek: "36 uur per week",
     },
-    parserVersion: "pro-act/v1",
+    parserVersion: "pro-act/v2",
     slug: "pro-act",
     url: "https://pro-act.nl/vacatures/senior-azure-operations-engineer-8793/",
   };
@@ -353,7 +353,7 @@ describe("parseJsonLdPayload -- closing lifecycle (RJC-377)", () => {
       title: "CIAM Tester",
     },
     labelBlock: {},
-    parserVersion: "bluetrail/v1",
+    parserVersion: "bluetrail/v2",
     slug: "bluetrail",
     url: "https://www.bluetrail.nl/opdrachten/Interim/ciam-tester/",
   };

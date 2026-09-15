@@ -58,6 +58,6 @@ export const proActConfig: JsonLdConnectorConfig = {
   },
   listingFixturePath: "pro-act/listing-page-0.json",
   liveEnvVar: "PROACT_LIVE",
-  parserVersion: "pro-act/v1",
+  parserVersion: "pro-act/v2",
   slug: "pro-act",
 };
