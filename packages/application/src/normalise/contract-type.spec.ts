@@ -8,11 +8,14 @@ describe("toCanonicalContractType", () => {
     expect(toCanonicalContractType("  Detachering  ")).toBe("detachering");
   });
 
-  test("maps interim-family tokens (temporary, tijdelijk, inhuur, interim) to interim", () => {
+  test("maps interim-family tokens (temporary, tijdelijk, interim) to interim", () => {
     expect(toCanonicalContractType("temporary")).toBe("interim");
     expect(toCanonicalContractType("tijdelijk")).toBe("interim");
-    expect(toCanonicalContractType("inhuur")).toBe("interim");
     expect(toCanonicalContractType("interim")).toBe("interim");
+  });
+
+  test("leaves the generic inhuur umbrella token unknown (ambiguous contract form)", () => {
+    expect(toCanonicalContractType("inhuur")).toBeNull();
   });
 
   test("maps freelance-family tokens (contractor, zzp) case-insensitively to freelance", () => {

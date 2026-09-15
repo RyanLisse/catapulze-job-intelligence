@@ -197,6 +197,20 @@ describe("curateObservation commercial columns and coalesce tombstones", () => {
     expect(bronSpecifiek.contract_type).toBe("CONTRACTOR");
   });
 
+  it("canonicalizes a raw 'CONTRACTOR' employment_type alias (JSON-LD old rows) to freelance (CTP-514)", async () => {
+    const store = new InMemoryCurateStore();
+    const base = observation("COL-CONTRACT-EMP", "hash-contract-emp");
+    await curateObservation(store, {
+      ...base,
+      draft: {
+        ...base.draft,
+        bronSpecifiek: { provenance, value: { employment_type: "CONTRACTOR" } },
+      },
+    });
+    const [aanvraag] = store.aanvragen;
+    expect(aanvraag?.contracttype).toBe("freelance");
+  });
+
   it("leaves the column null for an hours/employment token like 'FULL_TIME' that isn't a contract form (CTP-514/CTP-526)", async () => {
     const store = new InMemoryCurateStore();
     const base = observation("COL-CONTRACT-3", "hash-contract-3");

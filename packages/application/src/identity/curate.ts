@@ -520,7 +520,7 @@ const toStoredFields = (
     bronUrl: draftTextColumn(draft.bronUrl.value),
     contentHash: draft.contentHash,
     contracttype: toCanonicalContractType(
-      readBronText(bronRecord, "contracttype", "contract_type")
+      readBronText(bronRecord, "contracttype", "contract_type", "employment_type")
     ),
     dedupGroepId: null,
     eersteGezienOp: input.observedAt,

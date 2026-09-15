@@ -18,7 +18,6 @@ const CONTRACT_TYPE_TOKENS = new Map<string, ClassifiedContractType>(
     contractor: "freelance",
     detachering: "detachering",
     freelance: "freelance",
-    inhuur: "interim",
     interim: "interim",
     permanent: "vast",
     temporary: "interim",

@@ -90,6 +90,22 @@ describe("readAanvraagBronFacts", () => {
     expect(readAanvraagBronFacts({}).duur).toBeNull();
   });
 
+  it("accepts the duration aliases existing normalisers actually emit (Onefellow, Needstaffing, Flinter) (CTP-514)", () => {
+    expect(readAanvraagBronFacts({ duration: "6 months" }).duur).toBe(
+      "6 months"
+    );
+    expect(readAanvraagBronFacts({ periode: "3 maanden" }).duur).toBe(
+      "3 maanden"
+    );
+    expect(
+      readAanvraagBronFacts({ looptijd_tekst: "t/m einde project" }).duur
+    ).toBe("t/m einde project");
+    // duur takes priority when a source somehow emits both.
+    expect(
+      readAanvraagBronFacts({ duration: "6 months", duur: "4 maanden" }).duur
+    ).toBe("4 maanden");
+  });
+
   it("passes a canonical province through unchanged", () => {
     expect(
       readAanvraagBronFacts({ provincie: "Noord-Holland" }).provincie
