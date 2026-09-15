@@ -49,6 +49,7 @@ const toAanvraagRecord = (
     // locatie_land defaults to NL and is therefore not proof of a published location.
     locatie: row.locatieTekst,
     opdrachtgeverNaam: row.opdrachtgeverNaam ?? bronFacts.opdrachtgeverNaam,
+    opleidingsniveau: bronFacts.opleidingsniveau,
     publicatiedatum: row.publicatiedatum ?? bronFacts.publicatiedatum,
     rawPayloadRef: row.rawPayloadRef,
     scrapeRunId: row.scrapeRunId,

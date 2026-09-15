@@ -133,6 +133,61 @@ const validThroughToClosingMoment = (
  * same "niet overnemen" conclusion). `tarief` is derived only from the label-block
  * `tarief` field or the free-text description via `parseTariefFromText`.
  */
+
+const asFiniteNumber = (value: unknown): number | null => {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+  if (typeof value === "string" && value.trim() !== "") {
+    const parsed = Number(value.replace(",", "."));
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
+};
+
+const eenheidFromUnitText = (unit: string): "maand" | "dag" | "uur" | null => {
+  if (unit === "MONTH" || unit === "MON" || unit === "MAAND") {
+    return "maand";
+  }
+  if (unit === "DAY" || unit === "DAG") {
+    return "dag";
+  }
+  if (unit === "HOUR" || unit === "HR" || unit === "UUR") {
+    return "uur";
+  }
+  return null;
+};
+
+/**
+ * Trust JobPosting.baseSalary only when unitText is an explicit period.
+ * BlueTrail's Google-for-Jobs filler (`value: "100"`, empty unitText) stays out.
+ */
+const tariefFromBaseSalary = (
+  jobPosting: JsonLdFetchedPayload["jobPosting"]
+): ReturnType<typeof parseTariefFromText> | null => {
+  const baseSalary = asNode(jobPosting.baseSalary);
+  if (!baseSalary) {
+    return null;
+  }
+  const valueNode = asNode(baseSalary.value) ?? baseSalary;
+  const unit = asText(valueNode.unitText).trim().toUpperCase();
+  const min = asFiniteNumber(valueNode.minValue ?? valueNode.value);
+  const max = asFiniteNumber(valueNode.maxValue ?? valueNode.value);
+  if (min === null && max === null) {
+    return null;
+  }
+  const eenheid = eenheidFromUnitText(unit);
+  if (eenheid === null) {
+    return null;
+  }
+  return {
+    eenheid,
+    max: max === null ? UNKNOWN : String(max),
+    min: min === null ? UNKNOWN : String(min),
+    valuta: asText(baseSalary.currency).trim() || "EUR",
+  };
+};
+
 export const parseJsonLdPayload = (
   payload: JsonLdFetchedPayload,
   contentHash: string
@@ -142,7 +197,9 @@ export const parseJsonLdPayload = (
   const hiringOrganization = asNode(jobPosting.hiringOrganization);
   const jobLocationAddress = asNode(asNode(jobPosting.jobLocation)?.address);
   const startDatum = parseDutchDate(labelBlock.startDatum);
-  const tarief = parseTariefFromText(labelBlock.tarief ?? descriptionText);
+  const tarief =
+    tariefFromBaseSalary(jobPosting) ??
+    parseTariefFromText(labelBlock.tarief ?? descriptionText);
   // Only BlueTrail's label block ever carries `sluitingsDatum` (its
   // "Sluitingsdatum" sidebar field, Dutch text like "2 september 2026" --
   // confirmed to agree exactly with its own `jobPosting.validThrough` in a
@@ -185,7 +242,8 @@ export const parseJsonLdPayload = (
         referentienummer: labelBlock.referentienummer ?? null,
         slug: payload.slug,
         sluitings_datum: labelBlock.sluitingsDatum ?? null,
-        uren_per_week: labelBlock.urenPerWeek ?? null,
+        uren_per_week:
+          labelBlock.urenPerWeek ?? asTextOrNull(jobPosting.workHours) ?? null,
         url,
         valid_through: asTextOrNull(jobPosting.validThrough),
       },

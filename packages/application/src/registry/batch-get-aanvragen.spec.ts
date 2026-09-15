@@ -139,6 +139,7 @@ describe("batch_get_aanvragen (RJC-379)", () => {
       "locatie",
       "mode",
       "opdrachtgeverNaam",
+      "opleidingsniveau",
       "publicatiedatum",
       "rawPayloadRef",
       "scrapeRunId",

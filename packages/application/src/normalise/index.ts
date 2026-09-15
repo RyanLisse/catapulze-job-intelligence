@@ -65,3 +65,7 @@ export {
   runValidateNormalisedDraft,
   validateNormalisedDraftEffect,
 } from "./normalise-effect";
+export {
+  extractJobPostingCommercialFacts,
+  type JobPostingCommercialFacts,
+} from "./jobposting-html";

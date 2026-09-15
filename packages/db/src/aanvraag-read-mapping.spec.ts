@@ -42,6 +42,7 @@ describe("readAanvraagBronFacts", () => {
     ).toEqual({
       contracttype: "detachering",
       opdrachtgeverNaam: null,
+      opleidingsniveau: null,
       publicatiedatum: null,
       startDatum: null,
       werkvorm: null,

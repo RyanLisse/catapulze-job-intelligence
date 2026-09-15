@@ -32,6 +32,7 @@ export interface AanvraagPreview {
   readonly id: string;
   readonly locatie?: string | null;
   readonly opdrachtgeverNaam?: string | null;
+  readonly opleidingsniveau?: string | null;
   readonly publicatiedatum?: string | null;
   readonly rawPayloadRef: string;
   readonly scrapeRunId: string;
@@ -204,6 +205,7 @@ export const mapAanvraagToJobListing = (input: {
     contractType: mapContractType(input.aanvraag.contracttype ?? null),
     country: null,
     description: input.aanvraag.beschrijving,
+    educationLevel: optionalText(input.aanvraag.opleidingsniveau),
     endDate: optionalText(input.aanvraag.eindDatum),
     enrichedFields: input.aanvraag.enrichedFields ?? [],
     hoursPerWeek: optionalText(input.aanvraag.urenPerWeek),

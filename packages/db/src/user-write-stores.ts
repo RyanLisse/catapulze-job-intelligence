@@ -52,14 +52,24 @@ const motianRepairFieldNameSchema = z.enum([
   "publicatiedatum",
   "startDatum",
   "sluitingsdatum",
+  "urenPerWeek",
+  "tariefMin",
+  "tariefMax",
+  "tariefEenheid",
+  "opleidingsniveau",
 ]);
 const motianRepairFieldImageSchema = z
   .object({
     contracttype: z.string().nullable(),
     opdrachtgeverNaam: z.string().nullable(),
+    opleidingsniveau: z.string().nullable(),
     publicatiedatum: z.string().nullable(),
     sluitingsdatum: z.string().datetime({ offset: true }).nullable(),
     startDatum: z.string().nullable(),
+    tariefEenheid: z.string().nullable(),
+    tariefMax: z.string().nullable(),
+    tariefMin: z.string().nullable(),
+    urenPerWeek: z.string().nullable(),
   })
   .strict();
 const motianRepairAuditBaseSchema = {
@@ -72,7 +82,7 @@ const motianRepairAuditBaseSchema = {
   manifestSha256: z.string().regex(/^[0-9a-f]{64}$/u),
   preimage: motianRepairFieldImageSchema,
   rawPayloadRef: z.string().min(1),
-  repairVersion: z.literal("motian-v1-derived-field-repair/v1"),
+  repairVersion: z.literal("motian-v1-derived-field-repair/v2"),
   sourceAbsentFields: z.array(motianRepairFieldNameSchema),
   v1Id: z.string().min(1),
 } as const;

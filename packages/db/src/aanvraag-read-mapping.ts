@@ -3,6 +3,7 @@ import { z } from "zod";
 export interface AanvraagBronFacts {
   readonly contracttype: string | null;
   readonly opdrachtgeverNaam: string | null;
+  readonly opleidingsniveau: string | null;
   readonly publicatiedatum: string | null;
   readonly startDatum: string | null;
   readonly werkvorm: string | null;
@@ -22,10 +23,12 @@ const sourceTextSchema = z
 const bronFactsInputSchema = z.object({
   contract_type: sourceTextSchema,
   contracttype: sourceTextSchema,
+  education_level: sourceTextSchema,
   gepubliceerd_op: sourceTextSchema,
   json_ld_date_posted: sourceTextSchema,
   opdrachtgeverNaam: sourceTextSchema,
   opdrachtgever_naam: sourceTextSchema,
+  opleidingsniveau: sourceTextSchema,
   publicatie_datum: sourceTextSchema,
   publicatiedatum: sourceTextSchema,
   startDatum: sourceTextSchema,
@@ -75,6 +78,7 @@ export const readAanvraagBronFacts = (
     return {
       contracttype: null,
       opdrachtgeverNaam: null,
+      opleidingsniveau: null,
       publicatiedatum: null,
       startDatum: null,
       werkvorm: null,
@@ -86,6 +90,10 @@ export const readAanvraagBronFacts = (
     opdrachtgeverNaam: firstSourceText(
       values.opdrachtgeverNaam,
       values.opdrachtgever_naam
+    ),
+    opleidingsniveau: firstSourceText(
+      values.opleidingsniveau,
+      values.education_level
     ),
     publicatiedatum: publicationDate(values),
     startDatum: firstSourceText(values.startDatum, values.start_datum),

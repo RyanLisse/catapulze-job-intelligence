@@ -6,7 +6,7 @@ import type { JsonValue } from "../normalise";
 
 export const NEON_V1_BACKFILL_CONTRACT_VERSION = "neon-v1-backfill/v1" as const;
 
-export const NEON_V1_PARSER_VERSION = "neon-v1/2026-09-14-starapple-css";
+export const NEON_V1_PARSER_VERSION = "neon-v1/2026-09-15-field-parity";
 
 export const NEON_V1_DEFAULT_CONCURRENCY = 16;
 
@@ -43,6 +43,7 @@ export interface NeonV1JobRow {
   readonly contract_type?: string | null;
   readonly deleted_at?: string | null;
   readonly description?: string | null;
+  readonly education_level?: string | null;
   readonly end_client?: string | null;
   readonly end_date?: string | null;
   readonly external_id: string;

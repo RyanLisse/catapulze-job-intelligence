@@ -304,6 +304,10 @@ export const JobDetail = ({
             value={job.hoursPerWeek ?? "Onbekend"}
           />
           <DetailField
+            label="Opleiding"
+            value={job.educationLevel ?? "Onbekend"}
+          />
+          <DetailField
             label="Startdatum"
             value={formatOptionalDate(job.startDate)}
           />

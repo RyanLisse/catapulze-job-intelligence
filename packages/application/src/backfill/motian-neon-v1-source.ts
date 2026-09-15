@@ -3,6 +3,10 @@ import { z } from "zod";
 
 import type { JsonValue } from "../normalise";
 import {
+  liftEducationLevelFromRoot,
+  liftNestedRateBoundsFromRoot,
+} from "./motian-commercial-fields";
+import {
   MOTIAN_V1_SOURCE_PLATFORMS,
   normalizeMotianPlatform,
   sourcePlatformsForMotianV1,
@@ -67,6 +71,7 @@ interface MotianJobRow {
   external_url: string | null;
   id: string;
   extension_possible?: boolean | null;
+  education_level?: string | null;
   hours_per_week?: number | null;
   location: string | null;
   platform: string;
@@ -91,6 +96,16 @@ interface MotianJobRow {
  * checked fixtures use UTC wall-clock values, so SQL returns text and this
  * adapter applies UTC explicitly instead of letting the process timezone move
  * dates while postgres.js parses OID 1114. */
+const toNumberOrNull = (
+  value: number | string | null | undefined
+): number | null => {
+  if (value === null || value === undefined) {
+    return null;
+  }
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+};
+
 const toIsoString = (value: string | null): string | null => {
   if (value === null) {
     return null;
@@ -113,16 +128,6 @@ const toIsoStringOrNull = (value: string | null | undefined): string | null => {
   }
 };
 
-const toNumberOrNull = (
-  value: number | string | null | undefined
-): number | null => {
-  if (value === null || value === undefined) {
-    return null;
-  }
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : null;
-};
-
 const mapMotianRow = (row: MotianJobRow): NeonV1JobRow => {
   const endDate = toIsoStringOrNull(row.end_date);
   return {
@@ -134,6 +139,7 @@ const mapMotianRow = (row: MotianJobRow): NeonV1JobRow => {
     contract_type: row.contract_type,
     deleted_at: toIsoString(row.deleted_at),
     description: row.description,
+    education_level: row.education_level,
     end_client: row.end_client,
     end_date: endDate,
     extension_possible: row.extension_possible,
@@ -174,6 +180,7 @@ const rawMotianV1JobSchema = z.object({
   contract_type: nullableString,
   deleted_at: nullableString,
   description: nullableString,
+  education_level: nullableString.optional().catch(null),
   end_client: nullableString,
   end_date: nullableString.optional().catch(null),
   extension_possible: z.boolean().nullable().optional().catch(null),
@@ -224,8 +231,18 @@ export const decodeMotianV1RawRow = (body: Uint8Array): NeonV1JobRow => {
   }
   const row = rawMotianV1JobSchema.parse(root.data);
   const sourceRow = sourceFieldsSchema.parse(root.data);
+  const rateMin = toNumberOrNull(row.rate_min);
+  const rateMax = toNumberOrNull(row.rate_max);
+  const liftedRates = liftNestedRateBoundsFromRoot(root.data, rateMin, rateMax);
+  const educationLevel = liftEducationLevelFromRoot(
+    root.data,
+    row.education_level ?? null
+  );
   return mapMotianRow({
     ...row,
+    education_level: educationLevel,
+    rate_max: liftedRates.max,
+    rate_min: liftedRates.min,
     source_row: sourceRow,
   });
 };
@@ -328,6 +345,7 @@ export const createMotianNeonV1Source = (
             external_url,
             title,
             description,
+            education_level,
             company,
             end_client,
             location,
@@ -372,6 +390,7 @@ export const createMotianNeonV1Source = (
             external_url,
             title,
             description,
+            education_level,
             company,
             end_client,
             location,
@@ -417,6 +436,7 @@ export const createMotianNeonV1Source = (
             external_url,
             title,
             description,
+            education_level,
             company,
             end_client,
             location,

@@ -16,7 +16,12 @@ import { curateObservation } from "../identity/curate";
 import type { CurateStore } from "../identity/curate";
 import { field } from "../normalise";
 import type { NormalisedAanvraagDraft } from "../normalise";
-import { formatHoursPerWeek } from "../normalise/hours";
+import {
+  educationLevelForMotianJob,
+  motianTariefEenheid,
+  rateBoundsForMotianJob,
+  weeklyHoursForMotianJob,
+} from "./motian-commercial-fields";
 import { resolveMotianV1Binding } from "./motian-v1-bindings";
 import type {
   BackfillBronBinding,
@@ -410,17 +415,13 @@ export const sourceFactsForJob = (job: NeonV1JobRow): NeonV1SourceFacts => {
 
 const sourceSpecificFieldsForJob = (job: NeonV1JobRow) => {
   const source = sourceFieldsForJob(job);
-  const publishedHours =
-    source.hours_per_week === null || source.hours_per_week === undefined
-      ? null
-      : String(source.hours_per_week);
-  const weeklyHours =
-    source.min_hours_per_week === null ||
-    source.min_hours_per_week === undefined
-      ? publishedHours
-      : formatHoursPerWeek(source.min_hours_per_week, source.hours_per_week);
-  // These fields are copied only from exact persisted Motian keys. No values
-  // are inferred from free text, location, or the presence of a rate amount.
+  const hours = weeklyHoursForMotianJob(job, {
+    hours_per_week: source.hours_per_week ?? null,
+    min_hours_per_week: source.min_hours_per_week ?? null,
+  });
+  const educationLevel = educationLevelForMotianJob(job);
+  // These fields are copied only from exact persisted Motian keys (plus the
+  // allowlisted nested rate/education lifts). No free-text invention.
   return {
     duration_months:
       source.duration_months === null || source.duration_months === undefined
@@ -428,13 +429,10 @@ const sourceSpecificFieldsForJob = (job: NeonV1JobRow) => {
         : String(source.duration_months),
     // Keep the source timestamp exactly as persisted; do not normalize it.
     eind_datum: source.end_date ?? null,
-    min_uren_per_week:
-      source.min_hours_per_week === null ||
-      source.min_hours_per_week === undefined
-        ? null
-        : String(source.min_hours_per_week),
-    uren_per_week: weeklyHours,
-    werkvorm: source.work_arrangement ?? null,
+    min_uren_per_week: hours.min_uren_per_week,
+    opleidingsniveau: educationLevel,
+    uren_per_week: hours.uren_per_week,
+    werkvorm: source.work_arrangement ?? job.work_arrangement ?? null,
   };
 };
 
@@ -566,13 +564,16 @@ export const mapV1JobToDraft = (job: NeonV1JobRow): NormalisedAanvraagDraft => {
       "start_date"
     ),
     status: lifecycle,
-    tarief: {
-      // Motian's authoritative `jobs` schema has no rate-unit field.
-      eenheid: UNKNOWN,
-      max: tariefValue(job.rate_max),
-      min: tariefValue(job.rate_min),
-      valuta: "EUR",
-    },
+    tarief: (() => {
+      const bounds = rateBoundsForMotianJob(job);
+      return {
+        // Motian has no rate-unit column; vast monthly salaris ranges use maand.
+        eenheid: motianTariefEenheid(job, bounds.min, bounds.max),
+        max: tariefValue(bounds.max),
+        min: tariefValue(bounds.min),
+        valuta: "EUR",
+      };
+    })(),
     titel: field(job.title, parserVersion, "title"),
   };
 };

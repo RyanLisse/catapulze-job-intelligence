@@ -287,6 +287,62 @@ describe("Neon v1 backfill mapping", () => {
     });
   });
 
+  it("maps Motian hours from typed columns when sourceRow omits them", () => {
+    const draft = mapV1JobToDraft({
+      ...sampleJob(),
+      hours_per_week: 24,
+      min_hours_per_week: 24,
+      sourceRow: {},
+    });
+    expect(draft.bronSpecifiek.value).toMatchObject({
+      uren_per_week: "24",
+    });
+  });
+
+  it("lifts allowlisted nested raw_payload rates for vast monthly salaris", () => {
+    const draft = mapV1JobToDraft({
+      ...sampleJob(),
+      contract_type: "vast",
+      rate_max: null,
+      rate_min: null,
+      sourceRow: {
+        raw_payload: {
+          rateMax: 6500,
+          rateMin: 3150,
+        },
+      },
+    });
+    expect(draft.tarief).toMatchObject({
+      eenheid: "maand",
+      max: "6500",
+      min: "3150",
+      valuta: "EUR",
+    });
+  });
+
+  it("projects Motian education_level into bron_specifiek opleidingsniveau", () => {
+    const draft = mapV1JobToDraft({
+      ...sampleJob(),
+      education_level: "MBO",
+      sourceRow: {},
+    });
+    expect(draft.bronSpecifiek.value).toMatchObject({
+      opleidingsniveau: "MBO",
+    });
+  });
+
+  it("does not invent werkvorm when Motian work_arrangement is absent", () => {
+    const draft = mapV1JobToDraft({
+      ...sampleJob(),
+      sourceRow: {},
+      work_arrangement: null,
+    });
+    // SAFETY: test reads allowlisted Motian bron_specifiek keys from a fixture draft.
+    expect(
+      (draft.bronSpecifiek.value as { werkvorm: string | null }).werkvorm
+    ).toBeNull();
+  });
+
   it("persists historical source facts through curation", async () => {
     const store = new InMemoryCurateStore();
     const draft = mapV1JobToDraft({

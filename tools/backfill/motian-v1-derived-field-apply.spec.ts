@@ -493,7 +493,7 @@ describe
             eventType: MOTIAN_REPAIR_EVENT_TYPE,
             payload: {
               content_hash: fixture.contentHash,
-              parser_version: "motian-v1-derived-field-repair/v1",
+              parser_version: "motian-v1-derived-field-repair/v2",
             },
           },
         ]);
@@ -854,7 +854,7 @@ describe
             'aanvraag',
             ${JSON.stringify({
               aanvraagId: entityId,
-              repairVersion: "motian-v1-derived-field-repair/v1",
+              repairVersion: "motian-v1-derived-field-repair/v2",
             })}::text::jsonb,
             ${actorScope}
           )
