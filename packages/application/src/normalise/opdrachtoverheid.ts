@@ -147,17 +147,6 @@ const resolveStartDatum = (
 type JobPostingNode = NonNullable<OpdrachtoverheidFetchedPayload["jobPosting"]>;
 type JobPostingValue = JobPostingNode[string];
 
-const jsonLdNode = (
-  value: JobPostingValue | undefined
-): JobPostingNode | null => {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    return null;
-  }
-  // SAFETY: narrowed above to a non-null, non-array object; JSON-LD nodes are
-  // string-keyed and every field is re-narrowed before use.
-  return value as JobPostingNode;
-};
-
 const jsonLdText = (value: JobPostingValue | undefined): string | null => {
   if (typeof value !== "string") {
     return null;
@@ -165,22 +154,22 @@ const jsonLdText = (value: JobPostingValue | undefined): string | null => {
   return value.trim() || null;
 };
 
-/** The province the source itself publishes, never one derived from a city
- * name (CTP-514 contract). `vacancies_location.province` carries it on every
- * record of the 2026-09-15 live capture ("Noord-Holland", 400/400); the
- * detail page's JobPosting `jobLocation.address.addressRegion` states the same
- * value and is the fallback when the API block is empty. */
+/** The province the source itself publishes for the vacancy, never one derived
+ * from a city name (CTP-514 contract). Only `vacancies_location.province` is
+ * read: it is the block the API attaches to the tender itself and it carries
+ * the value on every record of the 2026-09-15 live capture ("Noord-Holland",
+ * 400/400). The two candidate fallbacks are deliberately NOT read, because the
+ * capture shows both state the buying organisation's own postal address rather
+ * than where the assignment runs: `organization_location` is the organisation
+ * block (empty on the capture), and the JobPosting `jobLocation.address`
+ * repeats `vacancies_location.company_address` verbatim -- sample "zero" has
+ * streetAddress "Laan Nieuwer-Amstel 1" with hiringOrganization "Gemeente
+ * Amstelveen", i.e. the buyer's address. An assignment performed outside the
+ * buyer's home province would get the buyer's province from either, so they
+ * are dropped rather than used as coverage (CTP-526 review). */
 const resolveProvincie = (
-  tender: OpdrachtoverheidFetchedPayload["tender"],
-  jobPosting: OpdrachtoverheidFetchedPayload["jobPosting"]
-): string | null => {
-  const address = jsonLdNode(jsonLdNode(jobPosting?.jobLocation)?.address);
-  return (
-    toCanonicalProvincie(tender.vacancies_location?.province) ??
-    toCanonicalProvincie(tender.organization_location?.province) ??
-    toCanonicalProvincie(jsonLdText(address?.addressRegion))
-  );
-};
+  tender: OpdrachtoverheidFetchedPayload["tender"]
+): string | null => toCanonicalProvincie(tender.vacancies_location?.province);
 
 /** `education_level_obj.education_level_label` is the source's own level label
  * ("MBO", "HBO", "WO"). "Onbekend" is its explicit not-published marker
@@ -270,8 +259,7 @@ const resolveSkills = (
  * original broker this tender was mirrored from, kept for cross-source dedup
  * per the RJC-360 probe decision. */
 const resolveBronSpecifiek = (
-  tender: OpdrachtoverheidFetchedPayload["tender"],
-  jobPosting: OpdrachtoverheidFetchedPayload["jobPosting"]
+  tender: OpdrachtoverheidFetchedPayload["tender"]
 ) => {
   const uren = resolveUren(tender);
   const numericUren = formatHoursPerWeek(
@@ -283,7 +271,7 @@ const resolveBronSpecifiek = (
     exclusive: tender.exclusive ?? null,
     opdracht_overheid_url: tender.opdracht_overheid_url ?? null,
     opleidingsniveau: resolveOpleidingsniveau(tender),
-    provincie: resolveProvincie(tender, jobPosting),
+    provincie: resolveProvincie(tender),
     skills: resolveSkills(tender),
     tender_first_seen: tender.tender_first_seen ?? null,
     tender_hours_week: tender.tender_hours_week ?? null,
@@ -335,11 +323,7 @@ export const parseOpdrachtoverheidPayload = (
       "tender.tender_description"
     ),
     bronReferentie: field(tender.tender_id, parserVersion, "tender.tender_id"),
-    bronSpecifiek: field(
-      resolveBronSpecifiek(tender, jobPosting),
-      parserVersion,
-      "tender"
-    ),
+    bronSpecifiek: field(resolveBronSpecifiek(tender), parserVersion, "tender"),
     bronUrl: field(
       tender.opdracht_overheid_url?.trim() || UNKNOWN,
       parserVersion,

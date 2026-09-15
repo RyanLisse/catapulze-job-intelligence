@@ -126,14 +126,18 @@ describe("parseOpdrachtoverheidPayload (CTP-526 field gaps)", () => {
     ).toMatchObject({ tender_hybrid_working: true, werkvorm: "Hybride" });
   });
 
-  it("falls back to the JobPosting addressRegion when the API location block is empty", () => {
+  it("leaves provincie null rather than using the buyer's own address when the vacancy location block is empty", () => {
     const base = sample("zero");
     expect(
       bronSpecifiekOf({
         jobPosting: base.jobPosting,
-        tender: { ...base.tender, vacancies_location: {} },
+        tender: {
+          ...base.tender,
+          organization_location: { province: "Zuid-Holland" },
+          vacancies_location: {},
+        },
       }).provincie
-    ).toBe("Noord-Holland");
+    ).toBeNull();
   });
 
   it("decodes HTML entities in competence items", () => {
