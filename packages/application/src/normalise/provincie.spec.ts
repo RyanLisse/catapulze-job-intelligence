@@ -18,6 +18,7 @@ describe("toCanonicalProvincie", () => {
     expect(toCanonicalProvincie("noord holland")).toBe("Noord-Holland");
     expect(toCanonicalProvincie("N-Brabant")).toBe("Noord-Brabant");
     expect(toCanonicalProvincie(" Provincie Utrecht ")).toBe("Utrecht");
+    expect(toCanonicalProvincie("Provincie: Utrecht")).toBe("Utrecht");
     expect(toCanonicalProvincie("ZH")).toBe("Zuid-Holland");
   });
 

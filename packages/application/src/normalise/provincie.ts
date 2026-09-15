@@ -54,7 +54,7 @@ const ALIASES = new Map<string, Provincie>(
   } satisfies Record<string, Provincie>)
 );
 
-const PROVINCIE_PREFIX = /^provincie\s+/iu;
+const PROVINCIE_PREFIX = /^provincie(?:\s*:\s*|\s+)/iu;
 
 /** Two-letter abbreviations (NB, NH, ZH) are legal on a dedicated province
  * field but read as "nota bene" and the like inside running text, so the text
@@ -101,8 +101,7 @@ export const findProvincieInText = (
   }
   const parts = text.split(/[\s,;|/()[\]]+/u).filter(Boolean);
   let match: Provincie | null = null;
-  for (let index = 0; index < parts.length; index += 1) {
-    const token = parts[index] ?? "";
+  for (const [index, token] of parts.entries()) {
     if (token.length < MIN_SCAN_TOKEN_LENGTH) {
       continue;
     }
@@ -111,9 +110,7 @@ export const findProvincieInText = (
       match = single;
       continue;
     }
-    const pair = toCanonicalProvincie(
-      `${parts[index]} ${parts[index + 1] ?? ""}`
-    );
+    const pair = toCanonicalProvincie(`${token} ${parts[index + 1] ?? ""}`);
     if (pair !== null) {
       match = pair;
     }
