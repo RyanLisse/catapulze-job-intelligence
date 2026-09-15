@@ -158,6 +158,8 @@ export interface JobListing {
   readonly title: string;
   readonly organization: string | null;
   readonly location: string | null;
+  /** Canonical NL province the source published; null when it did not. */
+  readonly provincie?: string | null;
   readonly country: "NL" | null;
   readonly contractType: JobContractType | null;
   readonly rate: JobRate | null;

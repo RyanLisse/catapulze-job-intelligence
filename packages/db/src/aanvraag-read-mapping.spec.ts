@@ -43,7 +43,9 @@ describe("readAanvraagBronFacts", () => {
       contracttype: "detachering",
       opdrachtgeverNaam: null,
       opleidingsniveau: null,
+      provincie: null,
       publicatiedatum: null,
+      skills: [],
       startDatum: null,
       werkvorm: null,
     });
@@ -69,5 +71,36 @@ describe("readAanvraagBronFacts", () => {
     expect(
       readAanvraagBronFacts({ publicatiedatum: "2026-08-24" }).publicatiedatum
     ).toBe("2026-08-24");
+  });
+
+  it("reads the skills list and a canonical province off one curated row", () => {
+    const facts = readAanvraagBronFacts({
+      provincie: "noord holland",
+      skills: ["Java", " java ", "", "Kubernetes"],
+    });
+    expect(facts.skills).toEqual(["Java", "Kubernetes"]);
+    // "noord holland" never went through toCanonicalProvincie, so the read
+    // path refuses it rather than canonicalising on the source's behalf.
+    expect(facts.provincie).toBeNull();
+  });
+
+  it("passes a canonical province through unchanged", () => {
+    expect(
+      readAanvraagBronFacts({ provincie: "Noord-Holland" }).provincie
+    ).toBe("Noord-Holland");
+  });
+
+  it("yields no skills and no province when the source published neither", () => {
+    for (const bronSpecifiek of [
+      null,
+      {},
+      { provincie: "Amsterdam", skills: "Java, Kubernetes" },
+      { provincie: "", skills: [""] },
+      { skills: [42, null] },
+    ]) {
+      const facts = readAanvraagBronFacts(bronSpecifiek);
+      expect(facts.provincie).toBeNull();
+      expect(facts.skills).toEqual([]);
+    }
   });
 });

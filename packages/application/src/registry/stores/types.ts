@@ -77,8 +77,12 @@ export interface AanvraagRecord {
   readonly locatie?: string | null;
   readonly opdrachtgeverNaam?: string | null;
   readonly opleidingsniveau?: string | null;
+  /** Canonical NL province the source published (CTP-514, F04). Never derived. */
+  readonly provincie?: string | null;
   readonly publicatiedatum?: string | null;
   readonly rawPayloadRef: string;
+  /** Skills the source published as structured data (CTP-514, F15). */
+  readonly skills?: readonly string[];
   readonly startDatum?: string | null;
   readonly scrapeRunId: string;
   readonly sluitingsdatum?: Date | null;

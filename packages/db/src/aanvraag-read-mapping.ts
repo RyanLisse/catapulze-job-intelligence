@@ -1,10 +1,14 @@
+import { NL_PROVINCIES, normaliseSkills } from "@ji/application/normalise";
 import { z } from "zod";
 
 export interface AanvraagBronFacts {
   readonly contracttype: string | null;
   readonly opdrachtgeverNaam: string | null;
   readonly opleidingsniveau: string | null;
+  /** One of the 12 canonical NL province names, or null. Never derived here. */
+  readonly provincie: string | null;
   readonly publicatiedatum: string | null;
+  readonly skills: readonly string[];
   readonly startDatum: string | null;
   readonly werkvorm: string | null;
 }
@@ -20,6 +24,19 @@ const sourceTextSchema = z
   // oxlint-disable-next-line promise/prefer-await-to-then -- Zod's synchronous fallback API, not Promise.catch
   .catch(null);
 
+/**
+ * A province is only honest when the normaliser wrote one of the 12 canonical
+ * names. Anything else (a city, a region, a source spelling that was never
+ * canonicalised) is rejected rather than shown: canonicalisation is the
+ * normaliser's job, not the read path's.
+ */
+const provincieSchema = z
+  .enum(NL_PROVINCIES)
+  .nullable()
+  .optional()
+  // oxlint-disable-next-line promise/prefer-await-to-then -- Zod's synchronous fallback API, not Promise.catch
+  .catch(null);
+
 const bronFactsInputSchema = z.object({
   contract_type: sourceTextSchema,
   contracttype: sourceTextSchema,
@@ -29,8 +46,10 @@ const bronFactsInputSchema = z.object({
   opdrachtgeverNaam: sourceTextSchema,
   opdrachtgever_naam: sourceTextSchema,
   opleidingsniveau: sourceTextSchema,
+  provincie: provincieSchema,
   publicatie_datum: sourceTextSchema,
   publicatiedatum: sourceTextSchema,
+  skills: z.unknown().optional().transform(normaliseSkills),
   startDatum: sourceTextSchema,
   start_datum: sourceTextSchema,
   werkvorm: sourceTextSchema,
@@ -79,7 +98,9 @@ export const readAanvraagBronFacts = (
       contracttype: null,
       opdrachtgeverNaam: null,
       opleidingsniveau: null,
+      provincie: null,
       publicatiedatum: null,
+      skills: [],
       startDatum: null,
       werkvorm: null,
     };
@@ -95,7 +116,9 @@ export const readAanvraagBronFacts = (
       values.opleidingsniveau,
       values.education_level
     ),
+    provincie: values.provincie ?? null,
     publicatiedatum: publicationDate(values),
+    skills: values.skills,
     startDatum: firstSourceText(values.startDatum, values.start_datum),
     werkvorm: values.werkvorm ?? null,
   };

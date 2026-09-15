@@ -33,9 +33,11 @@ export interface AanvraagPreview {
   readonly locatie?: string | null;
   readonly opdrachtgeverNaam?: string | null;
   readonly opleidingsniveau?: string | null;
+  readonly provincie?: string | null;
   readonly publicatiedatum?: string | null;
   readonly rawPayloadRef: string;
   readonly scrapeRunId: string;
+  readonly skills?: readonly string[];
   readonly sluitingsdatum?: string | null;
   readonly startDatum?: string | null;
   readonly status: string;
@@ -213,11 +215,12 @@ export const mapAanvraagToJobListing = (input: {
     location: input.aanvraag.locatie ?? null,
     markering: input.markering ?? null,
     organization: input.aanvraag.opdrachtgeverNaam ?? null,
+    provincie: input.aanvraag.provincie ?? null,
     publishedAt: input.aanvraag.publicatiedatum ?? null,
     rate: mapRate(input.aanvraag),
     rawPreview: input.rawPreview,
     remote: mapRemote(input.aanvraag.werkvorm),
-    skills: [],
+    skills: input.aanvraag.skills ?? [],
     sourceRecords: [
       {
         displayName: source.displayName,

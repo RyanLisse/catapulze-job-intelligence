@@ -25,32 +25,32 @@ export type Provincie = (typeof NL_PROVINCIES)[number];
 
 const ALIASES = new Map<string, Provincie>(
   Object.entries({
-  drenthe: "Drenthe",
-  flevoland: "Flevoland",
-  friesland: "Friesland",
-  fryslan: "Friesland",
-  fryslân: "Friesland",
-  gelderland: "Gelderland",
-  groningen: "Groningen",
-  limburg: "Limburg",
-  "n-brabant": "Noord-Brabant",
-  "n-holland": "Noord-Holland",
-  nb: "Noord-Brabant",
-  nh: "Noord-Holland",
-  "noord brabant": "Noord-Brabant",
-  "noord holland": "Noord-Holland",
-  "noord-brabant": "Noord-Brabant",
-  "noord-holland": "Noord-Holland",
-  noordbrabant: "Noord-Brabant",
-  noordholland: "Noord-Holland",
-  overijssel: "Overijssel",
-  utrecht: "Utrecht",
-  "z-holland": "Zuid-Holland",
-  zeeland: "Zeeland",
-  zh: "Zuid-Holland",
-  "zuid holland": "Zuid-Holland",
-  "zuid-holland": "Zuid-Holland",
-  zuidholland: "Zuid-Holland",
+    drenthe: "Drenthe",
+    flevoland: "Flevoland",
+    friesland: "Friesland",
+    fryslan: "Friesland",
+    fryslân: "Friesland",
+    gelderland: "Gelderland",
+    groningen: "Groningen",
+    limburg: "Limburg",
+    "n-brabant": "Noord-Brabant",
+    "n-holland": "Noord-Holland",
+    nb: "Noord-Brabant",
+    nh: "Noord-Holland",
+    "noord brabant": "Noord-Brabant",
+    "noord holland": "Noord-Holland",
+    "noord-brabant": "Noord-Brabant",
+    "noord-holland": "Noord-Holland",
+    noordbrabant: "Noord-Brabant",
+    noordholland: "Noord-Holland",
+    overijssel: "Overijssel",
+    utrecht: "Utrecht",
+    "z-holland": "Zuid-Holland",
+    zeeland: "Zeeland",
+    zh: "Zuid-Holland",
+    "zuid holland": "Zuid-Holland",
+    "zuid-holland": "Zuid-Holland",
+    zuidholland: "Zuid-Holland",
   } satisfies Record<string, Provincie>)
 );
 
@@ -63,7 +63,7 @@ const PROVINCIE_PREFIX = /^provincie\s+/iu;
  * is guessed.
  */
 export const toCanonicalProvincie = (
-  text: string | null | undefined
+  text?: string | null
 ): Provincie | null => {
   if (text === null || text === undefined) {
     return null;

@@ -90,6 +90,17 @@ const DetailField = ({
   </div>
 );
 
+/**
+ * Rendered only when the source published a province (CTP-514, F04). An absent
+ * province stays absent rather than showing "Onbekend": the detail page never
+ * claims a fact the source did not publish.
+ */
+const ProvincieField = ({
+  provincie,
+}: {
+  readonly provincie?: string | null;
+}) => (provincie ? <DetailField label="Provincie" value={provincie} /> : null);
+
 const DetailSection = ({
   children,
   title,
@@ -276,6 +287,7 @@ export const JobDetail = ({
             aangevuld={isFieldAangevuld(job, "locatie")}
             aangevuldField="locatie"
           />
+          <ProvincieField provincie={job.provincie} />
           <DetailField
             label="Tarief"
             value={formatRate(job)}
