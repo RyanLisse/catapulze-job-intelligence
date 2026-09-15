@@ -25,6 +25,8 @@ interface Case {
   readonly claims: readonly FieldClaim[];
   readonly id: string;
   readonly reference: string;
+  /** Literal skill chips, in source order, when the source publishes a list. */
+  readonly skills?: readonly string[];
   readonly title: string;
 }
 
@@ -38,6 +40,24 @@ const CASES: readonly Case[] = [
     id: "d8a93a9f-0c13-4523-809a-e7dde338ca1e",
     reference: "opdrachten/Interim/ciam-tester",
     title: "CIAM Tester",
+  },
+  {
+    bron: "bluetrail-adviseur-privacy-ibd",
+    claims: [
+      { label: "Provincie", value: "Zuid-Holland" },
+      { label: "Uren per week", value: "32" },
+    ],
+    id: "b0039ab2-af2d-4c99-8c98-a0a9fa8f8bf7",
+    reference: "opdrachten/Interim/adviseur-privacy-ibd",
+    skills: [
+      "Analytisch & conceptueel sterk",
+      "Communicatief en verbindend",
+      "Organisatiesensitief",
+      "Overtuigingskracht",
+      "Zelfstandig, maar teamgericht",
+      "Sterke schrijfvaardigheid",
+    ],
+    title: "Adviseur Privacy IBD",
   },
   {
     bron: "hero",
@@ -59,7 +79,10 @@ const CASES: readonly Case[] = [
   },
   {
     bron: "onefellow-920",
-    claims: [{ label: "Startdatum", value: "1 okt 2026" }],
+    claims: [
+      { label: "Startdatum", value: "1 okt 2026" },
+      { label: "Looptijd", value: "5 jaar met optie tot verlenging" },
+    ],
     id: "90653a1b-1739-404c-9d33-6bc8cb956ecb",
     reference: "920",
     title:
@@ -76,11 +99,31 @@ const CASES: readonly Case[] = [
     title: "#944 Productmanager/adviseur i-Sociaal Domein",
   },
   {
-    bron: "needstaffing",
-    claims: [{ label: "Uren per week", value: "36" }],
+    bron: "needstaffing-15520",
+    claims: [
+      { label: "Uren per week", value: "36" },
+      { label: "Looptijd", value: "4 maanden" },
+    ],
     id: "e470c36c-0e1b-4b4e-8389-e9bafba24d51",
     reference: "15520",
     title: "Operationeel Database Ontwikkelaar 2026-BZB-0457",
+  },
+  {
+    bron: "needstaffing-15570",
+    claims: [
+      { label: "Werkvorm", value: "Hybride" },
+      { label: "Uren per week", value: "36" },
+      { label: "Looptijd", value: "3 maanden (optie 1x verlenging)" },
+    ],
+    id: "0658d134-f0ce-478c-8996-b274a19c527f",
+    reference: "15570",
+    skills: [
+      "Samenwerken",
+      "Overtuigingskracht",
+      "Omgevingssensitiviteit",
+      "Resultaatgerichtheid",
+    ],
+    title: "Senior Procesregisseur Digitale Gegevensuitwisseling 202609A077",
   },
   {
     bron: "harveynash",
@@ -88,6 +131,7 @@ const CASES: readonly Case[] = [
       { label: "Provincie", value: "Utrecht" },
       { label: "Werkvorm", value: "Hybride" },
       { label: "Uren per week", value: "36" },
+      { label: "Looptijd", value: "24 maanden" },
     ],
     id: "4d6c6f5a-2ed3-4cf8-af9a-2266ceca31a2",
     reference: "452d25a3-ae7d-4ee6-9ceb-3c696332799f",
@@ -121,7 +165,7 @@ const CASES: readonly Case[] = [
     title: "Platform engineer Azure DAS",
   },
   {
-    bron: "opdrachtoverheid",
+    bron: "opdrachtoverheid-1457",
     claims: [
       { label: "Provincie", value: "Noord-Holland" },
       { label: "Uren per week", value: "36" },
@@ -129,6 +173,17 @@ const CASES: readonly Case[] = [
     id: "7ac990cb-97c8-42ae-95c7-f538eaecd77c",
     reference: "amstelveenhuurtin_1457",
     title: "609 - Schuldhulpverlener",
+  },
+  {
+    bron: "opdrachtoverheid-2177",
+    claims: [
+      { label: "Provincie", value: "Noord-Holland" },
+      { label: "Uren per week", value: "32" },
+      { label: "Contract", value: "Detachering" },
+    ],
+    id: "dc361c1d-6669-4e58-84d5-6a179b97a599",
+    reference: "amstelveenhuurtin_2177",
+    title: "Junior projectleider energietransitie (SO26-1658)",
   },
   {
     bron: "motian-flextender",
@@ -182,14 +237,25 @@ for (const testCase of CASES) {
   }) => {
     const dialog = await openDetail(page, testCase);
 
-    for (const claim of testCase.claims) {
-      const value = dialog.locator(
-        `div:has(> dt:text-is("${claim.label}")) > dd:visible`
+    await Promise.all(
+      testCase.claims.map((claim) =>
+        expect(
+          dialog.locator(
+            `div:has(> dt:text-is("${claim.label}")) > dd:visible`
+          ),
+          `${testCase.bron} ${claim.label} must read "${claim.value}"`
+        ).toHaveText(claim.value)
+      )
+    );
+
+    if (testCase.skills) {
+      const chips = dialog.locator(
+        'div:has(> h3:text-is("Skills")) span:visible'
       );
       await expect(
-        value,
-        `${testCase.bron} ${claim.label} must read "${claim.value}"`
-      ).toHaveText(claim.value);
+        chips,
+        `${testCase.bron} must render its published skill chips`
+      ).toHaveText([...testCase.skills]);
     }
 
     await dialog.screenshot({

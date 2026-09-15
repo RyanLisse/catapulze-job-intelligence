@@ -21,6 +21,10 @@ export default defineConfig({
   reporter: [
     ["line"],
     [
+      "json",
+      { outputFile: path.join(artifactsRoot, "field-gap-results.json") },
+    ],
+    [
       "html",
       {
         open: "never",
