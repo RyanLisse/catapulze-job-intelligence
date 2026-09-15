@@ -4,8 +4,12 @@ import path from "node:path";
 
 import type { OpdrachtoverheidFetchedPayload } from "@ji/connectors/opdrachtoverheid";
 
+import { opdrachtoverheid } from "../sources/opdrachtoverheid";
 import type { OpdrachtoverheidBronSpecifiek } from "./opdrachtoverheid";
-import { parseOpdrachtoverheidPayload } from "./opdrachtoverheid";
+import {
+  normaliseOpdrachtoverheidObservation,
+  parseOpdrachtoverheidPayload,
+} from "./opdrachtoverheid";
 
 /**
  * Real `POST /search` records captured live on 2026-09-15 (CTP-526), together
@@ -42,19 +46,6 @@ const sample = (name: string): OpdrachtoverheidFetchedPayload => {
   }
   return { jobPosting: found.jobPosting, tender: found.tender };
 };
-
-/** `tender_competences` and `tender_hybrid_working` are published live but not
- * declared on `OpdrachtoverheidTender` (packages/connectors, outside this
- * lane), so overrides go through this typed spread. */
-interface UndeclaredTenderFields {
-  readonly tender_competences?: string;
-  readonly tender_hybrid_working?: boolean;
-}
-
-const withUndeclared = (
-  tender: OpdrachtoverheidFetchedPayload["tender"],
-  extra: UndeclaredTenderFields
-): OpdrachtoverheidFetchedPayload["tender"] => ({ ...tender, ...extra });
 
 const bronSpecifiekOf = (
   payload: OpdrachtoverheidFetchedPayload
@@ -130,7 +121,7 @@ describe("parseOpdrachtoverheidPayload (CTP-526 field gaps)", () => {
     expect(
       bronSpecifiekOf({
         jobPosting: base.jobPosting,
-        tender: withUndeclared(base.tender, { tender_hybrid_working: true }),
+        tender: { ...base.tender, tender_hybrid_working: true },
       })
     ).toMatchObject({ tender_hybrid_working: true, werkvorm: "Hybride" });
   });
@@ -150,10 +141,11 @@ describe("parseOpdrachtoverheidPayload (CTP-526 field gaps)", () => {
     expect(
       bronSpecifiekOf({
         jobPosting: base.jobPosting,
-        tender: withUndeclared(base.tender, {
+        tender: {
+          ...base.tender,
           tender_competences:
             "<h3>Competenties</h3><ul><li>Plannen &amp; organiseren</li></ul>",
-        }),
+        },
       }).skills
     ).toEqual(["Plannen & organiseren"]);
   });
@@ -190,5 +182,45 @@ describe("parseOpdrachtoverheidPayload (CTP-526 field gaps)", () => {
     expect(
       parseOpdrachtoverheidPayload(sample("zero"), "hash").startDatum.value
     ).toBe("2026-11-01");
+  });
+});
+
+describe("opdrachtoverheid pipeline (fixture listing -> connector -> normalise)", () => {
+  it("carries the published education level and competences through the connector projection", async () => {
+    const connector = opdrachtoverheid.createConnector({
+      bronId: opdrachtoverheid.bronId,
+      listingFixturePath: "opdrachtoverheid/listing-page-0.json",
+      live: false,
+      runKind: "test",
+    });
+    const discovery = await connector.discover(null);
+    const item = discovery.items.find(
+      (candidate) => candidate.bronReferentie === "amstelveenhuurtin_2177"
+    );
+    if (!item) {
+      throw new Error("expected amstelveenhuurtin_2177 in the fixture listing");
+    }
+    const fetched = await connector.fetch(item);
+    if (fetched?.status !== "fetched") {
+      throw new Error("expected a fetched observation");
+    }
+    const draft = normaliseOpdrachtoverheidObservation(
+      fetched.body,
+      item.contentHash
+    );
+    // SAFETY: same shape `resolveBronSpecifiek` builds, widened for storage.
+    const facts = draft.bronSpecifiek.value as OpdrachtoverheidBronSpecifiek;
+    expect(facts).toMatchObject({
+      opleidingsniveau: "MBO",
+      provincie: "Noord-Holland",
+      uren_per_week: "32",
+    });
+    expect(facts.skills).toEqual([
+      "Nauwkeurig",
+      "Communicatief vaardig",
+      "Bestuurlijk sensitief",
+      "Plannen en organiseren",
+      "Zelfstandig",
+    ]);
   });
 });

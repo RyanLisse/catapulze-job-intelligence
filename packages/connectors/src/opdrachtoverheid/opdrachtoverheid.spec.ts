@@ -12,6 +12,7 @@ import {
 import { createOpdrachtoverheidClient } from "./client";
 import type { OpdrachtoverheidClient } from "./client";
 import { createOpdrachtoverheidConnector } from "./connector";
+import { hashOpdrachtoverheidListingItem } from "./hash";
 import type {
   OpdrachtoverheidFetchedPayload,
   OpdrachtoverheidTender,
@@ -475,5 +476,41 @@ describe("Opdrachtoverheid connector", () => {
     expect(body).not.toContain("similarity_score");
     expect(body).not.toContain("should not survive");
     expect(body).not.toContain("Dynamics_id");
+  });
+
+  it("keeps the published education level, competences and hybrid flag through the projection (CTP-526)", async () => {
+    const bronId = "bron-opdrachtoverheid-commercial";
+    const rawTender: OpdrachtoverheidTender = {
+      ...buildTender("T-commercial", "Commercial"),
+      education_level_obj: { education_level_label: "MBO", id: 10 },
+      tender_competences: "<h3>Competenties</h3><ul><li>Nauwkeurig</li></ul>",
+      tender_hybrid_working: true,
+    };
+    const client: OpdrachtoverheidClient = {
+      fetchDetailJsonLd: () => Promise.resolve(null),
+      fetchListing: () =>
+        Promise.resolve({ hasMore: false, items: [rawTender] }),
+    };
+    const connector = createOpdrachtoverheidConnector({ bronId, client });
+
+    const discovered = await connector.discover(null);
+    const [discoveredItem] = discovered.items;
+    if (!discoveredItem) {
+      throw new Error("expected a discovered item");
+    }
+    // SAFETY: discover() projects the listing row this test supplied; reading
+    // it back as the declared tender shape re-confirms what survived.
+    const projected = discoveredItem.listingPayload as OpdrachtoverheidTender;
+    expect(projected.education_level_obj?.education_level_label).toBe("MBO");
+    expect(projected.tender_competences).toContain("Nauwkeurig");
+    expect(projected.tender_hybrid_working).toBe(true);
+
+    const withoutHybrid = await hashOpdrachtoverheidListingItem({
+      ...rawTender,
+      tender_hybrid_working: false,
+    });
+    expect(await hashOpdrachtoverheidListingItem(rawTender)).not.toBe(
+      withoutHybrid
+    );
   });
 });

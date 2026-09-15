@@ -142,26 +142,6 @@ const resolveStartDatum = (
   return startDatum ? startDatum.slice(0, 10) : UNKNOWN;
 };
 
-/** Fields the live `POST /search` response publishes that
- * `OpdrachtoverheidTender` does not declare yet
- * (packages/connectors/src/opdrachtoverheid/types.ts:17, outside this lane).
- * Verified present on the 2026-09-15 live capture in
- * `fixtures/connectors/opdrachtoverheid/normalise-samples-2026-09-15.json`;
- * every read below still guards the runtime shape. */
-interface OpdrachtoverheidUndeclaredFields {
-  education_level_obj?: { education_level_label?: string | null } | null;
-  tender_competences?: string | null;
-  tender_hybrid_working?: boolean | null;
-}
-
-const undeclaredFields = (
-  tender: OpdrachtoverheidFetchedPayload["tender"]
-): OpdrachtoverheidUndeclaredFields =>
-  // SAFETY: same runtime object, read through the undeclared-field view; each
-  // property is narrowed at its use site because the connector type cannot be
-  // widened from this lane.
-  tender as OpdrachtoverheidUndeclaredFields;
-
 /** The JobPosting JSON-LD node and its value type, taken from the payload the
  * connector hands over so the two can never drift. */
 type JobPostingNode = NonNullable<OpdrachtoverheidFetchedPayload["jobPosting"]>;
@@ -211,8 +191,7 @@ const resolveOpleidingsniveau = (
   tender: OpdrachtoverheidFetchedPayload["tender"]
 ): string | null => {
   const label = jsonLdText(
-    undeclaredFields(tender).education_level_obj?.education_level_label ??
-      undefined
+    tender.education_level_obj?.education_level_label ?? undefined
   );
   return label !== null && label.toLowerCase() !== UNKNOWN_EDUCATION_LABEL
     ? label
@@ -229,7 +208,7 @@ const resolveOpleidingsniveau = (
 const hybridWorking = (
   tender: OpdrachtoverheidFetchedPayload["tender"]
 ): boolean | null => {
-  const value = undeclaredFields(tender).tender_hybrid_working;
+  const value = tender.tender_hybrid_working;
   return typeof value === "boolean" ? value : null;
 };
 
@@ -271,7 +250,7 @@ const decodeEntities = (text: string): string => {
 const resolveSkills = (
   tender: OpdrachtoverheidFetchedPayload["tender"]
 ): string[] | null => {
-  const html = undeclaredFields(tender).tender_competences;
+  const html = tender.tender_competences;
   const items = html
     ? COMPETENTIES_LIST_PATTERN.exec(html)?.groups?.items
     : undefined;

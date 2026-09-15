@@ -18,6 +18,7 @@ import {
   hashOpdrachtoverheidPayload,
 } from "./hash";
 import type {
+  OpdrachtoverheidEducationLevel,
   OpdrachtoverheidFetchedPayload,
   OpdrachtoverheidLocationDetail,
   OpdrachtoverheidTender,
@@ -58,10 +59,16 @@ const projectLocation = (
  * `similarity_score`; raw CMS document fields) would flow straight into
  * discover()'s output and get persisted. Build a fresh object naming every
  * field explicitly so nothing unlisted here can pass through. */
+const projectEducationLevel = (
+  level: OpdrachtoverheidEducationLevel | null | undefined
+): OpdrachtoverheidEducationLevel | null =>
+  level ? { education_level_label: level.education_level_label } : null;
+
 const projectOpdrachtoverheidTender = (
   raw: OpdrachtoverheidTender
 ): OpdrachtoverheidTender => ({
   contract_type: raw.contract_type,
+  education_level_obj: projectEducationLevel(raw.education_level_obj),
   exclusive: raw.exclusive,
   extension_option_description: raw.extension_option_description,
   opdracht_overheid_url: raw.opdracht_overheid_url,
@@ -69,12 +76,14 @@ const projectOpdrachtoverheidTender = (
   remote_work_description: raw.remote_work_description,
   tender_active: raw.tender_active,
   tender_buying_organization: raw.tender_buying_organization,
+  tender_competences: raw.tender_competences,
   tender_description: raw.tender_description,
   tender_description_html: raw.tender_description_html,
   tender_description_tk: raw.tender_description_tk,
   tender_end_date: raw.tender_end_date,
   tender_first_seen: raw.tender_first_seen,
   tender_hours_week: raw.tender_hours_week,
+  tender_hybrid_working: raw.tender_hybrid_working,
   tender_id: raw.tender_id,
   tender_job_location: raw.tender_job_location,
   tender_last_seen: raw.tender_last_seen,

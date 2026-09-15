@@ -13,6 +13,11 @@ export interface OpdrachtoverheidLocationDetail {
   province?: string;
 }
 
+export interface OpdrachtoverheidEducationLevel {
+  education_level_label?: string | null;
+  id?: number | null;
+}
+
 export interface OpdrachtoverheidTender {
   tender_id: string;
   web_key: string;
@@ -46,6 +51,16 @@ export interface OpdrachtoverheidTender {
   tender_status?: string | null;
   tender_active?: boolean | null;
   remote_work_description?: string | null;
+  /** Live-verified 2026-09-15 (CTP-526): the source's own level label
+   * ("MBO"/"HBO"/"WO"), with `"Onbekend"` as its not-published marker. */
+  education_level_obj?: OpdrachtoverheidEducationLevel | null;
+  /** HTML block with a "Wensen" list of weighted requirement prose and a
+   * "Competenties"/"Vaardigheden" list of tag-like competences; only the
+   * latter is read downstream (CTP-526). */
+  tender_competences?: string | null;
+  /** The source's hybrid-work flag, rendered on the detail page as
+   * "Hybride werken: Ja/Nee". */
+  tender_hybrid_working?: boolean | null;
   extension_option_description?: string | null;
   tender_description?: string | null;
   tender_description_html?: string | null;
