@@ -249,6 +249,34 @@ describe("parseHarveyNashPayload", () => {
     });
   });
 
+  it("does not fabricate duur from a narrative paragraph that merely contains the word 'duur' (advisor review, CTP-519)", () => {
+    const base = buildPayload();
+    const draft = parseHarveyNashPayload(
+      buildPayload({
+        jsonLd: {
+          ...base.detail.jsonLd,
+          description: "<p>Gedurende de opdracht werk je met: Azure</p>",
+        },
+      }),
+      "hash-no-fabricated-duur"
+    );
+    expect(draft.bronSpecifiek.value).toMatchObject({ duur: null });
+  });
+
+  it("does not fabricate werkvorm from a narrative paragraph that merely contains 'op locatie' (advisor review, CTP-519)", () => {
+    const base = buildPayload();
+    const draft = parseHarveyNashPayload(
+      buildPayload({
+        jsonLd: {
+          ...base.detail.jsonLd,
+          description: "<p>De werkzaamheden op locatie omvatten: onderhoud</p>",
+        },
+      }),
+      "hash-no-fabricated-werkvorm"
+    );
+    expect(draft.bronSpecifiek.value).toMatchObject({ werkvorm: null });
+  });
+
   it("falls back to the listing title when JSON-LD has none", () => {
     const draft = parseHarveyNashPayload(
       buildPayload({ jsonLd: {} }),

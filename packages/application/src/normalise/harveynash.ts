@@ -292,17 +292,29 @@ const extractLabelledFact = (
  * date, on every real capture seen (fixtures/connectors/harveynash/
  * detail-endpoints-specialist.json). Maps to `bronSpecifiek.duur`; there is
  * no separate explicit end-date paragraph, so `eind_datum` stays `null`
- * (honest-absent) whenever only a duration is published. */
+ * (honest-absent) whenever only a duration is published.
+ *
+ * FIX (advisor review, CTP-519): a bare `label.includes("duur")` also
+ * matched an unrelated narrative label like "Gedurende de opdracht werk je
+ * met:", fabricating a `duur` value from prose that names no actual
+ * duration. Anchor to the exact template label instead -- `label` is
+ * already trimmed/lowercased by `extractLabelledFact`. */
 const extractHarveyNashDuur = (description: string | undefined) =>
-  extractLabelledFact(description, (label) => label.includes("duur"));
+  extractLabelledFact(description, (label) => label.startsWith("duur van"));
 
 /** "Op locatie of vanuit huis:  Hybride" -- the real werkvorm label (also
  * seen as "Werkvorm:" on other postings per the same description template).
- * Maps to `bronSpecifiek.werkvorm` as free text, verbatim as published. */
+ * Maps to `bronSpecifiek.werkvorm` as free text, verbatim as published.
+ *
+ * FIX (advisor review, CTP-519): a bare `label.includes("op locatie")` also
+ * matched an unrelated narrative label like "De werkzaamheden op locatie
+ * omvatten:", fabricating a `werkvorm` value from prose that never actually
+ * states hybride/remote/op locatie. Anchor to the exact template labels
+ * instead. */
 const extractHarveyNashWerkvorm = (description: string | undefined) =>
   extractLabelledFact(
     description,
-    (label) => label.includes("op locatie") || label.includes("werkvorm")
+    (label) => label === "op locatie of vanuit huis" || label === "werkvorm"
   );
 
 interface ResolvedBeschrijving {
