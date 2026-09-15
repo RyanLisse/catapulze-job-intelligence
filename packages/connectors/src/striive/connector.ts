@@ -19,11 +19,33 @@ export interface StriiveConnectorOptions {
   knownHashes?: KnownHashStore;
 }
 
+/** CTP-524: split out so `projectStriiveJob` stays under the complexity
+ * limit -- these are the 6 tariff fields added to the DEC-008 whitelist
+ * (commercial facts, not PII; see types.ts). */
+const projectStriiveTarief = (raw: StriiveJob) => ({
+  hasMaxRate: raw.hasMaxRate ?? null,
+  hourlyRateMax: raw.hourlyRateMax ?? null,
+  hourlyRateMin: raw.hourlyRateMin ?? null,
+  monthlyRateMax: raw.monthlyRateMax ?? null,
+  monthlyRateMin: raw.monthlyRateMin ?? null,
+  rateType: raw.rateType ?? null,
+});
+
+/** CTP-524 F06/F15: `jobType` (contract/engagement type) and `tags`
+ * (skills) are real live fields (confirmed 2026-09-15), whitelisted for the
+ * same reason as tariff -- commercial facts, not PII. */
+const projectStriiveContractAndSkills = (raw: StriiveJob) => ({
+  jobType: raw.jobType ?? null,
+  tags: raw.tags ?? null,
+});
+
 /** DEC-008: never let more than the whitelisted fields reach
  * `listingPayload` or the stored body. The live endpoint returns a much
- * larger raw record per job -- recruiter name/email/phone, internal
- * staffing-system ids, and zero-valued tariff fields (confirmed unusable by
- * the probe) -- so build a fresh object naming every field explicitly. */
+ * larger raw record per job -- recruiter name/email/phone and internal
+ * staffing-system ids -- so build a fresh object naming every field
+ * explicitly. Tariff fields are whitelisted (CTP-524, F09): they were zero
+ * at capture time but are commercial facts, not PII, so DEC-008 does not
+ * exclude them -- see the doc comment on `StriiveJob` in types.ts. */
 const projectStriiveJob = (raw: StriiveJob): StriiveJob => ({
   broker: raw.broker ?? null,
   brokerUrl: raw.brokerUrl ?? null,
@@ -42,6 +64,8 @@ const projectStriiveJob = (raw: StriiveJob): StriiveJob => ({
   source: raw.source ?? null,
   startDate: raw.startDate ?? null,
   title: raw.title,
+  ...projectStriiveTarief(raw),
+  ...projectStriiveContractAndSkills(raw),
 });
 
 export const createStriiveConnector = (

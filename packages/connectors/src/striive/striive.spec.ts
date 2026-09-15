@@ -95,16 +95,19 @@ describe("Striive connector", () => {
     ]) {
       expect(payload.job).not.toHaveProperty(piiKey);
     }
-    for (const tariefKey of [
-      "hasMaxRate",
-      "hourlyRateMin",
-      "hourlyRateMax",
-      "monthlyRateMin",
-      "monthlyRateMax",
-      "rateType",
-    ]) {
-      expect(payload.job).not.toHaveProperty(tariefKey);
-    }
+    // CTP-524 F09: tariff fields are commercial facts, not PII -- DEC-008
+    // does not exclude them. The fixture predates them, so the projection
+    // fills each in as null rather than omitting the key.
+    expect(payload.job.hasMaxRate).toBeNull();
+    expect(payload.job.hourlyRateMin).toBeNull();
+    expect(payload.job.hourlyRateMax).toBeNull();
+    expect(payload.job.monthlyRateMin).toBeNull();
+    expect(payload.job.monthlyRateMax).toBeNull();
+    expect(payload.job.rateType).toBeNull();
+    // CTP-524 F06/F15: jobType (contract) and tags (skills) are real live
+    // fields (confirmed 2026-09-15), same treatment as tariff above.
+    expect(payload.job.jobType).toBeNull();
+    expect(payload.job.tags).toBeNull();
   });
 
   it("rejects a listing row missing an id/title", async () => {

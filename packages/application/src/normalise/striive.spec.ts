@@ -55,15 +55,125 @@ describe("parseStriivePayload", () => {
     );
     expect(draft.startDatum.value).toBe("2026-09-13");
     expect(draft.beschrijving.value).toContain("Beheer van Youforce.");
-    expect(draft.bronSpecifiek.value).toMatchObject({ uren_per_week: "8–24" });
+    expect(draft.bronSpecifiek.value).toMatchObject({
+      provincie: "Drenthe",
+      uren_per_week: "8–24",
+    });
     expect(draft.extractieMethode).toBe("api");
   });
 
-  it("never maps a tarief amount -- every tariff field is confirmed unusable for this source", () => {
-    const draft = parseStriivePayload(buildPayload(), "hash-2");
+  it("maps other real location strings to their explicit province (CTP-524 F04)", () => {
+    // Built from the other 2026-08-31 fixture records (listing-page-0.json).
+    const cases: [string, string][] = [
+      ["Pernis Zuid-Holland", "Zuid-Holland"],
+      ["Apeldoorn Gelderland", "Gelderland"],
+      ["Eemshaven Groningen", "Groningen"],
+      ["Almelo Overijssel", "Overijssel"],
+    ];
+    for (const [location, provincie] of cases) {
+      const draft = parseStriivePayload(
+        buildPayload({ location }),
+        "hash-provincie"
+      );
+      // SAFETY: parseStriivePayload always emits bron_specifiek.provincie.
+      const specifiek = draft.bronSpecifiek.value as { provincie: unknown };
+      expect(specifiek.provincie).toBe(provincie);
+    }
+  });
+
+  it("never infers provincie from a city-only location (honesty)", () => {
+    const draft = parseStriivePayload(
+      buildPayload({ location: "Amsterdam" }),
+      "hash-provincie-absent"
+    );
+    // SAFETY: parseStriivePayload always emits bron_specifiek.provincie.
+    const specifiek = draft.bronSpecifiek.value as { provincie: unknown };
+    expect(specifiek.provincie).toBeNull();
+  });
+
+  it("never maps a tarief amount when the rate fields are zero (honesty -- CTP-524 F09)", () => {
+    const draft = parseStriivePayload(
+      buildPayload({
+        hasMaxRate: false,
+        hourlyRateMax: 0,
+        hourlyRateMin: 0,
+        monthlyRateMax: 0,
+        monthlyRateMin: 0,
+        rateType: 0,
+      }),
+      "hash-2"
+    );
     expect(draft.tarief.max).toBe(UNKNOWN);
     expect(draft.tarief.min).toBe(UNKNOWN);
     expect(draft.tarief.eenheid).toBe(UNKNOWN);
+  });
+
+  it("maps an hourly rate range into the draft tarief (CTP-524 F09)", () => {
+    const draft = parseStriivePayload(
+      buildPayload({ hourlyRateMax: 95, hourlyRateMin: 75 }),
+      "hash-tarief-hourly"
+    );
+    expect(draft.tarief.eenheid).toBe("uur");
+    expect(draft.tarief.min).toBe("75");
+    expect(draft.tarief.max).toBe("95");
+    expect(draft.tarief.valuta).toBe("EUR");
+  });
+
+  it("honours hasMaxRate: false over a populated hourlyRateMax (CTP-524 F09)", () => {
+    const draft = parseStriivePayload(
+      buildPayload({
+        hasMaxRate: false,
+        hourlyRateMax: 95,
+        hourlyRateMin: 75,
+      }),
+      "hash-tarief-has-max-rate-false"
+    );
+    expect(draft.tarief.eenheid).toBe("uur");
+    expect(draft.tarief.min).toBe("75");
+    expect(draft.tarief.max).toBe(UNKNOWN);
+  });
+
+  it("maps a monthly rate range into the draft tarief when only monthly rates are real (CTP-524 F09)", () => {
+    const draft = parseStriivePayload(
+      buildPayload({ monthlyRateMax: 8000, monthlyRateMin: 6500 }),
+      "hash-tarief-monthly"
+    );
+    expect(draft.tarief.eenheid).toBe("maand");
+    expect(draft.tarief.min).toBe("6500");
+    expect(draft.tarief.max).toBe("8000");
+  });
+
+  it("maps contract_type from the real jobType/tags field shape when present (CTP-524 F06/F15)", () => {
+    const draft = parseStriivePayload(
+      buildPayload({
+        jobType: "Statement of Work",
+        tags: ["Kubernetes", "Azure", "azure"],
+      }),
+      "hash-contract-skills"
+    );
+    // SAFETY: parseStriivePayload always emits these bron_specifiek fields.
+    const specifiek = draft.bronSpecifiek.value as {
+      contract_type: unknown;
+      skills: unknown;
+    };
+    expect(specifiek.contract_type).toBe("Statement of Work");
+    expect(specifiek.skills).toEqual(["Kubernetes", "Azure"]);
+  });
+
+  it("leaves contract_type null and skills empty for the real live capture (honesty -- CTP-524 F06/F15, ABSENT_SRC in the 2026-09-15 capture)", () => {
+    // fixtures/connectors/striive/listing-live-2026-09-15.json: jobType is
+    // null and tags is [] across the full 25-record live page.
+    const draft = parseStriivePayload(
+      buildPayload({ jobType: null, tags: [] }),
+      "hash-contract-skills-absent"
+    );
+    // SAFETY: parseStriivePayload always emits these bron_specifiek fields.
+    const specifiek = draft.bronSpecifiek.value as {
+      contract_type: unknown;
+      skills: unknown;
+    };
+    expect(specifiek.contract_type).toBeNull();
+    expect(specifiek.skills).toEqual([]);
   });
 
   it("keeps closingDateClient as sluitingsdatum and closingDateInvoice only in bronSpecifiek", () => {

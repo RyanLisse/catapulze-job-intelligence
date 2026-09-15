@@ -24,10 +24,16 @@ export interface StriiveGeoPoint {
 
 /** Whitelisted job fields kept past the connector boundary -- see the
  * `docs/sources/striive.md` field-mapping table. Recruiter name/email/phone
- * and every tariff field are deliberately absent: tariff fields were
- * confirmed live to be zero/false across the full 109-record capture
+ * remain deliberately absent (PII, DEC-008). The tariff fields below were
+ * previously excluded too, but that exclusion was never a DEC-008 (PII)
+ * concern -- they are commercial facts, and DEC-008 governs raw-data
+ * minimisation for personal data only (docs/IMPLEMENTATION_BACKLOG.md
+ * "Definieer raw-data-minimalisatie en retentie"). They were confirmed
+ * live to be zero/false across the full 109-record capture at the time
  * (`hasMaxRate: false`, `hourlyRateMin/Max: 0`, `monthlyRateMin/Max: 0`,
- * `rateType: 0`), so no usable amount exists for this source.
+ * `rateType: 0`) -- unusable then, not forbidden. Kept whitelisted now
+ * (CTP-524, F09) so a future capture with real values is honestly mapped
+ * instead of silently dropped.
  */
 export interface StriiveJob {
   id: string;
@@ -54,6 +60,26 @@ export interface StriiveJob {
    * pattern exactly) -- used verbatim as `bronUrl` rather than
    * reconstructing it. */
   brokerUrl?: string | null;
+  /** Whether an upper tariff bound is published at all (CTP-524, F09). */
+  hasMaxRate?: boolean | null;
+  hourlyRateMin?: number | null;
+  hourlyRateMax?: number | null;
+  monthlyRateMin?: number | null;
+  monthlyRateMax?: number | null;
+  /** Numeric rate-unit code; meaning unconfirmed (0 observed live, never
+   * documented). Kept verbatim in bronSpecifiek, never used to pick an
+   * eenheid -- see `resolveTarief` in normalise/striive.ts. */
+  rateType?: number | null;
+  /** VMS engagement/contract-type field (CTP-524, F06) -- confirmed live
+   * 2026-09-15 (`fixtures/connectors/striive/listing-live-2026-09-15.json`),
+   * `null` across the full 25-record capture. Kept whitelisted for when a
+   * broker publishes it, same honest-future-proofing as the tariff fields. */
+  jobType?: string | null;
+  /** Structured skills/tags list (CTP-524, F15) -- confirmed live
+   * 2026-09-15, `[]` across the full 25-record capture. Never confirmed
+   * non-empty, so entry shape is unverified; `normaliseSkills` drops
+   * anything that is not a plain string. */
+  tags?: unknown[] | null;
 }
 
 export interface StriiveListingResponse {

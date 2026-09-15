@@ -4,6 +4,8 @@ import { UNKNOWN } from "@ji/domain";
 import { resolveLifecycleStatus } from "@ji/domain/lifecycle";
 
 import { formatHoursPerWeek } from "./hours";
+import { findProvincieInText } from "./provincie";
+import { normaliseSkills } from "./skills";
 import {
   closingMomentInstant,
   field,
@@ -25,18 +27,63 @@ const numberToStringOrUnknown = (
 const toDateOnly = (raw: string | null | undefined): string | typeof UNKNOWN =>
   raw?.slice(0, 10) || UNKNOWN;
 
-/**
- * Tarief is always UNKNOWN for Striive: the probe (docs/sources/striive.md)
- * and a live 109-record capture on 2026-08-31 both confirmed every tariff
- * field (`hasMaxRate`, `hourlyRateMin/Max`, `monthlyRateMin/Max`,
- * `rateType`) is zero/false across the entire listing -- there is no
- * visible rate for this source, so nothing gets mapped as an amount.
- */
 const UNKNOWN_TARIEF: NormalisedTarief = {
   eenheid: UNKNOWN,
   max: UNKNOWN,
   min: UNKNOWN,
   valuta: "EUR",
+};
+
+/**
+ * Maps Striive's structured rate fields to the draft `tarief` (CTP-524,
+ * F09). A live 109-record capture on 2026-08-31 found every tariff field
+ * zero/false across the whole listing, so this was previously hardcoded to
+ * UNKNOWN_TARIEF; that was a capture-time observation, not a schema
+ * guarantee, so a future capture with real values must be honestly mapped
+ * instead of silently dropped. `rateType`'s encoding was never documented
+ * (only `0` observed live) -- eenheid is derived structurally instead, from
+ * which rate fields are actually populated, never from `rateType`.
+ */
+/** A rate field of exactly 0 is the unusable placeholder the 2026-08-31
+ * probe confirmed across the whole listing, never a real €0 rate. */
+const isRealRate = (value: number | null | undefined): boolean =>
+  isPresent(value) && value > 0;
+
+const rateAmountOrUnknown = (
+  value: number | null | undefined
+): string | typeof UNKNOWN => (isRealRate(value) ? String(value) : UNKNOWN);
+
+/** `hourlyRateClient` (the client-facing bill rate) is deliberately never
+ * read here -- it is not the supplier tarief this draft field represents,
+ * and mapping it would misattribute a different party's rate. */
+const resolveTarief = (job: StriiveFetchedPayload["job"]): NormalisedTarief => {
+  const hourlyMin = job.hourlyRateMin;
+  const hourlyMax = job.hourlyRateMax;
+  const monthlyMin = job.monthlyRateMin;
+  const monthlyMax = job.monthlyRateMax;
+  const hasHourly = isRealRate(hourlyMin) || isRealRate(hourlyMax);
+  const hasMonthly = isRealRate(monthlyMin) || isRealRate(monthlyMax);
+  // `hasMaxRate: false` is the source's own signal that no upper bound is
+  // published, even when hourlyRateMax/monthlyRateMax happens to carry a
+  // number -- honour it over the raw max field.
+  const maxHonoured = job.hasMaxRate === false;
+  if (hasHourly) {
+    return {
+      eenheid: "uur",
+      max: maxHonoured ? UNKNOWN : rateAmountOrUnknown(hourlyMax),
+      min: rateAmountOrUnknown(hourlyMin),
+      valuta: "EUR",
+    };
+  }
+  if (hasMonthly) {
+    return {
+      eenheid: "maand",
+      max: maxHonoured ? UNKNOWN : rateAmountOrUnknown(monthlyMax),
+      min: rateAmountOrUnknown(monthlyMin),
+      valuta: "EUR",
+    };
+  }
+  return UNKNOWN_TARIEF;
 };
 
 /** Projects the GeoJSON point into a plain object literal for bronSpecifiek.
@@ -91,12 +138,27 @@ export const parseStriivePayload = (
   // `startDatum` exists), so it is kept verbatim in bronSpecifiek too.
   const bronSpecifiek = {
     broker: job.broker ?? null,
+    // CTP-524 F06: real field, confirmed live 2026-09-15
+    // (fixtures/connectors/striive/listing-live-2026-09-15.json) -- null
+    // across the full 25-record capture, whitelisted for when a broker
+    // publishes it (same honest-future-proofing as the tariff fields).
+    contract_type: job.jobType ?? null,
     eind_datum: job.endDate ?? null,
     geo: resolveGeo(job.regionLocation),
+    // Striive publishes `location` as "<stad> <provincie>" (e.g. "Assen
+    // Drenthe") -- the province name is explicit source text, not inferred
+    // from the city (docs/sources/striive.md has no dedicated province
+    // field). findProvincieInText only matches a recognised province token;
+    // a city-only location yields null, never a guess.
+    provincie: findProvincieInText(job.location),
     referenties: {
       referenceCode: job.referenceCode ?? null,
       referenceCodeClient: job.referenceCodeClient ?? null,
     },
+    // CTP-524 F15: real `tags` field, confirmed live 2026-09-15 -- `[]`
+    // across the full 25-record capture, so entry shape is unverified.
+    // normaliseSkills drops anything that is not a plain string.
+    skills: normaliseSkills(job.tags),
     source: job.source ?? null,
     supplier_deadline:
       job.closingDateInvoice === null || job.closingDateInvoice === undefined
@@ -138,7 +200,7 @@ export const parseStriivePayload = (
       "job.startDate"
     ),
     status: lifecycle,
-    tarief: UNKNOWN_TARIEF,
+    tarief: resolveTarief(job),
     titel: field(job.title, parserVersion, "job.title"),
   };
 };

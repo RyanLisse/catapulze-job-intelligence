@@ -79,6 +79,10 @@ export interface ConnectorFixture {
   contractVersion: typeof CONNECTOR_FIXTURE_CONTRACT_VERSION;
   source: string;
   capturedAt: string;
+  /** What the committed file actually holds, when that is narrower than the
+   * capture it came from (e.g. one sanitised record out of a 25-record page).
+   * Keeps a fixture from being read as evidence it cannot carry. */
+  captureNote?: string;
   contentType: RawContentType;
   payload: unknown;
 }

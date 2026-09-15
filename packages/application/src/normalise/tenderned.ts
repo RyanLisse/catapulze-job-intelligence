@@ -7,12 +7,90 @@ import {
 import { UNKNOWN } from "@ji/domain";
 import { resolveLifecycleStatus } from "@ji/domain/lifecycle";
 
+import { toCanonicalProvincie } from "./provincie";
 import {
   nutsCodesToLocatieTekst,
   parseTenderNedNutsEntries,
 } from "./tenderned-nuts";
 import { field } from "./types";
 import type { NormalisedAanvraagDraft } from "./types";
+
+/** NUTS-2 -> canonical province name (CTP-525, F04). This *is* explicit
+ * source data -- `nutsCodes` is a structured field the API publishes, not an
+ * inference from a city name. Only the 12 NL provinces map; a non-NL or
+ * unrecognised NUTS-2 prefix yields no provincie.
+ *
+ * Both code generations are accepted, because TenderNed emits both. Verified
+ * against Eurostat's own NUTS 2021 level-2 map for NL
+ * (https://ec.europa.eu/eurostat/documents/345175/17780005/2021-NUTS-2-map-NL.pdf),
+ * whose legend is exactly NL11-NL13, NL21-NL23, NL31-NL34, NL41-NL42 --
+ * i.e. Utrecht is NL31 and Zuid-Holland NL33 under NUTS 2016 *and* NUTS
+ * 2021. The **NUTS 2024** revision re-coded those two: Utrecht NL31 -> NL35
+ * and Zuid-Holland NL33 -> NL36 (with a NUTS-2 boundary shift between them).
+ * `NL_NUTS_LABELS` in tenderned-nuts.ts already carries the 2024 codes, so
+ * keep the two tables in step. */
+const NUTS2_PROVINCIE = {
+  NL11: "Groningen",
+  NL12: "Friesland",
+  NL13: "Drenthe",
+  NL21: "Overijssel",
+  NL22: "Gelderland",
+  NL23: "Flevoland",
+  NL31: "Utrecht",
+  NL32: "Noord-Holland",
+  NL33: "Zuid-Holland",
+  NL34: "Zeeland",
+  // NUTS 2024 re-codings of NL31 / NL33 (see docblock above).
+  NL35: "Utrecht",
+  NL36: "Zuid-Holland",
+  NL41: "Noord-Brabant",
+  NL42: "Limburg",
+} satisfies Record<string, string>;
+
+/** A whole NUTS code: ISO-3166-1 alpha-2 country prefix plus 0-3
+ * level-1/2/3 characters (digits or letters, e.g. `NL`, `NL32B`). Anchored
+ * on purpose -- matching only the prefix turned `XX999` into land `XX` and
+ * `NOT-A-CODE` into land `NO`, fabricating country facets out of arbitrary
+ * leading letters (CTP-525). Anything that is not a whole NUTS code yields
+ * `UNKNOWN`, as the function contract says. */
+const NUTS_CODE_PATTERN = /^(?<country>[A-Z]{2})[0-9A-Z]{0,3}$/u;
+
+/** First recognised NUTS-2 prefix across `nutsCodes`, mapped to its
+ * canonical province name via `toCanonicalProvincie` (never written
+ * directly -- the addendum requires every provincie string to come out of
+ * that helper). */
+const provincieFromNutsCodes = (
+  entries: { code: string }[]
+): ReturnType<typeof toCanonicalProvincie> => {
+  for (const entry of entries) {
+    const nuts2 = entry.code.slice(0, 4);
+    if (!Object.hasOwn(NUTS2_PROVINCIE, nuts2)) {
+      continue;
+    }
+    // SAFETY: Object.hasOwn just confirmed nuts2 is one of
+    // NUTS2_PROVINCIE's own keys.
+    const name = NUTS2_PROVINCIE[nuts2 as keyof typeof NUTS2_PROVINCIE];
+    if (name) {
+      return toCanonicalProvincie(name);
+    }
+  }
+  return null;
+};
+
+/** ISO-2 country prefix of the first well-formed `nutsCodes` entry, or
+ * `UNKNOWN` when none is well-formed. NUTS codes always start with the ISO-3166-1 alpha-2
+ * country code (CTP-525, F05) -- explicit source data, not a guess. */
+const landFromNutsCodes = (
+  entries: { code: string }[]
+): string | typeof UNKNOWN => {
+  for (const entry of entries) {
+    const country = NUTS_CODE_PATTERN.exec(entry.code)?.groups?.country;
+    if (country) {
+      return country;
+    }
+  }
+  return UNKNOWN;
+};
 
 export const parseTenderNedPayload = (
   payload: TenderNedFetchedPayload,
@@ -50,6 +128,9 @@ export const parseTenderNedPayload = (
     hoofd: entry.isHoofdOpdracht ?? false,
     omschrijving: entry.omschrijving ?? null,
   }));
+  const nutsEntries = parseTenderNedNutsEntries(detail.nutsCodes);
+  const provincie = provincieFromNutsCodes(nutsEntries);
+  const locatieLand = landFromNutsCodes(nutsEntries);
 
   return {
     beschrijving: field(
@@ -70,6 +151,7 @@ export const parseTenderNedPayload = (
         ),
         opdracht_aard: detail.opdrachtAardCode?.code ?? null,
         procedure: detail.procedureCode?.code ?? null,
+        provincie,
         publicatie_id: publicatieId,
         publicatiedatum: detail.publicatieDatum ?? null,
       },
@@ -84,7 +166,10 @@ export const parseTenderNedPayload = (
     contentHash,
     extractieMethode: "api",
     lifecycle,
-    locatieLand: field("NL", parserVersion, "detail.nutsCodes"),
+    // CTP-525 F05: NUTS codes always begin with the ISO-3166-1 alpha-2
+    // country code -- explicit source data. "NL" is no longer a hardcoded
+    // default; an absent/unrecognised nutsCodes prefix reads UNKNOWN.
+    locatieLand: field(locatieLand, parserVersion, "detail.nutsCodes"),
     locatieTekst: field(
       nutsCodesToLocatieTekst(detail.nutsCodes),
       parserVersion,
@@ -96,6 +181,18 @@ export const parseTenderNedPayload = (
       "detail.opdrachtgeverNaam"
     ),
     parserVersion,
+    // CTP-525 F13: NOT-FIXABLE-HERE. `numberOfDaysBeforeAanmeldenInschrijven`
+    // counts down from the FETCH moment, not from `publicatieDatum` -- a
+    // tender published 20 days ago with 10 days left is not "closed 10 days
+    // ago". Deriving it needs the observation/fetch instant
+    // (`ConnectorObservation.observedAt`,
+    // packages/connectors/src/contract.ts:71), but `parseTenderNedPayload`
+    // never receives it: the shared normalise signature is
+    // `(body, contentHash) => NormalisedAanvraagDraft`
+    // (packages/application/src/sources/definition.ts:40), called from
+    // packages/application/src/identity/process.ts:40 without observedAt.
+    // Plumbing that through is outside this lane's file scope. Stays
+    // undefined -- honest-absent, not a guessed deadline.
     // TenderNed's modelled API has no contract-start field. Its
     // `publicatieDatum` is retained above as source-specific publication
     // metadata and must not influence canonical contract-start identity.
