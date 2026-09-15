@@ -81,8 +81,8 @@ describe("Opdrachtoverheid connector", () => {
     expect(result.metrics).toMatchObject({
       changed: 0,
       error: 0,
-      found: 5,
-      new: 5,
+      found: 8,
+      new: 8,
       rejected: 0,
     });
   });
@@ -112,10 +112,10 @@ describe("Opdrachtoverheid connector", () => {
     await runConnector({ ...sharedInput, scrapeRunId: "run-oo-replay-1" });
     await runConnector({ ...sharedInput, scrapeRunId: "run-oo-replay-2" });
 
-    expect(recorder.records).toHaveLength(5);
+    expect(recorder.records).toHaveLength(8);
     expect(
       new Set(recorder.records.map((record) => record.bronReferentie)).size
-    ).toBe(5);
+    ).toBe(8);
   });
 
   it("takes one bounded snapshot without pagination omissions", async () => {
