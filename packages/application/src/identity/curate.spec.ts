@@ -480,6 +480,65 @@ describe("curateObservation unchanged content enqueues its own events (CTP-498)"
     expect(store.outboxEvents).toHaveLength(2);
   });
 
+  it('treats curated urenPerWeek "0" as absent and overwrites from draft (CTP-599)', async () => {
+    const store = new InMemoryCurateStore();
+    const base = observation("UREN-ZERO-1", "hash-uren-stable");
+    await curateObservation(store, {
+      ...base,
+      draft: {
+        ...base.draft,
+        bronSpecifiek: {
+          provenance,
+          value: {
+            tender_hours_week: "32",
+            uren_max: "0",
+            uren_min: "0",
+            uren_per_week: "0",
+          },
+        },
+      },
+    });
+    expect(store.aanvragen[0]?.urenPerWeek).toBeNull();
+
+    // Simulate a legacy curated row that still has column "0" (pre-heal).
+    const [legacy] = store.aanvragen;
+    expect(legacy).toBeDefined();
+    if (legacy === undefined) {
+      throw new Error("expected curated row");
+    }
+    store.aanvragen[0] = {
+      ...legacy,
+      bronSpecifiek: {
+        tender_hours_week: "32",
+        uren_max: "0",
+        uren_min: "0",
+        uren_per_week: "0",
+      },
+      urenPerWeek: "0",
+    };
+
+    const result = await curateObservation(store, {
+      ...base,
+      draft: {
+        ...base.draft,
+        bronSpecifiek: {
+          provenance,
+          value: {
+            tender_hours_week: "32",
+            uren_per_week: "32",
+          },
+        },
+      },
+      observedAt: later,
+    });
+
+    expect(result.status).toBe("unchanged");
+    expect(store.aanvragen[0]).toMatchObject({
+      urenPerWeek: "32",
+      versie: 1,
+    });
+  });
+
   it("enqueues an upsert event and no new versie when only laatstGezienOp moves", async () => {
     const store = await seedActive(new InMemoryCurateStore());
 
