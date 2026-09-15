@@ -42,6 +42,7 @@ export {
   type NeonV1Source,
   type RunNeonV1BackfillInput,
 } from "./neon-v1";
+export { isMotianJobClosed, resolveMotianBronUrl } from "./motian-bron-url";
 export {
   MOTIAN_V1_BRON_BINDINGS,
   MOTIAN_V1_BRON_CONFIGS,

@@ -89,6 +89,20 @@ describe("Neon v1 backfill mapping", () => {
     });
   });
 
+  it("maps Starapple Motian rows to their canonical bron URL", () => {
+    const draft = mapV1JobToDraft({
+      ...sampleJob(),
+      external_id: "platform_engineer-rotterdam",
+      external_url: "https://www.starapple.nl/jobs/platform_engineer-rotterdam",
+      platform: "starapple",
+    });
+
+    expect(draft.bronUrl.value).toBe(
+      "https://www.starapple.nl/vacatures/platform-engineer-rotterdam/"
+    );
+    expect(draft.bronUrl.provenance.sourcePath).toBe("motian_bron_url");
+  });
+
   it("preserves exact source facts and distinguishes omitted values", () => {
     const facts = {
       ...sampleJob(),
