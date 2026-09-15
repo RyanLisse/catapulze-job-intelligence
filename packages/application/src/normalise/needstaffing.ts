@@ -99,6 +99,12 @@ export const parseNeedstaffingPayload = (
     bronSpecifiek: field(
       {
         deadline: epochToIsoDate(detail.deadline),
+        // `periode` ("4 maanden", "Onbepaalde tijd", confirmed live
+        // 2026-08-31: detail-15520.json) is the only looptijd signal this
+        // connector's typed fields expose -- there is no separate end-date
+        // field on the header or in the typed detail shape, so it can only
+        // ever become `duur`, never `eind_datum` (CTP-514 data contract).
+        duur: detail.periode ?? null,
         periode: detail.periode ?? null,
         referentie: detail.referentie ?? null,
         uren: detail.uren ?? null,

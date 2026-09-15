@@ -7,6 +7,7 @@ import { UNKNOWN } from "@ji/domain";
 import { resolveLifecycleStatus } from "@ji/domain/lifecycle";
 
 import { formatHoursPerWeek } from "./hours";
+import { parseTariefFromText } from "./tarief";
 import { field, stripHtml } from "./types";
 import type { NormalisedAanvraagDraft, NormalisedTarief } from "./types";
 
@@ -102,14 +103,27 @@ const decodeOnefellowEntities = (raw: string): string => {
 const decodeAndStrip = (raw: string): string =>
   stripHtml(decodeOnefellowEntities(raw));
 
+/** Onefellow publishes `start_date` as a Unix instant meant to be read as a
+ * Europe/Amsterdam calendar date (its own free-text "Startdatum:" line
+ * always matches the *local* date, e.g. 1790805600 -> "1 oktober 2026",
+ * confirmed live 2026-08-31 across joborder_id 920/1029/1030/944/1006).
+ * Slicing `toISOString()` reads the UTC date instead, which lands one day
+ * early for any timestamp before 22:00/23:00 UTC -- every sampled record.
+ * Format in the source's own timezone, never UTC. */
+const AMSTERDAM_DATE_FORMATTER = new Intl.DateTimeFormat("en-CA", {
+  day: "2-digit",
+  month: "2-digit",
+  timeZone: "Europe/Amsterdam",
+  year: "numeric",
+});
+
 const unixSecondsToIsoDate = (
   value: number | undefined
 ): string | typeof UNKNOWN => {
   if (!value) {
     return UNKNOWN;
   }
-  const iso = new Date(value * 1000).toISOString();
-  return iso.slice(0, 10);
+  return AMSTERDAM_DATE_FORMATTER.format(new Date(value * 1000));
 };
 
 interface UrenRange {
@@ -143,16 +157,53 @@ export const parseOnefellowUren = (raw?: string): UrenRange => {
   return { max: UNKNOWN, min: UNKNOWN };
 };
 
-/** `max_rate` is populated on only 7/50 sampled records (2026-08-31 probe);
- * where genuinely absent, tarief is UNKNOWN -- the ItemList's
+/** `max_rate` is populated on only 7/50 sampled records (2026-08-31 probe).
+ * When it's absent, `salary` (a distinct free-text tariff line, also part
+ * of the whitelisted payload -- see OnefellowJob doc comment) is the next
+ * structured source; run it through the shared tarief-text parser instead
+ * of giving up. Both empty leaves tarief UNKNOWN -- the ItemList's
  * `baseSalary=0/HOUR` seen on the public site is a known placeholder and is
  * never used as a rate. */
-export const parseOnefellowTarief = (maxRate?: string): NormalisedTarief => {
-  const trimmed = maxRate?.trim();
-  if (!trimmed) {
-    return { eenheid: UNKNOWN, max: UNKNOWN, min: UNKNOWN, valuta: "EUR" };
+export const parseOnefellowTarief = (
+  maxRate?: string,
+  salaryText?: string
+): NormalisedTarief => {
+  const trimmedMaxRate = maxRate?.trim();
+  if (trimmedMaxRate) {
+    return { eenheid: "uur", max: trimmedMaxRate, min: UNKNOWN, valuta: "EUR" };
   }
-  return { eenheid: "uur", max: trimmed, min: UNKNOWN, valuta: "EUR" };
+  const trimmedSalary = salaryText?.trim();
+  if (trimmedSalary) {
+    return parseTariefFromText(trimmedSalary);
+  }
+  return { eenheid: UNKNOWN, max: UNKNOWN, min: UNKNOWN, valuta: "EUR" };
+};
+
+interface OnefellowLooptijd {
+  duur: string | null;
+  eindDatum: string | null;
+}
+
+const DURATION_DATE_PATTERN = /^(?<day>\d{2})-(?<month>\d{2})-(?<year>\d{4})$/u;
+
+/** `duration` is free text describing the looptijd -- almost always a
+ * phrase ("5 jaar met optie tot verlenging", "Onbepaalde tijd", confirmed
+ * live 2026-08-31), but at least one live record (joborder_id 944) carries
+ * a literal `DD-MM-YYYY` end date in the same field instead of a phrase.
+ * Detect that shape explicitly and promote it to `eind_datum`; anything
+ * else stays `duur` text, per the CTP-514 data contract (eind_datum only
+ * from an explicit date, duur when only a duration is published). */
+const parseOnefellowLooptijd = (duration?: string): OnefellowLooptijd => {
+  const trimmed = duration?.trim();
+  if (!trimmed) {
+    return { duur: null, eindDatum: null };
+  }
+  const match = trimmed.match(DURATION_DATE_PATTERN);
+  const { day, month, year } = match?.groups ?? {};
+  if (day && month && year) {
+    return { duur: null, eindDatum: `${year}-${month}-${day}` };
+  }
+  return { duur: trimmed, eindDatum: null };
 };
 
 const resolveLocatie = (
@@ -174,7 +225,8 @@ export const parseOnefellowPayload = (
     ? decodeAndStrip(job.description)
     : job.teaser?.trim() || job.title;
   const uren = parseOnefellowUren(job.hours);
-  const tarief = parseOnefellowTarief(job.max_rate);
+  const tarief = parseOnefellowTarief(job.max_rate, job.salary);
+  const looptijd = parseOnefellowLooptijd(job.duration);
 
   const sluitingsdatum = job.time_deadline
     ? new Date(job.time_deadline * 1000)
@@ -201,6 +253,8 @@ export const parseOnefellowPayload = (
 
   const bronSpecifiek = {
     duration: job.duration ?? null,
+    duur: looptijd.duur,
+    eind_datum: looptijd.eindDatum,
     hours_raw: job.hours ?? null,
     publicatiedatum: job.time_published
       ? new Date(job.time_published * 1000).toISOString()
