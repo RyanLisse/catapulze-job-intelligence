@@ -41,9 +41,12 @@ describe("readAanvraagBronFacts", () => {
       })
     ).toEqual({
       contracttype: "detachering",
+      duur: null,
       opdrachtgeverNaam: null,
       opleidingsniveau: null,
+      provincie: null,
       publicatiedatum: null,
+      skills: [],
       startDatum: null,
       werkvorm: null,
     });
@@ -69,5 +72,57 @@ describe("readAanvraagBronFacts", () => {
     expect(
       readAanvraagBronFacts({ publicatiedatum: "2026-08-24" }).publicatiedatum
     ).toBe("2026-08-24");
+  });
+
+  it("reads the skills list and a canonical province off one curated row", () => {
+    const facts = readAanvraagBronFacts({
+      provincie: "noord holland",
+      skills: ["Java", " java ", "", "Kubernetes"],
+    });
+    expect(facts.skills).toEqual(["Java", "Kubernetes"]);
+    // "noord holland" never went through toCanonicalProvincie, so the read
+    // path refuses it rather than canonicalising on the source's behalf.
+    expect(facts.provincie).toBeNull();
+  });
+
+  it("reads the duur (looptijd) text emitted by harveynash/onefellow/needstaffing", () => {
+    expect(readAanvraagBronFacts({ duur: "4 maanden" }).duur).toBe("4 maanden");
+    expect(readAanvraagBronFacts({}).duur).toBeNull();
+  });
+
+  it("accepts the duration aliases existing normalisers actually emit (Onefellow, Needstaffing, Flinter) (CTP-514)", () => {
+    expect(readAanvraagBronFacts({ duration: "6 months" }).duur).toBe(
+      "6 months"
+    );
+    expect(readAanvraagBronFacts({ periode: "3 maanden" }).duur).toBe(
+      "3 maanden"
+    );
+    expect(
+      readAanvraagBronFacts({ looptijd_tekst: "t/m einde project" }).duur
+    ).toBe("t/m einde project");
+    // duur takes priority when a source somehow emits both.
+    expect(
+      readAanvraagBronFacts({ duration: "6 months", duur: "4 maanden" }).duur
+    ).toBe("4 maanden");
+  });
+
+  it("passes a canonical province through unchanged", () => {
+    expect(
+      readAanvraagBronFacts({ provincie: "Noord-Holland" }).provincie
+    ).toBe("Noord-Holland");
+  });
+
+  it("yields no skills and no province when the source published neither", () => {
+    for (const bronSpecifiek of [
+      null,
+      {},
+      { provincie: "Amsterdam", skills: "Java, Kubernetes" },
+      { provincie: "", skills: [""] },
+      { skills: [42, null] },
+    ]) {
+      const facts = readAanvraagBronFacts(bronSpecifiek);
+      expect(facts.provincie).toBeNull();
+      expect(facts.skills).toEqual([]);
+    }
   });
 });

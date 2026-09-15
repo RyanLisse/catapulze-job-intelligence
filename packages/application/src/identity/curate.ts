@@ -12,6 +12,7 @@ import { z } from "zod";
 import type { NormalisedAanvraagDraft } from "../normalise";
 import { buildDedupKey, buildProvenanceMap } from "../normalise";
 import { classifyContractAndWork } from "../normalise/classify-contract-work";
+import { toCanonicalContractType } from "../normalise/contract-type";
 import type {
   AanvraagSnapshot,
   BronSpecifiekJson,
@@ -518,7 +519,14 @@ const toStoredFields = (
     bronSpecifiek,
     bronUrl: draftTextColumn(draft.bronUrl.value),
     contentHash: draft.contentHash,
-    contracttype: readBronText(bronRecord, "contracttype", "contract_type"),
+    contracttype: toCanonicalContractType(
+      readBronText(
+        bronRecord,
+        "contracttype",
+        "contract_type",
+        "employment_type"
+      )
+    ),
     dedupGroepId: null,
     eersteGezienOp: input.observedAt,
     eindDatum: readBronText(bronRecord, "eind_datum", "eindDatum"),
@@ -690,7 +698,9 @@ const buildUnchangedContentPatch = (
     }
   }
   if (existing.contracttype === null) {
-    const value = explicitBronText(draft, "contracttype", "contract_type");
+    const value = toCanonicalContractType(
+      explicitBronText(draft, "contracttype", "contract_type")
+    );
     if (value !== null) {
       patch.contracttype = value;
     }
@@ -908,7 +918,9 @@ export const curateObservation = async (
         existing.bronUrl
       ),
       contracttype: coalesceNullable(
-        explicitBronText(draft, "contracttype", "contract_type"),
+        toCanonicalContractType(
+          explicitBronText(draft, "contracttype", "contract_type")
+        ),
         existing.contracttype
       ),
       dedupGroepId: existing.dedupGroepId,

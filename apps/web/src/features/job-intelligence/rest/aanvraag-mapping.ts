@@ -23,6 +23,7 @@ export interface AanvraagPreview {
   readonly bronReferentie: string;
   readonly bronUrl?: string | null;
   readonly contracttype?: string | null;
+  readonly duur?: string | null;
   readonly enrichedFields?: readonly {
     readonly confidence: number;
     readonly field: "contract" | "locatie" | "remote" | "tarief";
@@ -31,11 +32,14 @@ export interface AanvraagPreview {
   readonly eindDatum?: string | null;
   readonly id: string;
   readonly locatie?: string | null;
+  readonly locatieLand?: string | null;
   readonly opdrachtgeverNaam?: string | null;
   readonly opleidingsniveau?: string | null;
+  readonly provincie?: string | null;
   readonly publicatiedatum?: string | null;
   readonly rawPayloadRef: string;
   readonly scrapeRunId: string;
+  readonly skills?: readonly string[];
   readonly sluitingsdatum?: string | null;
   readonly startDatum?: string | null;
   readonly status: string;
@@ -203,8 +207,9 @@ export const mapAanvraagToJobListing = (input: {
   return {
     closingAt: input.aanvraag.sluitingsdatum ?? null,
     contractType: mapContractType(input.aanvraag.contracttype ?? null),
-    country: null,
+    country: input.aanvraag.locatieLand === "NL" ? "NL" : null,
     description: input.aanvraag.beschrijving,
+    duration: optionalText(input.aanvraag.duur),
     educationLevel: optionalText(input.aanvraag.opleidingsniveau),
     endDate: optionalText(input.aanvraag.eindDatum),
     enrichedFields: input.aanvraag.enrichedFields ?? [],
@@ -213,11 +218,12 @@ export const mapAanvraagToJobListing = (input: {
     location: input.aanvraag.locatie ?? null,
     markering: input.markering ?? null,
     organization: input.aanvraag.opdrachtgeverNaam ?? null,
+    provincie: input.aanvraag.provincie ?? null,
     publishedAt: input.aanvraag.publicatiedatum ?? null,
     rate: mapRate(input.aanvraag),
     rawPreview: input.rawPreview,
     remote: mapRemote(input.aanvraag.werkvorm),
-    skills: [],
+    skills: input.aanvraag.skills ?? [],
     sourceRecords: [
       {
         displayName: source.displayName,

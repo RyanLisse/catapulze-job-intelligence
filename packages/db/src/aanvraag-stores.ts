@@ -43,16 +43,22 @@ const toAanvraagRecord = (
     bronReferentie: row.bronReferentie,
     bronUrl: row.bronUrl,
     contracttype: row.contracttype ?? bronFacts.contracttype,
+    duur: bronFacts.duur,
     eindDatum: row.eindDatum,
     enrichedFields: [],
     id: row.id,
     // locatie_land defaults to NL and is therefore not proof of a published location.
     locatie: row.locatieTekst,
+    // Preserve an explicitly unknown location, same rule as toSearchDocument.
+    locatieLand: row.locatieTekst === null ? null : row.locatieLand,
     opdrachtgeverNaam: row.opdrachtgeverNaam ?? bronFacts.opdrachtgeverNaam,
     opleidingsniveau: bronFacts.opleidingsniveau,
+    // No curated province column; only a canonical name the source published.
+    provincie: bronFacts.provincie,
     publicatiedatum: row.publicatiedatum ?? bronFacts.publicatiedatum,
     rawPayloadRef: row.rawPayloadRef,
     scrapeRunId: row.scrapeRunId,
+    skills: bronFacts.skills,
     sluitingsdatum: row.sluitingsdatum,
     startDatum: row.startDatum ?? bronFacts.startDatum,
     status: row.status,
@@ -249,11 +255,11 @@ const toSearchDocument = (row: AanvraagRow): SearchDocument => {
     locatie: row.locatieTekst,
     locatieLand: row.locatieTekst === null ? null : row.locatieLand,
     opdrachtgeverNaam: row.opdrachtgeverNaam ?? bronFacts.opdrachtgeverNaam,
-    // No canonical province column; never derive from locatieTekst.
-    provincie: null,
+    // No canonical province column; never derive from locatieTekst — only a
+    // canonical name the source itself published.
+    provincie: bronFacts.provincie,
     publicatiedatum: parsePublicationDate(publication),
-    // No canonical skills relation yet.
-    skills: [],
+    skills: bronFacts.skills,
     sluitingsdatum: row.sluitingsdatum ?? undefined,
     // SAFETY: curated.status is constrained to AanvraagLifecycle at write time.
     status: row.status as AanvraagLifecycle,

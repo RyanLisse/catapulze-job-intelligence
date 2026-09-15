@@ -70,15 +70,23 @@ export interface AanvraagRecord {
   readonly bronReferentie: string;
   readonly bronUrl?: string | null;
   readonly contracttype?: string | null;
+  /** Duration text the source published when only a duration is given, not an end date (CTP-514, F11). */
+  readonly duur?: string | null;
   /** Provenance for fields filled by the enrichment worker (CTP-482). */
   readonly enrichedFields?: readonly AanvraagEnrichedField[];
   readonly eindDatum?: string | null;
   readonly id: string;
   readonly locatie?: string | null;
+  /** ISO-2 country the source published; null when it did not (CTP-514, F05). */
+  readonly locatieLand?: string | null;
   readonly opdrachtgeverNaam?: string | null;
   readonly opleidingsniveau?: string | null;
+  /** Canonical NL province the source published (CTP-514, F04). Never derived. */
+  readonly provincie?: string | null;
   readonly publicatiedatum?: string | null;
   readonly rawPayloadRef: string;
+  /** Skills the source published as structured data (CTP-514, F15). */
+  readonly skills?: readonly string[];
   readonly startDatum?: string | null;
   readonly scrapeRunId: string;
   readonly sluitingsdatum?: Date | null;

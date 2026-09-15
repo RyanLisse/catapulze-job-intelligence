@@ -90,6 +90,25 @@ const DetailField = ({
   </div>
 );
 
+/**
+ * Rendered only when the source published a province (CTP-514, F04). An absent
+ * province stays absent rather than showing "Onbekend": the detail page never
+ * claims a fact the source did not publish.
+ */
+const ProvincieField = ({
+  provincie,
+}: {
+  readonly provincie?: string | null;
+}) => (provincie ? <DetailField label="Provincie" value={provincie} /> : null);
+
+/**
+ * Rendered only when the source published a duration instead of an end date
+ * (CTP-514, F11). Same hide-on-null choice as Provincie: an absent duration
+ * stays absent rather than showing "Onbekend".
+ */
+const LooptijdField = ({ duration }: { readonly duration?: string | null }) =>
+  duration ? <DetailField label="Looptijd" value={duration} /> : null;
+
 const DetailSection = ({
   children,
   title,
@@ -276,6 +295,7 @@ export const JobDetail = ({
             aangevuld={isFieldAangevuld(job, "locatie")}
             aangevuldField="locatie"
           />
+          <ProvincieField provincie={job.provincie} />
           <DetailField
             label="Tarief"
             value={formatRate(job)}
@@ -317,6 +337,7 @@ export const JobDetail = ({
             label="Einddatum"
             value={formatOptionalDate(job.endDate)}
           />
+          <LooptijdField duration={job.duration} />
         </dl>
 
         <DetailSection title="Opdracht">

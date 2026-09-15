@@ -69,3 +69,6 @@ export {
   extractJobPostingCommercialFacts,
   type JobPostingCommercialFacts,
 } from "./jobposting-html";
+export { NL_PROVINCIES, type Provincie } from "./provincie";
+export { normaliseSkills } from "./skills";
+export { toCanonicalContractType } from "./contract-type";

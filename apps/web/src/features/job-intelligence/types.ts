@@ -158,6 +158,8 @@ export interface JobListing {
   readonly title: string;
   readonly organization: string | null;
   readonly location: string | null;
+  /** Canonical NL province the source published; null when it did not. */
+  readonly provincie?: string | null;
   readonly country: "NL" | null;
   readonly contractType: JobContractType | null;
   readonly rate: JobRate | null;
@@ -170,6 +172,8 @@ export interface JobListing {
   readonly description: string;
   readonly educationLevel?: string | null;
   readonly endDate?: string | null;
+  /** Duration text the source published when only a duration, not an end date, is given. */
+  readonly duration?: string | null;
   readonly hoursPerWeek?: string | null;
   readonly remote: boolean | null;
   /** Curated source wording when a bron explicitly publishes the work form. */

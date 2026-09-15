@@ -450,3 +450,68 @@ describe("CTP-482 enrichment provenance mapping", () => {
     ]);
   });
 });
+
+describe("AE3 detail skills/provincie mapping (CTP-514)", () => {
+  const bronCatalog = buildBronCatalog([
+    {
+      bronId: "00000000-0000-4000-8000-000000000001",
+      naam: "TenderNed",
+    },
+  ]);
+  const baseAanvraag = {
+    beschrijving: "Azure platform beschrijving",
+    bronId: "00000000-0000-4000-8000-000000000001",
+    bronReferentie: "TN-883021",
+    id: "00000000-0000-4000-8000-000000000010",
+    rawPayloadRef: "raw/tn-883021.json",
+    scrapeRunId: "00000000-0000-4000-8000-000000000020",
+    status: "active",
+    titel: "Azure engineer",
+  };
+
+  it("surfaces the skills and province the API returned", () => {
+    const job = mapAanvraagToJobListing({
+      aanvraag: {
+        ...baseAanvraag,
+        provincie: "Noord-Holland",
+        skills: ["Java", "Kubernetes"],
+      },
+      bronCatalog,
+      versies: [],
+    });
+
+    expect(job.skills).toEqual(["Java", "Kubernetes"]);
+    expect(job.provincie).toBe("Noord-Holland");
+  });
+
+  it("stays empty when the API returned neither", () => {
+    const job = mapAanvraagToJobListing({
+      aanvraag: baseAanvraag,
+      bronCatalog,
+      versies: [],
+    });
+
+    expect(job.skills).toEqual([]);
+    expect(job.provincie).toBeNull();
+  });
+
+  it("surfaces the duur (looptijd) the API returned", () => {
+    const job = mapAanvraagToJobListing({
+      aanvraag: { ...baseAanvraag, duur: "4 maanden" },
+      bronCatalog,
+      versies: [],
+    });
+
+    expect(job.duration).toBe("4 maanden");
+  });
+
+  it("stays null when the API returned no duur", () => {
+    const job = mapAanvraagToJobListing({
+      aanvraag: baseAanvraag,
+      bronCatalog,
+      versies: [],
+    });
+
+    expect(job.duration).toBeNull();
+  });
+});
