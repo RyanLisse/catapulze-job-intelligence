@@ -8,6 +8,8 @@ import { UNKNOWN } from "@ji/domain";
 import { resolveLifecycleStatus } from "@ji/domain/lifecycle";
 
 import { formatHoursPerWeek } from "./hours";
+import { toCanonicalProvincie } from "./provincie";
+import { normaliseSkills } from "./skills";
 import {
   closingMomentInstant,
   field,
@@ -41,19 +43,26 @@ interface UrenRange {
   max: string | typeof UNKNOWN;
 }
 
+/** A zero bound is the API's empty marker, not a published zero-hour week:
+ * live probe 2026-09-15 (400 records, `POST /search`) found `tender_min_hours`
+ * and `tender_max_hours` set to `0` on 44 and 39 records whose
+ * `tender_hours_week` states the real number ("32", "20", ...). Treating `0`
+ * as present made `uren_per_week` "0" and hid the published value (CTP-526). */
+const positiveHours = (value: number | null | undefined): number | null =>
+  isPresent(value) && value > 0 ? value : null;
+
 /** Prefer the numeric min/max hour fields. Keep the explicit weekly text as a
  * raw fallback when the numeric bounds are absent rather than inventing two
  * equal bounds from it. */
 const resolveUren = (
   tender: OpdrachtoverheidFetchedPayload["tender"]
 ): UrenRange => {
-  if (
-    isPresent(tender.tender_min_hours) ||
-    isPresent(tender.tender_max_hours)
-  ) {
+  const min = positiveHours(tender.tender_min_hours);
+  const max = positiveHours(tender.tender_max_hours);
+  if (isPresent(min) || isPresent(max)) {
     return {
-      max: numberToStringOrUnknown(tender.tender_max_hours),
-      min: numberToStringOrUnknown(tender.tender_min_hours),
+      max: numberToStringOrUnknown(max),
+      min: numberToStringOrUnknown(min),
     };
   }
   return { max: UNKNOWN, min: UNKNOWN };
@@ -133,6 +142,156 @@ const resolveStartDatum = (
   return startDatum ? startDatum.slice(0, 10) : UNKNOWN;
 };
 
+/** The JobPosting JSON-LD node and its value type, taken from the payload the
+ * connector hands over so the two can never drift. */
+type JobPostingNode = NonNullable<OpdrachtoverheidFetchedPayload["jobPosting"]>;
+type JobPostingValue = JobPostingNode[string];
+
+const jsonLdText = (value: JobPostingValue | undefined): string | null => {
+  if (typeof value !== "string") {
+    return null;
+  }
+  return value.trim() || null;
+};
+
+/** The province the source itself publishes for the vacancy, never one derived
+ * from a city name (CTP-514 contract). Only `vacancies_location.province` is
+ * read: it is the block the API attaches to the tender itself and it carries
+ * the value on every record of the 2026-09-15 live capture ("Noord-Holland",
+ * 400/400). The two candidate fallbacks are deliberately NOT read, because the
+ * capture shows both state the buying organisation's own postal address rather
+ * than where the assignment runs: `organization_location` is the organisation
+ * block (empty on the capture), and the JobPosting `jobLocation.address`
+ * repeats `vacancies_location.company_address` verbatim -- sample "zero" has
+ * streetAddress "Laan Nieuwer-Amstel 1" with hiringOrganization "Gemeente
+ * Amstelveen", i.e. the buyer's address. An assignment performed outside the
+ * buyer's home province would get the buyer's province from either, so they
+ * are dropped rather than used as coverage (CTP-526 review). */
+const resolveProvincie = (
+  tender: OpdrachtoverheidFetchedPayload["tender"]
+): string | null => toCanonicalProvincie(tender.vacancies_location?.province);
+
+/** `education_level_obj.education_level_label` is the source's own level label
+ * ("MBO", "HBO", "WO"). "Onbekend" is its explicit not-published marker
+ * (358/400 on the live capture) and must stay absent, not be persisted. */
+const UNKNOWN_EDUCATION_LABEL = "onbekend";
+
+const resolveOpleidingsniveau = (
+  tender: OpdrachtoverheidFetchedPayload["tender"]
+): string | null => {
+  const label = jsonLdText(
+    tender.education_level_obj?.education_level_label ?? undefined
+  );
+  return label !== null && label.toLowerCase() !== UNKNOWN_EDUCATION_LABEL
+    ? label
+    : null;
+};
+
+/** `tender_hybrid_working === true` is the source stating hybrid work; the
+ * detail page renders it as "Hybride werken: Ja". `false` ("Hybride werken:
+ * Nee") only denies hybrid work -- it does not publish where the work happens,
+ * so it stays absent rather than being turned into "Op locatie" (CTP-526
+ * report). `remote_work_description` is prose and is almost always the
+ * placeholder "Geen verdere informatie" (41/42 on the live capture), so it is
+ * never used as a werkvorm label. */
+const hybridWorking = (
+  tender: OpdrachtoverheidFetchedPayload["tender"]
+): boolean | null => {
+  const value = tender.tender_hybrid_working;
+  return typeof value === "boolean" ? value : null;
+};
+
+const resolveWerkvorm = (
+  tender: OpdrachtoverheidFetchedPayload["tender"]
+): string | null => (hybridWorking(tender) === true ? "Hybride" : null);
+
+/** `tender_competences` is an HTML block holding a "Wensen" list of weighted
+ * requirement sentences and a "Competenties" (sometimes "Vaardigheden") list
+ * of tag-like competences ("Nauwkeurig", "Analytisch vermogen"). Only the
+ * latter list is read: it is structured source data, while the Wensen prose is
+ * free text (GAP_ENRICH, CTP-482). */
+const COMPETENTIES_LIST_PATTERN =
+  /<h3[^>]*>\s*(?:competenties|vaardigheden)\s*:?\s*<\/h3>\s*<ul[^>]*>(?<items>[\s\S]*?)<\/ul>/iu;
+const LIST_ITEM_PATTERN = /<li[^>]*>(?<item>[\s\S]*?)<\/li>/giu;
+
+/** `stripHtml` removes tags but never decodes entities, and the source writes
+ * them ("Plannen &amp; organiseren"). Decoding the five XML entities plus
+ * `&nbsp;` covers everything observed in the live capture; anything else is
+ * left verbatim rather than guessed. `&amp;` is decoded last so an escaped
+ * entity ("&amp;lt;") does not decay into a tag. */
+const HTML_ENTITIES: readonly (readonly [RegExp, string])[] = [
+  [/&nbsp;/gu, " "],
+  [/&quot;/gu, '"'],
+  [/&#39;/gu, "'"],
+  [/&lt;/gu, "<"],
+  [/&gt;/gu, ">"],
+  [/&amp;/gu, "&"],
+];
+
+const decodeEntities = (text: string): string => {
+  let decoded = text;
+  for (const [pattern, replacement] of HTML_ENTITIES) {
+    decoded = decoded.replaceAll(pattern, replacement);
+  }
+  return decoded.trim();
+};
+
+const resolveSkills = (
+  tender: OpdrachtoverheidFetchedPayload["tender"]
+): string[] | null => {
+  const html = tender.tender_competences;
+  const items = html
+    ? COMPETENTIES_LIST_PATTERN.exec(html)?.groups?.items
+    : undefined;
+  if (!items) {
+    return null;
+  }
+  const skills = normaliseSkills(
+    [...items.matchAll(LIST_ITEM_PATTERN)].map((match) =>
+      decodeEntities(stripHtml(match.groups?.item ?? ""))
+    )
+  );
+  return skills.length > 0 ? skills : null;
+};
+
+/** Commercial facts the canonical columns have no home for yet. The
+ * aggregator-attribution fields `tender_source`/`tender_url` identify the
+ * original broker this tender was mirrored from, kept for cross-source dedup
+ * per the RJC-360 probe decision. */
+const resolveBronSpecifiek = (
+  tender: OpdrachtoverheidFetchedPayload["tender"]
+) => {
+  const uren = resolveUren(tender);
+  const numericUren = formatHoursPerWeek(
+    uren.min === UNKNOWN ? null : uren.min,
+    uren.max === UNKNOWN ? null : uren.max
+  );
+  return {
+    contract_type: tender.contract_type ?? null,
+    exclusive: tender.exclusive ?? null,
+    opdracht_overheid_url: tender.opdracht_overheid_url ?? null,
+    opleidingsniveau: resolveOpleidingsniveau(tender),
+    provincie: resolveProvincie(tender),
+    skills: resolveSkills(tender),
+    tender_first_seen: tender.tender_first_seen ?? null,
+    tender_hours_week: tender.tender_hours_week ?? null,
+    tender_hybrid_working: hybridWorking(tender),
+    tender_source: tender.tender_source ?? null,
+    tender_url: tender.tender_url ?? null,
+    uren_max: uren.max === UNKNOWN ? null : uren.max,
+    uren_min: uren.min === UNKNOWN ? null : uren.min,
+    uren_per_week: numericUren ?? tender.tender_hours_week?.trim() ?? null,
+    web_key: tender.web_key,
+    werkvorm: resolveWerkvorm(tender),
+  };
+};
+
+/** The commercial-fact keys this source writes into `bron_specifiek`, as the
+ * curate/read path reads them (CTP-514 data contract). */
+export type OpdrachtoverheidBronSpecifiek = ReturnType<
+  typeof resolveBronSpecifiek
+>;
+
 export const parseOpdrachtoverheidPayload = (
   payload: OpdrachtoverheidFetchedPayload,
   contentHash: string
@@ -156,27 +315,6 @@ export const parseOpdrachtoverheidPayload = (
     sluitingsdatumPassed,
   });
   const locatie = resolveLocatie(tender);
-  const uren = resolveUren(tender);
-  const numericUren = formatHoursPerWeek(
-    uren.min === UNKNOWN ? null : uren.min,
-    uren.max === UNKNOWN ? null : uren.max
-  );
-  // Aggregator-attribution fields: `tender_source`/`tender_url` identify the
-  // original broker this tender was mirrored from, kept for cross-source
-  // dedup per the RJC-360 probe decision.
-  const bronSpecifiek = {
-    contract_type: tender.contract_type ?? null,
-    exclusive: tender.exclusive ?? null,
-    opdracht_overheid_url: tender.opdracht_overheid_url ?? null,
-    tender_first_seen: tender.tender_first_seen ?? null,
-    tender_hours_week: tender.tender_hours_week ?? null,
-    tender_source: tender.tender_source ?? null,
-    tender_url: tender.tender_url ?? null,
-    uren_max: uren.max === UNKNOWN ? null : uren.max,
-    uren_min: uren.min === UNKNOWN ? null : uren.min,
-    uren_per_week: numericUren ?? tender.tender_hours_week?.trim() ?? null,
-    web_key: tender.web_key,
-  };
 
   return {
     beschrijving: field(
@@ -185,7 +323,7 @@ export const parseOpdrachtoverheidPayload = (
       "tender.tender_description"
     ),
     bronReferentie: field(tender.tender_id, parserVersion, "tender.tender_id"),
-    bronSpecifiek: field(bronSpecifiek, parserVersion, "tender"),
+    bronSpecifiek: field(resolveBronSpecifiek(tender), parserVersion, "tender"),
     bronUrl: field(
       tender.opdracht_overheid_url?.trim() || UNKNOWN,
       parserVersion,

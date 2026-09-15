@@ -32,6 +32,25 @@ Voor Opdrachtoverheid is dit een ongedocumenteerd, privé endpoint; het kan zond
 | `tender_source`, `tender_url` | `bron_specifiek.oorspronkelijke_bron/url` | Verplicht voor cross-source deduplicatie. |
 | `tender_description_html/_tk` | `beschrijving` | HTML-/Textkernel-varianten. |
 
+## Commerciële velden (CTP-526, live geverifieerd 2026-09-15)
+
+Live probe: `POST /search` met `limit: 400, offset: 0`, 400 records. Vastgelegd in
+`fixtures/connectors/opdrachtoverheid/normalise-samples-2026-09-15.json`.
+
+| Opdrachtoverheid | `bron_specifiek` | Noot |
+|---|---|---|
+| `vacancies_location.province` (400/400), fallback `jobPosting.jobLocation.address.addressRegion` | `provincie` | Via `toCanonicalProvincie`; nooit uit een plaatsnaam afgeleid. |
+| `education_level_obj.education_level_label` | `opleidingsniveau` | "MBO"/"HBO"/"WO"; `"Onbekend"` (358/400) is de bron-eigen afwezigheidsmarker en blijft leeg. |
+| `tender_competences` → alleen de `<h3>Competenties</h3>`/`Vaardigheden`-lijst | `skills` | 92/400 records; de "Wensen"-lijst is gewogen prozavereisten (free text, GAP_ENRICH CTP-482) en wordt niet gelezen. |
+| `tender_hybrid_working === true` | `werkvorm: "Hybride"` | `false` ("Hybride werken: Nee") ontkent alleen hybride werken en zegt niets over de werkplek → blijft leeg. `remote_work_description` is 41/42 keer de placeholder "Geen verdere informatie" en wordt nooit als werkvorm-label gebruikt. |
+| `tender_min_hours` / `tender_max_hours` | `uren_min` / `uren_max` | **`0` is de lege marker van de API**, geen gepubliceerde nul-urenweek (44 resp. 39 van de 400 records, terwijl `tender_hours_week` het echte getal noemt). Nul telt als afwezig, zodat `tender_hours_week` wint. |
+| `contract_type` | `contract_type` | Bron-enum: `"temporary"` (217/400), `"detachering"` (120/400), leeg (63/400). Wordt onbewerkt doorgegeven; `"temporary"` staat niet in de web-allowlist (`apps/web/src/features/job-intelligence/rest/aanvraag-mapping.ts:103`) en rendert daardoor als Onbekend. |
+| `tender_offline_date` | `sluitingsdatum` (draft) | Bevestigd tegen de detailpagina op 2026-09-15: "Sluitingsdatum 29 sept 2026" bij `tender_offline_date` `"2026-09-29 16:00:00"`. `tender_date` (dag erna, 07:00–12:00) en `jobPosting.validThrough` zijn geen sluitingsmoment. |
+
+Openstaand: alle 400 records in de live snapshot horen bij één inkopende organisatie
+(Gemeente Amstelveen) — de ongefilterde `POST /search` levert blijkbaar niet de volledige
+markt. Los daarvan publiceert de bron geen landveld; `locatie_land` blijft `"NL"`.
+
 ## Ingest-patroon
 
 - POST één snapshot met `limit: 400` en `offset: 0`; de API levert geen stabiele

@@ -4,15 +4,23 @@ import type { OpdrachtoverheidTender } from "./types";
 /** Canonical JSON of the listing fields that matter for change detection.
  * Deliberately excludes noisy/derived fields (`similarity_score`,
  * `tender_last_seen`, category ids) so a re-poll that only bumps a
- * last-seen timestamp does not register as a content change. */
+ * last-seen timestamp does not register as a content change.
+ *
+ * CTP-526 added `competences`, `education_level` and `hybrid_working`: they
+ * are published commercial facts, so a change in them must be observed. This
+ * changes every Opdrachtoverheid listing hash once — the next poll re-registers
+ * the open listings as "changed" and re-normalises them. */
 export const hashOpdrachtoverheidListingItem = (
   item: OpdrachtoverheidTender
 ): Promise<string> => {
   const canonical = JSON.stringify({
+    competences: item.tender_competences ?? null,
     contract_type: item.contract_type ?? null,
+    education_level: item.education_level_obj?.education_level_label ?? null,
     exclusive: item.exclusive ?? null,
     extension_option_description: item.extension_option_description ?? null,
     hours_week: item.tender_hours_week ?? null,
+    hybrid_working: item.tender_hybrid_working ?? null,
     location: item.tender_job_location ?? null,
     max_hours: item.tender_max_hours ?? null,
     max_tariff: item.tender_maximum_tariff ?? null,
