@@ -104,6 +104,32 @@ const resolveYear = (
   return inferYear(day, month, observedAt);
 };
 
+/** Matches the clock time Harvey Nash publishes alongside the deadline date
+ * itself -- "09:00"/"12:00" (colon) or "16.00" (dot, "wo 2-9 om 16.00") via
+ * the first branch, "16 uur" (bare hour, "dinsdag 1 september 16 uur") via
+ * the second. Colon/dot is tried first so "09:00 uur" reads as 09:00, not
+ * as the bare-hour branch matching "00 uur". */
+const resolveHarveyNashDeadlineTime = (
+  raw: string
+): { hour: number; minute: number } | undefined => {
+  const withMinute = raw.match(/(?<hour>\d{1,2})[.:](?<minute>\d{2})\b/u);
+  if (withMinute?.groups) {
+    const hour = Number(withMinute.groups.hour);
+    const minute = Number(withMinute.groups.minute);
+    if (hour <= 23 && minute <= 59) {
+      return { hour, minute };
+    }
+  }
+  const bareHour = raw.match(/(?<hour>\d{1,2})\s*uur\b/u);
+  if (bareHour?.groups) {
+    const hour = Number(bareHour.groups.hour);
+    if (hour <= 23) {
+      return { hour, minute: 0 };
+    }
+  }
+  return undefined;
+};
+
 /**
  * Deadline-year rule: real Harvey Nash "Deadline voor het voorstellen"
  * paragraphs are highly irregular free text -- live captures 2026-08-31
@@ -118,6 +144,14 @@ const resolveYear = (
  * function of the discovered item and replaying an identical fixture twice
  * is idempotent (see docs/sources/README.md). Text this loose that still
  * fails to parse (e.g. "Z.S.M") returns UNKNOWN rather than guessing.
+ *
+ * When the same text also names a clock time (codex review, CTP-519
+ * amendment), that time is appended to the resolved date as
+ * `YYYY-MM-DDTHH:MM:SS` -- the naive-wall-clock format `closingMomentInstant`
+ * already reads as Europe/Amsterdam local time -- so a "04-09 om 09:00"
+ * cutoff stops the aanvraag at 09:00 that day instead of the date-only
+ * fallback's end-of-day, which would leave it wrongly active for hours past
+ * the real submission deadline.
  */
 export const resolveHarveyNashDeadline = (
   raw?: string,
@@ -127,9 +161,15 @@ export const resolveHarveyNashDeadline = (
     return UNKNOWN;
   }
 
+  const time = resolveHarveyNashDeadlineTime(raw);
+  const withTime = (dateOnly: string): string =>
+    time ? `${dateOnly}T${pad2(time.hour)}:${pad2(time.minute)}:00` : dateOnly;
+
   const isoMatch = raw.match(/(?<year>\d{4})-(?<month>\d{2})-(?<day>\d{2})/u);
   if (isoMatch?.groups) {
-    return `${isoMatch.groups.year}-${isoMatch.groups.month}-${isoMatch.groups.day}`;
+    return withTime(
+      `${isoMatch.groups.year}-${isoMatch.groups.month}-${isoMatch.groups.day}`
+    );
   }
 
   const numericMatch = raw.match(
@@ -147,7 +187,7 @@ export const resolveHarveyNashDeadline = (
       );
       return year === undefined
         ? UNKNOWN
-        : `${year}-${pad2(month)}-${pad2(day)}`;
+        : withTime(`${year}-${pad2(month)}-${pad2(day)}`);
     }
   }
 
@@ -180,7 +220,7 @@ export const resolveHarveyNashDeadline = (
         observedAt
       );
       if (year !== undefined) {
-        return `${year}-${pad2(month)}-${pad2(day)}`;
+        return withTime(`${year}-${pad2(month)}-${pad2(day)}`);
       }
     }
   }

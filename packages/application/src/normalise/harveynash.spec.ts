@@ -44,34 +44,34 @@ const buildPayload = (
 });
 
 describe("resolveHarveyNashDeadline — real Harvey Nash deadline text (captured 2026-08-31)", () => {
-  it("parses 'DD-MM om HH:MM' with no year, anchored to the observation date", () => {
+  it("parses 'DD-MM om HH:MM' with no year, anchored to the observation date, keeping the published time (CTP-519)", () => {
     // Real: Endpoints specialist, published_at 2026-08-31.
     expect(
       resolveHarveyNashDeadline(
         "04-09 om 09:00",
         new Date(1_788_161_095 * 1000)
       )
-    ).toBe("2026-09-04");
+    ).toBe("2026-09-04T09:00:00");
   });
 
-  it("parses 'DD-MM-YYYY, HH:MM' with an explicit year", () => {
+  it("parses 'DD-MM-YYYY, HH:MM' with an explicit year, keeping the published time (CTP-519)", () => {
     // Real: Medior M365 Copilot Adoptie Consultant, published_at 2026-08-31.
     expect(
       resolveHarveyNashDeadline(
         "02-09-2026, 12:00",
         new Date(1_788_168_555 * 1000)
       )
-    ).toBe("2026-09-02");
+    ).toBe("2026-09-02T12:00:00");
   });
 
-  it("parses a weekday-prefixed numeric date ('wo 2-9 om 16.00')", () => {
+  it("parses a weekday-prefixed numeric date ('wo 2-9 om 16.00'), keeping the dot-separated time (CTP-519)", () => {
     // Real: Senior Project- en Programmacoördinator, published_at 2026-08-28.
     expect(
       resolveHarveyNashDeadline(
         "wo 2-9 om 16.00",
         new Date(1_787_922_509 * 1000)
       )
-    ).toBe("2026-09-02");
+    ).toBe("2026-09-02T16:00:00");
   });
 
   it("skips a leading '<number> word' that isn't a month name and finds the real date later in the text", () => {
@@ -86,24 +86,24 @@ describe("resolveHarveyNashDeadline — real Harvey Nash deadline text (captured
     ).toBe("2026-09-04");
   });
 
-  it("parses a full weekday name plus a Dutch month name ('dinsdag 1 september 16 uur')", () => {
+  it("parses a full weekday name plus a Dutch month name ('dinsdag 1 september 16 uur'), keeping the bare-hour time (CTP-519)", () => {
     // Real: Programmamanager Digitaliseren Gasnet, published_at 2026-08-28.
     expect(
       resolveHarveyNashDeadline(
         "dinsdag 1 september 16 uur",
         new Date(1_787_900_013 * 1000)
       )
-    ).toBe("2026-09-01");
+    ).toBe("2026-09-01T16:00:00");
   });
 
-  it("parses a single-digit day/month with no leading zeros ('31-8 voor 09:00 uur')", () => {
+  it("parses a single-digit day/month with no leading zeros ('31-8 voor 09:00 uur'), keeping the published time (CTP-519)", () => {
     // Real: Projectleider Realisatie, published_at 2026-08-27.
     expect(
       resolveHarveyNashDeadline(
         "31-8 voor 09:00 uur",
         new Date(1_787_824_221 * 1000)
       )
-    ).toBe("2026-08-31");
+    ).toBe("2026-08-31T09:00:00");
   });
 
   it("rolls a yearless date into next year when it would otherwise precede the observation date", () => {
@@ -188,7 +188,7 @@ describe("parseHarveyNashPayload", () => {
     expect(draft.extractieMethode).toBe("html_parser");
     expect(draft.bronSpecifiek.value).toMatchObject({
       deadline_raw: "04-09 om 09:00",
-      deadline_resolved: "2026-09-04",
+      deadline_resolved: "2026-09-04T09:00:00",
       job_ref: "BBBH121494_1788161094",
       provincie: "Utrecht",
       reference: "BBBH121494_1788161094",
@@ -390,6 +390,24 @@ describe("parseHarveyNashPayload — closing lifecycle (CTP-519 F13 fix, was RJC
     // sluitingsdatum tracks the same closing-moment source as lifecycle.
     expect(draft.sluitingsdatum?.toISOString()).toBe(
       "2000-01-01T22:59:59.999Z"
+    );
+  });
+
+  it("closes at the published deadline time, not end-of-day, when the deadline text names a clock time (CTP-519)", () => {
+    const draft = parseHarveyNashPayload(
+      buildPayload({
+        facts: buildDeadlineFacts("01-01-2000 om 09:00"),
+        jsonLd: { validThrough: "2099-01-01T00:00:00.000Z" },
+      }),
+      "hash-deadline-closed-timed"
+    );
+
+    expect(draft.lifecycle).toBe("closed");
+    expect(draft.status).toBe("closed");
+    // 09:00 Europe/Amsterdam on 2000-01-01 (winter, UTC+1) is 08:00 UTC --
+    // literal instant, not the date-only fallback's 22:59:59.999Z.
+    expect(draft.sluitingsdatum?.toISOString()).toBe(
+      "2000-01-01T08:00:00.000Z"
     );
   });
 
