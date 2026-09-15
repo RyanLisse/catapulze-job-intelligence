@@ -2,6 +2,7 @@
   "contractVersion": "connector-fixture/v1",
   "source": "striive",
   "capturedAt": "2026-09-15T00:00:00.000Z",
+  "captureNote": "Bevat exact 1 record: een gesaniteerde voorbeeldjob (recruiter-/contactvelden verwijderd, DEC-008) uit de live capture van GET /api/jobs?open=true&page=1 op 2026-09-15. Die pagina bevatte 25 records (payload.total: 104); dit bestand is GEEN volledige pagina en bewijst uit zichzelf niets over de andere 24. capturedAt is datumprecisie (midnight UTC), geen fetch-tijdstempel.",
   "contentType": "json",
   "payload": {
     "total": 104,

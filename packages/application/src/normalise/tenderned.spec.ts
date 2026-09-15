@@ -73,6 +73,39 @@ describe("parseTenderNedPayload", () => {
     expect(specifiek.provincie).toBeNull();
   });
 
+  it("maps the NUTS 2024 re-codings NL35/NL36 to Utrecht/Zuid-Holland", () => {
+    for (const [code, expected] of [
+      ["NL350", "Utrecht"],
+      ["NL361", "Zuid-Holland"],
+    ] as const) {
+      const draft = parseTenderNedPayload(
+        buildPayload({ nutsCodes: [code] }),
+        `hash-nuts2024-${code}`
+      );
+      // SAFETY: parseTenderNedPayload always emits bron_specifiek.provincie.
+      const specifiek = draft.bronSpecifiek.value as { provincie: unknown };
+      expect(specifiek.provincie).toBe(expected);
+    }
+  });
+
+  it("marks locatieLand UNKNOWN for a malformed nutsCode instead of inventing a country", () => {
+    for (const code of ["NOT-A-CODE", "NL3299", "N", "NL 32"]) {
+      const draft = parseTenderNedPayload(
+        buildPayload({ nutsCodes: [code] }),
+        `hash-malformed-${code}`
+      );
+      expect(draft.locatieLand.value).toBe(UNKNOWN);
+    }
+  });
+
+  it("skips a malformed nutsCode and reads the country from the next well-formed one", () => {
+    const draft = parseTenderNedPayload(
+      buildPayload({ nutsCodes: ["NOT-A-CODE", "NL329"] }),
+      "hash-malformed-then-valid"
+    );
+    expect(draft.locatieLand.value).toBe("NL");
+  });
+
   it("derives locatieLand ISO-2 from the nutsCodes country prefix (CTP-525 F05)", () => {
     const draft = parseTenderNedPayload(buildPayload(), "hash-7");
     expect(draft.locatieLand.value).toBe("NL");

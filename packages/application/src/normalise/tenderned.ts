@@ -18,7 +18,17 @@ import type { NormalisedAanvraagDraft } from "./types";
 /** NUTS-2 -> canonical province name (CTP-525, F04). This *is* explicit
  * source data -- `nutsCodes` is a structured field the API publishes, not an
  * inference from a city name. Only the 12 NL provinces map; a non-NL or
- * unrecognised NUTS-2 prefix yields no provincie. */
+ * unrecognised NUTS-2 prefix yields no provincie.
+ *
+ * Both code generations are accepted, because TenderNed emits both. Verified
+ * against Eurostat's own NUTS 2021 level-2 map for NL
+ * (https://ec.europa.eu/eurostat/documents/345175/17780005/2021-NUTS-2-map-NL.pdf),
+ * whose legend is exactly NL11-NL13, NL21-NL23, NL31-NL34, NL41-NL42 --
+ * i.e. Utrecht is NL31 and Zuid-Holland NL33 under NUTS 2016 *and* NUTS
+ * 2021. The **NUTS 2024** revision re-coded those two: Utrecht NL31 -> NL35
+ * and Zuid-Holland NL33 -> NL36 (with a NUTS-2 boundary shift between them).
+ * `NL_NUTS_LABELS` in tenderned-nuts.ts already carries the 2024 codes, so
+ * keep the two tables in step. */
 const NUTS2_PROVINCIE = {
   NL11: "Groningen",
   NL12: "Friesland",
@@ -30,11 +40,20 @@ const NUTS2_PROVINCIE = {
   NL32: "Noord-Holland",
   NL33: "Zuid-Holland",
   NL34: "Zeeland",
+  // NUTS 2024 re-codings of NL31 / NL33 (see docblock above).
+  NL35: "Utrecht",
+  NL36: "Zuid-Holland",
   NL41: "Noord-Brabant",
   NL42: "Limburg",
 } satisfies Record<string, string>;
 
-const COUNTRY_PREFIX_PATTERN = /^[A-Z]{2}/u;
+/** A whole NUTS code: ISO-3166-1 alpha-2 country prefix plus 0-3
+ * level-1/2/3 characters (digits or letters, e.g. `NL`, `NL32B`). Anchored
+ * on purpose -- matching only the prefix turned `XX999` into land `XX` and
+ * `NOT-A-CODE` into land `NO`, fabricating country facets out of arbitrary
+ * leading letters (CTP-525). Anything that is not a whole NUTS code yields
+ * `UNKNOWN`, as the function contract says. */
+const NUTS_CODE_PATTERN = /^(?<country>[A-Z]{2})[0-9A-Z]{0,3}$/u;
 
 /** First recognised NUTS-2 prefix across `nutsCodes`, mapped to its
  * canonical province name via `toCanonicalProvincie` (never written
@@ -58,13 +77,20 @@ const provincieFromNutsCodes = (
   return null;
 };
 
-/** ISO-2 country prefix of the first `nutsCodes` entry, or `UNKNOWN` when
- * absent/unrecognised. NUTS codes always start with the ISO-3166-1 alpha-2
+/** ISO-2 country prefix of the first well-formed `nutsCodes` entry, or
+ * `UNKNOWN` when none is well-formed. NUTS codes always start with the ISO-3166-1 alpha-2
  * country code (CTP-525, F05) -- explicit source data, not a guess. */
 const landFromNutsCodes = (
   entries: { code: string }[]
-): string | typeof UNKNOWN =>
-  COUNTRY_PREFIX_PATTERN.exec(entries[0]?.code ?? "")?.[0] ?? UNKNOWN;
+): string | typeof UNKNOWN => {
+  for (const entry of entries) {
+    const country = NUTS_CODE_PATTERN.exec(entry.code)?.groups?.country;
+    if (country) {
+      return country;
+    }
+  }
+  return UNKNOWN;
+};
 
 export const parseTenderNedPayload = (
   payload: TenderNedFetchedPayload,
