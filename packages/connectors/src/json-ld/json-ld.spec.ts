@@ -480,3 +480,54 @@ describe("rejected fetch paths", () => {
     expect(fetched).toMatchObject({ status: "rejected" });
   });
 });
+
+describe("json-ld live fetch Cloudflare / cookie jar (CTP-528)", () => {
+  it("sends browser-like headers and an ops Cookie on live listing fetch", async () => {
+    const seen: RequestInit[] = [];
+    const sitemapXml =
+      "<urlset><url><loc>https://www.werkzoeken.nl/vacature/demo/</loc></url></urlset>";
+    const mockFetch: typeof fetch = Object.assign(
+      (_url: string | URL | Request, init?: RequestInit) => {
+        seen.push(init ?? {});
+        return Promise.resolve(new Response(sitemapXml, { status: 200 }));
+      },
+      { preconnect: () => {} }
+    );
+    const { werkzoekenConfig } = await import("./configs/werkzoeken");
+    const client = createJsonLdClient({
+      config: werkzoekenConfig,
+      cookieHeader: "cf_clearance=test",
+      fetchImpl: mockFetch,
+      liveEnabled: true,
+    });
+    const urls = await client.fetchListing();
+    expect(urls).toEqual([{ url: "https://www.werkzoeken.nl/vacature/demo/" }]);
+    const headers = new Headers(seen[0]?.headers);
+    expect(headers.get("User-Agent")).toContain("Chrome");
+    expect(headers.get("Accept-Language")).toContain("nl-NL");
+    expect(headers.get("Cookie")).toBe("cf_clearance=test");
+  });
+
+  it("fails closed with an ops-actionable error on a Cloudflare challenge", async () => {
+    const mockFetch: typeof fetch = Object.assign(
+      () =>
+        Promise.resolve(
+          new Response("<title>Just a moment...</title>", {
+            headers: { "cf-mitigated": "challenge" },
+            status: 403,
+          })
+        ),
+      { preconnect: () => {} }
+    );
+    const { werkzoekenConfig } = await import("./configs/werkzoeken");
+    const client = createJsonLdClient({
+      config: werkzoekenConfig,
+      fetchImpl: mockFetch,
+      liveEnabled: true,
+    });
+    await expect(client.fetchListing()).rejects.toThrow(
+      /Cloudflare managed challenge/u
+    );
+    await expect(client.fetchListing()).rejects.toThrow(/WERKZOEKEN_COOKIE/u);
+  });
+});

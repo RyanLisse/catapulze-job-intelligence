@@ -1,6 +1,12 @@
 import { loadConnectorFixture } from "../fixtures/load";
 import { resolveHttpTimeoutMs, withHttpTimeout } from "../http-timeout";
 import { extractJobPosting, extractLabelBlock } from "./extract";
+import {
+  buildLiveFetchHeaders,
+  cookieEnvVarForLiveGate,
+  readLiveHtmlOrThrow,
+  toLiveFetchHeadersInit,
+} from "./live-fetch";
 import type {
   JsonLdConnectorConfig,
   JsonLdDiscoveryUrl,
@@ -20,6 +26,11 @@ export interface JsonLdClient {
 
 export interface JsonLdClientOptions {
   config: JsonLdConnectorConfig;
+  /**
+   * Ops Cookie header for Cloudflare/consent-gated boards (CTP-528). Wins over
+   * `${LIVE_ENV_PREFIX}_COOKIE` when both are set. Never commit real values.
+   */
+  cookieHeader?: string | null;
   detailFixtures?: Record<string, string>;
   fetchImpl?: typeof fetch;
   listingFixturePath?: string;
@@ -110,19 +121,6 @@ const applyExcludes = (
   );
 };
 
-const readText = async (
-  response: Response,
-  slug: string,
-  kind: string
-): Promise<string> => {
-  if (!response.ok) {
-    throw new Error(
-      `${slug} ${kind} request failed with status ${response.status}`
-    );
-  }
-  return await response.text();
-};
-
 export const createJsonLdClient = (
   options: JsonLdClientOptions
 ): JsonLdClient => {
@@ -137,6 +135,12 @@ export const createJsonLdClient = (
     config.listingFixturePath ??
     `${config.slug}/listing-page-0.json`;
   const detailFixtures = options.detailFixtures ?? config.detailFixtures ?? {};
+  const cookieEnvVar = cookieEnvVarForLiveGate(config.liveEnvVar);
+  const liveHeaders = () =>
+    buildLiveFetchHeaders({
+      cookieHeader: options.cookieHeader,
+      liveEnvVar: config.liveEnvVar,
+    });
 
   const parseListingSource = (raw: string): JsonLdDiscoveryUrl[] => {
     const urls =
@@ -173,8 +177,16 @@ export const createJsonLdClient = (
         return buildDetailPayload(url, fixture.payload);
       }
       const html = await withHttpTimeout(async (signal) => {
-        const response = await fetchImpl(url, { signal });
-        return await readText(response, config.slug, "detail");
+        const response = await fetchImpl(url, {
+          headers: toLiveFetchHeadersInit(liveHeaders()),
+          signal,
+        });
+        return await readLiveHtmlOrThrow({
+          cookieEnvVar,
+          response,
+          slug: config.slug,
+          url,
+        });
       }, timeoutMs);
       return buildDetailPayload(url, html);
     },
@@ -184,8 +196,16 @@ export const createJsonLdClient = (
         return parseListingSource(fixture.payload);
       }
       const raw = await withHttpTimeout(async (signal) => {
-        const response = await fetchImpl(config.discovery.url, { signal });
-        return await readText(response, config.slug, "listing");
+        const response = await fetchImpl(config.discovery.url, {
+          headers: toLiveFetchHeadersInit(liveHeaders()),
+          signal,
+        });
+        return await readLiveHtmlOrThrow({
+          cookieEnvVar,
+          response,
+          slug: config.slug,
+          url: config.discovery.url,
+        });
       }, timeoutMs);
       return parseListingSource(raw);
     },
