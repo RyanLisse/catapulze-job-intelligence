@@ -360,6 +360,68 @@ const explicitBronText = (
 ): string | null =>
   readBronText(asBronSpecifiekRecord(draft.bronSpecifiek.value), ...keys);
 
+/** Hours text "0" is absent for fill/overwrite (CTP-599 / CTP-526 residual). */
+const isAbsentUrenText = (value: string | null): boolean =>
+  value === null || value.trim() === "" || value.trim() === "0";
+
+const readUrenBronText = (
+  record: BronSpecifiekRecord,
+  ...keys: readonly string[]
+): string | null => {
+  const value = readBronText(record, ...keys);
+  return isAbsentUrenText(value) ? null : value;
+};
+
+const coalesceUrenPerWeek = (
+  incoming: string | null,
+  existing: string | null
+): string | null => {
+  if (incoming !== null) {
+    return incoming;
+  }
+  return isAbsentUrenText(existing) ? null : existing;
+};
+
+const UREN_BRON_KEY_SET: ReadonlySet<string> = new Set([
+  "uren_max",
+  "uren_min",
+  "uren_per_week",
+  "uren_per_week_raw",
+]);
+
+/** Raw bron_specifiek uren values may be string or number (Inhuurdesk min/max). */
+type BronSpecifiekValue = BronSpecifiekRecord[string];
+
+const isAbsentUrenBronValue = (
+  value: BronSpecifiekValue | undefined
+): boolean => {
+  if (value === null || value === undefined) {
+    return true;
+  }
+  // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Zod record union; number 0 is absent hours
+  if (typeof value === "number") {
+    return value === 0 || Number.isNaN(value);
+  }
+  // oxlint-disable-next-line anti-slop/no-runtime-typeof -- string hours use the CTP-599 text rule
+  if (typeof value === "string") {
+    return isAbsentUrenText(value);
+  }
+  return false;
+};
+
+const stripAbsentUrenBronKeys = (
+  record: BronSpecifiekRecord
+): BronSpecifiekRecord => {
+  const next: BronSpecifiekRecord = {};
+  for (const [key, value] of Object.entries(record)) {
+    if (UREN_BRON_KEY_SET.has(key) && isAbsentUrenBronValue(value)) {
+      continue;
+    }
+    next[key] = value;
+  }
+  return next;
+};
+
 /** Alias groups for durable CLEARED markers — clearing/lifting one lifts all. */
 const CLEARED_MARKER_ALIAS_GROUPS: readonly (readonly string[])[] = [
   ["locatie", "locatie_tekst", "locatieTekst"],
@@ -449,7 +511,8 @@ const stripClearedBronSpecifiek = (
     markers[key] = true;
   }
   writeClearedMarkers(out, omitClearedMarkers(markers, lifted));
-  return out;
+  // SAFETY: `out` is built as BronSpecifiekRecord; strip only drops absent uren keys.
+  return stripAbsentUrenBronKeys(out);
 };
 
 const mergeBronSpecifiek = (
@@ -554,7 +617,11 @@ const toStoredFields = (
     tariefMin: tariefColumn(draft.tarief.min),
     tariefValuta: draft.tarief.valuta,
     titel: draft.titel.value,
-    urenPerWeek: readBronText(bronRecord, "uren_per_week", "uren_per_week_raw"),
+    urenPerWeek: readUrenBronText(
+      bronRecord,
+      "uren_per_week",
+      "uren_per_week_raw"
+    ),
     versie: 1,
     werkvorm: readBronText(bronRecord, "werkvorm"),
   };
@@ -632,8 +699,12 @@ const fillNullCommercialColumns = (
   existing: StoredAanvraag,
   patch: Partial<StoredAanvraag>
 ): void => {
-  if (existing.urenPerWeek === null) {
-    const value = explicitBronText(draft, "uren_per_week", "uren_per_week_raw");
+  if (isAbsentUrenText(existing.urenPerWeek)) {
+    const value = readUrenBronText(
+      asBronSpecifiekRecord(draft.bronSpecifiek.value),
+      "uren_per_week",
+      "uren_per_week_raw"
+    );
     if (value !== null) {
       patch.urenPerWeek = value;
     }
@@ -956,7 +1027,7 @@ export const curateObservation = async (
         coalescePatchFromDraft(draft.tarief.min),
         existing.tariefMin
       ),
-      urenPerWeek: coalesceNullable(next.urenPerWeek, existing.urenPerWeek),
+      urenPerWeek: coalesceUrenPerWeek(next.urenPerWeek, existing.urenPerWeek),
       versie: nextVersie,
       werkvorm: coalesceNullable(
         explicitBronText(draft, "werkvorm"),
