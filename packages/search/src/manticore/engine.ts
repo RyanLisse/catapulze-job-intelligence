@@ -101,6 +101,17 @@ export const PUBLICATIEDATUM_MISSING_SENTINEL = 0;
 /** Sorts unknown companies last under company-asc. */
 export const COMPANY_MISSING_KEYWORD = "\uFFFF";
 
+const MANTICORE_CONFLICT_MESSAGE = /\b409\b|\bconflict\b/iu;
+const LIVE_REPLACE_CONFLICT_RETRIES = 2;
+const LIVE_REPLACE_CONFLICT_BACKOFF_MS = 25;
+
+const waitForManticoreRetry = async (): Promise<void> => {
+  // oxlint-disable-next-line promise/avoid-new -- the retry backoff needs a timer promise
+  await new Promise<void>((resolve) => {
+    setTimeout(resolve, LIVE_REPLACE_CONFLICT_BACKOFF_MS);
+  });
+};
+
 const epochSeconds = (value: Date): number =>
   Math.floor(value.getTime() / 1000);
 
@@ -288,6 +299,8 @@ const withoutEntry = (chunk: BulkChunk, at: number): BulkChunk => ({
 export interface ManticoreSearchEngineOptions {
   /** Synchronize the logical all-scope table used by Manticore 29 hybrid search. */
   hybridEnabled?: boolean;
+  /** Retry transient table-readiness conflicts; enabled only for live hygiene. */
+  retryReplaceOnConflict?: boolean;
 }
 
 export class ManticoreSearchEngine implements SearchEngine {
@@ -296,6 +309,7 @@ export class ManticoreSearchEngine implements SearchEngine {
   /** Logical index name; the RT tables are `<indexName>_active` / `<indexName>_archive`. */
   private readonly indexName: string;
   private readonly hybridEnabled: boolean;
+  private readonly retryReplaceOnConflict: boolean;
   private readonly versionReads = new Singleflight<SearchVersion>();
   private readonly versionStore: SearchVersionStore;
 
@@ -312,6 +326,7 @@ export class ManticoreSearchEngine implements SearchEngine {
     this.clock = clock;
     this.hybridEnabled =
       options.hybridEnabled ?? process.env.SEARCH_HYBRID === "1";
+    this.retryReplaceOnConflict = options.retryReplaceOnConflict ?? false;
   }
 
   static fromUrl(
@@ -336,6 +351,31 @@ export class ManticoreSearchEngine implements SearchEngine {
 
   private table(partition: SearchPartition): string {
     return partitionTable(this.indexName, partition);
+  }
+
+  private async replaceDocument(
+    index: string,
+    document: ManticoreIndexedDocument
+  ): Promise<void> {
+    const maxAttempts = this.retryReplaceOnConflict
+      ? LIVE_REPLACE_CONFLICT_RETRIES + 1
+      : 1;
+    const replace = async (attempt: number): Promise<void> => {
+      try {
+        await replaceManticoreDocument(this.client, index, document);
+      } catch (error) {
+        const retryable =
+          error instanceof Error &&
+          MANTICORE_CONFLICT_MESSAGE.test(error.message) &&
+          attempt < maxAttempts;
+        if (!retryable) {
+          throw error;
+        }
+        await waitForManticoreRetry();
+        await replace(attempt + 1);
+      }
+    };
+    await replace(1);
   }
 
   /**
@@ -716,17 +756,9 @@ export class ManticoreSearchEngine implements SearchEngine {
       Number(version.appliedSequence),
       projectionHash(document, now)
     );
-    await replaceManticoreDocument(
-      this.client,
-      this.table(partition),
-      indexedDocument
-    );
+    await this.replaceDocument(this.table(partition), indexedDocument);
     if (this.hybridEnabled) {
-      await replaceManticoreDocument(
-        this.client,
-        this.indexName,
-        indexedDocument
-      );
+      await this.replaceDocument(this.indexName, indexedDocument);
     }
     await deleteManticoreDocument(
       this.client,

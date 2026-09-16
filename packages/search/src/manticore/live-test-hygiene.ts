@@ -43,7 +43,7 @@ export const createLiveTestEngine = (
     versionStore,
     indexName,
     clock,
-    options
+    { ...options, retryReplaceOnConflict: true }
   );
 };
 
