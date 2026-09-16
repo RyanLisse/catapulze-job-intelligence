@@ -23,6 +23,11 @@ import {
   BronnenOverlapSkeleton,
 } from "@/app/bronnen/bronnen-overlap";
 import {
+  attentionReasonLabels,
+  attentionReasons,
+  statusFor,
+} from "@/app/bronnen/bronnen-status";
+import {
   aggregateTotalTrend,
   sparklineByBron,
 } from "@/app/bronnen/bronnen-timeseries";
@@ -108,28 +113,6 @@ const formatDate = (value: string | null): string =>
       }).format(new Date(value))
     : "Nog geen runs";
 
-interface BronCardStatus {
-  readonly label: "Aandacht" | "Gezond" | "Nieuw";
-  readonly variant: "destructive" | "outline" | "secondary";
-}
-
-const statusFor = (bron: DashboardBron): BronCardStatus => {
-  if (
-    bron.health?.silenceAlertOpen ||
-    bron.health?.circuitStatus === "open" ||
-    bron.stats.lastRunStatus === "failed"
-  ) {
-    return {
-      label: "Aandacht",
-      variant: "destructive",
-    } satisfies BronCardStatus;
-  }
-  if (bron.stats.runs === 0) {
-    return { label: "Nieuw", variant: "outline" } satisfies BronCardStatus;
-  }
-  return { label: "Gezond", variant: "secondary" } satisfies BronCardStatus;
-};
-
 const Kpi = ({
   label,
   testId,
@@ -153,9 +136,13 @@ const DashboardData = async ({
   readonly window: BronnenWindow;
 }) => {
   const overview = await getOverview(window);
-  const attentionCount = overview.bronnen.filter(
-    (bron) => statusFor(bron).label !== "Gezond"
-  ).length;
+  const attentionSources = overview.bronnen.filter(
+    (bron) => statusFor(bron).label === "Aandacht"
+  );
+  const attentionCount = attentionSources.length;
+  const newSources = overview.bronnen.filter(
+    (bron) => statusFor(bron).label === "Nieuw"
+  );
   const trend = aggregateTotalTrend(overview.timeseries);
   const sparklines = sparklineByBron(overview.timeseries);
 
@@ -193,6 +180,11 @@ const DashboardData = async ({
           value={numberFormatter.format(overview.total.rejected)}
         />
         <Kpi
+          label="Nieuwe bronnen"
+          testId="bronnen-kpi-nieuwe-bronnen"
+          value={numberFormatter.format(newSources.length)}
+        />
+        <Kpi
           label="Bronnen met aandacht"
           testId="bronnen-kpi-aandacht"
           value={numberFormatter.format(attentionCount)}
@@ -200,6 +192,49 @@ const DashboardData = async ({
       </div>
 
       <BronnenTrendPanel data={trend} />
+
+      <section aria-labelledby="bronnen-aandacht-heading" className="space-y-3">
+        <div>
+          <h2
+            className="font-display text-xl font-semibold"
+            id="bronnen-aandacht-heading"
+          >
+            Bronnen met aandacht
+          </h2>
+          <p className="text-sm text-muted-foreground">
+            Alleen bronnen met een operationeel probleem.
+          </p>
+        </div>
+        {attentionSources.length === 0 ? (
+          <p className="text-sm text-muted-foreground">
+            Geen bronnen met aandacht.
+          </p>
+        ) : (
+          <ul className="space-y-2">
+            {attentionSources.map((bron) => {
+              const { stats } = bron;
+              const reasons = attentionReasons(bron).map(
+                (reason) => attentionReasonLabels[reason]
+              );
+              return (
+                <li
+                  className="rounded-md border border-destructive/30 p-3 text-sm"
+                  key={stats.bronId ?? stats.naam}
+                >
+                  <p className="font-semibold">
+                    {stats.naam ?? "Onbekende bron"}
+                  </p>
+                  <p>{reasons.join(", ")}</p>
+                  <p className="text-muted-foreground">
+                    Laatste run: {stats.lastRunStatus ?? "Onbekend"} ·{" "}
+                    {formatDate(bron.health?.lastRunAt ?? stats.lastRunAt)}
+                  </p>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </section>
 
       <section aria-labelledby="bronnen-heading" className="space-y-3">
         <div>
@@ -308,6 +343,10 @@ const DashboardData = async ({
           <p>
             Runs zijn uitgevoerde polls binnen het gekozen venster. Nieuw,
             gewijzigd en ongewijzigd tellen de verwerkte observaties.
+          </p>
+          <p>
+            Nieuw betekent dat een bron nog geen runs heeft gehad. Dat is geen
+            aandacht-item.
           </p>
           <p>
             Een bron krijgt aandacht bij een open circuit, een mislukte laatste
