@@ -1,13 +1,26 @@
+/* oxlint-disable anti-slop/no-runtime-typeof -- JobPosting JSON-LD is an untyped external payload; the field is narrowed before description extraction. */
+import { extractJobPosting } from "@ji/connectors/json-ld";
 import { UNKNOWN } from "@ji/domain";
 
 import { extractJobPostingCommercialFacts } from "../normalise/jobposting-html";
 import { parseTariefFromText } from "../normalise/tarief";
 import { stripHtml } from "../normalise/types";
+import { isTitleFallbackDescription } from "../title-fallback-description";
+import type { TitleFallbackDescriptionParts } from "../title-fallback-description";
 import type {
   EnrichmentField,
   EnrichmentProposal,
   EnrichmentRawRef,
 } from "./types";
+
+const MIN_USABLE_DESCRIPTION_LENGTH = 24;
+const BOILERPLATE_DESCRIPTION_PATTERN =
+  /^(?:accept(?:eer| all)? cookies?|cookie(?:s|beleid)?|home(?:page)?|menu|navigatie|inloggen|registreren|privacy(?:beleid)?|contact)(?:[\s|•·:/-]+(?:accept(?:eer| all)? cookies?|cookie(?:s|beleid)?|home(?:page)?|menu|navigatie|inloggen|registreren|privacy(?:beleid)?|contact))*[.!?]?[\s]*$/iu;
+const COOKIE_BANNER_PATTERN =
+  /^(?:accep\w+|allow|manage|we use)\b[\s\S]*\bcookies?\b/iu;
+const CHROME_ELEMENT_PATTERN =
+  /<(?:aside|footer|header|nav|script|style)\b[^>]*>[\s\S]*?<\/(?:aside|footer|header|nav|script|style)>/giu;
+const MAIN_CONTENT_PATTERN = /<main\b[^>]*>(?<content>[\s\S]*?)<\/main>/iu;
 
 const LABELED_LOCATIE_PATTERN =
   /(?:Locatie|Standplaats|Werklocatie)\s*:\s*(?<value>.+)/iu;
@@ -174,13 +187,91 @@ const extractPublicatiedatumFromJobPosting = (
   };
 };
 
+const usableDescription = (raw: string): string | null => {
+  const text = normalizeWhitespace(
+    stripHtml(raw.replaceAll(CHROME_ELEMENT_PATTERN, " "))
+  );
+  const words = text.split(" ").filter(Boolean);
+  if (
+    text.length < MIN_USABLE_DESCRIPTION_LENGTH ||
+    words.length < 4 ||
+    BOILERPLATE_DESCRIPTION_PATTERN.test(text) ||
+    COOKIE_BANNER_PATTERN.test(text)
+  ) {
+    return null;
+  }
+  return text;
+};
+
+/**
+ * Flextender detail pages put the vacancy body in the semantic `<main>` block
+ * when JobPosting.description is absent. The selector is intentionally narrow
+ * so navigation, cookie banners, and footer chrome cannot become a description.
+ */
+const extractBeschrijvingText = (
+  rawHtml: string
+): {
+  readonly sourcePath: string;
+  readonly text: string;
+} | null => {
+  const jobPosting = extractJobPosting(rawHtml);
+  const jobPostingDescription =
+    jobPosting && typeof jobPosting.description === "string"
+      ? usableDescription(jobPosting.description)
+      : null;
+  if (jobPostingDescription !== null) {
+    return {
+      sourcePath: "rawHtml.jobPosting.description",
+      text: jobPostingDescription,
+    };
+  }
+
+  const mainContent = rawHtml.match(MAIN_CONTENT_PATTERN)?.groups?.content;
+  const mainDescription = mainContent ? usableDescription(mainContent) : null;
+  return mainDescription === null
+    ? null
+    : { sourcePath: "rawHtml.main", text: mainDescription };
+};
+
+const extractBeschrijving = (input: {
+  readonly beschrijving: string;
+  readonly rawHtml?: string | null;
+  readonly titleFallbackParts?: TitleFallbackDescriptionParts | null;
+}): EnrichmentProposal | null => {
+  if (
+    !input.rawHtml ||
+    !isTitleFallbackDescription(input.beschrijving, input.titleFallbackParts)
+  ) {
+    return null;
+  }
+  const extracted = extractBeschrijvingText(input.rawHtml);
+  if (
+    extracted === null ||
+    isTitleFallbackDescription(extracted.text, input.titleFallbackParts)
+  ) {
+    return null;
+  }
+  const rawRef: EnrichmentRawRef = {
+    excerpt: extracted.text.slice(0, 160),
+    field: "beschrijving",
+    sourcePath: extracted.sourcePath,
+  };
+  return {
+    confidence: 0.95,
+    field: "beschrijving",
+    rawRefs: [rawRef],
+    source: "deterministic",
+    value: { beschrijving: extracted.text },
+  };
+};
+
 const textExtractors = {
   contract: extractContract,
   locatie: extractLocatie,
   remote: extractRemote,
   tarief: extractTarief,
 } satisfies Record<
-  Exclude<EnrichmentField, "publicatiedatum">,
+  Exclude<EnrichmentField, "beschrijving" | "publicatiedatum">,
   (text: string) => EnrichmentProposal | null
 >;
 
@@ -188,6 +279,7 @@ export const extractDeterministicEnrichment = (input: {
   readonly beschrijving: string;
   readonly fields: readonly EnrichmentField[];
   readonly rawHtml?: string | null;
+  readonly titleFallbackParts?: TitleFallbackDescriptionParts | null;
 }): readonly EnrichmentProposal[] => {
   const htmlText = input.rawHtml ? stripHtml(input.rawHtml) : "";
   const beschrijvingText = stripHtml(input.beschrijving);
@@ -195,6 +287,10 @@ export const extractDeterministicEnrichment = (input: {
   return input.fields.flatMap((field) => {
     if (field === "publicatiedatum") {
       const proposal = extractPublicatiedatumFromJobPosting(input.rawHtml);
+      return proposal ? [proposal] : [];
+    }
+    if (field === "beschrijving") {
+      const proposal = extractBeschrijving(input);
       return proposal ? [proposal] : [];
     }
     if (!combined) {

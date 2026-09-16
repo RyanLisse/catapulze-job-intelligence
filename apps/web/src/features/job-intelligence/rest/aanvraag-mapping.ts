@@ -26,7 +26,12 @@ export interface AanvraagPreview {
   readonly duur?: string | null;
   readonly enrichedFields?: readonly {
     readonly confidence: number;
-    readonly field: "contract" | "locatie" | "remote" | "tarief";
+    readonly field:
+      | "beschrijving"
+      | "contract"
+      | "locatie"
+      | "remote"
+      | "tarief";
     readonly source: "deterministic" | "llm";
   }[];
   readonly eindDatum?: string | null;

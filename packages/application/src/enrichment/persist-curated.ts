@@ -1,8 +1,11 @@
 import { CLEARED, UNKNOWN } from "@ji/domain";
 
+import { isTitleFallbackDescription } from "../title-fallback-description";
+import type { TitleFallbackDescriptionParts } from "../title-fallback-description";
 import { readDurableClearedKeys } from "./cleared-markers";
 import type {
   EnrichmentContractValue,
+  EnrichmentBeschrijvingValue,
   EnrichmentField,
   EnrichmentFieldValue,
   EnrichmentLocatieValue,
@@ -18,6 +21,7 @@ import { ENRICHMENT_APPLY_MIN_CONFIDENCE } from "./types";
  * tombstone from #213 coalesce — never resurrect those keys.
  */
 export interface CuratedCommercialFacts {
+  readonly beschrijving: string;
   readonly bronSpecifiek?: unknown;
   readonly contracttype: string | null;
   readonly locatieTekst: string | null;
@@ -26,10 +30,12 @@ export interface CuratedCommercialFacts {
   readonly tariefMax: string | null;
   readonly tariefMin: string | null;
   readonly tariefValuta: string | null;
+  readonly titleFallbackParts?: TitleFallbackDescriptionParts | null;
   readonly werkvorm: string | null;
 }
 
 export interface CuratedEnrichmentPatch {
+  readonly beschrijving?: string;
   readonly contracttype?: string;
   readonly fields: readonly EnrichmentField[];
   readonly locatieTekst?: string;
@@ -42,6 +48,7 @@ export interface CuratedEnrichmentPatch {
 }
 
 class PatchBuilder {
+  beschrijving?: string;
   contracttype?: string;
   locatieTekst?: string;
   publicatiedatum?: string;
@@ -93,11 +100,19 @@ class PatchBuilder {
     this.fields.push("publicatiedatum");
   }
 
+  addBeschrijving(value: string): void {
+    this.beschrijving = value;
+    this.fields.push("beschrijving");
+  }
+
   build(): CuratedEnrichmentPatch | null {
     if (this.fields.length === 0) {
       return null;
     }
     const result: CuratedEnrichmentPatch = { fields: this.fields };
+    if (this.beschrijving !== undefined) {
+      Object.assign(result, { beschrijving: this.beschrijving });
+    }
     if (this.locatieTekst !== undefined) {
       Object.assign(result, { locatieTekst: this.locatieTekst });
     }
@@ -149,6 +164,11 @@ const asLocatie = (
   value: EnrichmentFieldValue
 ): EnrichmentLocatieValue | null => ("locatieTekst" in value ? value : null);
 
+const asBeschrijving = (
+  value: EnrichmentFieldValue
+): EnrichmentBeschrijvingValue | null =>
+  "beschrijving" in value ? value : null;
+
 const asTarief = (value: EnrichmentFieldValue): EnrichmentTariefValue | null =>
   "eenheid" in value && "valuta" in value ? value : null;
 
@@ -195,6 +215,31 @@ const publicatiedatumCleared = (
   bronCleared.has("publicatiedatum") ||
   bronCleared.has("gepubliceerd_op") ||
   bronCleared.has("publicatie_datum");
+
+const tryAddBeschrijving = (
+  builder: PatchBuilder,
+  facts: CuratedCommercialFacts,
+  bronCleared: ReadonlySet<string>,
+  proposal: EnrichmentProposal
+): void => {
+  if (bronCleared.has("beschrijving")) {
+    return;
+  }
+  if (
+    !isTitleFallbackDescription(facts.beschrijving, facts.titleFallbackParts)
+  ) {
+    return;
+  }
+  const value = asBeschrijving(proposal.value);
+  if (
+    !value ||
+    value.beschrijving.trim() === "" ||
+    isTitleFallbackDescription(value.beschrijving, facts.titleFallbackParts)
+  ) {
+    return;
+  }
+  builder.addBeschrijving(value.beschrijving.trim());
+};
 
 const tariefCleared = (
   facts: CuratedCommercialFacts,
@@ -338,6 +383,10 @@ const applyProposal = (
     return;
   }
   switch (proposal.field) {
+    case "beschrijving": {
+      tryAddBeschrijving(builder, facts, bronCleared, proposal);
+      return;
+    }
     case "locatie": {
       tryAddLocatie(builder, facts, bronCleared, proposal);
       return;

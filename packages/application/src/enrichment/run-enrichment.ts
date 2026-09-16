@@ -22,6 +22,7 @@ export const runEnrichment = async (
     tariefEenheid: input.tariefEenheid ?? null,
     tariefMax: input.tariefMax ?? null,
     tariefMin: input.tariefMin ?? null,
+    titleFallbackParts: input.titleFallbackParts,
     werkvorm: input.werkvorm ?? null,
   });
 
@@ -35,6 +36,7 @@ export const runEnrichment = async (
     beschrijving: input.beschrijving,
     fields: fieldsToExtract,
     rawHtml: input.rawHtml,
+    titleFallbackParts: input.titleFallbackParts,
   });
 
   const llm =

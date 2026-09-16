@@ -29,6 +29,7 @@ export interface StoredEnrichmentProposalInput {
 }
 
 const locatieValueSchema = z.object({ locatieTekst: z.string() });
+const beschrijvingValueSchema = z.object({ beschrijving: z.string() });
 const tariefValueSchema = z.object({
   eenheid: z.string(),
   max: z.string(),
@@ -57,6 +58,10 @@ const parseFieldValue = (
   value: unknown
 ): EnrichmentFieldValue | null => {
   switch (field) {
+    case "beschrijving": {
+      const parsed = beschrijvingValueSchema.safeParse(value);
+      return parsed.success ? parsed.data : null;
+    }
     case "locatie": {
       const parsed = locatieValueSchema.safeParse(value);
       return parsed.success ? parsed.data : null;

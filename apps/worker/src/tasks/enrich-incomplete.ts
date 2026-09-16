@@ -125,6 +125,7 @@ export const runEnrichIncomplete = async (
           tariefEenheid: candidate.tariefEenheid,
           tariefMax: candidate.tariefMax,
           tariefMin: candidate.tariefMin,
+          titleFallbackParts: candidate.titleFallbackParts,
           werkvorm: candidate.werkvorm,
         });
 
@@ -154,6 +155,7 @@ export const runEnrichIncomplete = async (
           );
           const curatedPatch = planCuratedEnrichmentPatch(
             {
+              beschrijving: candidate.beschrijving,
               bronSpecifiek: candidate.bronSpecifiek,
               contracttype: candidate.contracttype,
               locatieTekst: candidate.locatieTekst,
@@ -162,6 +164,7 @@ export const runEnrichIncomplete = async (
               tariefMax: candidate.tariefMax,
               tariefMin: candidate.tariefMin,
               tariefValuta: candidate.tariefValuta,
+              titleFallbackParts: candidate.titleFallbackParts,
               werkvorm: candidate.werkvorm,
             },
             result.proposals

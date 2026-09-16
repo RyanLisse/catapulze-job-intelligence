@@ -1,5 +1,6 @@
 import type { SearchFilters, SearchScope, SearchVersion } from "@ji/search";
 
+import type { TitleFallbackDescriptionParts } from "../../title-fallback-description";
 import type {
   BronRunKindFilter,
   BronRunStatsWindow,
@@ -57,6 +58,7 @@ export interface AanvraagEnrichedField {
   readonly confidence: number;
   readonly field:
     | "contract"
+    | "beschrijving"
     | "locatie"
     | "publicatiedatum"
     | "remote"
@@ -96,6 +98,8 @@ export interface AanvraagRecord {
   readonly tariefMin?: number | null;
   readonly tariefValuta?: string | null;
   readonly titel: string;
+  /** Motian identity parts used to recognize its exact title fallback. */
+  readonly titleFallbackParts?: TitleFallbackDescriptionParts | null;
   readonly urenPerWeek?: string | null;
   readonly versies: readonly AanvraagVersieRecord[];
   readonly werkvorm?: string | null;

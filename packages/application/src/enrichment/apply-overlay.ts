@@ -1,6 +1,9 @@
 import { CLEARED, UNKNOWN } from "@ji/domain";
 
+import { isTitleFallbackDescription } from "../title-fallback-description";
+import type { TitleFallbackDescriptionParts } from "../title-fallback-description";
 import type {
+  EnrichmentBeschrijvingValue,
   EnrichmentContractValue,
   EnrichmentField,
   EnrichmentFieldValue,
@@ -26,6 +29,7 @@ export interface EnrichedFieldMeta {
 }
 
 export interface AanvraagEnrichmentFacts {
+  beschrijving?: string;
   contracttype?: string | null;
   locatie?: string | null;
   publicatiedatum?: string | null;
@@ -34,6 +38,7 @@ export interface AanvraagEnrichmentFacts {
   tariefMin?: number | null;
   tariefValuta?: string | null;
   werkvorm?: string | null;
+  titleFallbackParts?: TitleFallbackDescriptionParts | null;
 }
 
 export interface SearchEnrichmentFacts {
@@ -88,6 +93,11 @@ const asLocatie = (
   value: EnrichmentFieldValue
 ): EnrichmentLocatieValue | null => ("locatieTekst" in value ? value : null);
 
+const asBeschrijving = (
+  value: EnrichmentFieldValue
+): EnrichmentBeschrijvingValue | null =>
+  "beschrijving" in value ? value : null;
+
 const asTarief = (value: EnrichmentFieldValue): EnrichmentTariefValue | null =>
   "eenheid" in value && "valuta" in value ? value : null;
 
@@ -136,6 +146,7 @@ export const applyEnrichmentOverlayToAanvraagFacts = (
   readonly enrichedFields: readonly EnrichedFieldMeta[];
 } => {
   const next: AanvraagEnrichmentFacts = {
+    beschrijving: facts.beschrijving,
     contracttype: facts.contracttype,
     locatie: facts.locatie,
     publicatiedatum: facts.publicatiedatum,
@@ -143,10 +154,28 @@ export const applyEnrichmentOverlayToAanvraagFacts = (
     tariefMax: facts.tariefMax,
     tariefMin: facts.tariefMin,
     tariefValuta: facts.tariefValuta,
+    titleFallbackParts: facts.titleFallbackParts,
     werkvorm: facts.werkvorm,
   };
 
   for (const row of rows) {
+    if (
+      row.field === "beschrijving" &&
+      isTitleFallbackDescription(
+        next.beschrijving ?? "",
+        next.titleFallbackParts
+      )
+    ) {
+      const value = asBeschrijving(row.value);
+      if (
+        value &&
+        value.beschrijving.trim() !== "" &&
+        !isTitleFallbackDescription(value.beschrijving, next.titleFallbackParts)
+      ) {
+        next.beschrijving = value.beschrijving;
+      }
+      continue;
+    }
     if (row.field === "locatie" && isFillableGap(next.locatie)) {
       const value = asLocatie(row.value);
       if (value && !isMissingText(value.locatieTekst)) {

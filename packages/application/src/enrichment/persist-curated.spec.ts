@@ -6,6 +6,7 @@ import { planCuratedEnrichmentPatch } from "./persist-curated";
 import type { EnrichmentProposal } from "./types";
 
 const emptyFacts = {
+  beschrijving: "Senior Java Developer (flextender/abc-123)",
   bronSpecifiek: {},
   contracttype: null,
   locatieTekst: null,
@@ -14,6 +15,11 @@ const emptyFacts = {
   tariefMax: null,
   tariefMin: null,
   tariefValuta: null,
+  titleFallbackParts: {
+    externalId: "abc-123",
+    platform: "flextender",
+    title: "Senior Java Developer",
+  },
   werkvorm: null,
 } as const;
 
@@ -217,6 +223,42 @@ describe("planCuratedEnrichmentPatch publicatiedatum", () => {
           rawRefs: [],
           source: "deterministic",
           value: { publicatiedatum: "2026-08-10T22:00:00Z" },
+        },
+      ]
+    );
+
+    expect(patch).toBeNull();
+  });
+});
+
+describe("planCuratedEnrichmentPatch beschrijving", () => {
+  it("fills the exact title fallback from a deterministic proposal", () => {
+    const patch = planCuratedEnrichmentPatch(emptyFacts, [
+      {
+        confidence: 0.95,
+        field: "beschrijving",
+        rawRefs: [],
+        source: "deterministic",
+        value: { beschrijving: "Volledige bronbeschrijving." },
+      },
+    ]);
+
+    expect(patch).toEqual({
+      beschrijving: "Volledige bronbeschrijving.",
+      fields: ["beschrijving"],
+    });
+  });
+
+  it("does not overwrite a non-placeholder description", () => {
+    const patch = planCuratedEnrichmentPatch(
+      { ...emptyFacts, beschrijving: "Een echte bronbeschrijving." },
+      [
+        {
+          confidence: 0.95,
+          field: "beschrijving",
+          rawRefs: [],
+          source: "deterministic",
+          value: { beschrijving: "Niet toepassen." },
         },
       ]
     );

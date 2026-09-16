@@ -75,6 +75,102 @@ const NVB_JOBPOSTING_HTML = `<html><head>
 </script>
 </head><body>35 dagen geleden</body></html>`;
 
+const FLEXTENDER_JOBPOSTING_HTML = `<html><head>
+<script type="application/ld+json">
+{"@context":"https://schema.org/","@type":"JobPosting","title":"Senior Java Developer","description":"<p>Je bouwt mee aan een veilig Java-platform voor gemeentelijke dienstverlening.</p><p>Je werkt samen met product owners en ontwikkelaars in een multidisciplinair team.</p>"}
+</script>
+</head><body><main><h1>Senior Java Developer</h1><p>Reageer vandaag.</p></main><footer>Cookie-instellingen</footer></body></html>`;
+
+const flextenderFallbackParts = {
+  externalId: "abc-123",
+  platform: "flextender",
+  title: "Senior Java Developer",
+} as const;
+
+describe("deterministic beschrijving enrich", () => {
+  it("fills the exact Flextender title fallback from JobPosting.description", () => {
+    const proposals = extractDeterministicEnrichment({
+      beschrijving: "Senior Java Developer (flextender/abc-123)",
+      fields: ["beschrijving"],
+      rawHtml: FLEXTENDER_JOBPOSTING_HTML,
+      titleFallbackParts: flextenderFallbackParts,
+    });
+
+    expect(proposals).toEqual([
+      expect.objectContaining({
+        confidence: 0.95,
+        field: "beschrijving",
+        rawRefs: [
+          expect.objectContaining({
+            field: "beschrijving",
+            sourcePath: "rawHtml.jobPosting.description",
+          }),
+        ],
+        source: "deterministic",
+        value: {
+          beschrijving:
+            "Je bouwt mee aan een veilig Java-platform voor gemeentelijke dienstverlening. Je werkt samen met product owners en ontwikkelaars in een multidisciplinair team.",
+        },
+      }),
+    ]);
+  });
+
+  it("does not overwrite non-placeholder descriptions", () => {
+    expect(
+      extractDeterministicEnrichment({
+        beschrijving: "Een door de bron gepubliceerde beschrijving.",
+        fields: ["beschrijving"],
+        rawHtml: FLEXTENDER_JOBPOSTING_HTML,
+        titleFallbackParts: flextenderFallbackParts,
+      })
+    ).toEqual([]);
+  });
+
+  it("does not invent a description from title or boilerplate", () => {
+    const boilerplate = `<script type="application/ld+json">${JSON.stringify({
+      "@type": "JobPosting",
+      description: "Accepteer alle cookies om verder te gaan",
+    })}</script>`;
+    expect(
+      extractDeterministicEnrichment({
+        beschrijving: "Senior Java Developer (flextender/abc-123)",
+        fields: ["beschrijving"],
+        rawHtml: boilerplate,
+        titleFallbackParts: flextenderFallbackParts,
+      })
+    ).toEqual([]);
+
+    expect(
+      extractDeterministicEnrichment({
+        beschrijving: "Senior Java Developer (flextender/abc-123)",
+        fields: ["beschrijving"],
+        rawHtml:
+          "<html><body><main><nav>Home Vacatures Contact</nav><h1>Senior Java Developer</h1></main></body></html>",
+        titleFallbackParts: flextenderFallbackParts,
+      })
+    ).toEqual([]);
+  });
+
+  it("uses the documented main content fallback when JSON-LD has no description", () => {
+    const proposals = extractDeterministicEnrichment({
+      beschrijving: "Senior Java Developer (flextender/abc-123)",
+      fields: ["beschrijving"],
+      rawHtml:
+        "<html><body><main><h1>Senior Java Developer</h1><p>Werk aan een modern Java-platform met een ervaren team.</p></main></body></html>",
+      titleFallbackParts: flextenderFallbackParts,
+    });
+
+    expect(proposals[0]).toMatchObject({
+      field: "beschrijving",
+      rawRefs: [{ field: "beschrijving", sourcePath: "rawHtml.main" }],
+      value: {
+        beschrijving:
+          "Senior Java Developer Werk aan een modern Java-platform met een ervaren team.",
+      },
+    });
+  });
+});
+
 describe("deterministic publicatiedatum enrich", () => {
   it("fills publicatiedatum from JobPosting datePosted in rawHtml", () => {
     const proposals = extractDeterministicEnrichment({

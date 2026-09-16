@@ -1,6 +1,8 @@
 import { CLEARED, UNKNOWN } from "@ji/domain";
 import { z } from "zod";
 
+import { isTitleFallbackDescription } from "../title-fallback-description";
+import type { TitleFallbackDescriptionParts } from "../title-fallback-description";
 import {
   durableClearedIntersects,
   readDurableClearedKeys,
@@ -39,6 +41,7 @@ export interface IncompleteAanvraagFacts {
   readonly tariefMax: string | null;
   readonly tariefMin: string | null;
   readonly werkvorm?: string | null;
+  readonly titleFallbackParts?: TitleFallbackDescriptionParts | null;
 }
 
 const isUnknownText = (value: string | null | undefined): boolean =>
@@ -169,7 +172,12 @@ const isPublicatiedatumIncomplete = (
   return true;
 };
 
+const isBeschrijvingIncomplete = (facts: IncompleteAanvraagFacts): boolean =>
+  !isClearedText(facts.beschrijving) &&
+  isTitleFallbackDescription(facts.beschrijving, facts.titleFallbackParts);
+
 const fieldIncomplete = {
+  beschrijving: isBeschrijvingIncomplete,
   contract: isContractIncomplete,
   locatie: isLocatieIncomplete,
   publicatiedatum: isPublicatiedatumIncomplete,

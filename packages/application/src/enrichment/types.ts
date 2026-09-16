@@ -1,9 +1,12 @@
+import type { TitleFallbackDescriptionParts } from "../title-fallback-description";
+
 export const ENRICHMENT_FIELDS = [
   "locatie",
   "tarief",
   "contract",
   "remote",
   "publicatiedatum",
+  "beschrijving",
 ] as const;
 
 export type EnrichmentField = (typeof ENRICHMENT_FIELDS)[number];
@@ -47,7 +50,12 @@ export interface EnrichmentPublicatiedatumValue {
   readonly publicatiedatum: string;
 }
 
+export interface EnrichmentBeschrijvingValue {
+  readonly beschrijving: string;
+}
+
 export type EnrichmentFieldValue =
+  | EnrichmentBeschrijvingValue
   | EnrichmentContractValue
   | EnrichmentLocatieValue
   | EnrichmentPublicatiedatumValue
@@ -71,6 +79,7 @@ export interface EnrichmentRunInput {
   readonly locatieTekst?: string | null;
   readonly publicatiedatum?: string | null;
   readonly rawHtml?: string | null;
+  readonly titleFallbackParts?: TitleFallbackDescriptionParts | null;
   readonly tariefEenheid?: string | null;
   readonly tariefMax?: string | null;
   readonly tariefMin?: string | null;

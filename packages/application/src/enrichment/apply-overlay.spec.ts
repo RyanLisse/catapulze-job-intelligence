@@ -177,3 +177,62 @@ describe("enrichment overlay publicatiedatum", () => {
     );
   });
 });
+
+describe("enrichment overlay beschrijving", () => {
+  it("overlays a stored description only onto the exact title fallback", () => {
+    const overlaid = applyEnrichmentOverlayToAanvraagFacts(
+      {
+        beschrijving: "Senior Java Developer (flextender/abc-123)",
+        contracttype: null,
+        locatie: null,
+        publicatiedatum: null,
+        tariefEenheid: null,
+        tariefMax: null,
+        tariefMin: null,
+        tariefValuta: null,
+        titleFallbackParts: {
+          externalId: "abc-123",
+          platform: "flextender",
+          title: "Senior Java Developer",
+        },
+        werkvorm: null,
+      },
+      [
+        {
+          confidence: 0.95,
+          field: "beschrijving",
+          source: "deterministic",
+          value: { beschrijving: "Volledige bronbeschrijving." },
+        },
+      ]
+    );
+
+    expect(overlaid.beschrijving).toBe("Volledige bronbeschrijving.");
+    expect(overlaid.enrichedFields).toEqual([
+      { confidence: 0.95, field: "beschrijving", source: "deterministic" },
+    ]);
+  });
+
+  it("does not overwrite a non-placeholder description", () => {
+    const overlaid = applyEnrichmentOverlayToAanvraagFacts(
+      {
+        beschrijving: "Bronbeschrijving die al compleet is.",
+        titleFallbackParts: {
+          externalId: "abc-123",
+          platform: "flextender",
+          title: "Senior Java Developer",
+        },
+      },
+      [
+        {
+          confidence: 0.95,
+          field: "beschrijving",
+          source: "deterministic",
+          value: { beschrijving: "Niet toepassen." },
+        },
+      ]
+    );
+
+    expect(overlaid.beschrijving).toBe("Bronbeschrijving die al compleet is.");
+  });
+});
