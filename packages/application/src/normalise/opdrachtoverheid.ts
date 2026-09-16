@@ -44,10 +44,11 @@ interface UrenRange {
 }
 
 /** A zero bound is the API's empty marker, not a published zero-hour week:
- * live probe 2026-09-15 (400 records, `POST /search`) found `tender_min_hours`
- * and `tender_max_hours` set to `0` on 44 and 39 records whose
- * `tender_hours_week` states the real number ("32", "20", ...). Treating `0`
- * as present made `uren_per_week` "0" and hid the published value (CTP-526). */
+ * the committed fixture `fixtures/connectors/opdrachtoverheid/listing-live-2026-09-16.json`
+ * (400 records, `POST /search`) has `tender_min_hours` and `tender_max_hours`
+ * set to `0` on 45 and 40 records whose `tender_hours_week` states the real
+ * number ("32", "20", ...). Treating `0` as present made `uren_per_week` "0"
+ * and hid the published value (CTP-526). */
 const positiveHours = (value: number | null | undefined): number | null =>
   isPresent(value) && value > 0 ? value : null;
 
@@ -157,11 +158,13 @@ const jsonLdText = (value: JobPostingValue | undefined): string | null => {
 /** The province the source itself publishes for the vacancy, never one derived
  * from a city name (CTP-514 contract). Only `vacancies_location.province` is
  * read: it is the block the API attaches to the tender itself and it carries
- * the value on every record of the 2026-09-15 live capture ("Noord-Holland",
- * 400/400). The two candidate fallbacks are deliberately NOT read, because the
- * capture shows both state the buying organisation's own postal address rather
- * than where the assignment runs: `organization_location` is the organisation
- * block (empty on the capture), and the JobPosting `jobLocation.address`
+ * the value on every record of the committed fixture
+ * `fixtures/connectors/opdrachtoverheid/listing-live-2026-09-16.json`
+ * ("Noord-Holland", 400/400). The two candidate fallbacks are deliberately
+ * NOT read, because the capture shows both state the buying organisation's
+ * own postal address rather than where the assignment runs:
+ * `organization_location` is the organisation block (empty on the capture),
+ * and the JobPosting `jobLocation.address`
  * repeats `vacancies_location.company_address` verbatim -- sample "zero" has
  * streetAddress "Laan Nieuwer-Amstel 1" with hiringOrganization "Gemeente
  * Amstelveen", i.e. the buyer's address. An assignment performed outside the

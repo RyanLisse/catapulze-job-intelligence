@@ -1,5 +1,12 @@
-import { describe, expect, it } from "bun:test";
-import { mkdtemp, readFile, rm, utimes, writeFile } from "node:fs/promises";
+import { afterEach, describe, expect, it } from "bun:test";
+import {
+  mkdtemp,
+  readFile,
+  rm,
+  stat,
+  utimes,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
@@ -89,6 +96,128 @@ describe("recordFixture (end to end, --from-raw, no network)", () => {
       source: "brand-new-source",
     });
     expect(summary).toContain(`${html.length}→${trimmed.length} bytes`);
+    await rm(dir, { force: true, recursive: true });
+  });
+
+  it("refuses a --raw-dir that resolves inside the repository, before any request", async () => {
+    const insideRepoDir = path.join(import.meta.dir, "raw-dir-inside-repo");
+    await expect(
+      recordFixture([
+        "--source",
+        "any-source",
+        "--name",
+        "any-name",
+        "--url",
+        "https://example.test/any",
+        "--raw-dir",
+        insideRepoDir,
+      ])
+    ).rejects.toThrow(/resolves inside the repository/u);
+  });
+
+  it("detects JSON content even when the raw file is named .html, and strips the requested keys", async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), "record-spec-"));
+    const rawPath = path.join(dir, "raw.html");
+    await writeFile(rawPath, JSON.stringify({ id: "a", recruiter: "Jan" }));
+
+    const summary = await recordFixture([
+      "--source",
+      "content-sniff",
+      "--name",
+      "detail-1",
+      "--url",
+      "https://example.test/detail-1",
+      "--from-raw",
+      rawPath,
+      "--strip-key",
+      "recruiter",
+      "--out-dir",
+      path.join(dir, "out"),
+    ]);
+
+    const fixture = JSON.parse(
+      await readFile(
+        path.join(dir, "out", "content-sniff", "detail-1.json"),
+        "utf-8"
+      )
+    );
+    expect(fixture.contentType).toBe("json");
+    expect(fixture.payload).toEqual({ id: "a" });
+    expect(summary).toContain("recruiter×1");
+    await rm(dir, { force: true, recursive: true });
+  });
+
+  it("refuses --strip-key when the raw payload is detected as HTML, instead of silently dropping it", async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), "record-spec-"));
+    // Wrong extension on purpose: detection must go by content, not name.
+    const rawPath = path.join(dir, "raw.json");
+    await writeFile(rawPath, "<html><body>Not JSON</body></html>");
+
+    await expect(
+      recordFixture([
+        "--source",
+        "wrong-ext",
+        "--name",
+        "detail-1",
+        "--url",
+        "https://example.test/detail-1",
+        "--from-raw",
+        rawPath,
+        "--strip-key",
+        "recruiter",
+        "--out-dir",
+        path.join(dir, "out"),
+      ])
+    ).rejects.toThrow(/is not JSON/u);
+    await rm(dir, { force: true, recursive: true });
+  });
+});
+
+describe("recordFixture (live path, mocked fetch, no network)", () => {
+  const originalFetch = globalThis.fetch;
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  it("selects POST (not GET) for an empty --body, and locks down the raw directory and file", async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), "record-spec-"));
+    let capturedInit: RequestInit | undefined;
+    // SAFETY: this stub matches fetch's (input, init) => Promise<Response>
+    // call signature; the cast only narrows away the extra static members
+    // (e.g. `preconnect`) TS's global `fetch` type declares.
+    globalThis.fetch = ((_input: RequestInfo | URL, init?: RequestInit) => {
+      capturedInit = init;
+      return Promise.resolve(Response.json({ ok: true }, { status: 200 }));
+    }) as typeof fetch;
+
+    const summary = await recordFixture([
+      "--source",
+      "empty-body-source",
+      "--name",
+      "detail-1",
+      "--url",
+      "https://example.test/detail-1",
+      "--body",
+      "",
+      "--raw-dir",
+      dir,
+      "--out-dir",
+      path.join(dir, "out"),
+    ]);
+
+    expect(capturedInit?.method).toBe("POST");
+    expect(capturedInit?.body).toBe("");
+    expect(summary).toContain("capturedAt=");
+
+    if (process.platform !== "win32") {
+      const rawDir = path.join(dir, "empty-body-source");
+      const dirStat = await stat(rawDir);
+      expect(dirStat.mode.toString(8).slice(-3)).toBe("700");
+      const rawFileStat = await stat(path.join(rawDir, "detail-1.json"));
+      expect(rawFileStat.mode.toString(8).slice(-3)).toBe("600");
+    }
+
     await rm(dir, { force: true, recursive: true });
   });
 });
