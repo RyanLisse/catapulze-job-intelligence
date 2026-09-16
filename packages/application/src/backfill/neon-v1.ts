@@ -16,6 +16,7 @@ import { curateObservation } from "../identity/curate";
 import type { CurateStore } from "../identity/curate";
 import { field } from "../normalise";
 import type { NormalisedAanvraagDraft } from "../normalise";
+import { titleFallbackDescription } from "../title-fallback-description";
 import { isMotianJobClosed, resolveMotianBronUrl } from "./motian-bron-url";
 import {
   educationLevelForMotianJob,
@@ -475,16 +476,21 @@ const descriptionLooksLikeCss = (description: string): boolean => {
   return braces >= 4;
 };
 
-const titleFallbackDescription = (job: NeonV1JobRow): string =>
-  `${job.title} (${job.platform}/${job.external_id})`;
-
 const descriptionForJob = (job: NeonV1JobRow): string => {
   const trimmed = job.description?.trim() ?? "";
   if (trimmed.length === 0) {
-    return titleFallbackDescription(job);
+    return titleFallbackDescription({
+      externalId: job.external_id,
+      platform: job.platform,
+      title: job.title,
+    });
   }
   if (isStarapplePlatform(job.platform) && descriptionLooksLikeCss(trimmed)) {
-    return titleFallbackDescription(job);
+    return titleFallbackDescription({
+      externalId: job.external_id,
+      platform: job.platform,
+      title: job.title,
+    });
   }
   return trimmed;
 };

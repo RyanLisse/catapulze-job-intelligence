@@ -8,6 +8,7 @@ import {
 } from "./apply-stored-curated";
 
 const emptyFacts = {
+  beschrijving: "Senior Java Developer (flextender/abc-123)",
   bronSpecifiek: {},
   contracttype: null,
   locatieTekst: null,
@@ -16,6 +17,11 @@ const emptyFacts = {
   tariefMax: null,
   tariefMin: null,
   tariefValuta: null,
+  titleFallbackParts: {
+    externalId: "abc-123",
+    platform: "flextender",
+    title: "Senior Java Developer",
+  },
   werkvorm: null,
 } as const;
 
@@ -102,6 +108,22 @@ describe("planCuratedEnrichmentPatchFromStored", () => {
     expect(patch).toEqual({
       contracttype: "interim",
       fields: ["contract"],
+    });
+  });
+
+  it("parses and applies a stored beschrijving proposal", () => {
+    const patch = planCuratedEnrichmentPatchFromStored(emptyFacts, [
+      {
+        confidence: 0.95,
+        field: "beschrijving",
+        source: "deterministic",
+        value: { beschrijving: "Volledige bronbeschrijving." },
+      },
+    ]);
+
+    expect(patch).toEqual({
+      beschrijving: "Volledige bronbeschrijving.",
+      fields: ["beschrijving"],
     });
   });
 });

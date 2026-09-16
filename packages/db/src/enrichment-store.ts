@@ -1,3 +1,4 @@
+/* oxlint-disable anti-slop/no-unknown-parameters, anti-slop/no-runtime-typeof, anti-slop/no-unsafe-dictionary-type, anti-slop/require-safety-comment-for-type-assertion -- bron_specifiek is validated JSONB at this database I/O boundary; the Motian platform keys are the explicit compatibility contract used for placeholder detection. */
 import {
   ENRICHMENT_APPLY_MIN_CONFIDENCE,
   ENRICHMENT_FIELDS,
@@ -10,6 +11,7 @@ import type {
   EnrichmentOutboxInsertInput,
   EnrichmentOverlayRow,
   EnrichmentProposal,
+  TitleFallbackDescriptionParts,
 } from "@ji/application/enrichment";
 import { eq, inArray, sql } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
@@ -33,9 +35,11 @@ export interface IncompleteAanvraagCandidate {
   readonly tariefMin: string | null;
   readonly tariefValuta: string | null;
   readonly werkvorm: string | null;
+  readonly titleFallbackParts: TitleFallbackDescriptionParts | null;
 }
 
 export interface PendingCuratedApplyCandidate {
+  readonly beschrijving: string;
   readonly bronSpecifiek: unknown;
   readonly contracttype: string | null;
   readonly id: string;
@@ -47,6 +51,7 @@ export interface PendingCuratedApplyCandidate {
   readonly tariefMin: string | null;
   readonly tariefValuta: string | null;
   readonly werkvorm: string | null;
+  readonly titleFallbackParts: TitleFallbackDescriptionParts | null;
 }
 
 export interface AanvraagEnrichmentRow {
@@ -63,6 +68,50 @@ export interface AanvraagEnrichmentRow {
 
 const toNumericString = (value: string | null): string | null =>
   value === null ? null : value;
+
+const sourcePlatform = (bronSpecifiek: unknown): string | null => {
+  if (
+    typeof bronSpecifiek !== "object" ||
+    bronSpecifiek === null ||
+    Array.isArray(bronSpecifiek)
+  ) {
+    return null;
+  }
+  const record = bronSpecifiek as Record<string, unknown>;
+  const platform = record.v1_platform ?? record.platform;
+  return typeof platform === "string" && platform.trim() !== ""
+    ? platform
+    : null;
+};
+
+const titleFallbackParts = (row: {
+  readonly bronReferentie: string;
+  readonly bronSpecifiek: unknown;
+  readonly titel: string;
+}): TitleFallbackDescriptionParts | null => {
+  const platform = sourcePlatform(row.bronSpecifiek);
+  return platform === null
+    ? null
+    : {
+        externalId: row.bronReferentie,
+        platform,
+        title: row.titel,
+      };
+};
+
+const titleFallbackSql = sql`
+  ${aanvraag.beschrijving} = concat(
+    ${aanvraag.titel},
+    ' (',
+    COALESCE(
+      ${aanvraag.bronSpecifiek}->>'v1_platform',
+      ${aanvraag.bronSpecifiek}->>'platform'
+    ),
+    '/',
+    ${aanvraag.bronReferentie},
+    ')'
+  )
+`;
 
 const isEnrichmentField = (field: string): field is EnrichmentField =>
   ENRICHMENT_FIELDS.some((candidate) => candidate === field);
@@ -96,6 +145,7 @@ export class PostgresEnrichmentStore {
     const rows = await this.database
       .select({
         beschrijving: aanvraag.beschrijving,
+        bronReferentie: aanvraag.bronReferentie,
         bronSpecifiek: aanvraag.bronSpecifiek,
         contracttype: aanvraag.contracttype,
         id: aanvraag.id,
@@ -106,6 +156,7 @@ export class PostgresEnrichmentStore {
         tariefMax: aanvraag.tariefMax,
         tariefMin: aanvraag.tariefMin,
         tariefValuta: aanvraag.tariefValuta,
+        titel: aanvraag.titel,
         werkvorm: aanvraag.werkvorm,
       })
       .from(aanvraag)
@@ -131,6 +182,7 @@ export class PostgresEnrichmentStore {
           OR ${aanvraag.publicatiedatum} IS NULL
           OR trim(${aanvraag.publicatiedatum}) = ''
           OR ${aanvraag.publicatiedatum} = 'unknown'
+          OR (${titleFallbackSql})
         )`
       )
       .limit(limit);
@@ -149,6 +201,7 @@ export class PostgresEnrichmentStore {
         tariefMin: toNumericString(
           row.tariefMin === null ? null : String(row.tariefMin)
         ),
+        titleFallbackParts: titleFallbackParts(row),
         werkvorm: row.werkvorm,
       });
       if (missingFields.length === 0) {
@@ -172,6 +225,7 @@ export class PostgresEnrichmentStore {
             row.tariefMin === null ? null : String(row.tariefMin)
           ),
           tariefValuta: row.tariefValuta,
+          titleFallbackParts: titleFallbackParts(row),
           werkvorm: row.werkvorm,
         },
       ];
@@ -239,6 +293,7 @@ export class PostgresEnrichmentStore {
     // SAFETY: drizzle update accepts a partial column map; we only assign keys
     // present on CuratedEnrichmentPatch after explicit undefined checks below.
     const setValues = values as typeof values & {
+      beschrijving?: string;
       contracttype?: string;
       locatieTekst?: string;
       publicatiedatum?: string;
@@ -248,6 +303,9 @@ export class PostgresEnrichmentStore {
       tariefValuta?: string;
       werkvorm?: string;
     };
+    if (patch.beschrijving !== undefined) {
+      setValues.beschrijving = patch.beschrijving;
+    }
     if (patch.locatieTekst !== undefined) {
       setValues.locatieTekst = patch.locatieTekst;
     }
@@ -289,6 +347,8 @@ export class PostgresEnrichmentStore {
   ): Promise<readonly PendingCuratedApplyCandidate[]> {
     const rows = await this.database
       .select({
+        beschrijving: aanvraag.beschrijving,
+        bronReferentie: aanvraag.bronReferentie,
         bronSpecifiek: aanvraag.bronSpecifiek,
         confidence: aanvraagEnrichment.confidence,
         contracttype: aanvraag.contracttype,
@@ -302,6 +362,7 @@ export class PostgresEnrichmentStore {
         tariefMax: aanvraag.tariefMax,
         tariefMin: aanvraag.tariefMin,
         tariefValuta: aanvraag.tariefValuta,
+        titel: aanvraag.titel,
         value: aanvraagEnrichment.value,
         werkvorm: aanvraag.werkvorm,
       })
@@ -332,6 +393,7 @@ export class PostgresEnrichmentStore {
           OR ${aanvraag.publicatiedatum} IS NULL
           OR trim(${aanvraag.publicatiedatum}) = ''
           OR ${aanvraag.publicatiedatum} = 'unknown'
+          OR (${titleFallbackSql})
         )`
       )
       .limit(limit * 8);
@@ -339,6 +401,8 @@ export class PostgresEnrichmentStore {
     const byId = new Map<
       string,
       {
+        beschrijving: string;
+        titleFallbackParts: TitleFallbackDescriptionParts | null;
         bronSpecifiek: unknown;
         contracttype: string | null;
         locatieTekst: string | null;
@@ -379,6 +443,7 @@ export class PostgresEnrichmentStore {
         continue;
       }
       byId.set(row.id, {
+        beschrijving: row.beschrijving,
         bronSpecifiek: row.bronSpecifiek,
         contracttype: row.contracttype,
         locatieTekst: row.locatieTekst,
@@ -392,6 +457,7 @@ export class PostgresEnrichmentStore {
           row.tariefMin === null ? null : String(row.tariefMin)
         ),
         tariefValuta: row.tariefValuta,
+        titleFallbackParts: titleFallbackParts(row),
         werkvorm: row.werkvorm,
       });
     }
@@ -403,6 +469,7 @@ export class PostgresEnrichmentStore {
       }
       const patch = planCuratedEnrichmentPatchFromStored(
         {
+          beschrijving: candidate.beschrijving,
           bronSpecifiek: candidate.bronSpecifiek,
           contracttype: candidate.contracttype,
           locatieTekst: candidate.locatieTekst,
@@ -411,6 +478,7 @@ export class PostgresEnrichmentStore {
           tariefMax: candidate.tariefMax,
           tariefMin: candidate.tariefMin,
           tariefValuta: candidate.tariefValuta,
+          titleFallbackParts: candidate.titleFallbackParts,
           werkvorm: candidate.werkvorm,
         },
         candidate.proposals
@@ -419,6 +487,7 @@ export class PostgresEnrichmentStore {
         continue;
       }
       result.push({
+        beschrijving: candidate.beschrijving,
         bronSpecifiek: candidate.bronSpecifiek,
         contracttype: candidate.contracttype,
         id,
@@ -429,6 +498,7 @@ export class PostgresEnrichmentStore {
         tariefMax: candidate.tariefMax,
         tariefMin: candidate.tariefMin,
         tariefValuta: candidate.tariefValuta,
+        titleFallbackParts: candidate.titleFallbackParts,
         werkvorm: candidate.werkvorm,
       });
     }

@@ -4,6 +4,7 @@ import {
   applyEnrichmentOverlayToAanvraagFacts,
   applyEnrichmentOverlayToSearchFacts,
 } from "@ji/application/enrichment";
+import type { TitleFallbackDescriptionParts } from "@ji/application/enrichment";
 import { parseWeeklyHoursRange } from "@ji/application/normalise";
 import type {
   AanvraagRecord,
@@ -31,6 +32,27 @@ const previewText = (body: Uint8Array, limit = 240): string => {
 };
 
 type AanvraagRow = typeof aanvraag.$inferSelect;
+
+const titleFallbackParts = (
+  row: AanvraagRow
+): TitleFallbackDescriptionParts | null => {
+  if (
+    typeof row.bronSpecifiek !== "object" ||
+    row.bronSpecifiek === null ||
+    Array.isArray(row.bronSpecifiek)
+  ) {
+    return null;
+  }
+  const record = row.bronSpecifiek as Record<string, unknown>;
+  const platform = record.v1_platform ?? record.platform;
+  return typeof platform === "string" && platform.trim() !== ""
+    ? {
+        externalId: row.bronReferentie,
+        platform,
+        title: row.titel,
+      }
+    : null;
+};
 
 const toAanvraagRecord = (
   row: AanvraagRow,
@@ -72,6 +94,7 @@ const toAanvraagRecord = (
         ? null
         : row.tariefValuta,
     titel: row.titel,
+    titleFallbackParts: titleFallbackParts(row),
     urenPerWeek: row.urenPerWeek,
     versies,
     werkvorm: row.werkvorm ?? bronFacts.werkvorm,
@@ -104,6 +127,7 @@ export class PostgresAanvraagStore implements AanvraagStore {
       const overlaid = applyEnrichmentOverlayToAanvraagFacts(record, rows);
       return {
         ...record,
+        beschrijving: overlaid.beschrijving ?? record.beschrijving,
         contracttype: overlaid.contracttype,
         enrichedFields: [...overlaid.enrichedFields],
         locatie: overlaid.locatie,

@@ -105,10 +105,13 @@ const previewAanvraag = (record: AanvraagRecord) => ({
   werkvorm: record.werkvorm ?? null,
 });
 
-const fullAanvraag = (record: AanvraagRecord) => ({
-  ...record,
-  mode: "full" as const,
-});
+const fullAanvraag = (record: AanvraagRecord) => {
+  const { titleFallbackParts: _titleFallbackParts, ...publicRecord } = record;
+  return {
+    ...publicRecord,
+    mode: "full" as const,
+  };
+};
 
 // Wire I/O schemas live in ../capability-io (browser-safe SoT for CTP-475).
 export {

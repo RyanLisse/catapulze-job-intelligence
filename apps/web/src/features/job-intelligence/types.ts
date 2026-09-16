@@ -132,6 +132,7 @@ export interface JobMarkering {
 }
 
 export type JobEnrichedFieldName =
+  | "beschrijving"
   | "locatie"
   | "tarief"
   | "contract"

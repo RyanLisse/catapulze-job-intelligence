@@ -3,6 +3,7 @@ export {
   ENRICHMENT_APPLY_MIN_CONFIDENCE,
   ENRICHMENT_FIELDS,
   ENRICHMENT_SOURCES,
+  type EnrichmentBeschrijvingValue,
   type EnrichmentContractValue,
   type EnrichmentField,
   type EnrichmentFieldValue,
@@ -15,6 +16,11 @@ export {
   type EnrichmentSource,
   type EnrichmentTariefValue,
 } from "./types";
+export {
+  isTitleFallbackDescription,
+  titleFallbackDescription,
+  type TitleFallbackDescriptionParts,
+} from "../title-fallback-description";
 export {
   listMissingEnrichmentFields,
   type IncompleteAanvraagFacts,
