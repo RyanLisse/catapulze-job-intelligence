@@ -22,8 +22,9 @@ export { tbiConfig } from "./configs/tbi";
 export { werkenVoorNederlandConfig } from "./configs/werken-voor-nederland";
 export { nationaleVacaturebankConfig } from "./configs/nationalevacaturebank";
 export { werkzoekenConfig } from "./configs/werkzoeken";
-export { heijmansConfig } from "./configs/heijmans";
 export { bamConfig } from "./configs/bam";
+export { heijmansConfig } from "./configs/heijmans";
+export { randstadConfig } from "./configs/randstad";
 export { volkerwesselsConfig } from "./configs/volkerwessels";
 export {
   extractJobPosting,

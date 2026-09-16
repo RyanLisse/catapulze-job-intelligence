@@ -15,6 +15,7 @@ import { onefellow } from "./onefellow";
 import { opdrachtoverheid } from "./opdrachtoverheid";
 import { proAct } from "./pro-act";
 import { rabobank } from "./rabobank";
+import { randstad } from "./randstad";
 import { striive } from "./striive";
 import { tbi } from "./tbi";
 import { tenderned } from "./tenderned";
@@ -46,6 +47,7 @@ export const SOURCES = {
   opdrachtoverheid,
   "pro-act": proAct,
   rabobank,
+  randstad,
   striive,
   tbi,
   tenderned,
