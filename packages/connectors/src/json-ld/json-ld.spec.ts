@@ -18,6 +18,7 @@ import { bijOranjeConfig } from "./configs/bij-oranje";
 import { bluetrailConfig } from "./configs/bluetrail";
 import { heroConfig } from "./configs/hero";
 import { proActConfig } from "./configs/pro-act";
+import { rabobankConfig } from "./configs/rabobank";
 import { tenmonksConfig } from "./configs/tenmonks";
 import { werkenVoorNederlandConfig } from "./configs/werken-voor-nederland";
 import { createJsonLdConnector, urlSlugBronReferentie } from "./connector";
@@ -479,6 +480,69 @@ describe("Werken voor Nederland JSON-LD connector", () => {
     });
 
     await expect(client.fetchListing()).resolves.toEqual([{ url: sampleUrl }]);
+  });
+});
+
+describe("Rabobank careers JSON-LD connector", () => {
+  const sampleUrl =
+    "https://rabobank.jobs/en/job/active-directory-engineer/JR_00144349/";
+  const siblingUrl =
+    "https://rabobank.jobs/en/job/business-analyst-data-lineage-platform/JR_00145415/";
+  const nlTwinUrl =
+    "https://rabobank.jobs/nl/vacature/active-directory-engineer/JR_00144349/";
+
+  it("uses the sitemap and keeps only EN JR detail URLs", async () => {
+    expect(rabobankConfig.discovery).toEqual({
+      kind: "sitemap",
+      url: "https://rabobank.jobs/api/sitemap/",
+    });
+    expect(rabobankConfig.liveEnvVar).toBe("RABOBANK_LIVE");
+    expect(rabobankConfig.parserVersion).toBe("rabobank/v1");
+    expect(rabobankConfig.synthesizeFromNextJobData).toBeUndefined();
+
+    const client = createJsonLdClient({
+      config: rabobankConfig,
+      liveEnabled: false,
+    });
+    const urls = await client.fetchListing();
+
+    expect(urls).toHaveLength(2);
+    expect(urls).toContainEqual({
+      lastmod: "2026-09-15T12:35:39.315Z",
+      url: sampleUrl,
+    });
+    expect(urls).toContainEqual({
+      lastmod: "2026-09-15T12:35:39.315Z",
+      url: siblingUrl,
+    });
+    expect(urls).not.toContainEqual({
+      lastmod: "2026-09-15T12:35:39.315Z",
+      url: nlTwinUrl,
+    });
+    expect(urls.some(({ url }) => url.includes("/en/jobs/"))).toBe(false);
+    expect(urls.some(({ url }) => url.includes("/artikel/"))).toBe(false);
+    expect(urls.some(({ url }) => url.includes("job-alert"))).toBe(false);
+  });
+
+  it("parses literal JobPosting fields from the sample detail fixture", async () => {
+    const client = createJsonLdClient({
+      config: rabobankConfig,
+      liveEnabled: false,
+    });
+    const detail = await client.fetchDetail(sampleUrl);
+    if (!detail.jobPosting) {
+      throw new Error("expected a Rabobank JobPosting JSON-LD node");
+    }
+
+    expect(detail.jobPosting).toMatchObject({
+      datePosted: "2026-09-15",
+      employmentType: "fulltime",
+      identifier: { value: "JR_00144349" },
+      jobLocation: {
+        address: { addressLocality: "Utrecht" },
+      },
+      title: "Active Directory  Engineer",
+    });
   });
 });
 

@@ -123,6 +123,49 @@ describe("normaliseJsonLdObservation -- ASML", () => {
   });
 });
 
+describe("normaliseJsonLdObservation -- Rabobank", () => {
+  it("keeps the literal title, JR identifier, and Utrecht location", () => {
+    const body = new TextEncoder().encode(
+      JSON.stringify({
+        jobPosting: {
+          "@type": "JobPosting",
+          datePosted: "2026-09-15",
+          description:
+            "As an Active Directory Engineer within Tech4IAM, you will play a key role.",
+          employmentType: "fulltime",
+          hiringOrganization: { "@type": "Organization", name: "Rabobank" },
+          identifier: {
+            "@type": "PropertyValue",
+            name: "id",
+            value: "JR_00144349",
+          },
+          jobLocation: {
+            address: {
+              addressCountry: "nl",
+              addressLocality: "Utrecht",
+              postalCode: "3521CB",
+              streetAddress: "Croeselaan 18",
+            },
+          },
+          title: "Active Directory  Engineer",
+        },
+        labelBlock: {},
+        parserVersion: "rabobank/v1",
+        slug: "rabobank",
+        url: "https://rabobank.jobs/en/job/active-directory-engineer/JR_00144349/",
+      })
+    );
+
+    const draft = normaliseJsonLdObservation(body, HASH);
+
+    expect(draft.titel.value).toBe("Active Directory  Engineer");
+    expect(draft.bronSpecifiek.value).toMatchObject({
+      identifier: { value: "JR_00144349" },
+    });
+    expect(draft.locatieTekst.value).toContain("Utrecht");
+  });
+});
+
 describe("parseJsonLdPayload -- BlueTrail (label block in surrounding HTML, baseSalary present but ignored)", () => {
   const payload: JsonLdFetchedPayload = {
     jobPosting: {
