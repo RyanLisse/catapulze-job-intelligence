@@ -31,10 +31,33 @@ describe("Manticore live fixture cleanup", () => {
       },
     };
 
+    const cleanup = cleanupLiveDocuments(engine, ["run-a", "run-b", "run-c"]);
+    await expect(cleanup).rejects.toBeInstanceOf(AggregateError);
+    await expect(cleanup).rejects.toThrow("fixture cleanup failed");
+    expect(deleted.toSorted()).toEqual(["run-a", "run-b", "run-c"]);
+  });
+
+  it("treats 409 and Conflict deletions as already gone", async () => {
+    const deleted: string[] = [];
+    const engine = {
+      deleteDocument: (id: string) => {
+        deleted.push(id);
+        if (id === "run-b") {
+          return Promise.reject(
+            new Error("Manticore request failed (409): Conflict")
+          );
+        }
+        if (id === "run-c") {
+          return Promise.reject(new Error("Conflict"));
+        }
+        return Promise.resolve();
+      },
+    };
+
     await expect(
       cleanupLiveDocuments(engine, ["run-a", "run-b", "run-c"])
-    ).rejects.toThrow("fixture cleanup failed");
-    expect(deleted.toSorted()).toEqual(["run-a", "run-b", "run-c"]);
+    ).resolves.toBeUndefined();
+    expect(deleted).toEqual(["run-a", "run-b", "run-c"]);
   });
 
   it("keeps the live-test index name distinct from production", () => {

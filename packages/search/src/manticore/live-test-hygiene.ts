@@ -6,6 +6,8 @@ interface DocumentCleanupEngine {
   deleteDocument: (id: string) => Promise<void>;
 }
 
+const MANTICORE_CONFLICT_MESSAGE = /\b409\b|\bconflict\b/iu;
+
 export const requireLiveManticoreUrl = (
   url: string | undefined,
   required: boolean
@@ -50,18 +52,23 @@ export const cleanupLiveDocuments = async (
   engine: DocumentCleanupEngine,
   documentIds: readonly string[]
 ): Promise<void> => {
-  const results = await Promise.allSettled(
-    documentIds.map((id) => engine.deleteDocument(id))
-  );
-  const failures = results.flatMap((result, index) =>
-    result.status === "rejected"
-      ? [
-          new Error(`Failed to clean live fixture ${documentIds[index]}`, {
-            cause: result.reason,
-          }),
-        ]
-      : []
-  );
+  const failures: Error[] = [];
+  for (const id of documentIds) {
+    try {
+      // oxlint-disable-next-line no-await-in-loop -- serial cleanup avoids concurrent Manticore partition deletes
+      await engine.deleteDocument(id);
+    } catch (error) {
+      if (
+        error instanceof Error &&
+        MANTICORE_CONFLICT_MESSAGE.test(error.message)
+      ) {
+        continue;
+      }
+      failures.push(
+        new Error(`Failed to clean live fixture ${id}`, { cause: error })
+      );
+    }
+  }
   if (failures.length > 0) {
     throw new AggregateError(failures, "Manticore live fixture cleanup failed");
   }
