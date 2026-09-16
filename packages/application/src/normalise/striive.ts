@@ -138,9 +138,9 @@ export const parseStriivePayload = (
   // `startDatum` exists), so it is kept verbatim in bronSpecifiek too.
   const bronSpecifiek = {
     broker: job.broker ?? null,
-    // CTP-524 F06: real field, confirmed live 2026-09-15
-    // (fixtures/connectors/striive/listing-live-2026-09-15.json) -- null
-    // across the full 25-record capture, whitelisted for when a broker
+    // CTP-524 F06: real field, confirmed live 2026-09-16
+    // (fixtures/connectors/striive/listing-live.json) -- null across all 25
+    // records of that committed page capture, whitelisted for when a broker
     // publishes it (same honest-future-proofing as the tariff fields).
     contract_type: job.jobType ?? null,
     eind_datum: job.endDate ?? null,
@@ -155,8 +155,8 @@ export const parseStriivePayload = (
       referenceCode: job.referenceCode ?? null,
       referenceCodeClient: job.referenceCodeClient ?? null,
     },
-    // CTP-524 F15: real `tags` field, confirmed live 2026-09-15 -- `[]`
-    // across the full 25-record capture, so entry shape is unverified.
+    // CTP-524 F15: real `tags` field, confirmed live 2026-09-16 -- `[]`
+    // across all 25 records of that capture, so entry shape is unverified.
     // normaliseSkills drops anything that is not a plain string.
     skills: normaliseSkills(job.tags),
     source: job.source ?? null,

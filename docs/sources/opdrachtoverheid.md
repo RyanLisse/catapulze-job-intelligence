@@ -32,10 +32,14 @@ Voor Opdrachtoverheid is dit een ongedocumenteerd, privé endpoint; het kan zond
 | `tender_source`, `tender_url` | `bron_specifiek.oorspronkelijke_bron/url` | Verplicht voor cross-source deduplicatie. |
 | `tender_description_html/_tk` | `beschrijving` | HTML-/Textkernel-varianten. |
 
-## Commerciële velden (CTP-526, live geverifieerd 2026-09-15)
+## Commerciële velden (CTP-526, live geverifieerd 2026-09-16)
 
-Live probe: `POST /search` met `limit: 400, offset: 0`, 400 records. Vastgelegd in
-`fixtures/connectors/opdrachtoverheid/normalise-samples-2026-09-15.json`.
+Live probe: `POST /search` met `limit: 400, offset: 0`, 400 records. De volledige
+snapshot staat in `fixtures/connectors/opdrachtoverheid/listing-page-0.json`
+(opgenomen met `bun tools/fixtures/record.ts`; lange prozavelden mechanisch
+verwijderd op sleutelnaam, zie `captureNote`). De tellingen hieronder komen uit de
+capture van 2026-09-15; de records zelf zijn in de nieuwe opname opnieuw
+vastgelegd.
 
 | Opdrachtoverheid | `bron_specifiek` | Noot |
 |---|---|---|

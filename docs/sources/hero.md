@@ -20,7 +20,7 @@ Status: **probe afgerond; connector nog niet gebouwd** — adapter-categorie `js
 | `jobLocation` | `locatie_plaats`, `locatie_land` | JobPosting-detail en zichtbaar label `Regio`. |
 | `workHours` | `uren_per_week` | JobPosting-detail; zichtbaar als `Uren per week`. |
 | `hiringOrganization` | `bron_specifiek.broker` | Hero Interim Professionals, niet de geanonimiseerde eindklant. |
-| werkvorm | **niet gevonden** | CORRECTIE 2026-09-15 (was: "kaartlabels werkvorm/sector \| Listing"): een live capture (`fixtures/connectors/hero/detail-analist-archivering-2026-09-15.json` + de listing-pagina) laat geen werkvorm per vacaturekaart zien. `jobLocation`/werklocatie-waarden ("Hybride (50/50)", "Hybride in overleg", "Op locatie") bestaan alleen als opties van het filter-dropdown op de listing, niet gekoppeld aan een individuele vacature. `jobLocationType` ontbreekt ook in de JobPosting JSON-LD. `ABSENT_SRC`, niet gemapt. |
+| werkvorm | **niet gevonden** | CORRECTIE 2026-09-15 (was: "kaartlabels werkvorm/sector \| Listing"): een live capture (`fixtures/connectors/hero/detail-analist-archivering.json` (heropgenomen 2026-09-16) + de listing-pagina) laat geen werkvorm per vacaturekaart zien. `jobLocation`/werklocatie-waarden ("Hybride (50/50)", "Hybride in overleg", "Op locatie") bestaan alleen als opties van het filter-dropdown op de listing, niet gekoppeld aan een individuele vacature. `jobLocationType` ontbreekt ook in de JobPosting JSON-LD. `ABSENT_SRC`, niet gemapt. |
 
 ## Ingest-patroon
 

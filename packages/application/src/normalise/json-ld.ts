@@ -348,7 +348,7 @@ export const parseJsonLdPayload = (
   );
   // Only BlueTrail's "Wat wordt er van jou gevraagd? > Competenties:" list is
   // a structured skills/competencies list confirmed on a live capture
-  // (2026-09-15, fixtures/connectors/bluetrail/detail-adviseur-privacy-ibd-2026-09-15.json).
+  // (2026-09-16, fixtures/connectors/bluetrail/detail-adviseur-privacy-ibd.json).
   // "Eisen"/"Wensen" bullets on the same page are full requirement sentences,
   // not concise skill tags, so they are left out -- mapping them would be
   // free-text mining, not the structured-list mapping F15 asks for.

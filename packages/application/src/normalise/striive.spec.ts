@@ -161,7 +161,7 @@ describe("parseStriivePayload", () => {
   });
 
   it("leaves contract_type null and skills empty for the real live capture (honesty -- CTP-524 F06/F15, ABSENT_SRC in the 2026-09-15 capture)", () => {
-    // fixtures/connectors/striive/listing-live-2026-09-15.json: jobType is
+    // fixtures/connectors/striive/listing-live.json: jobType is
     // null and tags is [] across the full 25-record live page.
     const draft = parseStriivePayload(
       buildPayload({ jobType: null, tags: [] }),
