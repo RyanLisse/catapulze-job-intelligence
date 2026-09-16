@@ -2,25 +2,28 @@ import { describe, expect, it } from "bun:test";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 
-const LIVE_SPEC_FILES = [
-  "../adapter.spec.ts",
-  "../ast-hash.spec.ts",
-  "./bulk-live.spec.ts",
-  "./live.spec.ts",
-  "./sort-live.spec.ts",
-] as const;
-
 const tableNamePattern =
   /const LIVE_TEST_INDEX_NAME = ["'](?<name>[^"']+)["']/u;
+const liveEngineCallPattern = /createLiveTestEngine\(/u;
+const excludedLiveSpec = "manticore/live-test-hygiene.spec.ts";
 
 const collectTableNames = async (): Promise<Map<string, string>> => {
+  const sourceRoot = path.resolve(import.meta.dir, "..");
+  const glob = new Bun.Glob("**/*.spec.ts");
+  const liveSpecFiles: string[] = [];
+
+  for await (const filePath of glob.scan({ absolute: true, cwd: sourceRoot })) {
+    const source = await readFile(filePath, "utf-8");
+    const fileName = path.relative(sourceRoot, filePath);
+    if (fileName !== excludedLiveSpec && liveEngineCallPattern.test(source)) {
+      liveSpecFiles.push(filePath);
+    }
+  }
+
   const sources = await Promise.all(
-    LIVE_SPEC_FILES.map(async (relativePath) => ({
-      fileName: relativePath.replace(/^\.\//u, ""),
-      source: await readFile(
-        path.resolve(import.meta.dir, relativePath),
-        "utf-8"
-      ),
+    liveSpecFiles.map(async (filePath) => ({
+      fileName: path.relative(sourceRoot, filePath),
+      source: await readFile(filePath, "utf-8"),
     }))
   );
   const names = new Map<string, string>();

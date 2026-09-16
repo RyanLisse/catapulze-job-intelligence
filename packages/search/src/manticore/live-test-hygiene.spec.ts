@@ -47,4 +47,15 @@ describe("Manticore live fixture cleanup", () => {
     );
     expect(engine).toBeInstanceOf(ManticoreSearchEngine);
   });
+
+  it("rejects the production index and accepts a test index", () => {
+    const store = new InMemorySearchVersionStore();
+
+    expect(() => createLiveTestEngine("http://x", store, "aanvragen")).toThrow(
+      'starting with "aanvragen_test"'
+    );
+    expect(() =>
+      createLiveTestEngine("http://x", store, "aanvragen_test_x")
+    ).not.toThrow();
+  });
 });

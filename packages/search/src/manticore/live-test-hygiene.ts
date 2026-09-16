@@ -29,14 +29,21 @@ export const createLiveTestEngine = (
   indexName: string,
   clock: () => Date = () => new Date(),
   options: ManticoreSearchEngineOptions = {}
-): ManticoreSearchEngine =>
-  ManticoreSearchEngine.fromUrl(
+): ManticoreSearchEngine => {
+  if (!indexName.startsWith("aanvragen_test") || indexName === "aanvragen") {
+    throw new Error(
+      `Live Manticore tests must use an index name starting with "aanvragen_test"; received "${indexName}"`
+    );
+  }
+
+  return ManticoreSearchEngine.fromUrl(
     baseUrl,
     versionStore,
     indexName,
     clock,
     options
   );
+};
 
 /** Best-effort cleanup for live specs: every run-owned id is attempted. */
 export const cleanupLiveDocuments = async (
