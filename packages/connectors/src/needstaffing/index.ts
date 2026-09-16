@@ -15,6 +15,7 @@ export {
 } from "./connector";
 export { hashNeedstaffingListingItem, hashNeedstaffingPayload } from "./hash";
 export {
+  NEEDSTAFFING_DETAIL_FIXTURES,
   NEEDSTAFFING_MAX_LISTING_PAGES,
   NEEDSTAFFING_OPDRACHTEN_PATH,
   NEEDSTAFFING_PARSER_VERSION,
