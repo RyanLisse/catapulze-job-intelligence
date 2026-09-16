@@ -13,7 +13,11 @@
  *   bun tools/fixtures/record.ts --source <slug> --name <file-stem> --url <url>
  *     [--body '<json>'] [--strip <css selector>]... [--strip-key <key>]...
  *     [--strip-attr '<css selector>::<attribute>']...
- *     [--note <text>] [--raw-dir <dir>] [--from-raw <file>]
+ *     [--note <text>] [--raw-dir <dir>] [--from-raw <file>] [--no-defaults]
+ *
+ * `--no-defaults` drops DEFAULT_HTML_STRIP so only the named `--strip`
+ * selectors apply -- for pages whose parser reads data inside one of the
+ * defaults (Need Staffing's pagination lives in a `<nav>`).
  *
  * `--from-raw` re-trims an earlier recording without a second request; the
  * raw file's mtime (the original fetch time) stays the capturedAt.
@@ -112,6 +116,7 @@ const main = async (): Promise<void> => {
     options: {
       body: { type: "string" },
       name: { type: "string" },
+      "no-defaults": { type: "boolean" },
       note: { type: "string" },
       "from-raw": { type: "string" },
       "raw-dir": { type: "string" },
@@ -160,7 +165,10 @@ const main = async (): Promise<void> => {
     ? stripJsonKeys(JSON.parse(rawText), values["strip-key"] ?? [])
     : await stripHtml(
         rawText,
-        [...DEFAULT_HTML_STRIP, ...(values.strip ?? [])],
+        [
+          ...(values["no-defaults"] ? [] : DEFAULT_HTML_STRIP),
+          ...(values.strip ?? []),
+        ],
         values["strip-attr"] ?? []
       );
   const payloadText =
