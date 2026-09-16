@@ -100,7 +100,8 @@
     "check-types:effect-baseline": "PATH=\"./node_modules/.bin:$PATH\" tsc --noEmit -p scripts/effect-baseline/tsconfig.json",
     "effect-baseline:dry-run": "PATH=\"./node_modules/.bin:$PATH\" bun scripts/effect-baseline/harness.ts --dry-run",
     "effect-baseline:measure": "PATH=\"./node_modules/.bin:$PATH\" bun scripts/effect-baseline/harness.ts --measure",
-    "audit:dpg-consent-fetch": "PATH=\"./node_modules/.bin:$PATH\" bun scripts/audit/dpg-consent-fetch.ts"
+    "audit:dpg-consent-fetch": "PATH=\"./node_modules/.bin:$PATH\" bun scripts/audit/dpg-consent-fetch.ts",
+    "backfill:renormalise-from-raw": "PATH=\"./node_modules/.bin:$PATH\" bun tools/backfill/renormalise-from-raw.ts"
   },
   "dependencies": {
     "@ji/env": "workspace:*",
