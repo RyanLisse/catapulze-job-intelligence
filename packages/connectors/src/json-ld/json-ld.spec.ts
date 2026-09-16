@@ -19,6 +19,7 @@ import { bluetrailConfig } from "./configs/bluetrail";
 import { heroConfig } from "./configs/hero";
 import { proActConfig } from "./configs/pro-act";
 import { rabobankConfig } from "./configs/rabobank";
+import { tbiConfig } from "./configs/tbi";
 import { tenmonksConfig } from "./configs/tenmonks";
 import { werkenVoorNederlandConfig } from "./configs/werken-voor-nederland";
 import { createJsonLdConnector, urlSlugBronReferentie } from "./connector";
@@ -542,6 +543,83 @@ describe("Rabobank careers JSON-LD connector", () => {
         address: { addressLocality: "Utrecht" },
       },
       title: "Active Directory  Engineer",
+    });
+  });
+});
+
+describe("TBI Drupal/ubeeo JSON-LD connector", () => {
+  const sampleUrl =
+    "https://werkenbij.tbi.nl/vacatures/service-technicus-w-1280611";
+  const siblingUrl =
+    "https://werkenbij.tbi.nl/vacatures/hoofduitvoerder-middenspanning-1148185";
+
+  it("uses the sitemap and keeps only canonical vacancy detail URLs", async () => {
+    expect(tbiConfig.discovery).toEqual({
+      kind: "sitemap",
+      url: "https://werkenbij.tbi.nl/sitemap.xml",
+    });
+    expect(tbiConfig.liveEnvVar).toBe("TBI_LIVE");
+    expect(tbiConfig.parserVersion).toBe("tbi/v1");
+
+    const client = createJsonLdClient({
+      config: tbiConfig,
+      liveEnabled: false,
+    });
+    const urls = await client.fetchListing();
+
+    expect(urls).toHaveLength(2);
+    expect(urls).toContainEqual({ url: sampleUrl });
+    expect(urls).toContainEqual({ url: siblingUrl });
+    expect(urls.some(({ url }) => url === "https://werkenbij.tbi.nl/")).toBe(
+      false
+    );
+    expect(urls.some(({ url }) => url.includes("/ondernemingen/"))).toBe(false);
+  });
+
+  it("honours robots by excluding query URLs and non-detail sitemap noise", async () => {
+    const mockFetch: typeof fetch = Object.assign(
+      () =>
+        Promise.resolve(
+          new Response(
+            "<urlset>" +
+              `<url><loc>${sampleUrl}</loc></url>` +
+              `<url><loc>${sampleUrl}?opleiding=techniek</loc></url>` +
+              "<url><loc>https://werkenbij.tbi.nl/node/123</loc></url>" +
+              "<url><loc>https://werkenbij.tbi.nl/vacatures/</loc></url>" +
+              "</urlset>"
+          )
+        ),
+      { preconnect: () => {} }
+    );
+    const client = createJsonLdClient({
+      config: tbiConfig,
+      fetchImpl: mockFetch,
+      liveEnabled: true,
+    });
+
+    await expect(client.fetchListing()).resolves.toEqual([{ url: sampleUrl }]);
+  });
+
+  it("parses literal JobPosting fields from the sample detail fixture", async () => {
+    const client = createJsonLdClient({
+      config: tbiConfig,
+      liveEnabled: false,
+    });
+    const detail = await client.fetchDetail(sampleUrl);
+    if (!detail.jobPosting) {
+      throw new Error("expected a TBI JobPosting JSON-LD node");
+    }
+
+    expect(detail.jobPosting).toMatchObject({
+      datePosted: "2026-05-23T12:36:00+02:00",
+      employmentType: "Fulltime",
+      hiringOrganization: {
+        "@id": "ubeeo-8038",
+        name: "Croonwolter&amp;dros",
+      },
+      identifier: { value: "1280611" },
+      jobLocation: [{ address: { addressLocality: "Amersfoort" } }],
+      title: "Service Technicus W",
     });
   });
 });

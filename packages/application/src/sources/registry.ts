@@ -13,6 +13,7 @@ import { opdrachtoverheid } from "./opdrachtoverheid";
 import { proAct } from "./pro-act";
 import { rabobank } from "./rabobank";
 import { striive } from "./striive";
+import { tbi } from "./tbi";
 import { tenderned } from "./tenderned";
 import { tenmonks } from "./tenmonks";
 import { werkenVoorNederland } from "./werken-voor-nederland";
@@ -39,6 +40,7 @@ export const SOURCES = {
   "pro-act": proAct,
   rabobank,
   striive,
+  tbi,
   tenderned,
   tenmonks,
   "werken-voor-nederland": werkenVoorNederland,
