@@ -18,6 +18,8 @@ const searchFacetsSchema = z.object({
   contracttype: z.array(searchFacetBucketSchema),
   locatie: z.array(searchFacetBucketSchema),
   locatie_land: z.array(searchFacetBucketSchema),
+  provincie: z.array(searchFacetBucketSchema),
+  skills: z.array(searchFacetBucketSchema),
   status: z.array(searchFacetBucketSchema),
 });
 

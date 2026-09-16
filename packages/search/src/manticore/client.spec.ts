@@ -99,6 +99,31 @@ describe("buildManticoreSearchRequest", () => {
     });
   });
 
+  it("emits one membership clause per skill and requests province/skill facets", () => {
+    const request = buildManticoreSearchRequest(
+      SEARCH_INDEX_NAME,
+      null,
+      { skills: ["Java", "TypeScript"] },
+      20,
+      0
+    );
+
+    expect(request.query).toEqual({
+      bool: {
+        filter: [
+          { in: { skills: ["Java"] } },
+          { in: { skills: ["TypeScript"] } },
+        ],
+      },
+    });
+    expect(request.aggs?.provincie).toEqual({
+      terms: { field: "provincie", size: 50 },
+    });
+    expect(request.aggs?.skills).toEqual({
+      terms: { field: "skills.*", size: 100 },
+    });
+  });
+
   // Manticore ignores a top-level `filter` key (verified live on 6.3.8), so
   // filters only count when nested under query.bool alongside the match.
   it("nests attribute filters under query.bool next to the full-text clause", () => {
@@ -256,6 +281,39 @@ describe("parseManticoreSearchResponse", () => {
     expect(response.facets.locatie_land).toEqual([{ count: 2, value: "NL" }]);
   });
 
+  it("parses province and skill facet buckets", () => {
+    const response = parseManticoreSearchResponse({
+      aggregations: {
+        provincie: {
+          buckets: [{ doc_count: 3, key: "Utrecht" }],
+        },
+        skills: {
+          buckets: [{ doc_count: 2, key: "TypeScript" }],
+        },
+      },
+      hits: { hits: [], total: 3 },
+    });
+
+    expect(response.facets.provincie).toEqual([{ count: 3, value: "Utrecht" }]);
+    expect(response.facets.skills).toEqual([{ count: 2, value: "TypeScript" }]);
+  });
+
+  it("ignores the empty JSON skills bucket", () => {
+    const response = parseManticoreSearchResponse({
+      aggregations: {
+        skills: {
+          buckets: [
+            { doc_count: 10, key: null },
+            { doc_count: 2, key: "TypeScript" },
+          ],
+        },
+      },
+      hits: { hits: [], total: 10 },
+    });
+
+    expect(response.facets.skills).toEqual([{ count: 2, value: "TypeScript" }]);
+  });
+
   it("uses hybrid score as the public hit weight", () => {
     const response = parseManticoreSearchResponse({
       hits: {
@@ -407,6 +465,7 @@ describe("ManticoreSearchEngine document mapping", () => {
     }
     expect(replace.doc.locatie).toBe("NL");
     expect(replace.doc.sluitingsdatum).toBe(SLUITINGSDATUM_MISSING_SENTINEL);
+    expect(replace.doc.skills).toEqual([]);
     expect(replace.doc.tarief_max).toBe(0);
     expect(replace.doc.projection_hash).toBe(projectionHash(document, now));
     expect(client.bodies.map((body) => body.index)).toEqual([
@@ -434,7 +493,7 @@ describe("ManticoreSearchEngine document mapping", () => {
       opdrachtgeverNaam: null,
       provincie: null,
       publicatiedatum: null,
-      skills: [],
+      skills: ["Java", "TypeScript"],
       sluitingsdatum: new Date("2026-09-05T12:00:00.000Z"),
       status: "active",
       tariefEenheid: null,
@@ -451,6 +510,7 @@ describe("ManticoreSearchEngine document mapping", () => {
       throw new Error("expected a /replace body");
     }
     expect(replace.doc.locatie).toBe("Amsterdam");
+    expect(replace.doc.skills).toEqual(["Java", "TypeScript"]);
     expect(replace.doc.sluitingsdatum).toBe(
       Math.floor(Date.parse("2026-09-05T12:00:00.000Z") / 1000)
     );
@@ -644,7 +704,7 @@ describe("ManticoreSearchEngine document mapping", () => {
       ): body is Extract<ManticoreRequestBody, { track_total_hits: unknown }> =>
         "track_total_hits" in body
     );
-    expect(searches).toHaveLength(7);
+    expect(searches).toHaveLength(9);
     for (const search of searches) {
       expect(search.knn).toEqual({
         field: "embedding",
@@ -674,7 +734,7 @@ describe("ManticoreSearchEngine document mapping", () => {
       { "hybrid_score()": "desc" },
       { id: "asc" },
     ]);
-    expect(activeFacets).toHaveLength(5);
+    expect(activeFacets).toHaveLength(7);
     for (const facetRequest of activeFacets) {
       expect(Object.keys(facetRequest.aggs ?? {})).toHaveLength(1);
       expect(facetRequest.sort).toBeUndefined();
@@ -741,7 +801,7 @@ describe("ManticoreSearchEngine document mapping", () => {
       ): body is Extract<ManticoreRequestBody, { track_total_hits: unknown }> =>
         "track_total_hits" in body
     );
-    expect(requests).toHaveLength(6);
+    expect(requests).toHaveLength(8);
     expect(requests.every((request) => request.index === "aanvragen")).toBe(
       true
     );
@@ -753,7 +813,7 @@ describe("ManticoreSearchEngine document mapping", () => {
       { id: "asc" },
     ]);
     expect(hitsRequest?.aggs).toBeUndefined();
-    expect(facetRequests).toHaveLength(5);
+    expect(facetRequests).toHaveLength(7);
     for (const facetRequest of facetRequests) {
       expect(facetRequest.offset).toBe(0);
       expect(facetRequest.sort).toBeUndefined();

@@ -102,6 +102,7 @@ export {
   isStaleSearchVersion,
   SEARCH_SCHEMA_HASH,
   SEARCH_SCHEMA_HASH_V10,
+  SEARCH_SCHEMA_HASH_V12,
   SEARCH_SCHEMA_HASH_V8,
   SearchIndexSchemaMismatchError,
   startSearchGeneration,

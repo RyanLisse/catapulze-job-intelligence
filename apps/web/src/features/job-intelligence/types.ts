@@ -266,11 +266,7 @@ export interface JobSearchFacets {
   readonly contractTypes: readonly FacetCount<JobContractType>[];
   readonly locations: readonly FacetCount[];
   readonly status: readonly FacetCount<JobSearchStatus>[];
-  /**
-   * Optional Motian-parity facets. Live SearchFacets only return
-   * bron/contract/locatie/locatie_land/status today — these stay empty
-   * until a follow-up facet endpoint; selected URL values still wire.
-   */
+  /** Optional Motian-parity facets; absent only for legacy callers. */
   readonly provincies?: readonly FacetCount[];
   readonly werkvormen?: readonly FacetCount<JobWerkvorm>[];
   readonly skills?: readonly FacetCount[];

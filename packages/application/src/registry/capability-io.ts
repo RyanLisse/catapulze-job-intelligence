@@ -91,6 +91,8 @@ export const searchAanvragenOutputSchema = toCapabilitySchema(
       contracttype: facetBuckets,
       locatie: facetBuckets,
       locatie_land: facetBuckets,
+      provincie: facetBuckets,
+      skills: facetBuckets,
       status: facetBuckets,
     }),
     hits: Schema.Array(

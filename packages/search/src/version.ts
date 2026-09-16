@@ -62,7 +62,8 @@ export const isStaleSearchVersion = (
  * also omits `locatie_land` for those rows. The v7 hybrid mapping adds an
  * auto-embedding vector and the measured Dutch wordforms; v9 carries the
  * same unknown-location mapping and is a distinct generation only when
- * SEARCH_HYBRID=1.
+ * SEARCH_HYBRID=1. v12 adds the source-published skills JSON array as a
+ * filterable/faceted attribute; v13 is its hybrid successor.
  */
 // ponytail: hand-maintained constant; runtime hashing of the mapping buys
 // nothing until the mapping itself is data-driven.
@@ -74,13 +75,18 @@ export const SEARCH_SCHEMA_HASH_V8 =
   "aanvragen-v8[active|archive]:beschrijving,bron_id,contracttype,document_id,index_version,laatst_gezien_op,locatie,locatie_land,sluitingsdatum,status,tarief_max,tarief_min,titel,projection_hash;locatie=nullable-omitted;locatie_land=nullable-omitted";
 
 /**
- * CTP-493 parity mapping: company, publication date, workform, hours, rate
- * period, and province/skills placeholders. Activate only through the
- * pending-generation/replay protocol — never mutate production Manticore
- * ad hoc in the same change that introduces this hash.
+ * CTP-493 parity mapping before skills indexing: company, publication date,
+ * workform, hours, rate period, and province. Kept as the previous lexical
+ * generation. Activate schema changes only through the pending-generation/
+ * replay protocol — never mutate production Manticore ad hoc in the same
+ * change that introduces this hash.
  */
 export const SEARCH_SCHEMA_HASH_V10 =
   "aanvragen-v10[active|archive]:beschrijving,bron_id,contracttype,document_id,index_version,laatst_gezien_op,locatie,locatie_land,opdrachtgever_naam,provincie,publicatiedatum,sluitingsdatum,status,tarief_eenheid,tarief_max,tarief_min,titel,uren_per_week_max,uren_per_week_min,werkvorm,projection_hash;locatie=nullable-omitted;locatie_land=nullable-omitted;eindklant=null;skills=empty-default";
+
+/** Current lexical mapping with skills as a string JSON array. */
+export const SEARCH_SCHEMA_HASH_V12 =
+  "aanvragen-v12[active|archive]:beschrijving,bron_id,contracttype,document_id,index_version,laatst_gezien_op,locatie,locatie_land,opdrachtgever_naam,provincie,publicatiedatum,sluitingsdatum,skills,status,tarief_eenheid,tarief_max,tarief_min,titel,uren_per_week_max,uren_per_week_min,werkvorm,projection_hash;locatie=nullable-omitted;locatie_land=nullable-omitted;eindklant=null;skills=json-array";
 
 /** Previous mapping, where every indexed document supplied `locatie`. */
 export const SEARCH_SCHEMA_HASH_V4 =
@@ -94,15 +100,19 @@ export const SEARCH_SCHEMA_HASH_HYBRID_V7 =
 export const SEARCH_SCHEMA_HASH_HYBRID_V9 =
   "aanvragen-v9[all|active|archive]:beschrijving,bron_id,contracttype,document_id,embedding,index_version,laatst_gezien_op,locatie,locatie_land,sluitingsdatum,status,tarief_max,tarief_min,titel,projection_hash;locatie=nullable-omitted;locatie_land=nullable-omitted;embedding=hnsw/cosine/Xenova/paraphrase-multilingual-MiniLM-L12-v2/from:titel+beschrijving;wordforms=gemeenten>gemeent,duurzame>duurzaam";
 
-/** Current hybrid mapping with CTP-493 parity attributes. */
-export const SEARCH_SCHEMA_HASH_HYBRID =
+/** Previous hybrid mapping with CTP-493 parity attributes but no skills field. */
+export const SEARCH_SCHEMA_HASH_HYBRID_V11 =
   "aanvragen-v11[all|active|archive]:beschrijving,bron_id,contracttype,document_id,embedding,index_version,laatst_gezien_op,locatie,locatie_land,opdrachtgever_naam,provincie,publicatiedatum,sluitingsdatum,status,tarief_eenheid,tarief_max,tarief_min,titel,uren_per_week_max,uren_per_week_min,werkvorm,projection_hash;locatie=nullable-omitted;locatie_land=nullable-omitted;eindklant=null;skills=empty-default;embedding=hnsw/cosine/Xenova/paraphrase-multilingual-MiniLM-L12-v2/from:titel+beschrijving;wordforms=gemeenten>gemeent,duurzame>duurzaam";
+
+/** Current hybrid successor to v11 with skills as a string JSON array. */
+export const SEARCH_SCHEMA_HASH_HYBRID =
+  "aanvragen-v13[all|active|archive]:beschrijving,bron_id,contracttype,document_id,embedding,index_version,laatst_gezien_op,locatie,locatie_land,opdrachtgever_naam,provincie,publicatiedatum,sluitingsdatum,skills,status,tarief_eenheid,tarief_max,tarief_min,titel,uren_per_week_max,uren_per_week_min,werkvorm,projection_hash;locatie=nullable-omitted;locatie_land=nullable-omitted;eindklant=null;skills=json-array;embedding=hnsw/cosine/Xenova/paraphrase-multilingual-MiniLM-L12-v2/from:titel+beschrijving;wordforms=gemeenten>gemeent,duurzame>duurzaam";
 
 /** Resolves the checkpoint schema without enabling the candidate by default. */
 export const resolveSearchSchemaHash = (
   searchHybrid: string | undefined = undefined
 ): string =>
-  searchHybrid === "1" ? SEARCH_SCHEMA_HASH_HYBRID : SEARCH_SCHEMA_HASH_V10;
+  searchHybrid === "1" ? SEARCH_SCHEMA_HASH_HYBRID : SEARCH_SCHEMA_HASH_V12;
 
 export const SEARCH_SCHEMA_HASH = resolveSearchSchemaHash(
   process.env.SEARCH_HYBRID

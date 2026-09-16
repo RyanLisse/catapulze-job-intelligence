@@ -475,6 +475,9 @@ describe("outbox projector", () => {
     expect(projectionHash({ ...document, status: "closed" })).not.toBe(
       projectionHash(document)
     );
+    expect(projectionHash({ ...document, skills: ["Java"] })).not.toBe(
+      projectionHash(document)
+    );
     expect(projectionHash(structuredClone(document))).toBe(
       projectionHash(document)
     );
@@ -495,7 +498,7 @@ describe("outbox projector", () => {
     // point silently cannot rewrite every existing known-location row.
     expect(
       projectionHash(knownLocation, new Date("2026-09-01T00:00:00.000Z"))
-    ).toBe("active:20tzf4foqud.oeu8japzyt");
+    ).toBe("active:na4kuputrx.1adwm0pg3u1");
   });
 
   it("consumes a late mutation (delete or upsert) as a no-op when an equal or newer sequence was already applied", async () => {

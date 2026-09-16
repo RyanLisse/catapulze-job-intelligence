@@ -132,6 +132,8 @@ describe("REST search request mapping", () => {
       contracttype: [],
       locatie: [{ count: 3, value: "Amsterdam" }],
       locatie_land: [{ count: 9, value: "NL" }],
+      provincie: [{ count: 4, value: "Utrecht" }],
+      skills: [{ count: 5, value: "TypeScript" }],
       status: [{ count: 2, value: "closed" }],
     };
     expect(mapApiFacetsToUi(facets, bronCatalog, true).locations).toEqual([
@@ -143,6 +145,20 @@ describe("REST search request mapping", () => {
     expect(mapApiFacetsToUi(facets, bronCatalog).status).toEqual([
       { count: 2, value: "closed" },
     ]);
+    expect(mapApiFacetsToUi(facets, bronCatalog).provincies).toEqual([
+      { count: 4, value: "Utrecht" },
+    ]);
+    expect(mapApiFacetsToUi(facets, bronCatalog).skills).toEqual([
+      { count: 5, value: "TypeScript" },
+    ]);
+    expect(
+      mapApiFacetsToUi({ ...facets, provincie: [], skills: [] }, bronCatalog)
+        .provincies
+    ).toEqual([]);
+    expect(
+      mapApiFacetsToUi({ ...facets, provincie: [], skills: [] }, bronCatalog)
+        .skills
+    ).toEqual([]);
   });
 });
 

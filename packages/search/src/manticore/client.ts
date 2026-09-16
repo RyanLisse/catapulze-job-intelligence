@@ -189,8 +189,10 @@ export class FetchManticoreClient implements ManticoreHttpClient {
   }
 }
 
-const bucketValue = (key: string | number | undefined): string | null => {
-  if (key === undefined) {
+const bucketValue = (
+  key: string | number | readonly (string | number)[] | null | undefined
+): string | null => {
+  if (key === undefined || key === null || Array.isArray(key)) {
     return null;
   }
 
@@ -199,7 +201,14 @@ const bucketValue = (key: string | number | undefined): string | null => {
 
 const parseFacetBuckets = (
   payload: ManticoreSearchPayload,
-  field: "bron_id" | "contracttype" | "locatie" | "locatie_land" | "status"
+  field:
+    | "bron_id"
+    | "contracttype"
+    | "locatie"
+    | "locatie_land"
+    | "provincie"
+    | "skills"
+    | "status"
 ) => {
   const facet =
     payload.aggregations?.[field]?.buckets ??
@@ -260,6 +269,12 @@ export const parseManticoreSearchResponse = (
   facets.locatie_land = parseFacetBuckets(payload, "locatie_land").filter(
     (bucket) => bucket.value !== ""
   );
+  facets.provincie = parseFacetBuckets(payload, "provincie").filter(
+    (bucket) => bucket.value !== ""
+  );
+  facets.skills = parseFacetBuckets(payload, "skills").filter(
+    (bucket) => bucket.value !== ""
+  );
   facets.contracttype = parseFacetBuckets(payload, "contracttype");
 
   return {
@@ -317,6 +332,12 @@ export const buildFilterClauses = (
 
   if (filters.provincies && filters.provincies.length > 0) {
     must.push({ in: { provincie: [...filters.provincies] } });
+  }
+
+  if (filters.skills && filters.skills.length > 0) {
+    for (const skill of filters.skills) {
+      must.push({ in: { skills: [skill] } });
+    }
   }
 
   if (filters.werkvormen && filters.werkvormen.length > 0) {
@@ -438,6 +459,11 @@ export const buildManticoreSearchRequest = (
       contracttype: { terms: { field: "contracttype", size: 50 } },
       locatie: { terms: { field: "locatie", size: 50 } },
       locatie_land: { terms: { field: "locatie_land", size: 50 } },
+      provincie: { terms: { field: "provincie", size: 50 } },
+      // A top-level JSON array aggregates as the whole array on Manticore
+      // 6.3.8; the wildcard property path unwinds it into one bucket per
+      // skill while retaining the document count for each value.
+      skills: { terms: { field: "skills.*", size: 100 } },
       status: { terms: { field: "status", size: 20 } },
     },
     index,

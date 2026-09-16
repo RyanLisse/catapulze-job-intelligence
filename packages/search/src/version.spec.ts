@@ -7,12 +7,14 @@ import {
   resolveSearchSchemaHash,
   SEARCH_SCHEMA_HASH,
   SEARCH_SCHEMA_HASH_HYBRID,
+  SEARCH_SCHEMA_HASH_HYBRID_V11,
   SEARCH_SCHEMA_HASH_HYBRID_V7,
   SEARCH_SCHEMA_HASH_V1,
   SEARCH_SCHEMA_HASH_V4,
   SEARCH_SCHEMA_HASH_V6,
   SEARCH_SCHEMA_HASH_V8,
   SEARCH_SCHEMA_HASH_V10,
+  SEARCH_SCHEMA_HASH_V12,
   startSearchGeneration,
 } from "./version";
 
@@ -81,16 +83,18 @@ describe("SEARCH_SCHEMA_HASH mapping generations", () => {
     expect(SEARCH_SCHEMA_HASH).toContain("locatie_land=nullable-omitted");
   });
 
-  it("requires a new generation for the unknown-location mapping", () => {
-    expect(SEARCH_SCHEMA_HASH).toBe(SEARCH_SCHEMA_HASH_V10);
+  it("requires a new generation for the skills mapping", () => {
+    expect(SEARCH_SCHEMA_HASH).toBe(SEARCH_SCHEMA_HASH_V12);
     expect(SEARCH_SCHEMA_HASH).not.toBe(SEARCH_SCHEMA_HASH_V8);
     expect(SEARCH_SCHEMA_HASH).not.toBe(SEARCH_SCHEMA_HASH_V6);
     expect(SEARCH_SCHEMA_HASH).not.toBe(SEARCH_SCHEMA_HASH_V4);
+    expect(SEARCH_SCHEMA_HASH).not.toBe(SEARCH_SCHEMA_HASH_V10);
     expect(SEARCH_SCHEMA_HASH).toContain("opdrachtgever_naam");
     expect(SEARCH_SCHEMA_HASH).toContain("publicatiedatum");
     expect(SEARCH_SCHEMA_HASH).toContain("werkvorm");
     expect(SEARCH_SCHEMA_HASH).toContain("uren_per_week_min");
     expect(SEARCH_SCHEMA_HASH).toContain("tarief_eenheid");
+    expect(SEARCH_SCHEMA_HASH).toContain("skills=json-array");
   });
 
   it("requires a new generation and replay for a checkpoint written by v6", async () => {
@@ -119,16 +123,17 @@ describe("SEARCH_SCHEMA_HASH mapping generations", () => {
 });
 
 describe("SEARCH_SCHEMA_HASH hybrid feature flag", () => {
-  it("keeps the current v8 schema when the flag is absent or off", () => {
-    expect(resolveSearchSchemaHash()).toBe(SEARCH_SCHEMA_HASH_V10);
-    expect(resolveSearchSchemaHash("0")).toBe(SEARCH_SCHEMA_HASH_V10);
-    expect(resolveSearchSchemaHash("true")).toBe(SEARCH_SCHEMA_HASH_V10);
+  it("keeps the current lexical schema when the flag is absent or off", () => {
+    expect(resolveSearchSchemaHash()).toBe(SEARCH_SCHEMA_HASH_V12);
+    expect(resolveSearchSchemaHash("0")).toBe(SEARCH_SCHEMA_HASH_V12);
+    expect(resolveSearchSchemaHash("true")).toBe(SEARCH_SCHEMA_HASH_V12);
   });
 
   it("selects a new vector and wordforms schema only for SEARCH_HYBRID=1", () => {
     expect(resolveSearchSchemaHash("1")).toBe(SEARCH_SCHEMA_HASH_HYBRID);
     expect(SEARCH_SCHEMA_HASH_HYBRID).not.toBe(SEARCH_SCHEMA_HASH_HYBRID_V7);
-    expect(SEARCH_SCHEMA_HASH_HYBRID).toStartWith("aanvragen-v11[");
+    expect(SEARCH_SCHEMA_HASH_HYBRID).toStartWith("aanvragen-v13[");
+    expect(SEARCH_SCHEMA_HASH_HYBRID).toContain("skills=json-array");
     expect(SEARCH_SCHEMA_HASH_HYBRID).toContain("locatie=nullable-omitted");
     expect(SEARCH_SCHEMA_HASH_HYBRID).toContain(
       "locatie_land=nullable-omitted"
@@ -143,11 +148,11 @@ describe("SEARCH_SCHEMA_HASH hybrid feature flag", () => {
   });
 
   it("requires a new generation and replay for a checkpoint written by hybrid v7", async () => {
-    const stale = new InMemorySearchVersionStore(SEARCH_SCHEMA_HASH_HYBRID_V7);
+    const stale = new InMemorySearchVersionStore(SEARCH_SCHEMA_HASH_HYBRID_V11);
     await stale.advance(42n);
     const checkpoint = await stale.read();
 
-    expect(checkpoint.schemaHash).toBe(SEARCH_SCHEMA_HASH_HYBRID_V7);
+    expect(checkpoint.schemaHash).toBe(SEARCH_SCHEMA_HASH_HYBRID_V11);
     expect(checkpoint.schemaHash).not.toBe(SEARCH_SCHEMA_HASH_HYBRID);
 
     const rebuilt = await stale.startNewGeneration(SEARCH_SCHEMA_HASH_HYBRID);

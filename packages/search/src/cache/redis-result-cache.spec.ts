@@ -19,6 +19,8 @@ const sampleEntry = (
     contracttype: [],
     locatie: [],
     locatie_land: [],
+    provincie: [],
+    skills: [],
     status: [],
   },
   filters: {},

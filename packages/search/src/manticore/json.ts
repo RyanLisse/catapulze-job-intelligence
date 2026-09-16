@@ -3,7 +3,14 @@ import { z } from "zod";
 export const manticoreFacetBucketSchema = z.object({
   count: z.number().optional(),
   doc_count: z.number().optional(),
-  key: z.union([z.number(), z.string()]).optional(),
+  key: z
+    .union([
+      z.number(),
+      z.string(),
+      z.array(z.union([z.number(), z.string()])),
+      z.null(),
+    ])
+    .optional(),
   value: z.union([z.number(), z.string()]).optional(),
 });
 
@@ -29,6 +36,8 @@ export const manticoreSearchPayloadSchema = z.object({
       contracttype: manticoreFacetSchema.optional(),
       locatie: manticoreFacetSchema.optional(),
       locatie_land: manticoreFacetSchema.optional(),
+      provincie: manticoreFacetSchema.optional(),
+      skills: manticoreFacetSchema.optional(),
       status: manticoreFacetSchema.optional(),
     })
     .optional(),
@@ -38,6 +47,8 @@ export const manticoreSearchPayloadSchema = z.object({
       contracttype: manticoreFacetSchema.optional(),
       locatie: manticoreFacetSchema.optional(),
       locatie_land: manticoreFacetSchema.optional(),
+      provincie: manticoreFacetSchema.optional(),
+      skills: manticoreFacetSchema.optional(),
       status: manticoreFacetSchema.optional(),
     })
     .optional(),
@@ -128,6 +139,8 @@ export interface ManticoreIndexedDocument {
   /** Keyword copy for company-asc sorts. */
   opdrachtgever_naam_keyword: string;
   provincie: string;
+  /** Source skill names as a JSON array; Manticore's native MVA is integer-only. */
+  skills: readonly string[];
   // Epoch seconds; PUBLICATIEDATUM_MISSING_SENTINEL when unknown.
   publicatiedatum: number;
   // Epoch seconds; SLUITINGSDATUM_MISSING_SENTINEL when the bron publishes no
@@ -198,6 +211,8 @@ export type ManticoreFacetName =
   | "contracttype"
   | "locatie"
   | "locatie_land"
+  | "provincie"
+  | "skills"
   | "status";
 
 export type ManticoreTermsAggregations = Partial<
@@ -242,6 +257,7 @@ export interface ManticoreInFilter {
     locatie?: string[];
     locatie_land?: string[];
     provincie?: string[];
+    skills?: string[];
     status?: string[];
     tarief_eenheid?: string[];
     werkvorm?: string[];
