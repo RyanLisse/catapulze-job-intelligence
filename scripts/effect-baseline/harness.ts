@@ -105,7 +105,34 @@ const git = (args: string[]): string => {
   return (result.stdout ?? "").trim();
 };
 
-export const collectGitMetadata = (): BaselineArtifact["git"] => {
+const isGitWorkspace = (): boolean =>
+  spawnSync("git", ["rev-parse", "--is-inside-work-tree"], {
+    cwd: ROOT,
+    encoding: "utf-8",
+  }).status === 0;
+
+// The exe.dev shadow box syncs the tree without .git and exports the source
+// identity instead (scripts/crabbox-exe-dev-shadow-run.sh). Use that identity
+// only when there is no workspace; never invent a SHA.
+export const transferredGitMetadata = (
+  env: NodeJS.ProcessEnv
+): BaselineArtifact["git"] => {
+  const headSha = env.CRABBOX_SOURCE_GIT_SHA ?? "";
+  const state = env.CRABBOX_SOURCE_GIT_STATE;
+  if (!shaPattern.test(headSha) || (state !== "clean" && state !== "dirty")) {
+    throw new Error(
+      "No git workspace and no valid CRABBOX_SOURCE_GIT_SHA/CRABBOX_SOURCE_GIT_STATE"
+    );
+  }
+  return { branch: null, dirty: state === "dirty", headSha };
+};
+
+export const collectGitMetadata = (
+  env: NodeJS.ProcessEnv = process.env
+): BaselineArtifact["git"] => {
+  if (!isGitWorkspace()) {
+    return transferredGitMetadata(env);
+  }
   const headSha = git(["rev-parse", "HEAD"]);
   if (!shaPattern.test(headSha)) {
     throw new Error(`Invalid HEAD SHA: ${headSha}`);
