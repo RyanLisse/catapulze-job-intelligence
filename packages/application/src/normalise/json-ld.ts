@@ -305,7 +305,12 @@ export const parseJsonLdPayload = (
   const { jobPosting, labelBlock, parserVersion, url } = payload;
   const descriptionText = stripHtml(asText(jobPosting.description));
   const hiringOrganization = asNode(jobPosting.hiringOrganization);
-  const jobLocationAddress = asNode(asNode(jobPosting.jobLocation)?.address);
+  // Schema.org permits one Place or an array of Places. TBI publishes the
+  // latter; use the first published address rather than dropping the location.
+  const firstJobLocation = Array.isArray(jobPosting.jobLocation)
+    ? jobPosting.jobLocation[0]
+    : jobPosting.jobLocation;
+  const jobLocationAddress = asNode(asNode(firstJobLocation)?.address);
   const startDatum = parseDutchDate(labelBlock.startDatum);
   const tarief =
     tariefFromBaseSalary(jobPosting) ??

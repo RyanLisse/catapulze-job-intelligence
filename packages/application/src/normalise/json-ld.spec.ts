@@ -166,6 +166,53 @@ describe("normaliseJsonLdObservation -- Rabobank", () => {
   });
 });
 
+describe("normaliseJsonLdObservation -- TBI", () => {
+  it("keeps the literal title, ubeeo identifier, and Amersfoort location", () => {
+    const body = new TextEncoder().encode(
+      JSON.stringify({
+        jobPosting: {
+          "@type": "JobPosting",
+          datePosted: "2026-05-23T12:36:00+02:00",
+          description:
+            "Wil jij aan de slag als Service Technicus W in Amersfoort bij Croonwolter&dros?",
+          employmentType: "Fulltime",
+          hiringOrganization: {
+            "@id": "ubeeo-8038",
+            "@type": "Organization",
+            name: "Croonwolter&dros",
+          },
+          identifier: {
+            "@type": "PropertyValue",
+            name: "Croonwolter&dros",
+            value: "1280611",
+          },
+          jobLocation: [
+            {
+              address: {
+                addressCountry: "NL",
+                addressLocality: "Amersfoort",
+              },
+            },
+          ],
+          title: "Service Technicus W",
+        },
+        labelBlock: {},
+        parserVersion: "tbi/v1",
+        slug: "tbi",
+        url: "https://werkenbij.tbi.nl/vacatures/service-technicus-w-1280611",
+      })
+    );
+
+    const draft = normaliseJsonLdObservation(body, HASH);
+
+    expect(draft.titel.value).toBe("Service Technicus W");
+    expect(draft.bronSpecifiek.value).toMatchObject({
+      identifier: { value: "1280611" },
+    });
+    expect(draft.locatieTekst.value).toContain("Amersfoort");
+  });
+});
+
 describe("parseJsonLdPayload -- BlueTrail (label block in surrounding HTML, baseSalary present but ignored)", () => {
   const payload: JsonLdFetchedPayload = {
     jobPosting: {
