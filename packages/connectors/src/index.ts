@@ -76,6 +76,7 @@ export {
 export {
   ConnectorRunFailure,
   InMemoryRunLifecycleStore,
+  RunAlreadyInProgressError,
   RunOwnershipLostError,
   type ConnectorRunKind,
   type RunCompletionInput,

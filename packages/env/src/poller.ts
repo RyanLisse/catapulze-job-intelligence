@@ -31,7 +31,22 @@ const millisecondsWithDefault = (fallbackMs: number, variableName: string) =>
   positiveIntegerWithDefault(fallbackMs, variableName, "milliseconds");
 
 /** Six hours: longer than any healthy poll plus its full curate budget. */
-const ABANDON_RUN_AFTER_MS_DEFAULT = 6 * 60 * 60 * 1000;
+export const ABANDON_RUN_AFTER_MS_DEFAULT = 6 * 60 * 60 * 1000;
+
+export const resolvePollRunStaleAfterMs = (
+  value: string | undefined = process.env.POLLER_ABANDON_RUN_AFTER_MS
+): number => {
+  const configured =
+    value === undefined || value === ""
+      ? String(ABANDON_RUN_AFTER_MS_DEFAULT)
+      : value;
+  if (!/^[1-9][0-9]*$/u.test(configured)) {
+    throw new Error(
+      "POLLER_ABANDON_RUN_AFTER_MS must be a positive whole number of milliseconds"
+    );
+  }
+  return Number(configured);
+};
 
 /**
  * Dedicated env contract for the long-running on-box poller
@@ -93,41 +108,52 @@ export const pollerEnvEffectSchemas = {
   ),
 } as const;
 
-export const env = createEnv({
-  emptyStringAsUndefined: true,
-  onValidationError: onEnvValidationError,
-  runtimeEnv: {
-    ...process.env,
-    APP_RELEASE_SHA: process.env.APP_RELEASE_SHA || process.env.SOURCE_COMMIT,
-  },
-  server: {
-    APP_RELEASE_SHA: toEnvSchema(pollerEnvEffectSchemas.APP_RELEASE_SHA),
-    DATABASE_URL: toEnvSchema(pollerEnvEffectSchemas.DATABASE_URL),
-    MANTICORE_URL: toEnvSchema(pollerEnvEffectSchemas.MANTICORE_URL),
-    POLLER_ABANDON_RUN_AFTER_MS: toEnvSchema(
-      pollerEnvEffectSchemas.POLLER_ABANDON_RUN_AFTER_MS
-    ),
-    POLLER_CONCURRENCY: toEnvSchema(pollerEnvEffectSchemas.POLLER_CONCURRENCY),
-    POLLER_CURATE_BUDGET_MS: toEnvSchema(
-      pollerEnvEffectSchemas.POLLER_CURATE_BUDGET_MS
-    ),
-    POLLER_DATABASE_URL: toEnvSchema(
-      pollerEnvEffectSchemas.POLLER_DATABASE_URL
-    ),
-    POLLER_TICK_MS: toEnvSchema(pollerEnvEffectSchemas.POLLER_TICK_MS),
-    RAW_OBJECT_STORE_PATH: toEnvSchema(
-      pollerEnvEffectSchemas.RAW_OBJECT_STORE_PATH
-    ),
-    RAW_S3_ACCESS_KEY_ID: toEnvSchema(
-      pollerEnvEffectSchemas.RAW_S3_ACCESS_KEY_ID
-    ),
-    RAW_S3_BUCKET: toEnvSchema(pollerEnvEffectSchemas.RAW_S3_BUCKET),
-    RAW_S3_ENDPOINT: toEnvSchema(pollerEnvEffectSchemas.RAW_S3_ENDPOINT),
-    RAW_S3_REGION: toEnvSchema(pollerEnvEffectSchemas.RAW_S3_REGION),
-    RAW_S3_SECRET_ACCESS_KEY: toEnvSchema(
-      pollerEnvEffectSchemas.RAW_S3_SECRET_ACCESS_KEY
-    ),
-    SEARCH_PROJECTOR: toEnvSchema(pollerEnvEffectSchemas.SEARCH_PROJECTOR),
-  },
-  skipValidation: skipEnvValidation(),
-});
+const createPollerEnv = () =>
+  createEnv({
+    emptyStringAsUndefined: true,
+    onValidationError: onEnvValidationError,
+    runtimeEnv: {
+      ...process.env,
+      APP_RELEASE_SHA: process.env.APP_RELEASE_SHA || process.env.SOURCE_COMMIT,
+    },
+    server: {
+      APP_RELEASE_SHA: toEnvSchema(pollerEnvEffectSchemas.APP_RELEASE_SHA),
+      DATABASE_URL: toEnvSchema(pollerEnvEffectSchemas.DATABASE_URL),
+      MANTICORE_URL: toEnvSchema(pollerEnvEffectSchemas.MANTICORE_URL),
+      POLLER_ABANDON_RUN_AFTER_MS: toEnvSchema(
+        pollerEnvEffectSchemas.POLLER_ABANDON_RUN_AFTER_MS
+      ),
+      POLLER_CONCURRENCY: toEnvSchema(
+        pollerEnvEffectSchemas.POLLER_CONCURRENCY
+      ),
+      POLLER_CURATE_BUDGET_MS: toEnvSchema(
+        pollerEnvEffectSchemas.POLLER_CURATE_BUDGET_MS
+      ),
+      POLLER_DATABASE_URL: toEnvSchema(
+        pollerEnvEffectSchemas.POLLER_DATABASE_URL
+      ),
+      POLLER_TICK_MS: toEnvSchema(pollerEnvEffectSchemas.POLLER_TICK_MS),
+      RAW_OBJECT_STORE_PATH: toEnvSchema(
+        pollerEnvEffectSchemas.RAW_OBJECT_STORE_PATH
+      ),
+      RAW_S3_ACCESS_KEY_ID: toEnvSchema(
+        pollerEnvEffectSchemas.RAW_S3_ACCESS_KEY_ID
+      ),
+      RAW_S3_BUCKET: toEnvSchema(pollerEnvEffectSchemas.RAW_S3_BUCKET),
+      RAW_S3_ENDPOINT: toEnvSchema(pollerEnvEffectSchemas.RAW_S3_ENDPOINT),
+      RAW_S3_REGION: toEnvSchema(pollerEnvEffectSchemas.RAW_S3_REGION),
+      RAW_S3_SECRET_ACCESS_KEY: toEnvSchema(
+        pollerEnvEffectSchemas.RAW_S3_SECRET_ACCESS_KEY
+      ),
+      SEARCH_PROJECTOR: toEnvSchema(pollerEnvEffectSchemas.SEARCH_PROJECTOR),
+    },
+    skipValidation: skipEnvValidation(),
+  });
+
+type PollerEnv = ReturnType<typeof createPollerEnv>;
+let resolvedEnv: PollerEnv | undefined;
+/** Validates the full poller contract on first use, then reuses the result. */
+export const getPollerEnv = (): PollerEnv => {
+  resolvedEnv ??= createPollerEnv();
+  return resolvedEnv;
+};

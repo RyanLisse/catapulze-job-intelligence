@@ -23,7 +23,20 @@ export interface PollerSourceLog {
   errorName?: string;
   found: number;
   remaining: number;
+  skippedReason?: "already_running";
 }
+
+export const alreadyRunningSourceLog = (input: {
+  bronSlug: string;
+  durationMs: number;
+}): PollerSourceLog => ({
+  bronSlug: input.bronSlug,
+  curated: 0,
+  durationMs: input.durationMs,
+  found: 0,
+  remaining: 0,
+  skippedReason: "already_running",
+});
 
 /**
  * Long enough to carry an HTTP status plus the failing URL path, short enough

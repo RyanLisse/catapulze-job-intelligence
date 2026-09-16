@@ -130,8 +130,9 @@ export interface OneshotRunBronResult {
   };
   nieuw?: number;
   scrapeRunId?: string;
+  skippedReason?: "already_running";
   soft?: boolean;
-  status: "failed" | "succeeded";
+  status: "failed" | "skipped" | "succeeded";
   writtenRecords?: number;
 }
 
@@ -151,6 +152,7 @@ export interface OneshotRunResult {
   hardFail: boolean;
   mode: "run";
   results: OneshotRunBronResult[];
+  skipped: number;
   softFailed: number;
   startedAt: string;
   succeeded: number;
@@ -220,6 +222,7 @@ export const summarizeOneshotRun = (input: {
   let succeeded = 0;
   let failed = 0;
   let softFailed = 0;
+  let skipped = 0;
 
   for (const row of input.results) {
     if (row.status === "succeeded") {
@@ -235,6 +238,10 @@ export const summarizeOneshotRun = (input: {
       totals.writtenRecords += row.writtenRecords ?? 0;
       continue;
     }
+    if (row.status === "skipped") {
+      skipped += 1;
+      continue;
+    }
     failed += 1;
     if (row.soft) {
       softFailed += 1;
@@ -247,6 +254,7 @@ export const summarizeOneshotRun = (input: {
     hardFail: input.hardFail,
     mode: "run",
     results: [...input.results],
+    skipped,
     softFailed,
     startedAt: input.startedAt,
     succeeded,

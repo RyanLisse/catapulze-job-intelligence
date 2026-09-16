@@ -10,7 +10,10 @@ import { PostgresKnownHashStore } from "./known-hash-store";
 import { createPostgresLifecyclePorts } from "./missed-polls-store";
 import * as schema from "./schema";
 
-export const createBronRuntimeClient = (databaseUrl: string) => {
+export const createBronRuntimeClient = (
+  databaseUrl: string,
+  options: { now?: () => Date; pollRunStaleAfterMs?: number } = {}
+) => {
   const sqlClient = postgres(databaseUrl, {
     connect_timeout: 5,
     idle_timeout: 20,
@@ -27,7 +30,7 @@ export const createBronRuntimeClient = (databaseUrl: string) => {
     /** RJC-397: pass as `executeBronRun({ lifecycle })` so poll runs count missed polls. */
     lifecycle: createPostgresLifecyclePorts(database),
     observationRecorder: new PostgresObservationRecorder(database),
-    runLifecycleStore: new PostgresRunStore(database),
+    runLifecycleStore: new PostgresRunStore(database, options),
   };
 };
 

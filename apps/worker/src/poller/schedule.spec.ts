@@ -1,9 +1,21 @@
-import { describe, expect, it } from "bun:test";
+import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 
+import { SOURCES } from "@ji/application/sources";
+import { PostgresBronPersistence } from "@ji/db/bron-runtime";
+import { bron, scrapeRun } from "@ji/db/schema/curated";
+import * as schema from "@ji/db/schema/index";
 import type { BronId } from "@ji/domain";
+import { inArray } from "drizzle-orm";
+import { drizzle } from "drizzle-orm/postgres-js";
+import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
+import postgres from "postgres";
 
 import type { PollCandidate } from "./schedule";
-import { dueCandidates, partitionByLiveFlag } from "./schedule";
+import {
+  dueCandidates,
+  loadPollCandidates,
+  partitionByLiveFlag,
+} from "./schedule";
 
 /** 2026-06-15 10:55 Europe/Amsterdam (CEST, UTC+2). */
 const NOW = new Date("2026-06-15T08:55:00.000Z");
@@ -131,5 +143,120 @@ describe("partitionByLiveFlag", () => {
     );
     expect(slugsOf(result.live)).toEqual(["inhuurdesk"]);
     expect(slugsOf(result.notLive)).toEqual(["tenderned"]);
+  });
+});
+
+const testDatabaseUrl =
+  process.env.DATABASE_TEST_URL ??
+  "postgresql://ji_migrator:ji_migrator_local@127.0.0.1:5432/ji_test";
+const applicationUrl =
+  process.env.DATABASE_APP_TEST_URL ??
+  "postgresql://ji_app:ji_app_local@127.0.0.1:5432/ji_test";
+const testDatabaseRequired =
+  process.env.REQUIRE_DATABASE_TESTS === "1" ||
+  process.env.DATABASE_TEST_URL !== undefined;
+const STALE_AFTER_MS = 60_000;
+
+const isPostgresAvailable = async (): Promise<boolean> => {
+  const probe = postgres(testDatabaseUrl, { connect_timeout: 2, max: 1 });
+  try {
+    await probe`SELECT 1`;
+    await probe.end({ timeout: 1 });
+    return true;
+  } catch {
+    await probe.end({ timeout: 1 }).catch(() => {});
+    return false;
+  }
+};
+
+describe("loadPollCandidates running-poll filter", () => {
+  let available = false;
+  let client: ReturnType<typeof postgres> | null = null;
+  let database: PostgresJsDatabase<typeof schema> | null = null;
+  const freshRunningBronId = crypto.randomUUID();
+  const staleRunningBronId = crypto.randomUUID();
+  const neverRunBronId = crypto.randomUUID();
+  const bronIds = [freshRunningBronId, staleRunningBronId, neverRunBronId];
+
+  beforeAll(async () => {
+    available = await isPostgresAvailable();
+    if (!available) {
+      if (testDatabaseRequired) {
+        throw new Error("Required test database is unavailable");
+      }
+      return;
+    }
+    client = postgres(applicationUrl, { max: 2 });
+    database = drizzle(client, { schema });
+    await database.insert(bron).values([
+      {
+        actief: true,
+        categorie: "overheidsportaal",
+        id: freshRunningBronId,
+        interval: "*/15 * * * *",
+        naam: SOURCES.tenderned.naam,
+        status: "ready",
+        voorwaardenStatus: "toegestaan",
+      },
+      {
+        actief: true,
+        categorie: "overheidsportaal",
+        id: staleRunningBronId,
+        interval: "*/15 * * * *",
+        naam: SOURCES.inhuurdesk.naam,
+        status: "ready",
+        voorwaardenStatus: "toegestaan",
+      },
+      {
+        actief: true,
+        categorie: "overheidsportaal",
+        id: neverRunBronId,
+        interval: "*/15 * * * *",
+        naam: SOURCES.bluetrail.naam,
+        status: "ready",
+        voorwaardenStatus: "toegestaan",
+      },
+    ]);
+    await database.insert(scrapeRun).values([
+      {
+        bronId: freshRunningBronId,
+        gestart: new Date(NOW.getTime() - 60_000),
+        id: crypto.randomUUID(),
+        runKind: "poll",
+        status: "running",
+      },
+      {
+        bronId: staleRunningBronId,
+        gestart: new Date(NOW.getTime() - STALE_AFTER_MS - 1),
+        id: crypto.randomUUID(),
+        runKind: "poll",
+        status: "running",
+      },
+    ]);
+  });
+
+  afterAll(async () => {
+    if (database) {
+      await database.delete(bron).where(inArray(bron.id, bronIds));
+    }
+    await client?.end({ timeout: 5 });
+  });
+
+  it("excludes fresh running polls while retaining stale and never-run bronnen", async () => {
+    if (!available || !database) {
+      expect(available).toBe(false);
+      return;
+    }
+    const candidates = await loadPollCandidates(
+      {
+        bronPersistence: new PostgresBronPersistence(database),
+        database,
+      },
+      { now: NOW, olderThanMs: STALE_AFTER_MS }
+    );
+
+    expect(slugsOf(candidates)).not.toContain("tenderned");
+    expect(slugsOf(candidates)).toContain("inhuurdesk");
+    expect(slugsOf(candidates)).toContain("bluetrail");
   });
 });

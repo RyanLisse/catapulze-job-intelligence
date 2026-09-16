@@ -1,6 +1,7 @@
 import { and, eq, lt } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 
+import { runStalenessCutoff } from "./run-staleness";
 import type * as schema from "./schema";
 import { scrapeRun } from "./schema/curated";
 
@@ -43,7 +44,7 @@ export const abandonStaleRuns = async (
   database: AbandonStaleRunsDatabase,
   options: AbandonStaleRunsOptions
 ): Promise<string[]> => {
-  const cutoff = new Date(options.now.getTime() - options.olderThanMs);
+  const cutoff = runStalenessCutoff(options.now, options.olderThanMs);
   const rows = await database
     .update(scrapeRun)
     .set({

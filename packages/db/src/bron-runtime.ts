@@ -20,17 +20,22 @@ import type {
   SourceRecordWriteOutcome,
   SourceRecordWriteResult,
 } from "@ji/connectors";
-import { RunOwnershipLostError } from "@ji/connectors";
+import {
+  RunAlreadyInProgressError,
+  RunOwnershipLostError,
+} from "@ji/connectors";
 import {
   BRON_STATUSES,
   CONNECTOR_METHODS,
   VOORWAARDEN_STATUSES,
 } from "@ji/domain";
 import type { BronId } from "@ji/domain";
-import { and, desc, eq, sql } from "drizzle-orm";
+import { ABANDON_RUN_AFTER_MS_DEFAULT } from "@ji/env/poller";
+import { and, desc, eq, gte, sql } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import { z } from "zod";
 
+import { runStalenessCutoff } from "./run-staleness";
 import type * as schema from "./schema";
 import { aanvraagObservation, bron, scrapeRun, sourceRecord } from "./schema";
 
@@ -392,9 +397,17 @@ const validateFenceToken = (fenceToken: number): void => {
 
 export class PostgresRunStore implements RunLifecycleStore {
   private readonly database: BronRuntimeDatabase;
+  private readonly now: () => Date;
+  private readonly pollRunStaleAfterMs: number;
 
-  constructor(database: BronRuntimeDatabase) {
+  constructor(
+    database: BronRuntimeDatabase,
+    options: { now?: () => Date; pollRunStaleAfterMs?: number } = {}
+  ) {
     this.database = database;
+    this.now = options.now ?? (() => new Date());
+    this.pollRunStaleAfterMs =
+      options.pollRunStaleAfterMs ?? ABANDON_RUN_AFTER_MS_DEFAULT;
   }
 
   async load(key: CheckpointKey): Promise<ConnectorRunProgress | null> {
@@ -487,28 +500,15 @@ export class PostgresRunStore implements RunLifecycleStore {
 
   private startWithKind(input: RunStartInput): Promise<RunStartResult> {
     return this.database.transaction(async (tx) => {
-      const inserted = await tx
-        .insert(scrapeRun)
-        .values({
-          bronId: input.key.bronId,
-          ...progressValues(input.progress),
-          fenceToken: 1,
-          gestart: input.startedAt,
-          id: input.key.scrapeRunId,
-          runKind: input.runKind,
-          status: "running",
-        })
-        .onConflictDoNothing({ target: scrapeRun.id })
-        .returning({ id: scrapeRun.id });
-      if (inserted.length > 0) {
-        return {
-          fenceToken: 1,
-          progress: structuredClone(input.progress),
-          startedAt: input.startedAt,
-        };
+      if (input.runKind === "poll") {
+        // The two-int advisory-lock namespace is disjoint from the single-bigint
+        // namespace used by the poller and projector singleton process locks.
+        await tx.execute(
+          sql`SELECT pg_advisory_xact_lock(hashtext('ji_poll_start'), hashtext(${input.key.bronId}))`
+        );
       }
 
-      const [existing] = await tx
+      let [existing] = await tx
         .select({
           bronId: scrapeRun.bronId,
           changed: scrapeRun.gewijzigd,
@@ -527,6 +527,69 @@ export class PostgresRunStore implements RunLifecycleStore {
         .where(eq(scrapeRun.id, input.key.scrapeRunId))
         .limit(1)
         .for("update");
+      if (!existing) {
+        if (input.runKind === "poll") {
+          const cutoff = runStalenessCutoff(
+            this.now(),
+            this.pollRunStaleAfterMs
+          );
+          const [running] = await tx
+            .select({ id: scrapeRun.id })
+            .from(scrapeRun)
+            .where(
+              and(
+                eq(scrapeRun.bronId, input.key.bronId),
+                eq(scrapeRun.runKind, "poll"),
+                eq(scrapeRun.status, "running"),
+                gte(scrapeRun.gestart, cutoff)
+              )
+            )
+            .limit(1);
+          if (running) {
+            throw new RunAlreadyInProgressError(input.key.bronId);
+          }
+        }
+
+        const inserted = await tx
+          .insert(scrapeRun)
+          .values({
+            bronId: input.key.bronId,
+            ...progressValues(input.progress),
+            fenceToken: 1,
+            gestart: input.startedAt,
+            id: input.key.scrapeRunId,
+            runKind: input.runKind,
+            status: "running",
+          })
+          .onConflictDoNothing({ target: scrapeRun.id })
+          .returning({ id: scrapeRun.id });
+        if (inserted.length > 0) {
+          return {
+            fenceToken: 1,
+            progress: structuredClone(input.progress),
+            startedAt: input.startedAt,
+          };
+        }
+        [existing] = await tx
+          .select({
+            bronId: scrapeRun.bronId,
+            changed: scrapeRun.gewijzigd,
+            checkpoint: scrapeRun.checkpoint,
+            closed: scrapeRun.gesloten,
+            error: scrapeRun.fouten,
+            fenceToken: scrapeRun.fenceToken,
+            found: scrapeRun.aantalGevonden,
+            new: scrapeRun.nieuw,
+            rejected: scrapeRun.rejected,
+            runKind: scrapeRun.runKind,
+            startedAt: scrapeRun.gestart,
+            status: scrapeRun.status,
+          })
+          .from(scrapeRun)
+          .where(eq(scrapeRun.id, input.key.scrapeRunId))
+          .limit(1)
+          .for("update");
+      }
       if (
         !existing ||
         existing.bronId !== input.key.bronId ||

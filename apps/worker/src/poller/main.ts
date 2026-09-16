@@ -1,3 +1,4 @@
+import { RunAlreadyInProgressError } from "@ji/connectors";
 import { abandonStaleRuns } from "@ji/db/abandon-stale-runs";
 import { abortableSleep } from "@ji/db/abortable-sleep";
 import { curateScrapeRun } from "@ji/db/curate-scrape-run";
@@ -16,7 +17,7 @@ import { LockLostError, waitForAdvisoryLock } from "@ji/db/process-lock";
  * 900 s task ceiling to hit. Draining the search outbox stays with the on-box
  * projector (SEARCH_PROJECTOR is pinned to onbox).
  */
-import { env as pollerEnv } from "@ji/env/poller";
+import { getPollerEnv } from "@ji/env/poller";
 
 import { createPollBronRuntime, runBronIngestPipeline } from "../poll-bron-run";
 import type { PollBronRuntime } from "../poll-bron-run";
@@ -29,7 +30,7 @@ import {
   partitionByLiveFlag,
 } from "./schedule";
 import type { PollerSourceLog } from "./source-log";
-import { failedSourceLog } from "./source-log";
+import { alreadyRunningSourceLog, failedSourceLog } from "./source-log";
 
 const LOCK_WAIT_POLL_INTERVAL_MS = 2000;
 const LOCK_WAIT_LOG_INTERVAL_MS = 30_000;
@@ -44,6 +45,7 @@ const LOCK_WAIT_LOG_INTERVAL_MS = 30_000;
 const ADVISORY_LOCK_KEY = 613_204_877;
 
 const PROCESS_STARTED_AT = new Date();
+const pollerEnv = getPollerEnv();
 
 interface LogStream {
   write: (chunk: string) => boolean;
@@ -148,6 +150,12 @@ const pollSource = async (
       remaining: drained.remaining,
     };
   } catch (error) {
+    if (error instanceof RunAlreadyInProgressError) {
+      return alreadyRunningSourceLog({
+        bronSlug: candidate.bronSlug,
+        durationMs: Date.now() - startedAt,
+      });
+    }
     return failedSourceLog({
       bronSlug: candidate.bronSlug,
       durationMs: Date.now() - startedAt,
@@ -214,7 +222,9 @@ const main = async (): Promise<void> => {
     return;
   }
 
-  const runtime = createPollBronRuntime(pollerEnv.DATABASE_URL);
+  const runtime = createPollBronRuntime(pollerEnv.DATABASE_URL, {
+    pollRunStaleAfterMs: abandonRunAfterMs,
+  });
   logLine(process.stdout, "poller_started", {
     abandonRunAfterMs,
     concurrency,
@@ -251,7 +261,10 @@ const main = async (): Promise<void> => {
       }
 
       // oxlint-disable-next-line no-await-in-loop -- candidates are loaded once per cycle
-      const candidates = await loadPollCandidates(runtime);
+      const candidates = await loadPollCandidates(runtime, {
+        now: new Date(),
+        olderThanMs: abandonRunAfterMs,
+      });
       const { live, notLive } = partitionByLiveFlag(
         dueCandidates(candidates, new Date()),
         process.env

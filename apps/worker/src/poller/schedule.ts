@@ -1,8 +1,9 @@
 import { nextCronRun } from "@ji/application/observability";
 import { SOURCES } from "@ji/application/sources";
+import { runStalenessCutoff } from "@ji/db/run-staleness";
 import { bron, scrapeRun } from "@ji/db/schema/curated";
 import type { BronId } from "@ji/domain";
-import { and, eq, inArray, max } from "drizzle-orm";
+import { and, eq, gte, inArray, max } from "drizzle-orm";
 
 import type { PollBronRuntime } from "../poll-bron-run";
 import type { SliceABronSlug } from "../slice-a-bronnen";
@@ -67,17 +68,42 @@ export const partitionByLiveFlag = (
 };
 
 /**
- * Pollable Slice A bronnen paired with their interval and most recent poll run.
+ * Pollable Slice A bronnen without a non-stale running poll, paired with their
+ * interval and most recent poll run.
  *
  * `lastRunAt` is the newest poll run of any status, not the newest successful
  * one: a source that keeps failing must retry on its own cadence rather than
- * on every tick.
+ * on every tick. This filter only avoids work; `PostgresRunStore` enforces the
+ * invariant again under a transaction-scoped advisory lock at launch time.
  */
 export const loadPollCandidates = async (
-  runtime: Pick<PollBronRuntime, "bronPersistence" | "database">
+  runtime: Pick<PollBronRuntime, "bronPersistence" | "database">,
+  options: { now: Date; olderThanMs: number }
 ): Promise<PollCandidate[]> => {
   const pollable = await listPollableSliceABronnen(runtime);
   if (pollable.length === 0) {
+    return [];
+  }
+
+  const pollableBronIds = pollable.map((entry) => entry.bronId);
+  const cutoff = runStalenessCutoff(options.now, options.olderThanMs);
+  const runningRows = await runtime.database
+    .select({ bronId: scrapeRun.bronId })
+    .from(scrapeRun)
+    .where(
+      and(
+        inArray(scrapeRun.bronId, pollableBronIds),
+        eq(scrapeRun.runKind, "poll"),
+        eq(scrapeRun.status, "running"),
+        gte(scrapeRun.gestart, cutoff)
+      )
+    )
+    .groupBy(scrapeRun.bronId);
+  const runningBronIds = new Set(runningRows.map((row) => row.bronId));
+  const available = pollable.filter(
+    (entry) => !runningBronIds.has(entry.bronId)
+  );
+  if (available.length === 0) {
     return [];
   }
 
@@ -95,13 +121,13 @@ export const loadPollCandidates = async (
     .where(
       inArray(
         bron.id,
-        pollable.map((entry) => entry.bronId)
+        available.map((entry) => entry.bronId)
       )
     )
     .groupBy(bron.id, bron.interval);
 
   const scheduleByBronId = new Map(rows.map((row) => [row.bronId, row]));
-  return pollable.flatMap((entry) => {
+  return available.flatMap((entry) => {
     const schedule = scheduleByBronId.get(entry.bronId);
     if (!schedule) {
       return [];
