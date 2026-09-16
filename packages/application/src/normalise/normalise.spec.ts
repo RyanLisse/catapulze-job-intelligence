@@ -634,18 +634,17 @@ describe("normalise opdrachtoverheid", () => {
     if (!record) {
       throw new Error("Expected an Opdrachtoverheid fixture record");
     }
-    // Confirmed in the live recording (2026-09-16): 300 of the 400 records
-    // have tender_maximum_tariff: null and a numeric tender_tariff string,
-    // the first one included.
+    // Confirmed live 2026-08-31: all 5 fixture records have
+    // tender_maximum_tariff: null and a numeric tender_tariff string.
     expect(record.tender_maximum_tariff).toBeNull();
-    expect(record.tender_tariff).toBe("94");
+    expect(record.tender_tariff).toBe("70");
 
     const draft = parseOpdrachtoverheidPayload(
       { jobPosting: null, tender: record },
       "hash-oo-fixture-tarief"
     );
 
-    expect(draft.tarief.max).toBe("94");
+    expect(draft.tarief.max).toBe("70");
     expect(draft.tarief.min).toBe(UNKNOWN);
     expect(draft.tarief.eenheid).toBe("uur");
   });
@@ -658,8 +657,7 @@ describe("normalise opdrachtoverheid", () => {
     if (!record) {
       throw new Error("Expected an Opdrachtoverheid fixture record");
     }
-    // Confirmed in the live recording (2026-09-16): 392 of the 400 records
-    // are closed, the first one included.
+    // Confirmed live 2026-08-31: every fixture record is already closed.
     expect(record.tender_status).toBe("closed");
     expect(record.tender_active).toBe(false);
 

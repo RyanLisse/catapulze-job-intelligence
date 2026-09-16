@@ -79,13 +79,11 @@ describe("Opdrachtoverheid connector", () => {
       startedAt: new Date("2026-08-31T10:15:00.000Z"),
     });
 
-    // The committed recording is one real `POST /search` snapshot
-    // (limit 400, offset 0, captured 2026-09-16): 400 records, the cap.
     expect(result.metrics).toMatchObject({
       changed: 0,
       error: 0,
-      found: 400,
-      new: 400,
+      found: 5,
+      new: 5,
       rejected: 0,
     });
   });
@@ -115,10 +113,10 @@ describe("Opdrachtoverheid connector", () => {
     await runConnector({ ...sharedInput, scrapeRunId: "run-oo-replay-1" });
     await runConnector({ ...sharedInput, scrapeRunId: "run-oo-replay-2" });
 
-    expect(recorder.records).toHaveLength(400);
+    expect(recorder.records).toHaveLength(5);
     expect(
       new Set(recorder.records.map((record) => record.bronReferentie)).size
-    ).toBe(400);
+    ).toBe(5);
   });
 
   it("takes one bounded snapshot without pagination omissions", async () => {
@@ -221,7 +219,7 @@ describe("Opdrachtoverheid connector", () => {
     expect(requestCount).toBe(2);
   });
 
-  it("fails closed for underfull live snapshots and reports the capped fixture snapshot as truncated", async () => {
+  it("fails closed for underfull live snapshots, keeps the default fixture complete and reports the capped live recording as truncated", async () => {
     const fullSnapshot = Array.from(
       { length: OPDRACHTOVERHEID_MAX_RECORDS },
       (_, index) => buildTender(`T-FULL-${index}`, `Full ${index}`)
@@ -269,13 +267,19 @@ describe("Opdrachtoverheid connector", () => {
     expect(underfullResult.hasMore).toBe(false);
     expect(underfullResult.truncated).toBe(true);
 
-    // The committed recording is a full-cap snapshot (400 = the API's own
-    // limit), so the fixture reports the same truncation a live run would.
     const fixtureListing = await createOpdrachtoverheidClient({
       liveEnabled: false,
     }).fetchListing(0);
-    expect(fixtureListing.items).toHaveLength(OPDRACHTOVERHEID_MAX_RECORDS);
-    expect(fixtureListing.hasMore).toBe(true);
+    expect(fixtureListing.hasMore).toBe(false);
+
+    // The 2026-09-16 recording is a full-cap snapshot (400 = the API's own
+    // limit), so it reports the same truncation a live run would.
+    const liveRecording = await createOpdrachtoverheidClient({
+      listingFixturePath: "opdrachtoverheid/listing-live-2026-09-16.json",
+      liveEnabled: false,
+    }).fetchListing(0);
+    expect(liveRecording.items).toHaveLength(OPDRACHTOVERHEID_MAX_RECORDS);
+    expect(liveRecording.hasMore).toBe(true);
 
     const run = await runConnector({
       bronId: "bron-opdrachtoverheid-underfull-run",

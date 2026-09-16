@@ -13,7 +13,7 @@ import {
 
 /**
  * Three real `POST /search` records, read straight out of the committed live
- * recording (`fixtures/connectors/opdrachtoverheid/listing-page-0.json`,
+ * recording (`fixtures/connectors/opdrachtoverheid/listing-live-2026-09-16.json`,
  * captured 2026-09-16) instead of a hand-assembled sample file -- AGENTS.md
  * "fixtures are real recordings". `jobPosting` is null here: every assertion
  * below is about the tender row's own fields.
@@ -45,7 +45,7 @@ const LISTING = JSON.parse(
   readFileSync(
     path.join(
       import.meta.dir,
-      "../../../../fixtures/connectors/opdrachtoverheid/listing-page-0.json"
+      "../../../../fixtures/connectors/opdrachtoverheid/listing-live-2026-09-16.json"
     ),
     "utf-8"
   )
@@ -208,7 +208,7 @@ describe("opdrachtoverheid pipeline (fixture listing -> connector -> normalise)"
   it("carries the published education level and competences through the connector projection", async () => {
     const connector = opdrachtoverheid.createConnector({
       bronId: opdrachtoverheid.bronId,
-      listingFixturePath: "opdrachtoverheid/listing-page-0.json",
+      listingFixturePath: "opdrachtoverheid/listing-live-2026-09-16.json",
       live: false,
       runKind: "test",
     });

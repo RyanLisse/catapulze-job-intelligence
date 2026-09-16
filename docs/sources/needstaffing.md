@@ -7,7 +7,7 @@ Status: **probe afgerond; connector nog niet gebouwd** — adapter-categorie `ht
 | Doel | URL | Opmerking |
 |---|---|---|
 | Listing | `GET https://www.needstaffing.nl/Opdrachten` | Server-rendered, ongeveer 20 opdrachten per pagina met paginering. |
-| Detail | `GET https://www.needstaffing.nl/Opdrachten/{id}` | Server-rendered; sample-ids `15520` (2026-08-31, truncated body) en elke rij van de listing-capture van 2026-09-16 (`detail-<id>.json`, o.a. `15599`). |
+| Detail | `GET https://www.needstaffing.nl/Opdrachten/{id}` | Server-rendered; sample-ids `15520` (2026-08-31, truncated body) en elke rij van de listing-capture van 2026-09-16 (`listing-live-2026-09-16.json`; details `detail-<id>.json`, o.a. `15599`). |
 
 Er is in de probe geen JSON-endpoint, JSON-LD of sitemap aangetroffen.
 

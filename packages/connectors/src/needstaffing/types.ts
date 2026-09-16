@@ -54,9 +54,10 @@ export const NEEDSTAFFING_OPDRACHTEN_PATH = "/Opdrachten";
  * raise if listing volume grows past ~400. */
 export const NEEDSTAFFING_MAX_LISTING_PAGES = 20;
 
-/** Joborders with a committed detail recording: every row of the committed
- * listing capture (2026-09-16) plus 15520 from the 2026-08-31 capture, whose
- * truncated body is still the honesty case in the normalise specs. Recorded
+/** Joborders with a committed detail recording: 15520, the one row of the
+ * default `listing-page-0.json` (2026-08-31, truncated body -- the honesty
+ * case in the normalise specs), plus every row of
+ * `listing-live-2026-09-16.json`. Recorded
  * with `bun tools/fixtures/record.ts --source needstaffing --name detail-<id>`. */
 export const NEEDSTAFFING_DETAIL_FIXTURES: Record<string, string> =
   Object.fromEntries(

@@ -217,6 +217,10 @@ describe("Needstaffing HTML parsing", () => {
   });
 });
 
+/** Complete page recorded 2026-09-16 with tools/fixtures/record.ts; every
+ * row has its own detail recording (NEEDSTAFFING_DETAIL_FIXTURES). */
+const LIVE_LISTING_FIXTURE = "needstaffing/listing-live-2026-09-16.json";
+
 describe("Needstaffing real fixtures", () => {
   it("parses the real recorded listing fixture, including periode and pagination", async () => {
     const fixture = await loadConnectorFixture<string>(
@@ -224,6 +228,19 @@ describe("Needstaffing real fixtures", () => {
     );
     const listing = await parseNeedstaffingListing(fixture.payload);
     expect(listing.hasNextPage).toBe(true);
+    expect(listing.items[0]).toMatchObject({
+      id: "15520",
+      periode: "4 maanden",
+    });
+  });
+
+  it("parses the 2026-09-16 live listing recording: full page, pagination, werkvorm split", async () => {
+    const fixture = await loadConnectorFixture<string>(
+      LIVE_LISTING_FIXTURE
+    );
+    const listing = await parseNeedstaffingListing(fixture.payload);
+    expect(listing.hasNextPage).toBe(true);
+    expect(listing.items).toHaveLength(20);
     expect(listing.items[0]).toMatchObject({
       id: "15574",
       periode: "3 maanden (met optie tot verlenging)",

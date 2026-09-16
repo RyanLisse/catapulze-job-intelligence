@@ -8,6 +8,13 @@ import type { Page } from "@playwright/test";
  * /jobs?job=<id> and asserts the commercial fields the lanes fixed. Every id
  * below is a row that travelled the real pipeline (fixture -> connector ->
  * normalise -> curate -> Postgres -> REST -> web); nothing is stubbed.
+ *
+ * Seeding (`poll-bron-smoke --test-import`) reads only each source's
+ * `listing-page-0.json`, and the read API cannot filter by bron_referentie, so
+ * ids stay hardcoded from the seeded run. Records that exist only in the
+ * 2026-09-16 live recordings (Need Staffing 15599, Opdrachtoverheid
+ * 2177/2123) are proven by the fixture -> connector -> normalise pipeline
+ * specs instead (needstaffing.spec.ts, opdrachtoverheid.spec.ts).
  */
 
 const SHOTS = path.resolve(
@@ -23,11 +30,7 @@ interface FieldClaim {
 interface Case {
   readonly bron: string;
   readonly claims: readonly FieldClaim[];
-  /** Aanvraag id from the seeded field-gap run. Absent for rows whose source
-   * record was re-recorded on 2026-09-16 and has not been seeded yet: those
-   * ids must be read from the re-seeded database before this suite runs
-   * again -- inventing one would prove nothing. */
-  readonly id?: string;
+  readonly id: string;
   readonly reference: string;
   /** Literal skill chips, in source order, when the source publishes a list. */
   readonly skills?: readonly string[];
@@ -103,40 +106,14 @@ const CASES: readonly Case[] = [
     title: "#944 Productmanager/adviseur i-Sociaal Domein",
   },
   {
-    // 15520 left the live listing; 15574 is the equivalent row in the
-    // 2026-09-16 recording (uren + looptijd, no werkvorm/skills published).
-    bron: "needstaffing-15574",
+    bron: "needstaffing-15520",
     claims: [
       { label: "Uren per week", value: "36" },
-      { label: "Looptijd", value: "3 maanden (met optie tot verlenging)" },
+      { label: "Looptijd", value: "4 maanden" },
     ],
-    reference: "15574",
-    title: "Senior ontwikkelaar .NET 2026-GV-0465",
-  },
-  {
-    bron: "needstaffing-15599",
-    claims: [
-      { label: "Werkvorm", value: "Hybride" },
-      { label: "Uren per week", value: "36" },
-      { label: "Looptijd", value: "12 maanden" },
-    ],
-    reference: "15599",
-    skills: [
-      "Eigenaarschap",
-      "Overtuigingskracht",
-      "Inhoudelijke scherpte",
-      "Analytisch sterk",
-      "Hands-on en praktisch ingesteld",
-      "Een echte doener",
-      "Goede teamspeler",
-      "Communicatief vaardig",
-      "Proactief",
-      "Zelfstandig",
-      "Nuchter en no-nonsense",
-      "Snel kunnen schakelen",
-      "In staat om een organisatie snel te doorgronden",
-    ],
-    title: "Business Analist 202606A432 (vervanging)",
+    id: "e470c36c-0e1b-4b4e-8389-e9bafba24d51",
+    reference: "15520",
+    title: "Operationeel Database Ontwikkelaar 2026-BZB-0457",
   },
   {
     bron: "harveynash",
@@ -178,54 +155,14 @@ const CASES: readonly Case[] = [
     title: "Platform engineer Azure DAS",
   },
   {
-    // 1457 is absent from the 2026-09-16 snapshot; 1544 is the equivalent
-    // row (province + 36 uur, nothing else published).
-    bron: "opdrachtoverheid-1544",
+    bron: "opdrachtoverheid-1457",
     claims: [
       { label: "Provincie", value: "Noord-Holland" },
       { label: "Uren per week", value: "36" },
     ],
-    reference: "amstelveenhuurtin_1544",
-    title: "686 - Schuldhulpverlener",
-  },
-  {
-    bron: "opdrachtoverheid-2177",
-    claims: [
-      { label: "Provincie", value: "Noord-Holland" },
-      { label: "Uren per week", value: "32" },
-      { label: "Contract", value: "Detachering" },
-      { label: "Opleiding", value: "MBO" },
-    ],
-    id: "dc361c1d-6669-4e58-84d5-6a179b97a599",
-    reference: "amstelveenhuurtin_2177",
-    skills: [
-      "Nauwkeurig",
-      "Communicatief vaardig",
-      "Bestuurlijk sensitief",
-      "Plannen en organiseren",
-      "Zelfstandig",
-    ],
-    title: "Junior projectleider energietransitie (SO26-1658)",
-  },
-  {
-    bron: "opdrachtoverheid-2123",
-    claims: [
-      { label: "Provincie", value: "Noord-Holland" },
-      { label: "Uren per week", value: "16\u201324" },
-      { label: "Contract", value: "Interim" },
-    ],
-    id: "d0b9765c-3eea-42ae-af1f-5147b8e9223f",
-    reference: "amstelveenhuurtin_2123",
-    skills: [
-      "Klantgerichtheid",
-      "Resultaatgerichtheid",
-      "Onderhandelen",
-      "Analytisch vermogen",
-      "Bestuurlijke sensitiviteit",
-      "Organisatiegericht",
-      "Besluitvaardigheid",
-    ],
-    title: "Senior juridisch adviseur Grondzaken (Nieuw Legmeer) - SO26-1614",
+    id: "7ac990cb-97c8-42ae-95c7-f538eaecd77c",
+    reference: "amstelveenhuurtin_1457",
+    title: "609 - Schuldhulpverlener",
   },
   {
     bron: "motian-flextender",
@@ -265,11 +202,6 @@ const CASES: readonly Case[] = [
 ];
 
 const openDetail = async (page: Page, testCase: Case) => {
-  if (!testCase.id) {
-    throw new Error(
-      `${testCase.bron} has no seeded aanvraag id yet: read it from the re-seeded field-gap database for bron_referentie ${testCase.reference} and fill it in`
-    );
-  }
   await page.goto(`/jobs?job=${testCase.id}`, {
     waitUntil: "domcontentloaded",
   });

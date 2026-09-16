@@ -14,6 +14,7 @@
  *     [--body '<json>'] [--strip <css selector>]... [--strip-key <key>]...
  *     [--strip-attr '<css selector>::<attribute>']...
  *     [--note <text>] [--raw-dir <dir>] [--from-raw <file>] [--no-defaults]
+ *     [--out-dir <dir>]
  *
  * `--no-defaults` drops DEFAULT_HTML_STRIP so only the named `--strip`
  * selectors apply -- for pages whose parser reads data inside one of the
@@ -159,14 +160,59 @@ const fetchRaw = async (input: FetchRawInput): Promise<string> => {
   return rawPath;
 };
 
-const main = async (): Promise<void> => {
+interface TrimResult {
+  readonly counts: Record<string, number>;
+  readonly payload: JsonValue;
+  readonly payloadBytes: number;
+}
+
+interface TrimOptions {
+  readonly noDefaults: boolean;
+  readonly strip: readonly string[];
+  readonly stripAttr: readonly string[];
+  readonly stripKey: readonly string[];
+}
+
+const trimRaw = async (
+  rawText: string,
+  isJson: boolean,
+  options: TrimOptions
+): Promise<TrimResult> => {
+  if (isJson) {
+    // SAFETY: the raw file was written from a JSON response and re-read
+    // verbatim, so JSON.parse yields a JSON value.
+    const parsed = JSON.parse(rawText) as JsonValue;
+    const { counts, value } = stripJsonKeys(parsed, options.stripKey);
+    return {
+      counts,
+      payload: value,
+      payloadBytes: Buffer.byteLength(JSON.stringify(value)),
+    };
+  }
+  const { counts, value } = await stripHtml(
+    rawText,
+    [...(options.noDefaults ? [] : DEFAULT_HTML_STRIP), ...options.strip],
+    options.stripAttr
+  );
+  return { counts, payload: value, payloadBytes: Buffer.byteLength(value) };
+};
+
+const REPO_FIXTURES_DIR = path.join(import.meta.dir, "../../fixtures/connectors");
+
+/** Records (or, with `--from-raw`, re-trims) one fixture and returns the
+ * one-line summary. `--out-dir` defaults to the repo's fixtures/connectors. */
+export const recordFixture = async (
+  args: readonly string[]
+): Promise<string> => {
   const { values } = parseArgs({
+    args: [...args],
     options: {
       body: { type: "string" },
       "from-raw": { type: "string" },
       name: { type: "string" },
       "no-defaults": { type: "boolean" },
       note: { type: "string" },
+      "out-dir": { type: "string" },
       "raw-dir": { type: "string" },
       source: { type: "string" },
       strip: { multiple: true, type: "string" },
@@ -193,43 +239,32 @@ const main = async (): Promise<void> => {
   const isJson = rawPath.endsWith(".json");
   const rawStats = await stat(rawPath);
   const capturedAt = rawStats.mtime.toISOString();
+  const trimmed = await trimRaw(rawText, isJson, {
+    noDefaults: values["no-defaults"] ?? false,
+    strip: values.strip ?? [],
+    stripAttr: values["strip-attr"] ?? [],
+    stripKey: values["strip-key"] ?? [],
+  });
 
-  // SAFETY: the raw file was written from a JSON response and re-read
-  // verbatim, so JSON.parse yields a JSON value.
-  const parsedJson = isJson ? (JSON.parse(rawText) as JsonValue) : null;
-  const stripped = isJson
-    ? stripJsonKeys(parsedJson, values["strip-key"] ?? [])
-    : await stripHtml(
-        rawText,
-        [
-          ...(values["no-defaults"] ? [] : DEFAULT_HTML_STRIP),
-          ...(values.strip ?? []),
-        ],
-        values["strip-attr"] ?? []
-      );
-
-  const provenance = `Recorded by tools/fixtures/record.ts: ${body ? `POST ${body}` : "GET"} ${url}. Mechanically stripped (${isJson ? "keys" : "elements"}): ${formatCounts(stripped.counts)}.`;
+  const provenance = `Recorded by tools/fixtures/record.ts: ${body ? `POST ${body}` : "GET"} ${url}. Mechanically stripped (${isJson ? "keys" : "elements"}): ${formatCounts(trimmed.counts)}.`;
   const fixture = {
     captureNote: note ? `${provenance} ${note}` : provenance,
     capturedAt,
     contentType: isJson ? "json" : "html",
     contractVersion: "connector-fixture/v1",
-    payload: stripped.value,
+    payload: trimmed.payload,
     source,
   };
-  const outPath = path.join(
-    import.meta.dir,
-    "../../fixtures/connectors",
-    source,
-    `${name}.json`
+  const outDir = path.join(values["out-dir"] ?? REPO_FIXTURES_DIR, source);
+  await mkdir(outDir, { recursive: true });
+  await writeFile(
+    path.join(outDir, `${name}.json`),
+    `${JSON.stringify(fixture, null, 2)}\n`
   );
-  await writeFile(outPath, `${JSON.stringify(fixture, null, 2)}\n`);
 
-  console.log(
-    `${url} ${rawText.length}→${payloadText.length} bytes capturedAt=${capturedAt} stripped: ${formatCounts(stripped.counts)} raw=${rawPath}`
-  );
+  return `${url} ${Buffer.byteLength(rawText)}→${trimmed.payloadBytes} bytes capturedAt=${capturedAt} stripped: ${formatCounts(trimmed.counts)} raw=${rawPath}`;
 };
 
 if (import.meta.main) {
-  await main();
+  console.log(await recordFixture(process.argv.slice(2)));
 }

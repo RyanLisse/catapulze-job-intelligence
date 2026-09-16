@@ -3,6 +3,7 @@ import { describe, expect, it } from "bun:test";
 import type { NeedstaffingFetchedPayload } from "@ji/connectors/needstaffing";
 import { UNKNOWN } from "@ji/domain";
 
+import { needstaffing } from "../sources/needstaffing";
 import {
   normaliseNeedstaffingObservation,
   parseNeedstaffingPayload,
@@ -202,5 +203,39 @@ describe("normaliseNeedstaffingObservation", () => {
     const draft = normaliseNeedstaffingObservation(body, "hash-4");
     expect(draft.bronReferentie.value).toBe("15520");
     expect(draft.contentHash).toBe("hash-4");
+  });
+});
+
+describe("needstaffing pipeline (live listing recording -> connector -> normalise)", () => {
+  it("carries joborder 15599's werkvorm, competenties and uren through the connector", async () => {
+    const connector = needstaffing.createConnector({
+      bronId: needstaffing.bronId,
+      listingFixturePath: "needstaffing/listing-live-2026-09-16.json",
+      live: false,
+      runKind: "test",
+    });
+    const discovery = await connector.discover(null);
+    const item = discovery.items.find(
+      (candidate) => candidate.bronReferentie === "15599"
+    );
+    if (!item) {
+      throw new Error("expected 15599 in the 2026-09-16 listing recording");
+    }
+    const fetched = await connector.fetch(item);
+    if (fetched?.status !== "fetched") {
+      throw new Error("expected a fetched observation");
+    }
+    const draft = normaliseNeedstaffingObservation(
+      fetched.body,
+      item.contentHash
+    );
+    expect(draft.bronSpecifiek.value).toMatchObject({
+      duur: "12 maanden",
+      uren_per_week: "36",
+      werkvorm: "Hybride",
+    });
+    expect(draft.bronSpecifiek.value).toMatchObject({
+      skills: expect.arrayContaining(["Eigenaarschap", "Analytisch sterk"]),
+    });
   });
 });

@@ -35,7 +35,7 @@ Voor Opdrachtoverheid is dit een ongedocumenteerd, privé endpoint; het kan zond
 ## Commerciële velden (CTP-526, live geverifieerd 2026-09-16)
 
 Live probe: `POST /search` met `limit: 400, offset: 0`, 400 records. De volledige
-snapshot staat in `fixtures/connectors/opdrachtoverheid/listing-page-0.json`
+snapshot staat in `fixtures/connectors/opdrachtoverheid/listing-live-2026-09-16.json` (`listing-page-0.json` blijft de 5-record-opname van 2026-08-31 waar het relevantie-golden-set op leunt)
 (opgenomen met `bun tools/fixtures/record.ts`; lange prozavelden mechanisch
 verwijderd op sleutelnaam, zie `captureNote`). De tellingen hieronder komen uit de
 capture van 2026-09-15; de records zelf zijn in de nieuwe opname opnieuw
