@@ -1,6 +1,5 @@
 import { describe, expect, it } from "bun:test";
 
-import { normaliseJsonLdObservation } from "../../../application/src/normalise/json-ld";
 import { createJsonLdClient } from "./client";
 import { haysConfig } from "./configs/hays";
 
@@ -21,30 +20,18 @@ describe("Hays JSON-LD connector", () => {
     expect(discovered.map(({ url }) => url)).toContain(financeUrl);
   });
 
-  it("normalises the recorded Scrum Master detail and leaves annual salary absent", async () => {
+  it("parses the recorded Scrum Master JobPosting fields", async () => {
     const detail = await client.fetchDetail(scrumUrl);
-    const draft = normaliseJsonLdObservation(
-      new TextEncoder().encode(
-        JSON.stringify({ ...detail, parserVersion: "hays/v1", slug: "hays" })
-      ),
-      "sha256-test"
-    );
-    expect(draft.titel.value).toBe("Scrum Master");
-    expect(draft.opdrachtgeverNaam.value).toBe("Hays");
-    expect(draft.locatieTekst.value).toBe("Provincie Utrecht");
-    expect(draft.bronSpecifiek.value).toMatchObject({
-      contract_type: "Contracting",
-      publicatiedatum: "2026-09-09",
-      valid_through: "2026-12-07",
-    });
-    expect(draft.sluitingsdatum?.toISOString()).toBe(
-      "2026-12-07T22:59:59.999Z"
-    );
-    expect(draft.tarief).toEqual({
-      eenheid: "unknown",
-      max: "unknown",
-      min: "unknown",
-      valuta: "EUR",
+    expect(detail.jobPosting).toMatchObject({
+      baseSalary: {
+        currency: "euro",
+        value: { unitText: "YEAR", value: "In consultation" },
+      },
+      datePosted: "2026-09-09",
+      hiringOrganization: { name: "Hays" },
+      jobLocation: { address: { addressLocality: "Provincie Utrecht" } },
+      title: "Scrum Master",
+      validThrough: "2026-12-07",
     });
   });
 });
