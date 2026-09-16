@@ -12,9 +12,12 @@
  * Usage:
  *   bun tools/fixtures/record.ts --source <slug> --name <file-stem> --url <url>
  *     [--body '<json>'] [--strip <css selector>]... [--strip-key <key>]...
- *     [--note <text>] [--raw-dir <dir>]
+ *     [--note <text>] [--raw-dir <dir>] [--from-raw <file>]
+ *
+ * `--from-raw` re-trims an earlier recording without a second request; the
+ * raw file's mtime (the original fetch time) stays the capturedAt.
  */
-import { mkdir, stat, writeFile } from "node:fs/promises";
+import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { parseArgs } from "node:util";
@@ -94,6 +97,7 @@ const main = async (): Promise<void> => {
       body: { type: "string" },
       name: { type: "string" },
       note: { type: "string" },
+      "from-raw": { type: "string" },
       "raw-dir": { type: "string" },
       source: { type: "string" },
       strip: { multiple: true, type: "string" },
@@ -106,27 +110,33 @@ const main = async (): Promise<void> => {
     throw new Error("--source, --name and --url are required");
   }
 
-  const response = await fetch(url, {
-    body,
-    headers: {
-      "User-Agent": USER_AGENT,
-      ...(body ? { "Content-Type": "application/json" } : {}),
-    },
-    method: body ? "POST" : "GET",
-  });
-  if (!response.ok) {
-    throw new Error(`${url} answered HTTP ${response.status}`);
+  let rawPath = values["from-raw"];
+  if (!rawPath) {
+    const response = await fetch(url, {
+      body,
+      headers: {
+        "User-Agent": USER_AGENT,
+        ...(body ? { "Content-Type": "application/json" } : {}),
+      },
+      method: body ? "POST" : "GET",
+    });
+    if (!response.ok) {
+      throw new Error(`${url} answered HTTP ${response.status}`);
+    }
+    const contentType = response.headers.get("content-type") ?? "";
+    const rawDir = path.join(
+      values["raw-dir"] ?? path.join(tmpdir(), "ji-fixture-raw"),
+      source
+    );
+    await mkdir(rawDir, { recursive: true });
+    rawPath = path.join(
+      rawDir,
+      `${name}.${contentType.includes("json") ? "json" : "html"}`
+    );
+    await writeFile(rawPath, await response.text());
   }
-  const rawText = await response.text();
-  const isJson = (response.headers.get("content-type") ?? "").includes("json");
-
-  const rawDir = path.join(
-    values["raw-dir"] ?? path.join(tmpdir(), "ji-fixture-raw"),
-    source
-  );
-  await mkdir(rawDir, { recursive: true });
-  const rawPath = path.join(rawDir, `${name}.${isJson ? "json" : "html"}`);
-  await writeFile(rawPath, rawText);
+  const rawText = await readFile(rawPath, "utf-8");
+  const isJson = rawPath.endsWith(".json");
   const capturedAt = (await stat(rawPath)).mtime.toISOString();
 
   const stripped = isJson
