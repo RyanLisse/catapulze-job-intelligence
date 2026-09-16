@@ -3,7 +3,11 @@ import { describe, expect, it } from "bun:test";
 import type { JsonLdFetchedPayload } from "@ji/connectors/json-ld";
 import { UNKNOWN } from "@ji/domain";
 
-import { parseDutchDate, parseJsonLdPayload } from "./json-ld";
+import {
+  normaliseJsonLdObservation,
+  parseDutchDate,
+  parseJsonLdPayload,
+} from "./json-ld";
 
 const HASH = "sha256-test";
 
@@ -23,6 +27,52 @@ describe("parseDutchDate", () => {
   it("returns undefined for unparseable or missing text", () => {
     expect(parseDutchDate()).toBeUndefined();
     expect(parseDutchDate("marktconform")).toBeUndefined();
+  });
+});
+
+describe("normaliseJsonLdObservation -- Werken voor Nederland", () => {
+  it("maps the sample reference, title, and monthly base-salary band", () => {
+    const payload: JsonLdFetchedPayload = {
+      jobPosting: {
+        "@type": "JobPosting",
+        baseSalary: {
+          "@type": "MonetaryAmount",
+          currency: "EUR",
+          value: {
+            "@type": "QuantitativeValue",
+            maxValue: 7094,
+            minValue: 4818,
+            unitText: "MONTH",
+          },
+        },
+        datePosted: "2026-09-09",
+        description:
+          "Kubernetes Software Platform Engineer in Leeuwarden voor 32-36 uur bij Centraal Justitieel Incassobureau",
+        employmentType: "TEMPORARY",
+        identifier: { "@type": "PropertyValue", value: "69005" },
+        title: "Kubernetes Software Platform Engineer",
+      },
+      labelBlock: {},
+      parserVersion: "werken-voor-nederland/v1",
+      slug: "werken-voor-nederland",
+      url: "https://www.werkenvoornederland.nl/vacatures/kubernetes-software-platform-engineer-CJIB-2026-9570",
+    };
+
+    const draft = normaliseJsonLdObservation(
+      new TextEncoder().encode(JSON.stringify(payload)),
+      HASH
+    );
+
+    expect(draft.bronReferentie.value).toBe(
+      "vacatures/kubernetes-software-platform-engineer-CJIB-2026-9570"
+    );
+    expect(draft.titel.value).toBe("Kubernetes Software Platform Engineer");
+    expect(draft.tarief).toEqual({
+      eenheid: "maand",
+      max: "7094",
+      min: "4818",
+      valuta: "EUR",
+    });
   });
 });
 

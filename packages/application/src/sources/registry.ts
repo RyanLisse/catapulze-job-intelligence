@@ -13,6 +13,7 @@ import { proAct } from "./pro-act";
 import { striive } from "./striive";
 import { tenderned } from "./tenderned";
 import { tenmonks } from "./tenmonks";
+import { werkenVoorNederland } from "./werken-voor-nederland";
 
 export type {
   CreateSourceConnectorInput,
@@ -36,6 +37,7 @@ export const SOURCES = {
   striive,
   tenderned,
   tenmonks,
+  "werken-voor-nederland": werkenVoorNederland,
 } as const satisfies Record<string, SourceDefinition>;
 
 export type SupportedBronSlug = keyof typeof SOURCES;

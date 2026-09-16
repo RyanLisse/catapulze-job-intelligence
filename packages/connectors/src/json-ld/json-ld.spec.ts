@@ -18,6 +18,7 @@ import { bluetrailConfig } from "./configs/bluetrail";
 import { heroConfig } from "./configs/hero";
 import { proActConfig } from "./configs/pro-act";
 import { tenmonksConfig } from "./configs/tenmonks";
+import { werkenVoorNederlandConfig } from "./configs/werken-voor-nederland";
 import { createJsonLdConnector, urlSlugBronReferentie } from "./connector";
 import {
   extractJobPosting,
@@ -409,6 +410,69 @@ describe("TenMonks JSON-LD connector", () => {
     );
     const client = createJsonLdClient({
       config: tenmonksConfig,
+      fetchImpl: mockFetch,
+      liveEnabled: true,
+    });
+
+    await expect(client.fetchListing()).resolves.toEqual([{ url: sampleUrl }]);
+  });
+});
+
+describe("Werken voor Nederland JSON-LD connector", () => {
+  const sampleUrl =
+    "https://www.werkenvoornederland.nl/vacatures/kubernetes-software-platform-engineer-CJIB-2026-9570";
+
+  it("uses sitemap-vacatures.xml and discovers the sample vacancy", async () => {
+    expect(werkenVoorNederlandConfig.discovery).toEqual({
+      kind: "sitemap",
+      url: "https://www.werkenvoornederland.nl/sitemap-vacatures.xml",
+    });
+    const client = createJsonLdClient({
+      config: werkenVoorNederlandConfig,
+      liveEnabled: false,
+    });
+
+    const urls = await client.fetchListing();
+
+    expect(urls).toHaveLength(2);
+    expect(urls).toContainEqual({ lastmod: "2026-09-09", url: sampleUrl });
+  });
+
+  it("parses the literal JobPosting fields from the sample detail fixture", async () => {
+    const client = createJsonLdClient({
+      config: werkenVoorNederlandConfig,
+      liveEnabled: false,
+    });
+    const detail = await client.fetchDetail(sampleUrl);
+    if (!detail.jobPosting) {
+      throw new Error(
+        "expected a Werken voor Nederland JobPosting JSON-LD node"
+      );
+    }
+
+    expect(detail.jobPosting).toMatchObject({
+      datePosted: "2026-09-09",
+      employmentType: "TEMPORARY",
+      identifier: { value: "69005" },
+      title: "Kubernetes Software Platform Engineer",
+    });
+  });
+
+  it("keeps only exact one-segment vacancy detail URLs", async () => {
+    const sitemapXml =
+      "<urlset>" +
+      `<url><loc>${sampleUrl}</loc></url>` +
+      "<url><loc>https://www.werkenvoornederland.nl/vacatures</loc></url>" +
+      "<url><loc>https://www.werkenvoornederland.nl/login</loc></url>" +
+      "<url><loc>https://www.werkenvoornederland.nl/over-de-rijksoverheid</loc></url>" +
+      "<url><loc>https://www.werkenvoornederland.nl/vacatures/afdeling/rol</loc></url>" +
+      "</urlset>";
+    const mockFetch: typeof fetch = Object.assign(
+      () => Promise.resolve(new Response(sitemapXml, { status: 200 })),
+      { preconnect: () => {} }
+    );
+    const client = createJsonLdClient({
+      config: werkenVoorNederlandConfig,
       fetchImpl: mockFetch,
       liveEnabled: true,
     });
