@@ -310,11 +310,17 @@ export const applyPlanToBronSpecifiek = (
   for (const patch of patches) {
     switch (patch.field) {
       case "provincie": {
-        overlays.provincie = patch.to;
+        const parsed = z.string().safeParse(patch.to);
+        if (parsed.success) {
+          overlays.provincie = parsed.data;
+        }
         break;
       }
       case "skills": {
-        overlays.skills = patch.to;
+        const parsed = z.array(z.string()).safeParse(patch.to);
+        if (parsed.success) {
+          overlays.skills = parsed.data;
+        }
         break;
       }
       case "employment_type": {
@@ -395,7 +401,7 @@ const readRawBody = async (
     }
 > => {
   try {
-    const object = await store.get(rawPayloadRef);
+    const object = await store.store.get(rawPayloadRef);
     if (!object) {
       return { reason: "raw_missing", status: "rejected" };
     }

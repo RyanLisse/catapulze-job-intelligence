@@ -1,6 +1,9 @@
 import { describe, expect, it } from "bun:test";
 
-import type { NormalisedAanvraagDraft } from "@ji/application/normalise";
+import type {
+  JsonValue,
+  NormalisedAanvraagDraft,
+} from "@ji/application/normalise";
 import type { CLEARED } from "@ji/domain";
 import { UNKNOWN } from "@ji/domain";
 
@@ -18,7 +21,7 @@ const draft = (input: {
     readonly contract_type?: string;
     readonly employment_type?: string;
     readonly provincie?: string;
-    readonly skills?: readonly string[];
+    readonly skills?: string[];
     readonly tender_hours_week?: string;
     readonly uren_per_week?: string;
   };
@@ -26,7 +29,12 @@ const draft = (input: {
 }): NormalisedAanvraagDraft => ({
   beschrijving: { provenance, value: "Body" },
   bronReferentie: { provenance, value: "1" },
-  bronSpecifiek: { provenance, value: input.bronSpecifiekValue ?? {} },
+  bronSpecifiek: {
+    provenance,
+    // SAFETY: fixture literals are plain JSON string/array values (JsonValue);
+    // optional keys stay absent so we never invent Hero/Pro-Act fields.
+    value: (input.bronSpecifiekValue ?? {}) as JsonValue,
+  },
   bronUrl: { provenance, value: "https://example.test/1" },
   contentHash: "a".repeat(64),
   extractieMethode: "api",
