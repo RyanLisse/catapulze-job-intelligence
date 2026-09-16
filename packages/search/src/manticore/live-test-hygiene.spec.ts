@@ -31,10 +31,33 @@ describe("Manticore live fixture cleanup", () => {
       },
     };
 
+    const cleanup = cleanupLiveDocuments(engine, ["run-a", "run-b", "run-c"]);
+    await expect(cleanup).rejects.toBeInstanceOf(AggregateError);
+    await expect(cleanup).rejects.toThrow("fixture cleanup failed");
+    expect(deleted.toSorted()).toEqual(["run-a", "run-b", "run-c"]);
+  });
+
+  it("treats 409 and Conflict deletions as already gone", async () => {
+    const deleted: string[] = [];
+    const engine = {
+      deleteDocument: (id: string) => {
+        deleted.push(id);
+        if (id === "run-b") {
+          return Promise.reject(
+            new Error("Manticore request failed (409): Conflict")
+          );
+        }
+        if (id === "run-c") {
+          return Promise.reject(new Error("Conflict"));
+        }
+        return Promise.resolve();
+      },
+    };
+
     await expect(
       cleanupLiveDocuments(engine, ["run-a", "run-b", "run-c"])
-    ).rejects.toThrow("fixture cleanup failed");
-    expect(deleted.toSorted()).toEqual(["run-a", "run-b", "run-c"]);
+    ).resolves.toBeUndefined();
+    expect(deleted).toEqual(["run-a", "run-b", "run-c"]);
   });
 
   it("keeps the live-test index name distinct from production", () => {
@@ -42,8 +65,20 @@ describe("Manticore live fixture cleanup", () => {
     expect(SEARCH_TEST_INDEX_NAME).not.toBe(SEARCH_INDEX_NAME);
     const engine = createLiveTestEngine(
       "http://manticore.test",
-      new InMemorySearchVersionStore()
+      new InMemorySearchVersionStore(),
+      SEARCH_TEST_INDEX_NAME
     );
     expect(engine).toBeInstanceOf(ManticoreSearchEngine);
+  });
+
+  it("rejects the production index and accepts a test index", () => {
+    const store = new InMemorySearchVersionStore();
+
+    expect(() => createLiveTestEngine("http://x", store, "aanvragen")).toThrow(
+      'starting with "aanvragen_test"'
+    );
+    expect(() =>
+      createLiveTestEngine("http://x", store, "aanvragen_test_x")
+    ).not.toThrow();
   });
 });

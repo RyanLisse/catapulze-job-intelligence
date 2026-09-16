@@ -20,6 +20,8 @@ import {
 } from "./manticore/live-test-hygiene";
 import { InMemorySearchVersionStore } from "./version";
 
+const LIVE_TEST_INDEX_NAME = "aanvragen_test_asthash";
+
 const parseOk = (query: string) => {
   const parsed = parseBooleanQuery(query);
   if (!parsed.ok) {
@@ -394,7 +396,8 @@ describe.skipIf(!manticoreLiveUrl)(
 
       const engine = createLiveTestEngine(
         manticoreLiveUrl,
-        new InMemorySearchVersionStore()
+        new InMemorySearchVersionStore(),
+        LIVE_TEST_INDEX_NAME
       );
       const runToken = `casecheck${crypto.randomUUID().replaceAll("-", "")}`;
       const documentId = `case-doc-${crypto.randomUUID()}`;

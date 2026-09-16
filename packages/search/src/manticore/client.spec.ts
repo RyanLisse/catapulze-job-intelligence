@@ -426,6 +426,66 @@ describe("ManticoreSearchEngine incomplete results (RJC-431)", () => {
 });
 
 describe("ManticoreSearchEngine document mapping", () => {
+  it("retries live replace conflicts but keeps production strict", async () => {
+    let attempts = 0;
+    const client: ManticoreHttpClient = {
+      bulk: () => Promise.resolve({ errors: false }),
+      request: (_path, body) => {
+        if ("doc" in body) {
+          attempts += 1;
+          if (attempts < 3) {
+            return Promise.reject(
+              new Error("Manticore request failed (409): Conflict")
+            );
+          }
+        }
+        return Promise.resolve({ hits: { hits: [], total: 0 } });
+      },
+    };
+    const document = {
+      beschrijving: "b",
+      bronId: "bron-1",
+      contracttype: null,
+      eindklantNaam: null,
+      id: "live-retry-doc",
+      laatstGezienOp: new Date("2026-08-01T00:00:00.000Z"),
+      locatieLand: "NL",
+      opdrachtgeverNaam: null,
+      provincie: null,
+      publicatiedatum: null,
+      skills: [],
+      status: "active" as const,
+      tariefEenheid: null,
+      tariefMax: null,
+      tariefMin: null,
+      titel: "t",
+      urenPerWeekMax: null,
+      urenPerWeekMin: null,
+      werkvorm: null,
+    };
+
+    await expect(
+      new ManticoreSearchEngine(
+        client,
+        new InMemorySearchVersionStore(),
+        SEARCH_INDEX_NAME,
+        () => new Date(),
+        { retryReplaceOnConflict: true }
+      ).upsertDocument(document)
+    ).resolves.toBeUndefined();
+    expect(attempts).toBe(3);
+
+    attempts = 0;
+    await expect(
+      new ManticoreSearchEngine(
+        client,
+        new InMemorySearchVersionStore(),
+        SEARCH_INDEX_NAME
+      ).upsertDocument(document)
+    ).rejects.toThrow("(409): Conflict");
+    expect(attempts).toBe(1);
+  });
+
   it("indexes locatie from locatieLand and the deadline sentinel when both are absent", async () => {
     const client = new RecordingClient();
     const now = new Date("2026-09-01T00:00:00.000Z");
