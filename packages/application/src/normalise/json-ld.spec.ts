@@ -356,6 +356,72 @@ describe("parseJsonLdPayload -- Bij Oranje", () => {
   });
 });
 
+describe("parseJsonLdPayload -- TenMonks", () => {
+  const payload: JsonLdFetchedPayload = {
+    jobPosting: {
+      "@type": "JobPosting",
+      baseSalary: {
+        "@type": "MonetaryAmount",
+        currency: "EUR",
+        value: {
+          "@type": "QuantitativeValue",
+          maxValue: 5624,
+          minValue: 3824,
+          unitText: "MONTH",
+        },
+      },
+      datePosted: "2026-09-15",
+      description: "<p>Opdrachtomschrijving</p>",
+      employmentType: ["FULL_TIME"],
+      hiringOrganization: { "@type": "Organization", name: "TenMonks" },
+      identifier: {
+        "@type": "PropertyValue",
+        name: "TenMonks",
+        value: "JP033750",
+      },
+      jobLocation: [
+        {
+          "@type": "Place",
+          address: {
+            "@type": "PostalAddress",
+            addressCountry: "NL",
+            addressLocality: "Noord-Holland",
+          },
+        },
+      ],
+      title: "Data Analist",
+      validThrough: "2027-01-01T00:00:00+00:00",
+    },
+    labelBlock: {},
+    parserVersion: "tenmonks/v1",
+    slug: "tenmonks",
+    url: "https://tenmonks.nl/opdrachten/34350/data-analist/",
+  };
+
+  it("normalises the URL reference and literal JSON-LD identity fields", () => {
+    const draft = parseJsonLdPayload(payload, HASH);
+
+    expect(draft.bronReferentie.value).toBe("opdrachten/34350/data-analist");
+    expect(draft.titel.value).toBe("Data Analist");
+    expect(draft.bronSpecifiek.value).toMatchObject({
+      identifier: { name: "TenMonks", value: "JP033750" },
+      publicatiedatum: "2026-09-15",
+      slug: "tenmonks",
+    });
+  });
+
+  it("promotes the explicit EUR/MONTH baseSalary band", () => {
+    const draft = parseJsonLdPayload(payload, HASH);
+
+    expect(draft.tarief).toEqual({
+      eenheid: "maand",
+      max: "5624",
+      min: "3824",
+      valuta: "EUR",
+    });
+  });
+});
+
 describe("parseJsonLdPayload -- Pro-Act IT (label block embedded in description text)", () => {
   const payload: JsonLdFetchedPayload = {
     jobPosting: {
