@@ -60,18 +60,6 @@ const CASES: readonly Case[] = [
     title: "Adviseur Privacy IBD",
   },
   {
-    bron: "bluetrail-circle8-eindklant",
-    claims: [
-      { label: "Organisatie", value: "Gemeente Stichtse Vecht" },
-      { label: "Provincie", value: "Utrecht" },
-      { label: "Tarief", value: "Tarief onbekend" },
-      { label: "Uren per week", value: "24" },
-    ],
-    id: "1a60c199-7da3-4bbd-a584-b9d32f1f79bb",
-    reference: "opdrachten/Interim/architect-ict-en-informatielandschap",
-    title: "Architect ICT- en Informatielandschap",
-  },
-  {
     bron: "hero",
     claims: [{ label: "Uren per week", value: "36" }],
     id: "0fe8ccb3-a2ee-429f-9444-7224065d050b",

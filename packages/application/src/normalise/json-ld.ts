@@ -168,12 +168,8 @@ const eenheidFromUnitText = (unit: string): "maand" | "dag" | "uur" | null => {
   return null;
 };
 
-/**
- * Sources whose JobPosting.baseSalary is a constant filler, whatever its unit.
- * BlueTrail: all 129 live postings (2026-09-16) carry value "100", with
- * unitText "" (45), "UUR" (52) or "HOUR" (32) -- the unit alone no longer
- * tells filler from a rate.
- */
+/** Sources whose JobPosting.baseSalary is a constant filler whatever its unit
+ * (BlueTrail: value "100" with unitText "", "UUR" or "HOUR"). */
 const PLACEHOLDER_BASE_SALARY_SLUGS: ReadonlySet<string> = new Set([
   "bluetrail",
 ]);

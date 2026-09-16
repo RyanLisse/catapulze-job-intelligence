@@ -244,10 +244,10 @@ describe.each([
     );
   });
 
-  // BlueTrail's listing fixture carries two extra live captures:
-  // adviseur-privacy-ibd (F15 skills, 2026-09-15) and the broker-fronted
-  // architect-ict-en-informatielandschap (F02 eindklant, 2026-09-16).
-  const expectedItemCount = slug === "bluetrail" ? 4 : 2;
+  // BlueTrail's listing fixture carries a 3rd sitemap entry
+  // (adviseur-privacy-ibd, added 2026-09-15 to make the live-captured F15
+  // skills fixture reachable from the fixture-mode ingest pipeline).
+  const expectedItemCount = slug === "bluetrail" ? 3 : 2;
 
   it("ingests listing + detail fixtures with found/new/changed/rejected/error metrics", async () => {
     const result = await runFixtureIngest(config, `bron-${slug}-fixture`);
