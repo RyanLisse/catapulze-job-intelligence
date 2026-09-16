@@ -233,8 +233,8 @@ export interface CacheKeyPage {
  * `v7` separates lexical and hybrid result pages.
  * `v8` retires delimiter-ambiguous AST hashes (RJC-427).
  */
-const RESULT_CACHE_KEY_PREFIX = "search:v8";
-const FACET_CACHE_KEY_PREFIX = "search:facets:v5";
+const RESULT_CACHE_KEY_PREFIX = "search:v9";
+const FACET_CACHE_KEY_PREFIX = "search:facets:v6";
 
 export const buildCacheKey = (
   astHash: string,

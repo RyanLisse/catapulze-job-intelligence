@@ -4,6 +4,11 @@ Use this runbook whenever `SEARCH_SCHEMA_HASH` changes, when a full search
 replay is deliberately requested, or after a Manticore incident. Postgres is
 the system of record; Manticore is a rebuildable derived index.
 
+The CTP-534 skills mapping is activated only through the pending-generation
+replay protocol: after deployment, operators run search:new-generation, drain
+the new generation, and then run search:reconcile-projection. Do not mutate a
+live Manticore table ad hoc.
+
 This applies to the existing attributes and to the active/archive partition
 layout (`aanvragen_active`, `aanvragen_archive`). It does not drop the legacy
 `aanvragen` table or clear a Manticore volume automatically. The production

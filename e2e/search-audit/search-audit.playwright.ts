@@ -73,6 +73,8 @@ const emptySearchResponse = {
     contracttype: [],
     locatie: [],
     locatie_land: [],
+    provincie: [],
+    skills: [],
     status: [],
   },
   hits: [],

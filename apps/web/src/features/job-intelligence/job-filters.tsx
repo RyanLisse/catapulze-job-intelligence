@@ -699,7 +699,7 @@ export const JobFilters = ({
       <FacetGroup
         title="Regio"
         badgeCount={filters.provincies.length}
-        note="Provincie-facet ontbreekt in SearchFacets API (alleen bron/contract/locatie/status). Waarden worden wel gefilterd; index-vulling is vaak spaarzaam."
+        note="Alleen brongepubliceerde provincies worden getoond; de index kan daarom spaarzame facetwaarden bevatten."
       >
         <SelectAllBar
           groupLabel="Regio"

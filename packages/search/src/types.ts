@@ -157,6 +157,8 @@ export interface SearchFacets {
   contracttype: SearchFacetBucket[];
   locatie: SearchFacetBucket[];
   locatie_land: SearchFacetBucket[];
+  provincie: SearchFacetBucket[];
+  skills: SearchFacetBucket[];
   status: SearchFacetBucket[];
 }
 
@@ -165,6 +167,8 @@ export const emptySearchFacets = (): SearchFacets => ({
   contracttype: [],
   locatie: [],
   locatie_land: [],
+  provincie: [],
+  skills: [],
   status: [],
 });
 

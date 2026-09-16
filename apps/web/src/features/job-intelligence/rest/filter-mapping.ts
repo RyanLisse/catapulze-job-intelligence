@@ -34,6 +34,8 @@ export interface ApiSearchFacets {
   readonly contracttype: readonly ApiFacetBucket[];
   readonly locatie: readonly ApiFacetBucket[];
   readonly locatie_land: readonly ApiFacetBucket[];
+  readonly provincie: readonly ApiFacetBucket[];
+  readonly skills: readonly ApiFacetBucket[];
   readonly status: readonly ApiFacetBucket[];
 }
 
@@ -204,9 +206,14 @@ export const mapApiFacetsToUi = (
     count: bucket.count,
     value: locationLabel(bucket.value),
   })),
-  // Proven gap: SearchFacets has no provincie/werkvorm/skills buckets yet.
-  provincies: [],
-  skills: [],
+  provincies: facets.provincie.map((bucket) => ({
+    count: bucket.count,
+    value: bucket.value,
+  })),
+  skills: facets.skills.map((bucket) => ({
+    count: bucket.count,
+    value: bucket.value,
+  })),
   sources: facets.bron_id.flatMap((bucket) => {
     const mapped = mapSourceFacet(bucket, bronCatalog);
     return mapped ? [mapped] : [];

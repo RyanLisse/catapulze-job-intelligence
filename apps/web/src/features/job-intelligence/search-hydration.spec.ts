@@ -117,6 +117,8 @@ const fakeFetch = (
           // real engine indexes both.
           locatie: [{ count: searchTotal, value: "NL" }],
           locatie_land: [{ count: searchTotal, value: "NL" }],
+          provincie: [],
+          skills: [],
           status: [],
         },
         ids: allIds.slice(search.offset, search.offset + search.limit),

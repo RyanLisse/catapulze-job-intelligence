@@ -138,6 +138,8 @@ describe("SearchAdapter", () => {
       contracttype: [],
       locatie: [],
       locatie_land: [],
+      provincie: [],
+      skills: [],
       status: [],
     });
   });
@@ -251,6 +253,8 @@ describe("SearchAdapter", () => {
       contracttype: [],
       locatie: [],
       locatie_land: [],
+      provincie: [],
+      skills: [],
       status: [],
     };
     const completeFacets = {
@@ -258,6 +262,8 @@ describe("SearchAdapter", () => {
       contracttype: [],
       locatie: [],
       locatie_land: [],
+      provincie: [],
+      skills: [],
       status: [],
     };
     const timeoutThenComplete: SearchEngine = {
@@ -334,6 +340,8 @@ describe("SearchAdapter", () => {
             contracttype: [],
             locatie: [],
             locatie_land: [],
+            provincie: [],
+            skills: [],
             status: [],
           },
           hits: [],
@@ -594,6 +602,8 @@ describe("SearchAdapter facets cache", () => {
             contracttype: [],
             locatie: [],
             locatie_land: [],
+            provincie: [],
+            skills: [],
             status: [],
           },
         };

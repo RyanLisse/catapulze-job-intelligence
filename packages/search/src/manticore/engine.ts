@@ -81,6 +81,8 @@ const HYBRID_FACET_NAMES = [
   "contracttype",
   "locatie",
   "locatie_land",
+  "provincie",
+  "skills",
   "status",
 ] as const satisfies readonly ManticoreFacetName[];
 
@@ -125,7 +127,7 @@ const documentToManticoreFields = (
   const locationEntries: [string, string | number][] =
     location === undefined ? [] : [["locatie", location]];
   const company = document.opdrachtgeverNaam ?? "";
-  const entries: [string, string | number][] = [
+  const entries: [string, string | number | readonly string[]][] = [
     ["beschrijving", document.beschrijving],
     ["bron_id", document.bronId],
     ["comparable_tarief", comparableTarief(document)],
@@ -152,6 +154,7 @@ const documentToManticoreFields = (
         ? epochSeconds(document.sluitingsdatum)
         : SLUITINGSDATUM_MISSING_SENTINEL,
     ],
+    ["skills", document.skills],
     ["status", document.status],
     ["tarief_eenheid", document.tariefEenheid ?? ""],
     ["tarief_max", document.tariefMax ?? 0],

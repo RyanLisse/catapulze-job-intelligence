@@ -494,6 +494,37 @@ describe("InMemorySearchEngine CTP-493 parity", () => {
     expect(stored.total).toBe(0);
   });
 
+  it("filters by every requested skill and facets only matched documents", async () => {
+    const engine = await seeded([
+      document("match-a", {
+        provincie: "Utrecht",
+        skills: ["Java", "TypeScript", "Java"],
+      }),
+      document("match-b", {
+        provincie: "Utrecht",
+        skills: ["Java"],
+      }),
+      document("other", {
+        provincie: "Noord-Holland",
+        skills: ["Java", "Python"],
+      }),
+    ]);
+
+    const result = await engine.search({
+      ast: null,
+      filters: { skills: ["Java", "TypeScript"] },
+      limit: 10,
+      offset: 0,
+    });
+
+    expect(result.hits.map((hit) => hit.id)).toEqual(["match-a"]);
+    expect(result.facets.provincie).toEqual([{ count: 1, value: "Utrecht" }]);
+    expect(result.facets.skills).toEqual([
+      { count: 1, value: "Java" },
+      { count: 1, value: "TypeScript" },
+    ]);
+  });
+
   it("sorts title-asc and company-asc with unknowns last for company", async () => {
     const engine = await seeded([
       document("b", { opdrachtgeverNaam: "Zebra", titel: "Beta" }),

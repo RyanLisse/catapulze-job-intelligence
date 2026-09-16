@@ -38,6 +38,7 @@ type FacetField =
   | "contracttype"
   | "locatie"
   | "locatieLand"
+  | "provincie"
   | "status";
 
 const facetValueForField = (
@@ -55,6 +56,9 @@ const facetValueForField = (
       return document.locatie === null
         ? undefined
         : (document.locatieLand ?? undefined);
+    }
+    case "provincie": {
+      return document.provincie ?? "";
     }
     case "contracttype": {
       return document.contracttype ?? "unknown";
@@ -79,7 +83,12 @@ const countFacet = (
     if (value === undefined) {
       continue;
     }
-    if ((field === "locatie" || field === "locatieLand") && value === "") {
+    if (
+      (field === "locatie" ||
+        field === "locatieLand" ||
+        field === "provincie") &&
+      value === ""
+    ) {
       continue;
     }
     counts.set(value, (counts.get(value) ?? 0) + 1);
@@ -94,11 +103,28 @@ const countFacet = (
     .toSorted((left, right) => compareCodepoints(left.value, right.value));
 };
 
+const countSkillsFacet = (documents: SearchDocument[]): SearchFacetBucket[] => {
+  const counts = new Map<string, number>();
+  for (const document of documents) {
+    for (const skill of new Set(document.skills)) {
+      if (skill === "") {
+        continue;
+      }
+      counts.set(skill, (counts.get(skill) ?? 0) + 1);
+    }
+  }
+  return [...counts.entries()]
+    .map(([value, count]) => ({ count, value }))
+    .toSorted((left, right) => compareCodepoints(left.value, right.value));
+};
+
 const buildFacets = (documents: SearchDocument[]): SearchFacets => ({
   bron_id: countFacet(documents, "bronId"),
   contracttype: countFacet(documents, "contracttype"),
   locatie: countFacet(documents, "locatie"),
   locatie_land: countFacet(documents, "locatieLand"),
+  provincie: countFacet(documents, "provincie"),
+  skills: countSkillsFacet(documents),
   status: countFacet(documents, "status"),
 });
 
