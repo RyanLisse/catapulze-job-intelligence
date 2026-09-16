@@ -27,6 +27,7 @@ export { haysConfig } from "./configs/hays";
 export { heijmansConfig } from "./configs/heijmans";
 export { randstadConfig } from "./configs/randstad";
 export { rijkswaterstaatConfig } from "./configs/rijkswaterstaat";
+export { vattenfallConfig } from "./configs/vattenfall";
 export { volkerwesselsConfig } from "./configs/volkerwessels";
 export {
   extractJobPosting,
