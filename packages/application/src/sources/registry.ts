@@ -1,3 +1,4 @@
+import { bijOranje } from "./bij-oranje";
 import { bluetrail } from "./bluetrail";
 import { ctm } from "./ctm";
 import type { SourceDefinition } from "./definition";
@@ -20,6 +21,7 @@ export { resolveTenderNedTestImportDays } from "./tenderned";
 
 /** Registry of every ingestable bron. Adding a source = one file in this folder + one line here. */
 export const SOURCES = {
+  "bij-oranje": bijOranje,
   bluetrail,
   ctm,
   flinter,

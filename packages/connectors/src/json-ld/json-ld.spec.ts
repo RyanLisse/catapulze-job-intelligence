@@ -13,6 +13,7 @@ import {
   extractListingLinks,
   extractSitemapUrls,
 } from "./client";
+import { bijOranjeConfig } from "./configs/bij-oranje";
 import { bluetrailConfig } from "./configs/bluetrail";
 import { heroConfig } from "./configs/hero";
 import { proActConfig } from "./configs/pro-act";
@@ -294,6 +295,65 @@ describe.each([
     const result = await connector.discover(null);
     expect(result.hasMore).toBe(false);
     expect(result.items).toHaveLength(expectedItemCount);
+  });
+});
+
+describe("Bij Oranje JSON-LD connector", () => {
+  const sampleUrl =
+    "https://www.bijoranje.nl/vacatures/onbekend/data-analist-noord-holland-65099";
+
+  it("uses the job sitemap and discovers the sample vacancy", async () => {
+    expect(bijOranjeConfig.discovery).toEqual({
+      kind: "sitemap",
+      url: "https://www.bijoranje.nl/sitemap-jobs-1.xml",
+    });
+    const client = createJsonLdClient({
+      config: bijOranjeConfig,
+      liveEnabled: false,
+    });
+
+    const urls = await client.fetchListing();
+
+    expect(urls).toHaveLength(3);
+    expect(urls).toContainEqual({ url: sampleUrl });
+  });
+
+  it("parses the literal JobPosting fields from the 65099 detail fixture", async () => {
+    const client = createJsonLdClient({
+      config: bijOranjeConfig,
+      liveEnabled: false,
+    });
+    const detail = await client.fetchDetail(sampleUrl);
+    if (!detail.jobPosting) {
+      throw new Error("expected a Bij Oranje JobPosting JSON-LD node");
+    }
+
+    expect(detail.jobPosting).toMatchObject({
+      datePosted: "2026-09-15",
+      employmentType: "CONTRACTOR",
+      identifier: { value: "65099" },
+      title: "Data Analist",
+    });
+  });
+
+  it("drops category roots and non-www duplicates from sitemap discovery", async () => {
+    const sitemapXml =
+      "<urlset>" +
+      `<url><loc>${sampleUrl}</loc></url>` +
+      "<url><loc>https://www.bijoranje.nl/vacatures/ict-informatievoorziening</loc></url>" +
+      "<url><loc>https://bijoranje.nl/vacatures/onbekend/data-analist-noord-holland-65099</loc></url>" +
+      "</urlset>";
+    const mockFetch: typeof fetch = Object.assign(
+      () => Promise.resolve(new Response(sitemapXml, { status: 200 })),
+      { preconnect: () => {} }
+    );
+    const client = createJsonLdClient({
+      config: bijOranjeConfig,
+      fetchImpl: mockFetch,
+      liveEnabled: true,
+    });
+
+    await expect(client.fetchListing()).resolves.toEqual([{ url: sampleUrl }]);
   });
 });
 
