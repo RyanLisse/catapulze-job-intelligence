@@ -195,6 +195,15 @@ describe("extractListingLinks", () => {
     );
     expect(urls).toEqual([{ url: "https://hero.eu/interim-opdrachten/b" }]);
   });
+
+  it("decodes HTML entities in hrefs before resolving URLs", () => {
+    const urls = extractListingLinks(
+      '<a href="/x?a=1&amp;b=2">X</a>',
+      /^\/x$/u,
+      "https://host"
+    );
+    expect(urls).toEqual([{ url: "https://host/x?a=1&b=2" }]);
+  });
 });
 
 describe("urlSlugBronReferentie", () => {

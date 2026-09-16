@@ -6,11 +6,11 @@ import { haysConfig } from "./configs/hays";
 
 const client = createJsonLdClient({ config: haysConfig, liveEnabled: false });
 const scrumUrl =
-  "https://www.hays.nl/vacature-details/scrum-master-provincie-utrecht_1049921?q=&amp;location=&amp;applyId=JOB_5377570&amp;jobSource=HaysGCJ&amp;isSponsored=N&amp;specialismId=&amp;subSpecialismId=&amp;jobName=projects/mineral-balm-174308/tenants/ab5d683d-f9a5-4b85-bfe0-eb74881e24cf/jobs/103039416380859078&amp;lang=nl";
+  "https://www.hays.nl/vacature-details/scrum-master-provincie-utrecht_1049921?q=&location=&applyId=JOB_5377570&jobSource=HaysGCJ&isSponsored=N&specialismId=&subSpecialismId=&jobName=projects/mineral-balm-174308/tenants/ab5d683d-f9a5-4b85-bfe0-eb74881e24cf/jobs/103039416380859078&lang=nl";
 const buyerUrl =
-  "https://www.hays.nl/vacature-details/buyer-sports-and-outdoor-amsterdam_1050471?q=&amp;location=&amp;applyId=JOB_5411289&amp;jobSource=HaysGCJ&amp;isSponsored=N&amp;specialismId=&amp;subSpecialismId=&amp;jobName=projects/mineral-balm-174308/tenants/ab5d683d-f9a5-4b85-bfe0-eb74881e24cf/jobs/134360935685857990&amp;lang=nl";
+  "https://www.hays.nl/vacature-details/buyer-sports-and-outdoor-amsterdam_1050471?q=&location=&applyId=JOB_5411289&jobSource=HaysGCJ&isSponsored=N&specialismId=&subSpecialismId=&jobName=projects/mineral-balm-174308/tenants/ab5d683d-f9a5-4b85-bfe0-eb74881e24cf/jobs/134360935685857990&lang=nl";
 const financeUrl =
-  "https://www.hays.nl/vacature-details/finance-business-partner-rotterdam_1050462?q=&amp;location=&amp;applyId=JOB_5412125&amp;jobSource=HaysGCJ&amp;isSponsored=N&amp;specialismId=&amp;subSpecialismId=&amp;jobName=projects/mineral-balm-174308/tenants/ab5d683d-f9a5-4b85-bfe0-eb74881e24cf/jobs/96725423613715142&amp;lang=nl";
+  "https://www.hays.nl/vacature-details/finance-business-partner-rotterdam_1050462?q=&location=&applyId=JOB_5412125&jobSource=HaysGCJ&isSponsored=N&specialismId=&subSpecialismId=&jobName=projects/mineral-balm-174308/tenants/ab5d683d-f9a5-4b85-bfe0-eb74881e24cf/jobs/96725423613715142&lang=nl";
 
 describe("Hays JSON-LD connector", () => {
   it("discovers the recorded tracking URLs by pathname", async () => {

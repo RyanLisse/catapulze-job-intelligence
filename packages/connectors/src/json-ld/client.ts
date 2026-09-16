@@ -1,4 +1,5 @@
 import { loadConnectorFixture } from "../fixtures/load";
+import { decodeHtmlEntities } from "../html-entities";
 import { resolveHttpTimeoutMs, withHttpTimeout } from "../http-timeout";
 import {
   extractJobPosting,
@@ -96,7 +97,7 @@ export const extractListingLinks = (
   while (match) {
     const href = match.groups?.href;
     if (href) {
-      const resolved = new URL(href, baseUrl);
+      const resolved = new URL(decodeHtmlEntities(href), baseUrl);
       linkPattern.lastIndex = 0;
       const absolute = resolved.toString();
       if (linkPattern.test(resolved.pathname) && !seen.has(absolute)) {

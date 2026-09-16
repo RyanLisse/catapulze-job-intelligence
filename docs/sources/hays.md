@@ -12,16 +12,13 @@ als hiring organisation; de eindklant staat niet in de JSON-LD.
 | Detail | `https://www.hays.nl/vacature-details/<slug_id>` | Joblinks staan in statische HTML. |
 | Sample detail | `https://www.hays.nl/vacature-details/scrum-master-provincie-utrecht_1049921` | JSON-LD bevat `Contracting` en sluitingsdatum. |
 
-## Discovery en bekende URL-quirk
+## Discovery
 
 De connector matcht `^/vacature-details/[^/?]+$` tegen de pathname. Hays'
-HTML voegt aan elke href een stabiele tracking-querystring toe met onder
-meer `applyId`, `jobSource` en `lang`. De shared extractor decodeert HTML
-entities niet vóór URL-resolutie: daardoor bevat de opgeslagen absolute URL
-letterlijke `&amp;`-tekens. Dit is functioneel onschadelijk en stabiel over
-herhaalde fetches; de detailFixture-keys bewaren bewust exact die rommelige
-URL's. Dit is een bronmarkup/shared-extractor-artefact en geen wijziging voor
-deze connectorlane.
+eigen href-markup escapt `&` als `&amp;`, volgens de normale
+HTML-attribuutregels. De shared extractor decodeert entities vóór
+URL-resolutie, zodat ontdekte en opgeslagen URLs exact overeenkomen met de
+gerenderde link.
 
 | Hays JSON-LD | Canoniek | Provenance/noot |
 |---|---|---|
