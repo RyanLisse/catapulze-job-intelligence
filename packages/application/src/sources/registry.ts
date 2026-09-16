@@ -13,6 +13,7 @@ import { hays } from "./hays";
 import { heijmans } from "./heijmans";
 import { hero } from "./hero";
 import { inhuurdesk } from "./inhuurdesk";
+import { jobbird } from "./jobbird";
 import { needstaffing } from "./needstaffing";
 import { ns } from "./ns";
 import { onefellow } from "./onefellow";
@@ -53,6 +54,7 @@ export const SOURCES = {
   heijmans,
   hero,
   inhuurdesk,
+  jobbird,
   needstaffing,
   ns,
   onefellow,
