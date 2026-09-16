@@ -77,6 +77,18 @@ export class RunOwnershipLostError extends Error {
   }
 }
 
+// oxlint-disable-next-line unicorn/custom-error-definition -- architecture contract requires this exact public name
+export class RunAlreadyInProgressError extends Error {
+  readonly code = "RUN_ALREADY_IN_PROGRESS";
+  readonly bronId: string;
+
+  constructor(bronId: string) {
+    super(`A poll run is already in progress for bron ${bronId}`);
+    this.name = "RunAlreadyInProgressError";
+    this.bronId = bronId;
+  }
+}
+
 export interface RunStartInput {
   key: CheckpointKey;
   mode: "reset" | "resume";

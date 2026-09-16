@@ -1,5 +1,7 @@
 import path from "node:path";
 
+import { RunAlreadyInProgressError } from "@ji/connectors";
+import { resolvePollRunStaleAfterMs } from "@ji/env/poller";
 import { config as loadEnv } from "dotenv";
 
 import {
@@ -24,6 +26,15 @@ import type { BronIngestPipelineResult } from "../src/poll-bron-run";
 import { listPollableSliceABronnen } from "../src/slice-a-pollable";
 import type { PollBronPayload } from "../src/tasks/poll-bron-schema";
 
+// scriptDir is apps/worker/scripts; the repo root is three levels up.
+const scriptDir = import.meta.dirname;
+const repoRoot = path.resolve(scriptDir, "../../..");
+
+loadEnv({ path: path.join(repoRoot, "apps/server/.env") });
+loadEnv({ override: true, path: path.join(repoRoot, "apps/worker/.env") });
+
+const pollRunStaleAfterMs = resolvePollRunStaleAfterMs();
+
 /**
  * Offline-capable wrapper matching Trigger `poll-bron` → `runPollBron`
  * without importing `@trigger.dev/sdk`.
@@ -31,20 +42,15 @@ import type { PollBronPayload } from "../src/tasks/poll-bron-schema";
 const runPollBronOnce = async (
   payload: PollBronPayload
 ): Promise<BronIngestPipelineResult> => {
-  const runtime = createPollBronRuntime(requireDatabaseUrl());
+  const runtime = createPollBronRuntime(requireDatabaseUrl(), {
+    pollRunStaleAfterMs,
+  });
   try {
     return await runBronIngestPipeline(payload, runtime, "poll");
   } finally {
     await runtime.close();
   }
 };
-
-// scriptDir is apps/worker/scripts; the repo root is three levels up.
-const scriptDir = import.meta.dirname;
-const repoRoot = path.resolve(scriptDir, "../../..");
-
-loadEnv({ path: path.join(repoRoot, "apps/server/.env") });
-loadEnv({ override: true, path: path.join(repoRoot, "apps/worker/.env") });
 
 const main = async (): Promise<OneshotResult> => {
   let args;
@@ -55,7 +61,9 @@ const main = async (): Promise<OneshotResult> => {
     process.exit(1);
   }
 
-  const listRuntime = createPollBronRuntime(requireDatabaseUrl());
+  const listRuntime = createPollBronRuntime(requireDatabaseUrl(), {
+    pollRunStaleAfterMs,
+  });
   let pollable;
   try {
     pollable = await listPollableSliceABronnen(listRuntime);
@@ -103,6 +111,27 @@ const main = async (): Promise<OneshotResult> => {
         )
       );
     } catch (error) {
+      if (error instanceof RunAlreadyInProgressError) {
+        bronResults.push({
+          bronSlug: bron.bronSlug,
+          scrapeRunId: payload.scrapeRunId,
+          skippedReason: "already_running",
+          status: "skipped",
+        });
+        console.log(
+          JSON.stringify(
+            {
+              bronSlug: bron.bronSlug,
+              scrapeRunId: payload.scrapeRunId,
+              skippedReason: "already_running",
+              status: "skipped",
+            },
+            null,
+            2
+          )
+        );
+        continue;
+      }
       const message = error instanceof Error ? error.message : String(error);
       const soft = isSoftOrHashFailure(message);
       bronResults.push({

@@ -111,8 +111,11 @@ export interface PollBronRuntime {
   runLifecycleStore: RunLifecycleStore;
 }
 
-export const createPollBronRuntime = (databaseUrl: string): PollBronRuntime => {
-  const client = createBronRuntimeClient(databaseUrl);
+export const createPollBronRuntime = (
+  databaseUrl: string,
+  options: { pollRunStaleAfterMs?: number } = {}
+): PollBronRuntime => {
+  const client = createBronRuntimeClient(databaseUrl, options);
   // RJC-386: same selection factory the server uses, so the worker never
   // falls back to the filesystem store behind the server's back when S3 is
   // configured — they must share one durable backend for raw payload refs

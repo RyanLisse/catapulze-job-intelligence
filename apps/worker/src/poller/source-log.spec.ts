@@ -1,12 +1,26 @@
 import { describe, expect, it } from "bun:test";
 
 import {
+  alreadyRunningSourceLog,
   failedSourceLog,
   MAX_ERROR_MESSAGE_LENGTH,
   redactErrorMessage,
 } from "./source-log";
 
 const base = { bronSlug: "harveynash", durationMs: 1234 } as const;
+
+describe("alreadyRunningSourceLog", () => {
+  it("reports a clean skip without an error envelope", () => {
+    expect(alreadyRunningSourceLog(base)).toEqual({
+      bronSlug: "harveynash",
+      curated: 0,
+      durationMs: 1234,
+      found: 0,
+      remaining: 0,
+      skippedReason: "already_running",
+    });
+  });
+});
 
 describe("failedSourceLog", () => {
   it("truncates a long message to the cap", () => {

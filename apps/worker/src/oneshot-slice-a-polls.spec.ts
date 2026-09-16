@@ -1,6 +1,10 @@
 import { describe, expect, it } from "bun:test";
 
 import type { BronId } from "@ji/domain";
+import {
+  ABANDON_RUN_AFTER_MS_DEFAULT,
+  resolvePollRunStaleAfterMs,
+} from "@ji/env/poller";
 
 import {
   buildPollPayload,
@@ -27,6 +31,17 @@ const pollableFixture: SliceABronDefinition[] = [
   bron("tenderned", "11111111-1111-1111-1111-111111111111"),
   bron("inhuurdesk", "22222222-2222-2222-2222-222222222222"),
 ];
+
+describe("poll-run stale threshold", () => {
+  it("shares the poller default without validating unrelated poller env", () => {
+    expect(resolvePollRunStaleAfterMs()).toBe(ABANDON_RUN_AFTER_MS_DEFAULT);
+    expect(resolvePollRunStaleAfterMs("")).toBe(ABANDON_RUN_AFTER_MS_DEFAULT);
+    expect(resolvePollRunStaleAfterMs("90000")).toBe(90_000);
+    expect(() => resolvePollRunStaleAfterMs("0")).toThrow(
+      "must be a positive whole number"
+    );
+  });
+});
 
 describe("parseOneshotArgs", () => {
   it("defaults to list / dry-run with no fan-out filter", () => {
@@ -174,12 +189,18 @@ describe("isSoftOrHashFailure / summarizeOneshotRun (CTP-489)", () => {
           soft: false,
           status: "failed",
         },
+        {
+          bronSlug: "bluetrail",
+          skippedReason: "already_running",
+          status: "skipped",
+        },
       ],
       startedAt: "2026-09-08T13:00:00.000Z",
-      targets: 2,
+      targets: 3,
     });
     expect(summary.succeeded).toBe(1);
     expect(summary.failed).toBe(1);
+    expect(summary.skipped).toBe(1);
     expect(summary.softFailed).toBe(0);
     expect(summary.hardFail).toBe(true);
     expect(summary.totals).toEqual({
