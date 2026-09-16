@@ -12,19 +12,13 @@ import { fixturePath } from "./fixtures/load";
  */
 
 /** Pre-existing violations, each with a named follow-up. Keep empty. */
-const ALLOWLIST: ReadonlySet<string> = new Set<string>([]);
+const ALLOWLIST: ReadonlySet<string> = new Set<string>();
 
 const FULL_UTC_TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/u;
 const MIDNIGHT = "T00:00:00.000Z";
 
 const root = fixturePath();
-const files = (
-  readdirSync(root, { recursive: true, withFileTypes: true }) as {
-    isFile: () => boolean;
-    name: string;
-    parentPath: string;
-  }[]
-)
+const files = readdirSync(root, { recursive: true, withFileTypes: true })
   .filter((entry) => entry.isFile())
   .map((entry) => path.relative(root, path.join(entry.parentPath, entry.name)))
   .toSorted();
@@ -33,15 +27,14 @@ const provenanceProblem = (file: string): string | null => {
   if (!file.endsWith(".json")) {
     return "not a JSON fixture envelope (no capturedAt)";
   }
-  const parsed: unknown = JSON.parse(
-    readFileSync(path.join(root, file), "utf-8")
-  );
-  const capturedAt =
-    parsed !== null && typeof parsed === "object" && "capturedAt" in parsed
-      ? parsed.capturedAt
-      : undefined;
-  if (typeof capturedAt !== "string" || !FULL_UTC_TIMESTAMP.test(capturedAt)) {
-    return `capturedAt ${JSON.stringify(capturedAt)} is not a full UTC timestamp`;
+  // SAFETY: every fixture is a repo-owned JSON envelope; a missing or
+  // non-string capturedAt is exactly what this guard reports below.
+  const parsed = JSON.parse(readFileSync(path.join(root, file), "utf-8")) as {
+    capturedAt?: string;
+  };
+  const capturedAt = parsed.capturedAt ?? "";
+  if (!FULL_UTC_TIMESTAMP.test(capturedAt)) {
+    return `capturedAt ${JSON.stringify(parsed.capturedAt)} is not a full UTC timestamp`;
   }
   if (capturedAt.endsWith(MIDNIGHT)) {
     return `capturedAt ${capturedAt} is a rounded midnight placeholder`;

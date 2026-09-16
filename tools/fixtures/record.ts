@@ -38,6 +38,20 @@ export const DEFAULT_HTML_STRIP = [
   "footer",
 ] as const;
 
+export type JsonValue =
+  | string
+  | number
+  | boolean
+  | null
+  | JsonValue[]
+  | JsonObject;
+export interface JsonObject {
+  [key: string]: JsonValue;
+}
+
+const isJsonObject = (value: JsonValue): value is JsonObject =>
+  value instanceof Object && !Array.isArray(value);
+
 export interface StripResult<T> {
   readonly counts: Record<string, number>;
   readonly value: T;
@@ -80,20 +94,20 @@ export const stripHtml = async (
 };
 
 export const stripJsonKeys = (
-  input: unknown,
+  input: JsonValue,
   keys: readonly string[]
-): StripResult<unknown> => {
+): StripResult<JsonValue> => {
   const counts: Record<string, number> = Object.fromEntries(
     keys.map((key) => [key, 0])
   );
-  const walk = (node: unknown): unknown => {
+  const walk = (node: JsonValue): JsonValue => {
     if (Array.isArray(node)) {
       return node.map(walk);
     }
-    if (node === null || typeof node !== "object") {
+    if (!isJsonObject(node)) {
       return node;
     }
-    const out: Record<string, unknown> = {};
+    const out: JsonObject = {};
     for (const [key, child] of Object.entries(node)) {
       if (keys.includes(key)) {
         counts[key] = (counts[key] ?? 0) + 1;
@@ -111,14 +125,48 @@ const formatCounts = (counts: Record<string, number>): string =>
     .map(([what, count]) => `${what}×${count}`)
     .join(", ") || "nothing";
 
+interface FetchRawInput {
+  readonly body: string | undefined;
+  readonly name: string;
+  readonly rawDirRoot: string;
+  readonly source: string;
+  readonly url: string;
+}
+
+/** One real request; the untouched response lands outside the repo, because a
+ * raw page can hold PII that must never be committed. */
+const fetchRaw = async (input: FetchRawInput): Promise<string> => {
+  const headers = new Headers({ "User-Agent": USER_AGENT });
+  if (input.body) {
+    headers.set("Content-Type", "application/json");
+  }
+  const response = await fetch(input.url, {
+    body: input.body,
+    headers,
+    method: input.body ? "POST" : "GET",
+  });
+  if (!response.ok) {
+    throw new Error(`${input.url} answered HTTP ${response.status}`);
+  }
+  const contentType = response.headers.get("content-type") ?? "";
+  const rawDir = path.join(input.rawDirRoot, input.source);
+  await mkdir(rawDir, { recursive: true });
+  const rawPath = path.join(
+    rawDir,
+    `${input.name}.${contentType.includes("json") ? "json" : "html"}`
+  );
+  await writeFile(rawPath, await response.text());
+  return rawPath;
+};
+
 const main = async (): Promise<void> => {
   const { values } = parseArgs({
     options: {
       body: { type: "string" },
+      "from-raw": { type: "string" },
       name: { type: "string" },
       "no-defaults": { type: "boolean" },
       note: { type: "string" },
-      "from-raw": { type: "string" },
       "raw-dir": { type: "string" },
       source: { type: "string" },
       strip: { multiple: true, type: "string" },
@@ -132,37 +180,25 @@ const main = async (): Promise<void> => {
     throw new Error("--source, --name and --url are required");
   }
 
-  let rawPath = values["from-raw"];
-  if (!rawPath) {
-    const response = await fetch(url, {
+  const rawPath =
+    values["from-raw"] ??
+    (await fetchRaw({
       body,
-      headers: {
-        "User-Agent": USER_AGENT,
-        ...(body ? { "Content-Type": "application/json" } : {}),
-      },
-      method: body ? "POST" : "GET",
-    });
-    if (!response.ok) {
-      throw new Error(`${url} answered HTTP ${response.status}`);
-    }
-    const contentType = response.headers.get("content-type") ?? "";
-    const rawDir = path.join(
-      values["raw-dir"] ?? path.join(tmpdir(), "ji-fixture-raw"),
-      source
-    );
-    await mkdir(rawDir, { recursive: true });
-    rawPath = path.join(
-      rawDir,
-      `${name}.${contentType.includes("json") ? "json" : "html"}`
-    );
-    await writeFile(rawPath, await response.text());
-  }
+      name,
+      rawDirRoot: values["raw-dir"] ?? path.join(tmpdir(), "ji-fixture-raw"),
+      source,
+      url,
+    }));
   const rawText = await readFile(rawPath, "utf-8");
   const isJson = rawPath.endsWith(".json");
-  const capturedAt = (await stat(rawPath)).mtime.toISOString();
+  const rawStats = await stat(rawPath);
+  const capturedAt = rawStats.mtime.toISOString();
 
+  // SAFETY: the raw file was written from a JSON response and re-read
+  // verbatim, so JSON.parse yields a JSON value.
+  const parsedJson = isJson ? (JSON.parse(rawText) as JsonValue) : null;
   const stripped = isJson
-    ? stripJsonKeys(JSON.parse(rawText), values["strip-key"] ?? [])
+    ? stripJsonKeys(parsedJson, values["strip-key"] ?? [])
     : await stripHtml(
         rawText,
         [
@@ -171,15 +207,11 @@ const main = async (): Promise<void> => {
         ],
         values["strip-attr"] ?? []
       );
-  const payloadText =
-    typeof stripped.value === "string"
-      ? stripped.value
-      : JSON.stringify(stripped.value);
 
   const provenance = `Recorded by tools/fixtures/record.ts: ${body ? `POST ${body}` : "GET"} ${url}. Mechanically stripped (${isJson ? "keys" : "elements"}): ${formatCounts(stripped.counts)}.`;
   const fixture = {
-    capturedAt,
     captureNote: note ? `${provenance} ${note}` : provenance,
+    capturedAt,
     contentType: isJson ? "json" : "html",
     contractVersion: "connector-fixture/v1",
     payload: stripped.value,

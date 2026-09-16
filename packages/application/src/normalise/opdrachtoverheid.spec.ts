@@ -25,11 +25,13 @@ import {
  * - `bare` (amstelveenhuurtin_2150): nothing published beyond the basics (no
  *   closing date, no competences, no contract type) -- the honesty case.
  */
-const SAMPLE_TENDER_IDS: Record<string, string> = {
+const SAMPLE_TENDER_IDS = {
   bare: "amstelveenhuurtin_2150",
   range: "amstelveenhuurtin_2123",
   zero: "amstelveenhuurtin_2177",
-};
+} as const;
+
+type SampleCase = keyof typeof SAMPLE_TENDER_IDS;
 
 interface OpdrachtoverheidListingFixture {
   readonly payload: {
@@ -49,7 +51,7 @@ const LISTING = JSON.parse(
   )
 ) as OpdrachtoverheidListingFixture;
 
-const sample = (name: string): OpdrachtoverheidFetchedPayload => {
+const sample = (name: SampleCase): OpdrachtoverheidFetchedPayload => {
   const tenderId = SAMPLE_TENDER_IDS[name];
   const found = LISTING.payload.negometrix_tenders.find(
     (entry) => entry?.tender_id === tenderId
@@ -68,7 +70,7 @@ const bronSpecifiekOf = (
   parseOpdrachtoverheidPayload(payload, "hash").bronSpecifiek
     .value as OpdrachtoverheidBronSpecifiek;
 
-const bronSpecifiek = (name: string): OpdrachtoverheidBronSpecifiek =>
+const bronSpecifiek = (name: SampleCase): OpdrachtoverheidBronSpecifiek =>
   // SAFETY: `resolveBronSpecifiek` builds exactly this shape; the draft field
   // only widens it to `JsonValue` for storage.
   parseOpdrachtoverheidPayload(sample(name), "hash").bronSpecifiek

@@ -23,7 +23,11 @@ interface FieldClaim {
 interface Case {
   readonly bron: string;
   readonly claims: readonly FieldClaim[];
-  readonly id: string;
+  /** Aanvraag id from the seeded field-gap run. Absent for rows whose source
+   * record was re-recorded on 2026-09-16 and has not been seeded yet: those
+   * ids must be read from the re-seeded database before this suite runs
+   * again -- inventing one would prove nothing. */
+  readonly id?: string;
   readonly reference: string;
   /** Literal skill chips, in source order, when the source publishes a list. */
   readonly skills?: readonly string[];
@@ -99,31 +103,40 @@ const CASES: readonly Case[] = [
     title: "#944 Productmanager/adviseur i-Sociaal Domein",
   },
   {
-    bron: "needstaffing-15520",
+    // 15520 left the live listing; 15574 is the equivalent row in the
+    // 2026-09-16 recording (uren + looptijd, no werkvorm/skills published).
+    bron: "needstaffing-15574",
     claims: [
       { label: "Uren per week", value: "36" },
-      { label: "Looptijd", value: "4 maanden" },
+      { label: "Looptijd", value: "3 maanden (met optie tot verlenging)" },
     ],
-    id: "e470c36c-0e1b-4b4e-8389-e9bafba24d51",
-    reference: "15520",
-    title: "Operationeel Database Ontwikkelaar 2026-BZB-0457",
+    reference: "15574",
+    title: "Senior ontwikkelaar .NET 2026-GV-0465",
   },
   {
     bron: "needstaffing-15599",
     claims: [
       { label: "Werkvorm", value: "Hybride" },
       { label: "Uren per week", value: "36" },
-      { label: "Looptijd", value: "3 maanden (optie 1x verlenging)" },
+      { label: "Looptijd", value: "12 maanden" },
     ],
-    id: "0658d134-f0ce-478c-8996-b274a19c527f",
-    reference: "15570",
+    reference: "15599",
     skills: [
-      "Samenwerken",
+      "Eigenaarschap",
       "Overtuigingskracht",
-      "Omgevingssensitiviteit",
-      "Resultaatgerichtheid",
+      "Inhoudelijke scherpte",
+      "Analytisch sterk",
+      "Hands-on en praktisch ingesteld",
+      "Een echte doener",
+      "Goede teamspeler",
+      "Communicatief vaardig",
+      "Proactief",
+      "Zelfstandig",
+      "Nuchter en no-nonsense",
+      "Snel kunnen schakelen",
+      "In staat om een organisatie snel te doorgronden",
     ],
-    title: "Senior Procesregisseur Digitale Gegevensuitwisseling 202609A077",
+    title: "Business Analist 202606A432 (vervanging)",
   },
   {
     bron: "harveynash",
@@ -165,14 +178,15 @@ const CASES: readonly Case[] = [
     title: "Platform engineer Azure DAS",
   },
   {
-    bron: "opdrachtoverheid-1457",
+    // 1457 is absent from the 2026-09-16 snapshot; 1544 is the equivalent
+    // row (province + 36 uur, nothing else published).
+    bron: "opdrachtoverheid-1544",
     claims: [
       { label: "Provincie", value: "Noord-Holland" },
       { label: "Uren per week", value: "36" },
     ],
-    id: "7ac990cb-97c8-42ae-95c7-f538eaecd77c",
-    reference: "amstelveenhuurtin_1457",
-    title: "609 - Schuldhulpverlener",
+    reference: "amstelveenhuurtin_1544",
+    title: "686 - Schuldhulpverlener",
   },
   {
     bron: "opdrachtoverheid-2177",
@@ -251,6 +265,11 @@ const CASES: readonly Case[] = [
 ];
 
 const openDetail = async (page: Page, testCase: Case) => {
+  if (!testCase.id) {
+    throw new Error(
+      `${testCase.bron} has no seeded aanvraag id yet: read it from the re-seeded field-gap database for bron_referentie ${testCase.reference} and fill it in`
+    );
+  }
   await page.goto(`/jobs?job=${testCase.id}`, {
     waitUntil: "domcontentloaded",
   });
