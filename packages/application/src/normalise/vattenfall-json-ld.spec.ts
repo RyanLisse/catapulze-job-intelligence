@@ -12,18 +12,21 @@ const expected = [
     "Amsterdam",
     "2026-09-14T07:03:00+00:00",
     "2126-09-14T07:03:00+00:00",
+    { eenheid: "uur", max: "4862", min: "unknown", valuta: "EUR" },
   ],
   [
     "Monteur Stadswarmte",
     "Arnhem",
     "2026-08-31T05:30:41+00:00",
     "2126-08-31T05:30:41+00:00",
+    { eenheid: "unknown", max: "unknown", min: "unknown", valuta: "EUR" },
   ],
   [
     "Service Technician - Onshore Wind Turbines",
     "Slootdorp",
     "2026-01-16T13:23:44+00:00",
     "2126-01-16T13:23:44+00:00",
+    { eenheid: "unknown", max: "unknown", min: "unknown", valuta: "EUR" },
   ],
 ] as const;
 
@@ -34,36 +37,39 @@ describe("normaliseJsonLdObservation -- Vattenfall", () => {
       liveEnabled: false,
     });
     await Promise.all(
-      expected.map(async ([title, location, datePosted, validThrough]) => {
-        const url =
-          Object.keys(vattenfallConfig.detailFixtures ?? {}).find((key) =>
-            key.includes(title.toLowerCase().replaceAll(" ", "-"))
-          ) ??
-          Object.keys(vattenfallConfig.detailFixtures ?? {}).find((key) =>
-            key.includes(location.toLowerCase())
+      expected.map(
+        async ([title, location, datePosted, validThrough, tariff]) => {
+          const url =
+            Object.keys(vattenfallConfig.detailFixtures ?? {}).find((key) =>
+              key.includes(title.toLowerCase().replaceAll(" ", "-"))
+            ) ??
+            Object.keys(vattenfallConfig.detailFixtures ?? {}).find((key) =>
+              key.includes(location.toLowerCase())
+            );
+          if (!url) {
+            throw new Error(`missing fixture for ${title}`);
+          }
+          const detail = await client.fetchDetail(url);
+          const draft = normaliseJsonLdObservation(
+            new TextEncoder().encode(
+              JSON.stringify({
+                ...detail,
+                parserVersion: vattenfallConfig.parserVersion,
+                slug: vattenfallConfig.slug,
+                url,
+              })
+            ),
+            "hash"
           );
-        if (!url) {
-          throw new Error(`missing fixture for ${title}`);
+          expect(draft.titel.value).toBe(title);
+          expect(draft.opdrachtgeverNaam.value).toBe("Vattenfall");
+          expect(draft.locatieTekst.value).toBe(location);
+          expect(draft.bronSpecifiek).toMatchObject({
+            value: { publicatiedatum: datePosted, valid_through: validThrough },
+          });
+          expect(draft.tarief).toEqual(tariff);
         }
-        const detail = await client.fetchDetail(url);
-        const draft = normaliseJsonLdObservation(
-          new TextEncoder().encode(
-            JSON.stringify({
-              ...detail,
-              parserVersion: vattenfallConfig.parserVersion,
-              slug: vattenfallConfig.slug,
-              url,
-            })
-          ),
-          "hash"
-        );
-        expect(draft.titel.value).toBe(title);
-        expect(draft.opdrachtgeverNaam.value).toBe("Vattenfall");
-        expect(draft.locatieTekst.value).toBe(location);
-        expect(draft.bronSpecifiek).toMatchObject({
-          value: { publicatiedatum: datePosted, valid_through: validThrough },
-        });
-      })
+      )
     );
   });
 
