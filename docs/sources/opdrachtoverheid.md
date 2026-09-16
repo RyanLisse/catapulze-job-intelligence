@@ -37,18 +37,18 @@ Voor Opdrachtoverheid is dit een ongedocumenteerd, privé endpoint; het kan zond
 Live probe: `POST /search` met `limit: 400, offset: 0`, 400 records. De volledige
 snapshot staat in `fixtures/connectors/opdrachtoverheid/listing-live-2026-09-16.json` (`listing-page-0.json` blijft de 5-record-opname van 2026-08-31 waar het relevantie-golden-set op leunt)
 (opgenomen met `bun tools/fixtures/record.ts`; lange prozavelden mechanisch
-verwijderd op sleutelnaam, zie `captureNote`). De tellingen hieronder komen uit de
-capture van 2026-09-15; de records zelf zijn in de nieuwe opname opnieuw
-vastgelegd.
+verwijderd op sleutelnaam, zie `captureNote`). De tellingen hieronder zijn
+herteld tegen exact dit bestand (`fixtures/connectors/opdrachtoverheid/listing-live-2026-09-16.json`,
+400 records) met een read-only `bun`-script; geen enkel getal is geschat.
 
 | Opdrachtoverheid | `bron_specifiek` | Noot |
 |---|---|---|
 | `vacancies_location.province` (400/400), fallback `jobPosting.jobLocation.address.addressRegion` | `provincie` | Via `toCanonicalProvincie`; nooit uit een plaatsnaam afgeleid. |
-| `education_level_obj.education_level_label` | `opleidingsniveau` | "MBO"/"HBO"/"WO"; `"Onbekend"` (358/400) is de bron-eigen afwezigheidsmarker en blijft leeg. |
-| `tender_competences` → alleen de `<h3>Competenties</h3>`/`Vaardigheden`-lijst | `skills` | 92/400 records; de "Wensen"-lijst is gewogen prozavereisten (free text, GAP_ENRICH CTP-482) en wordt niet gelezen. |
-| `tender_hybrid_working === true` | `werkvorm: "Hybride"` | `false` ("Hybride werken: Nee") ontkent alleen hybride werken en zegt niets over de werkplek → blijft leeg. `remote_work_description` is 41/42 keer de placeholder "Geen verdere informatie" en wordt nooit als werkvorm-label gebruikt. |
-| `tender_min_hours` / `tender_max_hours` | `uren_min` / `uren_max` | **`0` is de lege marker van de API**, geen gepubliceerde nul-urenweek (44 resp. 39 van de 400 records, terwijl `tender_hours_week` het echte getal noemt). Nul telt als afwezig, zodat `tender_hours_week` wint. |
-| `contract_type` | `contract_type` | Bron-enum: `"temporary"` (217/400), `"detachering"` (120/400), leeg (63/400). Wordt onbewerkt doorgegeven; `"temporary"` staat niet in de web-allowlist (`apps/web/src/features/job-intelligence/rest/aanvraag-mapping.ts:103`) en rendert daardoor als Onbekend. |
+| `education_level_obj.education_level_label` | `opleidingsniveau` | "MBO"/"HBO"/"WO"; `"Onbekend"` (357/400) is de bron-eigen afwezigheidsmarker en blijft leeg. |
+| `tender_competences` → alleen de `<h3>Competenties</h3>`/`Vaardigheden`-lijst | `skills` | 94/400 records; de "Wensen"-lijst is gewogen prozavereisten (free text, GAP_ENRICH CTP-482) en wordt niet gelezen. |
+| `tender_hybrid_working === true` | `werkvorm: "Hybride"` | 2/400 records. `false` ("Hybride werken: Nee") ontkent alleen hybride werken en zegt niets over de werkplek → blijft leeg. `remote_work_description` is 42/43 keer de placeholder "Geen verdere informatie" (43/400 records hebben dit veld gevuld) en wordt nooit als werkvorm-label gebruikt. |
+| `tender_min_hours` / `tender_max_hours` | `uren_min` / `uren_max` | **`0` is de lege marker van de API**, geen gepubliceerde nul-urenweek (45 resp. 40 van de 400 records, terwijl `tender_hours_week` het echte getal noemt). Nul telt als afwezig, zodat `tender_hours_week` wint. |
+| `contract_type` | `contract_type` | Bron-enum: `"temporary"` (217/400), `"detachering"` (121/400), leeg (62/400). Wordt onbewerkt doorgegeven; `"temporary"` staat niet in de web-allowlist (`apps/web/src/features/job-intelligence/rest/aanvraag-mapping.ts:103`) en rendert daardoor als Onbekend. |
 | `tender_offline_date` | `sluitingsdatum` (draft) | Bevestigd tegen de detailpagina op 2026-09-15: "Sluitingsdatum 29 sept 2026" bij `tender_offline_date` `"2026-09-29 16:00:00"`. `tender_date` (dag erna, 07:00–12:00) en `jobPosting.validThrough` zijn geen sluitingsmoment. |
 
 ### Tenant / market coverage (CTP-532, VERIFIED 2026-09-16)

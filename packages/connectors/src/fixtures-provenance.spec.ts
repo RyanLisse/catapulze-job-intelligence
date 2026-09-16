@@ -6,16 +6,28 @@ import { fixturePath } from "./fixtures/load";
 
 /**
  * AGENTS.md "Fixtures are real recordings": `capturedAt` is the raw file's
- * real mtime in UTC. A date-only value or an exact midnight is a rounded
- * placeholder, and a fixture file that is not a JSON envelope carries no
- * capture metadata at all. Record new fixtures with tools/fixtures/record.ts.
+ * real mtime in UTC. A date-only value, an exact midnight, or any other
+ * value rounded to the hour (`:00:00.000Z`) is a placeholder, not a real
+ * mtime, and a fixture file that is not a JSON envelope carries no capture
+ * metadata at all. Record new fixtures with tools/fixtures/record.ts.
  */
 
-/** Pre-existing violations, each with a named follow-up. Keep empty. */
-const ALLOWLIST: ReadonlySet<string> = new Set<string>();
+/**
+ * Pre-existing violations, each with a named follow-up. Keep this as small
+ * as possible -- every entry here is a fixture whose provenance the guard
+ * cannot vouch for.
+ */
+const ALLOWLIST: ReadonlySet<string> = new Set<string>([
+  // Pre-existing recording; capture time rounded to the hour. Re-record when
+  // the tenderned source is next touched.
+  "tenderned/detail-pub-001.json",
+  // Pre-existing recording; capture time rounded to the hour. Re-record when
+  // the tenderned source is next touched.
+  "tenderned/listing-page-0.json",
+]);
 
 const FULL_UTC_TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/u;
-const MIDNIGHT = "T00:00:00.000Z";
+const HOUR_ROUNDED = /T\d{2}:00:00\.000Z$/u;
 
 const root = fixturePath();
 const files = readdirSync(root, { recursive: true, withFileTypes: true })
@@ -36,8 +48,8 @@ const provenanceProblem = (file: string): string | null => {
   if (!FULL_UTC_TIMESTAMP.test(capturedAt)) {
     return `capturedAt ${JSON.stringify(parsed.capturedAt)} is not a full UTC timestamp`;
   }
-  if (capturedAt.endsWith(MIDNIGHT)) {
-    return `capturedAt ${capturedAt} is a rounded midnight placeholder`;
+  if (HOUR_ROUNDED.test(capturedAt)) {
+    return `capturedAt ${capturedAt} is rounded to the hour`;
   }
   return null;
 };

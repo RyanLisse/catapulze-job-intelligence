@@ -241,7 +241,8 @@ const LIST_ITEM_PATTERN = /<li>(?<item>[\s\S]*?)<\/li>/gu;
  * block; each item still carries a `<span>` wrapper and possible entities). Empty
  * or absent input yields an empty list -- never invented entries. */
 /** Decodes the five predefined XML/HTML entities -- BlueTrail's "Competenties:"
- * list only ever needs `&amp;` (confirmed in the 2026-09-15 live capture). */
+ * list only ever needs `&amp;` (confirmed in the committed fixture
+ * `fixtures/connectors/bluetrail/detail-adviseur-privacy-ibd.json`). */
 const decodeBasicEntities = (text: string): string =>
   text
     .replaceAll("&amp;", "&")

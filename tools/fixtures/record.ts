@@ -14,16 +14,33 @@
  *     [--body '<json>'] [--strip <css selector>]... [--strip-key <key>]...
  *     [--strip-attr '<css selector>::<attribute>']...
  *     [--note <text>] [--raw-dir <dir>] [--from-raw <file>] [--no-defaults]
- *     [--out-dir <dir>]
+ *     [--content-type json|html] [--out-dir <dir>]
  *
  * `--no-defaults` drops DEFAULT_HTML_STRIP so only the named `--strip`
  * selectors apply -- for pages whose parser reads data inside one of the
  * defaults (Need Staffing's pagination lives in a `<nav>`).
  *
  * `--from-raw` re-trims an earlier recording without a second request; the
- * raw file's mtime (the original fetch time) stays the capturedAt.
+ * raw file's mtime (the original fetch time) stays the capturedAt. Whether a
+ * raw file is JSON or HTML is detected from its content (a `JSON.parse`
+ * probe), never from its extension -- a JSON endpoint answering with a
+ * missing or wrong `Content-Type`, or a `--from-raw` file named with the
+ * wrong extension, must not silently route through the wrong trimmer.
+ * `--content-type` overrides detection when a payload is ambiguous.
+ *
+ * A raw capture can hold PII, so it is written to a fresh, uniquely-named
+ * temp directory created with mode 0700, and each raw file is written with
+ * mode 0600. An explicit `--raw-dir` gets the same 0700 treatment when this
+ * tool is the one creating it.
  */
-import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
+import {
+  chmod,
+  mkdir,
+  mkdtemp,
+  readFile,
+  stat,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { parseArgs } from "node:util";
@@ -129,34 +146,59 @@ const formatCounts = (counts: Record<string, number>): string =>
 interface FetchRawInput {
   readonly body: string | undefined;
   readonly name: string;
-  readonly rawDirRoot: string;
+  /** `undefined` means "no explicit --raw-dir": get a fresh, uniquely-named
+   * 0700 temp directory rather than a fixed, predictable shared path. */
+  readonly rawDirRoot: string | undefined;
   readonly source: string;
   readonly url: string;
 }
 
+/** Resolves the directory a raw capture is written into, and locks it down:
+ * no explicit `--raw-dir` gets a unique `mkdtemp` root (POSIX guarantees mode
+ * 0700 regardless of umask); an explicit `--raw-dir` is chmodded to 0700 only
+ * when this call is the one that creates it, never a directory the caller
+ * already owns. */
+const resolveRawDir = async (
+  rawDirRoot: string | undefined,
+  source: string
+): Promise<string> => {
+  if (rawDirRoot === undefined) {
+    const uniqueRoot = await mkdtemp(path.join(tmpdir(), "ji-fixture-raw-"));
+    const rawDir = path.join(uniqueRoot, source);
+    await mkdir(rawDir, { mode: 0o700, recursive: true });
+    return rawDir;
+  }
+  const rawDir = path.join(rawDirRoot, source);
+  const created = await mkdir(rawDir, { recursive: true });
+  if (created !== undefined) {
+    await chmod(created, 0o700);
+  }
+  return rawDir;
+};
+
 /** One real request; the untouched response lands outside the repo, because a
  * raw page can hold PII that must never be committed. */
 const fetchRaw = async (input: FetchRawInput): Promise<string> => {
+  const isPost = input.body !== undefined;
   const headers = new Headers({ "User-Agent": USER_AGENT });
-  if (input.body) {
+  if (isPost) {
     headers.set("Content-Type", "application/json");
   }
   const response = await fetch(input.url, {
     body: input.body,
     headers,
-    method: input.body ? "POST" : "GET",
+    method: isPost ? "POST" : "GET",
   });
   if (!response.ok) {
     throw new Error(`${input.url} answered HTTP ${response.status}`);
   }
   const contentType = response.headers.get("content-type") ?? "";
-  const rawDir = path.join(input.rawDirRoot, input.source);
-  await mkdir(rawDir, { recursive: true });
+  const rawDir = await resolveRawDir(input.rawDirRoot, input.source);
   const rawPath = path.join(
     rawDir,
     `${input.name}.${contentType.includes("json") ? "json" : "html"}`
   );
-  await writeFile(rawPath, await response.text());
+  await writeFile(rawPath, await response.text(), { mode: 0o600 });
   return rawPath;
 };
 
@@ -197,10 +239,48 @@ const trimRaw = async (
   return { counts, payload: value, payloadBytes: Buffer.byteLength(value) };
 };
 
+/** Content decides JSON vs HTML, never a file extension -- a JSON endpoint
+ * with a missing/wrong `Content-Type`, or a `--from-raw` file named with the
+ * wrong extension, must still route through the matching trimmer. */
+const detectIsJson = (
+  rawText: string,
+  explicitContentType: string | undefined
+): boolean => {
+  if (explicitContentType !== undefined) {
+    if (explicitContentType !== "json" && explicitContentType !== "html") {
+      throw new Error(
+        `--content-type must be "json" or "html", got ${JSON.stringify(explicitContentType)}`
+      );
+    }
+    return explicitContentType === "json";
+  }
+  try {
+    JSON.parse(rawText);
+    return true;
+  } catch {
+    return false;
+  }
+};
+
 const REPO_FIXTURES_DIR = path.join(
   import.meta.dir,
   "../../fixtures/connectors"
 );
+const REPO_ROOT = path.resolve(import.meta.dir, "../..");
+
+/** Raw responses can carry PII and must never land in the repo (see the
+ * module docblock). `--raw-dir` is user-supplied, so refuse one that
+ * resolves inside the repository root instead of silently writing there. */
+const assertRawDirOutsideRepo = (rawDir: string): void => {
+  const resolved = path.resolve(rawDir);
+  const isInsideRepo =
+    resolved === REPO_ROOT || resolved.startsWith(`${REPO_ROOT}${path.sep}`);
+  if (isInsideRepo) {
+    throw new Error(
+      `--raw-dir ${rawDir} resolves inside the repository (${REPO_ROOT}); raw responses can carry PII and must be written outside the repo`
+    );
+  }
+};
 
 /** Records (or, with `--from-raw`, re-trims) one fixture and returns the
  * one-line summary. `--out-dir` defaults to the repo's fixtures/connectors. */
@@ -211,6 +291,7 @@ export const recordFixture = async (
     args: [...args],
     options: {
       body: { type: "string" },
+      "content-type": { type: "string" },
       "from-raw": { type: "string" },
       name: { type: "string" },
       "no-defaults": { type: "boolean" },
@@ -228,28 +309,37 @@ export const recordFixture = async (
   if (!(source && name && url)) {
     throw new Error("--source, --name and --url are required");
   }
+  if (values["raw-dir"]) {
+    assertRawDirOutsideRepo(values["raw-dir"]);
+  }
 
   const rawPath =
     values["from-raw"] ??
     (await fetchRaw({
       body,
       name,
-      rawDirRoot: values["raw-dir"] ?? path.join(tmpdir(), "ji-fixture-raw"),
+      rawDirRoot: values["raw-dir"],
       source,
       url,
     }));
   const rawText = await readFile(rawPath, "utf-8");
-  const isJson = rawPath.endsWith(".json");
+  const isJson = detectIsJson(rawText, values["content-type"]);
+  const stripKey = values["strip-key"] ?? [];
+  if (stripKey.length > 0 && !isJson) {
+    throw new Error(
+      `--strip-key given but ${rawPath} is not JSON (detected as HTML); pass --content-type json to override detection, or drop --strip-key`
+    );
+  }
   const rawStats = await stat(rawPath);
   const capturedAt = rawStats.mtime.toISOString();
   const trimmed = await trimRaw(rawText, isJson, {
     noDefaults: values["no-defaults"] ?? false,
     strip: values.strip ?? [],
     stripAttr: values["strip-attr"] ?? [],
-    stripKey: values["strip-key"] ?? [],
+    stripKey,
   });
 
-  const provenance = `Recorded by tools/fixtures/record.ts: ${body ? `POST ${body}` : "GET"} ${url}. Mechanically stripped (${isJson ? "keys" : "elements"}): ${formatCounts(trimmed.counts)}.`;
+  const provenance = `Recorded by tools/fixtures/record.ts: ${body === undefined ? "GET" : `POST ${body}`} ${url}. Mechanically stripped (${isJson ? "keys" : "elements"}): ${formatCounts(trimmed.counts)}.`;
   const fixture = {
     captureNote: note ? `${provenance} ${note}` : provenance,
     capturedAt,
