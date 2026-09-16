@@ -263,6 +263,99 @@ describe("parseJsonLdPayload -- Hero.eu (thin JobPosting, no label block)", () =
   });
 });
 
+describe("parseJsonLdPayload -- Bij Oranje", () => {
+  const payload: JsonLdFetchedPayload = {
+    jobPosting: {
+      "@type": "JobPosting",
+      baseSalary: {
+        "@type": "MonetaryAmount",
+        currency: "EUR",
+        value: { "@type": "QuantitativeValue", unitText: "HOUR", value: 0 },
+      },
+      datePosted: "2026-09-15",
+      description: "Data Analist BI voor OD NHN.",
+      employmentType: "CONTRACTOR",
+      hiringOrganization: { "@type": "Organization", name: "OD NHN" },
+      identifier: {
+        "@type": "PropertyValue",
+        name: "Bij Oranje",
+        value: "65099",
+      },
+      jobLocation: {
+        "@type": "Place",
+        address: {
+          "@type": "PostalAddress",
+          addressCountry: "NL",
+          addressRegion: "Noord-Holland",
+        },
+      },
+      title: "Data Analist",
+      validThrough: "2026-09-23T00:00:00+00:00",
+    },
+    labelBlock: {},
+    parserVersion: "bij-oranje/v1",
+    slug: "bij-oranje",
+    url: "https://www.bijoranje.nl/vacatures/onbekend/data-analist-noord-holland-65099",
+  };
+
+  it("normalises the sample's shared JSON-LD fields", () => {
+    const draft = parseJsonLdPayload(payload, HASH);
+
+    expect(draft.bronReferentie.value).toBe(
+      "vacatures/onbekend/data-analist-noord-holland-65099"
+    );
+    expect(draft.titel.value).toBe("Data Analist");
+    expect(draft.opdrachtgeverNaam.value).toBe("OD NHN");
+    expect(draft.bronSpecifiek.value).toMatchObject({
+      contract_type: "CONTRACTOR",
+      identifier: { name: "Bij Oranje", value: "65099" },
+      provincie: "Noord-Holland",
+      publicatiedatum: "2026-09-15",
+      slug: "bij-oranje",
+      valid_through: "2026-09-23T00:00:00+00:00",
+    });
+  });
+
+  it("does not promote the published zero HOUR placeholder to tarief", () => {
+    const draft = parseJsonLdPayload(payload, HASH);
+
+    expect(draft.tarief).toEqual({
+      eenheid: UNKNOWN,
+      max: UNKNOWN,
+      min: UNKNOWN,
+      valuta: "EUR",
+    });
+  });
+
+  it("still accepts a positive explicit base-salary amount", () => {
+    const draft = parseJsonLdPayload(
+      {
+        ...payload,
+        jobPosting: {
+          ...payload.jobPosting,
+          baseSalary: {
+            "@type": "MonetaryAmount",
+            currency: "EUR",
+            value: {
+              "@type": "QuantitativeValue",
+              unitText: "HOUR",
+              value: 95,
+            },
+          },
+        },
+      },
+      HASH
+    );
+
+    expect(draft.tarief).toEqual({
+      eenheid: "uur",
+      max: "95",
+      min: "95",
+      valuta: "EUR",
+    });
+  });
+});
+
 describe("parseJsonLdPayload -- Pro-Act IT (label block embedded in description text)", () => {
   const payload: JsonLdFetchedPayload = {
     jobPosting: {

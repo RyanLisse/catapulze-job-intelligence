@@ -140,6 +140,8 @@ const validThroughToClosingMoment = (
  * (BlueTrail's own probe doc, docs/sources/bluetrail.md, independently reaches the
  * same "niet overnemen" conclusion). `tarief` is derived only from the label-block
  * `tarief` field or the free-text description via `parseTariefFromText`.
+ * Non-positive base-salary amounts are also rejected: some sources, including Bij
+ * Oranje, publish `0` as a schema placeholder rather than a real rate.
  */
 
 const asFiniteNumber = (value: unknown): number | null => {
@@ -182,6 +184,9 @@ const tariefFromBaseSalary = (
   const min = asFiniteNumber(valueNode.minValue ?? valueNode.value);
   const max = asFiniteNumber(valueNode.maxValue ?? valueNode.value);
   if (min === null && max === null) {
+    return null;
+  }
+  if ((min !== null && min <= 0) || (max !== null && max <= 0)) {
     return null;
   }
   const eenheid = eenheidFromUnitText(unit);
