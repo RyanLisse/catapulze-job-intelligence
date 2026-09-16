@@ -28,6 +28,7 @@ import { unica } from "./unica";
 import { vattenfall } from "./vattenfall";
 import { volkerwessels } from "./volkerwessels";
 import { werkenVoorNederland } from "./werken-voor-nederland";
+import { zzpOpdrachten } from "./zzp-opdrachten";
 
 export type {
   CreateSourceConnectorInput,
@@ -66,6 +67,7 @@ export const SOURCES = {
   vattenfall,
   volkerwessels,
   "werken-voor-nederland": werkenVoorNederland,
+  "zzp-opdrachten": zzpOpdrachten,
 } as const satisfies Record<string, SourceDefinition>;
 
 export type SupportedBronSlug = keyof typeof SOURCES;

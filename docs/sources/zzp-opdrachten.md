@@ -1,0 +1,46 @@
+# ZZP-Opdrachten.nl — ingest-recept
+
+Status: **probe afgerond; connector toegevoegd** — adapter-categorie `json-ld`.
+De connector leest alleen de nieuwste sitemap-chunk en canonieke opdrachtpagina's.
+
+## Endpoints
+
+| Doel | URL | Opmerking |
+|---|---|---|
+| Sitemap-chunk | `GET https://www.zzp-opdrachten.nl/job-sitemap58.xml` | Nieuwste van 58 chunks; 730 `<url>`-entries. |
+| Sample detail | `https://www.zzp-opdrachten.nl/vacatures/vacature-jurist-707983/` | JobPosting JSON-LD, identifier `ZT57670`. |
+
+## Discovery en ATS
+
+De connector gebruikt bewust `job-sitemap58.xml`, niet `sitemap_index.xml`.
+De index wees deze chunk aan met `lastmod` `2026-09-16T13:55:11+00:00`.
+De client recurst niet in sitemap-indexen; daardoor ziet deze connector alleen
+de nieuwste chunk. Dat is een natuurlijke freshness window voor een rollend
+freelancebord met 58 historische chunks tot 2019, niet het volledige archief.
+Alleen de exacte vorm `/vacatures/vacature-<slug>-<id>/` blijft behouden.
+
+## Veldmapping → canoniek `aanvraag`
+
+| JobPosting JSON-LD | Canoniek | Provenance/noot |
+|---|---|---|
+| `title` | `titel` | Gepubliceerd; samples: `Jurist`, `Bouwprojectmanager`, `Woonfraude Specialist`. |
+| `description` | `beschrijving` | Gepubliceerde JobPosting-beschrijving. |
+| Detail-URL | `bron_referentie` / `bronUrl` | De door de connector gefetchte detail-URL. |
+| `identifier.value` | `bronSpecifiek.identifier.value` | `ZT57670`, `ZT57681`, `ZT58329`. |
+| `datePosted` | `bronSpecifiek.publicatiedatum` | Gepubliceerd; respectievelijk 2026-09-01, 2026-09-01 en 2026-09-15. |
+| `validThrough` | sluitingsmoment/status | Gepubliceerd: 2026-09-05, 2026-09-07 en 2026-09-26. |
+| `employmentType` | `bronSpecifiek.contract_type` | Gepubliceerd als `TEMPORARY`; de bron levert een array. |
+| `baseSalary.value.value` + `unitText` | `tarief` | EUR per uur: 80,75; 131,75; 85,00. |
+| `hiringOrganization.name` | `opdrachtgeverNaam` | `ZZP Opdrachten` is de broker/board, niet de eindklant. `eindklant_naam` blijft UNKNOWN volgens de bestaande gedeelde regel; er is geen expliciet `eindklant`-veld. |
+| `jobLocation.address.addressLocality` / `addressRegion` | `locatieTekst` | Maarssen/Utrecht, Heerenveen/Friesland, Haarlem/North Holland. |
+| `jobLocation.address.addressCountry` | `locatieLand` | Gepubliceerd als `Nederland`; overige ongebruikte adresvelden blijven bronpayload. |
+
+## Robots, crawl delay en known hashes
+
+`robots.txt` bevat voor ClaudeBot `Crawl-delay: 35`. De seed gebruikt desondanks
+de uniforme repositorywaarde van 2000 ms. De fixture-captures zijn:
+listing `2026-09-16T20:12:35.407Z`, jurist `2026-09-16T20:12:45.616Z`,
+bouwprojectmanager `2026-09-16T20:13:08.775Z`, woonfraude `2026-09-16T20:13:25.627Z`.
+
+`listingHashCoversDetail: false`: sitemapmetadata bevat alleen URL/lastmod en
+niet de JobPosting-body. Known hashes worden daarom niet doorgegeven.

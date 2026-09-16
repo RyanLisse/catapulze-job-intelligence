@@ -23,15 +23,16 @@ export { werkenVoorNederlandConfig } from "./configs/werken-voor-nederland";
 export { nationaleVacaturebankConfig } from "./configs/nationalevacaturebank";
 export { werkzoekenConfig } from "./configs/werkzoeken";
 export { bamConfig } from "./configs/bam";
+export { enecoConfig } from "./configs/eneco";
 export { haysConfig } from "./configs/hays";
 export { heijmansConfig } from "./configs/heijmans";
+export { nsConfig } from "./configs/ns";
 export { randstadConfig } from "./configs/randstad";
 export { rijkswaterstaatConfig } from "./configs/rijkswaterstaat";
-export { vattenfallConfig } from "./configs/vattenfall";
-export { enecoConfig } from "./configs/eneco";
 export { unicaConfig } from "./configs/unica";
-export { nsConfig } from "./configs/ns";
+export { vattenfallConfig } from "./configs/vattenfall";
 export { volkerwesselsConfig } from "./configs/volkerwessels";
+export { zzpOpdrachtenConfig } from "./configs/zzp-opdrachten";
 export {
   extractJobPosting,
   extractJsonLdNodes,
