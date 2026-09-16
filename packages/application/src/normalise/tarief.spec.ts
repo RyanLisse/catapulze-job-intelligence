@@ -80,6 +80,41 @@ describe("tarief parser regressions (bugbot)", () => {
       max: "450",
     });
   });
+
+  it("does not mine a date after operationaliseren as a rate", () => {
+    expect(
+      parseTariefFromText(
+        "Het daadwerkelijk operationaliseren van deze functie levert 31-12-2026 op."
+      )
+    ).toEqual({
+      eenheid: UNKNOWN,
+      max: UNKNOWN,
+      min: UNKNOWN,
+      valuta: "EUR",
+    });
+  });
+
+  it("does not mine a duration after strategische as a rate", () => {
+    expect(
+      parseTariefFromText("Er is strategische ruimte voor 2–3 jaar.")
+    ).toEqual({
+      eenheid: UNKNOWN,
+      max: UNKNOWN,
+      min: UNKNOWN,
+      valuta: "EUR",
+    });
+  });
+
+  it("does not mine a headcount range without rate context", () => {
+    expect(
+      parseTariefFromText("Je geeft leiding aan een team van 10-15.")
+    ).toEqual({
+      eenheid: UNKNOWN,
+      max: UNKNOWN,
+      min: UNKNOWN,
+      valuta: "EUR",
+    });
+  });
 });
 
 describe("parseTariefFromText salaris vs inhuur tarief", () => {

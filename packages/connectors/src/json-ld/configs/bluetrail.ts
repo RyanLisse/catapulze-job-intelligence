@@ -12,12 +12,18 @@ export const bluetrailConfig: JsonLdConnectorConfig = {
   detailFixtures: {
     "https://www.bluetrail.nl/opdrachten/Interim/adviseur-privacy-ibd/":
       "bluetrail/detail-adviseur-privacy-ibd.json",
+    "https://www.bluetrail.nl/opdrachten/Interim/adviseur-security-privacy/":
+      "bluetrail/detail-adviseur-security-privacy-2026-09-16.json",
     "https://www.bluetrail.nl/opdrachten/Interim/architect-ict-en-informatielandschap/":
       "bluetrail/detail-architect-ict-en-informatielandschap-2026-09-16.json",
     "https://www.bluetrail.nl/opdrachten/Interim/ciam-tester/":
       "bluetrail/detail-1.json",
+    "https://www.bluetrail.nl/opdrachten/Interim/ontwikkelmanager/":
+      "bluetrail/detail-ontwikkelmanager-2026-09-16.json",
     "https://www.bluetrail.nl/opdrachten/Interim/systeembeheerder/":
       "bluetrail/detail-2.json",
+    "https://www.bluetrail.nl/opdrachten/Interim/teamlead-procesbeschrijver-sr/":
+      "bluetrail/detail-teamlead-procesbeschrijver-sr-2026-09-16.json",
   },
   discovery: {
     kind: "sitemap",

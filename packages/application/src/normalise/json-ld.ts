@@ -138,8 +138,11 @@ const validThroughToClosingMoment = (
  * `{"value":"100"}` -- a fixed Google-for-Jobs filler, not a real rate, published
  * with unitText "", "UUR" or "HOUR" alike (`PLACEHOLDER_BASE_SALARY_SLUGS`)
  * (BlueTrail's own probe doc, docs/sources/bluetrail.md, independently reaches the
- * same "niet overnemen" conclusion). `tarief` is derived only from the label-block
- * `tarief` field or the free-text description via `parseTariefFromText`.
+ * same "niet overnemen" conclusion). For these sources, `tarief` is derived only
+ * from a present label-block `tarief` field; the description is never mined because
+ * ordinary vacancy prose contains date, duration and headcount ranges that are not
+ * rates. Other sources may still use their label-block field or description via
+ * `parseTariefFromText`.
  * Non-positive base-salary amounts are also rejected: some sources, including Bij
  * Oranje, publish `0` as a schema placeholder rather than a real rate.
  */
@@ -321,11 +324,10 @@ export const parseJsonLdPayload = (
     : jobPosting.jobLocation;
   const jobLocationAddress = asNode(asNode(firstJobLocation)?.address);
   const startDatum = parseDutchDate(labelBlock.startDatum);
-  const tarief =
-    (PLACEHOLDER_BASE_SALARY_SLUGS.has(payload.slug)
-      ? null
-      : tariefFromBaseSalary(jobPosting)) ??
-    parseTariefFromText(labelBlock.tarief ?? descriptionText);
+  const tarief = PLACEHOLDER_BASE_SALARY_SLUGS.has(payload.slug)
+    ? parseTariefFromText(labelBlock.tarief ?? "")
+    : (tariefFromBaseSalary(jobPosting) ??
+      parseTariefFromText(labelBlock.tarief ?? descriptionText));
   // Only BlueTrail's label block ever carries `sluitingsDatum` (its
   // "Sluitingsdatum" sidebar field, Dutch text like "2 september 2026" --
   // confirmed to agree exactly with its own `jobPosting.validThrough` in a
