@@ -217,6 +217,10 @@ describe("Needstaffing HTML parsing", () => {
   });
 });
 
+/** Complete page recorded 2026-09-16 with tools/fixtures/record.ts; every
+ * row has its own detail recording (NEEDSTAFFING_DETAIL_FIXTURES). */
+const LIVE_LISTING_FIXTURE = "needstaffing/listing-live-2026-09-16.json";
+
 describe("Needstaffing real fixtures", () => {
   it("parses the real recorded listing fixture, including periode and pagination", async () => {
     const fixture = await loadConnectorFixture<string>(
@@ -228,52 +232,70 @@ describe("Needstaffing real fixtures", () => {
       id: "15520",
       periode: "4 maanden",
     });
-    // Joborder 15570 (added to this fixture so it's reachable from the
-    // e2e evidence run's discover() -> fetch() walk, not just from the
-    // standalone parseNeedstaffingDetail spec above) carries a real
-    // werkvorm split at the listing level too.
-    expect(listing.items[1]).toMatchObject({
-      id: "15570",
+  });
+
+  it("parses the 2026-09-16 live listing recording: full page, pagination, werkvorm split", async () => {
+    const fixture = await loadConnectorFixture<string>(LIVE_LISTING_FIXTURE);
+    const listing = await parseNeedstaffingListing(fixture.payload);
+    expect(listing.hasNextPage).toBe(true);
+    expect(listing.items).toHaveLength(20);
+    expect(listing.items[0]).toMatchObject({
+      id: "15574",
+      periode: "3 maanden (met optie tot verlenging)",
+    });
+    // Joborder 15599 carries a real werkvorm split at the listing level too
+    // ("Den Haag/Hybride"), and is the row the detail specs below parse.
+    expect(listing.items.find((item) => item.id === "15599")).toMatchObject({
+      id: "15599",
       locatie: "Den Haag",
       werkvorm: "Hybride",
     });
   });
 
-  it("resolves joborder 15570's detail fetch to the fuller live capture (fixture-mode default client)", async () => {
+  it("resolves joborder 15599's detail fetch to its own live capture (fixture-mode default client)", async () => {
     const client = createNeedstaffingClient({ liveEnabled: false });
-    const detailHtml = await client.fetchDetailHtml("15570");
-    expect(detailHtml).toContain("Senior Procesregisseur");
+    const detailHtml = await client.fetchDetailHtml("15599");
+    expect(detailHtml).toContain("Business Analist");
     expect(detailHtml).not.toContain("vacancy-contact-info");
   });
 
-  it("parses the fuller live detail capture (2026-09-15, joborder 15570): werkvorm split from Locatie, uren with unit suffix, competenties list", async () => {
+  it("parses the live detail capture (2026-09-16, joborder 15599): werkvorm split from Locatie, uren with unit suffix, competenties list", async () => {
     const fixture = await loadConnectorFixture<string>(
-      "needstaffing/detail-15570-full-2026-09-15.json"
+      "needstaffing/detail-15599.json"
     );
-    const detail = await parseNeedstaffingDetail(fixture.payload, "15570");
+    const detail = await parseNeedstaffingDetail(fixture.payload, "15599");
     expect(detail).toMatchObject({
       competenties: [
-        "Samenwerken",
+        "Eigenaarschap",
         "Overtuigingskracht",
-        "Omgevingssensitiviteit",
-        "Resultaatgerichtheid",
+        "Inhoudelijke scherpte",
+        "Analytisch sterk",
+        "Hands-on en praktisch ingesteld",
+        "Een echte doener",
+        "Goede teamspeler",
+        "Communicatief vaardig",
+        "Proactief",
+        "Zelfstandig",
+        "Nuchter en no-nonsense",
+        "Snel kunnen schakelen",
+        "In staat om een organisatie snel te doorgronden",
       ],
       locatie: "Den Haag",
-      periode: "3 maanden (optie 1x verlenging)",
-      uren: "36 uur",
+      periode: "12 maanden",
+      uren: "36u",
       werkvorm: "Hybride",
     });
   });
 
-  it("DEC-008: the fuller live detail capture has no recruiter name/phone/email", async () => {
+  it("DEC-008: the live detail capture has no recruiter name/phone/email", async () => {
     const fixture = await loadConnectorFixture<string>(
-      "needstaffing/detail-15570-full-2026-09-15.json"
+      "needstaffing/detail-15599.json"
     );
     // Shape-only assertions -- asserting the real recruiter's name/number/
     // email here would put the exact PII this test exists to keep out
     // directly into the spec source (advisor review). The sanitized
     // contact block is gone entirely, no mobile-shaped number remains, and
-    // the only surviving mailto is the site's own generic address.
+    // no mailto survives at all on this capture.
     expect(fixture.payload).not.toContain("vacancy-contact-info");
     expect(fixture.payload).not.toMatch(/\b06\d{8}\b/u);
     expect(fixture.payload).not.toMatch(/mailto:(?!info@needstaffing\.nl)/u);

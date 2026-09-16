@@ -24,7 +24,7 @@ Status: **connector gebouwd** (`packages/connectors/src/json-ld/configs/bluetrai
 | labels `Startdatum`, `Einddatum` | `startdatum`, `einddatum` | Zichtbare detailtabel. |
 | label `Sluitingsdatum` | `sluitingsdatum` | Zichtbare detailtabel. |
 | `jobLocation.address.addressRegion` | `provincie` | JobPosting-detail; canonieke provincienaam, zichtbaar bevestigd (o.a. "Gelderland", "Zuid-Holland" in live captures). |
-| lijst "Wat wordt er van jou gevraagd? › Competenties:" | `skills` | Alleen deze lijst is tag-achtig gestructureerd (bevestigd in live capture 2026-09-15, `detail-adviseur-privacy-ibd`). "Eisen"/"Wensen" op dezelfde pagina zijn volledige zinnen, niet gemapt (zou vrije-tekstmining zijn). |
+| lijst "Wat wordt er van jou gevraagd? › Competenties:" | `skills` | Alleen deze lijst is tag-achtig gestructureerd (bevestigd in live capture 2026-09-16, `detail-adviseur-privacy-ibd.json`). "Eisen"/"Wensen" op dezelfde pagina zijn volledige zinnen, niet gemapt (zou vrije-tekstmining zijn). |
 | `baseSalary` | **niet overnemen** | Constante opvulwaarde `100`, ongeacht `unitText` (live 2026-09-16, 129 opdrachten: `""` 45, `UUR` 52, `HOUR` 32). Tarief ontbreekt zichtbaar. |
 
 Opleidingsniveau (F14) is in de live capture van 2026-09-15 nergens als waarde

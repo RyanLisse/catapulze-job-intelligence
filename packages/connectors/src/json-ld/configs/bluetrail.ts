@@ -11,7 +11,7 @@ import type { JsonLdConnectorConfig } from "../types";
 export const bluetrailConfig: JsonLdConnectorConfig = {
   detailFixtures: {
     "https://www.bluetrail.nl/opdrachten/Interim/adviseur-privacy-ibd/":
-      "bluetrail/detail-adviseur-privacy-ibd-2026-09-15.json",
+      "bluetrail/detail-adviseur-privacy-ibd.json",
     "https://www.bluetrail.nl/opdrachten/Interim/architect-ict-en-informatielandschap/":
       "bluetrail/detail-architect-ict-en-informatielandschap-2026-09-16.json",
     "https://www.bluetrail.nl/opdrachten/Interim/ciam-tester/":

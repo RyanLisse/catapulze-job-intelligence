@@ -242,15 +242,16 @@ describe("parseJsonLdPayload -- BlueTrail (label block in surrounding HTML, base
       title: "CIAM Tester",
     },
     labelBlock: {
-      // Real "Competenties:" <ul> inner HTML, captured live 2026-09-15
-      // (fixtures/connectors/bluetrail/detail-adviseur-privacy-ibd-2026-09-15.json).
+      // Real "Competenties:" <ul> inner HTML, verbatim from the live
+      // recording (fixtures/connectors/bluetrail/detail-adviseur-privacy-ibd.json,
+      // captured 2026-09-16) -- including the source's own "<span >" spacing.
       competenties:
-        "<li><span>Analytisch &amp; conceptueel sterk</span></li>" +
-        "<li><span>Communicatief en verbindend</span></li>" +
-        "<li><span>Organisatiesensitief</span></li>" +
-        "<li><span>Overtuigingskracht</span></li>" +
-        "<li><span>Zelfstandig, maar teamgericht</span></li>" +
-        "<li><span>Sterke schrijfvaardigheid</span></li>",
+        "<li><span >Analytisch &amp; conceptueel sterk</span></li>" +
+        "<li><span >Communicatief en verbindend</span></li>" +
+        "<li><span >Organisatiesensitief</span></li>" +
+        "<li><span >Overtuigingskracht</span></li>" +
+        "<li><span >Zelfstandig, maar teamgericht</span></li>" +
+        "<li><span >Sterke schrijfvaardigheid</span></li>",
       eindDatum: "31 december 2026",
       locatie: "Apeldoorn",
       referentienummer: "2026-08243",

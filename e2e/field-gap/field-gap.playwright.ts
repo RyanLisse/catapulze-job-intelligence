@@ -8,6 +8,13 @@ import type { Page } from "@playwright/test";
  * /jobs?job=<id> and asserts the commercial fields the lanes fixed. Every id
  * below is a row that travelled the real pipeline (fixture -> connector ->
  * normalise -> curate -> Postgres -> REST -> web); nothing is stubbed.
+ *
+ * Seeding (`poll-bron-smoke --test-import`) reads only each source's
+ * `listing-page-0.json`, and the read API cannot filter by bron_referentie, so
+ * ids stay hardcoded from the seeded run. Records that exist only in the
+ * 2026-09-16 live recordings (Need Staffing 15599, Opdrachtoverheid
+ * 2177/2123) are proven by the fixture -> connector -> normalise pipeline
+ * specs instead (needstaffing.spec.ts, opdrachtoverheid.spec.ts).
  */
 
 const SHOTS = path.resolve(
@@ -109,23 +116,6 @@ const CASES: readonly Case[] = [
     title: "Operationeel Database Ontwikkelaar 2026-BZB-0457",
   },
   {
-    bron: "needstaffing-15570",
-    claims: [
-      { label: "Werkvorm", value: "Hybride" },
-      { label: "Uren per week", value: "36" },
-      { label: "Looptijd", value: "3 maanden (optie 1x verlenging)" },
-    ],
-    id: "0658d134-f0ce-478c-8996-b274a19c527f",
-    reference: "15570",
-    skills: [
-      "Samenwerken",
-      "Overtuigingskracht",
-      "Omgevingssensitiviteit",
-      "Resultaatgerichtheid",
-    ],
-    title: "Senior Procesregisseur Digitale Gegevensuitwisseling 202609A077",
-  },
-  {
     bron: "harveynash",
     claims: [
       { label: "Provincie", value: "Utrecht" },
@@ -173,45 +163,6 @@ const CASES: readonly Case[] = [
     id: "7ac990cb-97c8-42ae-95c7-f538eaecd77c",
     reference: "amstelveenhuurtin_1457",
     title: "609 - Schuldhulpverlener",
-  },
-  {
-    bron: "opdrachtoverheid-2177",
-    claims: [
-      { label: "Provincie", value: "Noord-Holland" },
-      { label: "Uren per week", value: "32" },
-      { label: "Contract", value: "Detachering" },
-      { label: "Opleiding", value: "MBO" },
-    ],
-    id: "dc361c1d-6669-4e58-84d5-6a179b97a599",
-    reference: "amstelveenhuurtin_2177",
-    skills: [
-      "Nauwkeurig",
-      "Communicatief vaardig",
-      "Bestuurlijk sensitief",
-      "Plannen en organiseren",
-      "Zelfstandig",
-    ],
-    title: "Junior projectleider energietransitie (SO26-1658)",
-  },
-  {
-    bron: "opdrachtoverheid-2123",
-    claims: [
-      { label: "Provincie", value: "Noord-Holland" },
-      { label: "Uren per week", value: "16\u201324" },
-      { label: "Contract", value: "Interim" },
-    ],
-    id: "d0b9765c-3eea-42ae-af1f-5147b8e9223f",
-    reference: "amstelveenhuurtin_2123",
-    skills: [
-      "Klantgerichtheid",
-      "Resultaatgerichtheid",
-      "Onderhandelen",
-      "Analytisch vermogen",
-      "Bestuurlijke sensitiviteit",
-      "Organisatiegericht",
-      "Besluitvaardigheid",
-    ],
-    title: "Senior juridisch adviseur Grondzaken (Nieuw Legmeer) - SO26-1614",
   },
   {
     bron: "motian-flextender",

@@ -11,7 +11,10 @@ import { loadConnectorFixture } from "../fixtures/load";
 import { parseNeedstaffingListing } from "./client";
 import type { NeedstaffingClient, NeedstaffingClientOptions } from "./client";
 import type { NeedstaffingListingPage } from "./types";
-import { NEEDSTAFFING_OPDRACHTEN_PATH } from "./types";
+import {
+  NEEDSTAFFING_DETAIL_FIXTURES,
+  NEEDSTAFFING_OPDRACHTEN_PATH,
+} from "./types";
 
 const DEFAULT_BASE_URL = "https://www.needstaffing.nl";
 
@@ -85,10 +88,7 @@ export const fetchDetailHtmlEffect = (
   options: NeedstaffingEffectClientOptions,
   id: string
 ): Effect.Effect<string, ReadIoFault> => {
-  const detailFixtures = options.detailFixtures ?? {
-    "15520": "needstaffing/detail-15520.json",
-    "15570": "needstaffing/detail-15570-full-2026-09-15.json",
-  };
+  const detailFixtures = options.detailFixtures ?? NEEDSTAFFING_DETAIL_FIXTURES;
   const baseUrl = options.baseUrl ?? DEFAULT_BASE_URL;
 
   if (!isLive(options)) {

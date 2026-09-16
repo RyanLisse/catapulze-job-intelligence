@@ -12,39 +12,54 @@ import {
 } from "./opdrachtoverheid";
 
 /**
- * Real `POST /search` records captured live on 2026-09-15 (CTP-526), together
- * with the JobPosting JSON-LD from each detail page. Three cases:
+ * Three real `POST /search` records, read straight out of the committed live
+ * recording (`fixtures/connectors/opdrachtoverheid/listing-live-2026-09-16.json`,
+ * captured 2026-09-16) instead of a hand-assembled sample file -- AGENTS.md
+ * "fixtures are real recordings". `jobPosting` is null here: every assertion
+ * below is about the tender row's own fields.
  *
- * - `zero`: `tender_min_hours`/`tender_max_hours` are `0` while
- *   `tender_hours_week` states "32" -- the CTP-526 uren defect.
- * - `range`: real `16`/`24` bounds, no education level, no hybrid flag.
- * - `bare`: nothing published beyond the basics (no closing date, no
- *   competences, no detail page) -- the honesty case.
+ * - `zero` (amstelveenhuurtin_2177): `tender_min_hours`/`tender_max_hours`
+ *   are `0` while `tender_hours_week` states "32" -- the CTP-526 uren defect.
+ * - `range` (amstelveenhuurtin_2123): real `16`/`24` bounds, no education
+ *   level, no hybrid flag.
+ * - `bare` (amstelveenhuurtin_2150): nothing published beyond the basics (no
+ *   closing date, no competences, no contract type) -- the honesty case.
  */
-interface OpdrachtoverheidSampleFile {
-  readonly samples: readonly ({
-    readonly case: string;
-  } & OpdrachtoverheidFetchedPayload)[];
+const SAMPLE_TENDER_IDS = {
+  bare: "amstelveenhuurtin_2150",
+  range: "amstelveenhuurtin_2123",
+  zero: "amstelveenhuurtin_2177",
+} as const;
+
+type SampleCase = keyof typeof SAMPLE_TENDER_IDS;
+
+interface OpdrachtoverheidListingFixture {
+  readonly payload: {
+    readonly negometrix_tenders: readonly OpdrachtoverheidFetchedPayload["tender"][];
+  };
 }
 
-// SAFETY: repo-owned fixture captured from the source and committed alongside
-// this spec; the per-case lookup below throws when a case is missing.
-const SAMPLES = JSON.parse(
+// SAFETY: repo-owned fixture recorded from the source; the per-case lookup
+// below throws when a record is missing.
+const LISTING = JSON.parse(
   readFileSync(
     path.join(
       import.meta.dir,
-      "../../../../fixtures/connectors/opdrachtoverheid/normalise-samples-2026-09-15.json"
+      "../../../../fixtures/connectors/opdrachtoverheid/listing-live-2026-09-16.json"
     ),
     "utf-8"
   )
-) as OpdrachtoverheidSampleFile;
+) as OpdrachtoverheidListingFixture;
 
-const sample = (name: string): OpdrachtoverheidFetchedPayload => {
-  const found = SAMPLES.samples.find((entry) => entry.case === name);
+const sample = (name: SampleCase): OpdrachtoverheidFetchedPayload => {
+  const tenderId = SAMPLE_TENDER_IDS[name];
+  const found = LISTING.payload.negometrix_tenders.find(
+    (entry) => entry?.tender_id === tenderId
+  );
   if (!found) {
-    throw new Error(`missing opdrachtoverheid sample case: ${name}`);
+    throw new Error(`missing opdrachtoverheid sample record: ${tenderId}`);
   }
-  return { jobPosting: found.jobPosting, tender: found.tender };
+  return { jobPosting: null, tender: found };
 };
 
 const bronSpecifiekOf = (
@@ -55,7 +70,7 @@ const bronSpecifiekOf = (
   parseOpdrachtoverheidPayload(payload, "hash").bronSpecifiek
     .value as OpdrachtoverheidBronSpecifiek;
 
-const bronSpecifiek = (name: string): OpdrachtoverheidBronSpecifiek =>
+const bronSpecifiek = (name: SampleCase): OpdrachtoverheidBronSpecifiek =>
   // SAFETY: `resolveBronSpecifiek` builds exactly this shape; the draft field
   // only widens it to `JsonValue` for storage.
   parseOpdrachtoverheidPayload(sample(name), "hash").bronSpecifiek
@@ -193,7 +208,7 @@ describe("opdrachtoverheid pipeline (fixture listing -> connector -> normalise)"
   it("carries the published education level and competences through the connector projection", async () => {
     const connector = opdrachtoverheid.createConnector({
       bronId: opdrachtoverheid.bronId,
-      listingFixturePath: "opdrachtoverheid/listing-page-0.json",
+      listingFixturePath: "opdrachtoverheid/listing-live-2026-09-16.json",
       live: false,
       runKind: "test",
     });
