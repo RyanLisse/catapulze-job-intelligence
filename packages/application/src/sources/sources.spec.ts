@@ -33,7 +33,7 @@ describe("source registry", () => {
   });
 
   it("returns undefined for an unknown naam", () => {
-    expect(resolveSourceByNaam("Werken voor Nederland")).toBeUndefined();
+    expect(resolveSourceByNaam("not a registered source")).toBeUndefined();
   });
 
   it("gives every source a unique bronId (a shared id cross-contaminates known-hashes and observations)", () => {
