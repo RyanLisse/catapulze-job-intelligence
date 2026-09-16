@@ -4,6 +4,7 @@ import { runUseCasePromise, UseCaseValidationFault } from "../effect";
 import type { RunUseCaseOptions, UseCaseFault } from "../effect";
 import { normaliseCtmObservation } from "./ctm";
 import { normaliseFlinterObservation } from "./flinter";
+import { normaliseFreelancerNlObservation } from "./freelancer-nl";
 import { normaliseHarveyNashObservation } from "./harveynash";
 import { normaliseInhuurdeskObservation } from "./inhuurdesk";
 import { normaliseJsonLdObservation } from "./json-ld";
@@ -70,6 +71,10 @@ export const normaliseFlinterObservationEffect = wrapNormalise(
   "normaliseFlinterObservation",
   normaliseFlinterObservation
 );
+export const normaliseFreelancerNlObservationEffect = wrapNormalise(
+  "normaliseFreelancerNlObservation",
+  normaliseFreelancerNlObservation
+);
 export const normaliseHarveyNashObservationEffect = wrapNormalise(
   "normaliseHarveyNashObservation",
   normaliseHarveyNashObservation
@@ -121,6 +126,9 @@ export const runNormaliseStriiveObservation = runNormalise(
 );
 export const runNormaliseFlinterObservation = runNormalise(
   normaliseFlinterObservationEffect
+);
+export const runNormaliseFreelancerNlObservation = runNormalise(
+  normaliseFreelancerNlObservationEffect
 );
 export const runNormaliseHarveyNashObservation = runNormalise(
   normaliseHarveyNashObservationEffect

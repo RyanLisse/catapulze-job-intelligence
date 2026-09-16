@@ -10,6 +10,10 @@ export {
   parseInhuurdeskPayload,
 } from "./inhuurdesk";
 export {
+  normaliseFreelancerNlObservation,
+  parseFreelancerNlPayload,
+} from "./freelancer-nl";
+export {
   parseTariefFromText,
   tariefToSnapshot,
   unknownTariefSnapshot,
@@ -45,6 +49,7 @@ export {
 export {
   normaliseCtmObservationEffect,
   normaliseFlinterObservationEffect,
+  normaliseFreelancerNlObservationEffect,
   normaliseHarveyNashObservationEffect,
   normaliseInhuurdeskObservationEffect,
   normaliseJsonLdObservationEffect,
@@ -55,6 +60,7 @@ export {
   normaliseTenderNedObservationEffect,
   runNormaliseCtmObservation,
   runNormaliseFlinterObservation,
+  runNormaliseFreelancerNlObservation,
   runNormaliseHarveyNashObservation,
   runNormaliseInhuurdeskObservation,
   runNormaliseJsonLdObservation,
