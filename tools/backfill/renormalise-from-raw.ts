@@ -172,6 +172,7 @@ export interface StoredRenormaliseRow {
   readonly bronReferentie: string;
   readonly bronSpecifiek: BronSpecifiekRecord;
   readonly contentHash: string;
+  readonly laatstGezienOp: Date;
   readonly rawPayloadRef: string;
   readonly startDatum: string | null;
   readonly urenPerWeek: string | null;
@@ -348,6 +349,7 @@ interface CandidateRow {
   readonly bronReferentie: string;
   readonly bronSpecifiek: unknown;
   readonly contentHash: string;
+  readonly laatstGezienOp: Date;
   readonly rawPayloadRef: string;
   readonly startDatum: string | null;
   readonly urenPerWeek: string | null;
@@ -359,6 +361,7 @@ const toStored = (row: CandidateRow): StoredRenormaliseRow => ({
   bronReferentie: row.bronReferentie,
   bronSpecifiek: asBronSpecifiekRecord(row.bronSpecifiek),
   contentHash: row.contentHash,
+  laatstGezienOp: row.laatstGezienOp,
   rawPayloadRef: row.rawPayloadRef,
   startDatum: row.startDatum,
   urenPerWeek: row.urenPerWeek,
@@ -376,6 +379,7 @@ const selectCandidates = async (
       bron_referentie AS "bronReferentie",
       bron_specifiek AS "bronSpecifiek",
       content_hash AS "contentHash",
+      laatst_gezien_op AS "laatstGezienOp",
       raw_payload_ref AS "rawPayloadRef",
       start_datum AS "startDatum",
       uren_per_week AS "urenPerWeek"
@@ -582,7 +586,9 @@ export const runRenormaliseFromRaw = async (
       }
       let draft: NormalisedAanvraagDraft;
       try {
-        draft = SOURCES[slug].normalise(raw.body, stored.contentHash);
+        draft = SOURCES[slug].normalise(raw.body, stored.contentHash, {
+          observedAt: stored.laatstGezienOp,
+        });
       } catch {
         rejected += 1;
         if (samples.length < 10) {

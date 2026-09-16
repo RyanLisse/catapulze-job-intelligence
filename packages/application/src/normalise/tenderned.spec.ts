@@ -42,6 +42,8 @@ const buildPayload = (
 };
 
 describe("parseTenderNedPayload", () => {
+  const observedAt = new Date("2026-09-01T12:00:00.000Z");
+
   it("maps the real Platform engineer Azure DAS publication into the normalised draft", () => {
     const draft = parseTenderNedPayload(buildPayload(), "hash-1");
 
@@ -51,8 +53,56 @@ describe("parseTenderNedPayload", () => {
     expect(draft.locatieTekst.value).toBe("Groot-Amsterdam");
   });
 
-  it("leaves sluitingsdatum undefined -- CTP-525 F13 NOT-FIXABLE-HERE (no fetch instant reaches this normaliser)", () => {
-    const draft = parseTenderNedPayload(buildPayload(), "hash-2");
+  it("derives sluitingsdatum from observedAt and a positive countdown (CTP-531)", () => {
+    const draft = parseTenderNedPayload(
+      buildPayload({ numberOfDaysBeforeAanmeldenInschrijven: 10 }),
+      "hash-2",
+      { observedAt }
+    );
+    expect(draft.sluitingsdatum).toEqual(new Date("2026-09-11T12:00:00.000Z"));
+  });
+
+  it("does not invent a deadline from publicatieDatum (CTP-531 honesty)", () => {
+    const draft = parseTenderNedPayload(
+      buildPayload({
+        numberOfDaysBeforeAanmeldenInschrijven: 10,
+        publicatieDatum: "2026-08-12T12:00:00.000Z",
+      }),
+      "hash-2-publicatie",
+      { observedAt }
+    );
+    expect(draft.sluitingsdatum).toEqual(new Date("2026-09-11T12:00:00.000Z"));
+  });
+
+  it("leaves sluitingsdatum undefined when the countdown is zero", () => {
+    const draft = parseTenderNedPayload(
+      buildPayload({ numberOfDaysBeforeAanmeldenInschrijven: 0 }),
+      "hash-2-zero",
+      { observedAt }
+    );
+    expect(draft.sluitingsdatum).toBeUndefined();
+  });
+
+  it("leaves sluitingsdatum undefined for missing, invalid, or negative days", () => {
+    for (const [days, hash] of [
+      [undefined, "hash-2-missing"],
+      [Number.NaN, "hash-2-nan"],
+      [-1, "hash-2-negative"],
+    ] as const) {
+      const draft = parseTenderNedPayload(
+        buildPayload({ numberOfDaysBeforeAanmeldenInschrijven: days }),
+        hash,
+        { observedAt }
+      );
+      expect(draft.sluitingsdatum).toBeUndefined();
+    }
+  });
+
+  it("leaves sluitingsdatum undefined without an observedAt instant", () => {
+    const draft = parseTenderNedPayload(
+      buildPayload({ numberOfDaysBeforeAanmeldenInschrijven: 10 }),
+      "hash-2-no-observed-at"
+    );
     expect(draft.sluitingsdatum).toBeUndefined();
   });
 

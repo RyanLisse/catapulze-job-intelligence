@@ -39,6 +39,7 @@ export {
   type NormalisedAanvraagDraft,
   type NormalisedField,
   type NormalisedTarief,
+  type NormaliseContext,
   type NormaliseValidationIssue,
 } from "./types";
 export {

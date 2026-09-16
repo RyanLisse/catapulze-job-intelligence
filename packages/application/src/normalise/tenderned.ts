@@ -6,6 +6,7 @@ import {
 } from "@ji/connectors/tenderned";
 import { UNKNOWN } from "@ji/domain";
 import { resolveLifecycleStatus } from "@ji/domain/lifecycle";
+import { z } from "zod";
 
 import { toCanonicalProvincie } from "./provincie";
 import {
@@ -13,7 +14,7 @@ import {
   parseTenderNedNutsEntries,
 } from "./tenderned-nuts";
 import { field } from "./types";
-import type { NormalisedAanvraagDraft } from "./types";
+import type { NormaliseContext, NormalisedAanvraagDraft } from "./types";
 
 /** NUTS-2 -> canonical province name (CTP-525, F04). This *is* explicit
  * source data -- `nutsCodes` is a structured field the API publishes, not an
@@ -92,9 +93,40 @@ const landFromNutsCodes = (
   return UNKNOWN;
 };
 
+type TenderNedDayCount = number | string | null | undefined;
+
+const tenderNedDayCountSchema = z.union([
+  z.number().finite(),
+  z.string().trim().min(1).transform(Number).refine(Number.isFinite),
+]);
+
+const finiteDays = (value: TenderNedDayCount): number | undefined => {
+  const parsed = tenderNedDayCountSchema.safeParse(value);
+  return parsed.success ? Number(parsed.data) : undefined;
+};
+
+const tenderNedClosingDate = (
+  daysValue: TenderNedDayCount,
+  observedAt: Date | undefined
+): Date | undefined => {
+  const days = finiteDays(daysValue);
+  const observedAtMs = observedAt?.getTime();
+  if (
+    days === undefined ||
+    days <= 0 ||
+    observedAtMs === undefined ||
+    !Number.isFinite(observedAtMs)
+  ) {
+    return undefined;
+  }
+  const closingAtMs = observedAtMs + days * 86_400_000;
+  return Number.isFinite(closingAtMs) ? new Date(closingAtMs) : undefined;
+};
+
 export const parseTenderNedPayload = (
   payload: TenderNedFetchedPayload,
-  contentHash: string
+  contentHash: string,
+  context?: NormaliseContext
 ): NormalisedAanvraagDraft => {
   const { detail } = payload;
   // Live TenderNed JSON may carry numeric IDs; coerce again in case a number
@@ -104,18 +136,12 @@ export const parseTenderNedPayload = (
   const parserVersion = TENDER_NED_PARSER_VERSION;
   const seenOpen = isTenderNedListingOpen(detail);
   // TenderNed publishes no absolute closing date in the modelled API fields
-  // (RJC-377): `TenderNedDetail`/`TenderNedListingItem`
-  // (packages/connectors/src/tenderned/types.ts) carry only
-  // `numberOfDaysBeforeAanmeldenInschrijven`, a relative day-count, not a
-  // date -- confirmed against fixtures/connectors/tenderned/detail-pub-001.json
-  // (docs/sources/tenderned.md independently notes "geen expliciet
-  // sluitingsdatum-veld"; the RSS feed reportedly carries the date as text,
-  // but that is a different discovery route, out of scope for this
-  // normaliser). `sluitingsdatumPassed` stays hard `false` -- honest, not a
-  // parsing gap. This does NOT leave TenderNed stuck open forever: unlike
-  // the other five RJC-377 sources, `isTenderNedListingOpen` already closes
-  // it via `bronSaysClosed` once `aankondigingCode` is `AGO`/`VBE` or the
-  // day-count reaches zero, so the countdown is the real closing signal here.
+  // (RJC-377): the detail carries only a relative day-count. The countdown is
+  // relative to the fetch instant, so CTP-531 derives a date only from the
+  // observation instant and a positive finite day-count. `publicatieDatum`
+  // must not be used as a substitute. `sluitingsdatumPassed` stays hard
+  // `false`; `isTenderNedListingOpen` independently closes the listing when
+  // the announcement code or day-count says it is closed.
   const lifecycle = resolveLifecycleStatus({
     bronSaysClosed: !seenOpen,
     current: "unknown",
@@ -181,18 +207,14 @@ export const parseTenderNedPayload = (
       "detail.opdrachtgeverNaam"
     ),
     parserVersion,
-    // CTP-525 F13: NOT-FIXABLE-HERE. `numberOfDaysBeforeAanmeldenInschrijven`
-    // counts down from the FETCH moment, not from `publicatieDatum` -- a
-    // tender published 20 days ago with 10 days left is not "closed 10 days
-    // ago". Deriving it needs the observation/fetch instant
-    // (`ConnectorObservation.observedAt`,
-    // packages/connectors/src/contract.ts:71), but `parseTenderNedPayload`
-    // never receives it: the shared normalise signature is
-    // `(body, contentHash) => NormalisedAanvraagDraft`
-    // (packages/application/src/sources/definition.ts:40), called from
-    // packages/application/src/identity/process.ts:40 without observedAt.
-    // Plumbing that through is outside this lane's file scope. Stays
-    // undefined -- honest-absent, not a guessed deadline.
+    // CTP-531: the source publishes a countdown, not an absolute date. A
+    // positive finite count is anchored to ConnectorObservation.observedAt;
+    // all other cases remain absent. In particular, publicatieDatum is not a
+    // valid anchor and must never invent a past deadline.
+    sluitingsdatum: tenderNedClosingDate(
+      detail.numberOfDaysBeforeAanmeldenInschrijven,
+      context?.observedAt
+    ),
     // TenderNed's modelled API has no contract-start field. Its
     // `publicatieDatum` is retained above as source-specific publication
     // metadata and must not influence canonical contract-start identity.
@@ -220,6 +242,7 @@ export const decodeTenderNedPayload = (
 
 export const normaliseTenderNedObservation = (
   body: Uint8Array,
-  contentHash: string
+  contentHash: string,
+  context?: NormaliseContext
 ): NormalisedAanvraagDraft =>
-  parseTenderNedPayload(decodeTenderNedPayload(body), contentHash);
+  parseTenderNedPayload(decodeTenderNedPayload(body), contentHash, context);

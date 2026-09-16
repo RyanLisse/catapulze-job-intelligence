@@ -5,7 +5,7 @@ import type {
 } from "@ji/connectors";
 import type { BronId, VoorwaardenStatus } from "@ji/domain";
 
-import type { NormalisedAanvraagDraft } from "../normalise";
+import type { NormalisedAanvraagDraft, NormaliseContext } from "../normalise";
 
 export interface CreateSourceConnectorInput {
   bronId: BronId;
@@ -37,7 +37,11 @@ export interface SourceDefinition<Slug extends string = string> {
   /** Env var name that switches the connector from fixtures to live HTTP. */
   liveEnv: string;
   naam: string;
-  normalise: (body: Uint8Array, contentHash: string) => NormalisedAanvraagDraft;
+  normalise: (
+    body: Uint8Array,
+    contentHash: string,
+    context?: NormaliseContext
+  ) => NormalisedAanvraagDraft;
   /** Bron row defaults used by the smoke seed. */
   seed: {
     crawlDelayMs: number;
