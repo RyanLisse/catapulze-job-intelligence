@@ -47,11 +47,13 @@ export const bluetrailConfig: JsonLdConnectorConfig = {
     // Nash) in `hiringOrganization` and name the end client only in the
     // opening "Voor [de] <Naam> zoeken wij" sentence. Measured on all 129 live
     // postings (2026-09-16): 8 matches, every one on a broker page and every
-    // capture a real client; zero matches on client-published pages. No `i`
-    // flag and an uppercase first letter keep "Voor de afdeling ... zoeken
-    // wij" and "Voor onze klant zoeken wij" unmatched (docs/sources/bluetrail.md).
+    // capture a real client; zero matches on client-published pages. Anchored
+    // to the start of the description so a later "Voor X zoeken wij" never
+    // counts. Accepted residual risk: a capitalised unit such as "Voor Directie
+    // IV zoeken wij" would still be captured (docs/sources/bluetrail.md).
     eindklant: {
-      pattern: /Voor (?:de |het )?(?<value>[A-Z][^,.<]{1,59}?) zoeken wij/u,
+      pattern:
+        /^\s*(?:<[^>]+>\s*)*Voor (?:de |het )?(?<value>[A-Z][^,.<]{1,59}?) zoeken wij/u,
       source: "description",
     },
     locatie: { pattern: /<b>Locatie<\/b>(?<value>[^<]+)/u },

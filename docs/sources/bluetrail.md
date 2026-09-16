@@ -68,5 +68,8 @@ Live meting 2026-09-16 over alle 129 opdrachten in `job-sitemap.xml`:
 - Zonder die zin (bv. Harvey Nash "De Operatie van de Politie ...", Circle8 "De eenheid is op zoek naar ...") blijft de bemiddelaar staan. De eindklant uit vrije prosa raden is `GAP_ENRICH` (CTP-482), geen mapping.
 - Fixture: `detail-architect-ict-en-informatielandschap-2026-09-16` (Circle8 → Gemeente Stichtse Vecht).
 
-Bestaande rijen herstellen niet vanzelf: curate vult alleen lege velden. `bun run backfill:renormalise-from-raw --bron bluetrail` plant daarom ook `opdrachtgever_naam` en wist het opgeslagen `100`/uur-opvultarief.
+Bestaande rijen:
+
+- `opdrachtgever_naam` herstelt bij de eerstvolgende poll. De eindklant wordt in de connector uit de beschrijving gehaald, en `parserVersion` `bluetrail/v3` verandert de hash van elke rij, zodat curate de nieuwe draftwaarde overneemt. Opdrachten die al uit de sitemap verdwenen zijn houden de bemiddelaar. `renormalise-from-raw` helpt hier niet: de opgeslagen raw bevat de eindklant nog niet.
+- Het opvultarief herstelt niet vanzelf, want een onbekende draftwaarde overschrijft niets. `bun run backfill:renormalise-from-raw --bron bluetrail` wist alleen BlueTrail-rijen met exact min = max = 100, eenheid uur, én een draft zonder tarief (CTP-603).
 

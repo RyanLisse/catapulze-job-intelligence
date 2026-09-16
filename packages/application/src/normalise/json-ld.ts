@@ -122,11 +122,10 @@ const validThroughToClosingMoment = (
  * for BlueTrail, or from the JobPosting's own `description` text for Pro-Act -- so
  * this normaliser can read the same shape regardless of which source produced it.
  *
- * Known limitation: `hiringOrganization` is sometimes the platform itself rather than
- * the true end client (confirmed for Hero.eu and Pro-Act IT; BlueTrail has been
- * observed publishing the real end client here). The real end client is often only
- * present in prose within the description, which this normaliser does not attempt to
- * extract -- `opdrachtgeverNaam` reflects `hiringOrganization.name` as published.
+ * Known limitation: `hiringOrganization` is often the broker or platform rather than
+ * the true end client (Hero.eu, Pro-Act IT, and BlueTrail's broker-fronted postings).
+ * Only an explicit, source-configured `eindklant` label-block sentence replaces it
+ * (see `resolveOpdrachtgever`); free prose is never mined.
  *
  * `startDatum` comes only from the label-block start-date field, never from
  * `datePosted` -- `datePosted` is when the JobPosting was published, not when the
@@ -136,7 +135,8 @@ const validThroughToClosingMoment = (
  *
  * `tarief` never reads BlueTrail's JobPosting.baseSalary: five live BlueTrail detail
  * pages (2026-08-31) all returned the identical placeholder
- * `{"value":"100","unitText":""}` -- a fixed Google-for-Jobs filler, not a real rate
+ * `{"value":"100"}` -- a fixed Google-for-Jobs filler, not a real rate, published
+ * with unitText "", "UUR" or "HOUR" alike (`PLACEHOLDER_BASE_SALARY_SLUGS`)
  * (BlueTrail's own probe doc, docs/sources/bluetrail.md, independently reaches the
  * same "niet overnemen" conclusion). `tarief` is derived only from the label-block
  * `tarief` field or the free-text description via `parseTariefFromText`.
@@ -180,7 +180,7 @@ const PLACEHOLDER_BASE_SALARY_SLUGS: ReadonlySet<string> = new Set([
 
 /**
  * Trust JobPosting.baseSalary only when unitText is an explicit period.
- * BlueTrail's Google-for-Jobs filler (`value: "100"`, empty unitText) stays out.
+ * Sources in `PLACEHOLDER_BASE_SALARY_SLUGS` never reach this function.
  */
 const tariefFromBaseSalary = (
   jobPosting: JsonLdFetchedPayload["jobPosting"]
@@ -252,7 +252,8 @@ const decodeBasicEntities = (text: string): string =>
     .replaceAll("&lt;", "<")
     .replaceAll("&gt;", ">")
     .replaceAll("&quot;", '"')
-    .replaceAll("&#039;", "'");
+    .replaceAll("&#039;", "'")
+    .replaceAll("&#39;", "'");
 
 const parseListItems = (html: string | undefined): string[] => {
   if (!html) {
@@ -294,7 +295,8 @@ const resolveOpdrachtgever = (
   labelBlock: Record<string, string>
 ): OpdrachtgeverResolution => {
   const brokerNaam = asText(hiringOrganization?.name).trim() || UNKNOWN;
-  const eindklantNaam = labelBlock.eindklant?.trim() || null;
+  const eindklantNaam =
+    decodeBasicEntities(labelBlock.eindklant ?? "").trim() || null;
   return eindklantNaam
     ? {
         eindklantNaam,

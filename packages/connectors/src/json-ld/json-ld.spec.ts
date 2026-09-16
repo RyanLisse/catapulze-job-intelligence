@@ -801,6 +801,7 @@ describe("BlueTrail eindklant label pattern (F02)", () => {
     "Voor de afdeling Burgerzaken zoeken wij een medewerker",
     "Voor onze klant zoeken wij een senior developer",
     "De Operatie van de Politie en haar ketenpartners vragen om",
+    "Je werkt bij de uitvoering. Voor de Belastingdienst zoeken wij ook een tester",
   ])("leaves prose without an explicit named client unmatched (%s)", (text) => {
     expect(extractEindklant(text)).toBeUndefined();
   });
