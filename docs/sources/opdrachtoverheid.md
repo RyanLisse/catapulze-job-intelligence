@@ -1,6 +1,6 @@
-# Opdrachtoverheid — ingest-recept (geverifieerd 2026-08-31)
+# Opdrachtoverheid — ingest-recept (geverifieerd 2026-08-31; coverage herprobe 2026-09-16)
 
-Status: **probe en connector actief** — adapter-categorie `json-api` met `json-ld`-fallback; ~375 detail-URL's in de sitemap. Geen technische blocker; aggregator-overlap, privé-API-risico en voorwaardenstatus blijven expliciet.
+Status: **probe en connector actief** — adapter-categorie `json-api` met `json-ld`-fallback; publieke sitemap is market-wide (~440 `/inhuuropdracht/`-URL's / ~204 org-slugs op 2026-09-16), terwijl de private `POST /search`-snapshot smal blijft (~Amstelveen). Geen technische blocker; aggregator-overlap, privé-API-risico en voorwaardenstatus blijven expliciet.
 
 ## Endpoints
 
@@ -8,7 +8,7 @@ Status: **probe en connector actief** — adapter-categorie `json-api` met `json
 |---|---|---|
 | Listing | `GET https://www.opdrachtoverheid.nl` | Nuxt 3; client-rendered, infinite scroll. |
 | JSON-search | `POST https://kbenp-match-api.azurewebsites.net/search` | Geen auth-header waargenomen; één bounded snapshot met `limit: 400` en `offset: 0`. |
-| Sitemap | `GET https://www.opdrachtoverheid.nl/sitemap.xml` | 375 `/inhuuropdracht/`-URL's; 864 URL's totaal. |
+| Sitemap | `GET https://www.opdrachtoverheid.nl/sitemap.xml` | 2026-09-16: 933 URL's totaal; **440** `/inhuuropdracht/`; **204** unieke org-slugs (market-wide). |
 | Detail/fallback | `GET https://www.opdrachtoverheid.nl/inhuuropdracht/<organisatie>/<titel>/<web_key>` | SSR met dubbele JobPosting JSON-LD. |
 
 ## Privé-API
@@ -47,9 +47,21 @@ Live probe: `POST /search` met `limit: 400, offset: 0`, 400 records. Vastgelegd 
 | `contract_type` | `contract_type` | Bron-enum: `"temporary"` (217/400), `"detachering"` (120/400), leeg (63/400). Wordt onbewerkt doorgegeven; `"temporary"` staat niet in de web-allowlist (`apps/web/src/features/job-intelligence/rest/aanvraag-mapping.ts:103`) en rendert daardoor als Onbekend. |
 | `tender_offline_date` | `sluitingsdatum` (draft) | Bevestigd tegen de detailpagina op 2026-09-15: "Sluitingsdatum 29 sept 2026" bij `tender_offline_date` `"2026-09-29 16:00:00"`. `tender_date` (dag erna, 07:00–12:00) en `jobPosting.validThrough` zijn geen sluitingsmoment. |
 
-Openstaand: alle 400 records in de live snapshot horen bij één inkopende organisatie
-(Gemeente Amstelveen) — de ongefilterde `POST /search` levert blijkbaar niet de volledige
-markt. Los daarvan publiceert de bron geen landveld; `locatie_land` blijft `"NL"`.
+### Tenant / market coverage (CTP-532, VERIFIED 2026-09-16)
+
+Classificatie: `PRIVATE_SEARCH_RETURNS_NARROW_SLICE` — **niet** een bewuste Amstelveen-filter in onze connector.
+
+| Probe | Resultaat |
+|---|---|
+| Connector request body | Alleen `{ "limit": 400, "offset": 0 }` — **geen** tenant / `web_key` / org-filter in client code |
+| Live `POST /search` unfiltered | HTTP 200, n=400; unieke `tender_buying_organization` = **2** (Gemeente Amstelveen 399, Belastingdienst 1); alle 400 `vacancies_location.province` = Noord-Holland |
+| Live `POST /search` + `exclusive:false` | Zelfde smalle slice (geen cross-tenant verbreding) |
+| Live `POST /search` body `{}` | HTTP 400 (rejected) |
+| Public sitemap | **204** org-slugs; Amstelveen slechts **3 / 440** inhuur-URL's — catalogus is market-wide |
+
+Conclusie: de connector is **niet** tenant-scoped in code; de private API-snapshot is tóch ~Amstelveen-only. De bredere markt is beschikbaar via sitemap → SSR-detail → JSON-LD (**CTP-601**), **niet** via verzonnen `/search`-filterparams. Inventeer geen filter-querystrings (`robots.txt` sluit o.a. `?exclusive=`/`?vakgebied=`/`?provincie=` uit). Types op tip: `education_level_obj` / `tender_competences` / `tender_hybrid_working` zijn al gedeclareerd (CTP-526) — geen type-churn in CTP-532.
+
+Los daarvan publiceert de bron geen landveld; `locatie_land` blijft `"NL"`.
 
 ## Ingest-patroon
 
@@ -62,7 +74,7 @@ markt. Los daarvan publiceert de bron geen landveld; `locatie_land` blijft `"NL"
   400 records worden afgewezen als onveilige overschrijding van de bestaande
   budgetgrens.
 - Bewaar `tender_source` en `tender_url` vóór normalisatie en gebruik ze bij cross-source deduplicatie.
-- Gebruik bij API-falen de sitemap en parse JobPosting uit de SSR-details; gebruik geen uitgesloten filter-querystrings.
+- Gebruik bij API-falen (of voor market-wide discover, CTP-601) de sitemap en parse JobPosting uit de SSR-details; **verzin geen** `/search`-filterparams en gebruik geen uitgesloten filter-querystrings.
 
 ## Licentie en voorwaarden
 
