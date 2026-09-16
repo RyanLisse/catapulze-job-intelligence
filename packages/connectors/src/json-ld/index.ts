@@ -16,6 +16,7 @@ export { asmlConfig } from "./configs/asml";
 export { bijOranjeConfig } from "./configs/bij-oranje";
 export { heroConfig } from "./configs/hero";
 export { proActConfig } from "./configs/pro-act";
+export { rabobankConfig } from "./configs/rabobank";
 export { tenmonksConfig } from "./configs/tenmonks";
 export { werkenVoorNederlandConfig } from "./configs/werken-voor-nederland";
 export { nationaleVacaturebankConfig } from "./configs/nationalevacaturebank";
