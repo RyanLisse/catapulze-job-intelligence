@@ -13,6 +13,7 @@ import { heijmans } from "./heijmans";
 import { hero } from "./hero";
 import { inhuurdesk } from "./inhuurdesk";
 import { needstaffing } from "./needstaffing";
+import { ns } from "./ns";
 import { onefellow } from "./onefellow";
 import { opdrachtoverheid } from "./opdrachtoverheid";
 import { proAct } from "./pro-act";
@@ -50,6 +51,7 @@ export const SOURCES = {
   hero,
   inhuurdesk,
   needstaffing,
+  ns,
   onefellow,
   opdrachtoverheid,
   "pro-act": proAct,
