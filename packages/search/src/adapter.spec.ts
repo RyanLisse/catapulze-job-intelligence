@@ -13,6 +13,8 @@ import {
 } from "./manticore/live-test-hygiene";
 import type { SearchDocument, SearchEngine, SearchMode } from "./types";
 
+const LIVE_TEST_INDEX_NAME = "aanvragen_test_adapter";
+
 const sampleDocument = (
   overrides: Partial<SearchDocument> = {}
 ): SearchDocument => ({
@@ -740,7 +742,8 @@ describe.skipIf(!manticoreLiveUrl)(
       const { InMemorySearchVersionStore } = await import("./version");
       const engine = createLiveTestEngine(
         manticoreLiveUrl,
-        new InMemorySearchVersionStore()
+        new InMemorySearchVersionStore(),
+        LIVE_TEST_INDEX_NAME
       );
 
       const runToken = `permcheck${crypto.randomUUID().replaceAll("-", "")}`;
@@ -817,7 +820,8 @@ describe.skipIf(!manticoreLiveUrl)(
       const { InMemorySearchVersionStore } = await import("./version");
       const engine = createLiveTestEngine(
         manticoreLiveUrl,
-        new InMemorySearchVersionStore()
+        new InMemorySearchVersionStore(),
+        LIVE_TEST_INDEX_NAME
       );
 
       const runToken = `notcheck${crypto.randomUUID().replaceAll("-", "")}`;

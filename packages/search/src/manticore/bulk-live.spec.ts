@@ -16,6 +16,7 @@ const manticoreUrl = requireLiveManticoreUrl(
   process.env.MANTICORE_URL,
   process.env.MANTICORE_REQUIRE_LIVE === "1"
 );
+const LIVE_TEST_INDEX_NAME = "aanvragen_test_bulk";
 
 describe.skipIf(!manticoreUrl)(
   "Manticore /bulk live integration (RJC-389)",
@@ -25,7 +26,11 @@ describe.skipIf(!manticoreUrl)(
         throw new Error("Live test was not skipped without MANTICORE_URL");
       }
       const store = new InMemorySearchVersionStore();
-      const engine = createLiveTestEngine(manticoreUrl, store);
+      const engine = createLiveTestEngine(
+        manticoreUrl,
+        store,
+        LIVE_TEST_INDEX_NAME
+      );
       const runToken = `bulklive${crypto.randomUUID().replaceAll("-", "")}`;
       const parsed = parseBooleanQuery(runToken);
       if (!parsed.ok) {
@@ -89,7 +94,11 @@ describe.skipIf(!manticoreUrl)(
         throw new Error("Live test was not skipped without MANTICORE_URL");
       }
       const store = new InMemorySearchVersionStore();
-      const engine = createLiveTestEngine(manticoreUrl, store);
+      const engine = createLiveTestEngine(
+        manticoreUrl,
+        store,
+        LIVE_TEST_INDEX_NAME
+      );
       const runToken = `movelive${crypto.randomUUID().replaceAll("-", "")}`;
       const parsed = parseBooleanQuery(runToken);
       if (!parsed.ok) {

@@ -23,6 +23,7 @@ const onlyTies = (list: string[]) => list.filter((id) => id.startsWith("tie-"));
 // Fixed clock (RJC-383): the Sept-2026 deadlines below must stay in the
 // active partition however late this spec runs.
 const clock = () => new Date("2026-08-30T12:00:00.000Z");
+const LIVE_TEST_INDEX_NAME = "aanvragen_test_sort";
 
 describe.skipIf(!manticoreUrl)(
   "Manticore sort/filter live integration (RJC-378)",
@@ -34,6 +35,7 @@ describe.skipIf(!manticoreUrl)(
       const engine = createLiveTestEngine(
         manticoreUrl,
         new InMemorySearchVersionStore(),
+        LIVE_TEST_INDEX_NAME,
         clock
       );
       const inMemory = new InMemorySearchEngine(undefined, clock);
@@ -163,6 +165,7 @@ describe.skipIf(!manticoreUrl)(
       const engine = createLiveTestEngine(
         manticoreUrl,
         new InMemorySearchVersionStore(),
+        LIVE_TEST_INDEX_NAME,
         clock
       );
       const runToken = `locationlive${crypto.randomUUID().replaceAll("-", "")}`;

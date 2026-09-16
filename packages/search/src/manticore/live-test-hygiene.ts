@@ -1,4 +1,3 @@
-import { SEARCH_TEST_INDEX_NAME } from "../types";
 import type { SearchVersionStore } from "../version";
 import { ManticoreSearchEngine } from "./engine";
 import type { ManticoreSearchEngineOptions } from "./engine";
@@ -22,18 +21,19 @@ export const requireLiveManticoreUrl = (
 
 /**
  * Live MANTICORE_URL-gated specs must never write production `aanvragen*`
- * tables (RJC-400). Always targets the dedicated `aanvragen_test` index.
+ * tables (RJC-400). Test suites provide a dedicated `aanvragen_test*` index.
  */
 export const createLiveTestEngine = (
   baseUrl: string,
   versionStore: SearchVersionStore,
+  indexName: string,
   clock: () => Date = () => new Date(),
   options: ManticoreSearchEngineOptions = {}
 ): ManticoreSearchEngine =>
   ManticoreSearchEngine.fromUrl(
     baseUrl,
     versionStore,
-    SEARCH_TEST_INDEX_NAME,
+    indexName,
     clock,
     options
   );

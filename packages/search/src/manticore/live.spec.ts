@@ -18,6 +18,7 @@ const manticoreUrl = requireLiveManticoreUrl(
   process.env.MANTICORE_URL,
   process.env.MANTICORE_REQUIRE_LIVE === "1"
 );
+const LIVE_TEST_INDEX_NAME = "aanvragen_test_live";
 
 describe.skipIf(!manticoreUrl)(
   "Manticore document-id live integration (RJC-356)",
@@ -28,7 +29,8 @@ describe.skipIf(!manticoreUrl)(
       }
       const engine = createLiveTestEngine(
         manticoreUrl,
-        new InMemorySearchVersionStore()
+        new InMemorySearchVersionStore(),
+        LIVE_TEST_INDEX_NAME
       );
       // A persisted Manticore volume can already hold docs from prior runs, so
       // a generic query (e.g. "Azure") could be crowded out of the default

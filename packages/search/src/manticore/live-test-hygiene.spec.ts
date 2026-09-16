@@ -42,7 +42,8 @@ describe("Manticore live fixture cleanup", () => {
     expect(SEARCH_TEST_INDEX_NAME).not.toBe(SEARCH_INDEX_NAME);
     const engine = createLiveTestEngine(
       "http://manticore.test",
-      new InMemorySearchVersionStore()
+      new InMemorySearchVersionStore(),
+      SEARCH_TEST_INDEX_NAME
     );
     expect(engine).toBeInstanceOf(ManticoreSearchEngine);
   });
