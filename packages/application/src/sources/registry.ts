@@ -4,6 +4,7 @@ import { bluetrail } from "./bluetrail";
 import { ctm } from "./ctm";
 import type { SourceDefinition } from "./definition";
 import { flinter } from "./flinter";
+import { freelancerNl } from "./freelancer-nl";
 import { harveynash } from "./harveynash";
 import { hero } from "./hero";
 import { inhuurdesk } from "./inhuurdesk";
@@ -31,6 +32,7 @@ export const SOURCES = {
   bluetrail,
   ctm,
   flinter,
+  "freelancer-nl": freelancerNl,
   harveynash,
   hero,
   inhuurdesk,
