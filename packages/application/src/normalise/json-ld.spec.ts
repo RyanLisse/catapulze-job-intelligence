@@ -980,3 +980,63 @@ describe("BlueTrail broker-fronted live capture through connector and normaliser
     });
   });
 });
+
+describe("BlueTrail description tarief false positives (CTP-605)", () => {
+  const captures = [
+    [
+      "https://www.bluetrail.nl/opdrachten/Interim/adviseur-security-privacy/",
+      "31-12-2026",
+      "operationaliseren",
+      "UUR",
+    ],
+    [
+      "https://www.bluetrail.nl/opdrachten/Interim/ontwikkelmanager/",
+      "2–3 jaar",
+      "strategische",
+      "UUR",
+    ],
+    [
+      "https://www.bluetrail.nl/opdrachten/Interim/teamlead-procesbeschrijver-sr/",
+      "10-15",
+      "team van",
+      "HOUR",
+    ],
+  ] as const;
+
+  it.each(captures)(
+    "leaves %s tarief fully unknown despite baseSalary and description range",
+    async (url, falseHit, falseHitWord, unitText) => {
+      const client = createJsonLdClient({
+        config: bluetrailConfig,
+        liveEnabled: false,
+      });
+      const detail = await client.fetchDetail(url);
+      if (!detail.jobPosting) {
+        throw new Error("expected a JobPosting in the recorded capture");
+      }
+      expect(detail.labelBlock.tarief).toBeUndefined();
+      expect(detail.jobPosting.description).toContain(falseHit);
+      expect(detail.jobPosting.description).toContain(falseHitWord);
+      expect(detail.jobPosting.baseSalary).toMatchObject({
+        value: { unitText, value: "100" },
+      });
+
+      const draft = parseJsonLdPayload(
+        {
+          jobPosting: detail.jobPosting,
+          labelBlock: detail.labelBlock,
+          parserVersion: bluetrailConfig.parserVersion,
+          slug: bluetrailConfig.slug,
+          url,
+        },
+        HASH
+      );
+      expect(draft.tarief).toEqual({
+        eenheid: UNKNOWN,
+        max: UNKNOWN,
+        min: UNKNOWN,
+        valuta: "EUR",
+      });
+    }
+  );
+});

@@ -10,6 +10,12 @@ const AMOUNT_CAPTURE =
 const MIN_CAPTURE = AMOUNT_CAPTURE.replace("?<amount>", "?<min>");
 const MAX_CAPTURE = AMOUNT_CAPTURE.replace("?<amount>", "?<max>");
 
+const TARIEF_CONTEXT_PATTERN =
+  /\b(?:tarief|uurtarief|dagtarief|euro|eur)\b|€/iu;
+const DATE_RANGE_PATTERN = /^\d{1,2}[-–]\d{1,2}[-–]\d{2,4}\b/u;
+const NON_RATE_RANGE_CONTEXT_PATTERN =
+  /^(?:\s*)(?:jaar|maanden?|weken?|personen?|fte|mensen|medewerkers|collega(?:'s|s)?|kandidaten|procesbeschrijvers|stuks|items)\b/iu;
+
 const normalizeAmount = (raw: string): string => {
   const trimmed = raw.trim();
   if (/\.\d{3}/u.test(trimmed) && trimmed.includes(",")) {
@@ -136,7 +142,7 @@ const parseEuroRange = (
 };
 
 const parseBareRange = (lower: string): NormalisedTarief | null => {
-  if (!/tarief|ratio|rate|euro|€/u.test(lower)) {
+  if (!TARIEF_CONTEXT_PATTERN.test(lower)) {
     return null;
   }
   const match = lower.match(
@@ -146,6 +152,15 @@ const parseBareRange = (lower: string): NormalisedTarief | null => {
     )
   );
   if (!(match?.groups?.min && match.groups.max)) {
+    return null;
+  }
+  const matchStart = match.index ?? 0;
+  const matchedRange = lower.slice(matchStart);
+  if (DATE_RANGE_PATTERN.test(matchedRange)) {
+    return null;
+  }
+  const rightContext = lower.slice(matchStart + match[0].length);
+  if (NON_RATE_RANGE_CONTEXT_PATTERN.test(rightContext)) {
     return null;
   }
   return withEenheid(
@@ -159,7 +174,7 @@ const parseSingleEuro = (
   text: string,
   lower: string
 ): NormalisedTarief | null => {
-  if (!/tarief|ratio|rate|€|euro/iu.test(text)) {
+  if (!TARIEF_CONTEXT_PATTERN.test(text)) {
     return null;
   }
   const match = text.match(
