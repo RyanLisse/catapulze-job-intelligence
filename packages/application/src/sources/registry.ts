@@ -7,6 +7,7 @@ import type { SourceDefinition } from "./definition";
 import { flinter } from "./flinter";
 import { freelancerNl } from "./freelancer-nl";
 import { harveynash } from "./harveynash";
+import { hays } from "./hays";
 import { heijmans } from "./heijmans";
 import { hero } from "./hero";
 import { inhuurdesk } from "./inhuurdesk";
@@ -39,6 +40,7 @@ export const SOURCES = {
   flinter,
   "freelancer-nl": freelancerNl,
   harveynash,
+  hays,
   heijmans,
   hero,
   inhuurdesk,
