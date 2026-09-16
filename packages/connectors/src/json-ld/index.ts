@@ -33,6 +33,7 @@ export { unicaConfig } from "./configs/unica";
 export { vattenfallConfig } from "./configs/vattenfall";
 export { volkerwesselsConfig } from "./configs/volkerwessels";
 export { zzpOpdrachtenConfig } from "./configs/zzp-opdrachten";
+export { datajobsConfig } from "./configs/datajobs";
 export {
   extractJobPosting,
   extractJsonLdNodes,

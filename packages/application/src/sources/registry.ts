@@ -3,6 +3,7 @@ import { bam } from "./bam";
 import { bijOranje } from "./bij-oranje";
 import { bluetrail } from "./bluetrail";
 import { ctm } from "./ctm";
+import { datajobs } from "./datajobs";
 import type { SourceDefinition } from "./definition";
 import { eneco } from "./eneco";
 import { flinter } from "./flinter";
@@ -43,6 +44,7 @@ export const SOURCES = {
   "bij-oranje": bijOranje,
   bluetrail,
   ctm,
+  datajobs,
   eneco,
   flinter,
   "freelancer-nl": freelancerNl,
