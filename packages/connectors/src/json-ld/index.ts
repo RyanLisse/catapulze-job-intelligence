@@ -22,7 +22,7 @@ export { tbiConfig } from "./configs/tbi";
 export { werkenVoorNederlandConfig } from "./configs/werken-voor-nederland";
 export { nationaleVacaturebankConfig } from "./configs/nationalevacaturebank";
 export { werkzoekenConfig } from "./configs/werkzoeken";
-export { bamConfig } from "./configs/bam";
+ export { bamConfig } from "./configs/bam";
 export { haysConfig } from "./configs/hays";
 export { heijmansConfig } from "./configs/heijmans";
 export { randstadConfig } from "./configs/randstad";
@@ -31,7 +31,7 @@ export { vattenfallConfig } from "./configs/vattenfall";
 export { enecoConfig } from "./configs/eneco";
 export { unicaConfig } from "./configs/unica";
 export { nsConfig } from "./configs/ns";
-export { volkerwesselsConfig } from "./configs/volkerwessels";
+ export { volkerwesselsConfig } from "./configs/volkerwessels";
 export {
   extractJobPosting,
   extractJsonLdNodes,
