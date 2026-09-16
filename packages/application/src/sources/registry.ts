@@ -4,6 +4,7 @@ import { bijOranje } from "./bij-oranje";
 import { bluetrail } from "./bluetrail";
 import { ctm } from "./ctm";
 import type { SourceDefinition } from "./definition";
+import { eneco } from "./eneco";
 import { flinter } from "./flinter";
 import { freelancerNl } from "./freelancer-nl";
 import { harveynash } from "./harveynash";
@@ -39,6 +40,7 @@ export const SOURCES = {
   "bij-oranje": bijOranje,
   bluetrail,
   ctm,
+  eneco,
   flinter,
   "freelancer-nl": freelancerNl,
   harveynash,
