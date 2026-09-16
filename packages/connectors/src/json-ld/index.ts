@@ -12,6 +12,7 @@ export {
   type JsonLdConnectorOptions,
 } from "./connector";
 export { bluetrailConfig } from "./configs/bluetrail";
+export { asmlConfig } from "./configs/asml";
 export { bijOranjeConfig } from "./configs/bij-oranje";
 export { heroConfig } from "./configs/hero";
 export { proActConfig } from "./configs/pro-act";
@@ -24,6 +25,7 @@ export {
   extractJsonLdNodes,
   extractLabelBlock,
   pickJobPosting,
+  synthesizeJobPostingFromNextData,
 } from "./extract";
 export { hashJsonLdListingItem, hashJsonLdPayload } from "./hash";
 export type {

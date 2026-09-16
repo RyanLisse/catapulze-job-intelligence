@@ -35,6 +35,8 @@ export interface JsonLdConnectorConfig {
   discovery: JsonLdDiscoveryConfig;
   /** URLs matching any of these are dropped from discovery (facet/order/pagination links). */
   excludePatterns?: RegExp[];
+  /** Opt-in synthesis for detail pages that expose JobPosting data in framework state. */
+  synthesizeFromNextJobData?: boolean;
   labelBlock?: Record<string, JsonLdLabelBlockField>;
   /** Fixture path for the sitemap/listing page when not running live. */
   listingFixturePath?: string;

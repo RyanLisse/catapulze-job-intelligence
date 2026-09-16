@@ -3,6 +3,10 @@ import type { JsonLdLabelBlockField, JsonLdNode, JsonLdValue } from "./types";
 
 const SCRIPT_PATTERN =
   /<script[^>]*type=["']application\/ld\+json["'][^>]*>(?<content>[\s\S]*?)<\/script>/giu;
+const NEXT_DATA_PATTERN =
+  /<script[^>]*id=["']__NEXT_DATA__["'][^>]*>(?<content>[\s\S]*?)<\/script>/iu;
+const WORKDAY_APPLY_HREF_PATTERN =
+  /href=["'](?<href>https?:\/\/[^"']*myworkdayjobs\.com[^"']*)["']/iu;
 
 const isJsonLdNode = (value: unknown): value is JsonLdNode =>
   typeof value === "object" && value !== null && !Array.isArray(value);
@@ -62,6 +66,124 @@ export const pickJobPosting = (nodes: JsonLdNode[]): JsonLdNode | null =>
 /** Extracts the first `JobPosting` JSON-LD node directly from a detail page's HTML. */
 export const extractJobPosting = (html: string): JsonLdNode | null =>
   pickJobPosting(extractJsonLdNodes(html));
+
+const asRecord = (value: unknown): JsonLdNode | null =>
+  isJsonLdNode(value) ? value : null;
+
+const asString = (value: JsonLdValue | undefined): string | undefined =>
+  typeof value === "string" && value.trim() ? value : undefined;
+
+const countryCode = (country: string): string =>
+  country.toLowerCase() === "netherlands" ? "NL" : country;
+
+const employmentType = (timeType: string): string => {
+  const normalised = timeType.trim().toLowerCase();
+  if (normalised === "full time" || normalised === "full-time") {
+    return "FULL_TIME";
+  }
+  if (normalised === "part time" || normalised === "part-time") {
+    return "PART_TIME";
+  }
+  return timeType;
+};
+
+export interface NextJobDataSynthesis {
+  jobPosting: JsonLdNode;
+  labelBlock: Record<string, string>;
+}
+
+const extractNextJobData = (html: string): JsonLdNode | null => {
+  NEXT_DATA_PATTERN.lastIndex = 0;
+  const raw = NEXT_DATA_PATTERN.exec(html)?.groups?.content?.trim();
+  if (!raw) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(raw);
+    const root = asRecord(parsed);
+    const props = asRecord(root?.props);
+    const pageProps = asRecord(props?.pageProps);
+    return asRecord(pageProps?.jobData);
+  } catch {
+    return null;
+  }
+};
+
+interface NextJobPostingBuild {
+  applyUrl?: string;
+  id?: string;
+  jobPosting: JsonLdNode;
+}
+
+const buildNextJobPosting = (
+  jobData: JsonLdNode,
+  detailUrl: string
+): NextJobPostingBuild => {
+  const id = asString(jobData.id);
+  const title = asString(jobData.displayJobTitle);
+  const datePosted = asString(jobData.datePosted);
+  const description = asString(jobData.descriptionExternal);
+  const city = asString(jobData.city);
+  const country = asString(jobData.country);
+  const applyUrl = asString(jobData.applyUrl);
+  const detailPageUrl = asString(jobData.detailPageUrl) ?? detailUrl;
+  const timeType = asString(jobData.timeType);
+  const address: JsonLdNode = { "@type": "PostalAddress" };
+  if (city) {
+    address.addressLocality = city;
+  }
+  if (country) {
+    address.addressCountry = countryCode(country);
+  }
+
+  const jobPosting: JsonLdNode = {
+    "@type": "JobPosting",
+    description: description ?? "",
+    employmentType: timeType ? employmentType(timeType) : "",
+    hiringOrganization: { "@type": "Organization", name: "ASML" },
+    identifier: {
+      "@type": "PropertyValue",
+      name: "ASML",
+      value: id ?? "",
+    },
+    jobLocation: { "@type": "Place", address },
+    title: title ?? "",
+    url: detailPageUrl,
+  };
+  if (datePosted) {
+    jobPosting.datePosted = datePosted;
+  }
+  return { applyUrl, id, jobPosting };
+};
+
+/**
+ * Builds the minimum schema.org JobPosting shape from a Next.js page's jobData.
+ * This is deliberately a separate, config-gated path: most JSON-LD sources must
+ * continue to fail closed when a detail page has no explicit JobPosting node.
+ */
+export const synthesizeJobPostingFromNextData = (
+  html: string,
+  detailUrl: string
+): NextJobDataSynthesis | null => {
+  const jobData = extractNextJobData(html);
+  if (!jobData) {
+    return null;
+  }
+
+  const fallbackApplyUrl =
+    WORKDAY_APPLY_HREF_PATTERN.exec(html)?.groups?.href?.trim();
+  const { applyUrl, id, jobPosting } = buildNextJobPosting(jobData, detailUrl);
+  const labelBlock: Record<string, string> = {};
+  if (id) {
+    labelBlock.referentienummer = id;
+  }
+  if (applyUrl ?? fallbackApplyUrl) {
+    labelBlock.workdayApplyUrl = applyUrl ?? fallbackApplyUrl ?? "";
+  }
+
+  return { jobPosting, labelBlock };
+};
 
 const asPlainText = (value: JsonLdValue | undefined): string =>
   typeof value === "string" ? value : "";

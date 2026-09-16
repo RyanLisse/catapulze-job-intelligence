@@ -76,6 +76,53 @@ describe("normaliseJsonLdObservation -- Werken voor Nederland", () => {
   });
 });
 
+describe("normaliseJsonLdObservation -- ASML", () => {
+  it("keeps the literal title, Workday id, and Veldhoven location", () => {
+    const body = new TextEncoder().encode(
+      JSON.stringify({
+        jobPosting: {
+          "@type": "JobPosting",
+          datePosted: "2026-08-17T00:00:00",
+          description: "ASML electrical safety role in Veldhoven.",
+          employmentType: "FULL_TIME",
+          hiringOrganization: { "@type": "Organization", name: "ASML" },
+          identifier: {
+            "@type": "PropertyValue",
+            name: "ASML",
+            value: "J-00333473",
+          },
+          jobLocation: {
+            address: {
+              addressCountry: "NL",
+              addressLocality: "Veldhoven",
+            },
+          },
+          title:
+            "Senior Electrical Safety Expert (Nominated Person – Installatie verantwoordelijke EUV Factory)",
+        },
+        labelBlock: {
+          referentienummer: "J-00333473",
+          workdayApplyUrl:
+            "https://asml.wd3.myworkdayjobs.com/ASMLEXT1/job/Veldhoven-Netherlands/_J-00333473/apply",
+        },
+        parserVersion: "asml/v1",
+        slug: "asml",
+        url: "https://www.asml.com/en/careers/find-your-job/senior-electrical-safety-expert-nominated-person--installatie-verantwoordelijke-euv-factory-j00333473",
+      })
+    );
+
+    const draft = normaliseJsonLdObservation(body, HASH);
+
+    expect(draft.titel.value).toBe(
+      "Senior Electrical Safety Expert (Nominated Person – Installatie verantwoordelijke EUV Factory)"
+    );
+    expect(draft.bronSpecifiek.value).toMatchObject({
+      identifier: { value: "J-00333473" },
+    });
+    expect(draft.locatieTekst.value).toContain("Veldhoven");
+  });
+});
+
 describe("parseJsonLdPayload -- BlueTrail (label block in surrounding HTML, baseSalary present but ignored)", () => {
   const payload: JsonLdFetchedPayload = {
     jobPosting: {
