@@ -39,7 +39,8 @@ export const processObservation = async (
   const draft = recordCriticalPathPhaseSync("ingest-normalisation", () => {
     const normalised = SOURCES[input.bronSlug].normalise(
       input.body,
-      input.contentHash
+      input.contentHash,
+      { observedAt: input.observedAt }
     );
     const issues = validateNormalisedDraft(normalised);
     return { draft: normalised, validationIssues: issues };

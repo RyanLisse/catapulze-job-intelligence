@@ -33,7 +33,7 @@ Status: **klaar om te bouwen** — eerste nieuwe bron; rung 1 (officiële API, C
 | `procedureCode.code`, `opdrachtAardCode.code` | `bron_specifiek.procedure`, `.opdracht_aard` | `IDA` = dynamisch aankoopsysteem (enige structurele DAS-marker; alleen in detail); `RAA` = raamovereenkomst |
 | `aankondigingCode.code` | `bron_specifiek.aankondiging` | `AAO`/`VAK` open; `AGO`/`VBE` droppen |
 | `publicatieDatum` (detail: volledige ISO) | `gepubliceerd_op` | listing heeft alleen datum |
-| `numberOfDaysBeforeAanmeldenInschrijven` | `sluitingsdatum` (afgeleid) | **geen expliciet sluitingsdatum-veld**; -1/0 = gesloten; RSS heeft de datum als tekst |
+| `numberOfDaysBeforeAanmeldenInschrijven` | `sluitingsdatum` (afgeleid) | **geen expliciet sluitingsdatum-veld**; bij `days > 0`: `observedAt + days`; -1/0 = gesloten; RSS heeft de datum als tekst |
 | `opdrachtBeschrijving` (listing, ~1000 tekens) | `beschrijving` (kort) | volledige tekst alleen in de PDF |
 | `links.pdf.href` | `aanvraag_bijlage` → object storage | PDF parsen voor geraamde waarde en documentenlijst (niet in JSON) |
 
@@ -67,9 +67,11 @@ Geverifieerd: alle URL's hierboven met HTTP-status; headless Chrome gebruikt voo
 
 De gemodelleerde TenderNed-API publiceert geen contractstart. `publicatieDatum` is uitsluitend publicatiemetadata en blijft als `bron_specifiek.publicatie_datum` bewaard; de canonieke `startDatum` is `UNKNOWN` met provenance `n/a (not published by source)`. Parser `tenderned/v3` (locatie uit NUTS; v2 was de contractstart-correctie) maakt semantische correcties herkenbaar voor gecontroleerde replay. De publicatiedatum mag nooit in de dedupidentiteit terechtkomen.
 
-## Sluitingsdatum (RJC-377)
+## Sluitingsdatum (RJC-377 / CTP-531)
 
-TenderNed publiceert geen absolute sluitingsdatum in de gemodelleerde API-velden — alleen `numberOfDaysBeforeAanmeldenInschrijven`, een relatief dagaantal, geen datum (bevestigd tegen `fixtures/connectors/tenderned/detail-pub-001.json`; de RSS-feed zou de datum wél als tekst bevatten, maar dat is een ander discovery-pad, buiten scope van deze normaliser). `sluitingsdatumPassed` blijft daarom hard `false` — een eerlijke waarde, geen parse-gat. Dit laat TenderNed niet voor altijd open staan: `isTenderNedListingOpen` sluit de aanvraag al via `bronSaysClosed` zodra `aankondigingCode` `AGO`/`VBE` is of het dagaantal op nul staat — dat dagaantal is hier het echte sluitingssignaal.
+TenderNed publiceert geen absolute sluitingsdatum in de gemodelleerde API-velden — alleen `numberOfDaysBeforeAanmeldenInschrijven`, een relatief dagaantal, geen datum (bevestigd tegen `fixtures/connectors/tenderned/detail-pub-001.json`; de RSS-feed zou de datum wél als tekst bevatten, maar dat is een ander discovery-pad, buiten scope van deze normaliser). Voor een positieve, eindige waarde leidt de normaliser de datum eerlijk af als `observedAt + days`, waarbij `observedAt` het fetch-/observatiemoment van de connector is. `publicatieDatum` is uitsluitend publicatiemetadata en mag nooit als anker voor deze berekening worden gebruikt. Bij `days <= 0`, ontbrekende/ongeldige dagen of een ontbrekend/ongeldig observatiemoment blijft `sluitingsdatum` afwezig. `sluitingsdatumPassed` blijft hard `false`; `isTenderNedListingOpen` sluit de aanvraag al via `bronSaysClosed` zodra `aankondigingCode` `AGO`/`VBE` is of het dagaantal op nul staat — dat dagaantal is hier het echte sluitingssignaal.
+
+Bestaande TenderNed-rijen kunnen na deze parserwijziging opnieuw worden afgeleid via ingest replay; dat is de aanbevolen route omdat die de observatie opnieuw door de volledige curate-flow brengt. `tools/backfill/renormalise-from-raw.ts --bron tenderned` geeft bij het re-normaliseren inmiddels `laatst_gezien_op` als `observedAt` mee. De huidige plan/apply-patchset van die CLI bevat nog geen `sluitingsdatum`; gebruik voor het daadwerkelijk bijwerken van dit veld ingest replay, of plan een aparte uitbreiding van die patchset.
 
 ## Known-hash short-circuit (RJC-357 / RJC-401)
 

@@ -62,6 +62,7 @@ const stored = (
   bronReferentie: "1",
   bronSpecifiek: {},
   contentHash: "a".repeat(64),
+  laatstGezienOp: new Date("2026-09-01T12:00:00.000Z"),
   rawPayloadRef: "raw/a",
   startDatum: null,
   urenPerWeek: null,

@@ -40,6 +40,12 @@ export interface NormalisedField<Value> {
   value: Value;
 }
 
+/** Observation metadata available to source normalisers when a field is
+ * relative to the fetch instant rather than an upstream absolute date. */
+export interface NormaliseContext {
+  readonly observedAt?: Date;
+}
+
 export interface NormalisedTarief {
   eenheid: TariefEenheid | typeof CLEARED | typeof UNKNOWN;
   max: string | typeof CLEARED | typeof UNKNOWN;

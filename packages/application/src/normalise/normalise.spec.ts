@@ -68,6 +68,31 @@ const buildInhuurdeskBody = (description: string): Uint8Array => {
 };
 
 describe("normalise", () => {
+  it("passes the observation instant to the TenderNed normaliser (CTP-531)", async () => {
+    const store = new InMemoryCurateStore();
+    const observedAt = new Date("2026-09-01T12:00:00.000Z");
+    const body = new TextEncoder().encode(
+      JSON.stringify(
+        buildTenderNedPayload({ kenmerk: "TN-531", publicatieId: "pub-531" })
+      )
+    );
+
+    const result = await processObservation(store, {
+      body,
+      bronId: "bron-tenderned-531",
+      bronSlug: "tenderned",
+      contentHash: TENDER_NED_HASH,
+      observedAt,
+      rawPayloadRef: "raw/tenderned-531.json",
+      scrapeRunId: "run-tenderned-531",
+    });
+
+    expect(result.status).toBe("curated");
+    expect(store.aanvragen[0]?.sluitingsdatum).toEqual(
+      new Date("2026-09-15T12:00:00.000Z")
+    );
+  });
+
   it("builds an unambiguous Postgres-safe dedup key", () => {
     const dedupKey = buildDedupKey({
       opdrachtgeverNaam: "Gemeente\u001F Amsterdam",
