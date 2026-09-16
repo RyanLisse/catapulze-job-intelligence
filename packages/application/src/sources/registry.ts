@@ -23,6 +23,7 @@ import { striive } from "./striive";
 import { tbi } from "./tbi";
 import { tenderned } from "./tenderned";
 import { tenmonks } from "./tenmonks";
+import { unica } from "./unica";
 import { vattenfall } from "./vattenfall";
 import { volkerwessels } from "./volkerwessels";
 import { werkenVoorNederland } from "./werken-voor-nederland";
@@ -59,6 +60,7 @@ export const SOURCES = {
   tbi,
   tenderned,
   tenmonks,
+  unica,
   vattenfall,
   volkerwessels,
   "werken-voor-nederland": werkenVoorNederland,

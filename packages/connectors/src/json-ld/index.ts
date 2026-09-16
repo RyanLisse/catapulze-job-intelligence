@@ -29,6 +29,7 @@ export { randstadConfig } from "./configs/randstad";
 export { rijkswaterstaatConfig } from "./configs/rijkswaterstaat";
 export { vattenfallConfig } from "./configs/vattenfall";
 export { enecoConfig } from "./configs/eneco";
+export { unicaConfig } from "./configs/unica";
 export { volkerwesselsConfig } from "./configs/volkerwessels";
 export {
   extractJobPosting,
