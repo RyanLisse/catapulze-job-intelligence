@@ -197,7 +197,10 @@ const trimRaw = async (
   return { counts, payload: value, payloadBytes: Buffer.byteLength(value) };
 };
 
-const REPO_FIXTURES_DIR = path.join(import.meta.dir, "../../fixtures/connectors");
+const REPO_FIXTURES_DIR = path.join(
+  import.meta.dir,
+  "../../fixtures/connectors"
+);
 
 /** Records (or, with `--from-raw`, re-trims) one fixture and returns the
  * one-line summary. `--out-dir` defaults to the repo's fixtures/connectors. */
