@@ -1,5 +1,6 @@
 import { describe, expect, it } from "bun:test";
 
+import { bluetrailConfig, createJsonLdClient } from "@ji/connectors/json-ld";
 import type { JsonLdFetchedPayload } from "@ji/connectors/json-ld";
 import { UNKNOWN } from "@ji/domain";
 
@@ -279,15 +280,31 @@ describe("parseJsonLdPayload -- BlueTrail (label block in surrounding HTML, base
     expect(draft.startDatum.value).toBe("2026-09-01");
   });
 
-  it("never reads baseSalary for tarief, even when present", () => {
-    const draft = parseJsonLdPayload(payload, HASH);
-    expect(draft.tarief).toEqual({
-      eenheid: UNKNOWN,
-      max: UNKNOWN,
-      min: UNKNOWN,
-      valuta: "EUR",
-    });
-  });
+  it.each(["", "UUR", "HOUR"])(
+    "never reads BlueTrail's constant baseSalary for tarief (unitText %p)",
+    (unitText) => {
+      const draft = parseJsonLdPayload(
+        {
+          ...payload,
+          jobPosting: {
+            ...payload.jobPosting,
+            baseSalary: {
+              "@type": "MonetaryAmount",
+              currency: "EUR",
+              value: { "@type": "QuantitativeValue", unitText, value: "100" },
+            },
+          },
+        },
+        HASH
+      );
+      expect(draft.tarief).toEqual({
+        eenheid: UNKNOWN,
+        max: UNKNOWN,
+        min: UNKNOWN,
+        valuta: "EUR",
+      });
+    }
+  );
 
   it("puts the reference code and label block into bronSpecifiek for cross-source dedup", () => {
     const draft = parseJsonLdPayload(payload, HASH);
@@ -342,6 +359,27 @@ describe("parseJsonLdPayload -- BlueTrail (label block in surrounding HTML, base
     const draft = parseJsonLdPayload(payload, HASH);
     expect(draft.opdrachtgeverNaam.value).toBe("Kadaster");
     expect(draft.bronSpecifiek.value).toMatchObject({ eindklant_naam: null });
+  });
+
+  it("promotes the explicit end client over the broker hiringOrganization (F02)", () => {
+    const draft = parseJsonLdPayload(
+      {
+        ...payload,
+        jobPosting: {
+          ...payload.jobPosting,
+          hiringOrganization: { "@type": "Organization", name: "Circle8" },
+        },
+        labelBlock: {
+          ...payload.labelBlock,
+          eindklant: "Gemeente Stichtse Vecht",
+        },
+      },
+      HASH
+    );
+    expect(draft.opdrachtgeverNaam.value).toBe("Gemeente Stichtse Vecht");
+    expect(draft.bronSpecifiek.value).toMatchObject({
+      eindklant_naam: "Gemeente Stichtse Vecht",
+    });
   });
 
   it("maps the structured 'Competenties:' list into skills, trimmed and entity-decoded (F15)", () => {
@@ -894,5 +932,50 @@ describe("parseJsonLdPayload -- closing lifecycle (RJC-377)", () => {
       HASH
     );
     expect(active.lifecycle).toBe("active");
+  });
+});
+
+describe("BlueTrail broker-fronted live capture through connector and normaliser (CTP-516 F02, CTP-603)", () => {
+  const url =
+    "https://www.bluetrail.nl/opdrachten/Interim/architect-ict-en-informatielandschap/";
+
+  const normaliseCapture = async () => {
+    const client = createJsonLdClient({
+      config: bluetrailConfig,
+      liveEnabled: false,
+    });
+    const detail = await client.fetchDetail(url);
+    if (!detail.jobPosting) {
+      throw new Error("expected a JobPosting in the recorded capture");
+    }
+    return parseJsonLdPayload(
+      {
+        jobPosting: detail.jobPosting,
+        labelBlock: detail.labelBlock,
+        parserVersion: bluetrailConfig.parserVersion,
+        slug: bluetrailConfig.slug,
+        url,
+      },
+      HASH
+    );
+  };
+
+  it("names the end client, not the Circle8 broker, as opdrachtgever", async () => {
+    const draft = await normaliseCapture();
+    expect(draft.opdrachtgeverNaam.value).toBe("Gemeente Stichtse Vecht");
+    expect(draft.bronSpecifiek.value).toMatchObject({
+      eindklant_naam: "Gemeente Stichtse Vecht",
+      uren_per_week: "24",
+    });
+  });
+
+  it("leaves tarief unknown despite the recorded 100/HOUR-style baseSalary", async () => {
+    const draft = await normaliseCapture();
+    expect(draft.tarief).toEqual({
+      eenheid: UNKNOWN,
+      max: UNKNOWN,
+      min: UNKNOWN,
+      valuta: "EUR",
+    });
   });
 });
