@@ -177,6 +177,7 @@ export interface StoredRenormaliseRow {
   readonly startDatum: string | null;
   readonly tariefEenheid: string | null;
   readonly tariefMax: string | null;
+  readonly tariefEnriched: boolean;
   readonly tariefMin: string | null;
   readonly urenPerWeek: string | null;
 }
@@ -240,11 +241,12 @@ const skillsEqual = (
 /**
  * The exact rate BlueTrail's constant JobPosting.baseSalary filler produced
  * (value "100" per hour) before the normaliser stopped reading it. Clearing
- * only this signature keeps a real, enrichment-filled rate from being wiped
- * when the draft is merely silent about tarief.
+ * only this signature, and skipping rows with a tarief enrichment, keeps a real
+ * rate from being wiped when the draft is merely silent about tarief.
  */
 const isBlueTrailFillerTarief = (stored: StoredRenormaliseRow): boolean =>
   stored.bronId === SOURCES.bluetrail.bronId &&
+  !stored.tariefEnriched &&
   Number(stored.tariefMin) === 100 &&
   Number(stored.tariefMax) === 100 &&
   stored.tariefEenheid === "uur";
@@ -334,11 +336,21 @@ export const planRenormalisePatch = (
     : { patches, status: "would_patch" };
 };
 
+const TARIEF_BRON_SPECIFIEK_KEYS: ReadonlySet<string> = new Set([
+  "tarief_eenheid",
+  "tarief_max",
+  "tarief_min",
+  "tariefEenheid",
+  "tariefMax",
+  "tariefMin",
+]);
+
 export const applyPlanToBronSpecifiek = (
   stored: BronSpecifiekRecord,
   patches: readonly RenormaliseFieldPatch[]
 ): BronSpecifiekRecord => {
   let dropEmploymentType = false;
+  let dropTarief = false;
   const overlays: BronSpecifiekRecord = {};
   for (const patch of patches) {
     switch (patch.field) {
@@ -360,6 +372,10 @@ export const applyPlanToBronSpecifiek = (
         dropEmploymentType = true;
         break;
       }
+      case "tarief": {
+        dropTarief = true;
+        break;
+      }
       default: {
         break;
       }
@@ -368,6 +384,9 @@ export const applyPlanToBronSpecifiek = (
   const next: BronSpecifiekRecord = {};
   for (const [key, value] of Object.entries(stored)) {
     if (dropEmploymentType && key === "employment_type") {
+      continue;
+    }
+    if (dropTarief && TARIEF_BRON_SPECIFIEK_KEYS.has(key)) {
       continue;
     }
     next[key] = value;
@@ -386,6 +405,7 @@ interface CandidateRow {
   readonly startDatum: string | null;
   readonly tariefEenheid: string | null;
   readonly tariefMax: string | null;
+  readonly tariefEnriched: boolean;
   readonly tariefMin: string | null;
   readonly urenPerWeek: string | null;
 }
@@ -400,6 +420,7 @@ const toStored = (row: CandidateRow): StoredRenormaliseRow => ({
   rawPayloadRef: row.rawPayloadRef,
   startDatum: row.startDatum,
   tariefEenheid: row.tariefEenheid,
+  tariefEnriched: row.tariefEnriched,
   tariefMax: row.tariefMax,
   tariefMin: row.tariefMin,
   urenPerWeek: row.urenPerWeek,
@@ -422,6 +443,11 @@ const selectCandidates = async (
       start_datum AS "startDatum",
       tarief_eenheid AS "tariefEenheid",
       tarief_max::text AS "tariefMax",
+      EXISTS (
+        SELECT 1 FROM curated.aanvraag_enrichment enrichment
+        WHERE enrichment.aanvraag_id = curated.aanvraag.id
+          AND enrichment.field = 'tarief'
+      ) AS "tariefEnriched",
       tarief_min::text AS "tariefMin",
       uren_per_week AS "urenPerWeek"
     FROM curated.aanvraag

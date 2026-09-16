@@ -67,6 +67,7 @@ const stored = (
   rawPayloadRef: "raw/a",
   startDatum: null,
   tariefEenheid: null,
+  tariefEnriched: false,
   tariefMax: null,
   tariefMin: null,
   urenPerWeek: null,
@@ -230,6 +231,14 @@ describe("planRenormalisePatch -- BlueTrail baseSalary filler (CTP-603)", () => 
     expect(plan).toEqual({ patches: [], status: "unchanged" });
   });
 
+  it("keeps a 100-per-hour rate that enrichment filled", () => {
+    const plan = planRenormalisePatch(
+      draft({}),
+      stored({ ...fillerTarief, tariefEnriched: true })
+    );
+    expect(plan).toEqual({ patches: [], status: "unchanged" });
+  });
+
   it("keeps the stored rate when the draft publishes only a maximum", () => {
     const withMaxOnly = draft({});
     const plan = planRenormalisePatch(
@@ -241,6 +250,20 @@ describe("planRenormalisePatch -- BlueTrail baseSalary filler (CTP-603)", () => 
 });
 
 describe("applyPlanToBronSpecifiek", () => {
+  it("drops the stored tarief copy when clearing the BlueTrail filler", () => {
+    expect(
+      applyPlanToBronSpecifiek(
+        {
+          provincie: "Utrecht",
+          tarief_eenheid: "uur",
+          tarief_max: "100",
+          tarief_min: "100",
+        },
+        [{ field: "tarief", from: null, to: null }]
+      )
+    ).toEqual({ provincie: "Utrecht" });
+  });
+
   it("drops employment_type and overlays provincie", () => {
     expect(
       applyPlanToBronSpecifiek(

@@ -1,6 +1,6 @@
 # BlueTrail — ingest-recept (geverifieerd 2026-08-31)
 
-Status: **probe afgerond; connector nog niet gebouwd** — adapter-categorie `json-ld`; 144 opdrachten in de geprobeerde listing. Geen technische blocker; voorwaardenstatus nog te toetsen.
+Status: **connector gebouwd** (`packages/connectors/src/json-ld/configs/bluetrail.ts`) — adapter-categorie `json-ld`; 144 opdrachten in de geprobeerde listing. Geen technische blocker; voorwaardenstatus nog te toetsen.
 
 ## Endpoints
 
@@ -70,6 +70,6 @@ Live meting 2026-09-16 over alle 129 opdrachten in `job-sitemap.xml`:
 
 Bestaande rijen:
 
-- `opdrachtgever_naam` herstelt bij de eerstvolgende poll. De eindklant wordt in de connector uit de beschrijving gehaald, en `parserVersion` `bluetrail/v3` verandert de hash van elke rij, zodat curate de nieuwe draftwaarde overneemt. Opdrachten die al uit de sitemap verdwenen zijn houden de bemiddelaar. `renormalise-from-raw` helpt hier niet: de opgeslagen raw bevat de eindklant nog niet.
-- Het opvultarief herstelt niet vanzelf, want een onbekende draftwaarde overschrijft niets. `bun run backfill:renormalise-from-raw --bron bluetrail` wist alleen BlueTrail-rijen met exact min = max = 100, eenheid uur, én een draft zonder tarief (CTP-603).
+- `opdrachtgever_naam` herstelt bij de eerstvolgende poll. De eindklant wordt in de connector uit de beschrijving gehaald, en `parserVersion` `bluetrail/v3` verandert de hash van elke rij, zodat curate de nieuwe draftwaarde overneemt. Opdrachten die al uit de sitemap verdwenen zijn houden de bemiddelaar. `renormalise-from-raw` helpt hier niet: de opgeslagen raw bevat de eindklant nog niet. Bekende beperking: curate behoudt de bestaande `dedup_groep_id`, dus zo'n rij blijft gegroepeerd onder de bemiddelaar; cross-source dedup met dezelfde opdracht elders pakt alleen nieuwe rijen.
+- Het opvultarief herstelt niet vanzelf, want een onbekende draftwaarde overschrijft niets. `bun run backfill:renormalise-from-raw --bron bluetrail` wist alleen BlueTrail-rijen met exact min = max = 100, eenheid uur, zonder tarief-verrijking in `curated.aanvraag_enrichment`, én een draft zonder tarief (CTP-603). De kopie in `bron_specifiek` gaat mee.
 
