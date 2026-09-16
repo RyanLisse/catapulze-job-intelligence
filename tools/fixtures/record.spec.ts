@@ -21,6 +21,16 @@ describe("stripHtml", () => {
       svg: 1,
     });
   });
+
+  it("drops a named attribute but keeps the element and its content", async () => {
+    const { counts, value } = await stripHtml(
+      `<article class="job recruiter-jan"><p>Tekst</p></article>`,
+      [],
+      ["article::class"]
+    );
+    expect(value).toBe("<article><p>Tekst</p></article>");
+    expect(counts).toEqual({ "article::class": 1 });
+  });
 });
 
 describe("stripJsonKeys", () => {

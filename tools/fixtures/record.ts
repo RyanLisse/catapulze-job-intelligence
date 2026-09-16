@@ -12,6 +12,7 @@
  * Usage:
  *   bun tools/fixtures/record.ts --source <slug> --name <file-stem> --url <url>
  *     [--body '<json>'] [--strip <css selector>]... [--strip-key <key>]...
+ *     [--strip-attr '<css selector>::<attribute>']...
  *     [--note <text>] [--raw-dir <dir>] [--from-raw <file>]
  *
  * `--from-raw` re-trims an earlier recording without a second request; the
@@ -40,10 +41,25 @@ export interface StripResult<T> {
 
 export const stripHtml = async (
   html: string,
-  selectors: readonly string[]
+  selectors: readonly string[],
+  /** `selector::attribute` -- drops one attribute that carries PII (e.g. a
+   * recruiter-name class) without removing the element's content. */
+  attributes: readonly string[] = []
 ): Promise<StripResult<string>> => {
   const counts: Record<string, number> = {};
   let rewriter = new HTMLRewriter();
+  for (const spec of attributes) {
+    const [selector = "", attribute = ""] = spec.split("::");
+    counts[spec] = 0;
+    rewriter = rewriter.on(selector, {
+      element: (element) => {
+        if (element.hasAttribute(attribute)) {
+          counts[spec] = (counts[spec] ?? 0) + 1;
+          element.removeAttribute(attribute);
+        }
+      },
+    });
+  }
   for (const selector of selectors) {
     counts[selector] = 0;
     rewriter = rewriter.on(selector, {
@@ -101,6 +117,7 @@ const main = async (): Promise<void> => {
       "raw-dir": { type: "string" },
       source: { type: "string" },
       strip: { multiple: true, type: "string" },
+      "strip-attr": { multiple: true, type: "string" },
       "strip-key": { multiple: true, type: "string" },
       url: { type: "string" },
     },
@@ -141,10 +158,11 @@ const main = async (): Promise<void> => {
 
   const stripped = isJson
     ? stripJsonKeys(JSON.parse(rawText), values["strip-key"] ?? [])
-    : await stripHtml(rawText, [
-        ...DEFAULT_HTML_STRIP,
-        ...(values.strip ?? []),
-      ]);
+    : await stripHtml(
+        rawText,
+        [...DEFAULT_HTML_STRIP, ...(values.strip ?? [])],
+        values["strip-attr"] ?? []
+      );
   const payloadText =
     typeof stripped.value === "string"
       ? stripped.value
