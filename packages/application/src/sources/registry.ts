@@ -1,3 +1,4 @@
+import { asml } from "./asml";
 import { bijOranje } from "./bij-oranje";
 import { bluetrail } from "./bluetrail";
 import { ctm } from "./ctm";
@@ -23,6 +24,7 @@ export { resolveTenderNedTestImportDays } from "./tenderned";
 
 /** Registry of every ingestable bron. Adding a source = one file in this folder + one line here. */
 export const SOURCES = {
+  asml,
   "bij-oranje": bijOranje,
   bluetrail,
   ctm,

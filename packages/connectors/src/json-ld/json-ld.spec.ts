@@ -13,6 +13,7 @@ import {
   extractListingLinks,
   extractSitemapUrls,
 } from "./client";
+import { asmlConfig } from "./configs/asml";
 import { bijOranjeConfig } from "./configs/bij-oranje";
 import { bluetrailConfig } from "./configs/bluetrail";
 import { heroConfig } from "./configs/hero";
@@ -478,6 +479,62 @@ describe("Werken voor Nederland JSON-LD connector", () => {
     });
 
     await expect(client.fetchListing()).resolves.toEqual([{ url: sampleUrl }]);
+  });
+});
+
+describe("ASML Sitecore/Workday JSON-LD connector", () => {
+  const sampleUrl =
+    "https://www.asml.com/en/careers/find-your-job/senior-electrical-safety-expert-nominated-person--installatie-verantwoordelijke-euv-factory-j00333473";
+
+  it("uses the job-posting sitemap and excludes the listing root", async () => {
+    expect(asmlConfig.discovery).toEqual({
+      kind: "sitemap",
+      url: "https://www.asml.com/en/job_posting-sitemap.xml",
+    });
+    const client = createJsonLdClient({
+      config: asmlConfig,
+      liveEnabled: false,
+    });
+
+    const urls = await client.fetchListing();
+
+    expect(urls).toHaveLength(2);
+    expect(urls).toContainEqual({
+      lastmod: "2026-08-17",
+      url: sampleUrl,
+    });
+    expect(urls).not.toContainEqual({
+      lastmod: "2026-09-16",
+      url: "https://www.asml.com/en/careers/find-your-job",
+    });
+  });
+
+  it("synthesises literal JobPosting and Workday label fields from __NEXT_DATA__", async () => {
+    const client = createJsonLdClient({
+      config: asmlConfig,
+      liveEnabled: false,
+    });
+    const detail = await client.fetchDetail(sampleUrl);
+    if (!detail.jobPosting) {
+      throw new Error("expected ASML JobPosting synthesis");
+    }
+
+    expect(detail.jobPosting).toMatchObject({
+      "@type": "JobPosting",
+      datePosted: "2026-08-17T00:00:00",
+      employmentType: "FULL_TIME",
+      identifier: { value: "J-00333473" },
+      jobLocation: {
+        address: { addressCountry: "NL", addressLocality: "Veldhoven" },
+      },
+      title:
+        "Senior Electrical Safety Expert (Nominated Person – Installatie verantwoordelijke EUV Factory)",
+      url: sampleUrl,
+    });
+    expect(detail.labelBlock.referentienummer).toBe("J-00333473");
+    expect(detail.labelBlock.workdayApplyUrl).toBe(
+      "https://asml.wd3.myworkdayjobs.com/ASMLEXT1/job/Veldhoven-Netherlands/Senior-Electrical-Safety-Expert--Nominated-Person---Installatie-verantwoordelijke-EUV-Factory-_J-00333473/apply"
+    );
   });
 });
 

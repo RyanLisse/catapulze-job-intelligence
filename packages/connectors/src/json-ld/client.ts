@@ -1,6 +1,10 @@
 import { loadConnectorFixture } from "../fixtures/load";
 import { resolveHttpTimeoutMs, withHttpTimeout } from "../http-timeout";
-import { extractJobPosting, extractLabelBlock } from "./extract";
+import {
+  extractJobPosting,
+  extractLabelBlock,
+  synthesizeJobPostingFromNextData,
+} from "./extract";
 import {
   buildLiveFetchHeaders,
   cookieEnvVarForLiveGate,
@@ -158,10 +162,18 @@ export const createJsonLdClient = (
     url: string,
     html: string
   ): JsonLdDetailPayload => {
-    const jobPosting = extractJobPosting(html);
+    const explicitJobPosting = extractJobPosting(html);
+    const synthesis =
+      !explicitJobPosting && config.synthesizeFromNextJobData
+        ? synthesizeJobPostingFromNextData(html, url)
+        : null;
+    const jobPosting = explicitJobPosting ?? synthesis?.jobPosting ?? null;
     return {
       jobPosting,
-      labelBlock: extractLabelBlock(html, jobPosting, config.labelBlock),
+      labelBlock: {
+        ...extractLabelBlock(html, jobPosting, config.labelBlock),
+        ...synthesis?.labelBlock,
+      },
       url,
     };
   };
