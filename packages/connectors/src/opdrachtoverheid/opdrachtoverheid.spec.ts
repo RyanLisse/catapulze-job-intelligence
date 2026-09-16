@@ -79,11 +79,13 @@ describe("Opdrachtoverheid connector", () => {
       startedAt: new Date("2026-08-31T10:15:00.000Z"),
     });
 
+    // The committed recording is one real `POST /search` snapshot
+    // (limit 400, offset 0, captured 2026-09-16): 400 records, the cap.
     expect(result.metrics).toMatchObject({
       changed: 0,
       error: 0,
-      found: 8,
-      new: 8,
+      found: 400,
+      new: 400,
       rejected: 0,
     });
   });
@@ -113,10 +115,10 @@ describe("Opdrachtoverheid connector", () => {
     await runConnector({ ...sharedInput, scrapeRunId: "run-oo-replay-1" });
     await runConnector({ ...sharedInput, scrapeRunId: "run-oo-replay-2" });
 
-    expect(recorder.records).toHaveLength(8);
+    expect(recorder.records).toHaveLength(400);
     expect(
       new Set(recorder.records.map((record) => record.bronReferentie)).size
-    ).toBe(8);
+    ).toBe(400);
   });
 
   it("takes one bounded snapshot without pagination omissions", async () => {
@@ -219,7 +221,7 @@ describe("Opdrachtoverheid connector", () => {
     expect(requestCount).toBe(2);
   });
 
-  it("fails closed for underfull live snapshots and keeps fixtures complete", async () => {
+  it("fails closed for underfull live snapshots and reports the capped fixture snapshot as truncated", async () => {
     const fullSnapshot = Array.from(
       { length: OPDRACHTOVERHEID_MAX_RECORDS },
       (_, index) => buildTender(`T-FULL-${index}`, `Full ${index}`)
@@ -267,10 +269,13 @@ describe("Opdrachtoverheid connector", () => {
     expect(underfullResult.hasMore).toBe(false);
     expect(underfullResult.truncated).toBe(true);
 
+    // The committed recording is a full-cap snapshot (400 = the API's own
+    // limit), so the fixture reports the same truncation a live run would.
     const fixtureListing = await createOpdrachtoverheidClient({
       liveEnabled: false,
     }).fetchListing(0);
-    expect(fixtureListing.hasMore).toBe(false);
+    expect(fixtureListing.items).toHaveLength(OPDRACHTOVERHEID_MAX_RECORDS);
+    expect(fixtureListing.hasMore).toBe(true);
 
     const run = await runConnector({
       bronId: "bron-opdrachtoverheid-underfull-run",

@@ -109,7 +109,7 @@ const CASES: readonly Case[] = [
     title: "Operationeel Database Ontwikkelaar 2026-BZB-0457",
   },
   {
-    bron: "needstaffing-15570",
+    bron: "needstaffing-15599",
     claims: [
       { label: "Werkvorm", value: "Hybride" },
       { label: "Uren per week", value: "36" },

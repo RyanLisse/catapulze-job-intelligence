@@ -72,7 +72,7 @@ const descriptionText = (html: string): string =>
 
 /** `detail.uren` is a leading number (or range) sometimes followed by a unit
  * word -- confirmed live: "36" (2026-08-31, detail-15520.json) vs "36 uur"
- * (2026-09-15, detail-15570-full-2026-09-15.json). Keep only the number(s),
+ * (2026-09-16, detail-15599.json). Keep only the number(s),
  * never the unit text, so `uren_per_week` stays the plain numeric string the
  * CTP-514 data contract expects. */
 const UREN_LEADING_NUMBER_PATTERN = /^(?<value>\d+(?:\s*-\s*\d+)?)/u;

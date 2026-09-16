@@ -14,8 +14,8 @@ import {
  * 2026-08-31). The fixture's `vacancy-text` body is deliberately
  * truncated ("verkort t.b.v. fixture") -- werkvorm/niveau/skills are not
  * present in THIS record, so this default builder omits them (honesty
- * case). The fuller 2026-09-15 capture (joborder 15570, see the "fuller
- * live capture" describe block below) proves the mapping when those
+ * case). The 2026-09-16 capture (joborder 15599, see the "live
+ * capture" describe block below) proves the mapping when those
  * fields ARE published. Niveau is not covered by either fixture: it only
  * ever appears embedded in an "Eisen" prose sentence ("Minimaal een
  * afgeronde HBO-opleiding."), not as a structured field -- extracting it
@@ -109,73 +109,73 @@ describe("parseNeedstaffingPayload", () => {
   });
 });
 
-/** Mirrors what `parseNeedstaffingDetail` now produces from
- * fixtures/connectors/needstaffing/detail-15570-full-2026-09-15.json (see
+/** Mirrors what `parseNeedstaffingDetail` produces from
+ * fixtures/connectors/needstaffing/detail-15599.json (see
  * packages/connectors/src/needstaffing/needstaffing.spec.ts for the
  * HTML-parsing assertions this shape is built from): the "Locatie" icon
  * field ("Den Haag/Hybride") splits into locatie + werkvorm, "Verwacht
- * aantal uren per week" carries a "uur" unit suffix, and the vacancy
+ * aantal uren per week" carries a "u" unit suffix, and the vacancy
  * body's Competenties list is captured as competenties. */
 const buildFullerPayload = (
   overrides: Partial<NeedstaffingFetchedPayload["detail"]> = {}
 ): NeedstaffingFetchedPayload => ({
   detail: {
     competenties: [
-      "Samenwerken",
+      "Eigenaarschap",
       "Overtuigingskracht",
-      "Omgevingssensitiviteit",
-      "Resultaatgerichtheid",
+      "Inhoudelijke scherpte",
+      "Analytisch sterk",
     ],
-    deadline: "1789480800000",
-    id: "15570",
+    deadline: "1789740000000",
+    id: "15599",
     locatie: "Den Haag",
-    periode: "3 maanden (optie 1x verlenging)",
-    start: "1790726400000",
-    tarief: "€85 - €93",
-    tariefMax: "93",
-    tariefMin: "85",
-    titel: "Senior Procesregisseur Digitale Gegevensuitwisseling 202609A077",
-    uren: "36 uur",
+    periode: "12 maanden",
+    start: "1790640000000",
+    tarief: "\u20ac90 - \u20ac100",
+    tariefMax: "100",
+    tariefMin: "90",
+    titel: "Business Analist 202606A432 (vervanging)",
+    uren: "36u",
     werkvorm: "Hybride",
     ...overrides,
   },
   listing: {
-    deadline: "1789480800000",
-    id: "15570",
+    deadline: "1789740000000",
+    id: "15599",
     locatie: "Den Haag",
-    opdrachtgeverNaam: "RVO",
-    periode: "3 maanden (optie 1x verlenging)",
-    start: "1790726400000",
-    tarief: "€85 - €93",
-    titel: "Senior Procesregisseur Digitale Gegevensuitwisseling 202609A077",
-    uren: "36 uur",
+    opdrachtgeverNaam: "Nederlandse Emissieautoriteit",
+    periode: "12 maanden",
+    start: "1790640000000",
+    tarief: "\u20ac90 - \u20ac100",
+    titel: "Business Analist 202606A432 (vervanging)",
+    uren: "36u",
     werkvorm: "Hybride",
   },
   raw: {
-    html: "Senior Procesregisseur Digitale Gegevensuitwisseling – RVO<p><b>Opdrachtomschrijving</b></p>Digitale ontwikkelingen hebben impact.",
+    html: "<p><strong>Let op! Het gaat om een vrije vervanging aanvraag!</strong></p><h1>Senior Business Analist (Vervanging) </h1><h2>OVER DE ORGANISATIE</h2>",
   },
 });
 
-describe("parseNeedstaffingPayload — fuller live capture (2026-09-15, joborder 15570)", () => {
+describe("parseNeedstaffingPayload \u2014 live capture (2026-09-16, joborder 15599)", () => {
   it("maps werkvorm, skills, and unit-suffixed uren from structured fields", () => {
     const draft = parseNeedstaffingPayload(buildFullerPayload(), "hash-5");
     expect(draft.bronSpecifiek.value).toMatchObject({
-      duur: "3 maanden (optie 1x verlenging)",
+      duur: "12 maanden",
       skills: [
-        "Samenwerken",
+        "Eigenaarschap",
         "Overtuigingskracht",
-        "Omgevingssensitiviteit",
-        "Resultaatgerichtheid",
+        "Inhoudelijke scherpte",
+        "Analytisch sterk",
       ],
       uren: "36",
       uren_per_week: "36",
       werkvorm: "Hybride",
     });
-    // 1790726400000ms is UTC-midnight of the site's own displayed
-    // "30-09-2026" -- confirmed matching UTC-sliced ISO on this second
+    // 1790640000000ms is UTC-midnight of the site's own displayed
+    // "29-09-2026" -- confirmed matching UTC-sliced ISO on this second
     // real record too, same as the 15520 case above: no local-timezone
     // shift bug reproduced for Need Staffing (unlike Onefellow).
-    expect(draft.startDatum.value).toBe("2026-09-30");
+    expect(draft.startDatum.value).toBe("2026-09-29");
   });
 
   it("omits skills when competenties is absent instead of guessing", () => {

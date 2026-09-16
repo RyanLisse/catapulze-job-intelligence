@@ -6,7 +6,10 @@ import type {
   NeedstaffingListingItem,
   NeedstaffingListingPage,
 } from "./types";
-import { NEEDSTAFFING_OPDRACHTEN_PATH } from "./types";
+import {
+  NEEDSTAFFING_DETAIL_FIXTURES,
+  NEEDSTAFFING_OPDRACHTEN_PATH,
+} from "./types";
 
 interface NeedstaffingRewriterElement {
   getAttribute: (name: string) => string | null;
@@ -157,7 +160,7 @@ const trimFields = <Item extends NeedstaffingInfoFields>(item: Item): Item => {
 };
 
 /** The "Locatie" icon field carries both city and werkvorm in one string --
- * confirmed live 2026-09-15 across the current listing: a slash form
+ * confirmed live 2026-09-16 across the current listing: a slash form
  * ("Leeuwarden/Hybride") and a trailing-parenthetical form ("Maasland
  * (volledig op locatie)", "Huis ter Heide (2 dagen op locatie)", "Utrecht
  * (op locatie)"). Both are structural delimiters around the same field, not
@@ -217,7 +220,7 @@ const STRIP_TAGS_PATTERN = /<[^>]+>/gu;
 
 /** Reads the vacancy body's `<h2>Competenties</h2>` list (structured,
  * contract-allowed -- CTP-514 F15 names "competenties" explicitly) into
- * plain skill strings. Confirmed live 2026-09-15, joborder 15570. Absent
+ * plain skill strings. Confirmed live 2026-09-16, joborder 15599. Absent
  * heading/list -> empty array, never a guess. */
 export const extractNeedstaffingCompetenties = (html: string): string[] => {
   const headingMatch = COMPETENTIES_HEADING_PATTERN.exec(html);
@@ -457,10 +460,7 @@ export const createNeedstaffingClient = (
     options.liveEnabled ?? process.env.NEEDSTAFFING_LIVE === "1";
   const listingFixturePath =
     options.listingFixturePath ?? "needstaffing/listing-page-0.json";
-  const detailFixtures = options.detailFixtures ?? {
-    "15520": "needstaffing/detail-15520.json",
-    "15599": "needstaffing/detail-15599.json",
-  };
+  const detailFixtures = options.detailFixtures ?? NEEDSTAFFING_DETAIL_FIXTURES;
   const baseUrl = options.baseUrl ?? DEFAULT_BASE_URL;
 
   return {
