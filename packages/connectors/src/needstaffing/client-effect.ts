@@ -87,7 +87,7 @@ export const fetchDetailHtmlEffect = (
 ): Effect.Effect<string, ReadIoFault> => {
   const detailFixtures = options.detailFixtures ?? {
     "15520": "needstaffing/detail-15520.json",
-    "15570": "needstaffing/detail-15570-full-2026-09-15.json",
+    "15599": "needstaffing/detail-15599.json",
   };
   const baseUrl = options.baseUrl ?? DEFAULT_BASE_URL;
 
