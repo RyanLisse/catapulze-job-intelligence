@@ -32,7 +32,6 @@ export { enecoConfig } from "./configs/eneco";
 export { unicaConfig } from "./configs/unica";
 export { nsConfig } from "./configs/ns";
 export { volkerwesselsConfig } from "./configs/volkerwessels";
-export { heijmansConfig } from "./configs/heijmans";
 export {
   extractJobPosting,
   extractJsonLdNodes,
