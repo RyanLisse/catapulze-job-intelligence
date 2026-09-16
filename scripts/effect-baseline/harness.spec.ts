@@ -6,6 +6,7 @@ import {
   assertFixtureOnly,
   buildDryRunArtifact,
   loadTemplate,
+  transferredGitMetadata,
   validateBaselineArtifact,
 } from "./harness";
 import { measureNativeCohort } from "./measure";
@@ -92,4 +93,29 @@ describe("effect-baseline measure (native fixtures)", () => {
     expect(artifact.notes).toContain("blocked");
     validateBaselineArtifact(artifact);
   }, 120_000);
+});
+
+describe("effect-baseline git identity without a workspace", () => {
+  const sha = "0123456789abcdef0123456789abcdef01234567";
+
+  test("uses the transferred shadow identity", () => {
+    expect(
+      transferredGitMetadata({
+        CRABBOX_SOURCE_GIT_SHA: sha,
+        CRABBOX_SOURCE_GIT_STATE: "clean",
+      })
+    ).toEqual({ branch: null, dirty: false, headSha: sha });
+  });
+
+  test("refuses to invent an identity", () => {
+    expect(() => transferredGitMetadata({})).toThrow(
+      "No git workspace and no valid CRABBOX_SOURCE_GIT_SHA/CRABBOX_SOURCE_GIT_STATE"
+    );
+    expect(() =>
+      transferredGitMetadata({
+        CRABBOX_SOURCE_GIT_SHA: "abc",
+        CRABBOX_SOURCE_GIT_STATE: "clean",
+      })
+    ).toThrow("No git workspace");
+  });
 });
