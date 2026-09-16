@@ -17,6 +17,7 @@ import { opdrachtoverheid } from "./opdrachtoverheid";
 import { proAct } from "./pro-act";
 import { rabobank } from "./rabobank";
 import { randstad } from "./randstad";
+import { rijkswaterstaat } from "./rijkswaterstaat";
 import { striive } from "./striive";
 import { tbi } from "./tbi";
 import { tenderned } from "./tenderned";
@@ -50,6 +51,7 @@ export const SOURCES = {
   "pro-act": proAct,
   rabobank,
   randstad,
+  rijkswaterstaat,
   striive,
   tbi,
   tenderned,
