@@ -539,6 +539,61 @@ describe("curateObservation unchanged content enqueues its own events (CTP-498)"
     });
   });
 
+  it("keeps present numeric uren_min/uren_max while stripping hours 0 (CTP-599)", async () => {
+    const store = new InMemoryCurateStore();
+    const base = observation("UREN-NUM-1", "hash-uren-numeric");
+    await curateObservation(store, {
+      ...base,
+      draft: {
+        ...base.draft,
+        bronSpecifiek: {
+          provenance,
+          value: {
+            uren_max: 36,
+            uren_min: 36,
+            uren_per_week: "36",
+          },
+        },
+      },
+    });
+
+    expect(store.aanvragen[0]).toMatchObject({
+      bronSpecifiek: {
+        uren_max: 36,
+        uren_min: 36,
+        uren_per_week: "36",
+      },
+      urenPerWeek: "36",
+    });
+
+    // Numeric 0 is absent and must not persist (parity with string "0").
+    const zeroStore = new InMemoryCurateStore();
+    await curateObservation(zeroStore, {
+      ...observation("UREN-NUM-0", "hash-uren-numeric-zero"),
+      draft: {
+        ...base.draft,
+        bronSpecifiek: {
+          provenance,
+          value: {
+            uren_max: 0,
+            uren_min: 0,
+            uren_per_week: "0",
+          },
+        },
+      },
+    });
+    expect(zeroStore.aanvragen[0]?.urenPerWeek).toBeNull();
+    expect(zeroStore.aanvragen[0]?.bronSpecifiek).not.toHaveProperty(
+      "uren_min"
+    );
+    expect(zeroStore.aanvragen[0]?.bronSpecifiek).not.toHaveProperty(
+      "uren_max"
+    );
+    expect(zeroStore.aanvragen[0]?.bronSpecifiek).not.toHaveProperty(
+      "uren_per_week"
+    );
+  });
+
   it("enqueues an upsert event and no new versie when only laatstGezienOp moves", async () => {
     const store = await seedActive(new InMemoryCurateStore());
 

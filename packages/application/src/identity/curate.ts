@@ -389,15 +389,32 @@ const UREN_BRON_KEY_SET: ReadonlySet<string> = new Set([
   "uren_per_week_raw",
 ]);
 
+/** Raw bron_specifiek uren values may be string or number (Inhuurdesk min/max). */
+type BronSpecifiekValue = BronSpecifiekRecord[string];
+
+const isAbsentUrenBronValue = (
+  value: BronSpecifiekValue | undefined
+): boolean => {
+  if (value === null || value === undefined) {
+    return true;
+  }
+  // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Zod record union; number 0 is absent hours
+  if (typeof value === "number") {
+    return value === 0 || Number.isNaN(value);
+  }
+  // oxlint-disable-next-line anti-slop/no-runtime-typeof -- string hours use the CTP-599 text rule
+  if (typeof value === "string") {
+    return isAbsentUrenText(value);
+  }
+  return false;
+};
+
 const stripAbsentUrenBronKeys = (
   record: BronSpecifiekRecord
 ): BronSpecifiekRecord => {
   const next: BronSpecifiekRecord = {};
   for (const [key, value] of Object.entries(record)) {
-    if (
-      UREN_BRON_KEY_SET.has(key) &&
-      isAbsentUrenText(readBronText(record, key))
-    ) {
+    if (UREN_BRON_KEY_SET.has(key) && isAbsentUrenBronValue(value)) {
       continue;
     }
     next[key] = value;
