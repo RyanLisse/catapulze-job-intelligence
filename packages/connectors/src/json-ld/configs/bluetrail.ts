@@ -12,6 +12,8 @@ export const bluetrailConfig: JsonLdConnectorConfig = {
   detailFixtures: {
     "https://www.bluetrail.nl/opdrachten/Interim/adviseur-privacy-ibd/":
       "bluetrail/detail-adviseur-privacy-ibd-2026-09-15.json",
+    "https://www.bluetrail.nl/opdrachten/Interim/architect-ict-en-informatielandschap/":
+      "bluetrail/detail-architect-ict-en-informatielandschap-2026-09-16.json",
     "https://www.bluetrail.nl/opdrachten/Interim/ciam-tester/":
       "bluetrail/detail-1.json",
     "https://www.bluetrail.nl/opdrachten/Interim/systeembeheerder/":
@@ -41,6 +43,17 @@ export const bluetrailConfig: JsonLdConnectorConfig = {
       pattern: /Competenties:<\/strong><br><br><ul>(?<value>[\s\S]*?)<\/ul>/u,
     },
     eindDatum: { pattern: /<b>Einddatum<\/b>(?<value>[^<]+)/u },
+    // Broker-fronted postings put the intermediary (SynProfs, Circle8, Harvey
+    // Nash) in `hiringOrganization` and name the end client only in the
+    // opening "Voor [de] <Naam> zoeken wij" sentence. Measured on all 129 live
+    // postings (2026-09-16): 8 matches, every one on a broker page and every
+    // capture a real client; zero matches on client-published pages. No `i`
+    // flag and an uppercase first letter keep "Voor de afdeling ... zoeken
+    // wij" and "Voor onze klant zoeken wij" unmatched (docs/sources/bluetrail.md).
+    eindklant: {
+      pattern: /Voor (?:de |het )?(?<value>[A-Z][^,.<]{1,59}?) zoeken wij/u,
+      source: "description",
+    },
     locatie: { pattern: /<b>Locatie<\/b>(?<value>[^<]+)/u },
     referentienummer: { pattern: /<b>Referentienummer<\/b>(?<value>[^<]+)/u },
     sluitingsDatum: { pattern: /<b>Sluitingsdatum<\/b>(?<value>[^<]+)/u },
@@ -49,6 +62,6 @@ export const bluetrailConfig: JsonLdConnectorConfig = {
   },
   listingFixturePath: "bluetrail/listing-page-0.json",
   liveEnvVar: "BLUETRAIL_LIVE",
-  parserVersion: "bluetrail/v2",
+  parserVersion: "bluetrail/v3",
   slug: "bluetrail",
 };

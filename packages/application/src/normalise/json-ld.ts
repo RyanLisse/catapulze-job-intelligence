@@ -169,6 +169,16 @@ const eenheidFromUnitText = (unit: string): "maand" | "dag" | "uur" | null => {
 };
 
 /**
+ * Sources whose JobPosting.baseSalary is a constant filler, whatever its unit.
+ * BlueTrail: all 129 live postings (2026-09-16) carry value "100", with
+ * unitText "" (45), "UUR" (52) or "HOUR" (32) -- the unit alone no longer
+ * tells filler from a rate.
+ */
+const PLACEHOLDER_BASE_SALARY_SLUGS: ReadonlySet<string> = new Set([
+  "bluetrail",
+]);
+
+/**
  * Trust JobPosting.baseSalary only when unitText is an explicit period.
  * BlueTrail's Google-for-Jobs filler (`value: "100"`, empty unitText) stays out.
  */
@@ -313,7 +323,9 @@ export const parseJsonLdPayload = (
   const jobLocationAddress = asNode(asNode(firstJobLocation)?.address);
   const startDatum = parseDutchDate(labelBlock.startDatum);
   const tarief =
-    tariefFromBaseSalary(jobPosting) ??
+    (PLACEHOLDER_BASE_SALARY_SLUGS.has(payload.slug)
+      ? null
+      : tariefFromBaseSalary(jobPosting)) ??
     parseTariefFromText(labelBlock.tarief ?? descriptionText);
   // Only BlueTrail's label block ever carries `sluitingsDatum` (its
   // "Sluitingsdatum" sidebar field, Dutch text like "2 september 2026" --

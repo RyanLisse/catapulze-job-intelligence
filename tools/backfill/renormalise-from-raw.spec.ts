@@ -25,7 +25,9 @@ const draft = (input: {
     readonly tender_hours_week?: string;
     readonly uren_per_week?: string;
   };
+  readonly opdrachtgeverNaamValue?: string;
   readonly startDatumValue?: string | typeof UNKNOWN | typeof CLEARED;
+  readonly tariefMinValue?: string;
 }): NormalisedAanvraagDraft => ({
   beschrijving: { provenance, value: "Body" },
   bronReferentie: { provenance, value: "1" },
@@ -41,14 +43,17 @@ const draft = (input: {
   lifecycle: "active",
   locatieLand: { provenance, value: "NL" },
   locatieTekst: { provenance, value: UNKNOWN },
-  opdrachtgeverNaam: { provenance, value: UNKNOWN },
+  opdrachtgeverNaam: {
+    provenance,
+    value: input.opdrachtgeverNaamValue ?? UNKNOWN,
+  },
   parserVersion: "spec",
   startDatum: { provenance, value: input.startDatumValue ?? UNKNOWN },
   status: "active",
   tarief: {
-    eenheid: UNKNOWN,
-    max: UNKNOWN,
-    min: UNKNOWN,
+    eenheid: input.tariefMinValue === undefined ? UNKNOWN : "uur",
+    max: input.tariefMinValue ?? UNKNOWN,
+    min: input.tariefMinValue ?? UNKNOWN,
     valuta: "EUR",
   },
   titel: { provenance, value: "Title" },
@@ -63,8 +68,12 @@ const stored = (
   bronSpecifiek: {},
   contentHash: "a".repeat(64),
   laatstGezienOp: new Date("2026-09-01T12:00:00.000Z"),
+  opdrachtgeverNaam: null,
   rawPayloadRef: "raw/a",
   startDatum: null,
+  tariefEenheid: null,
+  tariefMax: null,
+  tariefMin: null,
   urenPerWeek: null,
   ...overrides,
 });
@@ -176,6 +185,52 @@ describe("planRenormalisePatch", () => {
       { field: "provincie", from: null, to: "Noord-Holland" },
       { field: "skills", from: null, to: ["Privacy"] },
     ]);
+  });
+});
+
+describe("planRenormalisePatch -- BlueTrail F02 and baseSalary filler (CTP-516)", () => {
+  it("replaces the broker opdrachtgever with the draft's explicit end client", () => {
+    const plan = planRenormalisePatch(
+      draft({ opdrachtgeverNaamValue: "Gemeente Stichtse Vecht" }),
+      stored({ opdrachtgeverNaam: "Circle8" })
+    );
+    expect(plan.patches).toEqual([
+      {
+        field: "opdrachtgever_naam",
+        from: "Circle8",
+        to: "Gemeente Stichtse Vecht",
+      },
+    ]);
+  });
+
+  it("clears the stored 100-per-hour filler when the draft has no tarief", () => {
+    const plan = planRenormalisePatch(
+      draft({}),
+      stored({ tariefEenheid: "uur", tariefMax: "100", tariefMin: "100" })
+    );
+    expect(plan.patches).toEqual([
+      {
+        field: "tarief",
+        from: { eenheid: "uur", max: "100", min: "100" },
+        to: null,
+      },
+    ]);
+  });
+
+  it("keeps a stored rate that is not the filler signature", () => {
+    const plan = planRenormalisePatch(
+      draft({}),
+      stored({ tariefEenheid: "uur", tariefMax: "95", tariefMin: "85" })
+    );
+    expect(plan).toEqual({ patches: [], status: "unchanged" });
+  });
+
+  it("keeps the filler-shaped rate when the draft itself publishes a tarief", () => {
+    const plan = planRenormalisePatch(
+      draft({ tariefMinValue: "100" }),
+      stored({ tariefEenheid: "uur", tariefMax: "100", tariefMin: "100" })
+    );
+    expect(plan).toEqual({ patches: [], status: "unchanged" });
   });
 });
 

@@ -238,14 +238,16 @@ describe.each([
   ["hero", heroConfig],
   ["pro-act", proActConfig],
 ])("%s JSON-LD connector", (slug, config) => {
-  it("exports parser version v2", () => {
-    expect(config.parserVersion).toBe(`${slug}/v2`);
+  it("exports its current parser version", () => {
+    expect(config.parserVersion).toBe(
+      slug === "bluetrail" ? "bluetrail/v3" : `${slug}/v2`
+    );
   });
 
-  // BlueTrail's listing fixture carries a 3rd sitemap entry
-  // (adviseur-privacy-ibd, added 2026-09-15 to make the live-captured F15
-  // skills fixture reachable from the fixture-mode ingest pipeline).
-  const expectedItemCount = slug === "bluetrail" ? 3 : 2;
+  // BlueTrail's listing fixture carries two extra live captures:
+  // adviseur-privacy-ibd (F15 skills, 2026-09-15) and the broker-fronted
+  // architect-ict-en-informatielandschap (F02 eindklant, 2026-09-16).
+  const expectedItemCount = slug === "bluetrail" ? 4 : 2;
 
   it("ingests listing + detail fixtures with found/new/changed/rejected/error metrics", async () => {
     const result = await runFixtureIngest(config, `bron-${slug}-fixture`);
@@ -760,6 +762,61 @@ describe("BlueTrail label-block extraction", () => {
     // The raw captured block must NOT swallow the following "Eisen"/"Wensen"
     // sentences -- only the Competenties <ul> itself.
     expect(detail.labelBlock.competenties).not.toContain("afgeronde hbo");
+  });
+});
+
+describe("BlueTrail eindklant label pattern (F02)", () => {
+  const eindklantField = bluetrailConfig.labelBlock?.eindklant;
+  if (!eindklantField) {
+    throw new Error("expected bluetrailConfig.labelBlock.eindklant to exist");
+  }
+  const extractEindklant = (description: string): string | undefined =>
+    extractLabelBlock(
+      "<html></html>",
+      { "@type": "JobPosting", description },
+      { eindklant: eindklantField }
+    ).eindklant;
+
+  it.each([
+    [
+      "<span >Voor Gemeente Stichtse Vecht zoeken wij een Architect",
+      "Gemeente Stichtse Vecht",
+    ],
+    [
+      "Voor de Belastingdienst zoeken wij een ervaren Senior Solution architect",
+      "Belastingdienst",
+    ],
+    [
+      "Voor het College ter Beoordeling van Geneesmiddelen (CBG) zoeken wij een",
+      "College ter Beoordeling van Geneesmiddelen (CBG)",
+    ],
+  ])(
+    "reads the end client from a live broker-fronted opening (%s)",
+    (text, expected) => {
+      expect(extractEindklant(text)).toBe(expected);
+    }
+  );
+
+  it.each([
+    "Voor de afdeling Burgerzaken zoeken wij een medewerker",
+    "Voor onze klant zoeken wij een senior developer",
+    "De Operatie van de Politie en haar ketenpartners vragen om",
+  ])("leaves prose without an explicit named client unmatched (%s)", (text) => {
+    expect(extractEindklant(text)).toBeUndefined();
+  });
+
+  it("reads Gemeente Stichtse Vecht from the Circle8-fronted live capture", async () => {
+    const client = createJsonLdClient({
+      config: bluetrailConfig,
+      liveEnabled: false,
+    });
+    const detail = await client.fetchDetail(
+      "https://www.bluetrail.nl/opdrachten/Interim/architect-ict-en-informatielandschap/"
+    );
+    expect(detail.jobPosting?.hiringOrganization).toMatchObject({
+      name: "Circle8",
+    });
+    expect(detail.labelBlock.eindklant).toBe("Gemeente Stichtse Vecht");
   });
 });
 

@@ -173,16 +173,22 @@ export interface StoredRenormaliseRow {
   readonly bronSpecifiek: BronSpecifiekRecord;
   readonly contentHash: string;
   readonly laatstGezienOp: Date;
+  readonly opdrachtgeverNaam: string | null;
   readonly rawPayloadRef: string;
   readonly startDatum: string | null;
+  readonly tariefEenheid: string | null;
+  readonly tariefMax: string | null;
+  readonly tariefMin: string | null;
   readonly urenPerWeek: string | null;
 }
 
 export type RenormalisePatchField =
   | "employment_type"
+  | "opdrachtgever_naam"
   | "provincie"
   | "skills"
   | "start_datum"
+  | "tarief"
   | "uren_per_week";
 
 export interface RenormaliseFieldPatch {
@@ -232,6 +238,17 @@ const skillsEqual = (
   }
   return left.every((item, index) => item === right[index]);
 };
+
+/**
+ * The exact rate BlueTrail's constant JobPosting.baseSalary filler produced
+ * (value "100" per hour) before the normaliser stopped reading it. Clearing
+ * only this signature keeps a real, enrichment-filled rate from being wiped
+ * when the draft is merely silent about tarief.
+ */
+const isBlueTrailFillerTarief = (stored: StoredRenormaliseRow): boolean =>
+  Number(stored.tariefMin) === 100 &&
+  Number(stored.tariefMax) === 100 &&
+  stored.tariefEenheid === "uur";
 
 /**
  * Pure planner: tip draft vs stored curated row. Only emits patches for
@@ -297,6 +314,27 @@ export const planRenormalisePatch = (
     });
   }
 
+  const opdrachtgever = draftText(draft.opdrachtgeverNaam.value);
+  if (opdrachtgever !== null && opdrachtgever !== stored.opdrachtgeverNaam) {
+    patches.push({
+      field: "opdrachtgever_naam",
+      from: stored.opdrachtgeverNaam,
+      to: opdrachtgever,
+    });
+  }
+
+  if (draft.tarief.min === UNKNOWN && isBlueTrailFillerTarief(stored)) {
+    patches.push({
+      field: "tarief",
+      from: {
+        eenheid: stored.tariefEenheid,
+        max: stored.tariefMax,
+        min: stored.tariefMin,
+      },
+      to: null,
+    });
+  }
+
   return patches.length === 0
     ? { patches: [], status: "unchanged" }
     : { patches, status: "would_patch" };
@@ -350,8 +388,12 @@ interface CandidateRow {
   readonly bronSpecifiek: unknown;
   readonly contentHash: string;
   readonly laatstGezienOp: Date;
+  readonly opdrachtgeverNaam: string | null;
   readonly rawPayloadRef: string;
   readonly startDatum: string | null;
+  readonly tariefEenheid: string | null;
+  readonly tariefMax: string | null;
+  readonly tariefMin: string | null;
   readonly urenPerWeek: string | null;
 }
 
@@ -362,8 +404,12 @@ const toStored = (row: CandidateRow): StoredRenormaliseRow => ({
   bronSpecifiek: asBronSpecifiekRecord(row.bronSpecifiek),
   contentHash: row.contentHash,
   laatstGezienOp: row.laatstGezienOp,
+  opdrachtgeverNaam: row.opdrachtgeverNaam,
   rawPayloadRef: row.rawPayloadRef,
   startDatum: row.startDatum,
+  tariefEenheid: row.tariefEenheid,
+  tariefMax: row.tariefMax,
+  tariefMin: row.tariefMin,
   urenPerWeek: row.urenPerWeek,
 });
 
@@ -380,8 +426,12 @@ const selectCandidates = async (
       bron_specifiek AS "bronSpecifiek",
       content_hash AS "contentHash",
       laatst_gezien_op AS "laatstGezienOp",
+      opdrachtgever_naam AS "opdrachtgeverNaam",
       raw_payload_ref AS "rawPayloadRef",
       start_datum AS "startDatum",
+      tarief_eenheid AS "tariefEenheid",
+      tarief_max::text AS "tariefMax",
+      tarief_min::text AS "tariefMin",
       uren_per_week AS "urenPerWeek"
     FROM curated.aanvraag
     WHERE bron_id = ANY(${bronIds}::uuid[])
@@ -442,6 +492,14 @@ const applyRow = async (input: {
     startPatch === undefined ? input.stored.startDatum : String(startPatch.to);
   const nextUrenPerWeek =
     urenPatch === undefined ? input.stored.urenPerWeek : String(urenPatch.to);
+  const opdrachtgeverPatch = input.patches.find(
+    (patch) => patch.field === "opdrachtgever_naam"
+  );
+  const nextOpdrachtgeverNaam =
+    opdrachtgeverPatch === undefined
+      ? input.stored.opdrachtgeverNaam
+      : String(opdrachtgeverPatch.to);
+  const clearTarief = input.patches.some((patch) => patch.field === "tarief");
 
   return await input.sql.begin(async (transaction) => {
     await transaction`
@@ -463,6 +521,10 @@ const applyRow = async (input: {
       SET
         start_datum = ${nextStartDatum},
         uren_per_week = ${nextUrenPerWeek},
+        opdrachtgever_naam = ${nextOpdrachtgeverNaam},
+        tarief_min = ${clearTarief ? null : input.stored.tariefMin}::numeric,
+        tarief_max = ${clearTarief ? null : input.stored.tariefMax}::numeric,
+        tarief_eenheid = ${clearTarief ? null : input.stored.tariefEenheid},
         bron_specifiek = ${JSON.stringify(nextBron)}::text::jsonb
       WHERE id::text = ${input.stored.aanvraagId}
       RETURNING id::text AS id

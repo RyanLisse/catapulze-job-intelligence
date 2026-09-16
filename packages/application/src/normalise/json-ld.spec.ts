@@ -279,15 +279,31 @@ describe("parseJsonLdPayload -- BlueTrail (label block in surrounding HTML, base
     expect(draft.startDatum.value).toBe("2026-09-01");
   });
 
-  it("never reads baseSalary for tarief, even when present", () => {
-    const draft = parseJsonLdPayload(payload, HASH);
-    expect(draft.tarief).toEqual({
-      eenheid: UNKNOWN,
-      max: UNKNOWN,
-      min: UNKNOWN,
-      valuta: "EUR",
-    });
-  });
+  it.each(["", "UUR", "HOUR"])(
+    "never reads BlueTrail's constant baseSalary for tarief (unitText %p)",
+    (unitText) => {
+      const draft = parseJsonLdPayload(
+        {
+          ...payload,
+          jobPosting: {
+            ...payload.jobPosting,
+            baseSalary: {
+              "@type": "MonetaryAmount",
+              currency: "EUR",
+              value: { "@type": "QuantitativeValue", unitText, value: "100" },
+            },
+          },
+        },
+        HASH
+      );
+      expect(draft.tarief).toEqual({
+        eenheid: UNKNOWN,
+        max: UNKNOWN,
+        min: UNKNOWN,
+        valuta: "EUR",
+      });
+    }
+  );
 
   it("puts the reference code and label block into bronSpecifiek for cross-source dedup", () => {
     const draft = parseJsonLdPayload(payload, HASH);
@@ -342,6 +358,27 @@ describe("parseJsonLdPayload -- BlueTrail (label block in surrounding HTML, base
     const draft = parseJsonLdPayload(payload, HASH);
     expect(draft.opdrachtgeverNaam.value).toBe("Kadaster");
     expect(draft.bronSpecifiek.value).toMatchObject({ eindklant_naam: null });
+  });
+
+  it("promotes the explicit end client over the broker hiringOrganization (F02)", () => {
+    const draft = parseJsonLdPayload(
+      {
+        ...payload,
+        jobPosting: {
+          ...payload.jobPosting,
+          hiringOrganization: { "@type": "Organization", name: "Circle8" },
+        },
+        labelBlock: {
+          ...payload.labelBlock,
+          eindklant: "Gemeente Stichtse Vecht",
+        },
+      },
+      HASH
+    );
+    expect(draft.opdrachtgeverNaam.value).toBe("Gemeente Stichtse Vecht");
+    expect(draft.bronSpecifiek.value).toMatchObject({
+      eindklant_naam: "Gemeente Stichtse Vecht",
+    });
   });
 
   it("maps the structured 'Competenties:' list into skills, trimmed and entity-decoded (F15)", () => {
