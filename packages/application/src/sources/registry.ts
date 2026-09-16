@@ -17,6 +17,7 @@ import { striive } from "./striive";
 import { tbi } from "./tbi";
 import { tenderned } from "./tenderned";
 import { tenmonks } from "./tenmonks";
+import { volkerwessels } from "./volkerwessels";
 import { werkenVoorNederland } from "./werken-voor-nederland";
 
 export type {
@@ -45,6 +46,7 @@ export const SOURCES = {
   tbi,
   tenderned,
   tenmonks,
+  volkerwessels,
   "werken-voor-nederland": werkenVoorNederland,
 } as const satisfies Record<string, SourceDefinition>;
 
