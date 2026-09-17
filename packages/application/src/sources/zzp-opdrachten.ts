@@ -15,8 +15,7 @@ export const zzpOpdrachten = {
       client: listingFixturePath
         ? createJsonLdClient({
             config: zzpOpdrachtenConfig,
-            listingFixturePath:
-              zzpOpdrachtenConfig.listingFixturePath ?? listingFixturePath,
+            listingFixturePath,
             liveEnabled: false,
           })
         : undefined,

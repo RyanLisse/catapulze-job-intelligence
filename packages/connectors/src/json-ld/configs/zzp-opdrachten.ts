@@ -19,7 +19,7 @@ export const zzpOpdrachtenConfig: JsonLdConnectorConfig = {
   excludePatterns: [
     /^(?!https:\/\/www\.zzp-opdrachten\.nl\/vacatures\/vacature-[^/?#]+\/?$).+$/u,
   ],
-  listingFixturePath: "zzp-opdrachten/sitemap-index.json",
+  listingFixturePath: "zzp-opdrachten/listing-page-0.json",
   liveEnvVar: "ZZP_OPDRACHTEN_LIVE",
   parserVersion: "zzp-opdrachten/v1",
   sitemapFixtures: {
