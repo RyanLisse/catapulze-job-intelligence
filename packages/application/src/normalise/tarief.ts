@@ -174,11 +174,13 @@ const parseCurrencyRange = (lower: string): NormalisedTarief | null => {
       continue;
     }
     // "en"/"and" joins two unrelated amounts ("€ 500 en 20 vakantiedagen")
-    // as readily as it spans a range. A range opener, or a currency mark on
-    // both bounds, is what makes it a range.
+    // as readily as it spans a range. Only "tussen"/"between" promises two
+    // bounds; "van", "vanaf" and "from" introduce a single amount just as
+    // often ("een bonus van € 500 en 1.000 euro opleidingsbudget"), so they
+    // do not waive this. A currency mark on both bounds does.
     if (
       CONJUNCTION_CONNECTOR.test(groups.conn) &&
-      !(opener || (groups.cur && groups.cur2))
+      !(opener.startsWith("tussen") || (groups.cur && groups.cur2))
     ) {
       continue;
     }

@@ -117,6 +117,34 @@ describe("tarief parser regressions (bugbot)", () => {
   });
 });
 
+describe("parseTariefFromText benefits copy is not a rate range (CTP-606)", () => {
+  // "van"/"vanaf"/"from" introduce a single amount as often as a range, so on
+  // their own they must not turn an "en"/"and" list of unrelated amounts into
+  // a band. Only "tussen", or a currency mark on both bounds, does that.
+  it.each([
+    ["Je krijgt een bonus van € 500 en 1.000 euro opleidingsbudget.", "500"],
+    ["vanaf € 20 en 25 vakantiedagen", "20"],
+    ["from €50 and 100 laptops", "50"],
+    ["between € 80 and 120 collega's", "80"],
+  ])("reads %j as a single amount, not a band", (text, max) => {
+    expect(parseTariefFromText(text)).toEqual({
+      eenheid: "uur",
+      max,
+      min: UNKNOWN,
+      valuta: "EUR",
+    });
+  });
+
+  it("still reads a band when both bounds carry a currency mark", () => {
+    expect(parseTariefFromText("between €80 and €120 per uur")).toEqual({
+      eenheid: "uur",
+      max: "120",
+      min: "80",
+      valuta: "EUR",
+    });
+  });
+});
+
 describe("parseTariefFromText salaris vs inhuur tarief", () => {
   it("labels jobboard salaris ranges as maand, not uur", () => {
     const parsed = parseTariefFromText(
