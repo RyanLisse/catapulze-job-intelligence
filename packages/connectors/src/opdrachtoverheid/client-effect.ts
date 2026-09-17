@@ -9,17 +9,26 @@ import {
 } from "../effect-runtime";
 import { loadConnectorFixture } from "../fixtures/load";
 import { resolveHttpTimeoutMs } from "../http-timeout";
-import { extractJsonLdBlocks, findJobPosting } from "../json-ld";
-import type { JsonLdNode } from "../json-ld";
 import type {
   OpdrachtoverheidClient,
   OpdrachtoverheidClientOptions,
   OpdrachtoverheidListingPage,
 } from "./client";
 import {
+  OPDRACHTOVERHEID_MAX_PAGE_BODY_BYTES,
   parseOpdrachtoverheidListing,
   readBoundedOpdrachtoverheidJson,
 } from "./client";
+import {
+  OPDRACHTOVERHEID_SITE_BASE_URL,
+  OPDRACHTOVERHEID_SITEMAP_PATH,
+  parseOpdrachtoverheidDetailPage,
+  parseOpdrachtoverheidSitemap,
+} from "./ssr";
+import type {
+  OpdrachtoverheidDetailPage,
+  OpdrachtoverheidSitemapEntry,
+} from "./ssr";
 import type { OpdrachtoverheidListingResponse } from "./types";
 import {
   OPDRACHTOVERHEID_MAX_RECORDS,
@@ -120,30 +129,82 @@ export const fetchListingEffect = (
   );
 };
 
-export const fetchDetailJsonLdEffect = (
-  options: OpdrachtoverheidEffectClientOptions,
-  detailUrl: string
-): Effect.Effect<JsonLdNode | null, ReadIoFault> => {
+const loadHtmlFixtureEffect = (
+  fixturePath: string
+): Effect.Effect<string, ValidationFault> =>
+  Effect.tryPromise({
+    catch: (cause) =>
+      new ValidationFault({
+        cause,
+        message: `Failed to load Opdrachtoverheid fixture ${fixturePath}`,
+      }),
+    try: async () => {
+      const fixture = await loadConnectorFixture<string>(fixturePath);
+      return fixture.payload;
+    },
+  });
+
+const readBoundedPageEffect = (
+  response: Response,
+  what: string
+): Effect.Effect<string, ReadIoFault> =>
+  readTextBody(response).pipe(
+    Effect.flatMap((text) =>
+      new TextEncoder().encode(text).byteLength >
+      OPDRACHTOVERHEID_MAX_PAGE_BODY_BYTES
+        ? Effect.fail(
+            new ValidationFault({
+              message: `Opdrachtoverheid ${what} response exceeds ${OPDRACHTOVERHEID_MAX_PAGE_BODY_BYTES} bytes`,
+              status: response.status,
+            })
+          )
+        : Effect.succeed(text)
+    )
+  );
+
+export const fetchSitemapEffect = (
+  options: OpdrachtoverheidEffectClientOptions
+): Effect.Effect<OpdrachtoverheidSitemapEntry[], ReadIoFault> => {
   if (!isLive(options)) {
-    return Effect.succeed(null);
+    const { sitemapFixturePath } = options;
+    if (!sitemapFixturePath) {
+      return Effect.succeed([]);
+    }
+    return loadHtmlFixtureEffect(sitemapFixturePath).pipe(
+      Effect.map(parseOpdrachtoverheidSitemap)
+    );
   }
-  // Native returns null on non-OK; preserve wire contract.
+  const siteBaseUrl = options.siteBaseUrl ?? OPDRACHTOVERHEID_SITE_BASE_URL;
   return httpRequest({
     fetchImpl: options.fetchImpl,
-    mapHttpErrors: false,
-    url: detailUrl,
+    url: `${siteBaseUrl}${OPDRACHTOVERHEID_SITEMAP_PATH}`,
   }).pipe(
-    Effect.flatMap((response) => {
-      if (!response.ok) {
-        return Effect.succeed(null);
-      }
-      return readTextBody(response).pipe(
-        Effect.map((html) => {
-          const blocks = extractJsonLdBlocks(html);
-          return findJobPosting(blocks) ?? null;
-        })
-      );
-    })
+    Effect.flatMap((response) => readBoundedPageEffect(response, "sitemap")),
+    Effect.map(parseOpdrachtoverheidSitemap)
+  );
+};
+
+export const fetchDetailEffect = (
+  options: OpdrachtoverheidEffectClientOptions,
+  entry: Pick<OpdrachtoverheidSitemapEntry, "detailUrl" | "webKey">
+): Effect.Effect<OpdrachtoverheidDetailPage, ReadIoFault> => {
+  if (!isLive(options)) {
+    const fixturePath = options.detailFixturePaths?.[entry.webKey];
+    if (!fixturePath) {
+      return Effect.succeed({ jobPosting: null, tender: null });
+    }
+    return loadHtmlFixtureEffect(fixturePath).pipe(
+      Effect.map((html) =>
+        parseOpdrachtoverheidDetailPage(html, entry.detailUrl)
+      )
+    );
+  }
+  return httpRequest({
+    fetchImpl: options.fetchImpl,
+    url: entry.detailUrl,
+  }).pipe(
+    Effect.flatMap((response) => readBoundedPageEffect(response, "detail")),
+    Effect.map((html) => parseOpdrachtoverheidDetailPage(html, entry.detailUrl))
   );
 };
 
@@ -151,12 +212,16 @@ export const fetchDetailJsonLdEffect = (
 export const createOpdrachtoverheidEffectClient = (
   options: OpdrachtoverheidEffectClientOptions = {}
 ): OpdrachtoverheidClient => ({
-  fetchDetailJsonLd: (detailUrl) =>
-    runReadIoPromise(fetchDetailJsonLdEffect(options, detailUrl), {
+  fetchDetail: (entry) =>
+    runReadIoPromise(fetchDetailEffect(options, entry), {
       signal: options.signal,
     }),
   fetchListing: (page) =>
     runReadIoPromise(fetchListingEffect(options, page), {
+      signal: options.signal,
+    }),
+  fetchSitemap: () =>
+    runReadIoPromise(fetchSitemapEffect(options), {
       signal: options.signal,
     }),
 });

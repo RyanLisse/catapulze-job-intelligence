@@ -1,5 +1,6 @@
 export {
   createOpdrachtoverheidClient,
+  OPDRACHTOVERHEID_MAX_PAGE_BODY_BYTES,
   opdrachtoverheidBronReferentie,
   type OpdrachtoverheidClient,
   type OpdrachtoverheidClientOptions,
@@ -7,8 +8,18 @@ export {
 } from "./client";
 export {
   createOpdrachtoverheidConnector,
+  OPDRACHTOVERHEID_SITEMAP_BATCH_SIZE,
   type OpdrachtoverheidConnectorOptions,
 } from "./connector";
+export {
+  extractOpdrachtoverheidSsrTender,
+  OPDRACHTOVERHEID_SITE_BASE_URL,
+  OPDRACHTOVERHEID_SITEMAP_PATH,
+  type OpdrachtoverheidDetailPage,
+  type OpdrachtoverheidSitemapEntry,
+  parseOpdrachtoverheidDetailPage,
+  parseOpdrachtoverheidSitemap,
+} from "./ssr";
 export {
   hashOpdrachtoverheidListingItem,
   hashOpdrachtoverheidPayload,
@@ -27,7 +38,8 @@ export {
 
 export {
   createOpdrachtoverheidEffectClient,
-  fetchDetailJsonLdEffect,
+  fetchDetailEffect,
   fetchListingEffect,
+  fetchSitemapEffect,
   type OpdrachtoverheidEffectClientOptions,
 } from "./client-effect";
