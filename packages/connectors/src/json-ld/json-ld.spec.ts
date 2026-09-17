@@ -10,6 +10,7 @@ import {
 
 import {
   createJsonLdClient,
+  extractJsonListingUrls,
   extractListingLinks,
   extractSitemapUrls,
   selectSitemapIndexChildren,
@@ -298,6 +299,100 @@ describe("extractListingLinks", () => {
       "https://host"
     );
     expect(urls).toEqual([{ url: "https://host/x?a=1&b=2" }]);
+  });
+});
+
+describe("extractJsonListingUrls", () => {
+  const linkPattern = /^\/vacatures\/functie\/[^/]+\/?$/u;
+  const baseUrl = "https://www.werkenbijprorail.nl/";
+
+  it("walks an array pointer and resolves matching detail URLs", () => {
+    expect(
+      extractJsonListingUrls(
+        JSON.stringify({
+          hits: [
+            { pageUrl: "/vacatures/functie/woordvoerder" },
+            { pageUrl: "/vacatures/functie/technisch-projectleider" },
+          ],
+        }),
+        "hits[].pageUrl",
+        linkPattern,
+        baseUrl
+      )
+    ).toEqual([
+      {
+        url: "https://www.werkenbijprorail.nl/vacatures/functie/woordvoerder",
+      },
+      {
+        url: "https://www.werkenbijprorail.nl/vacatures/functie/technisch-projectleider",
+      },
+    ]);
+  });
+
+  it("walks nested arrays and keeps only string values", () => {
+    expect(
+      extractJsonListingUrls(
+        JSON.stringify({
+          groups: [
+            {
+              jobs: [{ url: "/vacatures/functie/a" }, { url: 123 }],
+            },
+            { jobs: [{ url: "/vacatures/functie/b" }] },
+          ],
+        }),
+        "groups[].jobs[].url",
+        linkPattern,
+        baseUrl
+      )
+    ).toEqual([
+      { url: "https://www.werkenbijprorail.nl/vacatures/functie/a" },
+      { url: "https://www.werkenbijprorail.nl/vacatures/functie/b" },
+    ]);
+  });
+
+  it("drops non-matching pathnames and deduplicates absolute URLs", () => {
+    expect(
+      extractJsonListingUrls(
+        JSON.stringify({
+          hits: [
+            { pageUrl: "/vacatures/functie/a" },
+            { pageUrl: "/vacatures" },
+            { pageUrl: "/vacatures/functie/a" },
+            {
+              pageUrl: "https://www.werkenbijprorail.nl/vacatures/functie/a",
+            },
+          ],
+        }),
+        "hits[].pageUrl",
+        linkPattern,
+        baseUrl
+      )
+    ).toEqual([{ url: "https://www.werkenbijprorail.nl/vacatures/functie/a" }]);
+  });
+
+  it("throws on invalid JSON and pointer misses", () => {
+    expect(() =>
+      extractJsonListingUrls("not json", "hits[].pageUrl", linkPattern, baseUrl)
+    ).toThrow(/Invalid JSON listing response/u);
+    expect(() =>
+      extractJsonListingUrls(
+        '{"results":[]}',
+        "hits[].pageUrl",
+        linkPattern,
+        baseUrl
+      )
+    ).toThrow(/did not resolve/u);
+  });
+
+  it("throws when an array pointer targets a non-array", () => {
+    expect(() =>
+      extractJsonListingUrls(
+        '{"hits":{"pageUrl":"/vacatures/functie/a"}}',
+        "hits[].pageUrl",
+        linkPattern,
+        baseUrl
+      )
+    ).toThrow(/expected "hits" to be an array/u);
   });
 });
 

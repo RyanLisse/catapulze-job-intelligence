@@ -19,6 +19,7 @@ import { ns } from "./ns";
 import { onefellow } from "./onefellow";
 import { opdrachtoverheid } from "./opdrachtoverheid";
 import { proAct } from "./pro-act";
+import { prorail } from "./prorail";
 import { rabobank } from "./rabobank";
 import { randstad } from "./randstad";
 import { rijkswaterstaat } from "./rijkswaterstaat";
@@ -60,6 +61,7 @@ export const SOURCES = {
   onefellow,
   opdrachtoverheid,
   "pro-act": proAct,
+  prorail,
   rabobank,
   randstad,
   rijkswaterstaat,

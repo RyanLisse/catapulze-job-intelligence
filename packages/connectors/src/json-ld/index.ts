@@ -1,5 +1,6 @@
 export {
   createJsonLdClient,
+  extractJsonListingUrls,
   extractListingLinks,
   extractSitemapUrls,
   selectSitemapIndexChildren,
@@ -17,6 +18,7 @@ export { asmlConfig } from "./configs/asml";
 export { bijOranjeConfig } from "./configs/bij-oranje";
 export { heroConfig } from "./configs/hero";
 export { proActConfig } from "./configs/pro-act";
+export { prorailConfig } from "./configs/prorail";
 export { rabobankConfig } from "./configs/rabobank";
 export { tenmonksConfig } from "./configs/tenmonks";
 export { tbiConfig } from "./configs/tbi";
