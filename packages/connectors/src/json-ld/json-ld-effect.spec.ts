@@ -5,6 +5,7 @@ import {
   isReadIoFault,
   RateLimitFault,
   Server5xxFault,
+  ValidationFault,
 } from "../effect-runtime";
 import { createJsonLdEffectClient } from "./client-effect";
 import { heroConfig } from "./configs/hero";
@@ -85,6 +86,15 @@ describe("json-ld Effect read adapter", () => {
       liveEnabled: true,
     });
     await expect(client.fetchListing()).rejects.toBeInstanceOf(Server5xxFault);
+  });
+
+  it("maps malformed JSON listings to validation faults", async () => {
+    const client = createJsonLdEffectClient({
+      config: prorailConfig,
+      fetchImpl: () => Promise.resolve(new Response("not json")),
+      liveEnabled: true,
+    });
+    await expect(client.fetchListing()).rejects.toBeInstanceOf(ValidationFault);
   });
 
   it("honors AbortSignal during HTTP", async () => {
