@@ -10,7 +10,7 @@ export const prorailConfig: JsonLdConnectorConfig = {
   },
   discovery: {
     kind: "json-listing",
-    linkPattern: /^\/vacatures\/functie\/[^/]+\/?$/u,
+    linkPattern: /^\/vacatures\/[^/]+\/[^/]+\/?$/u,
     url: "https://www.prorail.nl/nl/api/v1/vacancysearch?page=1&pageSize=50",
     urlPointer: "hits[].pageUrl",
   },

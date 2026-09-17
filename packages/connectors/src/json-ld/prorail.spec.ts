@@ -9,17 +9,20 @@ const client = createJsonLdClient({
 });
 
 describe("ProRail JSON-LD connector", () => {
-  it("discovers the recorded functie detail URLs", async () => {
+  it("discovers all recorded vacancy detail URLs", async () => {
     const urls = await client.fetchListing();
-    expect(urls).toHaveLength(12);
+    expect(urls).toHaveLength(16);
     expect(
       urls.every(({ url }) =>
-        /^https:\/\/www\.werkenbijprorail\.nl\/vacatures\/functie\/[^/]+$/u.test(
+        /^https:\/\/www\.werkenbijprorail\.nl\/vacatures\/[^/]+\/[^/]+\/?$/u.test(
           url
         )
       )
     ).toBe(true);
-    expect(urls).not.toContainEqual({
+    expect(urls).toContainEqual({
+      url: "https://www.werkenbijprorail.nl/vacatures/functie/woordvoerder",
+    });
+    expect(urls).toContainEqual({
       url: "https://www.werkenbijprorail.nl/vacatures/verkeersleiding/treinverkeersleider-maastricht",
     });
   });

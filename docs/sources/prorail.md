@@ -10,8 +10,8 @@ Status: **connector toegevoegd** — adapter-categorie `json-ld`.
 | Detail | `https://www.werkenbijprorail.nl/vacatures/...` | JobPosting JSON-LD. |
 
 The connector follows `hits[].pageUrl` from the listing response and keeps
-`/vacatures/functie/<slug>` paths. Pagination is intentionally out of scope:
-the current response has `totalMatching: 16` and `pageSize: 50`.
+`/vacatures/<category>/<slug>` paths. Pagination is intentionally out of
+scope: the current response has `totalMatching: 16` and `pageSize: 50`.
 
 ## Veldmapping en datakwaliteit
 
@@ -20,7 +20,7 @@ the current response has `totalMatching: 16` and `pageSize: 50`.
 | `title`, `description`, `datePosted` | titel, beschrijving, publicatiedatum | Detailpagina. |
 | `hiringOrganization.name` | `opdrachtgeverNaam` | Detailpagina. |
 | `jobLocation.address.addressLocality` | `locatieTekst` | Detailpagina. |
-| `baseSalary` | bronmetadata | Detailpagina wanneer gepubliceerd; these captures omit `unitText`, so the shared tariff parser is not asserted for ProRail. |
+| `baseSalary` | bronmetadata | JSON-LD heeft geen `unitText`; de free-text parser leest `5091–7262` momenteel als `max: 450` per uur (misparse, CTP-606). Tariefasserties zijn daarom weggelaten en het veld blijft onbetrouwbaar tot CTP-606 landt. |
 | `validThrough` | `sluitingsdatum` | Detailpagina wanneer gepubliceerd. |
 | `employmentType` | `bronSpecifiek.contract_type` | Detailpagina; absent values remain UNKNOWN. |
 
