@@ -11,8 +11,9 @@ const INTERNAL_URL = "http://server:3000";
 const WEB_ENV_MODULE = `${import.meta.dir}/web.ts`;
 
 const PROBE_SCRIPT = `
-const { env, getInternalServerUrl } = await import(${JSON.stringify(WEB_ENV_MODULE)});
+const { env, fixturesEnabled, getInternalServerUrl } = await import(${JSON.stringify(WEB_ENV_MODULE)});
 console.log(JSON.stringify({
+  fixturesEnabled,
   internal: getInternalServerUrl(),
   publicUrl: env.NEXT_PUBLIC_SERVER_URL,
   releaseSha: env.APP_RELEASE_SHA ?? null,
@@ -47,6 +48,7 @@ const loadWebEnv = (variables: Record<string, string>): ProbeResult => {
 };
 
 interface ProbeEnvelope {
+  readonly fixturesEnabled: boolean;
   readonly internal: string;
   readonly publicUrl: string;
   readonly releaseSha: string | null;
@@ -54,7 +56,7 @@ interface ProbeEnvelope {
 
 const parseProbe = (result: ProbeResult): ProbeEnvelope => {
   expect(result.exitCode).toBe(0);
-  // SAFETY: probe script prints a fixed { internal, publicUrl, releaseSha } JSON envelope we own.
+  // SAFETY: probe script prints a fixed JSON envelope we own.
   return JSON.parse(result.stdout.trim()) as ProbeEnvelope;
 };
 
@@ -137,5 +139,54 @@ describe("@ji/env/web APP_RELEASE_SHA", () => {
     });
     expect(result.exitCode).not.toBe(0);
     expect(result.stderr).toContain("APP_RELEASE_SHA");
+  });
+});
+
+describe("@ji/env/web NEXT_PUBLIC_USE_FIXTURES", () => {
+  it('"true" enables fixtures', () => {
+    const probe = parseProbe(
+      loadWebEnv({
+        NEXT_PUBLIC_SERVER_URL: PUBLIC_URL,
+        NEXT_PUBLIC_USE_FIXTURES: "true",
+      })
+    );
+    expect(probe.fixturesEnabled).toBe(true);
+  });
+
+  it('"1" enables fixtures', () => {
+    const probe = parseProbe(
+      loadWebEnv({
+        NEXT_PUBLIC_SERVER_URL: PUBLIC_URL,
+        NEXT_PUBLIC_USE_FIXTURES: "1",
+      })
+    );
+    expect(probe.fixturesEnabled).toBe(true);
+  });
+
+  it("defaults to disabled when unset", () => {
+    const probe = parseProbe(
+      loadWebEnv({ NEXT_PUBLIC_SERVER_URL: PUBLIC_URL })
+    );
+    expect(probe.fixturesEnabled).toBe(false);
+  });
+
+  it('"yes" does not enable fixtures', () => {
+    const probe = parseProbe(
+      loadWebEnv({
+        NEXT_PUBLIC_SERVER_URL: PUBLIC_URL,
+        NEXT_PUBLIC_USE_FIXTURES: "yes",
+      })
+    );
+    expect(probe.fixturesEnabled).toBe(false);
+  });
+
+  it("treats an empty value as disabled", () => {
+    const probe = parseProbe(
+      loadWebEnv({
+        NEXT_PUBLIC_SERVER_URL: PUBLIC_URL,
+        NEXT_PUBLIC_USE_FIXTURES: "",
+      })
+    );
+    expect(probe.fixturesEnabled).toBe(false);
   });
 });
