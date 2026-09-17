@@ -1,4 +1,3 @@
-import { CLEARED, UNKNOWN } from "@ji/domain";
 import { z } from "zod";
 
 import { isTitleFallbackDescription } from "../title-fallback-description";
@@ -7,6 +6,7 @@ import {
   durableClearedIntersects,
   readDurableClearedKeys,
 } from "./cleared-markers";
+import { isClearedText, isFillableGap, isMissingText } from "./gap-predicates";
 import type { EnrichmentField } from "./types";
 import { ENRICHMENT_FIELDS } from "./types";
 
@@ -44,19 +44,6 @@ export interface IncompleteAanvraagFacts {
   readonly titleFallbackParts?: TitleFallbackDescriptionParts | null;
 }
 
-const isUnknownText = (value: string | null | undefined): boolean =>
-  value === null ||
-  value === undefined ||
-  value.trim() === "" ||
-  value.trim() === UNKNOWN;
-
-/** CLEARED is a true clear (#213) — not a gap enrichment may fill. */
-const isClearedText = (value: string | null | undefined): boolean =>
-  value !== null && value !== undefined && value.trim() === CLEARED;
-
-const isEnrichableGap = (value: string | null | undefined): boolean =>
-  isUnknownText(value) && !isClearedText(value);
-
 const isLocatieIncomplete = (facts: IncompleteAanvraagFacts): boolean => {
   const bronCleared = readDurableClearedKeys(facts.bronSpecifiek);
   if (
@@ -68,7 +55,7 @@ const isLocatieIncomplete = (facts: IncompleteAanvraagFacts): boolean => {
   ) {
     return false;
   }
-  return isEnrichableGap(facts.locatieTekst);
+  return isFillableGap(facts.locatieTekst);
 };
 
 const isTariefIncomplete = (facts: IncompleteAanvraagFacts): boolean => {
@@ -94,9 +81,9 @@ const isTariefIncomplete = (facts: IncompleteAanvraagFacts): boolean => {
     return false;
   }
   return (
-    isEnrichableGap(facts.tariefMin) &&
-    isEnrichableGap(facts.tariefMax) &&
-    isEnrichableGap(facts.tariefEenheid)
+    isFillableGap(facts.tariefMin) &&
+    isFillableGap(facts.tariefMax) &&
+    isFillableGap(facts.tariefEenheid)
   );
 };
 
@@ -119,7 +106,7 @@ const readBronFacts = (parsed: ParsedBronSpecifiek | null): ParsedBronFacts => {
 };
 
 const isContractIncomplete = (facts: IncompleteAanvraagFacts): boolean => {
-  if (isClearedText(facts.contracttype) || !isUnknownText(facts.contracttype)) {
+  if (isClearedText(facts.contracttype) || !isMissingText(facts.contracttype)) {
     return false;
   }
   const bronCleared = readDurableClearedKeys(facts.bronSpecifiek);
@@ -132,11 +119,11 @@ const isContractIncomplete = (facts: IncompleteAanvraagFacts): boolean => {
   if (isClearedText(bronFacts.contracttype)) {
     return false;
   }
-  return isUnknownText(bronFacts.contracttype);
+  return isMissingText(bronFacts.contracttype);
 };
 
 const isRemoteIncomplete = (facts: IncompleteAanvraagFacts): boolean => {
-  if (isClearedText(facts.werkvorm) || !isUnknownText(facts.werkvorm)) {
+  if (isClearedText(facts.werkvorm) || !isMissingText(facts.werkvorm)) {
     return false;
   }
   const bronCleared = readDurableClearedKeys(facts.bronSpecifiek);
@@ -147,7 +134,7 @@ const isRemoteIncomplete = (facts: IncompleteAanvraagFacts): boolean => {
   if (isClearedText(bronFacts.werkvorm)) {
     return false;
   }
-  return isUnknownText(bronFacts.werkvorm);
+  return isMissingText(bronFacts.werkvorm);
 };
 
 const isPublicatiedatumIncomplete = (
@@ -155,7 +142,7 @@ const isPublicatiedatumIncomplete = (
 ): boolean => {
   if (
     isClearedText(facts.publicatiedatum) ||
-    !isUnknownText(facts.publicatiedatum)
+    !isMissingText(facts.publicatiedatum)
   ) {
     return false;
   }
