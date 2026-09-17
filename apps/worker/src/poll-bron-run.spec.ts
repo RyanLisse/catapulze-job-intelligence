@@ -634,6 +634,7 @@ describe("runBronIngestPipeline silence evaluation (RJC-409)", () => {
     const silentPollResult = {
       bronId,
       bronSlug: "tenderned" as const,
+      completeness: null,
       lifecycle: null,
       metrics: {
         changed: 0,
