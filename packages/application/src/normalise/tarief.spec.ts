@@ -117,6 +117,34 @@ describe("tarief parser regressions (bugbot)", () => {
   });
 });
 
+describe("parseTariefFromText benefits copy is not a rate range (CTP-606)", () => {
+  // "van"/"vanaf"/"from" introduce a single amount as often as a range, so on
+  // their own they must not turn an "en"/"and" list of unrelated amounts into
+  // a band. Only "tussen", or a currency mark on both bounds, does that.
+  it.each([
+    ["Je krijgt een bonus van € 500 en 1.000 euro opleidingsbudget.", "500"],
+    ["vanaf € 20 en 25 vakantiedagen", "20"],
+    ["from €50 and 100 laptops", "50"],
+    ["between € 80 and 120 collega's", "80"],
+  ])("reads %j as a single amount, not a band", (text, max) => {
+    expect(parseTariefFromText(text)).toEqual({
+      eenheid: "uur",
+      max,
+      min: UNKNOWN,
+      valuta: "EUR",
+    });
+  });
+
+  it("still reads a band when both bounds carry a currency mark", () => {
+    expect(parseTariefFromText("between €80 and €120 per uur")).toEqual({
+      eenheid: "uur",
+      max: "120",
+      min: "80",
+      valuta: "EUR",
+    });
+  });
+});
+
 describe("parseTariefFromText salaris vs inhuur tarief", () => {
   it("labels jobboard salaris ranges as maand, not uur", () => {
     const parsed = parseTariefFromText(
@@ -133,5 +161,92 @@ describe("parseTariefFromText salaris vs inhuur tarief", () => {
   it("keeps labeled uurtarief as uur", () => {
     const parsed = parseTariefFromText("Uurtarief €90 - €110 all-in");
     expect(parsed.eenheid).toBe("uur");
+  });
+});
+
+describe("parseTariefFromText monthly salary ranges (CTP-606)", () => {
+  it("reads both bounds of a tussen range carrying the Dutch ,- suffix", () => {
+    expect(
+      parseTariefFromText(
+        "Een salaris tussen € 5.517,- en € 9.337,- bruto per maand (schaal 62)"
+      )
+    ).toEqual({
+      eenheid: "maand",
+      max: "9337",
+      min: "5517",
+      valuta: "EUR",
+    });
+  });
+
+  it("reads a van/tot range instead of mining its tot half as a max", () => {
+    expect(
+      parseTariefFromText(
+        "Een salaris van €4.488,- tot €7.515,- bruto per maand (schaal 61)"
+      )
+    ).toEqual({
+      eenheid: "maand",
+      max: "7515",
+      min: "4488",
+      valuta: "EUR",
+    });
+  });
+
+  it("reads an English from/and range as monthly, not hourly", () => {
+    expect(
+      parseTariefFromText(
+        "The salary for this position ranges from €4862 and €6077 gross per month"
+      )
+    ).toEqual({
+      eenheid: "maand",
+      max: "6077",
+      min: "4862",
+      valuta: "EUR",
+    });
+  });
+
+  it("reads the Flinter permanent-vacancy salary range", () => {
+    expect(
+      parseTariefFromText(
+        "Een salaris tussen € 4.238,- en € 6.635,- bruto per maand (o.b.v. 40 uur)"
+      )
+    ).toEqual({
+      eenheid: "maand",
+      max: "6635",
+      min: "4238",
+      valuta: "EUR",
+    });
+  });
+
+  it("leaves amounts unknown when comma-grouped digits could mean either 3150 or 3.15", () => {
+    expect(parseTariefFromText("€3,150 - €6,500 gross per month")).toEqual({
+      eenheid: "maand",
+      max: UNKNOWN,
+      min: UNKNOWN,
+      valuta: "EUR",
+    });
+  });
+
+  it("skips an hours range to reach the salary range later in the text", () => {
+    expect(
+      parseTariefFromText(
+        "Een dienstverband van 32 tot 40 uur per week. Een salaris tussen € 4.238,- en € 6.635,- bruto per maand."
+      )
+    ).toEqual({
+      eenheid: "maand",
+      max: "6635",
+      min: "4238",
+      valuta: "EUR",
+    });
+  });
+
+  it("does not read en between a rate and an unrelated amount as a range", () => {
+    expect(
+      parseTariefFromText("Je krijgt € 500 en 1.000 euro opleidingsbudget.")
+    ).toEqual({
+      eenheid: "uur",
+      max: "500",
+      min: UNKNOWN,
+      valuta: "EUR",
+    });
   });
 });
