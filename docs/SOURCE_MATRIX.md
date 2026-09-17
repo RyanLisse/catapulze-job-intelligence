@@ -31,6 +31,7 @@ Verificatie 2026-08-27, read-only met headless Chrome + curl, geen logins, geen 
 | **Werkzoeken** (v1) | v1 HTML/JSON-LD (Motian corpus today) | salaris, dienstverband, opleidingsniveau, aggregator-bron; provincie from Motian `province` or title (#284) | Cloudflare **managed challenge** on all public URLs (403 `cf-mitigated: challenge`, verified 2026-09-16) — headers alone fail; ops cookie jar per `sources/werkzoeken.md` (CTP-528) | live HTTP gated; no CAPTCHA solvers |
 | **Starapple** (v1) | v1 | techstack-tags, salaris/tarief, freelance vs vast | — | |
 | **Flextender** (v1) | filters publiek (gecheckt 25-08); opdrachten achter login | DAS-procedure, gunningscriteria, aanbestedende dienst | — | details → rung 3 |
+| **ProRail** (werkenbij, CTP-580) | `werkenbijprorail.nl/sitemap.xml` + JSON-LD JobPosting op `/vacatures/(functie\|verkeersleiding)/<slug>` | titel, locatie, salarisrange (zonder unitText → tarief UNKNOWN), uren, validThrough (geen tarief) | robots alleen CMS-paden; disclaimer standaard IE-clausule → `te_toetsen` | 48 URL's; 2 soft-404's zonder JobPosting; zie `sources/prorail.md` |
 
 ### Rung 3 — Playwright met eigen leveranciersaccount · account regelen, dan activeren
 
@@ -52,6 +53,7 @@ Verificatie 2026-08-27, read-only met headless Chrome + curl, geen logins, geen 
 | **Circle8** | Vercel Security Checkpoint (429/403 op alles incl. robots.txt); `portal.circle8.nl` TLS-certificaat verlopen; klant-tenants op subdomeinen (`htm.`, `fudura.`) | Leveranciersaccount via `htm.circle8.nl/registreren` + Browserbase, óf contact opnemen; robots/ToS ongeverifieerd |
 | **OneStopSourcing** | `onestopsourcing.nl` geen A-record (NS transip); draait op esd.next | Later opnieuw proberen; connector = Need Staffing-connector |
 | **Werkenbij-sites** | categorie, per bedrijf: ATS-API → JSON-LD → sitemap+LLM | v2.1/v2.2 (open vraag in requirements) |
+| **Waternet** (werkenbij, CTP-579) | `waternet.nl/werken-bij/vacatures/` is een Vue-app (Episerver) gevoed door in-page JSON (`#epiContentVacancies`: ID, naam, locatie, contracttype, URL); detailpagina's hebben **geen JobPosting JSON-LD** en geen microdata | NO-JSONLD → niet gebouwd; kandidaat voor een aparte html/in-page-JSON-connector als de bron prioriteit krijgt |
 
 ## Wat Robbie moet regelen (blokkerend per bron)
 
