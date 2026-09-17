@@ -6,7 +6,7 @@ Status: **probe afgerond; connector toegevoegd** — adapter-categorie `json-ld`
 
 | Doel | URL | Opmerking |
 |---|---|---|
-| Sitemap | `GET https://werkenbij.enexis.nl/sitemap.xml` | Ongeveer 168 vacature-URLs in de vorm `/vacatures/<slug>-<nummer>`; overige pagina's worden uitgesloten. |
+| Sitemap | `GET https://werkenbij.enexis.nl/sitemap.xml` | 170 vacature-URLs (opname 2026-09-17) in de vorm `/vacatures/<slug>-<nummer>`; overige pagina's worden uitgesloten. |
 | Detail | `https://werkenbij.enexis.nl/vacatures/<slug>-<nummer>` | Detailpagina met JobPosting JSON-LD en daarnaast een BreadcrumbList-node. |
 
 ## Veldmapping en datakwaliteit
