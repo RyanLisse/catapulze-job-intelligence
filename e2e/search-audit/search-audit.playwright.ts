@@ -759,6 +759,11 @@ test("keeps partial hits visible and blocks snapshots until retry", async ({
     .getByRole("button", { name: "Opnieuw proberen" })
     .click();
   await expect(incompleteAlert).toHaveCount(0);
+  await page
+    .getByRole("checkbox", {
+      name: "Selecteer alle resultaten op deze pagina",
+    })
+    .check();
   await expect(snapshotButton).toBeEnabled();
   expect(capabilityRequests).toEqual(
     expect.arrayContaining([
