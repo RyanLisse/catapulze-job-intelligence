@@ -15,7 +15,13 @@ export class RedisResultCache implements ResultCache {
     this.reader = reader;
   }
 
-  static async connect(redisUrl: string): Promise<RedisResultCache | null> {
+  /** Resolves null on any failure; the cause's message is handed to
+   * `onError` so the caller can log or surface it without changing the null
+   * contract. */
+  static async connect(
+    redisUrl: string,
+    onError?: (message: string) => void
+  ): Promise<RedisResultCache | null> {
     try {
       const redisPackage = await import("redis");
       const rawClient = redisPackage.createClient({ url: redisUrl });
@@ -31,7 +37,8 @@ export class RedisResultCache implements ResultCache {
         },
       };
       return new RedisResultCache(reader);
-    } catch {
+    } catch (error) {
+      onError?.(error instanceof Error ? error.message : String(error));
       return null;
     }
   }
