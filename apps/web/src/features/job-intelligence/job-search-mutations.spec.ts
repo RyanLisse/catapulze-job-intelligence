@@ -71,9 +71,9 @@ describe("job-search mutation server truth", () => {
       getSelectedJobId: () => selectedJob?.id ?? null,
       ...markeringMutationState(),
       query: "Azure",
-      results: [],
       resultsComplete: true,
       scope: "active",
+      selectedIds: [],
       selectedJob,
       setIsCreatingSnapshot: captureConcreteState(() => {}),
       setIsSavingSearch: captureConcreteState((value) => {
@@ -113,9 +113,9 @@ describe("job-search mutation server truth", () => {
       getSelectedJobId: () => selectedJob?.id ?? null,
       ...markeringMutationState(),
       query: "Azure",
-      results: [],
       resultsComplete: true,
       scope: "active",
+      selectedIds: [],
       selectedJob,
       setIsCreatingSnapshot: captureConcreteState(() => {}),
       setIsSavingSearch: captureConcreteState((value) => {
@@ -152,16 +152,20 @@ describe("job-search mutation server truth", () => {
     };
     const mutations = createJobSearchMutations({
       actions,
+      applyMarkeringResult: () => {},
       filters: DEFAULT_JOB_SEARCH_STATE.filters,
+      getSelectedJobId: () => null,
+      ...markeringMutationState(),
       query: "Azure",
-      results: [JOB_FIXTURES[0]].filter((job) => job !== undefined),
       resultsComplete: false,
       scope: "active",
+      selectedIds: [JOB_FIXTURES[0]?.id].filter(
+        (id): id is string => id !== undefined
+      ),
       selectedJob: null,
       setIsCreatingSnapshot: captureConcreteState(() => {}),
       setIsSavingSearch: captureConcreteState(() => {}),
       setSavedSearchMessage: captureConcreteState(() => {}),
-      setSelectedJob: captureConcreteState(() => {}),
       setSnapshotMessage: captureConcreteState((value) => {
         snapshotMessage = value;
       }),
@@ -172,6 +176,86 @@ describe("job-search mutation server truth", () => {
     expect(snapshotCalls).toBe(0);
     expect(snapshotMessage).toBe(
       "Snapshot geblokkeerd: wacht op een volledige zoekuitkomst."
+    );
+  });
+
+  it("blocks snapshots with an empty explicit selection", async () => {
+    let snapshotCalls = 0;
+    let snapshotMessage: string | null = null;
+    const mutations = createJobSearchMutations({
+      actions: {
+        ...baseActions(() => Promise.resolve({ id: "saved-1", naam: "Azure" })),
+        createSnapshot: () => {
+          snapshotCalls += 1;
+          return Promise.resolve({ id: "snapshot-1", resultCount: 0 });
+        },
+      },
+      applyMarkeringResult: () => {},
+      filters: DEFAULT_JOB_SEARCH_STATE.filters,
+      getSelectedJobId: () => null,
+      ...markeringMutationState(),
+      query: "Azure",
+      resultsComplete: true,
+      scope: "active",
+      selectedIds: [],
+      selectedJob: null,
+      setIsCreatingSnapshot: captureConcreteState(() => {}),
+      setIsSavingSearch: captureConcreteState(() => {}),
+      setSavedSearchMessage: captureConcreteState(() => {}),
+      setSnapshotMessage: captureConcreteState((value) => {
+        snapshotMessage = value;
+      }),
+    });
+
+    await mutations.createSnapshot();
+
+    expect(snapshotCalls).toBe(0);
+    expect(snapshotMessage).toBe(
+      "Geen opdrachten geselecteerd. Vink resultaten aan of kies ‘Selecteer alle matches’."
+    );
+  });
+
+  it("creates a snapshot for exactly the selected ids and clears them on success", async () => {
+    const selectedIds = [JOB_FIXTURES[0]?.id, JOB_FIXTURES[1]?.id].filter(
+      (id): id is string => id !== undefined
+    );
+    let snapshotInput: readonly string[] = [];
+    let snapshotMessage: string | null = null;
+    let snapshotCreated = false;
+    const mutations = createJobSearchMutations({
+      actions: {
+        ...baseActions(() => Promise.resolve({ id: "saved-1", naam: "Azure" })),
+        createSnapshot: (input) => {
+          snapshotInput = input.selectedIds;
+          return Promise.resolve({ id: "snapshot-1", resultCount: 2 });
+        },
+      },
+      applyMarkeringResult: () => {},
+      filters: DEFAULT_JOB_SEARCH_STATE.filters,
+      getSelectedJobId: () => null,
+      ...markeringMutationState(),
+      onSnapshotCreated: () => {
+        snapshotCreated = true;
+      },
+      query: "Azure",
+      resultsComplete: true,
+      scope: "active",
+      selectedIds,
+      selectedJob: null,
+      setIsCreatingSnapshot: captureConcreteState(() => {}),
+      setIsSavingSearch: captureConcreteState(() => {}),
+      setSavedSearchMessage: captureConcreteState(() => {}),
+      setSnapshotMessage: captureConcreteState((value) => {
+        snapshotMessage = value;
+      }),
+    });
+
+    await mutations.createSnapshot();
+
+    expect(snapshotInput).toEqual(selectedIds);
+    expect(snapshotCreated).toBe(true);
+    expect(snapshotMessage).toBe(
+      "Snapshot aangemaakt (2 geselecteerde opdrachten)."
     );
   });
 
@@ -192,9 +276,9 @@ describe("job-search mutation server truth", () => {
       getSelectedJobId: () => selectedJob?.id ?? null,
       ...markeringMutationState(),
       query: "Azure",
-      results: [],
       resultsComplete: true,
       scope: "active",
+      selectedIds: [],
       selectedJob,
       setIsCreatingSnapshot: captureConcreteState(() => {}),
       setIsSavingSearch: captureConcreteState(() => {}),
@@ -241,8 +325,8 @@ describe("job-search mutation server truth", () => {
       getSelectedJobId: () => selectedJob?.id ?? null,
       ...markeringMutationState(),
       query: "Azure",
-      results: [],
       scope: "active",
+      selectedIds: [],
       selectedJob,
       setIsCreatingSnapshot: captureConcreteState(() => {}),
       setIsSavingSearch: captureConcreteState(() => {}),
@@ -282,8 +366,8 @@ describe("job-search mutation server truth", () => {
           getSelectedJobId: () => selectedJobId,
           ...markeringMutationState(),
           query: "Azure",
-          results: [],
           scope: "active",
+          selectedIds: [],
           selectedJob: firstJob,
           setIsCreatingSnapshot: captureConcreteState(() => {}),
           setIsSavingSearch: captureConcreteState(() => {}),
@@ -338,8 +422,8 @@ describe("job-search mutation server truth", () => {
       getSelectedJobId: () => selectedJob.id,
       ...markeringMutationState(),
       query: "Azure",
-      results: [],
       scope: "active",
+      selectedIds: [],
       selectedJob,
       setIsCreatingSnapshot: captureConcreteState(() => {}),
       setIsSavingSearch: captureConcreteState(() => {}),
@@ -378,8 +462,8 @@ describe("job-search mutation server truth", () => {
       getSelectedJobId: () => selectedJob.id,
       markeringMutationsInFlight,
       query: "Azure",
-      results: [],
       scope: "active" as const,
+      selectedIds: [],
       selectedJob,
       setIsCreatingSnapshot: captureConcreteState(() => {}),
       setIsMarkeringMutationPending: captureConcreteState((value) => {

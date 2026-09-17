@@ -26,7 +26,8 @@ const toolbarButtonClass =
 
 const snapshotButtonTitle = (
   actions: JobIntelligenceActions | undefined,
-  canCreateSnapshot: boolean
+  canCreateSnapshot: boolean,
+  selectionCount: number
 ): string => {
   if (!actions) {
     return "Snapshot vereist de U7 REST-capability";
@@ -34,7 +35,22 @@ const snapshotButtonTitle = (
   if (!canCreateSnapshot) {
     return "Snapshot is beschikbaar zodra de zoekuitkomst volledig geladen is";
   }
-  return "Maak een immutable QuerySnapshot van deze resultaten";
+  if (selectionCount === 0) {
+    return "Selecteer eerst opdrachten (per rij of ‘Selecteer alle matches’)";
+  }
+  return "Maak een immutable QuerySnapshot van de geselecteerde opdrachten";
+};
+
+const snapshotButtonLabel = (
+  isCreatingSnapshot: boolean,
+  selectionCount: number
+): string => {
+  if (isCreatingSnapshot) {
+    return "Snapshot…";
+  }
+  return selectionCount > 0
+    ? `Snapshot maken (${selectionCount})`
+    : "Snapshot maken";
 };
 
 interface JobSearchToolbarProps {
@@ -48,6 +64,7 @@ interface JobSearchToolbarProps {
   readonly onSaveSearch: () => Promise<void>;
   readonly previewStatus: JobSearchState["previewStatus"];
   readonly savedSearchMessage: string | null;
+  readonly selectionCount: number;
   readonly snapshotMessage: string | null;
 }
 
@@ -62,6 +79,7 @@ export const JobSearchToolbar = ({
   onSaveSearch,
   previewStatus,
   savedSearchMessage,
+  selectionCount,
   snapshotMessage,
 }: JobSearchToolbarProps) => (
   <div className="flex flex-wrap items-end justify-between gap-3">
@@ -116,13 +134,18 @@ export const JobSearchToolbar = ({
       </button>
       <button
         type="button"
-        disabled={!actions || !canCreateSnapshot || isCreatingSnapshot}
+        disabled={
+          !actions ||
+          !canCreateSnapshot ||
+          isCreatingSnapshot ||
+          selectionCount === 0
+        }
         onClick={() => runAsync(onCreateSnapshot)}
-        title={snapshotButtonTitle(actions, canCreateSnapshot)}
+        title={snapshotButtonTitle(actions, canCreateSnapshot, selectionCount)}
         className={toolbarButtonClass}
       >
         <Camera aria-hidden="true" className="size-3.5" />
-        {isCreatingSnapshot ? "Snapshot…" : "Snapshot maken"}
+        {snapshotButtonLabel(isCreatingSnapshot, selectionCount)}
       </button>
     </div>
 

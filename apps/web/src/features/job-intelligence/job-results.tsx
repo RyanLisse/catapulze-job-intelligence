@@ -1,3 +1,4 @@
+import { Checkbox } from "@ji/ui/components/checkbox";
 import {
   ArrowUpRight,
   Building2,
@@ -20,7 +21,11 @@ import type { JobListing } from "./types";
 interface JobResultsProps {
   readonly jobs: readonly JobListing[];
   readonly onSelect: (job: JobListing, trigger: HTMLButtonElement) => void;
+  readonly onTogglePage?: () => void;
+  readonly onToggleRow?: (id: string) => void;
+  readonly pageFullySelected?: boolean;
   readonly selectedJobId: string | null;
+  readonly selectedIds?: ReadonlySet<string>;
 }
 
 const ResultTitleButton = ({
@@ -89,12 +94,32 @@ const JobStatus = ({ job }: { readonly job: JobListing }) => {
   );
 };
 
-const DesktopResults = ({ jobs, onSelect, selectedJobId }: JobResultsProps) => (
+const resultRowBackground = (
+  job: JobListing,
+  selectedJobId: string | null,
+  selectedIds: ReadonlySet<string> | undefined
+): string => {
+  if (selectedJobId === job.id) {
+    return "bg-accent";
+  }
+  return selectedIds?.has(job.id) ? "bg-primary/10" : "";
+};
+
+const DesktopResults = ({
+  jobs,
+  onSelect,
+  onTogglePage,
+  onToggleRow,
+  pageFullySelected = false,
+  selectedJobId,
+  selectedIds,
+}: JobResultsProps) => (
   <div className="hidden overflow-x-auto min-[800px]:block">
     <table className="min-w-[960px] w-full table-fixed text-left text-xs">
       <caption className="sr-only">Gevonden opdrachten</caption>
       <colgroup>
-        <col className="w-[28%]" />
+        <col className="w-[4%]" />
+        <col className="w-[24%]" />
         <col className="w-[17%]" />
         <col className="w-[16%]" />
         <col className="w-[12%]" />
@@ -104,6 +129,14 @@ const DesktopResults = ({ jobs, onSelect, selectedJobId }: JobResultsProps) => (
       </colgroup>
       <thead className="bg-secondary/60 text-[11px] tracking-wide text-muted-foreground uppercase">
         <tr>
+          <th scope="col" className="px-3 py-2 font-medium">
+            <Checkbox
+              aria-label="Selecteer alle resultaten op deze pagina"
+              checked={pageFullySelected}
+              onCheckedChange={onTogglePage}
+              className="size-4 accent-primary"
+            />
+          </th>
           <th scope="col" className="px-3 py-2 font-medium">
             Title
           </th>
@@ -131,10 +164,16 @@ const DesktopResults = ({ jobs, onSelect, selectedJobId }: JobResultsProps) => (
         {jobs.map((job) => (
           <tr
             key={job.id}
-            className={`border-t border-border transition-colors hover:bg-accent/60 ${
-              selectedJobId === job.id ? "bg-accent" : ""
-            }`}
+            className={`border-t border-border transition-colors hover:bg-accent/60 ${resultRowBackground(job, selectedJobId, selectedIds)}`}
           >
+            <td className="px-3 py-2.5 align-top">
+              <Checkbox
+                aria-label={`Selecteer ${job.title}`}
+                checked={selectedIds?.has(job.id) ?? false}
+                onCheckedChange={() => onToggleRow?.(job.id)}
+                className="size-4 accent-primary"
+              />
+            </td>
             <td className="px-3 py-2.5 align-top">
               <ResultTitleButton
                 job={job}
@@ -187,17 +226,31 @@ const DesktopResults = ({ jobs, onSelect, selectedJobId }: JobResultsProps) => (
   </div>
 );
 
-const MobileResults = ({ jobs, onSelect, selectedJobId }: JobResultsProps) => (
+const MobileResults = ({
+  jobs,
+  onSelect,
+  onToggleRow,
+  selectedJobId,
+  selectedIds,
+}: JobResultsProps) => (
   <div className="grid gap-2 p-2 min-[800px]:hidden">
     {jobs.map((job) => (
       <article
         key={job.id}
         className={`rounded-lg border bg-card p-3 ${
           selectedJobId === job.id ? "border-primary" : "border-border"
-        }`}
+        } ${selectedJobId !== job.id && selectedIds?.has(job.id) ? "bg-primary/10" : ""}`}
       >
         <div className="flex items-center justify-between gap-3">
-          <JobStatus job={job} />
+          <div className="flex items-center gap-2">
+            <Checkbox
+              aria-label={`Selecteer ${job.title}`}
+              checked={selectedIds?.has(job.id) ?? false}
+              onCheckedChange={() => onToggleRow?.(job.id)}
+              className="size-4 accent-primary"
+            />
+            <JobStatus job={job} />
+          </div>
           <span className="text-[10px] text-muted-foreground">
             {formatContract(job)}
           </span>

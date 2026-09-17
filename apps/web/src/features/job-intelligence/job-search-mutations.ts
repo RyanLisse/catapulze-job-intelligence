@@ -1,6 +1,7 @@
 import type { Dispatch, SetStateAction } from "react";
 
 import { markeringMutationOutcome } from "./markering-sync";
+import { SNAPSHOT_MAX_SELECTED_IDS } from "./snapshot-selection";
 import type {
   JobIntelligenceActions,
   JobListing,
@@ -20,7 +21,7 @@ interface JobSearchMutationsInput {
   readonly getSelectedJobId: () => string | null;
   readonly markeringMutationsInFlight: { current: Set<string> };
   readonly query: string;
-  readonly results: readonly JobListing[];
+  readonly selectedIds: readonly string[];
   readonly resultsComplete: boolean;
   readonly scope: JobSearchScope;
   readonly selectedJob: JobListing | null;
@@ -30,6 +31,7 @@ interface JobSearchMutationsInput {
   readonly setMarkeringSyncState?: Dispatch<SetStateAction<MarkeringSyncState>>;
   readonly setSavedSearchMessage: Dispatch<SetStateAction<string | null>>;
   readonly setSnapshotMessage: Dispatch<SetStateAction<string | null>>;
+  readonly onSnapshotCreated?: () => void;
 }
 
 type MarkSelectedJobInput = Pick<
@@ -105,7 +107,7 @@ export const createJobSearchMutations = ({
   getSelectedJobId,
   markeringMutationsInFlight,
   query,
-  results,
+  selectedIds,
   resultsComplete,
   scope,
   selectedJob,
@@ -115,6 +117,7 @@ export const createJobSearchMutations = ({
   setMarkeringSyncState,
   setSavedSearchMessage,
   setSnapshotMessage,
+  onSnapshotCreated,
 }: JobSearchMutationsInput) => ({
   createSnapshot: async () => {
     if (!actions) {
@@ -126,12 +129,17 @@ export const createJobSearchMutations = ({
       );
       return;
     }
-    // RJC-385: a snapshot covers an explicit selection. The UI snapshots the
-    // results the recruiter is looking at; with nothing on screen there is
-    // nothing to approve.
-    if (results.length === 0) {
+    // RJC-385 / CTP-393: a snapshot covers the recruiter's explicit
+    // selection.
+    if (selectedIds.length === 0) {
       setSnapshotMessage(
-        "Geen resultaten om vast te leggen. Voer eerst een zoekopdracht uit."
+        "Geen opdrachten geselecteerd. Vink resultaten aan of kies ‘Selecteer alle matches’."
+      );
+      return;
+    }
+    if (selectedIds.length > SNAPSHOT_MAX_SELECTED_IDS) {
+      setSnapshotMessage(
+        `Snapshot geblokkeerd: maximaal ${SNAPSHOT_MAX_SELECTED_IDS} opdrachten per snapshot (nu ${selectedIds.length} geselecteerd).`
       );
       return;
     }
@@ -142,11 +150,12 @@ export const createJobSearchMutations = ({
         filters,
         query,
         scope,
-        selectedIds: results.map((job) => job.id),
+        selectedIds,
       });
       setSnapshotMessage(
-        `Snapshot aangemaakt (${snapshot.resultCount} resultaten).`
+        `Snapshot aangemaakt (${snapshot.resultCount} geselecteerde opdrachten).`
       );
+      onSnapshotCreated?.();
     } catch {
       setSnapshotMessage(
         "Snapshot mislukt. Controleer je sessie en probeer opnieuw."

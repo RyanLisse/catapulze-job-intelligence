@@ -25,6 +25,7 @@ import {
   JobSyntaxErrorState,
 } from "./job-search-states";
 import { JobSearchToolbar } from "./job-search-toolbar";
+import { JobSelectionBar } from "./job-selection-bar";
 import {
   emptyMarkeringReadbackState,
   hasNewerMarkering,
@@ -52,6 +53,14 @@ import {
   toggleSearchFilter,
   withResetPage,
 } from "./search-state";
+import {
+  deselectPageIds,
+  isPageFullySelected,
+  selectAllMatchesPlan,
+  selectPageIds,
+  tooManyMatchesMessage,
+  toggleSelectedId,
+} from "./snapshot-selection";
 import type {
   JobContractType,
   JobDataAdapter,
@@ -69,6 +78,7 @@ import type {
   ResultsViewMode,
   SavedSearchSummary,
 } from "./types";
+import { JOB_PAGE_SIZE } from "./types";
 
 const MARKERING_POLL_INTERVAL_MS = 5000;
 
@@ -251,8 +261,12 @@ interface JobResultsPanelProps {
   readonly onRetryEngine: () => void;
   readonly onRetryIncomplete: () => void;
   readonly onSelect: (job: JobListing, trigger: HTMLButtonElement) => void;
+  readonly onTogglePage: () => void;
+  readonly onToggleRow: (id: string) => void;
+  readonly pageFullySelected: boolean;
   readonly response: JobSearchResponse;
   readonly selectedJobId: string | null;
+  readonly selectedIds: ReadonlySet<string>;
   readonly syntaxError: string | null;
   readonly viewMode: ResultsViewMode;
 }
@@ -292,8 +306,12 @@ const JobResultsPanel = ({
   onRetryEngine,
   onRetryIncomplete,
   onSelect,
+  onTogglePage,
+  onToggleRow,
+  pageFullySelected,
   response,
   selectedJobId,
+  selectedIds,
   syntaxError,
   viewMode,
 }: JobResultsPanelProps) => (
@@ -344,7 +362,11 @@ const JobResultsPanel = ({
         ) : (
           <JobResults
             jobs={response.items}
+            onTogglePage={onTogglePage}
+            onToggleRow={onToggleRow}
+            pageFullySelected={pageFullySelected}
             selectedJobId={selectedJobId}
+            selectedIds={selectedIds}
             onSelect={onSelect}
           />
         )}
@@ -396,6 +418,11 @@ const JobSearchPageContent = ({
     readStoredResultsViewMode()
   );
   const requestKey = canonicalSearchRequest(state);
+  const selectionScopeKey = canonicalSearchRequest({
+    ...state,
+    page: 1,
+    pageSize: JOB_PAGE_SIZE,
+  });
   const searchRequest = useMemo(
     () => parseJobSearchState(new URLSearchParams(requestKey)),
     [requestKey]
@@ -421,12 +448,21 @@ const JobSearchPageContent = ({
   const [snapshotMessage, setSnapshotMessage] = useState<string | null>(null);
   const [isSavingSearch, setIsSavingSearch] = useState(false);
   const [isCreatingSnapshot, setIsCreatingSnapshot] = useState(false);
+  const [isSelectingAll, setIsSelectingAll] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<ReadonlySet<string>>(
+    () => new Set()
+  );
+  const latestRequestKey = useRef(requestKey);
   const [isMarkeringMutationPending, setIsMarkeringMutationPending] =
     useState(false);
   const [markeringSyncState, setMarkeringSyncState] =
     useState<MarkeringSyncState>("idle");
   const [sources, setSources] = useState<readonly JobSourceOption[]>([]);
   const detailTriggerRef = useRef<HTMLButtonElement | null>(null);
+  latestRequestKey.current = requestKey;
+  useEffect(() => {
+    setSelectedIds(new Set());
+  }, [selectionScopeKey]);
   useEffect(() => {
     writeStoredJobPageSize(state.pageSize);
   }, [state.pageSize]);
@@ -642,6 +678,61 @@ const JobSearchPageContent = ({
   const displayStatus = resolveDisplayStatus(syntaxError, response.status);
   const activeFilterCount = countActiveFilters(state.filters);
   const countLabel = resultCountLabel(response.total);
+  const pageIds = response.items.map((job) => job.id);
+  const pageFullySelected = isPageFullySelected(selectedIds, pageIds);
+  const toggleRow = (id: string) => {
+    setSelectedIds((current) => toggleSelectedId(current, id));
+  };
+  const togglePage = () => {
+    if (pageFullySelected) {
+      setSelectedIds((current) => deselectPageIds(current, pageIds));
+      return;
+    }
+    const result = selectPageIds(selectedIds, pageIds);
+    if (result.kind === "too-many") {
+      setSnapshotMessage(
+        `Selectie geblokkeerd: samen ${result.total} opdrachten, maximaal ${result.max} per snapshot.`
+      );
+      return;
+    }
+    setSelectedIds(result.selected);
+  };
+  const clearSelection = () => {
+    setSelectedIds(new Set());
+  };
+  const selectAllMatches = async () => {
+    const plan = selectAllMatchesPlan(response.total);
+    if (plan.kind === "empty") {
+      return;
+    }
+    if (plan.kind === "too-many") {
+      setSnapshotMessage(tooManyMatchesMessage(plan.total));
+      return;
+    }
+    setIsSelectingAll(true);
+    try {
+      const allMatches = await adapter.search({
+        ...searchRequest,
+        page: 1,
+        pageSize: plan.pageSize,
+      });
+      if (latestRequestKey.current !== requestKey) {
+        return;
+      }
+      setSelectedIds(new Set(allMatches.items.map((job) => job.id)));
+      setSnapshotMessage(
+        `Alle ${allMatches.items.length.toLocaleString("nl-NL")} matches geselecteerd.`
+      );
+    } catch {
+      if (latestRequestKey.current === requestKey) {
+        setSnapshotMessage(
+          "Selecteren van alle matches mislukt. Probeer het opnieuw."
+        );
+      }
+    } finally {
+      setIsSelectingAll(false);
+    }
+  };
   const canCreateSnapshot =
     response.complete && !isRefreshing && responseRequestKey === requestKey;
   const gridColumns = "min-[800px]:grid-cols-[280px_minmax(0,1fr)]";
@@ -655,10 +746,11 @@ const JobSearchPageContent = ({
       filters: state.filters,
       getSelectedJobId: () => selectedJobIdRef.current,
       markeringMutationsInFlight,
+      onSnapshotCreated: clearSelection,
       query: state.query,
-      results: response.items,
       resultsComplete: canCreateSnapshot,
       scope: state.scope,
+      selectedIds: [...selectedIds],
       selectedJob,
       setIsCreatingSnapshot,
       setIsMarkeringMutationPending,
@@ -772,6 +864,7 @@ const JobSearchPageContent = ({
         previewStatus={state.previewStatus}
         savedSearchMessage={savedSearchMessage}
         snapshotMessage={snapshotMessage}
+        selectionCount={selectedIds.size}
       />
 
       <div className={`grid items-start gap-6 ${gridColumns}`}>
@@ -878,6 +971,19 @@ const JobSearchPageContent = ({
             />
           ) : null}
 
+          {displayStatus === "ready" ? (
+            <JobSelectionBar
+              count={selectedIds.size}
+              isSelectingAll={isSelectingAll}
+              onClear={clearSelection}
+              onSelectAll={() => {
+                void selectAllMatches();
+              }}
+              responseComplete={response.complete}
+              total={response.total}
+            />
+          ) : null}
+
           <JobResultsPanel
             displayStatus={displayStatus}
             isRefreshing={isRefreshing}
@@ -888,8 +994,12 @@ const JobSearchPageContent = ({
             }}
             onRetryIncomplete={() => setRetryNonce((value) => value + 1)}
             onSelect={openJob}
+            onTogglePage={togglePage}
+            onToggleRow={toggleRow}
+            pageFullySelected={pageFullySelected}
             response={response}
             selectedJobId={state.selectedJobId}
+            selectedIds={selectedIds}
             syntaxError={syntaxError}
             viewMode={viewMode}
           />
