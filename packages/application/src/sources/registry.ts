@@ -1,4 +1,5 @@
 import { asml } from "./asml";
+import { bam } from "./bam";
 import { bijOranje } from "./bij-oranje";
 import { bluetrail } from "./bluetrail";
 import { ctm } from "./ctm";
@@ -6,6 +7,7 @@ import type { SourceDefinition } from "./definition";
 import { flinter } from "./flinter";
 import { freelancerNl } from "./freelancer-nl";
 import { harveynash } from "./harveynash";
+import { heijmans } from "./heijmans";
 import { hero } from "./hero";
 import { inhuurdesk } from "./inhuurdesk";
 import { needstaffing } from "./needstaffing";
@@ -17,6 +19,7 @@ import { striive } from "./striive";
 import { tbi } from "./tbi";
 import { tenderned } from "./tenderned";
 import { tenmonks } from "./tenmonks";
+import { volkerwessels } from "./volkerwessels";
 import { werkenVoorNederland } from "./werken-voor-nederland";
 
 export type {
@@ -28,12 +31,14 @@ export { resolveTenderNedTestImportDays } from "./tenderned";
 /** Registry of every ingestable bron. Adding a source = one file in this folder + one line here. */
 export const SOURCES = {
   asml,
+  bam,
   "bij-oranje": bijOranje,
   bluetrail,
   ctm,
   flinter,
   "freelancer-nl": freelancerNl,
   harveynash,
+  heijmans,
   hero,
   inhuurdesk,
   needstaffing,
@@ -45,6 +50,7 @@ export const SOURCES = {
   tbi,
   tenderned,
   tenmonks,
+  volkerwessels,
   "werken-voor-nederland": werkenVoorNederland,
 } as const satisfies Record<string, SourceDefinition>;
 
