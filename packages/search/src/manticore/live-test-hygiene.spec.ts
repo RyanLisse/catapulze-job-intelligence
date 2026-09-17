@@ -1,14 +1,54 @@
-import { describe, expect, it } from "bun:test";
+import { afterEach, describe, expect, it } from "bun:test";
 
+import { SEARCH_PARTITIONS, partitionTable } from "../partition";
 import { SEARCH_INDEX_NAME, SEARCH_TEST_INDEX_NAME } from "../types";
 import { InMemorySearchVersionStore } from "../version";
 import { ManticoreSearchEngine } from "./engine";
 import {
   assertLiveTestTablesReady,
   cleanupLiveDocuments,
+  createSqlSchemaReader,
   createLiveTestEngine,
+  LIVE_TEST_REQUIRED_COLUMNS,
   requireLiveManticoreUrl,
 } from "./live-test-hygiene";
+import type { LiveTableSchemaReader } from "./live-test-hygiene";
+
+const originalFetch = globalThis.fetch;
+const LIVE_INDEX = "aanvragen_test_live";
+const LIVE_TABLES = [
+  partitionTable(LIVE_INDEX, SEARCH_PARTITIONS[0]),
+  partitionTable(LIVE_INDEX, SEARCH_PARTITIONS[1]),
+] as const;
+
+afterEach(() => {
+  globalThis.fetch = originalFetch;
+});
+
+const readerFor = (
+  tables: ReadonlyMap<string, ReadonlySet<string> | null>
+): LiveTableSchemaReader => ({
+  describeTable: (table) => Promise.resolve(tables.get(table) ?? null),
+});
+
+const stubShowTables = (tables: readonly string[]): void => {
+  // SAFETY: this stub only exercises the SHOW TABLES fetch shape used by the
+  // readiness preflight; the schema reader is injected separately.
+  globalThis.fetch = ((
+    input: string | URL | Request,
+    init?: RequestInit
+  ): Promise<Response> => {
+    void input;
+    void init;
+    return Promise.resolve(
+      Response.json([
+        {
+          data: tables.map((Index) => ({ Index, Type: "rt" })),
+        },
+      ])
+    );
+  }) as typeof fetch;
+};
 
 describe("Manticore live fixture cleanup", () => {
   it("fails when a required live lane has no URL", () => {
@@ -87,5 +127,89 @@ describe("Manticore live fixture cleanup", () => {
     expect(() =>
       createLiveTestEngine("http://x", store, "aanvragen_test_x")
     ).not.toThrow();
+  });
+});
+
+describe("Manticore live table preflight", () => {
+  const completeColumns = new Set<string>(LIVE_TEST_REQUIRED_COLUMNS);
+
+  it("resolves when both live tables have the required columns", async () => {
+    stubShowTables(LIVE_TABLES);
+    const reader = readerFor(
+      new Map(LIVE_TABLES.map((table) => [table, completeColumns]))
+    );
+
+    await expect(
+      assertLiveTestTablesReady("http://manticore.test", LIVE_INDEX, reader)
+    ).resolves.toBeUndefined();
+  });
+
+  it("reports missing skills with the volume recreation remedy", async () => {
+    stubShowTables(LIVE_TABLES);
+    const missingSkills = new Set(
+      LIVE_TEST_REQUIRED_COLUMNS.filter((column) => column !== "skills")
+    );
+    const reader = readerFor(
+      new Map([
+        [LIVE_TABLES[0], missingSkills],
+        [LIVE_TABLES[1], completeColumns],
+      ])
+    );
+
+    await expect(
+      assertLiveTestTablesReady("http://manticore.test", LIVE_INDEX, reader)
+    ).rejects.toThrow(/skills.*manticore_data/su);
+  });
+
+  it("aggregates missing columns from both live tables", async () => {
+    stubShowTables(LIVE_TABLES);
+    const missingSkills = new Set(
+      LIVE_TEST_REQUIRED_COLUMNS.filter((column) => column !== "skills")
+    );
+    const missingTitel = new Set(
+      LIVE_TEST_REQUIRED_COLUMNS.filter((column) => column !== "titel")
+    );
+    const reader = readerFor(
+      new Map([
+        [LIVE_TABLES[0], missingSkills],
+        [LIVE_TABLES[1], missingTitel],
+      ])
+    );
+
+    await expect(
+      assertLiveTestTablesReady("http://manticore.test", LIVE_INDEX, reader)
+    ).rejects.toThrow(new RegExp(`${LIVE_TABLES[0]}.*${LIVE_TABLES[1]}`, "su"));
+  });
+
+  it("reads DESCRIBE fields and recognizes an absent table", async () => {
+    // SAFETY: this stub only exercises the fetch call shape used by the
+    // schema reader; no other global fetch overload is needed here.
+    globalThis.fetch = ((
+      input: string | URL | Request,
+      init?: RequestInit
+    ): Promise<Response> => {
+      void input;
+      if (String(init?.body).includes("DESCRIBE%20missing")) {
+        return Promise.resolve(
+          Response.json({ error: "no such table 'missing'" }, { status: 500 })
+        );
+      }
+      return Promise.resolve(
+        Response.json([
+          {
+            data: [
+              { Field: "skills", Properties: "", Type: "json" },
+              { Field: "titel", Properties: "", Type: "text" },
+            ],
+          },
+        ])
+      );
+    }) as typeof fetch;
+
+    const reader = createSqlSchemaReader("http://manticore.test");
+    await expect(
+      reader.describeTable("aanvragen_test_live_active")
+    ).resolves.toEqual(new Set(["skills", "titel"]));
+    await expect(reader.describeTable("missing")).resolves.toBeNull();
   });
 });

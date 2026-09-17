@@ -32,7 +32,6 @@ describe.skipIf(!manticoreUrl)(
     beforeAll(() =>
       assertLiveTestTablesReady(manticoreUrl, LIVE_TEST_INDEX_NAME)
     );
-
     it("orders each sort key natively with missing values last and stable ids", async () => {
       if (!manticoreUrl) {
         throw new Error("Live test was not skipped without MANTICORE_URL");
