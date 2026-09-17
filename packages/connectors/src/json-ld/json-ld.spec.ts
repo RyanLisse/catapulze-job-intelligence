@@ -12,6 +12,7 @@ import {
   createJsonLdClient,
   extractListingLinks,
   extractSitemapUrls,
+  selectSitemapIndexChildren,
 } from "./client";
 import { asmlConfig } from "./configs/asml";
 import { bijOranjeConfig } from "./configs/bij-oranje";
@@ -170,6 +171,100 @@ describe("extractSitemapUrls", () => {
       { lastmod: "2026-08-01", url: "https://example.test/a/?x=1&y=2" },
       { url: "https://example.test/b/" },
     ]);
+  });
+});
+
+describe("selectSitemapIndexChildren", () => {
+  const childPattern = /\/job-sitemap(?<chunk>\d+)\.xml/u;
+
+  it("filters children and selects highest chunks instead of newest lastmod", () => {
+    const xml = `
+      <sitemapindex>
+        <sitemap><loc>https://example.test/job-sitemap.xml</loc><lastmod>2026-09-17</lastmod></sitemap>
+        <sitemap><loc>https://example.test/page-sitemap.xml</loc><lastmod>2026-09-18</lastmod></sitemap>
+        <sitemap><loc>https://example.test/job-sitemap2.xml</loc><lastmod>2020-01-01</lastmod></sitemap>
+        <sitemap><loc>https://example.test/job-sitemap3.xml</loc><lastmod>2021-01-01</lastmod></sitemap>
+      </sitemapindex>`;
+    expect(selectSitemapIndexChildren(xml, childPattern, 2)).toEqual([
+      "https://example.test/job-sitemap3.xml",
+      "https://example.test/job-sitemap2.xml",
+    ]);
+  });
+
+  it("returns all matching children when newest exceeds the matches", () => {
+    const xml =
+      "<sitemapindex><sitemap><loc>https://example.test/job-sitemap4.xml</loc></sitemap></sitemapindex>";
+    expect(selectSitemapIndexChildren(xml, childPattern, 5)).toEqual([
+      "https://example.test/job-sitemap4.xml",
+    ]);
+  });
+
+  it("decodes XML entities in child URLs", () => {
+    const xml =
+      "<sitemapindex><sitemap><loc>https://example.test/job-sitemap5.xml?x=1&amp;y=2</loc></sitemap></sitemapindex>";
+    expect(selectSitemapIndexChildren(xml, childPattern, 1)).toEqual([
+      "https://example.test/job-sitemap5.xml?x=1&y=2",
+    ]);
+  });
+});
+
+describe("sitemap-index client discovery", () => {
+  it("fetches newest children sequentially, combines, and deduplicates URLs", async () => {
+    const indexUrl = "https://example.test/sitemap.xml";
+    const childUrls = {
+      1: "https://example.test/job-sitemap1.xml",
+      2: "https://example.test/job-sitemap2.xml",
+      3: "https://example.test/job-sitemap3.xml",
+    };
+    const responses = new Map([
+      [
+        indexUrl,
+        `<sitemapindex><sitemap><loc>${childUrls[1]}</loc></sitemap><sitemap><loc>${childUrls[2]}</loc></sitemap><sitemap><loc>${childUrls[3]}</loc></sitemap></sitemapindex>`,
+      ],
+      [
+        childUrls[2],
+        "<urlset><url><loc>https://example.test/jobs/shared</loc></url><url><loc>https://example.test/jobs/two</loc></url></urlset>",
+      ],
+      [
+        childUrls[3],
+        "<urlset><url><loc>https://example.test/jobs/shared</loc></url><url><loc>https://example.test/jobs/three</loc></url></urlset>",
+      ],
+    ]);
+    const calls: string[] = [];
+    const mockFetch: typeof fetch = Object.assign(
+      (input: string | URL | Request) => {
+        const url = String(input);
+        calls.push(url);
+        const body = responses.get(url);
+        if (!body) {
+          throw new Error(`unexpected request ${url}`);
+        }
+        return Promise.resolve(new Response(body, { status: 200 }));
+      },
+      { preconnect: () => {} }
+    );
+    const client = createJsonLdClient({
+      config: {
+        discovery: {
+          childPattern: /\/job-sitemap(?<chunk>\d+)\.xml$/u,
+          kind: "sitemap-index",
+          newest: 2,
+          url: indexUrl,
+        },
+        parserVersion: "test/v1",
+        slug: "test",
+      },
+      fetchImpl: mockFetch,
+      liveEnabled: true,
+    });
+
+    await expect(client.fetchListing()).resolves.toEqual([
+      { url: "https://example.test/jobs/shared" },
+      { url: "https://example.test/jobs/three" },
+      { url: "https://example.test/jobs/two" },
+    ]);
+    expect(calls).toEqual([indexUrl, childUrls[3], childUrls[2]]);
+    expect(calls).not.toContain(childUrls[1]);
   });
 });
 
