@@ -12,6 +12,7 @@ import {
 import { loadConnectorFixture } from "../fixtures/load";
 import type { JsonLdClient, JsonLdDetailPayload } from "./client";
 import {
+  extractJsonListingUrls,
   extractListingLinks,
   extractSitemapUrls,
   selectSitemapIndexChildren,
@@ -80,6 +81,13 @@ const parseListingSource = (
   } else if (config.discovery.kind === "listing") {
     urls = extractListingLinks(
       raw,
+      config.discovery.linkPattern,
+      config.detailBaseUrl ?? config.discovery.url
+    );
+  } else if (config.discovery.kind === "json-listing") {
+    urls = extractJsonListingUrls(
+      raw,
+      config.discovery.urlPointer,
       config.discovery.linkPattern,
       config.detailBaseUrl ?? config.discovery.url
     );
@@ -181,6 +189,22 @@ const loadFixtureTextEffect = (
     },
   });
 
+const loadFixtureJsonEffect = (
+  path: string,
+  message: string
+): Effect.Effect<string, ReadIoFault> =>
+  Effect.tryPromise({
+    catch: (cause) =>
+      new ValidationFault({
+        cause,
+        message,
+      }),
+    try: async () => {
+      const fixture = await loadConnectorFixture<unknown>(path);
+      return JSON.stringify(fixture.payload) ?? "null";
+    },
+  });
+
 export const fetchListingEffect = (
   options: JsonLdEffectClientOptions
 ): Effect.Effect<JsonLdDiscoveryUrl[], ReadIoFault> => {
@@ -190,12 +214,20 @@ export const fetchListingEffect = (
     config.listingFixturePath ??
     `${config.slug}/listing-page-0.json`;
 
-  const indexEffect = resolveLiveEnabled(options)
-    ? fetchLiveTextEffect(options, config.discovery.url)
-    : loadFixtureTextEffect(
-        listingFixturePath,
-        `Failed to load listing fixture ${listingFixturePath}`
-      );
+  let indexEffect: Effect.Effect<string, ReadIoFault>;
+  if (resolveLiveEnabled(options)) {
+    indexEffect = fetchLiveTextEffect(options, config.discovery.url);
+  } else if (config.discovery.kind === "json-listing") {
+    indexEffect = loadFixtureJsonEffect(
+      listingFixturePath,
+      `Failed to load listing fixture ${listingFixturePath}`
+    );
+  } else {
+    indexEffect = loadFixtureTextEffect(
+      listingFixturePath,
+      `Failed to load listing fixture ${listingFixturePath}`
+    );
+  }
   if (config.discovery.kind !== "sitemap-index") {
     return indexEffect.pipe(
       Effect.map((raw) => parseListingSource(config, raw))

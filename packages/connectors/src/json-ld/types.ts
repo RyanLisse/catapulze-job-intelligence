@@ -18,6 +18,12 @@ export type JsonLdDiscoveryConfig =
   | { kind: "sitemap"; url: string }
   | { kind: "listing"; linkPattern: RegExp; url: string }
   | {
+      kind: "json-listing";
+      linkPattern: RegExp;
+      url: string;
+      urlPointer: string;
+    }
+  | {
       kind: "sitemap-index";
       /** Matches child `<sitemap><loc>` URLs to follow; must expose a named `chunk` group with the numeric chunk suffix. */
       childPattern: RegExp;

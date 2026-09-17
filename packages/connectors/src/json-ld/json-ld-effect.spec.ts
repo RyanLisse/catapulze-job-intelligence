@@ -8,6 +8,7 @@ import {
 } from "../effect-runtime";
 import { createJsonLdEffectClient } from "./client-effect";
 import { heroConfig } from "./configs/hero";
+import { prorailConfig } from "./configs/prorail";
 
 const detailUrl = (): string => {
   const [first] = Object.keys(heroConfig.detailFixtures ?? {});
@@ -32,6 +33,15 @@ const hangUntilAbort = (init?: RequestInit): Promise<void> =>
   });
 
 describe("json-ld Effect read adapter", () => {
+  it("reads JSON listing fixtures as parsed payloads", async () => {
+    const client = createJsonLdEffectClient({
+      config: prorailConfig,
+      liveEnabled: false,
+    });
+    const listing = await client.fetchListing();
+    expect(listing).toHaveLength(16);
+  });
+
   it("fixture listing/detail matches native Promise contract", async () => {
     const client = createJsonLdEffectClient({
       config: heroConfig,

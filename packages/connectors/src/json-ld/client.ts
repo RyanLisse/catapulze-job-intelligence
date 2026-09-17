@@ -1,3 +1,4 @@
+/* oxlint-disable anti-slop/no-runtime-typeof -- JSON listing traversal narrows JSON.parse output at this I/O boundary. */
 import { loadConnectorFixture } from "../fixtures/load";
 import { decodeHtmlEntities } from "../html-entities";
 import { resolveHttpTimeoutMs, withHttpTimeout } from "../http-timeout";
@@ -140,6 +141,81 @@ export const extractListingLinks = (
   return urls;
 };
 
+// oxlint-disable-next-line anti-slop/no-unknown-parameters, anti-slop/no-unsafe-dictionary-type -- JSON.parse returns unknown; this narrows the JSON listing traversal boundary.
+const isJsonObject = (value: unknown): value is Record<string, unknown> =>
+  value !== null && typeof value === "object" && !Array.isArray(value);
+
+/** Extracts detail URLs from a JSON listing pointer, resolving and deduplicating absolute URLs. */
+export const extractJsonListingUrls = (
+  raw: string,
+  urlPointer: string,
+  linkPattern: RegExp,
+  baseUrl: string
+): JsonLdDiscoveryUrl[] => {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (error) {
+    throw new Error(
+      `Invalid JSON listing response at ${baseUrl}: ${error instanceof Error ? error.message : String(error)}`,
+      { cause: error }
+    );
+  }
+
+  const segments = urlPointer.split(".");
+  if (
+    segments.length === 0 ||
+    segments.some((segment) => segment.length === 0)
+  ) {
+    throw new Error(`JSON listing pointer "${urlPointer}" is empty or invalid`);
+  }
+
+  let values: unknown[] = [parsed];
+  for (const segment of segments) {
+    const isArrayPointer = segment.endsWith("[]");
+    const key = isArrayPointer ? segment.slice(0, -2) : segment;
+    const next: unknown[] = [];
+    for (const value of values) {
+      if (!isJsonObject(value) || !(key in value)) {
+        continue;
+      }
+      const child = value[key];
+      if (isArrayPointer) {
+        if (!Array.isArray(child)) {
+          throw new TypeError(
+            `JSON listing pointer "${urlPointer}" expected "${key}" to be an array`
+          );
+        }
+        next.push(...child);
+      } else {
+        next.push(child);
+      }
+    }
+    if (next.length === 0) {
+      throw new Error(
+        `JSON listing pointer "${urlPointer}" did not resolve at "${segment}"`
+      );
+    }
+    values = next;
+  }
+
+  const seen = new Set<string>();
+  const urls: JsonLdDiscoveryUrl[] = [];
+  for (const value of values) {
+    if (typeof value !== "string") {
+      continue;
+    }
+    const resolved = new URL(value, baseUrl);
+    linkPattern.lastIndex = 0;
+    const absolute = resolved.toString();
+    if (linkPattern.test(resolved.pathname) && !seen.has(absolute)) {
+      seen.add(absolute);
+      urls.push({ url: absolute });
+    }
+  }
+  return urls;
+};
+
 const applyExcludes = (
   urls: JsonLdDiscoveryUrl[],
   excludePatterns: RegExp[] | undefined
@@ -199,6 +275,13 @@ export const createJsonLdClient = (
     } else if (config.discovery.kind === "listing") {
       urls = extractListingLinks(
         raw,
+        config.discovery.linkPattern,
+        config.detailBaseUrl ?? config.discovery.url
+      );
+    } else if (config.discovery.kind === "json-listing") {
+      urls = extractJsonListingUrls(
+        raw,
+        config.discovery.urlPointer,
         config.discovery.linkPattern,
         config.detailBaseUrl ?? config.discovery.url
       );
@@ -288,6 +371,11 @@ export const createJsonLdClient = (
         );
       }
       if (!liveEnabled) {
+        if (config.discovery.kind === "json-listing") {
+          const fixture =
+            await loadConnectorFixture<unknown>(listingFixturePath);
+          return parseListingSource(JSON.stringify(fixture.payload));
+        }
         const fixture = await loadConnectorFixture<string>(listingFixturePath);
         return parseListingSource(fixture.payload);
       }
