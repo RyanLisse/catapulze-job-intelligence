@@ -30,12 +30,14 @@ export { heijmansConfig } from "./configs/heijmans";
 export { nsConfig } from "./configs/ns";
 export { randstadConfig } from "./configs/randstad";
 export { rijkswaterstaatConfig } from "./configs/rijkswaterstaat";
+export { enexisConfig } from "./configs/enexis";
 export { unicaConfig } from "./configs/unica";
 export { vattenfallConfig } from "./configs/vattenfall";
 export { volkerwesselsConfig } from "./configs/volkerwessels";
 export { zzpOpdrachtenConfig } from "./configs/zzp-opdrachten";
 export { datajobsConfig } from "./configs/datajobs";
 export { jobbirdConfig } from "./configs/jobbird";
+export { prorailConfig } from "./configs/prorail";
 export {
   extractJobPosting,
   extractJsonLdNodes,

@@ -6,6 +6,7 @@ import { ctm } from "./ctm";
 import { datajobs } from "./datajobs";
 import type { SourceDefinition } from "./definition";
 import { eneco } from "./eneco";
+import { enexis } from "./enexis";
 import { flinter } from "./flinter";
 import { freelancerNl } from "./freelancer-nl";
 import { harveynash } from "./harveynash";
@@ -19,6 +20,7 @@ import { ns } from "./ns";
 import { onefellow } from "./onefellow";
 import { opdrachtoverheid } from "./opdrachtoverheid";
 import { proAct } from "./pro-act";
+import { prorail } from "./prorail";
 import { rabobank } from "./rabobank";
 import { randstad } from "./randstad";
 import { rijkswaterstaat } from "./rijkswaterstaat";
@@ -47,6 +49,7 @@ export const SOURCES = {
   ctm,
   datajobs,
   eneco,
+  enexis,
   flinter,
   "freelancer-nl": freelancerNl,
   harveynash,
@@ -60,6 +63,7 @@ export const SOURCES = {
   onefellow,
   opdrachtoverheid,
   "pro-act": proAct,
+  prorail,
   rabobank,
   randstad,
   rijkswaterstaat,
