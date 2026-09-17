@@ -14,12 +14,22 @@ export interface JsonLdDiscoveryUrl {
   url: string;
 }
 
+export interface JsonLdListingPaginationConfig {
+  maxPages?: number;
+  pageParam: string;
+  pagePointer: string;
+  pageSizeParam: string;
+  pageSizePointer: string;
+  totalPointer: string;
+}
+
 export type JsonLdDiscoveryConfig =
   | { kind: "sitemap"; url: string }
   | { kind: "listing"; linkPattern: RegExp; url: string }
   | {
       kind: "json-listing";
       linkPattern: RegExp;
+      pagination?: JsonLdListingPaginationConfig;
       url: string;
       urlPointer: string;
     }
