@@ -10,6 +10,7 @@ import { enexis } from "./enexis";
 import { flinter } from "./flinter";
 import { freelancerNl } from "./freelancer-nl";
 import { gasunie } from "./gasunie";
+import { haert } from "./haert";
 import { harveynash } from "./harveynash";
 import { hays } from "./hays";
 import { heijmans } from "./heijmans";
@@ -57,6 +58,7 @@ export const SOURCES = {
   flinter,
   "freelancer-nl": freelancerNl,
   gasunie,
+  haert,
   harveynash,
   hays,
   heijmans,

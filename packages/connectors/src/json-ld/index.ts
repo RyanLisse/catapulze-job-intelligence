@@ -42,6 +42,7 @@ export { jobbirdConfig } from "./configs/jobbird";
 export { prorailConfig } from "./configs/prorail";
 export { intermediairConfig } from "./configs/intermediair";
 export { planetInterimConfig } from "./configs/planet-interim";
+export { haertConfig } from "./configs/haert";
 export {
   extractJobPosting,
   extractJsonLdNodes,
