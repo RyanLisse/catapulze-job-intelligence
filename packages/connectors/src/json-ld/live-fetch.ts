@@ -124,6 +124,22 @@ export const toLiveFetchHeadersInit = (
 };
 
 /**
+ * Typed non-2xx live-response error. Carrying `status` lets callers treat a
+ * 404 detail page as "gone at source" instead of failing the whole run.
+ */
+export class HttpStatusError extends Error {
+  readonly status: number;
+  readonly url: string;
+
+  constructor(options: { slug: string; status: number; url: string }) {
+    super(`${options.slug} request failed with status ${options.status}`);
+    this.name = "HttpStatusError";
+    this.status = options.status;
+    this.url = options.url;
+  }
+}
+
+/**
  * Reads a live response body, failing closed on Cloudflare challenges with an
  * ops-actionable message instead of a bare HTTP 403.
  */
@@ -142,9 +158,11 @@ export const readLiveHtmlOrThrow = async (options: {
     });
   }
   if (!options.response.ok) {
-    throw new Error(
-      `${options.slug} request failed with status ${options.response.status}`
-    );
+    throw new HttpStatusError({
+      slug: options.slug,
+      status: options.response.status,
+      url: options.url,
+    });
   }
   return body;
 };

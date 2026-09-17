@@ -8,6 +8,7 @@ import {
   runConnector,
 } from "@ji/connectors";
 
+import { NotFoundFault } from "../effect-runtime";
 import {
   createJsonLdClient,
   extractListingLinks,
@@ -31,6 +32,7 @@ import {
   extractLabelBlock,
   pickJobPosting,
 } from "./extract";
+import { HttpStatusError } from "./live-fetch";
 import type { JsonLdConnectorConfig } from "./types";
 
 const retryPolicy = {
@@ -1255,6 +1257,76 @@ describe("rejected fetch paths", () => {
       listingPayload: { url: "https://x.test/a" },
     });
     expect(fetched).toMatchObject({ status: "rejected" });
+  });
+
+  it("rejects a detail URL that is gone at source (404) instead of failing the run", async () => {
+    const gone404Client = {
+      fetchDetail: () =>
+        Promise.reject(
+          new HttpStatusError({
+            slug: "datajobs",
+            status: 404,
+            url: "https://x.test/gone",
+          })
+        ),
+      fetchListing: () => Promise.resolve([]),
+    };
+    const connector = createJsonLdConnector({
+      bronId: "bron-gone-404",
+      client: gone404Client,
+      config: bluetrailConfig,
+    });
+    const fetched = await connector.fetch({
+      bronReferentie: "gone",
+      contentHash: "hash",
+      listingPayload: { url: "https://x.test/gone" },
+    });
+    expect(fetched).toMatchObject({ status: "rejected" });
+  });
+
+  it("rejects a detail URL gone via the Effect client (NotFoundFault)", async () => {
+    const goneFaultClient = {
+      fetchDetail: () =>
+        Promise.reject(new NotFoundFault({ message: "gone", status: 404 })),
+      fetchListing: () => Promise.resolve([]),
+    };
+    const connector = createJsonLdConnector({
+      bronId: "bron-gone-fault",
+      client: goneFaultClient,
+      config: bluetrailConfig,
+    });
+    const fetched = await connector.fetch({
+      bronReferentie: "gone",
+      contentHash: "hash",
+      listingPayload: { url: "https://x.test/gone" },
+    });
+    expect(fetched).toMatchObject({ status: "rejected" });
+  });
+
+  it("still propagates non-404 detail failures (500 stays fatal)", async () => {
+    const serverErrorClient = {
+      fetchDetail: () =>
+        Promise.reject(
+          new HttpStatusError({
+            slug: "datajobs",
+            status: 500,
+            url: "https://x.test/oops",
+          })
+        ),
+      fetchListing: () => Promise.resolve([]),
+    };
+    const connector = createJsonLdConnector({
+      bronId: "bron-500",
+      client: serverErrorClient,
+      config: bluetrailConfig,
+    });
+    await expect(
+      connector.fetch({
+        bronReferentie: "oops",
+        contentHash: "hash",
+        listingPayload: { url: "https://x.test/oops" },
+      })
+    ).rejects.toThrow(HttpStatusError);
   });
 });
 
