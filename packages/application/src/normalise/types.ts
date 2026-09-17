@@ -100,6 +100,14 @@ export const validateNormalisedDraft = (
   return issues;
 };
 
+export const isPresent = <Value>(
+  value: Value | null | undefined
+): value is Value => value !== null && value !== undefined;
+
+export const numberToStringOrUnknown = (
+  value: number | null | undefined
+): string | typeof UNKNOWN => (isPresent(value) ? String(value) : UNKNOWN);
+
 export const stripHtml = (html: string): string =>
   html
     .replaceAll(/<[^>]+>/gu, " ")
