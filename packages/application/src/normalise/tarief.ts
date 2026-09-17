@@ -16,8 +16,19 @@ const DATE_RANGE_PATTERN = /^\d{1,2}[-–]\d{1,2}[-–]\d{2,4}\b/u;
 const NON_RATE_RANGE_CONTEXT_PATTERN =
   /^(?:\s*)(?:jaar|maanden?|weken?|personen?|fte|mensen|medewerkers|collega(?:'s|s)?|kandidaten|procesbeschrijvers|stuks|items)\b/iu;
 
-const normalizeAmount = (raw: string): string => {
+/**
+ * CTP-606: a comma followed by exactly three digits reads as English
+ * thousands ("€3,150" = 3150) and as a Dutch three-decimal amount
+ * ("€0,350" per kWh = 0.35) with equal force, and the two differ by 1000x.
+ * Nothing in the surrounding copy separates them, so publish neither.
+ */
+const AMBIGUOUS_GROUPED_DECIMAL = /^\d{1,3},\d{3}$/u;
+
+const normalizeAmount = (raw: string): string | typeof UNKNOWN => {
   const trimmed = raw.trim();
+  if (AMBIGUOUS_GROUPED_DECIMAL.test(trimmed)) {
+    return UNKNOWN;
+  }
   if (/\.\d{3}/u.test(trimmed) && trimmed.includes(",")) {
     return trimmed.replaceAll(".", "").replace(",", ".");
   }
@@ -35,10 +46,18 @@ const hasAny = (lower: string, tokens: readonly string[]): boolean =>
 
 const detectEenheid = (lower: string): TariefEenheid | typeof UNKNOWN => {
   // Explicit period wins over all-in / BTW gloss that often sits beside day rates.
-  if (hasAny(lower, [" per dag", "/dag", "dagtarief"])) {
+  if (hasAny(lower, [" per dag", "/dag", "dagtarief", " per day", "/day"])) {
     return "dag";
   }
-  if (hasAny(lower, [" per maand", "/maand", "maandtarief"])) {
+  if (
+    hasAny(lower, [
+      " per maand",
+      "/maand",
+      "maandtarief",
+      " per month",
+      "/month",
+    ])
+  ) {
     return "maand";
   }
   if (
@@ -47,6 +66,8 @@ const detectEenheid = (lower: string): TariefEenheid | typeof UNKNOWN => {
       " p/u",
       "/uur",
       "uurtarief",
+      " per hour",
+      "/hour",
       "all-in",
       "all in",
       "ex btw",
@@ -61,7 +82,16 @@ const detectEenheid = (lower: string): TariefEenheid | typeof UNKNOWN => {
   if (hasAny(lower, ["salaris", "bruto per maand", "maandsalaris"])) {
     return "maand";
   }
-  if (hasAny(lower, [" jaarsalaris", " per jaar", "/jaar"])) {
+  if (
+    hasAny(lower, [
+      " jaarsalaris",
+      " per jaar",
+      "/jaar",
+      " per year",
+      "/year",
+      " per annum",
+    ])
+  ) {
     // Domain TariefEenheid has no jaar yet; UNKNOWN beats mislabeling as uur.
     return UNKNOWN;
   }
@@ -85,7 +115,7 @@ const unknownTarief = (): NormalisedTarief => ({
 const withEenheid = (
   lower: string,
   min: string | typeof UNKNOWN,
-  max: string
+  max: string | typeof UNKNOWN
 ): NormalisedTarief => ({
   eenheid: detectEenheid(lower),
   max,
@@ -107,38 +137,60 @@ const parseMaxOnly = (lower: string): NormalisedTarief | null => {
   return withEenheid(lower, UNKNOWN, normalizeAmount(maxMatch.groups.amount));
 };
 
-const parseTussenRange = (lower: string): NormalisedTarief | null => {
-  const match = lower.match(
-    new RegExp(
-      String.raw`tussen(?:\s+de)?\s*€?\s*${MIN_CAPTURE}\s*(?:en|[-–])\s*€?\s*${MAX_CAPTURE}`,
-      "u"
-    )
-  );
-  if (!(match?.groups?.min && match.groups.max)) {
-    return null;
-  }
-  return withEenheid(
-    lower,
-    normalizeAmount(match.groups.min),
-    normalizeAmount(match.groups.max)
-  );
-};
+/** Dutch "whole euros" suffix, as in "€ 5.517,-". */
+const EURO_SUFFIX = String.raw`(?:\s*,-)?`;
 
-const parseEuroRange = (
-  text: string,
-  lower: string
-): NormalisedTarief | null => {
-  const match = text.match(
-    new RegExp(String.raw`€\s*${MIN_CAPTURE}\s*[-–]\s*€?\s*${MAX_CAPTURE}`, "u")
-  );
-  if (!(match?.groups?.min && match.groups.max)) {
-    return null;
+/**
+ * One rule for every currency-marked range, Dutch and English. CTP-606: the
+ * two narrower rules it replaces each demanded their own connector and neither
+ * tolerated the `,-` suffix, so "€ 5.517,- en € 9.337,-" fell through both of
+ * them to the single-amount rule and published its floor as its ceiling.
+ * parseBareRange stays separate: it owns the no-currency case and the date and
+ * headcount guards that go with it.
+ *
+ * Scanned globally rather than matched once: a vacancy states hours before
+ * money ("een dienstverband van 32 tot 40 uur per week. Een salaris tussen
+ * € 4.238,- en € 6.635,-"), and the first amount pair must be rejected
+ * without giving up on the rest of the text.
+ */
+const CURRENCY_RANGE_PATTERN = new RegExp(
+  String.raw`(?:\b(?<open>tussen(?:\s+de)?|vanaf|van|from|between)\b\s*)?(?<cur>€|\beur\b)?\s*${MIN_CAPTURE}${EURO_SUFFIX}(?<conn>\s*[-–]\s*|\s+(?:en|and|tot|to|t\/m|tm)\s+)(?<cur2>€|\beur\b)?\s*${MAX_CAPTURE}${EURO_SUFFIX}`,
+  "gu"
+);
+
+const CONJUNCTION_CONNECTOR = /^\s+(?:en|and)\s+$/u;
+
+const parseCurrencyRange = (lower: string): NormalisedTarief | null => {
+  for (const match of lower.matchAll(CURRENCY_RANGE_PATTERN)) {
+    const { groups } = match;
+    if (!(groups?.min && groups.max && groups.conn)) {
+      continue;
+    }
+    const opener = groups.open ?? "";
+    // An amount pair carrying neither a currency mark nor "tussen" is a
+    // duration or a headcount far more often than a rate: "van 32 tot 40 uur
+    // per week". Those belong to parseBareRange and its context guards.
+    if (!(groups.cur || opener.startsWith("tussen"))) {
+      continue;
+    }
+    // "en"/"and" joins two unrelated amounts ("€ 500 en 20 vakantiedagen")
+    // as readily as it spans a range. A range opener, or a currency mark on
+    // both bounds, is what makes it a range.
+    if (
+      CONJUNCTION_CONNECTOR.test(groups.conn) &&
+      !(opener || (groups.cur && groups.cur2))
+    ) {
+      continue;
+    }
+    const min = normalizeAmount(groups.min);
+    const max = normalizeAmount(groups.max);
+    // A ceiling below its floor means the two numbers were never one range.
+    if (min !== UNKNOWN && max !== UNKNOWN && Number(min) > Number(max)) {
+      continue;
+    }
+    return withEenheid(lower, min, max);
   }
-  return withEenheid(
-    lower,
-    normalizeAmount(match.groups.min),
-    normalizeAmount(match.groups.max)
-  );
+  return null;
 };
 
 const parseBareRange = (lower: string): NormalisedTarief | null => {
@@ -191,10 +243,12 @@ export const parseTariefFromText = (text: string): NormalisedTarief => {
   if (QUALITATIVE.test(text) && !/€|\d/u.test(text)) {
     return unknownTarief();
   }
+  // CTP-606: the range rule runs first so "van €4.488,- tot €7.515,-" is read
+  // whole. It needs an amount before the connector, so "tot €95" still falls
+  // through to the max-only rule.
   return (
+    parseCurrencyRange(lower) ??
     parseMaxOnly(lower) ??
-    parseTussenRange(lower) ??
-    parseEuroRange(text, lower) ??
     parseBareRange(lower) ??
     parseSingleEuro(text, lower) ??
     unknownTarief()

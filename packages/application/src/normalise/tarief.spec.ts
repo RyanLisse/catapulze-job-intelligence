@@ -135,3 +135,90 @@ describe("parseTariefFromText salaris vs inhuur tarief", () => {
     expect(parsed.eenheid).toBe("uur");
   });
 });
+
+describe("parseTariefFromText monthly salary ranges (CTP-606)", () => {
+  it("reads both bounds of a tussen range carrying the Dutch ,- suffix", () => {
+    expect(
+      parseTariefFromText(
+        "Een salaris tussen € 5.517,- en € 9.337,- bruto per maand (schaal 62)"
+      )
+    ).toEqual({
+      eenheid: "maand",
+      max: "9337",
+      min: "5517",
+      valuta: "EUR",
+    });
+  });
+
+  it("reads a van/tot range instead of mining its tot half as a max", () => {
+    expect(
+      parseTariefFromText(
+        "Een salaris van €4.488,- tot €7.515,- bruto per maand (schaal 61)"
+      )
+    ).toEqual({
+      eenheid: "maand",
+      max: "7515",
+      min: "4488",
+      valuta: "EUR",
+    });
+  });
+
+  it("reads an English from/and range as monthly, not hourly", () => {
+    expect(
+      parseTariefFromText(
+        "The salary for this position ranges from €4862 and €6077 gross per month"
+      )
+    ).toEqual({
+      eenheid: "maand",
+      max: "6077",
+      min: "4862",
+      valuta: "EUR",
+    });
+  });
+
+  it("reads the Flinter permanent-vacancy salary range", () => {
+    expect(
+      parseTariefFromText(
+        "Een salaris tussen € 4.238,- en € 6.635,- bruto per maand (o.b.v. 40 uur)"
+      )
+    ).toEqual({
+      eenheid: "maand",
+      max: "6635",
+      min: "4238",
+      valuta: "EUR",
+    });
+  });
+
+  it("leaves amounts unknown when comma-grouped digits could mean either 3150 or 3.15", () => {
+    expect(parseTariefFromText("€3,150 - €6,500 gross per month")).toEqual({
+      eenheid: "maand",
+      max: UNKNOWN,
+      min: UNKNOWN,
+      valuta: "EUR",
+    });
+  });
+
+  it("skips an hours range to reach the salary range later in the text", () => {
+    expect(
+      parseTariefFromText(
+        "Een dienstverband van 32 tot 40 uur per week. Een salaris tussen € 4.238,- en € 6.635,- bruto per maand."
+      )
+    ).toEqual({
+      eenheid: "maand",
+      max: "6635",
+      min: "4238",
+      valuta: "EUR",
+    });
+  });
+
+  it("does not read en between a rate and an unrelated amount as a range", () => {
+    expect(
+      parseTariefFromText("Je krijgt € 500 en 1.000 euro opleidingsbudget.")
+    ).toEqual({
+      eenheid: "uur",
+      max: "500",
+      min: UNKNOWN,
+      valuta: "EUR",
+    });
+  });
+});
