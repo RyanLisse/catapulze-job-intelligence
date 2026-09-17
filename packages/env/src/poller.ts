@@ -99,6 +99,24 @@ export const pollerEnvEffectSchemas = {
   ),
   POLLER_DATABASE_URL: directDatabaseUrlEffectSchema("POLLER_DATABASE_URL"),
   /**
+   * Rows deleted per cycle at most, so a prune never holds the outbox write
+   * lock long enough to stall the drain's own inserts (CTP-404).
+   */
+  POLLER_OUTBOX_PRUNE_BATCH: positiveIntegerWithDefault(
+    25_000,
+    "POLLER_OUTBOX_PRUNE_BATCH",
+    "outbox rows per prune pass"
+  ),
+  /**
+   * Processed outbox events older than this are deleted once per cycle.
+   * Unprocessed and dead-lettered rows are never pruned here (CTP-404).
+   */
+  POLLER_OUTBOX_RETENTION_DAYS: positiveIntegerWithDefault(
+    30,
+    "POLLER_OUTBOX_RETENTION_DAYS",
+    "days processed outbox events are kept"
+  ),
+  /**
    * CTP-490: wall-clock budget for one source's connector run. When it
    * elapses the run stops at the next item, keeps what it observed and closes
    * the row as incomplete (`aborted`) instead of staying `running` until
@@ -148,6 +166,12 @@ const createPollerEnv = () =>
       ),
       POLLER_DATABASE_URL: toEnvSchema(
         pollerEnvEffectSchemas.POLLER_DATABASE_URL
+      ),
+      POLLER_OUTBOX_PRUNE_BATCH: toEnvSchema(
+        pollerEnvEffectSchemas.POLLER_OUTBOX_PRUNE_BATCH
+      ),
+      POLLER_OUTBOX_RETENTION_DAYS: toEnvSchema(
+        pollerEnvEffectSchemas.POLLER_OUTBOX_RETENTION_DAYS
       ),
       POLLER_RUN_BUDGET_MS: toEnvSchema(
         pollerEnvEffectSchemas.POLLER_RUN_BUDGET_MS
