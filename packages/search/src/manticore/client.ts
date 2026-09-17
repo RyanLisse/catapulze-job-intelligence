@@ -443,6 +443,35 @@ export const buildManticoreSort = (
   }
 };
 
+const applyHybrid = (
+  request: ManticoreSearchRequestBody,
+  knnQueryText: string | undefined
+): void => {
+  if (!knnQueryText) {
+    throw new Error("Hybrid search requires positive KNN query text");
+  }
+  request.knn = { field: "embedding", query: knnQueryText };
+  request.options = { fusion_method: "rrf" };
+  request._source = ["document_id"];
+};
+
+const applyFilterQuery = (
+  request: ManticoreSearchRequestBody,
+  query: ManticoreQueryBody | null,
+  filters: SearchFilters
+): void => {
+  const filter = buildFilterClauses(filters);
+  if (filter.length > 0) {
+    // Filters only apply inside query.bool (see ManticoreFilteredQueryBody).
+    request.query =
+      query === null
+        ? { bool: { filter } }
+        : { bool: { filter, must: [query] } };
+  } else if (query !== null) {
+    request.query = query;
+  }
+};
+
 export const buildManticoreSearchRequest = (
   index: string,
   query: ManticoreQueryBody | null,
@@ -477,25 +506,9 @@ export const buildManticoreSearchRequest = (
   };
 
   if (mode === "hybrid") {
-    if (!knnQueryText) {
-      throw new Error("Hybrid search requires positive KNN query text");
-    }
-    request.knn = { field: "embedding", query: knnQueryText };
-    request.options = { fusion_method: "rrf" };
-    request._source = ["document_id"];
+    applyHybrid(request, knnQueryText);
   }
-
-  const filter = buildFilterClauses(filters);
-  if (filter.length > 0) {
-    // Filters only apply inside query.bool (see ManticoreFilteredQueryBody).
-    request.query =
-      query === null
-        ? { bool: { filter } }
-        : { bool: { filter, must: [query] } };
-  } else if (query !== null) {
-    request.query = query;
-  }
-
+  applyFilterQuery(request, query, filters);
   return request;
 };
 
@@ -521,24 +534,11 @@ export const buildManticoreCountRequest = (
     track_total_hits: true,
   };
   if (mode === "hybrid") {
-    if (!knnQueryText) {
-      throw new Error("Hybrid search requires positive KNN query text");
-    }
-    request.knn = { field: "embedding", query: knnQueryText };
-    request.options = { fusion_method: "rrf" };
-    request._source = ["document_id"];
+    applyHybrid(request, knnQueryText);
     request.max_matches = DEFAULT_MAX_MATCHES;
     delete request.sort;
   }
-  const filter = buildFilterClauses(filters);
-  if (filter.length > 0) {
-    request.query =
-      query === null
-        ? { bool: { filter } }
-        : { bool: { filter, must: [query] } };
-  } else if (query !== null) {
-    request.query = query;
-  }
+  applyFilterQuery(request, query, filters);
   return request;
 };
 
