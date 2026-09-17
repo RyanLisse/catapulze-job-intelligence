@@ -36,7 +36,7 @@ Derived by pure `deriveBronHealth` in
 | `schedule_overdue` | warning (critical if circuit open) | `now` past `next_run_at` + 1x interval + 5 min grace. | Confirm worker heartbeats; inspect that bron's recent runs; escalate if cluster-wide. |
 | `recent_failures` | warning (1-2) / critical (>=3) | Failed runs in the rolling 24h window. | Open run detail; map `failure_code` below; fix connector/upstream. |
 | `latest_error` | warning | Last finished run failed; detail often `class/code`. | Same as `recent_failures` for the latest code. |
-| `silence_open` | warning | Open `bron.stil` / silence alert (HTTP 200 but volume cliff). | Follow `docs/runbooks/source-silence.md`; ack after mitigation. |
+| `silence_open` | warning | Open `bron.stil` / silence alert (HTTP 200 but volume cliff). | Follow `docs/runbooks/source-silence.md`; auto-resolves on the first recovered poll (`system:silence-recovered`), manual ack otherwise. |
 | `zero_activity` | info | Recent successful runs with `nieuw=gewijzigd=0`. | Informational — source alive, nothing new. Do not page. |
 
 Card badge on `/bronnen`: **Aandacht** when silence open, circuit open, last run

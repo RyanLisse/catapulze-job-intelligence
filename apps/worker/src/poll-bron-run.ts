@@ -86,6 +86,8 @@ export interface PollBronRunResult {
   writtenRecords: number;
 }
 
+export const SILENCE_AUTO_RESOLVE_ACTOR = "system:silence-recovered";
+
 export interface BronIngestPipelineResult extends PollBronRunResult {
   alreadyCommitted: number;
   attemptedObservationIds: string[];
@@ -354,18 +356,33 @@ const recordSucceededRun = async (
   bronId: BronId,
   now: Date,
   alerts: AlertStore,
-  bronHealth: BronHealthStore
+  bronHealth: BronHealthStore,
+  metrics: ConnectorRunMetrics,
+  context: Pick<PollBronRunResult, "bronSlug" | "scrapeRunId">
 ): Promise<void> => {
   const existing = await bronHealth.getByBronId(bronId);
   const openAlert = await alerts.findOpenByDedupeKey(
     buildSilenceDedupeKey(bronId)
   );
+  const recovered = openAlert !== null && metrics.new + metrics.changed > 0;
+  if (recovered) {
+    await alerts.ack(openAlert.id, SILENCE_AUTO_RESOLVE_ACTOR);
+    process.stderr.write(
+      `${JSON.stringify({
+        alertId: openAlert.id,
+        bronId,
+        bronSlug: context.bronSlug,
+        event: "silence_alert_auto_resolved",
+        scrapeRunId: context.scrapeRunId,
+      })}\n`
+    );
+  }
   await bronHealth.upsert({
     bronId,
     circuitStatus: existing?.circuitStatus ?? "closed",
     lastRunAt: now,
     lastRunStatus: "succeeded",
-    silenceAlertOpen: openAlert !== null,
+    silenceAlertOpen: openAlert !== null && !recovered,
   });
 };
 
@@ -536,7 +553,14 @@ export const handleSilenceAndHealth = async (
 
   const load = await loadRunBaseline(pollResult, runtime, now);
   if (!load.ok) {
-    await recordSucceededRun(pollResult.bronId, now, alerts, bronHealth);
+    await recordSucceededRun(
+      pollResult.bronId,
+      now,
+      alerts,
+      bronHealth,
+      pollResult.metrics,
+      pollResult
+    );
     return { baselineReadError: load.errorMessage, created: false };
   }
 
@@ -557,7 +581,14 @@ export const handleSilenceAndHealth = async (
   });
 
   if (!result.event) {
-    await recordSucceededRun(pollResult.bronId, now, alerts, bronHealth);
+    await recordSucceededRun(
+      pollResult.bronId,
+      now,
+      alerts,
+      bronHealth,
+      pollResult.metrics,
+      pollResult
+    );
   }
 
   return {
