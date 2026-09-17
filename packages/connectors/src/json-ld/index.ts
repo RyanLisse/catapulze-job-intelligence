@@ -42,12 +42,14 @@ export { jobbirdConfig } from "./configs/jobbird";
 export { prorailConfig } from "./configs/prorail";
 export { intermediairConfig } from "./configs/intermediair";
 export { planetInterimConfig } from "./configs/planet-interim";
+export { techniekwerktConfig } from "./configs/techniekwerkt";
 export {
   extractJobPosting,
   extractJsonLdNodes,
   extractLabelBlock,
   pickJobPosting,
   synthesizeJobPostingFromNextData,
+  synthesizeJobPostingFromVike,
 } from "./extract";
 export { hashJsonLdListingItem, hashJsonLdPayload } from "./hash";
 export type {
@@ -73,6 +75,7 @@ export {
   buildLiveFetchHeaders,
   cloudflareChallengeError,
   cookieEnvVarForLiveGate,
+  decodeLiveBodyBytes,
   HttpStatusError,
   isCloudflareChallenge,
   readLiveHtmlOrThrow,
