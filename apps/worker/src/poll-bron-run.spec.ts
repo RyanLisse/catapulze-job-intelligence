@@ -712,7 +712,7 @@ describe("runBronIngestPipeline silence evaluation (RJC-409)", () => {
     expect(health?.silenceAlertOpen).toBe(false);
 
     const logged = stderrLines.find((line) =>
-      line.includes("silence_baseline_read_failed")
+      line.includes("run_baseline_read_failed")
     );
     expect(logged).toBeDefined();
     expect(logged).toContain(bronId);
