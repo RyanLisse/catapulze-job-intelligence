@@ -7,7 +7,9 @@ import {
   Server5xxFault,
   ValidationFault,
 } from "../effect-runtime";
+import { createJsonLdClient } from "./client";
 import { createJsonLdEffectClient } from "./client-effect";
+import { asmlConfig } from "./configs/asml";
 import { heroConfig } from "./configs/hero";
 import { prorailConfig } from "./configs/prorail";
 
@@ -53,6 +55,23 @@ describe("json-ld Effect read adapter", () => {
     const detail = await client.fetchDetail(detailUrl());
     expect(detail.url).toBe(detailUrl());
     expect(detail.jobPosting).not.toBeNull();
+  });
+
+  it("synthesises JobPosting from __NEXT_DATA__ like the Promise client", async () => {
+    const [asmlUrl] = Object.keys(asmlConfig.detailFixtures ?? {});
+    if (!asmlUrl) {
+      throw new Error("asml detailFixtures empty");
+    }
+    const effectDetail = await createJsonLdEffectClient({
+      config: asmlConfig,
+      liveEnabled: false,
+    }).fetchDetail(asmlUrl);
+    const promiseDetail = await createJsonLdClient({
+      config: asmlConfig,
+      liveEnabled: false,
+    }).fetchDetail(asmlUrl);
+    expect(effectDetail.jobPosting).not.toBeNull();
+    expect(effectDetail).toEqual(promiseDetail);
   });
 
   it("maps 401 through shared runtime", async () => {

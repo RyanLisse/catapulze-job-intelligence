@@ -10,16 +10,18 @@ import {
   ValidationFault,
 } from "../effect-runtime";
 import { loadConnectorFixture } from "../fixtures/load";
-import type { JsonLdClient, JsonLdDetailPayload } from "./client";
+import type { JsonLdClient } from "./client";
+import type { JsonLdDetailPayload } from "./discovery";
 import {
-  extractJsonListingUrls,
+  applyExcludes,
+  buildDetailPayload,
+  dedupeUrls,
   extractJsonListingPagination,
-  extractListingLinks,
   extractSitemapUrls,
+  parseListingSource,
   selectSitemapIndexChildren,
   validateJsonListingPagination,
-} from "./client";
-import { extractJobPosting, extractLabelBlock } from "./extract";
+} from "./discovery";
 import {
   buildLiveFetchHeaders,
   cloudflareChallengeError,
@@ -43,74 +45,6 @@ export interface JsonLdEffectClientOptions {
   /** Optional outer AbortSignal for the Promise SDK boundary. */
   signal?: AbortSignal;
 }
-
-const applyExcludes = (
-  urls: JsonLdDiscoveryUrl[],
-  excludePatterns: RegExp[] | undefined
-): JsonLdDiscoveryUrl[] => {
-  if (!excludePatterns || excludePatterns.length === 0) {
-    return urls;
-  }
-  return urls.filter(
-    (entry) =>
-      !excludePatterns.some((pattern) => {
-        pattern.lastIndex = 0;
-        return pattern.test(entry.url);
-      })
-  );
-};
-
-const dedupeUrls = (
-  urls: readonly JsonLdDiscoveryUrl[]
-): JsonLdDiscoveryUrl[] => {
-  const seen = new Set<string>();
-  return urls.filter((entry) => {
-    if (seen.has(entry.url)) {
-      return false;
-    }
-    seen.add(entry.url);
-    return true;
-  });
-};
-
-const parseListingSource = (
-  config: JsonLdConnectorConfig,
-  raw: string
-): JsonLdDiscoveryUrl[] => {
-  let urls: JsonLdDiscoveryUrl[];
-  if (config.discovery.kind === "sitemap") {
-    urls = extractSitemapUrls(raw);
-  } else if (config.discovery.kind === "listing") {
-    urls = extractListingLinks(
-      raw,
-      config.discovery.linkPattern,
-      config.detailBaseUrl ?? config.discovery.url
-    );
-  } else if (config.discovery.kind === "json-listing") {
-    urls = extractJsonListingUrls(
-      raw,
-      config.discovery.urlPointer,
-      config.discovery.linkPattern,
-      config.detailBaseUrl ?? config.discovery.url
-    );
-  } else {
-    urls = [];
-  }
-  return applyExcludes(urls, config.excludePatterns);
-};
-
-const buildDetailPayload = (
-  config: JsonLdConnectorConfig,
-  url: string,
-  html: string
-): JsonLdDetailPayload => {
-  const jobPosting = extractJobPosting(html);
-  return {
-    jobPosting,
-    labelBlock: extractLabelBlock(html, jobPosting, config.labelBlock),
-    url,
-  };
-};
 
 const resolveLiveEnabled = (options: JsonLdEffectClientOptions): boolean =>
   options.liveEnabled ??
