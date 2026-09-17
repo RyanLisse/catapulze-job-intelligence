@@ -31,4 +31,12 @@ describe("extractJobPostingCommercialFacts", () => {
       urenPerWeek: null,
     });
   });
+
+  it("rejects a zero base-salary placeholder", () => {
+    const html = `<script type="application/ld+json">
+      {"@context":"https://schema.org/","@type":"JobPosting","baseSalary":{"value":0,"unitText":"HOUR"}}
+    </script>`;
+
+    expect(extractJobPostingCommercialFacts(html).tarief).toBeNull();
+  });
 });

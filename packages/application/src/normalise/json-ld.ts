@@ -8,6 +8,7 @@ import type {
 import { UNKNOWN } from "@ji/domain";
 import { resolveLifecycleStatus } from "@ji/domain/lifecycle";
 
+import { tariefFromBaseSalary } from "./base-salary";
 import { formatHoursPerWeek } from "./hours";
 import { toCanonicalProvincie } from "./provincie";
 import { normaliseSkills } from "./skills";
@@ -143,72 +144,13 @@ const validThroughToClosingMoment = (
  * ordinary vacancy prose contains date, duration and headcount ranges that are not
  * rates. Other sources may still use their label-block field or description via
  * `parseTariefFromText`.
- * Non-positive base-salary amounts are also rejected: some sources, including Bij
- * Oranje, publish `0` as a schema placeholder rather than a real rate.
  */
-
-const asFiniteNumber = (value: unknown): number | null => {
-  if (typeof value === "number" && Number.isFinite(value)) {
-    return value;
-  }
-  if (typeof value === "string" && value.trim() !== "") {
-    const parsed = Number(value.replace(",", "."));
-    return Number.isFinite(parsed) ? parsed : null;
-  }
-  return null;
-};
-
-const eenheidFromUnitText = (unit: string): "maand" | "dag" | "uur" | null => {
-  if (unit === "MONTH" || unit === "MON" || unit === "MAAND") {
-    return "maand";
-  }
-  if (unit === "DAY" || unit === "DAG") {
-    return "dag";
-  }
-  if (unit === "HOUR" || unit === "HR" || unit === "UUR") {
-    return "uur";
-  }
-  return null;
-};
 
 /** Sources whose JobPosting.baseSalary is a constant filler whatever its unit
  * (BlueTrail: value "100" with unitText "", "UUR" or "HOUR"). */
 const PLACEHOLDER_BASE_SALARY_SLUGS: ReadonlySet<string> = new Set([
   "bluetrail",
 ]);
-
-/**
- * Trust JobPosting.baseSalary only when unitText is an explicit period.
- * Sources in `PLACEHOLDER_BASE_SALARY_SLUGS` never reach this function.
- */
-const tariefFromBaseSalary = (
-  jobPosting: JsonLdFetchedPayload["jobPosting"]
-): ReturnType<typeof parseTariefFromText> | null => {
-  const baseSalary = asNode(jobPosting.baseSalary);
-  if (!baseSalary) {
-    return null;
-  }
-  const valueNode = asNode(baseSalary.value) ?? baseSalary;
-  const unit = asText(valueNode.unitText).trim().toUpperCase();
-  const min = asFiniteNumber(valueNode.minValue ?? valueNode.value);
-  const max = asFiniteNumber(valueNode.maxValue ?? valueNode.value);
-  if (min === null && max === null) {
-    return null;
-  }
-  if ((min !== null && min <= 0) || (max !== null && max <= 0)) {
-    return null;
-  }
-  const eenheid = eenheidFromUnitText(unit);
-  if (eenheid === null) {
-    return null;
-  }
-  return {
-    eenheid,
-    max: max === null ? UNKNOWN : String(max),
-    min: min === null ? UNKNOWN : String(min),
-    valuta: asText(baseSalary.currency).trim() || "EUR",
-  };
-};
 
 /** Matches the leading hour count (or dash range) out of free-text weekly-hours
  * copy such as BlueTrail's "32u p/w", Hero's "36 uur/week", or Pro-Act's "36
@@ -326,7 +268,7 @@ export const parseJsonLdPayload = (
   const startDatum = parseDutchDate(labelBlock.startDatum);
   const tarief = PLACEHOLDER_BASE_SALARY_SLUGS.has(payload.slug)
     ? parseTariefFromText(labelBlock.tarief ?? "")
-    : (tariefFromBaseSalary(jobPosting) ??
+    : (tariefFromBaseSalary(jobPosting.baseSalary) ??
       parseTariefFromText(labelBlock.tarief ?? descriptionText));
   // Only BlueTrail's label block ever carries `sluitingsDatum` (its
   // "Sluitingsdatum" sidebar field, Dutch text like "2 september 2026" --
