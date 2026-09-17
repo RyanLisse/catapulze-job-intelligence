@@ -62,6 +62,24 @@ describe("extractJsonLdNodes / pickJobPosting", () => {
     expect(extractJobPosting(html)).toMatchObject({ title: "Ok" });
   });
 
+  it("keeps blocks in document order and returns no nodes for a page without JSON-LD", () => {
+    const html = [
+      '<script type="application/ld+json">{"a":1}</script>',
+      "<div>filler</div>",
+      '<script type="application/ld+json">{"b":2}</script>',
+    ].join("\n");
+    expect(extractJsonLdNodes(html)).toEqual([{ a: 1 }, { b: 2 }]);
+    expect(extractJsonLdNodes("<html><body>plain</body></html>")).toEqual([]);
+  });
+
+  it("finds a JobPosting nested under @graph in a later block", () => {
+    const html = [
+      '<script type="application/ld+json">{"@type":"BreadcrumbList","itemListElement":[]}</script>',
+      '<script type="application/ld+json">{"@graph":[{"@type":"Organization"},{"@type":"JobPosting","title":"Nested"}]}</script>',
+    ].join("\n");
+    expect(extractJobPosting(html)).toMatchObject({ title: "Nested" });
+  });
+
   it("returns null when no JobPosting node is present", () => {
     const html =
       '<script type="application/ld+json">{"@type":"Organization","name":"x"}</script>';

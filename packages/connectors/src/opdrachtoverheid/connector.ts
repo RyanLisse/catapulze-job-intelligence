@@ -6,7 +6,7 @@ import type {
   ConnectorDiscoverResult,
   DiscoverItem,
 } from "../contract";
-import type { JsonLdNode } from "../json-ld";
+import type { JsonLdNode } from "../json-ld/types";
 import type { KnownHashStore } from "../known-hash";
 import {
   createOpdrachtoverheidClient,
