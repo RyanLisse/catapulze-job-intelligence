@@ -233,8 +233,8 @@ export interface ReconcileProjectionInput {
   database: BronRuntimeDatabase;
   /** Schema hash the running code was built for (default SEARCH_SCHEMA_HASH). */
   expectedSchemaHash?: string;
-  /** Actual Manticore inventory. Omit only for the legacy DB-state diagnostic. */
-  inventory?: SearchProjectionInventoryPort;
+  /** Actual Manticore inventory scanned alongside curated.aanvraag. */
+  inventory: SearchProjectionInventoryPort;
   /** Logical checkpoint namespace (default @ji/search index name). */
   indexName?: string;
   loader: BulkSearchDocumentLoader;
@@ -256,7 +256,7 @@ export interface ReconcileProjectionInput {
 export interface ReconcileProjectionResult {
   /** Repair or orphan-delete events inserted (0 on a dry run). */
   applied: number;
-  /** Current curated aanvragen (inventory mode) or current state rows (legacy mode) checked. */
+  /** Current curated aanvragen checked. */
   checked: number;
   /** Capped sample of distinct divergent current aanvragen. */
   divergent: ProjectionDivergence[];
@@ -288,7 +288,7 @@ export interface ReconcileProjectionResult {
   staleManticoreHashCount: number;
   /** Physical Manticore rows inspected through numeric-id keyset pages. */
   manticoreChecked: number;
-  /** Capped state rows whose aanvraag no longer loads in legacy DB-only mode. */
+  /** Capped current aanvraag ids whose source document no longer loads. */
   missingDocument: string[];
   missingDocumentCount: number;
   /** Exact current aanvragen with no current-generation projection state. */
@@ -717,29 +717,6 @@ const applyOrphanCleanup = async (
   return { applied: inserted.length, skippedPending: pending.size };
 };
 
-const selectCurrentStatePage = (
-  database: BronRuntimeDatabase,
-  generation: number,
-  cursor: string | null,
-  pageSize: number
-) =>
-  database
-    .select({
-      aggregateId: searchProjectionState.aggregateId,
-      projectionHash: searchProjectionState.projectionHash,
-    })
-    .from(searchProjectionState)
-    .where(
-      cursor === null
-        ? eq(searchProjectionState.generation, generation)
-        : and(
-            eq(searchProjectionState.generation, generation),
-            gt(searchProjectionState.aggregateId, cursor)
-          )
-    )
-    .orderBy(asc(searchProjectionState.aggregateId))
-    .limit(pageSize);
-
 const selectAanvraagPage = (
   database: BronRuntimeDatabase,
   cursor: string | null,
@@ -968,91 +945,6 @@ const addApplyResult = (
   total.skippedPending += next.skippedPending;
 };
 
-const scanLegacyProjection = async (
-  options: ScanOptions
-): Promise<ScanResult> => {
-  const divergent: ProjectionDivergence[] = [];
-  const missingDocument: string[] = [];
-  const physical = new PhysicalObservationTracker();
-  const totals: RepairApplyResult = { applied: 0, skippedPending: 0 };
-  let checked = 0;
-  let divergentCount = 0;
-  let missingDocumentCount = 0;
-  let cursor: string | null = null;
-
-  /* oxlint-disable no-await-in-loop -- bounded keyset pages are deliberately ordered */
-  for (;;) {
-    const rows = await selectCurrentStatePage(
-      options.database,
-      options.generation,
-      cursor,
-      options.pageSize
-    );
-    if (rows.length === 0) {
-      break;
-    }
-    cursor = rows.at(-1)?.aggregateId ?? null;
-    checked += rows.length;
-    const documents = await options.input.loader.loadManyByAggregateIds(
-      rows.map((row) => row.aggregateId)
-    );
-    const candidates = new Map<string, RepairCandidate>();
-    for (const row of rows) {
-      const document = documents.get(row.aggregateId);
-      if (!document) {
-        missingDocumentCount += 1;
-        addSample(missingDocument, row.aggregateId, options.sampleLimit);
-        continue;
-      }
-      const currentHash = projectionHash(document, options.now);
-      if (currentHash === row.projectionHash) {
-        continue;
-      }
-      addRepairReason(candidates, {
-        actualPartitions: [],
-        aggregateId: row.aggregateId,
-        currentHash,
-        expectedPartition: documentPartition(document, options.now),
-        invalidateState: false,
-        projectedHash: row.projectionHash,
-        reason: "projection_hash_mismatch",
-      });
-    }
-    const pageCandidates = [...candidates.values()];
-    divergentCount += addCandidatesToReport(
-      pageCandidates,
-      divergent,
-      options.sampleLimit
-    );
-    if (options.actions) {
-      addApplyResult(totals, await options.actions.applyRepair(pageCandidates));
-    }
-    await options.fence();
-  }
-  /* oxlint-enable no-await-in-loop */
-
-  await options.fence();
-  return toScanResult({
-    applied: totals.applied,
-    checked,
-    divergent,
-    divergentCount,
-    expectedPartitionCounts: null,
-    inventoryCounts: null,
-    inventoryFinalCounts: null,
-    inventoryScannedCounts: null,
-    missingDocument,
-    missingDocumentCount,
-    missingProjectionStateCount: 0,
-    orphanManticore: new Set(),
-    physical,
-    physicalCleanupCount: 0,
-    sampleLimit: options.sampleLimit,
-    skippedPending: totals.skippedPending,
-    staleManticoreHash: new Map(),
-  });
-};
-
 const stateByAggregateId = async (
   database: BronRuntimeDatabase,
   generation: number,
@@ -1086,9 +978,6 @@ const scanInventoryProjection = async (
   options: ScanOptions
 ): Promise<ScanResult> => {
   const { inventory } = options.input;
-  if (!inventory) {
-    throw new Error("Manticore inventory is required for inventory scan");
-  }
   const inventoryCounts = emptyPartitionCounts();
   const [activeCount, archiveCount] = await Promise.all([
     inventory.count("active"),
@@ -1432,7 +1321,7 @@ const createApplyActions = (
         return Promise.resolve(0);
       }
       const { inventory } = input;
-      if (!inventory?.deleteObservedRows) {
+      if (!inventory.deleteObservedRows) {
         throw new ProjectionRepairPhysicalCorruptionError(
           rows.map((row) => ({
             documentId: row.documentId,
@@ -1488,38 +1377,26 @@ export const reconcileProjection = async (
 
   // Apply always follows a complete report-only preflight. This prevents an
   // incomplete/count-changing physical scan from partially queuing repairs.
-  const preflight = input.inventory
-    ? await scanInventoryProjection(options)
-    : await scanLegacyProjection(options);
+  const preflight = await scanInventoryProjection(options);
   if (!input.apply) {
     return { ...preflight, generation };
   }
   if (
     preflight.physicalCorruptionCount > 0 &&
-    !input.inventory?.deleteObservedRows
+    !input.inventory.deleteObservedRows
   ) {
     throw new ProjectionRepairPhysicalCorruptionError(
       preflight.physicalCorruption
     );
   }
-  const applied = input.inventory
-    ? await scanInventoryProjection({
-        ...options,
-        actions: createApplyActions(
-          input,
-          indexName,
-          expectedSchemaHash,
-          generation
-        ),
-      })
-    : await scanLegacyProjection({
-        ...options,
-        actions: createApplyActions(
-          input,
-          indexName,
-          expectedSchemaHash,
-          generation
-        ),
-      });
+  const applied = await scanInventoryProjection({
+    ...options,
+    actions: createApplyActions(
+      input,
+      indexName,
+      expectedSchemaHash,
+      generation
+    ),
+  });
   return { ...applied, generation };
 };
