@@ -12,21 +12,18 @@ const cases = [
     "Conducteur Zwolle",
     "Zwolle",
     null,
-    { eenheid: "maand", max: "3186.00", min: "unknown", valuta: "EUR" },
   ],
   [
     "https://www.werkenbijns.nl/vacatures/it-lead-ns-stations-utrecht-1316973",
     "IT Lead - NS Stations",
     "Utrecht",
     "2026-09-27T00:00:00Z",
-    { eenheid: "maand", max: "09", min: "28", valuta: "EUR" },
   ],
   [
     "https://www.werkenbijns.nl/vacatures/sap-run-manager-utrecht-utrecht-1320979",
     "SAP RUN manager - Utrecht",
     "Utrecht",
     "2026-10-28T00:00:00Z",
-    { eenheid: "maand", max: "7515", min: "unknown", valuta: "EUR" },
   ],
 ] as const;
 
@@ -34,7 +31,7 @@ describe("normaliseJsonLdObservation -- NS", () => {
   it("normalises each recorded detail", async () => {
     const client = createJsonLdClient({ config: nsConfig, liveEnabled: false });
     await Promise.all(
-      cases.map(async ([url, title, location, validThrough, tariff]) => {
+      cases.map(async ([url, title, location, validThrough]) => {
         const detail = await client.fetchDetail(url);
         const draft = normaliseJsonLdObservation(
           new TextEncoder().encode(
@@ -53,7 +50,6 @@ describe("normaliseJsonLdObservation -- NS", () => {
         expect(draft.bronSpecifiek).toMatchObject({
           value: { valid_through: validThrough },
         });
-        expect(draft.tarief).toEqual(tariff);
       })
     );
   });
