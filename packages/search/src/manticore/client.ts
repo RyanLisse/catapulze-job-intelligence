@@ -609,7 +609,7 @@ export const deleteManticoreDocument = async (
 
 /** Default bound for {@link describeManticoreTable} when the caller doesn't
  * pick a tighter one (e.g. readiness's own READINESS_CHECK_TIMEOUT_MS). */
-const DEFAULT_DESCRIBE_TABLE_TIMEOUT_MS = 1500;
+export const DEFAULT_DESCRIBE_TABLE_TIMEOUT_MS = 1500;
 
 export interface ManticoreTableInfo {
   /** True when `SHOW TABLES` lists `tableName` (any table type). */

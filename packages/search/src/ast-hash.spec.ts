@@ -393,7 +393,6 @@ describe.skipIf(!manticoreLiveUrl)(
     beforeAll(() =>
       assertLiveTestTablesReady(manticoreLiveUrl, LIVE_TEST_INDEX_NAME)
     );
-
     it("matches a mixed-case document with a lowercase term and vice versa", async () => {
       if (!manticoreLiveUrl) {
         throw new Error("Live test was not skipped without MANTICORE_URL");

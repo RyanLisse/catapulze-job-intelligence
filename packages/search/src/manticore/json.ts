@@ -29,6 +29,18 @@ export const manticoreHitSchema = z.object({
   _source: z.object({ document_id: z.string().optional() }).optional(),
 });
 
+const manticoreErrorSchema = z.union([
+  z.string(),
+  z
+    .object({
+      index: z.string().optional(),
+      type: z.string(),
+    })
+    .transform(({ index, type }) =>
+      index && !type.includes(index) ? `${type} (table ${index})` : type
+    ),
+]);
+
 export const manticoreSearchPayloadSchema = z.object({
   aggregations: z
     .object({
@@ -52,7 +64,7 @@ export const manticoreSearchPayloadSchema = z.object({
       status: manticoreFacetSchema.optional(),
     })
     .optional(),
-  error: z.string().optional(),
+  error: manticoreErrorSchema.optional(),
   hits: z
     .object({
       hits: z.array(manticoreHitSchema).optional(),

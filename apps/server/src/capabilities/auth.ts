@@ -23,8 +23,25 @@ export type SessionLookup = (
 
 export interface AuthOperationalEvent {
   readonly code: "AUTH_SESSION_LOOKUP_UNAVAILABLE";
+  readonly reason: string;
   readonly requestId: string;
 }
+
+const MAX_REASON_LENGTH = 120;
+
+/**
+ * Bounded, operator-only description of a lookup failure: the error class and
+ * its machine code (e.g. `PostgresError/ECONNREFUSED`). Free-text messages are
+ * deliberately excluded so no upstream detail can leak through logs.
+ */
+export const describeLookupFailure = (error: Error): string => {
+  const code =
+    "code" in error && error.code !== undefined && error.code !== null
+      ? String(error.code)
+      : "";
+  const reason = code === "" ? error.name : `${error.name}/${code}`;
+  return reason.slice(0, MAX_REASON_LENGTH);
+};
 
 export type AuthOperationalLogger = (event: AuthOperationalEvent) => void;
 
@@ -133,9 +150,13 @@ export const createSessionPrincipalResolver =
           now()
         ),
       };
-    } catch {
+    } catch (error) {
       onOperationalEvent?.({
         code: "AUTH_SESSION_LOOKUP_UNAVAILABLE",
+        reason:
+          error instanceof Error
+            ? describeLookupFailure(error)
+            : "UnknownError",
         requestId,
       });
       return {

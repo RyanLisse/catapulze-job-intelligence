@@ -25,7 +25,6 @@ describe.skipIf(!manticoreUrl)(
     beforeAll(() =>
       assertLiveTestTablesReady(manticoreUrl, LIVE_TEST_INDEX_NAME)
     );
-
     it("applies three replaces and one delete in a single bulk request", async () => {
       if (!manticoreUrl) {
         throw new Error("Live test was not skipped without MANTICORE_URL");
