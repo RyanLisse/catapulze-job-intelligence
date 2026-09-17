@@ -1,4 +1,4 @@
-import { describe, expect, it } from "bun:test";
+import { beforeAll, describe, expect, it } from "bun:test";
 
 import type { BooleanNode } from "@ji/domain";
 
@@ -7,6 +7,7 @@ import { MemoryResultCache } from "./cache/result-cache";
 import { InMemorySearchEngine } from "./in-memory-engine";
 import { hashDocumentId } from "./manticore/id-hash";
 import {
+  assertLiveTestTablesReady,
   cleanupLiveDocuments,
   createLiveTestEngine,
   requireLiveManticoreUrl,
@@ -734,6 +735,10 @@ const manticoreLiveUrl = requireLiveManticoreUrl(
 describe.skipIf(!manticoreLiveUrl)(
   "SearchAdapter canonical execution (live, RJC-388)",
   () => {
+    beforeAll(() =>
+      assertLiveTestTablesReady(manticoreLiveUrl, LIVE_TEST_INDEX_NAME)
+    );
+
     it("two AND permutations of the same terms return identical ordered ids, cold and cached", async () => {
       if (!manticoreLiveUrl) {
         throw new Error("Live test was not skipped without MANTICORE_URL");

@@ -1,4 +1,4 @@
-import { describe, expect, it } from "bun:test";
+import { beforeAll, describe, expect, it } from "bun:test";
 
 import { parseBooleanQuery } from "@ji/domain";
 import type { BooleanNode } from "@ji/domain";
@@ -14,6 +14,7 @@ import {
   isHybridSearchEligible,
 } from "./ast-hash";
 import {
+  assertLiveTestTablesReady,
   cleanupLiveDocuments,
   createLiveTestEngine,
   requireLiveManticoreUrl,
@@ -389,6 +390,10 @@ const manticoreLiveUrl = requireLiveManticoreUrl(
 describe.skipIf(!manticoreLiveUrl)(
   "Manticore query_string case-insensitivity (live, RJC-388)",
   () => {
+    beforeAll(() =>
+      assertLiveTestTablesReady(manticoreLiveUrl, LIVE_TEST_INDEX_NAME)
+    );
+
     it("matches a mixed-case document with a lowercase term and vice versa", async () => {
       if (!manticoreLiveUrl) {
         throw new Error("Live test was not skipped without MANTICORE_URL");

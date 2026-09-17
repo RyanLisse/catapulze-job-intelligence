@@ -4,6 +4,7 @@ import { SEARCH_INDEX_NAME, SEARCH_TEST_INDEX_NAME } from "../types";
 import { InMemorySearchVersionStore } from "../version";
 import { ManticoreSearchEngine } from "./engine";
 import {
+  assertLiveTestTablesReady,
   cleanupLiveDocuments,
   createLiveTestEngine,
   requireLiveManticoreUrl,
@@ -17,6 +18,12 @@ describe("Manticore live fixture cleanup", () => {
     expect(requireLiveManticoreUrl(" http://manticore.test ", true)).toBe(
       "http://manticore.test"
     );
+  });
+
+  it("refuses to preflight tables without a live URL", async () => {
+    await expect(
+      assertLiveTestTablesReady(undefined, "aanvragen_test_x")
+    ).rejects.toThrow("requires a live MANTICORE_URL");
   });
 
   it("attempts every run-owned id when one deletion fails", async () => {

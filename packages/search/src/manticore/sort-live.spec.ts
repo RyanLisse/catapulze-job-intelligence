@@ -1,10 +1,11 @@
-import { describe, expect, it } from "bun:test";
+import { beforeAll, describe, expect, it } from "bun:test";
 
 import { InMemorySearchEngine } from "../in-memory-engine";
 import type { SearchDocument, SearchFilters, SearchSort } from "../types";
 import { InMemorySearchVersionStore } from "../version";
 import type { ManticoreSearchEngine } from "./engine";
 import {
+  assertLiveTestTablesReady,
   cleanupLiveDocuments,
   createLiveTestEngine,
   requireLiveManticoreUrl,
@@ -28,6 +29,10 @@ const LIVE_TEST_INDEX_NAME = "aanvragen_test_sort";
 describe.skipIf(!manticoreUrl)(
   "Manticore sort/filter live integration (RJC-378)",
   () => {
+    beforeAll(() =>
+      assertLiveTestTablesReady(manticoreUrl, LIVE_TEST_INDEX_NAME)
+    );
+
     it("orders each sort key natively with missing values last and stable ids", async () => {
       if (!manticoreUrl) {
         throw new Error("Live test was not skipped without MANTICORE_URL");
