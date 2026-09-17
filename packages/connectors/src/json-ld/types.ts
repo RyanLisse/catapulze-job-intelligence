@@ -16,7 +16,15 @@ export interface JsonLdDiscoveryUrl {
 
 export type JsonLdDiscoveryConfig =
   | { kind: "sitemap"; url: string }
-  | { kind: "listing"; linkPattern: RegExp; url: string };
+  | { kind: "listing"; linkPattern: RegExp; url: string }
+  | {
+      kind: "sitemap-index";
+      /** Matches child `<sitemap><loc>` URLs to follow; must expose a named `chunk` group with the numeric chunk suffix. */
+      childPattern: RegExp;
+      /** Keep only the N children with the highest numeric `chunk` (depth 1, no recursion). */
+      newest: number;
+      url: string;
+    };
 
 /** A label-block field: a regex with a named `value` capture group, applied either
  * against the raw detail HTML (`"html"`, the default) or the JobPosting's own
@@ -40,6 +48,8 @@ export interface JsonLdConnectorConfig {
   labelBlock?: Record<string, JsonLdLabelBlockField>;
   /** Fixture path for the sitemap/listing page when not running live. */
   listingFixturePath?: string;
+  /** Fixture path per child sitemap URL (sitemap-index only), keyed by exact URL. */
+  sitemapFixtures?: Record<string, string>;
   /** Env var name gating live HTTP vs. fixtures for this source's own client instance. */
   liveEnvVar?: string;
   parserVersion: string;

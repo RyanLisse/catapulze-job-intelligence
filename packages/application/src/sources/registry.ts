@@ -3,6 +3,7 @@ import { bam } from "./bam";
 import { bijOranje } from "./bij-oranje";
 import { bluetrail } from "./bluetrail";
 import { ctm } from "./ctm";
+import { datajobs } from "./datajobs";
 import type { SourceDefinition } from "./definition";
 import { eneco } from "./eneco";
 import { flinter } from "./flinter";
@@ -12,6 +13,7 @@ import { hays } from "./hays";
 import { heijmans } from "./heijmans";
 import { hero } from "./hero";
 import { inhuurdesk } from "./inhuurdesk";
+import { jobbird } from "./jobbird";
 import { needstaffing } from "./needstaffing";
 import { ns } from "./ns";
 import { onefellow } from "./onefellow";
@@ -28,6 +30,7 @@ import { unica } from "./unica";
 import { vattenfall } from "./vattenfall";
 import { volkerwessels } from "./volkerwessels";
 import { werkenVoorNederland } from "./werken-voor-nederland";
+import { zzpOpdrachten } from "./zzp-opdrachten";
 
 export type {
   CreateSourceConnectorInput,
@@ -42,6 +45,7 @@ export const SOURCES = {
   "bij-oranje": bijOranje,
   bluetrail,
   ctm,
+  datajobs,
   eneco,
   flinter,
   "freelancer-nl": freelancerNl,
@@ -50,6 +54,7 @@ export const SOURCES = {
   heijmans,
   hero,
   inhuurdesk,
+  jobbird,
   needstaffing,
   ns,
   onefellow,
@@ -66,6 +71,7 @@ export const SOURCES = {
   vattenfall,
   volkerwessels,
   "werken-voor-nederland": werkenVoorNederland,
+  "zzp-opdrachten": zzpOpdrachten,
 } as const satisfies Record<string, SourceDefinition>;
 
 export type SupportedBronSlug = keyof typeof SOURCES;

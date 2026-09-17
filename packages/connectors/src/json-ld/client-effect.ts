@@ -11,7 +11,11 @@ import {
 } from "../effect-runtime";
 import { loadConnectorFixture } from "../fixtures/load";
 import type { JsonLdClient, JsonLdDetailPayload } from "./client";
-import { extractListingLinks, extractSitemapUrls } from "./client";
+import {
+  extractListingLinks,
+  extractSitemapUrls,
+  selectSitemapIndexChildren,
+} from "./client";
 import { extractJobPosting, extractLabelBlock } from "./extract";
 import {
   buildLiveFetchHeaders,
@@ -53,18 +57,35 @@ const applyExcludes = (
   );
 };
 
+const dedupeUrls = (
+  urls: readonly JsonLdDiscoveryUrl[]
+): JsonLdDiscoveryUrl[] => {
+  const seen = new Set<string>();
+  return urls.filter((entry) => {
+    if (seen.has(entry.url)) {
+      return false;
+    }
+    seen.add(entry.url);
+    return true;
+  });
+};
+
 const parseListingSource = (
   config: JsonLdConnectorConfig,
   raw: string
 ): JsonLdDiscoveryUrl[] => {
-  const urls =
-    config.discovery.kind === "sitemap"
-      ? extractSitemapUrls(raw)
-      : extractListingLinks(
-          raw,
-          config.discovery.linkPattern,
-          config.detailBaseUrl ?? config.discovery.url
-        );
+  let urls: JsonLdDiscoveryUrl[];
+  if (config.discovery.kind === "sitemap") {
+    urls = extractSitemapUrls(raw);
+  } else if (config.discovery.kind === "listing") {
+    urls = extractListingLinks(
+      raw,
+      config.discovery.linkPattern,
+      config.detailBaseUrl ?? config.discovery.url
+    );
+  } else {
+    urls = [];
+  }
   return applyExcludes(urls, config.excludePatterns);
 };
 
@@ -131,6 +152,35 @@ const readLiveBodyEffect = (
     })
   );
 
+const fetchLiveTextEffect = (
+  options: JsonLdEffectClientOptions,
+  url: string
+): Effect.Effect<string, ReadIoFault> =>
+  httpRequest({
+    fetchImpl: options.fetchImpl,
+    init: liveRequestInit(options),
+    mapHttpErrors: false,
+    url,
+  }).pipe(
+    Effect.flatMap((response) => readLiveBodyEffect(options, url, response))
+  );
+
+const loadFixtureTextEffect = (
+  path: string,
+  message: string
+): Effect.Effect<string, ReadIoFault> =>
+  Effect.tryPromise({
+    catch: (cause) =>
+      new ValidationFault({
+        cause,
+        message,
+      }),
+    try: async () => {
+      const fixture = await loadConnectorFixture<string>(path);
+      return fixture.payload;
+    },
+  });
+
 export const fetchListingEffect = (
   options: JsonLdEffectClientOptions
 ): Effect.Effect<JsonLdDiscoveryUrl[], ReadIoFault> => {
@@ -140,29 +190,51 @@ export const fetchListingEffect = (
     config.listingFixturePath ??
     `${config.slug}/listing-page-0.json`;
 
-  if (!resolveLiveEnabled(options)) {
-    return Effect.tryPromise({
-      catch: (cause) =>
-        new ValidationFault({
-          cause,
-          message: `Failed to load listing fixture ${listingFixturePath}`,
-        }),
-      try: () => loadConnectorFixture<string>(listingFixturePath),
-    }).pipe(
-      Effect.map((fixture) => parseListingSource(config, fixture.payload))
+  const indexEffect = resolveLiveEnabled(options)
+    ? fetchLiveTextEffect(options, config.discovery.url)
+    : loadFixtureTextEffect(
+        listingFixturePath,
+        `Failed to load listing fixture ${listingFixturePath}`
+      );
+  if (config.discovery.kind !== "sitemap-index") {
+    return indexEffect.pipe(
+      Effect.map((raw) => parseListingSource(config, raw))
     );
   }
 
-  return httpRequest({
-    fetchImpl: options.fetchImpl,
-    init: liveRequestInit(options),
-    mapHttpErrors: false,
-    url: config.discovery.url,
-  }).pipe(
-    Effect.flatMap((response) =>
-      readLiveBodyEffect(options, config.discovery.url, response)
+  const { discovery } = config;
+  return indexEffect.pipe(
+    Effect.map((raw) =>
+      selectSitemapIndexChildren(raw, discovery.childPattern, discovery.newest)
     ),
-    Effect.map((raw) => parseListingSource(config, raw))
+    Effect.flatMap((childUrls) =>
+      Effect.forEach(
+        childUrls,
+        (childUrl) => {
+          if (resolveLiveEnabled(options)) {
+            return fetchLiveTextEffect(options, childUrl).pipe(
+              Effect.map((raw) => extractSitemapUrls(raw))
+            );
+          }
+          const fixturePath = config.sitemapFixtures?.[childUrl];
+          if (!fixturePath) {
+            return Effect.fail(
+              new ValidationFault({
+                message: `Missing ${config.slug} sitemap fixture for ${childUrl}`,
+              })
+            );
+          }
+          return loadFixtureTextEffect(
+            fixturePath,
+            `Failed to load sitemap fixture ${fixturePath}`
+          ).pipe(Effect.map((raw) => extractSitemapUrls(raw)));
+        },
+        { concurrency: 1 }
+      )
+    ),
+    Effect.map((chunks) =>
+      applyExcludes(dedupeUrls(chunks.flat()), config.excludePatterns)
+    )
   );
 };
 
@@ -194,13 +266,7 @@ export const fetchDetailEffect = (
     );
   }
 
-  return httpRequest({
-    fetchImpl: options.fetchImpl,
-    init: liveRequestInit(options),
-    mapHttpErrors: false,
-    url,
-  }).pipe(
-    Effect.flatMap((response) => readLiveBodyEffect(options, url, response)),
+  return fetchLiveTextEffect(options, url).pipe(
     Effect.map((html) => buildDetailPayload(config, url, html))
   );
 };
