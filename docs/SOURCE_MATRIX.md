@@ -45,18 +45,34 @@ Verificatie 2026-08-27, read-only met headless Chrome + curl, geen logins, geen 
 | **Mercell s2c** (ex-Negometrix) | IdentityServer/OIDC, gratis registratie | `s2c.mercell.com/registration` | **`robots.txt: Disallow: /`** op hele site; lijst is technisch open via JSON-POST `api.s2c.mercell.com/api/v1/PublishedTender/GetPublishedTendersBySpecified` (1.154 tenders) — **beleidsbeslissing** | **Cross-check 27-08: 5/5 Mercell/CTM-aankondigingen (AAO/VAK) stonden dezelfde dag op TenderNed** (incl. Anculus, Gemeente Amsterdam, Provincie Gelderland, Stedin). Mercell/CTM zijn dus alleen nodig voor DAS-minicompetities en onderdrempelige rondes — die bereiken TenderNed nooit. Beleidsvraag alleen wegen als die laag gewenst is. |
 | **Flextender** (details) | login | — | — | v1-connector bestaat |
 | **MiPublic** (v1) | onbekend; v1 circuit breaker open | — | — | **her-verifiëren** |
-| **DioR** (Digitale Inhuuroplossing Rijk; = "DigiInhuur") | Salesforce, `digitale-inhuuroplossing-rijk.my.site.com` | "Register" voor leveranciers/zzp (goedkeuringsflow ongeverifieerd) | geen leveranciersvoorwaarden gevonden | 0 publiek; Rijksinhuur komt vooral via TenderNed-DAS; lage prioriteit |
+| **DioR** (Digitale Inhuuroplossing Rijk; = "DigiInhuur"; alias-notitie op Nétive, CTP-547/571) | Salesforce Experience Cloud, `digitale-inhuuroplossing-rijk.my.site.com/vms/` (2026-09-17: "down for maintenance", redirect naar `/vms/s/login`) | "Register" voor leveranciers/zzp (goedkeuringsflow ongeverifieerd) | geen leveranciersvoorwaarden gevonden | 0 publiek; Rijksinhuur komt vooral via TenderNed-DAS; lage prioriteit; zie `sources/inventory/msp-wave2.md` |
 
 ### Invitation-only of geblokkeerd · niet inplannen
 
 | Bron | Reden | Actie |
 |---|---|---|
-| **Magnit** (= Brainnet) | Salesforce-portaal, prospect-registratie → Magnit keurt en nodigt uit; Supplier API alleen voor gecontracteerde leveranciers | Alleen na onboarding als leverancier; dan Playwright-login of Supplier API |
+| **Magnit** (= Brainnet; CTP-536/548) | NO-PUBLIC-SURFACE (herbevestigd 2026-09-17: `/opdrachten` 404, alleen Wand VMS/Magnit Portal-logins; `brainnet.nl` 301→301→`magnitglobal.com/nl`); Supplier API alleen voor gecontracteerde leveranciers | **GATE-0**: alleen na onboarding als leverancier; dan Playwright-login of Supplier API. Vraag komt indirect via BlueTrail (`hiringOrganization: Magnit`) |
 | **Randstad Enterprise** | Geen zelfregistratie; **T&C §3.3 verbiedt geautomatiseerd zoeken/spidering/harvesting** | **Overslaan** tenzij schriftelijke toestemming |
 | **Circle8** | Vercel Security Checkpoint (429/403 op alles incl. robots.txt); `portal.circle8.nl` TLS-certificaat verlopen; klant-tenants op subdomeinen (`htm.`, `fudura.`) | Leveranciersaccount via `htm.circle8.nl/registreren` + Browserbase, óf contact opnemen; robots/ToS ongeverifieerd |
 | **OneStopSourcing** | `onestopsourcing.nl` geen A-record (NS transip); draait op esd.next | Later opnieuw proberen; connector = Need Staffing-connector |
 | **Werkenbij-sites** | categorie, per bedrijf: ATS-API → JSON-LD → sitemap+LLM | v2.1/v2.2 (open vraag in requirements) |
 | **Waternet** (werkenbij, CTP-579) | `waternet.nl/werken-bij/vacatures/` is een Vue-app (Episerver) gevoed door in-page JSON (`#epiContentVacancies`: ID, naam, locatie, contracttype, URL); detailpagina's hebben **geen JobPosting JSON-LD** en geen microdata | NO-JSONLD → niet gebouwd; kandidaat voor een aparte html/in-page-JSON-connector als de bron prioriteit krijgt |
+
+### Wave 2 · MSP/VMS-inventaris (2026-09-17, CTP-536 … CTP-571) · niet inplannen
+
+Volledig bewijs (URL's, statuscodes, quotes): [`sources/inventory/msp-wave2.md`](sources/inventory/msp-wave2.md). Geen van de MSP/VMS-partijen heeft een publiek NL-opdrachtenoppervlak; hun vraag bereikt Catapulze via brokers/marktplaatsen die al LIVE of gepland zijn.
+
+| Bron | Verdict | Bewijs (kort) | Actie |
+|---|---|---|---|
+| **TAPFIN / ManpowerGroup** (CTP-538) | NO-PUBLIC-SURFACE → GATE-0 | `tapfin.com` 200, `tapfin.nl` 403, sitemap 34 URL's zonder opdrachten; ToU: kopiëren alleen "personal and noncommercial use" | Sluiten |
+| **Pontoon** (CTP-542) | NO-PUBLIC-SURFACE | `/jobs` 404; `pontoon.nl` te koop; Pontoon is Nétive-VMS-klant | Sluiten |
+| **ProUnity** (CTP-543; HeadFirst Group, BE) | PUBLIC (sitemap + SSR, geen JobPosting JSON-LD) maar **BE-markt + ToS-IP/databankclausule** → GATE-0 | `pji_job-sitemap*.xml` (1.000+ `/job/<uuid>/`), listing 45 missies 100 % BE, `Crawl-delay: 10`, ToS verbiedt "copy, analyze … content encumbered with Intellectual Property Rights" | Niet bouwen zonder BE-scope + toestemming |
+| **AgileOne** (CTP-544) | NO-PUBLIC-SURFACE / LOGIN-ONLY | `agileone.nl` NXDOMAIN; alleen supplier-logins (`srm.agile1.eu`) | Sluiten |
+| **CXC Global** (CTP-545) | NO-PUBLIC-SURFACE / LOGIN-ONLY (MyCXC) | `cxcglobal.nl` NXDOMAIN; `/jobs` 404 | Sluiten |
+| **Het Flexhuis** (CTP-546; Nash Squared) | NO-PUBLIC-SURFACE | `hetflexhuis.nl` → `flexhuisglobal.com/nl/`; robots/sitemap/opdrachten redirecten naar homepage | Sluiten; overlap met Harvey Nash NL verifiëren |
+| **Nétive VMS** (CTP-547, incl. DioR CTP-571) | NO-PUBLIC-SURFACE (platform) | `netive.nl` → `netivevms.com`; klantcases NS, BAM Flexplein, Pontoon, Maandag; geen publieke tenant-listing | Sluiten als platform-notitie |
+| **Brainnet** (CTP-548) | ALIAS(of Magnit) | 301 → `www.brainnet.nl` → 301 → `magnitglobal.com/nl` | Sluiten |
+| **Haert** (Driessen Groep; bijvangst) | PUBLIC→build-candidate, route JSON-LD | `haert.nl/opdrachten` Drupal-SSR, JobPosting JSON-LD met `baseSalary 125 EUR/HOUR`, `validThrough`, eindklant in tekst | Wave 3-kandidaat (nieuw issue), effort S |
 
 ## Wat Robbie moet regelen (blokkerend per bron)
 
