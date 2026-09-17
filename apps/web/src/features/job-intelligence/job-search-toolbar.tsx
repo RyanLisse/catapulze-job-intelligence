@@ -32,11 +32,11 @@ const snapshotButtonTitle = (
   if (!actions) {
     return "Snapshot vereist de U7 REST-capability";
   }
-  if (selectionCount === 0) {
-    return "Selecteer eerst opdrachten (per rij of ‘Selecteer alle matches’)";
-  }
   if (!canCreateSnapshot) {
     return "Snapshot is beschikbaar zodra de zoekuitkomst volledig geladen is";
+  }
+  if (selectionCount === 0) {
+    return "Selecteer eerst opdrachten (per rij of ‘Selecteer alle matches’)";
   }
   return "Maak een immutable QuerySnapshot van de geselecteerde opdrachten";
 };

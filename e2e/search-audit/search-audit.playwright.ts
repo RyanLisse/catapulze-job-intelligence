@@ -416,31 +416,32 @@ test("distinguishes published commercial facts from unknown source facts", async
     .getByRole("row")
     .filter({ hasText: "Amsterdam, Noord-Holland platformopdracht" });
   const publishedCells = publishedRow.getByRole("cell");
-  // Seven English columns: Title / Company / Location / Rate / Hrs / Platform / Posted
-  await expect(publishedCells.nth(0)).toContainText("Detachering");
+  // Selection / seven English columns: Title / Company / Location / Rate /
+  // Hrs / Platform / Posted
+  await expect(publishedCells.nth(1)).toContainText("Detachering");
   await expect(
-    publishedCells.nth(1).getByText("Onbekend", { exact: true })
+    publishedCells.nth(2).getByText("Onbekend", { exact: true })
   ).toBeVisible();
-  await expect(publishedCells.nth(2)).toContainText(COMMA_LOCATION);
-  await expect(publishedCells.nth(2)).toContainText("remote");
-  await expect(publishedCells.nth(3).getByText(/\/ uur$/u)).toBeVisible();
-  await expect(publishedCells.nth(6).locator("time")).toHaveText("1 sep 2026");
-  await expect(publishedCells.nth(6)).toContainText("Sluit 30 sep 2099");
+  await expect(publishedCells.nth(3)).toContainText(COMMA_LOCATION);
+  await expect(publishedCells.nth(3)).toContainText("remote");
+  await expect(publishedCells.nth(4).getByText(/\/ uur$/u)).toBeVisible();
+  await expect(publishedCells.nth(7).locator("time")).toHaveText("1 sep 2026");
+  await expect(publishedCells.nth(7)).toContainText("Sluit 30 sep 2099");
 
   const unknownRow = results
     .getByRole("row")
     .filter({ hasText: "Brongetrouwe onbekende velden" });
   const unknownCells = unknownRow.getByRole("cell");
   await expect(
-    unknownCells.nth(0).getByText("Onbekend", { exact: true })
+    unknownCells.nth(1).getByText("Onbekend", { exact: true })
   ).toHaveCount(1);
-  await expect(unknownCells.nth(1)).toHaveText("Onbekend");
-  await expect(unknownCells.nth(2)).toHaveText(/^Onbekend\s*Onbekend$/u);
+  await expect(unknownCells.nth(2)).toHaveText("Onbekend");
+  await expect(unknownCells.nth(3)).toHaveText(/^Onbekend\s*Onbekend$/u);
   await expect(
-    unknownCells.nth(3).getByText("Tarief onbekend", { exact: true })
+    unknownCells.nth(4).getByText("Tarief onbekend", { exact: true })
   ).toBeVisible();
-  await expect(unknownCells.nth(6).locator("time")).toHaveText("Onbekend");
-  await expect(unknownCells.nth(6)).toContainText("Sluit Onbekend");
+  await expect(unknownCells.nth(7).locator("time")).toHaveText("Onbekend");
+  await expect(unknownCells.nth(7)).toContainText("Sluit Onbekend");
   await page.screenshot({
     animations: "disabled",
     fullPage: true,
