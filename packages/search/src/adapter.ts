@@ -1,4 +1,8 @@
-import { BOOLEAN_PARSER_VERSION, parseBooleanQuery } from "@ji/domain";
+import {
+  BOOLEAN_PARSER_VERSION,
+  DEFAULT_SEARCH_PAGE_SIZE,
+  parseBooleanQuery,
+} from "@ji/domain";
 import type { BooleanNode, BooleanParseResult } from "@ji/domain";
 import {
   createCriticalPathSession,
@@ -41,7 +45,6 @@ import type {
 import { DEFAULT_QUERY_SCOPE } from "./types";
 import type { SearchVersion } from "./version";
 
-const DEFAULT_LIMIT = 20;
 const DEFAULT_OFFSET = 0;
 const DEFAULT_SORT = "relevance";
 const DEFAULT_CACHE_TTL_SECONDS = 120;
@@ -227,7 +230,7 @@ export class SearchAdapter {
       }
 
       const filters = normalizeFilters(input.filters);
-      const limit = input.limit ?? DEFAULT_LIMIT;
+      const limit = input.limit ?? DEFAULT_SEARCH_PAGE_SIZE;
       const offset = input.offset ?? DEFAULT_OFFSET;
       const sort = input.sort ?? DEFAULT_SORT;
       const scope = input.scope ?? DEFAULT_SEARCH_SCOPE;

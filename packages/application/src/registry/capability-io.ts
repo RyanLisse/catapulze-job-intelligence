@@ -5,6 +5,7 @@
  * Handlers and `web-contracts` both consume this module (CTP-475).
  */
 
+import { DEFAULT_SEARCH_PAGE_SIZE } from "@ji/domain";
 import { Schema } from "effect";
 
 import {
@@ -44,8 +45,6 @@ const aanvraagWireRecord = Schema.StructWithRest(
 
 /** Max search page size (CTP-509). Window remains SEARCH_WINDOW_LIMIT; over-limit is a validation error (never silent truncate). */
 export const SEARCH_MAX_LIMIT = 1000;
-
-const DEFAULT_SEARCH_PAGE_SIZE = 20;
 
 export const searchAanvragenInputSchema = toCapabilitySchema(
   Schema.Struct({
