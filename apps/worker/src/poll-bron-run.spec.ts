@@ -789,6 +789,160 @@ describe("runBronIngestPipeline silence evaluation (RJC-409)", () => {
     );
     expect(result).toBeNull();
   });
+
+  const silentPollResult = {
+    bronId,
+    bronSlug: "tenderned" as const,
+    completeness: null,
+    lifecycle: null,
+    metrics: {
+      changed: 0,
+      error: 0,
+      found: 10,
+      new: 0,
+      rejected: 0,
+      unchanged: 10,
+    },
+    scrapeRunId: "00000000-0000-4000-8000-000000000001",
+    status: "succeeded" as const,
+    writtenRecords: 0,
+  };
+
+  const silenceRuntime = (alerts: AlertStore, bronHealth: BronHealthStore) => ({
+    alerts,
+    bronHealth,
+    bronPersistence: {
+      activate: () => Promise.reject(new Error("unused")),
+      create: () => Promise.reject(new Error("unused")),
+      findById: () =>
+        Promise.resolve({
+          actief: true,
+          bronId,
+          categorie: "overheidsportaal",
+          crawlDelayMs: 0,
+          interval: "*/15 * * * *",
+          lastRun: null,
+          loginVereist: false,
+          mappingRef: null,
+          method: "json-api" as const,
+          naam: bronNaam,
+          rateLimitPerMinute: 60,
+          retentionDays: 90,
+          secretRef: null,
+          status: "ready" as const,
+          voorwaardenStatus: "toegestaan" as const,
+        }),
+      list: () => Promise.resolve([]),
+    },
+    close: () => Promise.resolve(),
+    createConnector: () => unusedSilenceProp("createConnector"),
+    get curateStore(): never {
+      return unusedSilenceProp("curateStore");
+    },
+    get database(): never {
+      return unusedSilenceProp("database");
+    },
+    get knownHashStore(): never {
+      return unusedSilenceProp("knownHashStore");
+    },
+    get lifecycle(): never {
+      return unusedSilenceProp("lifecycle");
+    },
+    loadBaseline: () => Promise.resolve(baselineSamples()),
+    get objectStore(): never {
+      return unusedSilenceProp("objectStore");
+    },
+    get observationRecorder(): never {
+      return unusedSilenceProp("observationRecorder");
+    },
+    get runLifecycleStore(): never {
+      return unusedSilenceProp("runLifecycleStore");
+    },
+  });
+
+  it("auto-resolves an open silence alert when a later poll has activity", async () => {
+    const { MemoryAlertStore, MemoryBronHealthStore } =
+      await import("@ji/application/registry");
+    const { handleSilenceAndHealth, SILENCE_AUTO_RESOLVE_ACTOR } =
+      await import("./poll-bron-run");
+
+    const alerts = new MemoryAlertStore();
+    const bronHealth = new MemoryBronHealthStore();
+    const runtime = silenceRuntime(alerts, bronHealth);
+
+    const silentResult = await handleSilenceAndHealth(
+      silentPollResult,
+      runtime,
+      "poll"
+    );
+    expect(silentResult?.created).toBe(true);
+    const alertId = silentResult?.alertId;
+    expect(alertId).toBeDefined();
+
+    const activePollResult = {
+      ...silentPollResult,
+      metrics: {
+        changed: 2,
+        error: 0,
+        found: 30,
+        new: 5,
+        rejected: 0,
+        unchanged: 23,
+      },
+      scrapeRunId: "00000000-0000-4000-8000-000000000005",
+      writtenRecords: 7,
+    };
+    await handleSilenceAndHealth(activePollResult, runtime, "poll");
+
+    expect(await alerts.listOpen()).toHaveLength(0);
+    // SAFETY: silentResult.created was asserted true, so alertId is set.
+    const resolved = await alerts.getById(alertId as string);
+    expect(resolved?.ackedBy).toBe(SILENCE_AUTO_RESOLVE_ACTOR);
+    const health = await bronHealth.getByBronId(bronId);
+    expect(health?.silenceAlertOpen).toBe(false);
+    expect(health?.lastRunStatus).toBe("succeeded");
+  });
+
+  it("keeps the silence alert open when a later poll succeeds without activity", async () => {
+    const { MemoryAlertStore, MemoryBronHealthStore } =
+      await import("@ji/application/registry");
+    const { handleSilenceAndHealth } = await import("./poll-bron-run");
+
+    const alerts = new MemoryAlertStore();
+    const bronHealth = new MemoryBronHealthStore();
+    const runtime = silenceRuntime(alerts, bronHealth);
+
+    const silentResult = await handleSilenceAndHealth(
+      silentPollResult,
+      runtime,
+      "poll"
+    );
+    expect(silentResult?.created).toBe(true);
+    const alertId = silentResult?.alertId;
+
+    // Volume matches baseline but still zero new/changed: no new event, and
+    // no recovery either — a quiet run is not evidence the silence ended.
+    const quietPollResult = {
+      ...silentPollResult,
+      metrics: {
+        changed: 0,
+        error: 0,
+        found: 40,
+        new: 0,
+        rejected: 0,
+        unchanged: 40,
+      },
+      scrapeRunId: "00000000-0000-4000-8000-000000000006",
+    };
+    await handleSilenceAndHealth(quietPollResult, runtime, "poll");
+
+    expect(await alerts.listOpen()).toHaveLength(1);
+    // SAFETY: silentResult.created was asserted true, so alertId is set.
+    const stillOpen = await alerts.getById(alertId as string);
+    expect(stillOpen?.ackedBy).toBeNull();
+    const health = await bronHealth.getByBronId(bronId);
+    expect(health?.silenceAlertOpen).toBe(true);
+  });
 });
 
 describe("runPollBron scrape_run.gesloten and unchanged metrics (RJC-414)", () => {

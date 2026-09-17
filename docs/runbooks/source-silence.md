@@ -19,6 +19,10 @@ Silence events are emitted by `packages/application/src/observability/silence.ts
 
 Duplicate identical events are deduped on `dedupeKey` while the alert remains open.
 
+## Auto-resolution
+
+A `bron.stil` alert resolves itself on the first successful poll that writes at least one new or changed record: `recordSucceededRun` in `apps/worker/src/poll-bron-run.ts` acks it with `acked_by = system:silence-recovered` and clears `bron_health.silence_alert_open`, logging `silence_alert_auto_resolved` to stderr. A quiet run (still 0 new/changed) does not resolve the alert even when it no longer trips the volume threshold — silence means no activity, not just no new event. Manual `ack_alert` remains available for any alert the operator handles first.
+
 ## Operator steps
 
 1. Open `get_bron_health` / `list_alerts` for the affected bron.
