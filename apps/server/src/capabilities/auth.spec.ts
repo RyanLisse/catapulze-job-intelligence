@@ -1,6 +1,10 @@
 import { describe, expect, it } from "bun:test";
 
-import { createSessionPrincipalResolver, hasAllowedCookieOrigin } from "./auth";
+import {
+  createSessionPrincipalResolver,
+  describeLookupFailure,
+  hasAllowedCookieOrigin,
+} from "./auth";
 
 const now = new Date("2026-09-02T12:00:00.000Z");
 
@@ -267,11 +271,26 @@ describe("capability principal resolution", () => {
     expect(events).toEqual([
       {
         code: "AUTH_SESSION_LOOKUP_UNAVAILABLE",
+        reason: "Error",
         requestId: "req-unavailable",
       },
     ]);
     expect(JSON.stringify({ events, resolution })).not.toContain(
       "DO_NOT_EXPOSE_LOOKUP_DETAIL"
     );
+  });
+
+  it("describes lookup failures by error class and machine code only", () => {
+    const dbError = Object.assign(new Error("password for user x rejected"), {
+      code: "28P01",
+      name: "PostgresError",
+    });
+    expect(describeLookupFailure(dbError)).toBe("PostgresError/28P01");
+    expect(describeLookupFailure(new TypeError("bad shape"))).toBe("TypeError");
+    expect(
+      describeLookupFailure(
+        Object.assign(new Error("x"), { code: "c".repeat(500) })
+      ).length
+    ).toBeLessThanOrEqual(120);
   });
 });
