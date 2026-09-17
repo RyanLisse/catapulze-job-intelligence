@@ -16,6 +16,26 @@ export interface KnownHashStore {
   ) => Promise<string | null | undefined>;
 }
 
+/**
+ * Connector `fetch` short-circuit: true when the store holds a listing hash for
+ * this record equal to `contentHash`. Without a store, or without a persisted
+ * hash, the fetch is never skipped.
+ */
+export const shouldSkipFetch = async (
+  store: KnownHashStore | undefined,
+  bronId: BronId,
+  bronReferentie: string,
+  contentHash: string
+): Promise<boolean> => {
+  if (!store) {
+    return false;
+  }
+  const knownHash = await store.get(bronId, bronReferentie);
+  return (
+    knownHash !== null && knownHash !== undefined && knownHash === contentHash
+  );
+};
+
 export class InMemoryKnownHashStore implements KnownHashStore {
   private readonly hashes = new Map<string, string>();
 
