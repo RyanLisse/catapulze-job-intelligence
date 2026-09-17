@@ -15,11 +15,13 @@ import { hays } from "./hays";
 import { heijmans } from "./heijmans";
 import { hero } from "./hero";
 import { inhuurdesk } from "./inhuurdesk";
+import { intermediair } from "./intermediair";
 import { jobbird } from "./jobbird";
 import { needstaffing } from "./needstaffing";
 import { ns } from "./ns";
 import { onefellow } from "./onefellow";
 import { opdrachtoverheid } from "./opdrachtoverheid";
+import { planetInterim } from "./planet-interim";
 import { proAct } from "./pro-act";
 import { prorail } from "./prorail";
 import { rabobank } from "./rabobank";
@@ -60,11 +62,13 @@ export const SOURCES = {
   heijmans,
   hero,
   inhuurdesk,
+  intermediair,
   jobbird,
   needstaffing,
   ns,
   onefellow,
   opdrachtoverheid,
+  "planet-interim": planetInterim,
   "pro-act": proAct,
   prorail,
   rabobank,
