@@ -6,11 +6,13 @@ import type {
   ConnectorDiscoverResult,
   DiscoverItem,
 } from "../contract";
+import { NotFoundFault } from "../effect-runtime";
 import { shouldSkipFetch } from "../known-hash";
 import type { KnownHashStore } from "../known-hash";
 import { createJsonLdClient } from "./client";
 import type { JsonLdClient } from "./client";
 import { hashJsonLdListingItem, hashJsonLdPayload } from "./hash";
+import { HttpStatusError } from "./live-fetch";
 import type { JsonLdConnectorConfig, JsonLdFetchedPayload } from "./types";
 
 export interface JsonLdConnectorOptions {
@@ -84,7 +86,25 @@ export const createJsonLdConnector = (
         return null;
       }
 
-      const detail = await client.fetchDetail(entry.url);
+      let detail;
+      try {
+        detail = await client.fetchDetail(entry.url);
+      } catch (error) {
+        // A URL in the source's own sitemap can already be gone: reject that
+        // item instead of failing the whole run (CTP-608: one dead
+        // datajobs.nl detail URL was killing every 244-item poll).
+        const gone =
+          (error instanceof HttpStatusError && error.status === 404) ||
+          error instanceof NotFoundFault;
+        if (!gone) {
+          throw error;
+        }
+        return {
+          bronReferentie: item.bronReferentie,
+          reason: "detail page returned 404 — removed at source",
+          status: "rejected" as const,
+        };
+      }
       if (!detail.jobPosting) {
         return {
           bronReferentie: item.bronReferentie,

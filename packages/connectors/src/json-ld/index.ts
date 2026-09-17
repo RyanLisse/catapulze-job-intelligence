@@ -73,6 +73,7 @@ export {
   buildLiveFetchHeaders,
   cloudflareChallengeError,
   cookieEnvVarForLiveGate,
+  HttpStatusError,
   isCloudflareChallenge,
   readLiveHtmlOrThrow,
   readOpsCookieHeader,

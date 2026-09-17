@@ -319,14 +319,24 @@ const runConnectorInner = async (
     await withFailureEnvelope(
       () =>
         timeCriticalPathPhase("ingest-raw-write", () =>
-          objectStore.put({
-            body: fetched.body,
-            contentType: fetched.contentType,
-            expiresAt: new Date(
-              writeNow().getTime() + rawRetentionDays * DAY_IN_MILLISECONDS
-            ),
-            path: rawPayloadRef,
-          })
+          // Content-addressed put is retry-safe by design (the dedup
+          // short-circuit + sidecar-before-body ordering recover a partial
+          // write), so a transient object-store error must not fail a run
+          // that already fetched hundreds of items (CTP-609: ASML poll died
+          // on a single RAW_STORE_WRITE_FAILED mid-run).
+          withRetry(
+            () =>
+              objectStore.put({
+                body: fetched.body,
+                contentType: fetched.contentType,
+                expiresAt: new Date(
+                  writeNow().getTime() + rawRetentionDays * DAY_IN_MILLISECONDS
+                ),
+                path: rawPayloadRef,
+              }),
+            retryPolicy,
+            wait
+          )
         ),
       FAILURE_ENVELOPES.rawStore
     );
