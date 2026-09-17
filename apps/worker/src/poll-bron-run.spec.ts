@@ -621,6 +621,104 @@ describe("runBronIngestPipeline silence evaluation (RJC-409)", () => {
     expect(health?.lastRunStatus).toBe("succeeded");
   });
 
+  it("skips silence evaluation and surfaces the error when the baseline read fails", async () => {
+    const { MemoryAlertStore, MemoryBronHealthStore } =
+      await import("@ji/application/registry");
+    const { handleSilenceAndHealth } = await import("./poll-bron-run");
+
+    const alerts = new MemoryAlertStore();
+    const bronHealth = new MemoryBronHealthStore();
+
+    const silentPollResult = {
+      bronId,
+      bronSlug: "tenderned" as const,
+      lifecycle: null,
+      metrics: {
+        changed: 0,
+        error: 0,
+        found: 10,
+        new: 0,
+        rejected: 0,
+        unchanged: 10,
+      },
+      scrapeRunId: "00000000-0000-4000-8000-000000000004",
+      status: "succeeded" as const,
+      writtenRecords: 0,
+    };
+
+    const runtime = {
+      alerts,
+      bronHealth,
+      bronPersistence: {
+        activate: () => Promise.reject(new Error("unused")),
+        create: () => Promise.reject(new Error("unused")),
+        findById: () => Promise.resolve(null),
+        list: () => Promise.resolve([]),
+      },
+      close: () => Promise.resolve(),
+      createConnector: () => unusedSilenceProp("createConnector"),
+      get curateStore(): never {
+        return unusedSilenceProp("curateStore");
+      },
+      get database(): never {
+        return unusedSilenceProp("database");
+      },
+      get knownHashStore(): never {
+        return unusedSilenceProp("knownHashStore");
+      },
+      get lifecycle(): never {
+        return unusedSilenceProp("lifecycle");
+      },
+      loadBaseline: () =>
+        Promise.reject(
+          new Error("baseline query timed out", {
+            cause: new Error("postgres://user:secret@db.internal/ji"),
+          })
+        ),
+      get objectStore(): never {
+        return unusedSilenceProp("objectStore");
+      },
+      get observationRecorder(): never {
+        return unusedSilenceProp("observationRecorder");
+      },
+      get runLifecycleStore(): never {
+        return unusedSilenceProp("runLifecycleStore");
+      },
+    };
+
+    const stderrLines: string[] = [];
+    const originalWrite = process.stderr.write.bind(process.stderr);
+    // SAFETY: the code under test only calls write(string); the stub is restored in `finally`.
+    process.stderr.write = ((chunk: string | Uint8Array): boolean => {
+      stderrLines.push(String(chunk));
+      return true;
+    }) as typeof process.stderr.write;
+    let result: Awaited<ReturnType<typeof handleSilenceAndHealth>>;
+    try {
+      result = await handleSilenceAndHealth(silentPollResult, runtime, "poll");
+    } finally {
+      process.stderr.write = originalWrite;
+    }
+
+    expect(result?.created).toBe(false);
+    expect(result?.alertId).toBeUndefined();
+    expect(result?.baselineReadError).toContain("baseline query timed out");
+    expect(result?.baselineReadError).not.toContain("secret");
+
+    // A failed read is not a silent bron: no alert, but no clean "no history" either.
+    expect(await alerts.listOpen()).toHaveLength(0);
+    const health = await bronHealth.getByBronId(bronId);
+    expect(health?.lastRunStatus).toBe("succeeded");
+    expect(health?.silenceAlertOpen).toBe(false);
+
+    const logged = stderrLines.find((line) =>
+      line.includes("run_baseline_read_failed")
+    );
+    expect(logged).toBeDefined();
+    expect(logged).toContain(bronId);
+    expect(logged).not.toContain("secret");
+  });
+
   it("does not evaluate silence for non-poll runs", async () => {
     const { MemoryAlertStore, MemoryBronHealthStore } =
       await import("@ji/application/registry");
