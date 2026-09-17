@@ -443,20 +443,32 @@ describe("reconcileProjection (RJC-399 repair tool)", () => {
     if (!document) {
       throw new Error("Expected seeded document to load");
     }
+    const appliedHash = projectionHash(document, NOW);
     await db.insert(searchProjectionState).values({
       aggregateId,
       appliedSequence: 1n,
       generation,
-      projectionHash: projectionHash(document, NOW),
+      projectionHash: appliedHash,
     });
     await db
       .update(aanvraag)
       .set({ status: "stale" })
       .where(eq(aanvraag.id, aggregateId));
+    const inventory = new FakeManticoreInventory({
+      active: [
+        {
+          documentId: aggregateId,
+          manticoreId: hashDocumentId(aggregateId),
+          projectionHash: appliedHash,
+        },
+      ],
+      archive: [],
+    });
 
     const base = {
       database: db,
       indexName,
+      inventory,
       loader,
       now: NOW,
       versionStore: store,
@@ -781,6 +793,7 @@ describe("reconcileProjection (RJC-399 repair tool)", () => {
         database: db,
         expectedSchemaHash: "some-newer-schema-hash",
         indexName,
+        inventory: new FakeManticoreInventory({ active: [], archive: [] }),
         loader: new PostgresSearchDocumentLoader(db),
         versionStore: store,
       })

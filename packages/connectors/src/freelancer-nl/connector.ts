@@ -38,7 +38,16 @@ const seenFromCheckpoint = (
           )
         : []
     );
-  } catch {
+  } catch (error) {
+    // oxlint-disable-next-line no-console -- lost resume state must leave a trace; @ji/connectors has no logger dependency
+    console.warn(
+      JSON.stringify({
+        cursorLength: checkpoint.cursor.length,
+        error: error instanceof Error ? error.name : "unknown",
+        event: "connector.freelancer_nl.checkpoint_cursor_unparseable",
+        page: checkpoint.page,
+      })
+    );
     return new Set();
   }
 };

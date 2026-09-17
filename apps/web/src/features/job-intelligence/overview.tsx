@@ -1,5 +1,6 @@
 "use client";
 
+import { fixturesEnabled } from "@ji/env/web";
 import { Button } from "@ji/ui/components/button";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -20,10 +21,6 @@ import {
 } from "./presentation";
 import { createRestJobIntelligence } from "./rest-job-data-adapter";
 import type { FacetCount, JobDataAdapter } from "./types";
-
-const fixturesEnabled =
-  process.env.NEXT_PUBLIC_USE_FIXTURES === "true" ||
-  process.env.NEXT_PUBLIC_USE_FIXTURES === "1";
 
 const numberFormatter = new Intl.NumberFormat("nl-NL");
 

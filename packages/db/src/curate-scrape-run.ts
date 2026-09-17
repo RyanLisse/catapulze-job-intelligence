@@ -936,30 +936,51 @@ const recordDisposition = (
   candidate: RecoveryCandidate,
   disposition: CandidateDisposition
 ): void => {
-  if (disposition === "pending") {
-    blockedIdentities.add(candidate.sourceRecordId);
-  } else if (disposition === "curated") {
-    result.curated += 1;
-  } else if (disposition === "quarantined") {
-    result.quarantined += 1;
-    blockedIdentities.add(candidate.sourceRecordId);
-  } else if (disposition === "curation_failed") {
-    result.failed += 1;
-    // Block the identity for the rest of this pass, so a newer observation of
-    // the same source record cannot be curated immediately behind the one that
-    // just failed. This is a within-pass guard only: a later pass will curate
-    // the newer observation, and a re-queued row then classifies as superseded
-    // rather than rewinding the aanvraag.
-    blockedIdentities.add(candidate.sourceRecordId);
-  } else if (disposition === "already_committed") {
-    result.alreadyCommitted += 1;
-  } else if (disposition === "blocked_ordering") {
-    result.blockedOrdering += 1;
-    blockedIdentities.add(candidate.sourceRecordId);
-  } else if (disposition === "superseded") {
-    result.superseded += 1;
-  } else {
-    result.unchanged += 1;
+  switch (disposition) {
+    case "pending": {
+      blockedIdentities.add(candidate.sourceRecordId);
+      break;
+    }
+    case "curated": {
+      result.curated += 1;
+      break;
+    }
+    case "quarantined": {
+      result.quarantined += 1;
+      blockedIdentities.add(candidate.sourceRecordId);
+      break;
+    }
+    case "curation_failed": {
+      result.failed += 1;
+      // Block the identity for the rest of this pass, so a newer observation of
+      // the same source record cannot be curated immediately behind the one that
+      // just failed. This is a within-pass guard only: a later pass will curate
+      // the newer observation, and a re-queued row then classifies as superseded
+      // rather than rewinding the aanvraag.
+      blockedIdentities.add(candidate.sourceRecordId);
+      break;
+    }
+    case "already_committed": {
+      result.alreadyCommitted += 1;
+      break;
+    }
+    case "blocked_ordering": {
+      result.blockedOrdering += 1;
+      blockedIdentities.add(candidate.sourceRecordId);
+      break;
+    }
+    case "superseded": {
+      result.superseded += 1;
+      break;
+    }
+    case "unchanged": {
+      result.unchanged += 1;
+      break;
+    }
+    default: {
+      const _exhaustive: never = disposition;
+      throw new Error(`Unknown disposition: ${String(_exhaustive)}`);
+    }
   }
 };
 

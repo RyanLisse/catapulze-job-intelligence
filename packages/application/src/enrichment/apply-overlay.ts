@@ -1,7 +1,8 @@
-import { CLEARED, UNKNOWN } from "@ji/domain";
+import { UNKNOWN } from "@ji/domain";
 
 import { isTitleFallbackDescription } from "../title-fallback-description";
 import type { TitleFallbackDescriptionParts } from "../title-fallback-description";
+import { isClearedText, isFillableGap, isMissingText } from "./gap-predicates";
 import type {
   EnrichmentBeschrijvingValue,
   EnrichmentContractValue,
@@ -49,19 +50,6 @@ export interface SearchEnrichmentFacts {
   tariefMin: number | null;
   werkvorm?: string | null;
 }
-
-const isMissingText = (value: string | null | undefined): boolean =>
-  value === null ||
-  value === undefined ||
-  value.trim() === "" ||
-  value.trim() === UNKNOWN;
-
-const isClearedText = (value: string | null | undefined): boolean =>
-  value !== null && value !== undefined && value.trim() === CLEARED;
-
-/** Gaps enrichment may fill — excludes CLEARED tombstones (#213). */
-const isFillableGap = (value: string | null | undefined): boolean =>
-  isMissingText(value) && !isClearedText(value);
 
 const isMissingTarief = (facts: {
   readonly tariefEenheid?: string | null;

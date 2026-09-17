@@ -21,12 +21,16 @@ export const webEnvEffectSchemas = {
   ),
   INTERNAL_SERVER_URL: Schema.optional(HttpUrlString),
   NEXT_PUBLIC_SERVER_URL: UrlString,
+  NEXT_PUBLIC_USE_FIXTURES: Schema.optional(Schema.String),
 } as const;
 
 export const env = createEnv({
   client: {
     NEXT_PUBLIC_SERVER_URL: toEnvSchema(
       webEnvEffectSchemas.NEXT_PUBLIC_SERVER_URL
+    ),
+    NEXT_PUBLIC_USE_FIXTURES: toEnvSchema(
+      webEnvEffectSchemas.NEXT_PUBLIC_USE_FIXTURES
     ),
   },
   emptyStringAsUndefined: true,
@@ -38,6 +42,7 @@ export const env = createEnv({
     APP_RELEASE_SHA: process.env.APP_RELEASE_SHA || process.env.SOURCE_COMMIT,
     INTERNAL_SERVER_URL: process.env.INTERNAL_SERVER_URL,
     NEXT_PUBLIC_SERVER_URL: process.env.NEXT_PUBLIC_SERVER_URL,
+    NEXT_PUBLIC_USE_FIXTURES: process.env.NEXT_PUBLIC_USE_FIXTURES,
   },
   server: {
     APP_RELEASE_SHA: toEnvSchema(webEnvEffectSchemas.APP_RELEASE_SHA),
@@ -58,3 +63,8 @@ export const env = createEnv({
  * internal hostname into client code.
  */
 export const getInternalServerUrl = (): string => resolveInternalServerUrl(env);
+
+/** Fixture kill-switch for the web data source: "true" or "1" enables fixtures. */
+export const fixturesEnabled =
+  env.NEXT_PUBLIC_USE_FIXTURES === "true" ||
+  env.NEXT_PUBLIC_USE_FIXTURES === "1";

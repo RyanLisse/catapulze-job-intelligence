@@ -14,16 +14,11 @@ import {
   closingMomentInstant,
   field,
   hasClosingMomentPassed,
+  isPresent,
+  numberToStringOrUnknown,
   stripHtml,
 } from "./types";
 import type { NormalisedAanvraagDraft, NormalisedTarief } from "./types";
-
-const isPresent = <Value>(value: Value | null | undefined): value is Value =>
-  value !== null && value !== undefined;
-
-const numberToStringOrUnknown = (
-  value: number | null | undefined
-): string | typeof UNKNOWN => (isPresent(value) ? String(value) : UNKNOWN);
 
 /** Opdrachtoverheid rarely sets `tender_job_location` directly (confirmed by
  * live probe, 2026-08-31: null across every sampled record). Fall back to

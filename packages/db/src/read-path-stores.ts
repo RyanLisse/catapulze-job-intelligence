@@ -4,7 +4,6 @@ import type {
   QuerySnapshotStore,
 } from "@ji/application/registry";
 import { searchFiltersSchema } from "@ji/application/registry";
-import type { SearchFilters, SearchScope } from "@ji/search";
 import { SEARCH_SCOPES } from "@ji/search";
 import { and, eq } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
@@ -18,36 +17,70 @@ export type ReadPathDatabase = PostgresJsDatabase<typeof schema>;
 const resultIdsSchema = z.array(z.string());
 const searchScopeSchema = z.enum(SEARCH_SCOPES);
 
-const parseScope = (value: string): SearchScope => {
-  const parsed = searchScopeSchema.safeParse(value);
-  return parsed.success ? parsed.data : "active";
+interface SnapshotSchema<Output> {
+  safeParse: (
+    // oxlint-disable-next-line anti-slop/no-unknown-parameters -- query snapshot JSONB columns are untyped until this helper validates them against the supplied schema
+    value: unknown
+  ) =>
+    | { success: true; data: Output }
+    | { success: false; error: { issues: readonly unknown[] } };
+}
+
+const parseSnapshotColumn = <Output>(
+  schema: SnapshotSchema<Output>,
+  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- query snapshot JSONB columns are untyped until this helper validates them against the supplied schema
+  value: unknown,
+  fallback: Output,
+  context: {
+    column: "filters" | "resultIds" | "searchScope";
+    snapshotId: string;
+  }
+): Output => {
+  const parsed = schema.safeParse(value);
+  if (parsed.success) {
+    return parsed.data;
+  }
+  // oxlint-disable-next-line no-console -- degradation must leave a trace; @ji/db has no logger dependency
+  console.warn(
+    JSON.stringify({
+      column: context.column,
+      event: "query_snapshot.column_parse_failed",
+      issues: parsed.error.issues,
+      snapshotId: context.snapshotId,
+    })
+  );
+  return fallback;
 };
 
-const parseFilters = (value: SearchFilters | unknown): SearchFilters => {
-  const parsed = searchFiltersSchema.safeParse(value);
-  return parsed.success ? parsed.data : {};
-};
-
-const parseResultIds = (
-  value: readonly string[] | unknown
-): readonly string[] => {
-  const parsed = resultIdsSchema.safeParse(value);
-  return Object.freeze(parsed.success ? parsed.data : []);
-};
-
-const toQuerySnapshotRecord = (
+export const toQuerySnapshotRecord = (
   row: typeof querySnapshot.$inferSelect
 ): QuerySnapshotRecord => ({
   createdAt: row.createdAt,
-  filters: parseFilters(row.filters),
+  filters: parseSnapshotColumn(
+    searchFiltersSchema,
+    row.filters,
+    {},
+    {
+      column: "filters",
+      snapshotId: row.id,
+    }
+  ),
   id: row.id,
   indexVersion: row.indexVersion ?? 0,
   parserVersion: row.parserVersion,
   queryText: row.queryText,
-  resultIds: parseResultIds(row.resultIds),
+  resultIds: Object.freeze(
+    parseSnapshotColumn(resultIdsSchema, row.resultIds, [], {
+      column: "resultIds",
+      snapshotId: row.id,
+    })
+  ),
   savedSearchId: row.savedSearchId,
   schemaVersion: row.schemaVersion,
-  scope: parseScope(row.searchScope),
+  scope: parseSnapshotColumn(searchScopeSchema, row.searchScope, "active", {
+    column: "searchScope",
+    snapshotId: row.id,
+  }),
   scopeId: row.scopeId,
   searchVersion: {
     appliedSequence: row.searchAppliedSequence,

@@ -16,8 +16,10 @@ Status: **probe afgerond; connector toegevoegd** — JSON-LD Path A (CTP-580).
 De HTML listing heeft geen bruikbare links en de sitemap bevat stale/404
 detail-URL's. De connector gebruikt daarom de API als autoritatieve bron en
 volgt `hits[].pageUrl`, waarbij `/vacatures/<category>/<slug>` behouden blijft.
-De API retourneert momenteel alle 16 vacatures op één pagina bij `pageSize=50`;
-pagination is nog niet geïmplementeerd.
+De connector leest `pagination.page`, `pagination.pageSize` en
+`pagination.totalMatching` en haalt alle benodigde pagina's op met dezelfde
+`pageSize`. De API retourneert momenteel alle 16 vacatures op één pagina bij
+`pageSize=50`.
 
 ## Veldmapping → canoniek `aanvraag`
 
