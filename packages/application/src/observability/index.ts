@@ -25,6 +25,18 @@ export {
   ZERO_ACTIVITY_RUN_COUNT,
 } from "./bron-health-thresholds";
 export {
+  DISCOVERY_FLOOR_ALERT_KIND,
+  DISCOVERY_FLOOR_BREACH_CODE,
+  DISCOVERY_FLOOR_FAILURE,
+  DISCOVERY_FLOOR_WINDOW_DAYS,
+  type DiscoveryFloorEvidence,
+  type DiscoveryFloorInput,
+  type DiscoveryFloorVerdict,
+  buildDiscoveryFloorDedupeKey,
+  buildDiscoveryFloorMessage,
+  evaluateDiscoveryFloor,
+} from "./discovery-floor";
+export {
   DEFAULT_SILENCE_OWNER,
   DEFAULT_VOLUME_DROP_THRESHOLD,
   SILENCE_ALERT_KIND,

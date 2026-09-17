@@ -4,10 +4,20 @@ import type {
   ExecuteBronRunResult,
 } from "@ji/application/bronnen";
 import type { LifecycleReconcilePorts } from "@ji/application/lifecycle";
-import type { RunBaselineSample } from "@ji/application/observability";
+import type {
+  DiscoveryFloorEvidence,
+  DiscoveryFloorVerdict,
+  RunBaselineSample,
+} from "@ji/application/observability";
 import {
+  DISCOVERY_FLOOR_ALERT_KIND,
+  DISCOVERY_FLOOR_BREACH_CODE,
+  DISCOVERY_FLOOR_FAILURE,
+  buildDiscoveryFloorDedupeKey,
+  buildDiscoveryFloorMessage,
   buildSilenceDedupeKey,
   createSilenceAlertWriter,
+  evaluateDiscoveryFloor,
   observeConnectorRunSilence,
 } from "@ji/application/observability";
 import type { AlertStore, BronHealthStore } from "@ji/application/registry";
@@ -278,20 +288,11 @@ export const drainOrDeferToProjector = async (
   };
 };
 
-export const handleSilenceAndHealth = async (
+const loadRunBaseline = async (
   pollResult: PollBronRunResult,
   runtime: PollBronRuntime,
-  runKind: ConnectorRunKind
-): Promise<{ alertId?: string; created: boolean } | null> => {
-  if (runKind !== "poll") {
-    return null;
-  }
-
-  const now = new Date();
-  const alerts = runtime.alerts ?? new PostgresAlertStore(runtime.database);
-  const bronHealth =
-    runtime.bronHealth ?? new PostgresBronHealthStore(runtime.database);
-
+  now: Date
+): Promise<readonly RunBaselineSample[]> => {
   let baseline: readonly RunBaselineSample[] = [];
   try {
     if (runtime.loadBaseline) {
@@ -307,17 +308,164 @@ export const handleSilenceAndHealth = async (
   } catch {
     baseline = [];
   }
+  return baseline;
+};
 
-  const lastSuccessAt = baseline.length > 0 ? (baseline[0]?.at ?? null) : null;
-  let bronNaam: string = pollResult.bronSlug;
+const resolveBronNaam = async (
+  pollResult: PollBronRunResult,
+  runtime: PollBronRuntime
+): Promise<string> => {
   try {
     const record = await runtime.bronPersistence.findById(pollResult.bronId);
     if (record?.naam) {
-      bronNaam = record.naam;
+      return record.naam;
     }
   } catch {
     // fallback to bronSlug
   }
+  return pollResult.bronSlug;
+};
+
+export class DiscoveryFloorBreachedError extends Error {
+  readonly bronId: BronId;
+  readonly code = DISCOVERY_FLOOR_BREACH_CODE;
+  readonly evidence: DiscoveryFloorEvidence;
+
+  constructor(
+    bronId: BronId,
+    bronNaam: string,
+    evidence: DiscoveryFloorEvidence
+  ) {
+    super(buildDiscoveryFloorMessage(bronNaam, evidence));
+    this.name = "DiscoveryFloorBreachedError";
+    this.bronId = bronId;
+    this.evidence = evidence;
+  }
+}
+
+const writeDiscoveryFloorAlert = async (
+  pollResult: PollBronRunResult,
+  runtime: PollBronRuntime,
+  input: {
+    bronNaam: string;
+    detectedAt: Date;
+    evidence: DiscoveryFloorEvidence;
+  }
+): Promise<void> => {
+  const alerts = runtime.alerts ?? new PostgresAlertStore(runtime.database);
+  const bronHealth =
+    runtime.bronHealth ?? new PostgresBronHealthStore(runtime.database);
+  const dedupeKey = buildDiscoveryFloorDedupeKey(pollResult.bronId);
+
+  const open = await alerts.findOpenByDedupeKey(dedupeKey);
+  if (!open) {
+    await alerts.create({
+      bronId: pollResult.bronId,
+      dedupeKey,
+      evidence: {
+        baseline_samples: input.evidence.baselineSamples,
+        baseline_window_days: input.evidence.baselineWindowDays,
+        bron: pollResult.bronId,
+        current_found: input.evidence.found,
+        detectietijd: input.detectedAt.toISOString(),
+        last_non_zero_at: input.evidence.lastNonZeroAt,
+        last_non_zero_found: input.evidence.lastNonZeroFound,
+      },
+      kind: DISCOVERY_FLOOR_ALERT_KIND,
+      message: buildDiscoveryFloorMessage(input.bronNaam, input.evidence),
+    });
+  }
+
+  // `circuitStatus` belongs to the circuit breaker and `silenceAlertOpen` to
+  // the silence detector; carry both across rather than resetting a signal
+  // this guard knows nothing about.
+  const existing = await bronHealth.getByBronId(pollResult.bronId);
+  await bronHealth.upsert({
+    bronId: pollResult.bronId,
+    circuitStatus: existing?.circuitStatus ?? "closed",
+    lastRunAt: input.detectedAt,
+    lastRunStatus: "failed",
+    silenceAlertOpen: existing?.silenceAlertOpen ?? false,
+  });
+};
+
+export const enforceDiscoveryFloor = async (
+  pollResult: PollBronRunResult,
+  runtime: PollBronRuntime,
+  runKind: ConnectorRunKind
+): Promise<DiscoveryFloorVerdict> => {
+  if (runKind !== "poll") {
+    return { outcome: "ok" };
+  }
+
+  const now = new Date();
+  const baseline = await loadRunBaseline(pollResult, runtime, now);
+  const verdict = evaluateDiscoveryFloor({
+    baseline,
+    detectedAt: now,
+    metrics: pollResult.metrics,
+  });
+
+  if (verdict.outcome !== "breached") {
+    return verdict;
+  }
+
+  const bronNaam = await resolveBronNaam(pollResult, runtime);
+
+  // The honest run record goes first, so it lands even if the alert write
+  // fails. `RunLifecycleStore.fail()` cannot record it: it matches on
+  // `status = 'running'` and `runConnector` has already completed the run (see
+  // `PostgresRunLifecycleStore.fail` in packages/db/src/bron-runtime.ts). The
+  // row must still read `failed` so `querySilenceBaselineSamples` — which
+  // selects only `status = 'succeeded'` — excludes it and tomorrow's baseline
+  // is not poisoned by today's collapse. Matching on `status = 'succeeded'`
+  // keeps this from stomping a row that is running or already failed.
+  await runtime.database
+    .update(scrapeRun)
+    .set({
+      failureClass: DISCOVERY_FLOOR_FAILURE.class,
+      failureCode: DISCOVERY_FLOOR_FAILURE.code,
+      failureMessage: DISCOVERY_FLOOR_FAILURE.message,
+      failurePhase: DISCOVERY_FLOOR_FAILURE.phase,
+      status: "failed",
+    })
+    .where(
+      and(
+        eq(scrapeRun.id, pollResult.scrapeRunId),
+        eq(scrapeRun.status, "succeeded")
+      )
+    );
+
+  await writeDiscoveryFloorAlert(pollResult, runtime, {
+    bronNaam,
+    detectedAt: now,
+    evidence: verdict.evidence,
+  });
+
+  throw new DiscoveryFloorBreachedError(
+    pollResult.bronId,
+    bronNaam,
+    verdict.evidence
+  );
+};
+
+export const handleSilenceAndHealth = async (
+  pollResult: PollBronRunResult,
+  runtime: PollBronRuntime,
+  runKind: ConnectorRunKind
+): Promise<{ alertId?: string; created: boolean } | null> => {
+  if (runKind !== "poll") {
+    return null;
+  }
+
+  const now = new Date();
+  const alerts = runtime.alerts ?? new PostgresAlertStore(runtime.database);
+  const bronHealth =
+    runtime.bronHealth ?? new PostgresBronHealthStore(runtime.database);
+
+  const baseline = await loadRunBaseline(pollResult, runtime, now);
+  const lastSuccessAt = baseline.length > 0 ? (baseline[0]?.at ?? null) : null;
+  const bronNaam = await resolveBronNaam(pollResult, runtime);
 
   const writer = createSilenceAlertWriter({ alerts, bronHealth });
   const result = await observeConnectorRunSilence({
@@ -414,6 +562,7 @@ export const runBronIngestPipeline = async (
           writtenRecords: persistedRun.new + persistedRun.changed,
         }
       : await runPollBron(payload, runtime, runKind);
+  await enforceDiscoveryFloor(pollResult, runtime, runKind);
   const silenceAlert = await handleSilenceAndHealth(
     pollResult,
     runtime,

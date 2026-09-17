@@ -1,6 +1,7 @@
 import { describe, expect, it } from "bun:test";
 
 import type { RunBaselineSample } from "@ji/application/observability";
+import type { AlertStore, BronHealthStore } from "@ji/application/registry";
 import { resolveTenderNedTestImportDays } from "@ji/application/sources";
 
 import { requireDatabaseUrl, requireManticoreUrl } from "./poll-bron-env";
@@ -840,5 +841,300 @@ describe("runPollBron scrape_run.gesloten and unchanged metrics (RJC-414)", () =
     expect(result.lifecycle?.staled).toBe(1);
     expect(updatedRows).toHaveLength(1);
     expect(updatedRows[0]?.values).toEqual({ gesloten: 1 });
+  });
+});
+
+const unusedFloorProp = (name: string): never => {
+  throw new Error(`enforceDiscoveryFloor must not touch runtime.${name}`);
+};
+
+interface DiscoveryFloorUpdate {
+  failureClass?: string | null;
+  failureCode?: string | null;
+  failureMessage?: string | null;
+  failurePhase?: string | null;
+  status?: string;
+}
+
+const createFloorStores = async () => {
+  const { MemoryAlertStore, MemoryBronHealthStore } =
+    await import("@ji/application/registry");
+  return {
+    alerts: new MemoryAlertStore(),
+    bronHealth: new MemoryBronHealthStore(),
+  };
+};
+
+describe("discovery floor guard", () => {
+  const bronId = "00000000-0000-4000-8000-000000000010";
+  const bronNaam = "TenderNed";
+  const scrapeRunId = "00000000-0000-4000-8000-000000000001";
+
+  // Anchored to the run like `baselineSamples` above: `enforceDiscoveryFloor`
+  // reads the real clock, so a fixed date would age out of the window.
+  const anchor = new Date();
+  const lastNonZeroAt = new Date(anchor.getTime() - 86_400_000);
+  const collapsedMessage = `Bron ${bronNaam} vond 0 records terwijl de laatste succesvolle poll op ${lastNonZeroAt.toISOString()} er 730 vond; discovery is stil gevallen zonder foutmelding.`;
+
+  const healthyBaseline = (): RunBaselineSample[] =>
+    Array.from({ length: 3 }, (_, index) => ({
+      at: new Date(anchor.getTime() - (index + 1) * 86_400_000),
+      changed: 0,
+      found: 730,
+      new: 0,
+    }));
+
+  const bronRecord = {
+    actief: true,
+    bronId,
+    categorie: "overheidsportaal",
+    crawlDelayMs: 0,
+    interval: "*/15 * * * *",
+    lastRun: null,
+    loginVereist: false,
+    mappingRef: null,
+    method: "json-api" as const,
+    naam: bronNaam,
+    rateLimitPerMinute: 60,
+    retentionDays: 90,
+    secretRef: null,
+    status: "ready" as const,
+    voorwaardenStatus: "toegestaan" as const,
+  };
+
+  const pollResultWithFound = (found: number) => ({
+    bronId,
+    bronSlug: "tenderned" as const,
+    lifecycle: null,
+    metrics: {
+      changed: 0,
+      error: 0,
+      found,
+      new: 0,
+      rejected: 0,
+      unchanged: 0,
+    },
+    scrapeRunId,
+    status: "succeeded" as const,
+    writtenRecords: 0,
+  });
+
+  const createRuntime = (input: {
+    alerts: AlertStore;
+    bronHealth: BronHealthStore;
+    captured: DiscoveryFloorUpdate[];
+    loadBaseline: () => Promise<RunBaselineSample[]>;
+  }) => ({
+    alerts: input.alerts,
+    bronHealth: input.bronHealth,
+    bronPersistence: {
+      activate: () => Promise.reject(new Error("unused")),
+      create: () => Promise.reject(new Error("unused")),
+      findById: () => Promise.resolve(bronRecord),
+      list: () => Promise.resolve([bronRecord]),
+    },
+    close: () => Promise.resolve(),
+    createConnector: () => unusedFloorProp("createConnector"),
+    get curateStore(): never {
+      return unusedFloorProp("curateStore");
+    },
+    // SAFETY: Test double fulfills the update subset enforceDiscoveryFloor uses.
+    database: {
+      update: () => ({
+        set: (values: DiscoveryFloorUpdate) => ({
+          where: () => {
+            input.captured.push(values);
+            return Promise.resolve([]);
+          },
+        }),
+      }),
+    } as never,
+    get knownHashStore(): never {
+      return unusedFloorProp("knownHashStore");
+    },
+    get lifecycle(): never {
+      return unusedFloorProp("lifecycle");
+    },
+    loadBaseline: input.loadBaseline,
+    get objectStore(): never {
+      return unusedFloorProp("objectStore");
+    },
+    get observationRecorder(): never {
+      return unusedFloorProp("observationRecorder");
+    },
+    get runLifecycleStore(): never {
+      return unusedFloorProp("runLifecycleStore");
+    },
+  });
+
+  it("fails the run, alerts and throws when a bron with history discovers nothing", async () => {
+    const { DiscoveryFloorBreachedError, enforceDiscoveryFloor } =
+      await import("./poll-bron-run");
+
+    const { alerts, bronHealth } = await createFloorStores();
+    const captured: DiscoveryFloorUpdate[] = [];
+    const runtime = createRuntime({
+      alerts,
+      bronHealth,
+      captured,
+      loadBaseline: () => Promise.resolve(healthyBaseline()),
+    });
+
+    let thrown: unknown;
+    try {
+      await enforceDiscoveryFloor(pollResultWithFound(0), runtime, "poll");
+    } catch (error) {
+      thrown = error;
+    }
+
+    expect(thrown).toBeInstanceOf(DiscoveryFloorBreachedError);
+    const thrownMessage = thrown instanceof Error ? thrown.message : "";
+    expect(thrownMessage).toContain("730");
+    expect(thrownMessage).toContain(bronNaam);
+
+    // The envelope is the pinned `DISCOVER_FAILED` tuple: anything else
+    // violates `scrape_run_failure_tuple_check`.
+    expect(captured).toEqual([
+      {
+        failureClass: "connector",
+        failureCode: "DISCOVER_FAILED",
+        failureMessage: "Connector discovery failed",
+        failurePhase: "discover",
+        status: "failed",
+      },
+    ]);
+
+    const openAlerts = await alerts.listOpen();
+    expect(openAlerts).toHaveLength(1);
+    expect(openAlerts[0]?.kind).toBe("bron.discovery_floor");
+    expect(openAlerts[0]?.message).toBe(collapsedMessage);
+    expect(openAlerts[0]?.message).toContain("730");
+    expect(openAlerts[0]?.message).toContain(bronNaam);
+    const healthAfterBreach = await bronHealth.getByBronId(bronId);
+    expect(healthAfterBreach?.lastRunStatus).toBe("failed");
+  });
+
+  it("raises one alert when the same collapse repeats", async () => {
+    const { enforceDiscoveryFloor } = await import("./poll-bron-run");
+
+    const { alerts, bronHealth } = await createFloorStores();
+    const captured: DiscoveryFloorUpdate[] = [];
+    const runtime = createRuntime({
+      alerts,
+      bronHealth,
+      captured,
+      loadBaseline: () => Promise.resolve(healthyBaseline()),
+    });
+
+    await expect(
+      enforceDiscoveryFloor(pollResultWithFound(0), runtime, "poll")
+    ).rejects.toThrow(collapsedMessage);
+    await expect(
+      enforceDiscoveryFloor(pollResultWithFound(0), runtime, "poll")
+    ).rejects.toThrow(collapsedMessage);
+
+    expect(await alerts.listOpen()).toHaveLength(1);
+  });
+
+  it("preserves the circuit and silence signals it does not own", async () => {
+    const { enforceDiscoveryFloor } = await import("./poll-bron-run");
+
+    const { alerts, bronHealth } = await createFloorStores();
+    await bronHealth.upsert({
+      bronId,
+      circuitStatus: "open",
+      lastRunAt: new Date(anchor.getTime() - 3_600_000),
+      lastRunStatus: "succeeded",
+      silenceAlertOpen: true,
+    });
+
+    const captured: DiscoveryFloorUpdate[] = [];
+    const runtime = createRuntime({
+      alerts,
+      bronHealth,
+      captured,
+      loadBaseline: () => Promise.resolve(healthyBaseline()),
+    });
+
+    await expect(
+      enforceDiscoveryFloor(pollResultWithFound(0), runtime, "poll")
+    ).rejects.toThrow(collapsedMessage);
+
+    const health = await bronHealth.getByBronId(bronId);
+    expect(health?.circuitStatus).toBe("open");
+    expect(health?.silenceAlertOpen).toBe(true);
+    expect(health?.lastRunStatus).toBe("failed");
+  });
+
+  it("leaves a genuine first run alone and writes nothing", async () => {
+    const { enforceDiscoveryFloor } = await import("./poll-bron-run");
+
+    const { alerts, bronHealth } = await createFloorStores();
+    const captured: DiscoveryFloorUpdate[] = [];
+    const runtime = createRuntime({
+      alerts,
+      bronHealth,
+      captured,
+      loadBaseline: () => Promise.resolve([]),
+    });
+
+    const verdict = await enforceDiscoveryFloor(
+      pollResultWithFound(0),
+      runtime,
+      "poll"
+    );
+
+    expect(verdict).toEqual({ outcome: "no-history" });
+    expect(captured).toEqual([]);
+    expect(await alerts.listOpen()).toEqual([]);
+  });
+
+  it("leaves a healthy run alone and writes nothing", async () => {
+    const { enforceDiscoveryFloor } = await import("./poll-bron-run");
+
+    const { alerts, bronHealth } = await createFloorStores();
+    const captured: DiscoveryFloorUpdate[] = [];
+    const runtime = createRuntime({
+      alerts,
+      bronHealth,
+      captured,
+      loadBaseline: () => Promise.resolve(healthyBaseline()),
+    });
+
+    const verdict = await enforceDiscoveryFloor(
+      pollResultWithFound(730),
+      runtime,
+      "poll"
+    );
+
+    expect(verdict).toEqual({ outcome: "ok" });
+    expect(captured).toEqual([]);
+    expect(await alerts.listOpen()).toEqual([]);
+  });
+
+  it("never touches a test-import run, not even to load the baseline", async () => {
+    const { enforceDiscoveryFloor } = await import("./poll-bron-run");
+
+    const { alerts, bronHealth } = await createFloorStores();
+    const captured: DiscoveryFloorUpdate[] = [];
+    const runtime = createRuntime({
+      alerts,
+      bronHealth,
+      captured,
+      loadBaseline: () =>
+        Promise.reject(
+          new Error("enforceDiscoveryFloor must not load a baseline for test")
+        ),
+    });
+
+    const verdict = await enforceDiscoveryFloor(
+      pollResultWithFound(0),
+      runtime,
+      "test"
+    );
+
+    expect(verdict).toEqual({ outcome: "ok" });
+    expect(captured).toEqual([]);
+    expect(await alerts.listOpen()).toEqual([]);
   });
 });
