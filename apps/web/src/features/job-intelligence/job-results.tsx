@@ -243,7 +243,6 @@ const MobileResults = ({
       >
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-2">
-            <span className="sr-only">Selecteer {job.title}</span>
             <Checkbox
               aria-label={`Selecteer ${job.title}`}
               checked={selectedIds?.has(job.id) ?? false}
