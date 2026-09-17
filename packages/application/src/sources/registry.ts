@@ -7,6 +7,7 @@ import type { SourceDefinition } from "./definition";
 import { flinter } from "./flinter";
 import { freelancerNl } from "./freelancer-nl";
 import { harveynash } from "./harveynash";
+import { hays } from "./hays";
 import { heijmans } from "./heijmans";
 import { hero } from "./hero";
 import { inhuurdesk } from "./inhuurdesk";
@@ -15,6 +16,8 @@ import { onefellow } from "./onefellow";
 import { opdrachtoverheid } from "./opdrachtoverheid";
 import { proAct } from "./pro-act";
 import { rabobank } from "./rabobank";
+import { randstad } from "./randstad";
+import { rijkswaterstaat } from "./rijkswaterstaat";
 import { striive } from "./striive";
 import { tbi } from "./tbi";
 import { tenderned } from "./tenderned";
@@ -38,6 +41,7 @@ export const SOURCES = {
   flinter,
   "freelancer-nl": freelancerNl,
   harveynash,
+  hays,
   heijmans,
   hero,
   inhuurdesk,
@@ -46,6 +50,8 @@ export const SOURCES = {
   opdrachtoverheid,
   "pro-act": proAct,
   rabobank,
+  randstad,
+  rijkswaterstaat,
   striive,
   tbi,
   tenderned,
