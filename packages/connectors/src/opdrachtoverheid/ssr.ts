@@ -1,3 +1,4 @@
+import { extractJobPosting } from "../json-ld/extract";
 /* oxlint-disable anti-slop/no-unsafe-dictionary-type, anti-slop/no-unknown-returns, anti-slop/no-known-value-widening, anti-slop/no-runtime-typeof -- This is the Nuxt `__NUXT_DATA__` (devalue) I/O boundary: the payload is an untyped slot array whose shape is only known after hydration, and `isTenderRecord` establishes the `OpdrachtoverheidTender` contract before anything leaves this module. */
 /* oxlint-disable anti-slop/no-unknown-parameters, anti-slop/no-runtime-typeof -- the public sitemap and the Nuxt SSR payload are untrusted third-party boundaries and are narrowed here before projection. */
 /**
@@ -13,8 +14,7 @@
  * Both parsers are regex-light and DOM-free: connectors run in worker
  * contexts without a DOM, and only tag boundaries need to be located.
  */
-import type { JsonLdNode } from "../json-ld";
-import { extractJsonLdBlocks, findJobPosting } from "../json-ld";
+import type { JsonLdNode } from "../json-ld/types";
 import type { OpdrachtoverheidTender } from "./types";
 
 export const OPDRACHTOVERHEID_SITE_BASE_URL = "https://www.opdrachtoverheid.nl";
@@ -184,7 +184,7 @@ export const parseOpdrachtoverheidDetailPage = (
   html: string,
   detailUrl: string
 ): OpdrachtoverheidDetailPage => {
-  const jobPosting = findJobPosting(extractJsonLdBlocks(html)) ?? null;
+  const jobPosting = extractJobPosting(html);
   const ssrTender = extractOpdrachtoverheidSsrTender(html);
   const tender: OpdrachtoverheidTender | null = ssrTender
     ? {

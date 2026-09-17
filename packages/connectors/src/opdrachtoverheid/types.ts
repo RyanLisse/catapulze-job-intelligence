@@ -1,4 +1,4 @@
-import type { JsonLdNode } from "../json-ld";
+import type { JsonLdNode } from "../json-ld/types";
 
 /**
  * Opdrachtoverheid is an AGGREGATOR of other brokers (RJC-360 probe,
