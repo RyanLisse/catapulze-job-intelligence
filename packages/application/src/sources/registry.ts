@@ -9,6 +9,7 @@ import { eneco } from "./eneco";
 import { enexis } from "./enexis";
 import { flinter } from "./flinter";
 import { freelancerNl } from "./freelancer-nl";
+import { gasunie } from "./gasunie";
 import { harveynash } from "./harveynash";
 import { hays } from "./hays";
 import { heijmans } from "./heijmans";
@@ -24,6 +25,7 @@ import { prorail } from "./prorail";
 import { rabobank } from "./rabobank";
 import { randstad } from "./randstad";
 import { rijkswaterstaat } from "./rijkswaterstaat";
+import { stedin } from "./stedin";
 import { striive } from "./striive";
 import { tbi } from "./tbi";
 import { tenderned } from "./tenderned";
@@ -52,6 +54,7 @@ export const SOURCES = {
   enexis,
   flinter,
   "freelancer-nl": freelancerNl,
+  gasunie,
   harveynash,
   hays,
   heijmans,
@@ -67,6 +70,7 @@ export const SOURCES = {
   rabobank,
   randstad,
   rijkswaterstaat,
+  stedin,
   striive,
   tbi,
   tenderned,
