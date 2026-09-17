@@ -40,6 +40,8 @@ export { zzpOpdrachtenConfig } from "./configs/zzp-opdrachten";
 export { datajobsConfig } from "./configs/datajobs";
 export { jobbirdConfig } from "./configs/jobbird";
 export { prorailConfig } from "./configs/prorail";
+export { intermediairConfig } from "./configs/intermediair";
+export { planetInterimConfig } from "./configs/planet-interim";
 export {
   extractJobPosting,
   extractJsonLdNodes,

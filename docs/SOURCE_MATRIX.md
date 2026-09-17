@@ -35,6 +35,8 @@ Verificatie 2026-08-27, read-only met headless Chrome + curl, geen logins, geen 
 | **Flextender** (v1) | filters publiek (gecheckt 25-08); opdrachten achter login | DAS-procedure, gunningscriteria, aanbestedende dienst | — | details → rung 3 |
 | **ProRail** (werkenbij, CTP-580) | `werkenbijprorail.nl/sitemap.xml` + JSON-LD JobPosting op `/vacatures/(functie\|verkeersleiding)/<slug>` | titel, locatie, salarisrange (zonder unitText → tarief UNKNOWN), uren, validThrough (geen tarief) | robots alleen CMS-paden; disclaimer standaard IE-clausule → `te_toetsen` | 48 URL's; 2 soft-404's zonder JobPosting; zie `sources/prorail.md` |
 | **Enexis** (werkenbij) | sitemap + JSON-LD JobPosting op detail | titel, locatie, salaris (maand), publicatiedatum, beschrijving (geen deadline/uren) | robots `Allow: /`; disclaimer geen scraping-clausule | 170 vacatures; connector `json-ld` (CTP-558) |
+| **Intermediair** (CTP-550) | `intermediair.nl/cdn/sitemaps/vacature.xml` (sitemap-index, hourly child) + JSON-LD JobPosting op `/vacature/<uuid>/<slug>` | titel, opdrachtgever, locatie, publicatie-/sluitingsdatum, dienstverband, salaris indien gepubliceerd | robots: zoek/paginatie-paden disallowed, sitemap-route toegestaan; `ClaudeBot` disallowed; DPG-consent-poort op browser-UA → live via ops-cookie | 2.480 vacature-URL's; connector `json-ld`; zie `sources/intermediair.md` |
+| **Planet Interim** (CTP-582) | `planetinterim.nl/opdrachten` + JSON-LD JobPosting op `/<slug>/<id>/p<cat>/default.html` | titel, locatie, publicatie-/sluitingsdatum, CONTRACTOR; tarief afwezig bij de bron | robots zonder Disallow (alleen TDM-preambule); paginering = ASP.NET-postback → nieuwste-pagina-dekking | 20 opdrachten zichtbaar; connector `json-ld`; zie `sources/planet-interim.md` |
 
 ### Rung 3 — Playwright met eigen leveranciersaccount · account regelen, dan activeren
 
@@ -78,6 +80,17 @@ Volledig bewijs (URL's, statuscodes, quotes): [`sources/inventory/msp-wave2.md`]
 | **Nétive VMS** (CTP-547, incl. DioR CTP-571) | NO-PUBLIC-SURFACE (platform) | `netive.nl` → `netivevms.com`; klantcases NS, BAM Flexplein, Pontoon, Maandag; geen publieke tenant-listing | Sluiten als platform-notitie |
 | **Brainnet** (CTP-548) | ALIAS(of Magnit) | 301 → `www.brainnet.nl` → 301 → `magnitglobal.com/nl` | Sluiten |
 | **Haert** (Driessen Groep; bijvangst) | PUBLIC→build-candidate, route JSON-LD | `haert.nl/opdrachten` Drupal-SSR, JobPosting JSON-LD met `baseSalary 125 EUR/HOUR`, `validThrough`, eindklant in tekst | Wave 3-kandidaat (nieuw issue), effort S |
+
+### Wave 1B · board-inventaris (2026-09-17, CTP-550/551/553/576/582/586) · zie `sources/inventory/boards-wave1b.md`
+
+| Bron | Verdict | Bewijs (kort) | Actie |
+|---|---|---|---|
+| **ICTerGezocht** (CTP-586) | DROP-ROBOTS | geen sitemap (`→404.php`); `/*search=` `/*page=` `/*what=` `/*where=` disallowed → geen compliant discovery-route | Sluiten; heropenen alleen bij publiceerbare sitemap/API |
+| **Freelance.nl** (CTP-576) | DROP-ROBOTS | `User-agent: *` `Disallow: /`; alleen naamgenoemde bots toegestaan | Sluiten |
+| **Intermediair** (CTP-550) | BUILD | sitemap-index hourly (2.480 URL's) + JobPosting op detail; zie rung-2-rij | Connector `intermediair` gebouwd |
+| **Techniekwerkt** (CTP-551) | NO-JSONLD | vacatures.xml.gz live, maar detail = alleen `BreadcrumbList`; SSR-HTML, geen in-page state | Niet in registry; html-adapter-kandidaat (als Waternet) |
+| **Jooble** (CTP-553) | DROP-AGGREGATOR | sitemap-index met `/jdp/`-details crawlbaar, maar meta-aggregator → dupliceert eerste-partij-bronnen | Sluiten op datakwaliteit |
+| **Planet Interim** (CTP-582) | BUILD | `/opdrachten` publiek + JobPosting op detail; robots zonder Disallow; postback-paginering → nieuwste-pagina | Connector `planet-interim` gebouwd |
 
 ## Wat Robbie moet regelen (blokkerend per bron)
 
