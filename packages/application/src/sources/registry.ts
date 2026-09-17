@@ -6,6 +6,7 @@ import { ctm } from "./ctm";
 import { datajobs } from "./datajobs";
 import type { SourceDefinition } from "./definition";
 import { eneco } from "./eneco";
+import { enexis } from "./enexis";
 import { flinter } from "./flinter";
 import { freelancerNl } from "./freelancer-nl";
 import { harveynash } from "./harveynash";
@@ -48,6 +49,7 @@ export const SOURCES = {
   ctm,
   datajobs,
   eneco,
+  enexis,
   flinter,
   "freelancer-nl": freelancerNl,
   harveynash,
