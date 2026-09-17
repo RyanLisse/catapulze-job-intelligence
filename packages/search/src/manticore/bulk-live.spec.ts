@@ -1,10 +1,11 @@
-import { describe, expect, it } from "bun:test";
+import { beforeAll, describe, expect, it } from "bun:test";
 
 import { parseBooleanQuery } from "@ji/domain";
 
 import type { SearchDocument } from "../types";
 import { InMemorySearchVersionStore } from "../version";
 import {
+  assertLiveTestTablesReady,
   cleanupLiveDocuments,
   createLiveTestEngine,
   requireLiveManticoreUrl,
@@ -21,6 +22,10 @@ const LIVE_TEST_INDEX_NAME = "aanvragen_test_bulk";
 describe.skipIf(!manticoreUrl)(
   "Manticore /bulk live integration (RJC-389)",
   () => {
+    beforeAll(() =>
+      assertLiveTestTablesReady(manticoreUrl, LIVE_TEST_INDEX_NAME)
+    );
+
     it("applies three replaces and one delete in a single bulk request", async () => {
       if (!manticoreUrl) {
         throw new Error("Live test was not skipped without MANTICORE_URL");

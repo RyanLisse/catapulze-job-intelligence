@@ -1,4 +1,6 @@
+import { SEARCH_PARTITIONS, partitionTable } from "../partition";
 import type { SearchVersionStore } from "../version";
+import { describeManticoreTable } from "./client";
 import { ManticoreSearchEngine } from "./engine";
 import type { ManticoreSearchEngineOptions } from "./engine";
 
@@ -44,6 +46,46 @@ export const createLiveTestEngine = (
     indexName,
     clock,
     { ...options, retryReplaceOnConflict: true }
+  );
+};
+
+/**
+ * Preflight for the MANTICORE_URL-gated specs (CTP-604). searchd runs in
+ * plain mode and reads tools/manticore/manticore.conf once at process start,
+ * and a bind-mounted file's contents are not part of Compose's service
+ * config hash, so `docker compose up -d manticore` leaves a container that
+ * predates a newly declared table serving the old table set. Probing the
+ * tables up front turns that into one failure naming every missing table and
+ * the recreate command, instead of per-query `unknown local table(s)` errors
+ * buried under the cleanup pass's 409 Conflicts.
+ */
+export const assertLiveTestTablesReady = async (
+  baseUrl: string | undefined,
+  indexName: string
+): Promise<void> => {
+  const configured = baseUrl?.trim();
+  if (!configured) {
+    throw new Error(
+      "assertLiveTestTablesReady requires a live MANTICORE_URL; the live describe should have been skipped"
+    );
+  }
+
+  const probes = await Promise.all(
+    SEARCH_PARTITIONS.map(async (partition) => {
+      const table = partitionTable(indexName, partition);
+      const { exists } = await describeManticoreTable(configured, table);
+      return { exists, table };
+    })
+  );
+  const missing = probes
+    .filter((probe) => !probe.exists)
+    .map((probe) => probe.table);
+  if (missing.length === 0) {
+    return;
+  }
+
+  throw new Error(
+    `Live Manticore test table(s) not found in the searchd at ${baseUrl}: ${missing.join(", ")}. searchd reads tools/manticore/manticore.conf once at startup, so a container started before these tables were declared never serves them. Recreate it: docker compose rm -sf manticore && docker compose up -d manticore`
   );
 };
 

@@ -371,6 +371,29 @@ class RecordingClient implements ManticoreHttpClient {
   }
 }
 
+/**
+ * ManticoreSearchEngine reads SEARCH_HYBRID lazily in its constructor, so the
+ * `finally` is what stops a throw between set and restore leaking the flag
+ * into every later engine constructed in this process.
+ */
+const withSearchHybrid = <T>(value: string | undefined, build: () => T): T => {
+  const previous = process.env.SEARCH_HYBRID;
+  if (value === undefined) {
+    delete process.env.SEARCH_HYBRID;
+  } else {
+    process.env.SEARCH_HYBRID = value;
+  }
+  try {
+    return build();
+  } finally {
+    if (previous === undefined) {
+      delete process.env.SEARCH_HYBRID;
+    } else {
+      process.env.SEARCH_HYBRID = previous;
+    }
+  }
+};
+
 const facetTimeoutClient: ManticoreHttpClient = {
   bulk: (_lines: readonly string[]): Promise<ManticoreBulkPayload> =>
     Promise.resolve({ errors: false }),
@@ -659,26 +682,25 @@ describe("ManticoreSearchEngine document mapping", () => {
   });
 
   it("defaults base synchronization from SEARCH_HYBRID and lets explicit false override it", async () => {
-    const previous = process.env.SEARCH_HYBRID;
-    process.env.SEARCH_HYBRID = "1";
     const enabledClient = new RecordingClient();
     const disabledClient = new RecordingClient();
-    const enabled = new ManticoreSearchEngine(
-      enabledClient,
-      new InMemorySearchVersionStore()
+    const [enabled, disabled] = withSearchHybrid(
+      "1",
+      () =>
+        [
+          new ManticoreSearchEngine(
+            enabledClient,
+            new InMemorySearchVersionStore()
+          ),
+          new ManticoreSearchEngine(
+            disabledClient,
+            new InMemorySearchVersionStore(),
+            SEARCH_INDEX_NAME,
+            () => new Date("2026-09-01T00:00:00.000Z"),
+            { hybridEnabled: false }
+          ),
+        ] as const
     );
-    const disabled = new ManticoreSearchEngine(
-      disabledClient,
-      new InMemorySearchVersionStore(),
-      SEARCH_INDEX_NAME,
-      () => new Date("2026-09-01T00:00:00.000Z"),
-      { hybridEnabled: false }
-    );
-    if (previous === undefined) {
-      delete process.env.SEARCH_HYBRID;
-    } else {
-      process.env.SEARCH_HYBRID = previous;
-    }
     const document = {
       beschrijving: "b",
       bronId: "bron-1",

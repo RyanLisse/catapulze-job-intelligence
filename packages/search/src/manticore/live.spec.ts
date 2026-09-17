@@ -1,9 +1,10 @@
-import { describe, expect, it } from "bun:test";
+import { beforeAll, describe, expect, it } from "bun:test";
 
 import { parseBooleanQuery } from "@ji/domain";
 
 import { InMemorySearchVersionStore } from "../version";
 import {
+  assertLiveTestTablesReady,
   cleanupLiveDocuments,
   createLiveTestEngine,
   requireLiveManticoreUrl,
@@ -23,6 +24,10 @@ const LIVE_TEST_INDEX_NAME = "aanvragen_test_live";
 describe.skipIf(!manticoreUrl)(
   "Manticore document-id live integration (RJC-356)",
   () => {
+    beforeAll(() =>
+      assertLiveTestTablesReady(manticoreUrl, LIVE_TEST_INDEX_NAME)
+    );
+
     it("replaces a doc, finds it by its original string id, then deletes it", async () => {
       if (!manticoreUrl) {
         throw new Error("Live test was not skipped without MANTICORE_URL");
