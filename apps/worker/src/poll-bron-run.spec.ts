@@ -808,10 +808,7 @@ describe("runBronIngestPipeline silence evaluation (RJC-409)", () => {
     writtenRecords: 0,
   };
 
-  const silenceRuntime = (
-    alerts: MemoryAlertStore,
-    bronHealth: MemoryBronHealthStore
-  ) => ({
+  const silenceRuntime = (alerts: AlertStore, bronHealth: BronHealthStore) => ({
     alerts,
     bronHealth,
     bronPersistence: {
