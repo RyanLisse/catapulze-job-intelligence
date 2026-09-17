@@ -1,22 +1,24 @@
 # ZZP-Opdrachten.nl — ingest-recept
 
 Status: **probe afgerond; connector toegevoegd** — adapter-categorie `json-ld`.
-De connector leest alleen de nieuwste sitemap-chunk en canonieke opdrachtpagina's.
+De connector leest de twee nieuwste sitemap-chunks en canonieke opdrachtpagina's.
 
 ## Endpoints
 
 | Doel | URL | Opmerking |
 |---|---|---|
-| Sitemap-chunk | `GET https://www.zzp-opdrachten.nl/job-sitemap58.xml` | Nieuwste van 58 chunks; 730 `<url>`-entries. |
+| Sitemap-index | `GET https://www.zzp-opdrachten.nl/sitemap.xml` | Selecteert de twee hoogste numerieke `job-sitemap<N>.xml` chunks. |
+| Sitemap-chunks | `GET https://www.zzp-opdrachten.nl/job-sitemap57.xml` en `job-sitemap58.xml` | De nieuwste twee chunks; samen vormen ze het rolling discovery window. |
 | Sample detail | `https://www.zzp-opdrachten.nl/vacatures/vacature-jurist-707983/` | JobPosting JSON-LD, identifier `ZT57670`. |
 
 ## Discovery en ATS
 
-De connector gebruikt bewust `job-sitemap58.xml`, niet `sitemap_index.xml`.
-De index wees deze chunk aan met `lastmod` `2026-09-16T13:55:11+00:00`.
-De client recurst niet in sitemap-indexen; daardoor ziet deze connector alleen
-de nieuwste chunk. Dat is een natuurlijke freshness window voor een rollend
-freelancebord met 58 historische chunks tot 2019, niet het volledige archief.
+De connector gebruikt de sitemap-index en volgt alleen de twee hoogste numerieke
+`job-sitemap<N>.xml` chunks. De chunknummering is de betrouwbare volgorde-sleutel:
+`<lastmod>` van de index is niet geschikt, omdat `job-sitemap.xml` zonder nummer
+een recente lastmod heeft maar vacatures uit 2018–2019 bevat. De client recurst
+niet verder dan deze ene indexlaag, zodat het volledige historische archief niet
+wordt ingelezen.
 Alleen de exacte vorm `/vacatures/vacature-<slug>-<id>/` blijft behouden.
 
 ## Veldmapping → canoniek `aanvraag`

@@ -2,6 +2,7 @@ export {
   createJsonLdClient,
   extractListingLinks,
   extractSitemapUrls,
+  selectSitemapIndexChildren,
   type JsonLdClient,
   type JsonLdClientOptions,
   type JsonLdDetailPayload,

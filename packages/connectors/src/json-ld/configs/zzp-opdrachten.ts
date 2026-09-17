@@ -1,11 +1,6 @@
 import type { JsonLdConnectorConfig } from "../types";
 
-/**
- * ZZP-Opdrachten publishes 58 historical sitemap chunks. Use the newest
- * chunk only: the client reads one sitemap URL and does not recurse into an
- * index of nested sitemaps, which gives this rolling board a natural
- * freshness window without ingesting its full archive.
- */
+/** ZZP-Opdrachten publishes historical sitemap chunks behind a sitemap index. */
 export const zzpOpdrachtenConfig: JsonLdConnectorConfig = {
   detailFixtures: {
     "https://www.zzp-opdrachten.nl/vacatures/vacature-bouwprojectmanager-708001/":
@@ -16,14 +11,22 @@ export const zzpOpdrachtenConfig: JsonLdConnectorConfig = {
       "zzp-opdrachten/detail-woonfraude-specialist-710585.json",
   },
   discovery: {
-    kind: "sitemap",
-    url: "https://www.zzp-opdrachten.nl/job-sitemap58.xml",
+    childPattern: /\/job-sitemap(?<chunk>\d+)\.xml$/u,
+    kind: "sitemap-index",
+    newest: 2,
+    url: "https://www.zzp-opdrachten.nl/sitemap.xml",
   },
   excludePatterns: [
     /^(?!https:\/\/www\.zzp-opdrachten\.nl\/vacatures\/vacature-[^/?#]+\/?$).+$/u,
   ],
-  listingFixturePath: "zzp-opdrachten/listing-page-0.json",
+  listingFixturePath: "zzp-opdrachten/sitemap-index.json",
   liveEnvVar: "ZZP_OPDRACHTEN_LIVE",
   parserVersion: "zzp-opdrachten/v1",
+  sitemapFixtures: {
+    "https://www.zzp-opdrachten.nl/job-sitemap57.xml":
+      "zzp-opdrachten/job-sitemap57.json",
+    "https://www.zzp-opdrachten.nl/job-sitemap58.xml":
+      "zzp-opdrachten/job-sitemap58.json",
+  },
   slug: "zzp-opdrachten",
 };

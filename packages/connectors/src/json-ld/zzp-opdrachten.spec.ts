@@ -38,9 +38,9 @@ const details = [
 ] as const;
 
 describe("ZZP-Opdrachten JSON-LD connector", () => {
-  it("discovers the newest sitemap chunk and the three recorded details", async () => {
+  it("discovers the newest two sitemap chunks and the three recorded details", async () => {
     const urls = await client.fetchListing();
-    expect(urls).toHaveLength(730);
+    expect(urls).toHaveLength(1805);
     for (const [url] of details) {
       expect(urls.some((entry) => entry.url === url)).toBe(true);
     }

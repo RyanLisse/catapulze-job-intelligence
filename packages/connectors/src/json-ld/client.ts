@@ -45,6 +45,7 @@ export interface JsonLdClientOptions {
 }
 
 const SITEMAP_URL_BLOCK_PATTERN = /<url>(?<block>[\s\S]*?)<\/url>/giu;
+const SITEMAP_ENTRY_BLOCK_PATTERN = /<sitemap>(?<block>[\s\S]*?)<\/sitemap>/giu;
 const SITEMAP_LOC_PATTERN = /<loc>(?<loc>[\s\S]*?)<\/loc>/u;
 const SITEMAP_LASTMOD_PATTERN = /<lastmod>(?<lastmod>[\s\S]*?)<\/lastmod>/u;
 const HREF_PATTERN = /href=["'](?<href>[^"']+)["']/giu;
@@ -77,6 +78,35 @@ export const extractSitemapUrls = (xml: string): JsonLdDiscoveryUrl[] => {
     match = SITEMAP_URL_BLOCK_PATTERN.exec(xml);
   }
   return urls;
+};
+
+/** Selects newest sitemap chunks by numeric chunk number, not `<lastmod>`. */
+export const selectSitemapIndexChildren = (
+  xml: string,
+  childPattern: RegExp,
+  newest: number
+): string[] => {
+  const children: { chunk: number; url: string }[] = [];
+  SITEMAP_ENTRY_BLOCK_PATTERN.lastIndex = 0;
+  let match = SITEMAP_ENTRY_BLOCK_PATTERN.exec(xml);
+  while (match) {
+    const block = match.groups?.block ?? "";
+    const loc = SITEMAP_LOC_PATTERN.exec(block)?.groups?.loc?.trim();
+    if (loc) {
+      const url = decodeXmlEntities(loc);
+      childPattern.lastIndex = 0;
+      const childMatch = childPattern.exec(url);
+      const chunk = Number(childMatch?.groups?.chunk);
+      if (childMatch && Number.isFinite(chunk)) {
+        children.push({ chunk, url });
+      }
+    }
+    match = SITEMAP_ENTRY_BLOCK_PATTERN.exec(xml);
+  }
+  return children
+    .toSorted((left, right) => right.chunk - left.chunk)
+    .slice(0, newest)
+    .map(({ url }) => url);
 };
 
 /** Extracts detail-page links from a listing HTML page, resolving every href against
@@ -140,6 +170,7 @@ export const createJsonLdClient = (
     config.listingFixturePath ??
     `${config.slug}/listing-page-0.json`;
   const detailFixtures = options.detailFixtures ?? config.detailFixtures ?? {};
+  const sitemapFixtures = config.sitemapFixtures ?? {};
   const cookieEnvVar = cookieEnvVarForLiveGate(config.liveEnvVar);
   const liveHeaders = () =>
     buildLiveFetchHeaders({
@@ -147,15 +178,33 @@ export const createJsonLdClient = (
       liveEnvVar: config.liveEnvVar,
     });
 
+  const fetchLiveText = async (url: string): Promise<string> =>
+    await withHttpTimeout(async (signal) => {
+      const response = await fetchImpl(url, {
+        headers: toLiveFetchHeadersInit(liveHeaders()),
+        signal,
+      });
+      return await readLiveHtmlOrThrow({
+        cookieEnvVar,
+        response,
+        slug: config.slug,
+        url,
+      });
+    }, timeoutMs);
+
   const parseListingSource = (raw: string): JsonLdDiscoveryUrl[] => {
-    const urls =
-      config.discovery.kind === "sitemap"
-        ? extractSitemapUrls(raw)
-        : extractListingLinks(
-            raw,
-            config.discovery.linkPattern,
-            config.detailBaseUrl ?? config.discovery.url
-          );
+    let urls: JsonLdDiscoveryUrl[];
+    if (config.discovery.kind === "sitemap") {
+      urls = extractSitemapUrls(raw);
+    } else if (config.discovery.kind === "listing") {
+      urls = extractListingLinks(
+        raw,
+        config.discovery.linkPattern,
+        config.detailBaseUrl ?? config.discovery.url
+      );
+    } else {
+      urls = [];
+    }
     return applyExcludes(urls, config.excludePatterns);
   };
 
@@ -189,37 +238,60 @@ export const createJsonLdClient = (
         const fixture = await loadConnectorFixture<string>(relativePath);
         return buildDetailPayload(url, fixture.payload);
       }
-      const html = await withHttpTimeout(async (signal) => {
-        const response = await fetchImpl(url, {
-          headers: toLiveFetchHeadersInit(liveHeaders()),
-          signal,
-        });
-        return await readLiveHtmlOrThrow({
-          cookieEnvVar,
-          response,
-          slug: config.slug,
-          url,
-        });
-      }, timeoutMs);
+      const html = await fetchLiveText(url);
       return buildDetailPayload(url, html);
     },
     fetchListing: async () => {
+      if (config.discovery.kind === "sitemap-index") {
+        let index: string;
+        if (liveEnabled) {
+          index = await fetchLiveText(config.discovery.url);
+        } else {
+          const fixture =
+            await loadConnectorFixture<string>(listingFixturePath);
+          index = fixture.payload;
+        }
+        const childUrls = selectSitemapIndexChildren(
+          index,
+          config.discovery.childPattern,
+          config.discovery.newest
+        );
+        const discovered: JsonLdDiscoveryUrl[] = [];
+        for (const childUrl of childUrls) {
+          let raw: string;
+          if (liveEnabled) {
+            // oxlint-disable-next-line no-await-in-loop -- child requests stay sequential
+            raw = await fetchLiveText(childUrl);
+          } else {
+            const fixturePath = sitemapFixtures[childUrl];
+            if (!fixturePath) {
+              throw new Error(
+                `Missing ${config.slug} sitemap fixture for ${childUrl}`
+              );
+            }
+            // oxlint-disable-next-line no-await-in-loop -- preserve child order
+            const fixture = await loadConnectorFixture<string>(fixturePath);
+            raw = fixture.payload;
+          }
+          discovered.push(...extractSitemapUrls(raw));
+        }
+        const seen = new Set<string>();
+        return applyExcludes(
+          discovered.filter((entry) => {
+            if (seen.has(entry.url)) {
+              return false;
+            }
+            seen.add(entry.url);
+            return true;
+          }),
+          config.excludePatterns
+        );
+      }
       if (!liveEnabled) {
         const fixture = await loadConnectorFixture<string>(listingFixturePath);
         return parseListingSource(fixture.payload);
       }
-      const raw = await withHttpTimeout(async (signal) => {
-        const response = await fetchImpl(config.discovery.url, {
-          headers: toLiveFetchHeadersInit(liveHeaders()),
-          signal,
-        });
-        return await readLiveHtmlOrThrow({
-          cookieEnvVar,
-          response,
-          slug: config.slug,
-          url: config.discovery.url,
-        });
-      }, timeoutMs);
+      const raw = await fetchLiveText(config.discovery.url);
       return parseListingSource(raw);
     },
   };
