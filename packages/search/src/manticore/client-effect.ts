@@ -14,6 +14,7 @@ import type {
   ManticoreSearchPayload,
   ManticoreSearchRequestBody,
 } from "./json";
+import { tableExistsInShowTables } from "./show-tables";
 import { ManticoreTimeoutError } from "./timeout-error";
 
 const DEFAULT_FETCH_TIMEOUT_MS = 8000;
@@ -29,15 +30,6 @@ export interface FetchManticoreEffectClientOptions {
   /** Optional outer AbortSignal for the Promise SDK boundary. */
   signal?: AbortSignal;
   timeoutMs?: number;
-}
-
-interface ManticoreShowTablesRow {
-  readonly Index?: string;
-  readonly Table?: string;
-}
-
-interface ManticoreShowTablesEnvelope {
-  readonly data?: readonly ManticoreShowTablesRow[];
 }
 
 const mergeSignals = (
@@ -259,17 +251,7 @@ export const describeManticoreTableEffect = (input: {
         );
       }
       const raw = await response.text();
-      // SAFETY: a 2xx `/sql?mode=raw` response is always
-      // `[{ data: [{ Index|Table, Type }, ...], ... }]` — any other shape would
-      // have been a non-2xx response, already thrown above.
-      const parsed = JSON.parse(raw) as ManticoreShowTablesEnvelope[];
-      const rows = Array.isArray(parsed) ? (parsed[0]?.data ?? []) : [];
-      return {
-        exists: rows.some(
-          (row) =>
-            row.Index === input.tableName || row.Table === input.tableName
-        ),
-      };
+      return { exists: tableExistsInShowTables(raw, input.tableName) };
     },
   });
 };
