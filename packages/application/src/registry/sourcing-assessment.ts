@@ -662,11 +662,13 @@ export const createSourcingAssessmentHandler =
           );
         }
         attestation = parsed.data;
-      } catch {
+      } catch (error) {
         // The registry converts this into a request-correlated, sanitized
         // INTERNAL_ERROR and reports the handler phase for metrics. Do not
         // downgrade a configured authority failure to blocked-upstream.
-        throw new Error("Sourcing assessment authority failed");
+        throw new Error("Sourcing assessment authority failed", {
+          cause: error,
+        });
       }
     }
     return {
