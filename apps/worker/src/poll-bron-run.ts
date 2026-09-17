@@ -28,6 +28,7 @@ import type {
   Connector,
   ConnectorRunKind,
   ConnectorRunMetrics,
+  RunCompleteness,
   RunIncompleteReason,
   KnownHashStore,
   ObjectStore,
@@ -76,6 +77,8 @@ export interface PollBronLifecycleSummary {
 export interface PollBronRunResult {
   bronId: BronId;
   bronSlug: SliceABronSlug;
+  /** Null when the result was replayed from an already-succeeded run row. */
+  completeness: RunCompleteness | null;
   lifecycle: PollBronLifecycleSummary | null;
   metrics: ConnectorRunMetrics;
   scrapeRunId: ScrapeRunId;
@@ -201,10 +204,16 @@ const summarizeLifecycle = (
     staled: lifecycle.staled.length,
   };
 
+export interface PollBronRunOptions {
+  /** CTP-490: bounds the connector run; see `ConnectorRunInput.signal`. */
+  signal?: AbortSignal;
+}
+
 export const runPollBron = async (
   payload: PollBronPayload,
   runtime: PollBronRuntime,
-  runKind: ConnectorRunKind = "poll"
+  runKind: ConnectorRunKind = "poll",
+  options: PollBronRunOptions = {}
 ): Promise<PollBronRunResult> => {
   // SAFETY: poll-bron payload schema validates UUID-shaped ids before the run starts.
   const bronId = payload.bronId as BronId;
@@ -234,6 +243,7 @@ export const runPollBron = async (
     runKind,
     runLifecycleStore: runtime.runLifecycleStore,
     scrapeRunId,
+    signal: options.signal,
   });
 
   if (result.lifecycle && result.lifecycle.staled.length > 0) {
@@ -246,6 +256,7 @@ export const runPollBron = async (
   return {
     bronId,
     bronSlug: payload.bronSlug,
+    completeness: result.completeness,
     lifecycle: summarizeLifecycle(result.lifecycle),
     metrics: result.metrics,
     scrapeRunId,
@@ -558,7 +569,8 @@ export const handleSilenceAndHealth = async (
 export const runBronIngestPipeline = async (
   payload: PollBronPayload,
   runtime: PollBronRuntime,
-  runKind: ConnectorRunKind = "poll"
+  runKind: ConnectorRunKind = "poll",
+  options: PollBronRunOptions = {}
 ): Promise<BronIngestPipelineResult> => {
   const [persistedRun] = await runtime.database
     .select({
@@ -603,6 +615,7 @@ export const runBronIngestPipeline = async (
           // SAFETY: poll-bron payload validation requires UUID-shaped bron ids.
           bronId: payload.bronId as BronId,
           bronSlug: payload.bronSlug,
+          completeness: null,
           lifecycle: null,
           metrics: {
             changed: persistedRun.changed,
@@ -617,7 +630,7 @@ export const runBronIngestPipeline = async (
           status: "succeeded",
           writtenRecords: persistedRun.new + persistedRun.changed,
         }
-      : await runPollBron(payload, runtime, runKind);
+      : await runPollBron(payload, runtime, runKind, options);
   await enforceDiscoveryFloor(pollResult, runtime, runKind);
   const silenceAlert = await handleSilenceAndHealth(
     pollResult,

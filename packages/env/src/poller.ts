@@ -33,6 +33,13 @@ const millisecondsWithDefault = (fallbackMs: number, variableName: string) =>
 /** Six hours: longer than any healthy poll plus its full curate budget. */
 export const ABANDON_RUN_AFTER_MS_DEFAULT = 6 * 60 * 60 * 1000;
 
+/**
+ * One hour: the slowest healthy poll measured on-box (Opdrachtoverheid, ~940 s
+ * of crawl delay for a 300-item listing) fits with margin, so a run that
+ * reaches it is stalled, not slow.
+ */
+export const RUN_BUDGET_MS_DEFAULT = 60 * 60 * 1000;
+
 export const resolvePollRunStaleAfterMs = (
   value: string | undefined = process.env.POLLER_ABANDON_RUN_AFTER_MS
 ): number => {
@@ -91,6 +98,16 @@ export const pollerEnvEffectSchemas = {
     "POLLER_CURATE_BUDGET_MS"
   ),
   POLLER_DATABASE_URL: directDatabaseUrlEffectSchema("POLLER_DATABASE_URL"),
+  /**
+   * CTP-490: wall-clock budget for one source's connector run. When it
+   * elapses the run stops at the next item, keeps what it observed and closes
+   * the row as incomplete (`aborted`) instead of staying `running` until
+   * the process dies and `POLLER_ABANDON_RUN_AFTER_MS` repairs it.
+   */
+  POLLER_RUN_BUDGET_MS: millisecondsWithDefault(
+    RUN_BUDGET_MS_DEFAULT,
+    "POLLER_RUN_BUDGET_MS"
+  ),
   POLLER_TICK_MS: millisecondsWithDefault(60_000, "POLLER_TICK_MS"),
   RAW_OBJECT_STORE_PATH: Schema.optional(NonEmptyString),
   RAW_S3_ACCESS_KEY_ID: Schema.optional(NonEmptyString),
@@ -131,6 +148,9 @@ const createPollerEnv = () =>
       ),
       POLLER_DATABASE_URL: toEnvSchema(
         pollerEnvEffectSchemas.POLLER_DATABASE_URL
+      ),
+      POLLER_RUN_BUDGET_MS: toEnvSchema(
+        pollerEnvEffectSchemas.POLLER_RUN_BUDGET_MS
       ),
       POLLER_TICK_MS: toEnvSchema(pollerEnvEffectSchemas.POLLER_TICK_MS),
       RAW_OBJECT_STORE_PATH: toEnvSchema(

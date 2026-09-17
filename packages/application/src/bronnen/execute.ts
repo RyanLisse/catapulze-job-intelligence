@@ -36,6 +36,8 @@ export interface ExecuteBronRunInput {
    */
   lifecycle?: LifecycleReconcilePorts;
   retryPolicy?: RetryPolicy;
+  /** CTP-490: stops the connector run at the next item boundary; see `ConnectorRunInput.signal`. */
+  signal?: AbortSignal;
   now?: () => number;
   wait?: (milliseconds: number) => Promise<void>;
   writeNow?: () => Date;
@@ -189,6 +191,7 @@ export const executeBronRun = async (
       runKind,
       runLifecycleStore: input.runLifecycleStore,
       scrapeRunId: input.scrapeRunId,
+      signal: input.signal,
       startedAt: input.startedAt,
       wait: input.wait,
       writeNow: input.writeNow,

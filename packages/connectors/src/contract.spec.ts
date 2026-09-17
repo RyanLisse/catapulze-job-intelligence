@@ -1243,6 +1243,83 @@ describe("runConnector", () => {
     expect(result.observedBronReferenties).toEqual(["TN-1"]);
   });
 
+  it("stops at the next item when the signal aborts, keeps the page checkpoint and closes the row (CTP-490)", async () => {
+    const dependencies = runDependencies("run-aborted");
+    const controller = new AbortController();
+    const fetched: string[] = [];
+    const result = await runConnector({
+      ...dependencies,
+      bronId: "bron-aborted",
+      bronSlug: "tenderned",
+      checkpoint: null,
+      connector: {
+        bronId: "bron-aborted",
+        discover: () =>
+          Promise.resolve({
+            checkpoint: { page: 1 },
+            hasMore: true,
+            items: [
+              { bronReferentie: "TN-1", contentHash: "a" },
+              { bronReferentie: "TN-2", contentHash: "b" },
+              { bronReferentie: "TN-3", contentHash: "c" },
+            ],
+          }),
+        fetch: (item) => {
+          fetched.push(item.bronReferentie);
+          if (item.bronReferentie === "TN-2") {
+            controller.abort();
+          }
+          return Promise.resolve(null);
+        },
+      },
+      signal: controller.signal,
+    });
+    expect(fetched).toEqual(["TN-1", "TN-2"]);
+    expect(result.completeness).toEqual({
+      complete: false,
+      reason: "aborted",
+    });
+    expect(result.observedBronReferenties).toEqual(["TN-1", "TN-2"]);
+    // The interrupted page is not done, so its checkpoint does not advance.
+    expect(result.checkpoint).toEqual({});
+    // The row is closed (complete), never left `running` for the reaper.
+    expect(
+      dependencies.runLifecycleStore.events.map((event) => event.type)
+    ).toEqual(["start", "checkpoint", "complete"]);
+    const stored = await dependencies.runLifecycleStore.load({
+      bronId: "bron-aborted",
+      scrapeRunId: "run-aborted",
+    });
+    expect(stored?.checkpoint).toBeNull();
+  });
+
+  it("ignores a signal that fires after the last page was read in full", async () => {
+    const dependencies = runDependencies("run-aborted-late");
+    const controller = new AbortController();
+    const result = await runConnector({
+      ...dependencies,
+      bronId: "bron-aborted-late",
+      bronSlug: "tenderned",
+      checkpoint: null,
+      connector: {
+        bronId: "bron-aborted-late",
+        discover: () =>
+          Promise.resolve({
+            checkpoint: { page: 1 },
+            hasMore: false,
+            items: [{ bronReferentie: "TN-1", contentHash: "a" }],
+          }),
+        fetch: () => {
+          controller.abort();
+          return Promise.resolve(null);
+        },
+      },
+      signal: controller.signal,
+    });
+    expect(result.completeness).toEqual({ complete: true });
+    expect(result.checkpoint).toEqual({ page: 1 });
+  });
+
   it("does not advance the checkpoint when a page fails", async () => {
     const dependencies = runDependencies("run-page-failure");
     const key = {

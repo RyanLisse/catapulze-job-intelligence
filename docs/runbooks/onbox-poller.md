@@ -46,6 +46,7 @@ Read through the typed contract in `packages/env/src/poller.ts`, which mirrors
 | `POLLER_TICK_MS` | no, default 60000 | How long the loop waits between cycles. |
 | `POLLER_CURATE_BUDGET_MS` | no, default 120000 | Per source, per cycle: how long the poller may keep curating that source's backlog after its poll run. |
 | `POLLER_CONCURRENCY` | no, default 2 | How many due sources the poller runs side by side inside a cycle. See [Sources run side by side](#sources-run-side-by-side). |
+| `POLLER_RUN_BUDGET_MS` | no, default 3600000 (1 hour) | Wall clock for one source's connector run. When it elapses the run stops at the next item, keeps what it observed and closes its row as incomplete. See [Runs that never finish](#runs-that-never-finish). |
 | `POLLER_ABANDON_RUN_AFTER_MS` | no, default 21600000 (6 hours) | A `curated.scrape_run` still `running` after this is failed at the top of a cycle. See [Runs that never finish](#runs-that-never-finish). |
 | `SEARCH_PROJECTOR` | no, pinned to `onbox` | The only accepted value. The poller polls and curates; the on-box projector owns every outbox drain. |
 | `MANTICORE_URL` | no | Unused while `SEARCH_PROJECTOR` is `onbox`. Declared so the contract is one document. |
@@ -170,6 +171,53 @@ The six hour default is deliberately far above any healthy run: the longest
 source takes around 940 seconds plus one curate budget. Anything that old is a
 dead process, not slow work. It runs before the candidates are loaded so the
 repaired run is already closed when the cycle reads the newest run per source.
+
+### Stopping a live run instead of waiting for the reaper (CTP-490)
+
+The reaper only repairs rows a *dead* process left behind. A *live* process
+whose run had stalled (an upstream that keeps accepting connections but never
+returns, a listing whose detail fetches each hit their timeout and retries)
+used to hold its row `running` for as long as the process lived; the 10
+September Opdrachtoverheid audit found eight such rows, seven of them with
+`found = 300` and no `geindigd`.
+
+Every connector run now takes an `AbortSignal` (`ConnectorRunInput.signal`,
+`packages/connectors/src/run.ts`) that the poller builds from two sources:
+
+- the process shutdown signal (SIGINT / SIGTERM), so a redeploy no longer
+  leaves the current run `running`;
+- `AbortSignal.timeout(POLLER_RUN_BUDGET_MS)`, so a stalled run is bounded
+  even without a restart.
+
+When the signal fires the run finishes the request already in flight (HTTP
+timeouts still bound that), stops before the next item, persists the metrics
+it has and closes the row through the normal `complete` path with
+`completeness = { complete: false, reason: "aborted" }`. Nothing observed so
+far is lost: every fetched item is already in the object store and the
+observation table. The interrupted page keeps the checkpoint it *started*
+from, because the items after the cut were never seen, so the next poll
+re-reads that page. Missed-poll reconciliation treats `aborted` like
+`truncated` and `resumed`: it never stales a record the run did not reach.
+The poller logs one `poller_source_incomplete` line with the reason.
+
+A signal that fires after the last page was already read in full is ignored;
+the run is complete and reported as such.
+
+What this does **not** do, and what an operator still owns:
+
+- Rows already stuck in production before this shipped are repaired by the
+  reaper on the next cycle (or by hand, see the audit issue). The code cannot
+  tell which of the eight rows overlapped; read `gestart` / `found` per row.
+- Verify the Opdrachtoverheid counters: the `bron` search facet is computed
+  from the Manticore index, not from `curated.aanvraag`. A source with active
+  rows in Postgres and zero in the facet means the projector has not indexed
+  them; run the projection repair for that `bron_id` and compare counts.
+- CTM and Flinter are inactive by the activation rule, not by a bug: their
+  test imports yielded 6 and 19 distinct records against a minimum of 20
+  (`docs/runbooks/live-sources-status-2026-09-03.md`). `activateBron` refuses
+  them by design. Activating either needs a product decision to lower the
+  threshold or an operator running a fresh test import that clears it; the
+  code does not activate sources on its own.
 
 ## How the backlog drains
 
@@ -353,6 +401,7 @@ Logs never carry raw payloads or database URLs.
 |---|---|
 | A source throws | Logged as one `poller_source` line with `errorName` and a redacted, 300 character `errorMessage`, skipped for this cycle, retried on its own interval. The loop and the other sources in flight are unaffected. |
 | A run is left `running` by a dead process | Failed at the top of the next cycle once it is older than `POLLER_ABANDON_RUN_AFTER_MS`, with the `unknown` / `internal` / `UNEXPECTED_FAILURE` tuple and `geindigd` set. Logged as one `poller_runs_abandoned` line with the count. |
+| A run outlives `POLLER_RUN_BUDGET_MS`, or SIGTERM arrives mid-run | The run stops before its next item, keeps everything fetched so far, leaves the interrupted page's checkpoint where it started and closes the row as `succeeded` with `completeness.reason = "aborted"`. Missed-poll reconciliation skips staling for that run. Logged as one `poller_source_incomplete` line. |
 | Database unreachable | The cycle's candidate load throws out of the loop and the process exits 1 with `poller_fatal`. The supervisor restarts it. |
 | `POLLER_DATABASE_URL` missing or a known pooler URL | Typed env validation fails before startup and the process exits non-zero. Supply the direct endpoint for the same database and role. |
 | Second instance started | Waits for the advisory lock instead of exiting: polls every 2 s, keeps the heartbeat fresh so it stays healthy, logs `poller_lock_waiting` at most every 30 s, polls nothing. SIGINT or SIGTERM during the wait exits 0 without ever having held the lock. |

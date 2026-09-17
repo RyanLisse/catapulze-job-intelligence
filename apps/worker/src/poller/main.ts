@@ -107,14 +107,30 @@ interface PollSourceOptions {
   candidate: PollCandidate;
   curateBudgetMs: number;
   onHeartbeat: () => Promise<void>;
+  runBudgetMs: number;
   runtime: PollBronRuntime;
   signal: AbortSignal;
 }
 
+/**
+ * CTP-490: one signal for the connector run that fires on shutdown or when
+ * the run budget elapses, so a stalled poll closes its own row instead of
+ * sitting `running` until `POLLER_ABANDON_RUN_AFTER_MS` repairs it.
+ */
+const runAbortSignal = (shutdown: AbortSignal, budgetMs: number): AbortSignal =>
+  AbortSignal.any([shutdown, AbortSignal.timeout(budgetMs)]);
+
 const pollSource = async (
   options: PollSourceOptions
 ): Promise<PollerSourceLog> => {
-  const { candidate, curateBudgetMs, onHeartbeat, runtime, signal } = options;
+  const {
+    candidate,
+    curateBudgetMs,
+    onHeartbeat,
+    runBudgetMs,
+    runtime,
+    signal,
+  } = options;
   const startedAt = Date.now();
   const scrapeRunId = crypto.randomUUID();
   try {
@@ -125,8 +141,15 @@ const pollSource = async (
         scrapeRunId,
       },
       runtime,
-      "poll"
+      "poll",
+      { signal: runAbortSignal(signal, runBudgetMs) }
     );
+    if (result.completeness && !result.completeness.complete) {
+      logLine(process.stdout, "poller_source_incomplete", {
+        bronSlug: candidate.bronSlug,
+        reason: result.completeness.reason,
+      });
+    }
     // The budget is for draining, so it starts when the poll ends: a poll that
     // outlasts it must still get its curation passes.
     const drained = await drainBacklog({
@@ -172,6 +195,7 @@ const main = async (): Promise<void> => {
   const curateBudgetMs = Number(pollerEnv.POLLER_CURATE_BUDGET_MS);
   const concurrency = Number(pollerEnv.POLLER_CONCURRENCY);
   const abandonRunAfterMs = Number(pollerEnv.POLLER_ABANDON_RUN_AFTER_MS);
+  const runBudgetMs = Number(pollerEnv.POLLER_RUN_BUDGET_MS);
 
   const controller = new AbortController();
   let shutdownRequested = false;
@@ -230,6 +254,7 @@ const main = async (): Promise<void> => {
     concurrency,
     curateBudgetMs,
     releaseSha: pollerEnv.APP_RELEASE_SHA ?? null,
+    runBudgetMs,
     startedAt: PROCESS_STARTED_AT.toISOString(),
     tickMs,
   });
@@ -290,6 +315,7 @@ const main = async (): Promise<void> => {
             candidate,
             curateBudgetMs,
             onHeartbeat: recordHeartbeat,
+            runBudgetMs,
             runtime,
             signal: controller.signal,
           });

@@ -19,6 +19,7 @@ import {
 import type {
   Connector,
   ConnectorCheckpoint,
+  ConnectorDiscoverResult,
   ConnectorRunMetrics,
   DiscoverItem,
 } from "./contract";
@@ -115,6 +116,13 @@ export interface ConnectorRunInput {
   runKind: ConnectorRunKind;
   runLifecycleStore: RunLifecycleStore;
   scrapeRunId: ScrapeRunId;
+  /**
+   * CTP-490: when aborted, the run stops at the next item boundary, persists
+   * what it has and closes the row with `completeness.reason = "aborted"`
+   * instead of staying `running` until the process dies. Requests already in
+   * flight finish under their own HTTP timeouts.
+   */
+  signal?: AbortSignal;
   startedAt?: Date;
   now?: () => Date;
   wait?: Sleep;
@@ -126,12 +134,16 @@ export interface ConnectorRunInput {
  * run may count unseen records as missed. A run is incomplete when it
  * resumed from a persisted checkpoint (earlier pages were seen by another
  * attempt, not this one) or when a connector reported a page cap
- * (`ConnectorDiscoverResult.truncated`). A failed run never returns a
+ * (`ConnectorDiscoverResult.truncated`), or when the caller's `signal`
+ * aborted it before the last page (`aborted`). A failed run never returns a
  * result at all, so failure is covered by the throw, not by this flag.
  */
 export type RunCompleteness =
   | { complete: true }
-  | { complete: false; reason: "empty" | "resumed" | "truncated" };
+  | {
+      complete: false;
+      reason: "aborted" | "empty" | "resumed" | "truncated";
+    };
 
 export type RunIncompleteReason = Exclude<
   RunCompleteness,
@@ -165,10 +177,36 @@ const request = <Result>(
   return withRetry(limitedOperation, retryPolicy, wait);
 };
 
+const isAborted = (signal: AbortSignal | undefined): boolean =>
+  signal?.aborted === true;
+
+/**
+ * An aborted page keeps the checkpoint it started from: the items it did not
+ * reach were never observed, so the page is not done. A signal that fires
+ * after the last page changes nothing: the listing was read in full.
+ */
+const settlePage = (
+  discovery: ConnectorDiscoverResult,
+  pageAborted: boolean,
+  startCheckpoint: ConnectorCheckpoint | null,
+  signal: AbortSignal | undefined
+) => {
+  const aborted = pageAborted || (discovery.hasMore && isAborted(signal));
+  return {
+    aborted,
+    checkpoint: pageAborted ? startCheckpoint : discovery.checkpoint,
+    hasMore: discovery.hasMore && !aborted,
+  };
+};
+
 const resolveCompleteness = (
   resumed: boolean,
-  truncated: boolean
+  truncated: boolean,
+  aborted: boolean
 ): RunCompleteness => {
+  if (aborted) {
+    return { complete: false, reason: "aborted" };
+  }
   if (resumed) {
     return { complete: false, reason: "resumed" };
   }
@@ -193,6 +231,7 @@ const runConnectorInner = async (
     runKind,
     runLifecycleStore,
     scrapeRunId,
+    signal,
     startedAt = new Date(),
     now = () => new Date(),
     wait,
@@ -235,6 +274,7 @@ const runConnectorInner = async (
   const observedBronReferenties = new Set<string>();
   const resumed = checkpoint !== null;
   let truncated = false;
+  let aborted = false;
 
   const persistItem = async (
     item: DiscoverItem,
@@ -335,6 +375,23 @@ const runConnectorInner = async (
     }
   };
 
+  /** Persists items in order; returns true when the signal cut the page short. */
+  const persistPage = async (
+    items: readonly DiscoverItem[],
+    at: Date
+  ): Promise<boolean> => {
+    for (const item of items) {
+      if (isAborted(signal)) {
+        return true;
+      }
+      // CTP-500: missed-polls compares this set against stored keys.
+      observedBronReferenties.add(boundBronReferentie(item.bronReferentie));
+      // oxlint-disable-next-line no-await-in-loop -- crawl policy requires sequential fetches
+      await persistItem(item, at);
+    }
+    return false;
+  };
+
   try {
     while (hasMore) {
       const currentCheckpoint = checkpoint;
@@ -355,16 +412,10 @@ const runConnectorInner = async (
       metrics.found += discovery.items.length;
       truncated ||= discovery.truncated === true;
 
-      for (const item of discovery.items) {
-        // CTP-500: missed-polls compares this set against stored keys.
-        observedBronReferenties.add(boundBronReferentie(item.bronReferentie));
-        // oxlint-disable-next-line no-await-in-loop -- crawl policy requires sequential fetches
-        await persistItem(item, observedAt);
-      }
-
-      const { checkpoint: completedCheckpoint, hasMore: discoveredMore } =
-        discovery;
-      checkpoint = completedCheckpoint;
+      // oxlint-disable-next-line no-await-in-loop -- crawl policy requires sequential fetches
+      const pageAborted = await persistPage(discovery.items, observedAt);
+      const page = settlePage(discovery, pageAborted, checkpoint, signal);
+      ({ aborted, checkpoint } = page);
       progress.checkpoint = checkpoint;
       // oxlint-disable-next-line no-await-in-loop -- checkpoint and cumulative metrics persist atomically
       await withFailureEnvelope(
@@ -376,7 +427,7 @@ const runConnectorInner = async (
           ),
         FAILURE_ENVELOPES.checkpoint
       );
-      hasMore = discoveredMore;
+      ({ hasMore } = page);
     }
     await withFailureEnvelope(
       () =>
@@ -422,7 +473,7 @@ const runConnectorInner = async (
 
   return {
     checkpoint: checkpoint ?? {},
-    completeness: resolveCompleteness(resumed, truncated),
+    completeness: resolveCompleteness(resumed, truncated, aborted),
     metrics,
     observedBronReferenties: [...observedBronReferenties],
     writtenRecords,
