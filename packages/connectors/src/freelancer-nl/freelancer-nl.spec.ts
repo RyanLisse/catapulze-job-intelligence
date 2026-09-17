@@ -1,4 +1,4 @@
-import { describe, expect, it } from "bun:test";
+import { describe, expect, it, spyOn } from "bun:test";
 
 import { loadConnectorFixture } from "@ji/connectors";
 
@@ -84,5 +84,37 @@ describe("Freelancer.nl HTML connector", () => {
     expect(second.items).toHaveLength(0);
     expect(second.hasMore).toBe(false);
     expect(second.truncated).toBe(false);
+  });
+
+  it("warns and falls back to an empty seen set when the checkpoint cursor is unparseable", async () => {
+    const listingFixture = await loadConnectorFixture<string>(
+      "freelancer-nl/listing-page-0.json"
+    );
+    const firstPage = parseFreelancerNlListing(listingFixture.payload, 1);
+    const client = createFreelancerNlClient({ liveEnabled: false });
+    const connector = createFreelancerNlConnector({
+      bronId: BRON_ID,
+      client: {
+        fetchDetailHtml: client.fetchDetailHtml,
+        fetchListing: () => Promise.resolve(firstPage),
+      },
+    });
+    const warn = spyOn(console, "warn").mockImplementation(() => {});
+
+    try {
+      const result = await connector.discover({ cursor: "{not json", page: 1 });
+
+      expect(result.items).toHaveLength(firstPage.items.length);
+      expect(warn).toHaveBeenCalledTimes(1);
+      const logged = String(warn.mock.calls[0]?.[0]);
+      expect(JSON.parse(logged)).toMatchObject({
+        error: "SyntaxError",
+        event: "connector.freelancer_nl.checkpoint_cursor_unparseable",
+        page: 1,
+      });
+      expect(logged).not.toContain("not json");
+    } finally {
+      warn.mockRestore();
+    }
   });
 });
