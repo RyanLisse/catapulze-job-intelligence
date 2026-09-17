@@ -235,11 +235,44 @@ export const extractJsonListingUrls = (
   return urls;
 };
 
-interface JsonListingPagination {
+export interface JsonListingPagination {
   page: number;
   pageSize: number;
   total: number;
 }
+
+export const validateJsonListingPagination = (
+  pagination: JsonListingPagination,
+  config: JsonLdListingPaginationConfig,
+  baseUrl: string
+): JsonListingPagination & { pageCount: number } => {
+  const { page, pageSize, total } = pagination;
+  if (
+    !Number.isInteger(page) ||
+    !Number.isInteger(pageSize) ||
+    !Number.isInteger(total) ||
+    page < 1 ||
+    pageSize < 1 ||
+    total < 0
+  ) {
+    throw new Error(
+      `JSON listing pagination at ${baseUrl} has invalid page, page size, or total`
+    );
+  }
+  const pageCount = Math.max(1, Math.ceil(total / pageSize));
+  if (page !== 1 || page > pageCount) {
+    throw new Error(
+      `JSON listing pagination at ${baseUrl} must start at page 1 and stay within ${pageCount} pages`
+    );
+  }
+  const maxPages = config.maxPages ?? 100;
+  if (pageCount > maxPages) {
+    throw new Error(
+      `JSON listing pagination at ${baseUrl} requires ${pageCount} pages, exceeding the limit of ${maxPages}`
+    );
+  }
+  return { ...pagination, pageCount };
+};
 
 export const extractJsonListingPagination = (
   raw: string,
@@ -354,23 +387,11 @@ export const createJsonLdClient = (
     if (!pagination) {
       return parseListingSource(firstRaw);
     }
-    const { page, pageSize, total } = extractJsonListingPagination(
-      firstRaw,
+    const { page, pageSize, pageCount } = validateJsonListingPagination(
+      extractJsonListingPagination(firstRaw, pagination, config.discovery.url),
       pagination,
       config.discovery.url
     );
-    if (pageSize <= 0 || total < 0) {
-      throw new Error(
-        `JSON listing pagination at ${config.discovery.url} has invalid page size or total`
-      );
-    }
-    const pageCount = Math.ceil(total / pageSize);
-    const maxPages = pagination.maxPages ?? 100;
-    if (pageCount > maxPages) {
-      throw new Error(
-        `JSON listing pagination at ${config.discovery.url} requires ${pageCount} pages, exceeding the limit of ${maxPages}`
-      );
-    }
     const discovered = parseListingSource(firstRaw);
     for (let nextPage = page + 1; nextPage <= pageCount; nextPage += 1) {
       // oxlint-disable-next-line no-await-in-loop -- pagination requests stay ordered and bounded.

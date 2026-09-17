@@ -402,6 +402,50 @@ describe("extractJsonListingUrls", () => {
     ]);
   });
 
+  it("rejects pagination metadata that cannot be safely bounded", async () => {
+    const listingUrl = "https://example.test/api/jobs?page=1&pageSize=50";
+    const calls: string[] = [];
+    const mockFetch: typeof fetch = Object.assign(
+      (input: string | URL | Request) => {
+        calls.push(String(input));
+        return Promise.resolve(
+          Response.json({
+            hits: [{ pageUrl: "/jobs/one" }],
+            pagination: { page: -1_000_000, pageSize: 50, totalMatching: 1 },
+          })
+        );
+      },
+      { preconnect: () => {} }
+    );
+    const client = createJsonLdClient({
+      config: {
+        detailBaseUrl: "https://example.test/",
+        discovery: {
+          kind: "json-listing",
+          linkPattern: /^\/jobs\/[^/]+$/u,
+          pagination: {
+            pageParam: "page",
+            pagePointer: "pagination.page",
+            pageSizeParam: "pageSize",
+            pageSizePointer: "pagination.pageSize",
+            totalPointer: "pagination.totalMatching",
+          },
+          url: listingUrl,
+          urlPointer: "hits[].pageUrl",
+        },
+        parserVersion: "test/v1",
+        slug: "test-json-pagination-invalid",
+      },
+      fetchImpl: mockFetch,
+      liveEnabled: true,
+    });
+
+    await expect(client.fetchListing()).rejects.toThrow(
+      "invalid page, page size, or total"
+    );
+    expect(calls).toEqual([listingUrl]);
+  });
+
   it("walks nested arrays and keeps only string leaves", () => {
     expect(
       extractJsonListingUrls(

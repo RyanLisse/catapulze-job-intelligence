@@ -17,6 +17,7 @@ import {
   extractListingLinks,
   extractSitemapUrls,
   selectSitemapIndexChildren,
+  validateJsonListingPagination,
 } from "./client";
 import { extractJobPosting, extractLabelBlock } from "./extract";
 import {
@@ -232,71 +233,75 @@ const parseJsonListingPagesEffect = (
         message: `Failed to parse ${config.slug} listing pagination`,
       }),
     try: () =>
-      extractJsonListingPagination(firstRaw, pagination, config.discovery.url),
+      validateJsonListingPagination(
+        extractJsonListingPagination(
+          firstRaw,
+          pagination,
+          config.discovery.url
+        ),
+        pagination,
+        config.discovery.url
+      ),
   });
   return metadata.pipe(
-    Effect.flatMap(({ page, pageSize, total }) => {
-      if (pageSize <= 0 || total < 0) {
-        return Effect.fail(
+    Effect.flatMap(({ page, pageSize, pageCount }) => {
+      const firstPage = Effect.try({
+        catch: (cause) =>
           new ValidationFault({
-            message: `Invalid ${config.slug} listing pagination`,
-          })
-        );
-      }
-      const pageCount = Math.ceil(total / pageSize);
-      const maxPages = pagination.maxPages ?? 100;
-      if (pageCount > maxPages) {
-        return Effect.fail(
-          new ValidationFault({
-            message: `${config.slug} listing pagination requires ${pageCount} pages, exceeding the limit of ${maxPages}`,
-          })
-        );
-      }
+            cause,
+            message: `Failed to parse ${config.slug} listing`,
+          }),
+        try: () => parseListingSource(config, firstRaw),
+      });
       const pageUrls = Array.from(
         { length: Math.max(0, pageCount - page) },
         (_, index) => page + index + 1
       );
-      return Effect.forEach(
-        pageUrls,
-        (nextPage) => {
-          if (!resolveLiveEnabled(options)) {
-            return Effect.fail(
-              new ValidationFault({
-                message: `JSON listing fixture ${config.listingFixturePath ?? `${config.slug}/listing-page-0.json`} requires an unavailable page`,
-              })
-            );
-          }
-          const nextUrl = new URL(config.discovery.url);
-          nextUrl.searchParams.set(pagination.pageParam, String(nextPage));
-          nextUrl.searchParams.set(pagination.pageSizeParam, String(pageSize));
-          return fetchLiveTextEffect(options, nextUrl.toString()).pipe(
-            Effect.flatMap((raw) =>
-              Effect.try({
-                catch: (cause) =>
+      return firstPage.pipe(
+        Effect.flatMap((firstUrls) =>
+          Effect.forEach(
+            pageUrls,
+            (nextPage) => {
+              if (!resolveLiveEnabled(options)) {
+                return Effect.fail(
                   new ValidationFault({
-                    cause,
-                    message: `Failed to parse ${config.slug} listing`,
-                  }),
-                try: () => parseListingSource(config, raw),
-              })
-            )
-          );
-        },
-        { concurrency: 1 }
-      ).pipe(
-        Effect.map((pages) => {
-          const seen = new Set<string>();
-          return [
-            ...parseListingSource(config, firstRaw),
-            ...pages.flat(),
-          ].filter((entry) => {
-            if (seen.has(entry.url)) {
-              return false;
-            }
-            seen.add(entry.url);
-            return true;
-          });
-        })
+                    message: `JSON listing fixture ${config.listingFixturePath ?? `${config.slug}/listing-page-0.json`} requires an unavailable page`,
+                  })
+                );
+              }
+              const nextUrl = new URL(config.discovery.url);
+              nextUrl.searchParams.set(pagination.pageParam, String(nextPage));
+              nextUrl.searchParams.set(
+                pagination.pageSizeParam,
+                String(pageSize)
+              );
+              return fetchLiveTextEffect(options, nextUrl.toString()).pipe(
+                Effect.flatMap((raw) =>
+                  Effect.try({
+                    catch: (cause) =>
+                      new ValidationFault({
+                        cause,
+                        message: `Failed to parse ${config.slug} listing`,
+                      }),
+                    try: () => parseListingSource(config, raw),
+                  })
+                )
+              );
+            },
+            { concurrency: 1 }
+          ).pipe(
+            Effect.map((pages) => {
+              const seen = new Set<string>();
+              return [...firstUrls, ...pages.flat()].filter((entry) => {
+                if (seen.has(entry.url)) {
+                  return false;
+                }
+                seen.add(entry.url);
+                return true;
+              });
+            })
+          )
+        )
       );
     })
   );
