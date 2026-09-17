@@ -30,6 +30,7 @@ import { rijkswaterstaat } from "./rijkswaterstaat";
 import { stedin } from "./stedin";
 import { striive } from "./striive";
 import { tbi } from "./tbi";
+import { techniekwerkt } from "./techniekwerkt";
 import { tenderned } from "./tenderned";
 import { tenmonks } from "./tenmonks";
 import { unica } from "./unica";
@@ -77,6 +78,7 @@ export const SOURCES = {
   stedin,
   striive,
   tbi,
+  techniekwerkt,
   tenderned,
   tenmonks,
   unica,

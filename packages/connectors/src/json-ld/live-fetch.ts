@@ -123,6 +123,27 @@ export const toLiveFetchHeadersInit = (
   return entries;
 };
 
+const GZIP_MAGIC = 0x1f_8b;
+
+/**
+ * Decodes a live response body to text, transparently inflating gzip payloads
+ * the server sent without `Content-Encoding` (e.g. Techniekwerkt's
+ * `application/x-compressed` sitemap at `*.xml.gz`). Sniffing the two magic
+ * bytes is safe: no text or XML body can start with 0x1f 0x8b.
+ */
+export const decodeLiveBodyBytes = async (
+  bytes: ArrayBuffer
+): Promise<string> => {
+  const view = new DataView(bytes);
+  if (bytes.byteLength >= 2 && view.getUint16(0, false) === GZIP_MAGIC) {
+    const stream = new Blob([bytes])
+      .stream()
+      .pipeThrough(new DecompressionStream("gzip"));
+    return await new Response(stream).text();
+  }
+  return new TextDecoder().decode(bytes);
+};
+
 /**
  * Typed non-2xx live-response error. Carrying `status` lets callers treat a
  * 404 detail page as "gone at source" instead of failing the whole run.
@@ -149,7 +170,7 @@ export const readLiveHtmlOrThrow = async (options: {
   slug: string;
   url: string;
 }): Promise<string> => {
-  const body = await options.response.text();
+  const body = await decodeLiveBodyBytes(await options.response.arrayBuffer());
   if (isCloudflareChallenge(options.response, body)) {
     throw cloudflareChallengeError({
       cookieEnvVar: options.cookieEnvVar,
