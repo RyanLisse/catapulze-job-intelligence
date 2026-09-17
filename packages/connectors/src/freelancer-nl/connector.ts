@@ -43,7 +43,7 @@ const seenFromCheckpoint = (
     console.warn(
       JSON.stringify({
         cursorLength: checkpoint.cursor.length,
-        error: error instanceof Error ? error.message : String(error),
+        error: error instanceof Error ? error.name : "unknown",
         event: "connector.freelancer_nl.checkpoint_cursor_unparseable",
         page: checkpoint.page,
       })

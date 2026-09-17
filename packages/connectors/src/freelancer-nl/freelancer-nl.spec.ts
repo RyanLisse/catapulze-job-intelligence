@@ -106,10 +106,13 @@ describe("Freelancer.nl HTML connector", () => {
 
       expect(result.items).toHaveLength(firstPage.items.length);
       expect(warn).toHaveBeenCalledTimes(1);
-      expect(JSON.parse(String(warn.mock.calls[0]?.[0]))).toMatchObject({
+      const logged = String(warn.mock.calls[0]?.[0]);
+      expect(JSON.parse(logged)).toMatchObject({
+        error: "SyntaxError",
         event: "connector.freelancer_nl.checkpoint_cursor_unparseable",
         page: 1,
       });
+      expect(logged).not.toContain("not json");
     } finally {
       warn.mockRestore();
     }
