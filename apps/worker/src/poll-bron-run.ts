@@ -48,6 +48,7 @@ import {
 } from "@ji/db";
 import type { BronRuntimeDatabase } from "@ji/db";
 import { curateScrapeRun } from "@ji/db/curate-scrape-run";
+import { describeCauseChain, errorNameOf } from "@ji/db/error-cause-chain";
 import { PostgresCurateStore } from "@ji/db/postgres-curate-store";
 import { aanvraagObservation } from "@ji/db/schema/staging";
 import type { BronId, ScrapeRunId } from "@ji/domain";
@@ -55,6 +56,7 @@ import { ManticoreSearchEngine } from "@ji/search";
 import { and, eq } from "drizzle-orm";
 
 import { readSearchProjectorMode, requireManticoreUrl } from "./poll-bron-env";
+import { redactErrorMessage } from "./poller/source-log";
 import type { SliceABronSlug } from "./slice-a-bronnen";
 import type { PollBronPayload } from "./tasks/poll-bron-schema";
 
@@ -81,6 +83,17 @@ export interface PollBronRunResult {
   writtenRecords: number;
 }
 
+export interface SilenceOutcome {
+  alertId?: string;
+  /**
+   * Redacted cause chain of a failed baseline read. Present only when the
+   * read threw; silence was then not evaluated for this poll, because an
+   * empty baseline would read as "no history yet" and never alert.
+   */
+  baselineReadError?: string;
+  created: boolean;
+}
+
 export interface BronIngestPipelineResult extends PollBronRunResult {
   alreadyCommitted: number;
   attemptedObservationIds: string[];
@@ -94,7 +107,7 @@ export interface BronIngestPipelineResult extends PollBronRunResult {
   quarantined: number;
   pending: number;
   remaining: number;
-  silenceAlert?: { alertId?: string; created: boolean } | null;
+  silenceAlert?: SilenceOutcome | null;
   unchanged: number;
   superseded: number;
 }
@@ -311,6 +324,58 @@ const loadRunBaseline = async (
   return baseline;
 };
 
+type BaselineLoad =
+  | { baseline: readonly RunBaselineSample[]; ok: true }
+  | { error: unknown; ok: false };
+
+const loadSilenceBaseline = async (
+  pollResult: PollBronRunResult,
+  runtime: PollBronRuntime,
+  now: Date
+): Promise<BaselineLoad> => {
+  try {
+    if (runtime.loadBaseline) {
+      return {
+        baseline: await runtime.loadBaseline(pollResult.bronId),
+        ok: true,
+      };
+    }
+    if (runtime.database) {
+      return {
+        baseline: await querySilenceBaselineSamples(
+          runtime.database,
+          pollResult.bronId,
+          now,
+          pollResult.scrapeRunId
+        ),
+        ok: true,
+      };
+    }
+    return { baseline: [], ok: true };
+  } catch (error) {
+    return { error, ok: false };
+  }
+};
+
+const recordSucceededRun = async (
+  bronId: BronId,
+  now: Date,
+  alerts: AlertStore,
+  bronHealth: BronHealthStore
+): Promise<void> => {
+  const existing = await bronHealth.getByBronId(bronId);
+  const openAlert = await alerts.findOpenByDedupeKey(
+    buildSilenceDedupeKey(bronId)
+  );
+  await bronHealth.upsert({
+    bronId,
+    circuitStatus: existing?.circuitStatus ?? "closed",
+    lastRunAt: now,
+    lastRunStatus: "succeeded",
+    silenceAlertOpen: openAlert !== null,
+  });
+};
+
 const resolveBronNaam = async (
   pollResult: PollBronRunResult,
   runtime: PollBronRuntime
@@ -453,7 +518,7 @@ export const handleSilenceAndHealth = async (
   pollResult: PollBronRunResult,
   runtime: PollBronRuntime,
   runKind: ConnectorRunKind
-): Promise<{ alertId?: string; created: boolean } | null> => {
+): Promise<SilenceOutcome | null> => {
   if (runKind !== "poll") {
     return null;
   }
@@ -463,7 +528,26 @@ export const handleSilenceAndHealth = async (
   const bronHealth =
     runtime.bronHealth ?? new PostgresBronHealthStore(runtime.database);
 
-  const baseline = await loadRunBaseline(pollResult, runtime, now);
+  const load = await loadSilenceBaseline(pollResult, runtime, now);
+  if (!load.ok) {
+    const baselineReadError = redactErrorMessage(
+      describeCauseChain({ error: load.error })
+    );
+    process.stderr.write(
+      `${JSON.stringify({
+        bronId: pollResult.bronId,
+        bronSlug: pollResult.bronSlug,
+        errorMessage: baselineReadError,
+        errorName: errorNameOf({ error: load.error }),
+        event: "silence_baseline_read_failed",
+        scrapeRunId: pollResult.scrapeRunId,
+      })}\n`
+    );
+    await recordSucceededRun(pollResult.bronId, now, alerts, bronHealth);
+    return { baselineReadError, created: false };
+  }
+
+  const { baseline } = load;
   const lastSuccessAt = baseline.length > 0 ? (baseline[0]?.at ?? null) : null;
   const bronNaam = await resolveBronNaam(pollResult, runtime);
 
