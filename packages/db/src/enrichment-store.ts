@@ -113,6 +113,30 @@ const titleFallbackSql = sql`
   )
 `;
 
+const incompleteAanvraagWhere = sql`(
+  ${aanvraag.locatieTekst} IS NULL
+  OR trim(${aanvraag.locatieTekst}) = ''
+  OR ${aanvraag.locatieTekst} = 'unknown'
+  OR (
+    ${aanvraag.tariefMin} IS NULL
+    AND ${aanvraag.tariefMax} IS NULL
+    AND ${aanvraag.tariefEenheid} IS NULL
+  )
+  OR COALESCE(
+    NULLIF(trim(${aanvraag.contracttype}), ''),
+    NULLIF(trim(${aanvraag.bronSpecifiek}->>'contracttype'), ''),
+    NULLIF(trim(${aanvraag.bronSpecifiek}->>'contract_type'), '')
+  ) IS NULL
+  OR COALESCE(
+    NULLIF(trim(${aanvraag.werkvorm}), ''),
+    NULLIF(trim(${aanvraag.bronSpecifiek}->>'werkvorm'), '')
+  ) IS NULL
+  OR ${aanvraag.publicatiedatum} IS NULL
+  OR trim(${aanvraag.publicatiedatum}) = ''
+  OR ${aanvraag.publicatiedatum} = 'unknown'
+  OR (${titleFallbackSql})
+)`;
+
 const isEnrichmentField = (field: string): field is EnrichmentField =>
   ENRICHMENT_FIELDS.some((candidate) => candidate === field);
 
@@ -160,31 +184,7 @@ export class PostgresEnrichmentStore {
         werkvorm: aanvraag.werkvorm,
       })
       .from(aanvraag)
-      .where(
-        sql`(
-          ${aanvraag.locatieTekst} IS NULL
-          OR trim(${aanvraag.locatieTekst}) = ''
-          OR ${aanvraag.locatieTekst} = 'unknown'
-          OR (
-            ${aanvraag.tariefMin} IS NULL
-            AND ${aanvraag.tariefMax} IS NULL
-            AND ${aanvraag.tariefEenheid} IS NULL
-          )
-          OR COALESCE(
-            NULLIF(trim(${aanvraag.contracttype}), ''),
-            NULLIF(trim(${aanvraag.bronSpecifiek}->>'contracttype'), ''),
-            NULLIF(trim(${aanvraag.bronSpecifiek}->>'contract_type'), '')
-          ) IS NULL
-          OR COALESCE(
-            NULLIF(trim(${aanvraag.werkvorm}), ''),
-            NULLIF(trim(${aanvraag.bronSpecifiek}->>'werkvorm'), '')
-          ) IS NULL
-          OR ${aanvraag.publicatiedatum} IS NULL
-          OR trim(${aanvraag.publicatiedatum}) = ''
-          OR ${aanvraag.publicatiedatum} = 'unknown'
-          OR (${titleFallbackSql})
-        )`
-      )
+      .where(incompleteAanvraagWhere)
       .limit(limit);
 
     return rows.flatMap((row) => {
@@ -371,31 +371,7 @@ export class PostgresEnrichmentStore {
         aanvraagEnrichment,
         eq(aanvraagEnrichment.aanvraagId, aanvraag.id)
       )
-      .where(
-        sql`(
-          ${aanvraag.locatieTekst} IS NULL
-          OR trim(${aanvraag.locatieTekst}) = ''
-          OR ${aanvraag.locatieTekst} = 'unknown'
-          OR (
-            ${aanvraag.tariefMin} IS NULL
-            AND ${aanvraag.tariefMax} IS NULL
-            AND ${aanvraag.tariefEenheid} IS NULL
-          )
-          OR COALESCE(
-            NULLIF(trim(${aanvraag.contracttype}), ''),
-            NULLIF(trim(${aanvraag.bronSpecifiek}->>'contracttype'), ''),
-            NULLIF(trim(${aanvraag.bronSpecifiek}->>'contract_type'), '')
-          ) IS NULL
-          OR COALESCE(
-            NULLIF(trim(${aanvraag.werkvorm}), ''),
-            NULLIF(trim(${aanvraag.bronSpecifiek}->>'werkvorm'), '')
-          ) IS NULL
-          OR ${aanvraag.publicatiedatum} IS NULL
-          OR trim(${aanvraag.publicatiedatum}) = ''
-          OR ${aanvraag.publicatiedatum} = 'unknown'
-          OR (${titleFallbackSql})
-        )`
-      )
+      .where(incompleteAanvraagWhere)
       .limit(limit * 8);
 
     const byId = new Map<
