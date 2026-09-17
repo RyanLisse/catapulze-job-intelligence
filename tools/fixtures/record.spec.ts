@@ -13,6 +13,8 @@ import path from "node:path";
 import {
   DEFAULT_HTML_STRIP,
   recordFixture,
+  redactContactsInJson,
+  redactContactText,
   stripHtml,
   stripJsonKeys,
 } from "./record";
@@ -45,6 +47,44 @@ describe("stripHtml", () => {
     );
     expect(value).toBe("<article><p>Tekst</p></article>");
     expect(counts).toEqual({ "article::class": 1 });
+  });
+});
+
+describe("redactContactText", () => {
+  it("replaces an address and every Dutch number shape with a fixed marker", () => {
+    const { counts, value } = redactContactText(
+      "Bel Mathijs op 0183-516254, 06 12 34 56 78 of +31 6 13 05 62 67, of mail m.vuister@gemeentealtena.nl."
+    );
+
+    expect(value).toBe(
+      "Bel Mathijs op +31000000000, +31000000000 of +31000000000, of mail redacted@example.invalid."
+    );
+    expect(counts).toEqual({ "redacted:email": 1, "redacted:phone": 3 });
+  });
+
+  it("leaves decimals alone, because a dot is not a Dutch phone separator", () => {
+    // Admitting a dot matched 253 Striive listing scores such as 05.185353.
+    const { counts, value } = redactContactText("score 05.185353 en 01.430431");
+
+    expect(value).toBe("score 05.185353 en 01.430431");
+    expect(counts).toEqual({ "redacted:email": 0, "redacted:phone": 0 });
+  });
+});
+
+describe("redactContactsInJson", () => {
+  it("redacts strings at any depth and leaves the shape and other values intact", () => {
+    const { counts, value } = redactContactsInJson({
+      contact: { email: "r.jansen@example.org", tel: "010-1234567" },
+      scores: [1.5, 2.25],
+      titel: "Data Engineer",
+    });
+
+    expect(value).toEqual({
+      contact: { email: "redacted@example.invalid", tel: "+31000000000" },
+      scores: [1.5, 2.25],
+      titel: "Data Engineer",
+    });
+    expect(counts).toEqual({ "redacted:email": 1, "redacted:phone": 1 });
   });
 });
 

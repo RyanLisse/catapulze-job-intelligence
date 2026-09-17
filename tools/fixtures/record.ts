@@ -7,14 +7,20 @@
  *   (it can hold PII);
  * - `capturedAt` is that raw file's mtime in UTC, never a rounded value;
  * - trimming is mechanical only: HTML elements removed by selector, JSON
- *   keys deleted by name. Nothing is retyped or invented.
+ *   keys deleted by name, contact details replaced by a fixed marker.
+ *   Nothing is retyped or invented.
  *
  * Usage:
  *   bun tools/fixtures/record.ts --source <slug> --name <file-stem> --url <url>
  *     [--body '<json>'] [--strip <css selector>]... [--strip-key <key>]...
  *     [--strip-attr '<css selector>::<attribute>']...
  *     [--note <text>] [--raw-dir <dir>] [--from-raw <file>] [--no-defaults]
- *     [--content-type json|html] [--out-dir <dir>]
+ *     [--content-type json|html] [--out-dir <dir>] [--no-redact]
+ *
+ * Contact redaction is on by default: email addresses and Dutch phone numbers
+ * are replaced in every payload string, and the counts land in `captureNote`.
+ * `--no-redact` exists for a source whose parser reads a contact field; using
+ * it means the fixture guard spec will reject the result, which is the point.
  *
  * `--no-defaults` drops DEFAULT_HTML_STRIP so only the named `--strip`
  * selectors apply -- for pages whose parser reads data inside one of the
@@ -109,6 +115,73 @@ export const stripHtml = async (
   }
   const value = await rewriter.transform(new Response(html)).text();
   return { counts, value };
+};
+
+/**
+ * Contact details published in vacancy prose are personal data and must not
+ * enter the repository, which is public. Element selectors cannot reach them:
+ * they sit in ordinary <p> copy inside the vacancy body with no class or
+ * wrapper to target. So they are removed by pattern instead, mechanically,
+ * and the replacement is a fixed marker rather than an invented value.
+ *
+ * A dot is deliberately not a phone separator here. Dutch numbers are written
+ * with spaces or hyphens, and admitting a dot makes the pattern swallow
+ * decimals (measured: it matched 253 Striive listing scores).
+ */
+const CONTACT_SEPARATOR = String.raw`[\s\u00a0-]?`;
+
+export const CONTACT_REDACTIONS = [
+  {
+    label: "email",
+    pattern:
+      /[A-Za-z0-9._%+-]+@[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?\.[A-Za-z]{2,}/gu,
+    replacement: "redacted@example.invalid",
+  },
+  {
+    label: "phone",
+    pattern: new RegExp(
+      [
+        `(?:\\+31|0031)${CONTACT_SEPARATOR}\\(?0?\\)?${CONTACT_SEPARATOR}\\d(?:${CONTACT_SEPARATOR}\\d){8}`,
+        `\\b06${CONTACT_SEPARATOR}\\d(?:${CONTACT_SEPARATOR}\\d){7}\\b`,
+        String.raw`\b0\d{2,3}-\d{6,7}\b`,
+        String.raw`\b0\d{2,3}\s\d{3}\s?\d{2}\s?\d{2}\b`,
+      ].join("|"),
+      "gu"
+    ),
+    replacement: "+31000000000",
+  },
+] as const;
+
+/** Replaces contact details in every string of a payload. Runs after element
+ * and key stripping, so it only ever sees what would otherwise be committed. */
+/** Replaces every contact detail in one payload string with a fixed marker. */
+export const redactContactText = (text: string): StripResult<string> => {
+  const counts: Record<string, number> = Object.fromEntries(
+    CONTACT_REDACTIONS.map(({ label }) => [`redacted:${label}`, 0])
+  );
+  let value = text;
+  for (const { label, pattern, replacement } of CONTACT_REDACTIONS) {
+    value = value.replace(pattern, () => {
+      counts[`redacted:${label}`] = (counts[`redacted:${label}`] ?? 0) + 1;
+      return replacement;
+    });
+  }
+  return { counts, value };
+};
+
+/**
+ * Redacts a JSON payload through its serialized form. No contact pattern
+ * contains a character `JSON.stringify` escapes, so a match in the serialized
+ * text is a match in the underlying string. Walking the parsed tree instead
+ * would need a runtime type check on every node.
+ */
+export const redactContactsInJson = (
+  value: JsonValue
+): StripResult<JsonValue> => {
+  const { counts, value: text } = redactContactText(JSON.stringify(value));
+  // SAFETY: the markers substituted into JSON.stringify output contain no JSON
+  // metacharacters, so the text still parses to the same shape.
+  return { counts, value: JSON.parse(text) as JsonValue };
 };
 
 export const stripJsonKeys = (
@@ -210,6 +283,7 @@ interface TrimResult {
 
 interface TrimOptions {
   readonly noDefaults: boolean;
+  readonly noRedact: boolean;
   readonly strip: readonly string[];
   readonly stripAttr: readonly string[];
   readonly stripKey: readonly string[];
@@ -224,19 +298,29 @@ const trimRaw = async (
     // SAFETY: the raw file was written from a JSON response and re-read
     // verbatim, so JSON.parse yields a JSON value.
     const parsed = JSON.parse(rawText) as JsonValue;
-    const { counts, value } = stripJsonKeys(parsed, options.stripKey);
+    const stripped = stripJsonKeys(parsed, options.stripKey);
+    const redacted = options.noRedact
+      ? { counts: {}, value: stripped.value }
+      : redactContactsInJson(stripped.value);
     return {
-      counts,
-      payload: value,
-      payloadBytes: Buffer.byteLength(JSON.stringify(value)),
+      counts: { ...stripped.counts, ...redacted.counts },
+      payload: redacted.value,
+      payloadBytes: Buffer.byteLength(JSON.stringify(redacted.value)),
     };
   }
-  const { counts, value } = await stripHtml(
+  const stripped = await stripHtml(
     rawText,
     [...(options.noDefaults ? [] : DEFAULT_HTML_STRIP), ...options.strip],
     options.stripAttr
   );
-  return { counts, payload: value, payloadBytes: Buffer.byteLength(value) };
+  const redacted = options.noRedact
+    ? { counts: {}, value: stripped.value }
+    : redactContactText(stripped.value);
+  return {
+    counts: { ...stripped.counts, ...redacted.counts },
+    payload: redacted.value,
+    payloadBytes: Buffer.byteLength(redacted.value),
+  };
 };
 
 /** Content decides JSON vs HTML, never a file extension -- a JSON endpoint
@@ -295,6 +379,7 @@ export const recordFixture = async (
       "from-raw": { type: "string" },
       name: { type: "string" },
       "no-defaults": { type: "boolean" },
+      "no-redact": { type: "boolean" },
       note: { type: "string" },
       "out-dir": { type: "string" },
       "raw-dir": { type: "string" },
@@ -334,6 +419,7 @@ export const recordFixture = async (
   const capturedAt = rawStats.mtime.toISOString();
   const trimmed = await trimRaw(rawText, isJson, {
     noDefaults: values["no-defaults"] ?? false,
+    noRedact: values["no-redact"] ?? false,
     strip: values.strip ?? [],
     stripAttr: values["strip-attr"] ?? [],
     stripKey,
