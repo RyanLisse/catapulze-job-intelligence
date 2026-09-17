@@ -27,7 +27,6 @@ describe.skipIf(!manticoreUrl)(
     beforeAll(() =>
       assertLiveTestTablesReady(manticoreUrl, LIVE_TEST_INDEX_NAME)
     );
-
     it("replaces a doc, finds it by its original string id, then deletes it", async () => {
       if (!manticoreUrl) {
         throw new Error("Live test was not skipped without MANTICORE_URL");

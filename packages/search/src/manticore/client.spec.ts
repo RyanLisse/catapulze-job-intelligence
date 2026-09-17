@@ -1,4 +1,4 @@
-import { describe, expect, it } from "bun:test";
+import { afterEach, describe, expect, it } from "bun:test";
 
 import { SEARCH_INDEX_NAME, SEARCH_WINDOW_LIMIT } from "../types";
 import { InMemorySearchVersionStore } from "../version";
@@ -6,6 +6,7 @@ import {
   buildManticoreCountRequest,
   buildManticoreSearchRequest,
   buildManticoreSort,
+  FetchManticoreClient,
   parseManticoreSearchResponse,
 } from "./client";
 import type { ManticoreHttpClient } from "./client";
@@ -19,6 +20,32 @@ import type {
   ManticoreRequestBody,
   ManticoreSearchPayload,
 } from "./json";
+
+const originalFetch = globalThis.fetch;
+
+afterEach(() => {
+  globalThis.fetch = originalFetch;
+});
+
+interface ManticoreErrorStubBody {
+  readonly error: string | { readonly index?: string; readonly type: string };
+}
+
+const stubManticoreErrorResponse = (
+  body: ManticoreErrorStubBody,
+  status: number,
+  statusText = "Conflict"
+): void => {
+  // SAFETY: this stub only exercises the fetch call shape used by the
+  // client; no other global fetch overload is needed here.
+  globalThis.fetch = ((
+    _input: string | URL | Request,
+    _init?: RequestInit
+  ): Promise<Response> =>
+    Promise.resolve(
+      Response.json(body, { status, statusText })
+    )) as typeof fetch;
+};
 
 // RJC-378: sort, filter and pagination moved into Manticore. These specs pin
 // the exact clauses the client emits so a regression shows up here, not as
@@ -345,6 +372,52 @@ describe("parseManticoreSearchResponse", () => {
     expect(response.incomplete).toBe(true);
     expect(response.hits).toEqual([{ id: "partial", weight: 2 }]);
     expect(response.emptyReason).toBe("query_timeout");
+  });
+});
+
+describe("FetchManticoreClient error responses", () => {
+  const requestBody = buildManticoreSearchRequest(
+    SEARCH_INDEX_NAME,
+    null,
+    {},
+    1,
+    0
+  );
+
+  it("surfaces a structured Manticore table error", async () => {
+    stubManticoreErrorResponse(
+      {
+        error: {
+          index: "aanvragen_test_live_active",
+          type: "table 'aanvragen_test_live_active' absent, or does not support INSERT",
+        },
+      },
+      409
+    );
+
+    await expect(
+      new FetchManticoreClient("http://manticore.test").request(
+        "/search",
+        requestBody
+      )
+    ).rejects.toThrow(
+      "Manticore request failed (409): table 'aanvragen_test_live_active' absent, or does not support INSERT"
+    );
+  });
+
+  it("still surfaces string Manticore errors", async () => {
+    stubManticoreErrorResponse(
+      { error: "plain error body" },
+      500,
+      "Internal Server Error"
+    );
+
+    await expect(
+      new FetchManticoreClient("http://manticore.test").request(
+        "/search",
+        requestBody
+      )
+    ).rejects.toThrow("Manticore request failed (500): plain error body");
   });
 });
 
