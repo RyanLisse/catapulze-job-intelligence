@@ -1,6 +1,6 @@
 # Opdrachtoverheid — ingest-recept (geverifieerd 2026-08-31; coverage herprobe 2026-09-16)
 
-Status: **probe en connector actief** — adapter-categorie `json-api` met `json-ld`-fallback; publieke sitemap is market-wide (~440 `/inhuuropdracht/`-URL's / ~204 org-slugs op 2026-09-16), terwijl de private `POST /search`-snapshot smal blijft (~Amstelveen). Geen technische blocker; aggregator-overlap, privé-API-risico en voorwaardenstatus blijven expliciet.
+Status: **probe en connector actief** — discover via publieke sitemap → SSR-detail (`__NUXT_DATA__`) → JobPosting JSON-LD (CTP-601), privé `POST /search` als fallback; publieke sitemap is market-wide (~440 `/inhuuropdracht/`-URL's / ~204 org-slugs op 2026-09-16), terwijl de private `POST /search`-snapshot smal blijft (~Amstelveen). Geen technische blocker; aggregator-overlap, privé-API-risico en voorwaardenstatus blijven expliciet.
 
 ## Endpoints
 
@@ -69,6 +69,32 @@ Los daarvan publiceert de bron geen landveld; `locatie_land` blijft `"NL"`.
 
 ## Ingest-patroon
 
+### Market-wide discover via sitemap + SSR (CTP-601, primair)
+
+1. `GET /sitemap.xml`; alleen `/inhuuropdracht/<org-slug>/<titel>/<web_key>`-URL's
+   met precies drie padsegmenten tellen mee; dedupliceer op `web_key`.
+2. Loop de sitemap in batches van 25 (`OPDRACHTOVERHEID_SITEMAP_BATCH_SIZE`),
+   checkpoint `cursor: "sitemap:<offset>"`; de sitemap-snapshot wordt per
+   connector-instantie hergebruikt tussen checkpoints. Een ander checkpoint
+   (bv. `{ page: 1 }` van de privé-API) start een verse snapshot.
+3. Per detailpagina: lees het tender-record uit `#__NUXT_DATA__`
+   (devalue-array; pad `pinia.vacancyStore.vacancies[0]`) en de `JobPosting`
+   JSON-LD. Het SSR-record loopt door dezelfde DEC-008-projectie als de
+   `/search`-rij; `pinia.teamStore` (adviseurscontacten) wordt nooit gelezen en
+   is uit de fixtures gestript (`tools/fixtures/redact-nuxt-data.ts`).
+4. Een detailpagina die faalt of geen tender bevat wordt overgeslagen en de
+   batch wordt `truncated` gemarkeerd; de run faalt niet.
+5. Detail-bodies boven 2 MiB worden afgewezen (`OPDRACHTOVERHEID_MAX_PAGE_BODY_BYTES`).
+
+Fixtures: `fixtures/connectors/opdrachtoverheid/sitemap.json` (mechanisch
+getrimd tot 4 URL's, `tools/fixtures/trim-sitemap.ts`) en
+`detail-{alliander,gemeente-rotterdam,rijkswaterstaat}.json` — drie
+organisaties buiten Amstelveen, als bewijs dat de publieke route de markt dekt.
+
+### Fallback: privé `POST /search`
+
+Alleen wanneer de sitemap faalt of leeg is:
+
 - POST één snapshot met `limit: 400` en `offset: 0`; de API levert geen stabiele
   page-boundary omdat dezelfde of cumulatieve limits records kunnen herordenen.
   Dedupliceer `tender_id` binnen de response.
@@ -78,7 +104,7 @@ Los daarvan publiceert de bron geen landveld; `locatie_land` blijft `"NL"`.
   400 records worden afgewezen als onveilige overschrijding van de bestaande
   budgetgrens.
 - Bewaar `tender_source` en `tender_url` vóór normalisatie en gebruik ze bij cross-source deduplicatie.
-- Gebruik bij API-falen (of voor market-wide discover, CTP-601) de sitemap en parse JobPosting uit de SSR-details; **verzin geen** `/search`-filterparams en gebruik geen uitgesloten filter-querystrings.
+- **Verzin geen** `/search`-filterparams en gebruik geen uitgesloten filter-querystrings.
 
 ## Licentie en voorwaarden
 

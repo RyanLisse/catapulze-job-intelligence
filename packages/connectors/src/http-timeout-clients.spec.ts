@@ -58,9 +58,15 @@ const createLiveOperations = (fetchImpl: typeof fetch) => {
     {
       name: "Opdrachtoverheid detail",
       run: () =>
-        opdrachtoverheid.fetchDetailJsonLd(
-          "https://www.opdrachtoverheid.nl/inhuuropdracht/Org/example/T-1"
-        ),
+        opdrachtoverheid.fetchDetail({
+          detailUrl:
+            "https://www.opdrachtoverheid.nl/inhuuropdracht/Org/example/T-1",
+          webKey: "T-1",
+        }),
+    },
+    {
+      name: "Opdrachtoverheid sitemap",
+      run: () => opdrachtoverheid.fetchSitemap(),
     },
     { name: "Striive listing", run: () => striive.fetchListing(1) },
   ];
@@ -89,7 +95,7 @@ describe("native connector HTTP timeouts", () => {
       })
     );
 
-    expect(signals).toHaveLength(5);
+    expect(signals).toHaveLength(6);
     expect(signals.every((signal) => signal.aborted)).toBe(true);
   });
 
@@ -128,7 +134,7 @@ describe("native connector HTTP timeouts", () => {
       })
     );
 
-    expect(signals).toHaveLength(5);
+    expect(signals).toHaveLength(6);
     expect(signals.every((signal) => signal.aborted)).toBe(true);
   });
 
@@ -207,7 +213,11 @@ describe("native connector HTTP timeouts", () => {
       timeoutMs: TIMEOUT_MS,
     });
     await opdrachtoverheid.fetchListing(0);
-    await opdrachtoverheid.fetchDetailJsonLd("https://example.test/detail");
+    await opdrachtoverheid.fetchDetail({
+      detailUrl: "https://example.test/detail",
+      webKey: "detail",
+    });
+    await opdrachtoverheid.fetchSitemap();
 
     const striive = createStriiveClient({
       fetchImpl,

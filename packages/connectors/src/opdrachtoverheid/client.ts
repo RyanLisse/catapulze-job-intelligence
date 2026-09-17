@@ -1,8 +1,16 @@
 /* oxlint-disable anti-slop/no-unknown-parameters, anti-slop/no-runtime-typeof -- the private listing API is an untrusted JSON boundary and is narrowed before projection. */
 import { loadConnectorFixture } from "../fixtures/load";
 import { resolveHttpTimeoutMs, withHttpTimeout } from "../http-timeout";
-import { findJobPosting, extractJsonLdBlocks } from "../json-ld";
-import type { JsonLdNode } from "../json-ld";
+import {
+  OPDRACHTOVERHEID_SITE_BASE_URL,
+  OPDRACHTOVERHEID_SITEMAP_PATH,
+  parseOpdrachtoverheidDetailPage,
+  parseOpdrachtoverheidSitemap,
+} from "./ssr";
+import type {
+  OpdrachtoverheidDetailPage,
+  OpdrachtoverheidSitemapEntry,
+} from "./ssr";
 import {
   OPDRACHTOVERHEID_MAX_LISTING_BODY_BYTES,
   OPDRACHTOVERHEID_MAX_RECORDS,
@@ -22,24 +30,66 @@ export interface OpdrachtoverheidListingPage {
 }
 
 export interface OpdrachtoverheidClient {
+  /** Private `POST /search` snapshot — the fallback when the public sitemap
+   * is unavailable. */
   fetchListing: (page: number) => Promise<OpdrachtoverheidListingPage>;
-  /** Documented fallback path: fetch the SSR detail page and pull the
-   * JobPosting JSON-LD node out of it. Returns `null` when not in live mode
-   * (fixture/replay runs never hit the network) or when no JobPosting node
-   * was found on the page. */
-  fetchDetailJsonLd: (detailUrl: string) => Promise<JsonLdNode | null>;
+  /** Market-wide discovery (CTP-601): every `/inhuuropdracht/` entry in the
+   * public sitemap. Resolves to `[]` when not in live mode and no sitemap
+   * fixture is configured, which makes the connector fall back to the
+   * private listing path. */
+  fetchSitemap: () => Promise<OpdrachtoverheidSitemapEntry[]>;
+  /** Fetches and parses one SSR detail page: the Nuxt tender record plus the
+   * JobPosting JSON-LD node. Both are `null` when not in live mode and no
+   * detail fixture is registered for the page's `web_key`, or when the page
+   * carries no such data. */
+  fetchDetail: (
+    entry: Pick<OpdrachtoverheidSitemapEntry, "detailUrl" | "webKey">
+  ) => Promise<OpdrachtoverheidDetailPage>;
 }
 
 export interface OpdrachtoverheidClientOptions {
+  /** Private API origin. */
   baseUrl?: string;
+  /** Fixture paths (relative to `fixtures/connectors`) keyed by `web_key`,
+   * used instead of the network when not live. */
+  detailFixturePaths?: Readonly<Record<string, string>>;
   fetchImpl?: typeof fetch;
   listingFixturePath?: string;
   liveEnabled?: boolean;
+  /** Public site origin that serves the sitemap and the SSR detail pages. */
+  siteBaseUrl?: string;
+  /** Sitemap fixture path (relative to `fixtures/connectors`), used instead
+   * of the network when not live. Unset means "no sitemap in fixture mode". */
+  sitemapFixturePath?: string;
   /** Maximum time for one live request, including response-body consumption. */
   timeoutMs?: number;
 }
 
 const DEFAULT_BASE_URL = "https://kbenp-match-api.azurewebsites.net";
+
+/** Byte bound for one public page (sitemap or SSR detail) before parsing. */
+export const OPDRACHTOVERHEID_MAX_PAGE_BODY_BYTES = 2 * 1024 * 1024;
+
+const readBoundedText = async (
+  response: Response,
+  what: string
+): Promise<string> => {
+  if (!response.ok) {
+    throw new Error(
+      `Opdrachtoverheid ${what} request failed with status ${response.status}`
+    );
+  }
+  const text = await response.text();
+  if (
+    new TextEncoder().encode(text).byteLength >
+    OPDRACHTOVERHEID_MAX_PAGE_BODY_BYTES
+  ) {
+    throw new Error(
+      `Opdrachtoverheid ${what} response exceeds ${OPDRACHTOVERHEID_MAX_PAGE_BODY_BYTES} bytes`
+    );
+  }
+  return text;
+};
 
 const responseTooLarge = (): Error =>
   new Error(
@@ -225,20 +275,23 @@ export const createOpdrachtoverheidClient = (
   const listingFixturePath =
     options.listingFixturePath ?? "opdrachtoverheid/listing-page-0.json";
   const baseUrl = options.baseUrl ?? DEFAULT_BASE_URL;
+  const siteBaseUrl = options.siteBaseUrl ?? OPDRACHTOVERHEID_SITE_BASE_URL;
+  const { detailFixturePaths, sitemapFixturePath } = options;
 
   return {
-    fetchDetailJsonLd: async (detailUrl) => {
+    fetchDetail: async ({ detailUrl, webKey }) => {
       if (!liveEnabled) {
-        return null;
+        const fixturePath = detailFixturePaths?.[webKey];
+        if (!fixturePath) {
+          return { jobPosting: null, tender: null };
+        }
+        const fixture = await loadConnectorFixture<string>(fixturePath);
+        return parseOpdrachtoverheidDetailPage(fixture.payload, detailUrl);
       }
       return await withHttpTimeout(async (signal) => {
         const response = await fetchImpl(detailUrl, { signal });
-        if (!response.ok) {
-          return null;
-        }
-        const html = await response.text();
-        const blocks = extractJsonLdBlocks(html);
-        return findJobPosting(blocks) ?? null;
+        const html = await readBoundedText(response, "detail");
+        return parseOpdrachtoverheidDetailPage(html, detailUrl);
       }, timeoutMs);
     },
     fetchListing: async (_page) => {
@@ -269,6 +322,23 @@ export const createOpdrachtoverheidClient = (
         );
       }, timeoutMs);
       return parseLiveOpdrachtoverheidListing(body);
+    },
+    fetchSitemap: async () => {
+      if (!liveEnabled) {
+        if (!sitemapFixturePath) {
+          return [];
+        }
+        const fixture = await loadConnectorFixture<string>(sitemapFixturePath);
+        return parseOpdrachtoverheidSitemap(fixture.payload);
+      }
+      return await withHttpTimeout(async (signal) => {
+        const response = await fetchImpl(
+          `${siteBaseUrl}${OPDRACHTOVERHEID_SITEMAP_PATH}`,
+          { signal }
+        );
+        const xml = await readBoundedText(response, "sitemap");
+        return parseOpdrachtoverheidSitemap(xml);
+      }, timeoutMs);
     },
   };
 };

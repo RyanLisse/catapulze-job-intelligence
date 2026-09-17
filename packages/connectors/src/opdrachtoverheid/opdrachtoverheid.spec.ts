@@ -159,7 +159,7 @@ describe("Opdrachtoverheid connector", () => {
   it("starts a fresh snapshot when resuming from a checkpoint", async () => {
     const pages: number[] = [];
     const client: OpdrachtoverheidClient = {
-      fetchDetailJsonLd: () => Promise.resolve(null),
+      fetchDetail: () => Promise.resolve({ jobPosting: null, tender: null }),
       fetchListing: (page) => {
         pages.push(page);
         return Promise.resolve({
@@ -167,6 +167,7 @@ describe("Opdrachtoverheid connector", () => {
           items: [buildTender("T-checkpoint", "Checkpoint")],
         });
       },
+      fetchSitemap: () => Promise.resolve([]),
     };
 
     const result = await createOpdrachtoverheidConnector({
@@ -385,8 +386,9 @@ describe("Opdrachtoverheid connector", () => {
   it("rejects an item whose listing payload is missing tender_id", async () => {
     const bronId = "bron-opdrachtoverheid-reject";
     const client: OpdrachtoverheidClient = {
-      fetchDetailJsonLd: () => Promise.resolve(null),
+      fetchDetail: () => Promise.resolve({ jobPosting: null, tender: null }),
       fetchListing: () => Promise.resolve({ hasMore: false, items: [] }),
+      fetchSitemap: () => Promise.resolve([]),
     };
     const connector = createOpdrachtoverheidConnector({ bronId, client });
 
@@ -403,9 +405,13 @@ describe("Opdrachtoverheid connector", () => {
     const bronId = "bron-opdrachtoverheid-enrich";
     const tender = buildTender("T-enrich", "Enrich");
     const client: OpdrachtoverheidClient = {
-      fetchDetailJsonLd: () =>
-        Promise.resolve({ "@type": "JobPosting", title: "Enrich" }),
+      fetchDetail: () =>
+        Promise.resolve({
+          jobPosting: { "@type": "JobPosting", title: "Enrich" },
+          tender: null,
+        }),
       fetchListing: () => Promise.resolve({ hasMore: false, items: [tender] }),
+      fetchSitemap: () => Promise.resolve([]),
     };
     const connector = createOpdrachtoverheidConnector({ bronId, client });
 
@@ -448,9 +454,10 @@ describe("Opdrachtoverheid connector", () => {
       },
     };
     const client: OpdrachtoverheidClient = {
-      fetchDetailJsonLd: () => Promise.resolve(null),
+      fetchDetail: () => Promise.resolve({ jobPosting: null, tender: null }),
       fetchListing: () =>
         Promise.resolve({ hasMore: false, items: [rawTender] }),
+      fetchSitemap: () => Promise.resolve([]),
     };
     const connector = createOpdrachtoverheidConnector({ bronId, client });
 
@@ -496,9 +503,10 @@ describe("Opdrachtoverheid connector", () => {
       tender_hybrid_working: true,
     };
     const client: OpdrachtoverheidClient = {
-      fetchDetailJsonLd: () => Promise.resolve(null),
+      fetchDetail: () => Promise.resolve({ jobPosting: null, tender: null }),
       fetchListing: () =>
         Promise.resolve({ hasMore: false, items: [rawTender] }),
+      fetchSitemap: () => Promise.resolve([]),
     };
     const connector = createOpdrachtoverheidConnector({ bronId, client });
 
