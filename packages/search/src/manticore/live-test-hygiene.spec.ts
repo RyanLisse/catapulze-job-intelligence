@@ -131,7 +131,9 @@ describe("Manticore live fixture cleanup", () => {
 });
 
 describe("Manticore live table preflight", () => {
-  const completeColumns = new Set<string>(LIVE_TEST_REQUIRED_COLUMNS);
+  const completeColumns: ReadonlySet<string> = new Set(
+    LIVE_TEST_REQUIRED_COLUMNS
+  );
 
   it("resolves when both live tables have the required columns", async () => {
     stubShowTables(LIVE_TABLES);
@@ -146,7 +148,7 @@ describe("Manticore live table preflight", () => {
 
   it("reports missing skills with the volume recreation remedy", async () => {
     stubShowTables(LIVE_TABLES);
-    const missingSkills = new Set(
+    const missingSkills: ReadonlySet<string> = new Set(
       LIVE_TEST_REQUIRED_COLUMNS.filter((column) => column !== "skills")
     );
     const reader = readerFor(
@@ -163,10 +165,10 @@ describe("Manticore live table preflight", () => {
 
   it("aggregates missing columns from both live tables", async () => {
     stubShowTables(LIVE_TABLES);
-    const missingSkills = new Set(
+    const missingSkills: ReadonlySet<string> = new Set(
       LIVE_TEST_REQUIRED_COLUMNS.filter((column) => column !== "skills")
     );
-    const missingTitel = new Set(
+    const missingTitel: ReadonlySet<string> = new Set(
       LIVE_TEST_REQUIRED_COLUMNS.filter((column) => column !== "titel")
     );
     const reader = readerFor(
