@@ -8,6 +8,13 @@ const stubConnect =
   (result: ResultCache | null) => (): Promise<ResultCache | null> =>
     Promise.resolve(result);
 
+const failingConnect =
+  (message: string) =>
+  (_url: string, onError?: (connectMessage: string) => void) => {
+    onError?.(message);
+    return Promise.resolve(null);
+  };
+
 const fakeRedisCache: ResultCache = {
   get: () => Promise.resolve(null),
   set: () => Promise.resolve(),
@@ -77,6 +84,57 @@ describe("createResultCache Redis URL redaction (RJC-388)", () => {
 
     const logged = writes.join("");
     expect(logged).toContain("cache.internal.example");
+    expect(logged).not.toContain("hunter2secret");
+  });
+
+  it("carries the connect error cause into the production startup error, redacted", async () => {
+    await expect(
+      createResultCache(
+        passwordUrl,
+        "production",
+        failingConnect(`WRONGPASS invalid password for ${passwordUrl}`)
+      )
+    ).rejects.toThrow(
+      /Cause: WRONGPASS invalid password for redis:\/\/cache\.internal\.example/u
+    );
+
+    try {
+      await createResultCache(
+        passwordUrl,
+        "production",
+        failingConnect("AUTH failed with hunter2secret")
+      );
+      throw new Error("Expected createResultCache to throw");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      expect(message).toContain("Cause: AUTH failed with [REDACTED]");
+      expect(message).not.toContain("hunter2secret");
+    }
+  });
+
+  it("logs the connect error cause on the memory fallback, redacted", async () => {
+    const originalWrite = process.stderr.write.bind(process.stderr);
+    const writes: string[] = [];
+    // SAFETY: test-only stub matching Bun's process.stderr.write signature;
+    // restored in `finally` regardless of assertion outcome.
+    process.stderr.write = ((chunk: string) => {
+      writes.push(chunk);
+      return true;
+    }) as typeof process.stderr.write;
+
+    try {
+      await createResultCache(
+        passwordUrl,
+        "development",
+        failingConnect("ECONNREFUSED hunter2secret")
+      );
+    } finally {
+      process.stderr.write = originalWrite;
+    }
+
+    const logged = writes.join("");
+    expect(logged).toContain('"reason":"redis_unreachable"');
+    expect(logged).toContain('"cause":"ECONNREFUSED [REDACTED]"');
     expect(logged).not.toContain("hunter2secret");
   });
 

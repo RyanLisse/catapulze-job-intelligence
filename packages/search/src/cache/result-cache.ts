@@ -14,6 +14,7 @@ interface BackendDecisionLogEntry {
   event: string;
   redisUrl: string | null;
   reason?: string;
+  cause?: string;
 }
 
 /**
@@ -46,10 +47,31 @@ const redactRedisUrl = (redisUrl: string): string => {
   }
 };
 
+/**
+ * Connect errors from the redis client can echo the URL (or just the
+ * password) back in their message; scrub both before the message reaches a
+ * log line or a thrown Error.
+ */
+const redactConnectError = (rawMessage: string, redisUrl: string): string => {
+  let message = rawMessage.replaceAll(redisUrl, redactRedisUrl(redisUrl));
+  try {
+    const { password, username } = new URL(redisUrl);
+    for (const secret of [password, username]) {
+      if (secret) {
+        message = message.replaceAll(secret, "[REDACTED]");
+      }
+    }
+  } catch {
+    // unparseable URL: nothing more to scrub beyond the raw-URL replacement
+  }
+  return message;
+};
+
 const logBackendDecision = (
   backend: ResultCacheBackend,
   redisUrl: string | undefined,
-  reason?: string
+  reason?: string,
+  cause?: string
 ): void => {
   const entry: BackendDecisionLogEntry = {
     backend,
@@ -59,11 +81,17 @@ const logBackendDecision = (
   if (reason) {
     entry.reason = reason;
   }
+  if (cause) {
+    entry.cause = cause;
+  }
   process.stderr.write(`${JSON.stringify(entry)}\n`);
 };
 
 /** Swappable only for tests — production always uses RedisResultCache.connect. */
-export type RedisConnector = (redisUrl: string) => Promise<ResultCache | null>;
+export type RedisConnector = (
+  redisUrl: string,
+  onError?: (message: string) => void
+) => Promise<ResultCache | null>;
 
 /**
  * Resolves which result-cache backend actually goes live (RJC-388), instead
@@ -77,14 +105,19 @@ export type RedisConnector = (redisUrl: string) => Promise<ResultCache | null>;
 export const createResultCache = async (
   redisUrl: string | undefined,
   nodeEnv: string,
-  connect: RedisConnector = (url) => RedisResultCache.connect(url)
+  connect: RedisConnector = (url, onError) =>
+    RedisResultCache.connect(url, onError)
 ): Promise<ResultCacheResolution> => {
   if (!redisUrl) {
     logBackendDecision("memory", redisUrl);
     return { backend: "memory", cache: new MemoryResultCache() };
   }
 
-  const redisCache = await connect(redisUrl);
+  const connectErrors: string[] = [];
+  const redisCache = await connect(redisUrl, (message) => {
+    connectErrors.push(redactConnectError(message, redisUrl));
+  });
+  const [connectError] = connectErrors;
   if (redisCache) {
     logBackendDecision("redis", redisUrl);
     return { backend: "redis", cache: redisCache };
@@ -94,11 +127,11 @@ export const createResultCache = async (
     throw new Error(
       `Production startup refused: REDIS_URL is set (${redactRedisUrl(redisUrl)}) but Redis ` +
         "is unreachable. Fix connectivity, or unset REDIS_URL to run " +
-        "without the shared search-result cache."
+        `without the shared search-result cache.${connectError ? ` Cause: ${connectError}` : ""}`
     );
   }
 
-  logBackendDecision("memory", redisUrl, "redis_unreachable");
+  logBackendDecision("memory", redisUrl, "redis_unreachable", connectError);
   return { backend: "memory", cache: new MemoryResultCache() };
 };
 
