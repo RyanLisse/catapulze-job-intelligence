@@ -4,6 +4,7 @@ import { bijOranje } from "./bij-oranje";
 import { bluetrail } from "./bluetrail";
 import { ctm } from "./ctm";
 import type { SourceDefinition } from "./definition";
+import { eneco } from "./eneco";
 import { flinter } from "./flinter";
 import { freelancerNl } from "./freelancer-nl";
 import { harveynash } from "./harveynash";
@@ -12,6 +13,7 @@ import { heijmans } from "./heijmans";
 import { hero } from "./hero";
 import { inhuurdesk } from "./inhuurdesk";
 import { needstaffing } from "./needstaffing";
+import { ns } from "./ns";
 import { onefellow } from "./onefellow";
 import { opdrachtoverheid } from "./opdrachtoverheid";
 import { proAct } from "./pro-act";
@@ -22,6 +24,8 @@ import { striive } from "./striive";
 import { tbi } from "./tbi";
 import { tenderned } from "./tenderned";
 import { tenmonks } from "./tenmonks";
+import { unica } from "./unica";
+import { vattenfall } from "./vattenfall";
 import { volkerwessels } from "./volkerwessels";
 import { werkenVoorNederland } from "./werken-voor-nederland";
 
@@ -38,6 +42,7 @@ export const SOURCES = {
   "bij-oranje": bijOranje,
   bluetrail,
   ctm,
+  eneco,
   flinter,
   "freelancer-nl": freelancerNl,
   harveynash,
@@ -46,6 +51,7 @@ export const SOURCES = {
   hero,
   inhuurdesk,
   needstaffing,
+  ns,
   onefellow,
   opdrachtoverheid,
   "pro-act": proAct,
@@ -56,6 +62,8 @@ export const SOURCES = {
   tbi,
   tenderned,
   tenmonks,
+  unica,
+  vattenfall,
   volkerwessels,
   "werken-voor-nederland": werkenVoorNederland,
 } as const satisfies Record<string, SourceDefinition>;
