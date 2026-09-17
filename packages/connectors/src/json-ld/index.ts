@@ -22,6 +22,8 @@ export { tbiConfig } from "./configs/tbi";
 export { werkenVoorNederlandConfig } from "./configs/werken-voor-nederland";
 export { nationaleVacaturebankConfig } from "./configs/nationalevacaturebank";
 export { werkzoekenConfig } from "./configs/werkzoeken";
+export { nsConfig } from "./configs/ns";
+export { vattenfallConfig } from "./configs/vattenfall";
 export {
   extractJobPosting,
   extractJsonLdNodes,
