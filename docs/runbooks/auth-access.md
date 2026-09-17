@@ -151,6 +151,10 @@ command exits 3 and prints explicit reconciliation evidence:
 
 Inspect and reconcile that existing account before retrying; do not assume the
 create was rolled back. Invalid gates, roles, or create failures exit 1 with a
-fixed error code. No output includes the email, name, password, database error,
+fixed error code. If database connection cleanup fails after the outcome was
+already printed, the stdout evidence and its exit code (0, 2, or 3) are
+preserved and only the sanitized warning
+`{"code":"DATABASE_CLOSE_FAILED","status":"warning"}` is written to stderr.
+No output includes the email, name, password, database error,
 or token. Remove the bootstrap variables from the process environment
 immediately after the command; normal server startup never reads or needs them.

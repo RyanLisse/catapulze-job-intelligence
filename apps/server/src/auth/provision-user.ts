@@ -40,6 +40,7 @@ const main = async (): Promise<void> => {
   }
 
   let closeDatabase: (() => Promise<void>) | undefined;
+  let operationSucceeded = false;
   try {
     const [databaseModule, authSchema, environmentModule, authModule, adapter] =
       await Promise.all([
@@ -94,6 +95,7 @@ const main = async (): Promise<void> => {
       },
     });
     writeOutput(formatProvisioningOutput(evidence));
+    operationSucceeded = true;
     if (evidence.status === "provisioned") {
       process.exitCode = 0;
     } else if (evidence.status === "already_exists") {
@@ -110,7 +112,13 @@ const main = async (): Promise<void> => {
     try {
       await closeDatabase?.();
     } catch {
-      process.exitCode = 1;
+      if (operationSucceeded) {
+        process.stderr.write(
+          `${JSON.stringify({ code: "DATABASE_CLOSE_FAILED", status: "warning" })}\n`
+        );
+      } else {
+        process.exitCode = 1;
+      }
     }
   }
 };
