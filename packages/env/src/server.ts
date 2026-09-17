@@ -44,6 +44,10 @@ export const serverEnvEffectSchemas = {
   PERF_EFFECT_SPANS: Schema.Literals(["0", "1"]).pipe(
     Schema.withDecodingDefault(Effect.succeed("0" as const))
   ),
+  PORT: Schema.FiniteFromString.check(
+    Schema.isInt(),
+    Schema.isBetween({ maximum: 65_535, minimum: 1 })
+  ).pipe(Schema.withDecodingDefault(Effect.succeed("3000"))),
   RAW_OBJECT_STORE_PATH: Schema.optional(NonEmptyString),
   RAW_S3_ACCESS_KEY_ID: Schema.optional(NonEmptyString),
   RAW_S3_BUCKET: Schema.optional(NonEmptyString),
@@ -79,6 +83,7 @@ export const env = createEnv({
     MANTICORE_URL: toEnvSchema(serverEnvEffectSchemas.MANTICORE_URL),
     NODE_ENV: toEnvSchema(serverEnvEffectSchemas.NODE_ENV),
     PERF_EFFECT_SPANS: toEnvSchema(serverEnvEffectSchemas.PERF_EFFECT_SPANS),
+    PORT: toEnvSchema(serverEnvEffectSchemas.PORT),
     RAW_OBJECT_STORE_PATH: toEnvSchema(
       serverEnvEffectSchemas.RAW_OBJECT_STORE_PATH
     ),

@@ -14,7 +14,7 @@ const SECRET_SENTINEL = "super-secret-auth-token-do-not-leak-xyzzy";
 
 const PROBE_SCRIPT = `
 const { env } = await import(${JSON.stringify(SERVER_ENV_MODULE)});
-console.log(JSON.stringify({ releaseSha: env.APP_RELEASE_SHA ?? null }));
+console.log(JSON.stringify({ port: env.PORT, releaseSha: env.APP_RELEASE_SHA ?? null }));
 `;
 
 // Minimum the schema needs to boot; unrelated to the release SHA.
@@ -57,10 +57,44 @@ const releaseShaOf = (result: ProbeResult): string | null => {
   expect(result.exitCode).toBe(0);
   // Last line: dotenv may print an injection tip line above the probe JSON.
   const lastLine = result.stdout.trim().split("\n").at(-1) ?? "";
-  // SAFETY: probe script prints a fixed { releaseSha } JSON envelope we own.
-  const parsed = JSON.parse(lastLine) as { releaseSha: string | null };
+  // SAFETY: probe script prints a fixed { port, releaseSha } JSON envelope we own.
+  const parsed = JSON.parse(lastLine) as {
+    port: number;
+    releaseSha: string | null;
+  };
   return parsed.releaseSha;
 };
+
+const portOf = (result: ProbeResult): number => {
+  expect(result.exitCode).toBe(0);
+  const lastLine = result.stdout.trim().split("\n").at(-1) ?? "";
+  // SAFETY: probe script prints a fixed { port } JSON envelope we own.
+  const parsed = JSON.parse(lastLine) as { port: number };
+  return parsed.port;
+};
+
+describe("@ji/env/server PORT", () => {
+  it("defaults to 3000 when PORT is unset", () => {
+    expect(portOf(loadServerEnv({}))).toBe(3000);
+  });
+
+  it("parses a numeric PORT", () => {
+    expect(portOf(loadServerEnv({ PORT: "8080" }))).toBe(8080);
+  });
+
+  it("refuses to start on a non-numeric PORT", () => {
+    const result = loadServerEnv({ PORT: "abc" });
+    expect(result.exitCode).not.toBe(0);
+    expect(result.stderr).toContain("Invalid environment variables");
+    expect(result.stderr).toContain("PORT");
+  });
+
+  it("refuses to start on an out-of-range PORT", () => {
+    const result = loadServerEnv({ PORT: "70000" });
+    expect(result.exitCode).not.toBe(0);
+    expect(result.stderr).toContain("PORT");
+  });
+});
 
 describe("@ji/env/server APP_RELEASE_SHA", () => {
   it("resolves the release SHA from Coolify's SOURCE_COMMIT when APP_RELEASE_SHA is unset", () => {
