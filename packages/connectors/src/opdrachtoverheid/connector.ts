@@ -7,6 +7,7 @@ import type {
   DiscoverItem,
 } from "../contract";
 import type { JsonLdNode } from "../json-ld/types";
+import { shouldSkipFetch } from "../known-hash";
 import type { KnownHashStore } from "../known-hash";
 import {
   createOpdrachtoverheidClient,
@@ -231,13 +232,13 @@ export const createOpdrachtoverheidConnector = (
         };
       }
 
-      const knownHash = knownHashes
-        ? await knownHashes.get(options.bronId, item.bronReferentie)
-        : null;
       if (
-        knownHash !== null &&
-        knownHash !== undefined &&
-        knownHash === item.contentHash
+        await shouldSkipFetch(
+          knownHashes,
+          options.bronId,
+          item.bronReferentie,
+          item.contentHash
+        )
       ) {
         return null;
       }

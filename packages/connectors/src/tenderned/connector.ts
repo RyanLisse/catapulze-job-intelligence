@@ -6,6 +6,7 @@ import type {
   ConnectorDiscoverResult,
   DiscoverItem,
 } from "../contract";
+import { shouldSkipFetch } from "../known-hash";
 import type { KnownHashStore } from "../known-hash";
 import { createTenderNedClient } from "./client";
 import type { TenderNedClient } from "./client";
@@ -65,13 +66,13 @@ export const createTenderNedConnector = (
         };
       }
 
-      const knownHash = knownHashes
-        ? await knownHashes.get(options.bronId, item.bronReferentie)
-        : null;
       if (
-        knownHash !== null &&
-        knownHash !== undefined &&
-        knownHash === item.contentHash
+        await shouldSkipFetch(
+          knownHashes,
+          options.bronId,
+          item.bronReferentie,
+          item.contentHash
+        )
       ) {
         return null;
       }
