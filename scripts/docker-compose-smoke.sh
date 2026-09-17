@@ -145,9 +145,22 @@ echo "docker-compose smoke: postgres, server and web are healthy"
 # against the smoke fixture roles (ji_admin_smoke) and fail auth. This live
 # suite only needs Manticore — short-circuit isolation the same way the
 # pre-#165 in-container invocation did with an unreachable DATABASE_TEST_URL.
+#
+# CTP-604: all five live spec files run here, not just live.spec.ts. #316 gave
+# each live spec its own Manticore tables, and seven of the eight live tests
+# had no CI coverage against those per-file names. A table missing from a conf
+# or from a stale searchd therefore went unnoticed until someone ran the live
+# suite by hand.
+live_search_specs=(
+  packages/search/src/adapter.spec.ts
+  packages/search/src/ast-hash.spec.ts
+  packages/search/src/manticore/bulk-live.spec.ts
+  packages/search/src/manticore/live.spec.ts
+  packages/search/src/manticore/sort-live.spec.ts
+)
 manticore_address="$("${compose_command[@]}" port manticore 9308)"
 DATABASE_TEST_URL="postgresql://smoke:smoke@127.0.0.1:1/unreachable" \
   MANTICORE_URL="http://${manticore_address}" \
   MANTICORE_REQUIRE_LIVE=1 \
-  bun test packages/search/src/manticore/live.spec.ts
-echo "docker-compose smoke: Manticore document-id live test passed"
+  bun test "${live_search_specs[@]}"
+echo "docker-compose smoke: Manticore live search suite passed"

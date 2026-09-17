@@ -257,9 +257,13 @@ describe("docker-compose smoke orchestration", () => {
       'DATABASE_TEST_URL="postgresql://smoke:smoke@127.0.0.1:1/unreachable"'
     );
     expect(script).toContain("MANTICORE_REQUIRE_LIVE=1");
-    expect(script).toContain(
-      "bun test packages/search/src/manticore/live.spec.ts"
-    );
+    expect(script).toContain("live_search_specs=(");
+    expect(script).toContain(`bun test "\${live_search_specs[@]}"`);
+    expect(script).toContain("packages/search/src/adapter.spec.ts");
+    expect(script).toContain("packages/search/src/ast-hash.spec.ts");
+    expect(script).toContain("packages/search/src/manticore/bulk-live.spec.ts");
+    expect(script).toContain("packages/search/src/manticore/live.spec.ts");
+    expect(script).toContain("packages/search/src/manticore/sort-live.spec.ts");
   });
 
   it("keeps synthetic S3 wiring behind an explicit smoke override", async () => {
@@ -301,7 +305,7 @@ describe("docker-compose smoke orchestration", () => {
     expect(result.exitCode).toBe(0);
     expect(result.stderr).toBe("");
     expect(result.stdout).toContain(
-      "docker-compose smoke: Manticore document-id live test passed"
+      "docker-compose smoke: Manticore live search suite passed"
     );
     expect(result.commands).toHaveLength(21);
     expect(result.commands).toContain("bun -e config");
@@ -325,7 +329,7 @@ describe("docker-compose smoke orchestration", () => {
       "curl --fail --silent --show-error --retry 10 --retry-delay 2 http://localhost:3001/",
       "curl --silent --output /dev/null --write-out %{http_code} http://localhost:3001/dashboard",
       "docker compose --env-file .env port manticore 9308",
-      "bun test packages/search/src/manticore/live.spec.ts",
+      "bun test packages/search/src/adapter.spec.ts packages/search/src/ast-hash.spec.ts packages/search/src/manticore/bulk-live.spec.ts packages/search/src/manticore/live.spec.ts packages/search/src/manticore/sort-live.spec.ts",
       "docker compose --env-file .env --profile projector down"
     );
   }, 20_000);
