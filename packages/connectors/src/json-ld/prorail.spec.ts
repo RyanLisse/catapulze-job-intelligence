@@ -6,12 +6,9 @@ import {
   prorailConfig,
 } from "@ji/connectors/json-ld";
 
-const url =
-  "https://www.werkenbijprorail.nl/vacatures/functie/medior-data-engineer";
+const url = "https://www.werkenbijprorail.nl/vacatures/functie/woordvoerder";
 const verkeersleidingUrl =
   "https://www.werkenbijprorail.nl/vacatures/verkeersleiding/treinverkeersleider-maastricht";
-const soft404 =
-  "https://www.werkenbijprorail.nl/vacatures/functie/sollicitatie";
 const connector = createJsonLdConnector({
   bronId: "00000000-0000-4000-8000-000000000031",
   client: createJsonLdClient({
@@ -38,12 +35,12 @@ const findItem = (
 };
 
 describe("ProRail JSON-LD connector", () => {
-  it("keeps exactly the 48 vacancy URLs and fetches both detail paths", async () => {
+  it("discovers all 16 API vacancy URLs and fetches both detail paths", async () => {
     const result = await connector.discover(null);
-    expect(result.items).toHaveLength(48);
+    expect(result.items).toHaveLength(16);
     expect(
       result.items.every((item) =>
-        /^https:\/\/www\.werkenbijprorail\.nl\/vacatures\/(?:functie|verkeersleiding)\/[^/]+$/u.test(
+        /^https:\/\/www\.werkenbijprorail\.nl\/vacatures\/[^/]+\/[^/]+\/?$/u.test(
           itemUrl(item)
         )
       )
@@ -57,13 +54,5 @@ describe("ProRail JSON-LD connector", () => {
       "fetched",
       "fetched",
     ]);
-  });
-  it("rejects the recorded sitemap soft-404", async () => {
-    const result = await connector.discover(null);
-    const fetched = await connector.fetch(findItem(result.items, soft404));
-    expect(fetched).toMatchObject({
-      reason: "no JobPosting JSON-LD found on detail page",
-      status: "rejected",
-    });
   });
 });

@@ -6,14 +6,18 @@ Status: **probe afgerond; connector toegevoegd** — JSON-LD Path A (CTP-580).
 
 | Doel | URL |
 |---|---|
-| Sitemap | `https://www.werkenbijprorail.nl/sitemap.xml` |
+| Listing API | `https://www.prorail.nl/nl/api/v1/vacancysearch?page=1&pageSize=50` |
 | Detail | `https://www.werkenbijprorail.nl/vacatures/(functie|verkeersleiding)/<slug>` |
 
 `www.prorail.nl/werken-bij` bestaat niet (404); de corporate site linkt naar `werkenbijprorail.nl`.
 
-## Discovery en uitsluiting
+## Discovery
 
-De sitemap (~270 URL's) bevat vooral testimonials en landingspagina's. Alleen `/vacatures/functie/<slug>` en `/vacatures/verkeersleiding/<slug>` worden behouden (48 bij de capture van 2026-09-17). Twee daarvan zijn geen vacature (`/vacatures/functie/sollicitatie`, `/vacatures/verkeersleiding/bedankpagina`): HTTP 200 zonder JobPosting → de gedeelde connector antwoordt `rejected` met `no JobPosting JSON-LD found on detail page`; de opgenomen soft-404-fixture bewijst dit.
+De HTML listing heeft geen bruikbare links en de sitemap bevat stale/404
+detail-URL's. De connector gebruikt daarom de API als autoritatieve bron en
+volgt `hits[].pageUrl`, waarbij `/vacatures/<category>/<slug>` behouden blijft.
+De API retourneert momenteel alle 16 vacatures op één pagina bij `pageSize=50`;
+pagination is nog niet geïmplementeerd.
 
 ## Veldmapping → canoniek `aanvraag`
 
@@ -27,7 +31,7 @@ De sitemap (~270 URL's) bevat vooral testimonials en landingspagina's. Alleen `/
 | `validThrough` | `sluitingsdatum` | Aanwezig op beide samples. |
 | `employmentType` | `bronSpecifiek.contract_type` | `Full-time` blijft bronwaarde. |
 | `workHours` | `bronSpecifiek.uren_per_week` | Vrije tekst (`32-36`), gedeelde parser. |
-| `baseSalary` | UNKNOWN | `minValue`/`maxValue` in EUR maar **zonder `unitText`**; de gedeelde normaliser vertrouwt alleen expliciete periodes, dus het maandsalaris wordt bewust niet als tarief gelezen. |
+| `baseSalary` | UNKNOWN | JSON-LD bevat geen `unitText`; tarief is onbetrouwbaar tot CTP-606. |
 | `applicationContact` | — | Recruiter-e-mail (PII); niet gebruikt en uit de fixtures verwijderd. |
 
 ## Robots, voorwaarden en fixtures
