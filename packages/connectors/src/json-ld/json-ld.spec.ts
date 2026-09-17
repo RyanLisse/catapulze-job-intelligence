@@ -639,6 +639,52 @@ describe.each([
   });
 });
 
+describe("raw-store write retry (CTP-609)", () => {
+  it("retries a transient object-store failure instead of failing the run", async () => {
+    const objectStore = new InMemoryObjectStore();
+    let putCalls = 0;
+    const flakyStore = {
+      deleteExpired: (before: Date) => objectStore.deleteExpired(before),
+      get: (path: string) => objectStore.get(path),
+      put: (object: Parameters<InMemoryObjectStore["put"]>[0]) => {
+        putCalls += 1;
+        if (putCalls === 1) {
+          return Promise.reject(
+            new Error("simulated transient object-store error")
+          );
+        }
+        return objectStore.put(object);
+      },
+    };
+    const bronId = "bron-bluetrail-flaky-store";
+    const result = await runConnector({
+      bronId,
+      bronSlug: bluetrailConfig.slug,
+      checkpoint: null,
+      connector: createJsonLdConnector({
+        bronId,
+        client: createJsonLdClient({
+          config: bluetrailConfig,
+          liveEnabled: false,
+        }),
+        config: bluetrailConfig,
+      }),
+      limiter: new CrawlDelayLimiter({ crawlDelayMs: 0 }),
+      objectStore: flakyStore,
+      observationRecorder: new InMemoryObservationRecorder(),
+      rawRetentionDays: 90,
+      retryPolicy: { ...retryPolicy, maxAttempts: 3 },
+      runKind: "test",
+      runLifecycleStore: new InMemoryRunLifecycleStore(),
+      scrapeRunId: "run-bluetrail-flaky-1",
+      startedAt: new Date("2026-08-31T10:30:00.000Z"),
+    });
+    expect(result.metrics.error).toBe(0);
+    expect(result.metrics.new).toBe(3);
+    expect(putCalls).toBeGreaterThan(3);
+  });
+});
+
 describe("Bij Oranje JSON-LD connector", () => {
   const sampleUrl =
     "https://www.bijoranje.nl/vacatures/onbekend/data-analist-noord-holland-65099";
