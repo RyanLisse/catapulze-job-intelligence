@@ -425,6 +425,7 @@ describe("runBronIngestPipeline silence evaluation (RJC-409)", () => {
     const silentPollResult = {
       bronId,
       bronSlug: "tenderned" as const,
+      completeness: null,
       lifecycle: null,
       metrics: {
         changed: 0,
@@ -538,6 +539,7 @@ describe("runBronIngestPipeline silence evaluation (RJC-409)", () => {
     const normalPollResult = {
       bronId,
       bronSlug: "tenderned" as const,
+      completeness: null,
       lifecycle: null,
       metrics: {
         changed: 2,
@@ -632,6 +634,7 @@ describe("runBronIngestPipeline silence evaluation (RJC-409)", () => {
     const testPollResult = {
       bronId,
       bronSlug: "tenderned" as const,
+      completeness: null,
       lifecycle: null,
       metrics: {
         changed: 0,
@@ -905,6 +908,7 @@ describe("discovery floor guard", () => {
   const pollResultWithFound = (found: number) => ({
     bronId,
     bronSlug: "tenderned" as const,
+    completeness: null,
     lifecycle: null,
     metrics: {
       changed: 0,
