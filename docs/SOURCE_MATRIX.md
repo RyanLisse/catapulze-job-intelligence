@@ -32,6 +32,7 @@ Verificatie 2026-08-27, read-only met headless Chrome + curl, geen logins, geen 
 | **Starapple** (v1) | v1 | techstack-tags, salaris/tarief, freelance vs vast | — | |
 | **Flextender** (v1) | filters publiek (gecheckt 25-08); opdrachten achter login | DAS-procedure, gunningscriteria, aanbestedende dienst | — | details → rung 3 |
 | **ProRail** (werkenbij, CTP-580) | `werkenbijprorail.nl/sitemap.xml` + JSON-LD JobPosting op `/vacatures/(functie\|verkeersleiding)/<slug>` | titel, locatie, salarisrange (zonder unitText → tarief UNKNOWN), uren, validThrough (geen tarief) | robots alleen CMS-paden; disclaimer standaard IE-clausule → `te_toetsen` | 48 URL's; 2 soft-404's zonder JobPosting; zie `sources/prorail.md` |
+| **Enexis** (werkenbij) | sitemap + JSON-LD JobPosting op detail | titel, locatie, salaris (maand), publicatiedatum, beschrijving (geen deadline/uren) | robots `Allow: /`; disclaimer geen scraping-clausule | 170 vacatures; connector `json-ld` (CTP-558) |
 
 ### Rung 3 — Playwright met eigen leveranciersaccount · account regelen, dan activeren
 
