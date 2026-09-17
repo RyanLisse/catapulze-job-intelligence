@@ -19,6 +19,7 @@ import type { BulkSearchDocumentLoader, SearchDocument } from "@ji/search";
 import { asc, eq, inArray } from "drizzle-orm";
 
 import { readAanvraagBronFacts } from "./aanvraag-read-mapping";
+import type { AanvraagBronFacts } from "./aanvraag-read-mapping";
 import type { BronRuntimeDatabase } from "./bron-runtime";
 import { PostgresEnrichmentStore } from "./enrichment-store";
 import { aanvraag, aanvraagVersie } from "./schema/curated";
@@ -54,39 +55,53 @@ const titleFallbackParts = (
     : null;
 };
 
+/**
+ * Field resolution shared by the read model and the search projection:
+ * curated column first, then the bron-fact fallback.
+ */
+const resolveCuratedFields = (
+  row: AanvraagRow,
+  bronFacts: AanvraagBronFacts
+) => ({
+  contracttype: row.contracttype ?? bronFacts.contracttype,
+  // locatie_land defaults to NL and is therefore not proof of a published
+  // location; preserve an explicitly unknown location so the country facet
+  // does not lie.
+  locatie: row.locatieTekst,
+  locatieLand: row.locatieTekst === null ? null : row.locatieLand,
+  opdrachtgeverNaam: row.opdrachtgeverNaam ?? bronFacts.opdrachtgeverNaam,
+  // No curated province column; never derive from locatieTekst — only a
+  // canonical name the source itself published.
+  provincie: bronFacts.provincie,
+  publicatiedatum: row.publicatiedatum ?? bronFacts.publicatiedatum,
+  skills: bronFacts.skills,
+  startDatum: row.startDatum ?? bronFacts.startDatum,
+  tariefMax: row.tariefMax === null ? null : Number(row.tariefMax),
+  tariefMin: row.tariefMin === null ? null : Number(row.tariefMin),
+  werkvorm: row.werkvorm ?? bronFacts.werkvorm,
+});
+
 const toAanvraagRecord = (
   row: AanvraagRow,
   versies: readonly AanvraagVersieRecord[]
 ): AanvraagRecord => {
   const bronFacts = readAanvraagBronFacts(row.bronSpecifiek);
   return {
+    ...resolveCuratedFields(row, bronFacts),
     beschrijving: row.beschrijving,
     bronId: row.bronId,
     bronReferentie: row.bronReferentie,
     bronUrl: row.bronUrl,
-    contracttype: row.contracttype ?? bronFacts.contracttype,
     duur: bronFacts.duur,
     eindDatum: row.eindDatum,
     enrichedFields: [],
     id: row.id,
-    // locatie_land defaults to NL and is therefore not proof of a published location.
-    locatie: row.locatieTekst,
-    // Preserve an explicitly unknown location, same rule as toSearchDocument.
-    locatieLand: row.locatieTekst === null ? null : row.locatieLand,
-    opdrachtgeverNaam: row.opdrachtgeverNaam ?? bronFacts.opdrachtgeverNaam,
     opleidingsniveau: bronFacts.opleidingsniveau,
-    // No curated province column; only a canonical name the source published.
-    provincie: bronFacts.provincie,
-    publicatiedatum: row.publicatiedatum ?? bronFacts.publicatiedatum,
     rawPayloadRef: row.rawPayloadRef,
     scrapeRunId: row.scrapeRunId,
-    skills: bronFacts.skills,
     sluitingsdatum: row.sluitingsdatum,
-    startDatum: row.startDatum ?? bronFacts.startDatum,
     status: row.status,
     tariefEenheid: row.tariefEenheid,
-    tariefMax: row.tariefMax === null ? null : Number(row.tariefMax),
-    tariefMin: row.tariefMin === null ? null : Number(row.tariefMin),
     tariefValuta:
       row.tariefEenheid === null &&
       row.tariefMax === null &&
@@ -97,9 +112,29 @@ const toAanvraagRecord = (
     titleFallbackParts: titleFallbackParts(row),
     urenPerWeek: row.urenPerWeek,
     versies,
-    werkvorm: row.werkvorm ?? bronFacts.werkvorm,
   };
 };
+
+const versieColumns = {
+  geldigTot: aanvraagVersie.geldigTot,
+  geldigVan: aanvraagVersie.geldigVan,
+  id: aanvraagVersie.id,
+  scrapeRunId: aanvraagVersie.scrapeRunId,
+  versie: aanvraagVersie.versie,
+};
+
+type VersieRow = Pick<
+  typeof aanvraagVersie.$inferSelect,
+  keyof typeof versieColumns
+>;
+
+const toAanvraagVersie = (row: VersieRow): AanvraagVersieRecord => ({
+  geldigTot: row.geldigTot,
+  geldigVan: row.geldigVan,
+  id: row.id,
+  normalisatieversie: String(row.versie),
+  scrapeRunId: row.scrapeRunId,
+});
 
 export class PostgresAanvraagStore implements AanvraagStore {
   private readonly database: BronRuntimeDatabase;
@@ -166,14 +201,7 @@ export class PostgresAanvraagStore implements AanvraagStore {
         .from(aanvraag)
         .where(inArray(aanvraag.id, uniqueIds)),
       this.database
-        .select({
-          aanvraagId: aanvraagVersie.aanvraagId,
-          geldigTot: aanvraagVersie.geldigTot,
-          geldigVan: aanvraagVersie.geldigVan,
-          id: aanvraagVersie.id,
-          scrapeRunId: aanvraagVersie.scrapeRunId,
-          versie: aanvraagVersie.versie,
-        })
+        .select({ aanvraagId: aanvraagVersie.aanvraagId, ...versieColumns })
         .from(aanvraagVersie)
         .where(inArray(aanvraagVersie.aanvraagId, uniqueIds))
         .orderBy(asc(aanvraagVersie.versie)),
@@ -181,13 +209,7 @@ export class PostgresAanvraagStore implements AanvraagStore {
     const versiesByAanvraagId = new Map<string, AanvraagVersieRecord[]>();
     for (const row of versieRows) {
       const versies = versiesByAanvraagId.get(row.aanvraagId) ?? [];
-      versies.push({
-        geldigTot: row.geldigTot,
-        geldigVan: row.geldigVan,
-        id: row.id,
-        normalisatieversie: String(row.versie),
-        scrapeRunId: row.scrapeRunId,
-      });
+      versies.push(toAanvraagVersie(row));
       versiesByAanvraagId.set(row.aanvraagId, versies);
     }
     const recordsById = new Map<string, AanvraagRecord>();
@@ -211,23 +233,11 @@ export class PostgresAanvraagStore implements AanvraagStore {
     aanvraagId: string
   ): Promise<readonly AanvraagVersieRecord[]> {
     const rows = await this.database
-      .select({
-        geldigTot: aanvraagVersie.geldigTot,
-        geldigVan: aanvraagVersie.geldigVan,
-        id: aanvraagVersie.id,
-        scrapeRunId: aanvraagVersie.scrapeRunId,
-        versie: aanvraagVersie.versie,
-      })
+      .select(versieColumns)
       .from(aanvraagVersie)
       .where(eq(aanvraagVersie.aanvraagId, aanvraagId))
       .orderBy(asc(aanvraagVersie.versie));
-    return rows.map((row) => ({
-      geldigTot: row.geldigTot,
-      geldigVan: row.geldigVan,
-      id: row.id,
-      normalisatieversie: String(row.versie),
-      scrapeRunId: row.scrapeRunId,
-    }));
+    return rows.map(toAanvraagVersie);
   }
 }
 
@@ -264,36 +274,27 @@ const parsePublicationDate = (value: string | null): Date | null => {
 const toSearchDocument = (row: AanvraagRow): SearchDocument => {
   const bronFacts = readAanvraagBronFacts(row.bronSpecifiek);
   const hours = parseWeeklyHoursRange(row.urenPerWeek);
-  const publication = row.publicatiedatum ?? bronFacts.publicatiedatum;
+  const {
+    publicatiedatum,
+    startDatum: _startDatum,
+    ...curated
+  } = resolveCuratedFields(row, bronFacts);
   return {
+    ...curated,
     beschrijving: row.beschrijving,
     bronId: row.bronId,
-    contracttype: row.contracttype ?? bronFacts.contracttype,
     // No first-class curated end-client column yet.
     eindklantNaam: null,
     id: row.id,
     laatstGezienOp: row.laatstGezienOp,
-    // Preserve an explicitly unknown location. `locatieLand` defaults to NL
-    // for the curated row and is not evidence that the source published a
-    // location; carrying it here makes the country facet lie.
-    locatie: row.locatieTekst,
-    locatieLand: row.locatieTekst === null ? null : row.locatieLand,
-    opdrachtgeverNaam: row.opdrachtgeverNaam ?? bronFacts.opdrachtgeverNaam,
-    // No canonical province column; never derive from locatieTekst — only a
-    // canonical name the source itself published.
-    provincie: bronFacts.provincie,
-    publicatiedatum: parsePublicationDate(publication),
-    skills: bronFacts.skills,
+    publicatiedatum: parsePublicationDate(publicatiedatum),
     sluitingsdatum: row.sluitingsdatum ?? undefined,
     // SAFETY: curated.status is constrained to AanvraagLifecycle at write time.
     status: row.status as AanvraagLifecycle,
     tariefEenheid: row.tariefEenheid,
-    tariefMax: row.tariefMax ? Number(row.tariefMax) : null,
-    tariefMin: row.tariefMin ? Number(row.tariefMin) : null,
     titel: row.titel,
     urenPerWeekMax: hours.max,
     urenPerWeekMin: hours.min,
-    werkvorm: row.werkvorm ?? bronFacts.werkvorm,
   };
 };
 

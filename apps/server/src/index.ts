@@ -27,7 +27,6 @@ import { createReadinessDeps, createReadinessHandler } from "./readiness";
 import { jsonBodyLimit } from "./request-body-limit";
 import { createProductionSliceARegistry } from "./slice-a-registry";
 
-const DEFAULT_PORT = 3000;
 const SHUTDOWN_DRAIN_TIMEOUT_MS = 10_000;
 
 const app = new Hono();
@@ -153,7 +152,7 @@ app.post("/mcp", (context) => mcpHandler(context));
 
 const server = Bun.serve({
   fetch: app.fetch,
-  port: process.env.PORT ?? DEFAULT_PORT,
+  port: env.PORT,
 });
 
 let shutdownPromise: Promise<void> | undefined;

@@ -100,3 +100,4 @@ export {
   type LifecycleReden,
   type LifecycleTransitionInput,
 } from "./lifecycle";
+export { DEFAULT_SEARCH_PAGE_SIZE } from "./search-paging";

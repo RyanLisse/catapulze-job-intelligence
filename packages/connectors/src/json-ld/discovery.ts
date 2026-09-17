@@ -8,6 +8,7 @@ import {
 import type {
   JsonLdConnectorConfig,
   JsonLdDiscoveryUrl,
+  JsonLdListingPaginationConfig,
   JsonLdNode,
 } from "./types";
 
@@ -117,23 +118,24 @@ export const extractListingLinks = (
 const isJsonObject = (value: unknown): value is Record<string, unknown> =>
   value !== null && typeof value === "object" && !Array.isArray(value);
 
-/** Extracts detail URLs from a JSON listing pointer, resolving and deduplicating absolute URLs. */
-export const extractJsonListingUrls = (
-  raw: string,
-  urlPointer: string,
-  linkPattern: RegExp,
-  baseUrl: string
-): JsonLdDiscoveryUrl[] => {
-  let parsed: unknown;
+// oxlint-disable-next-line anti-slop/no-unknown-returns -- JSON.parse is validated by pointer traversal before use.
+const parseJsonListing = (raw: string, baseUrl: string): unknown => {
   try {
-    parsed = JSON.parse(raw);
+    return JSON.parse(raw);
   } catch (error) {
     throw new Error(
       `Invalid JSON listing response at ${baseUrl}: ${error instanceof Error ? error.message : String(error)}`,
       { cause: error }
     );
   }
+};
 
+// oxlint-disable-next-line anti-slop/no-unknown-parameters -- pointer traversal accepts the parsed JSON boundary value.
+const resolveJsonListingPointer = (
+  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- parsed JSON is validated by the caller's I/O boundary.
+  parsed: unknown,
+  urlPointer: string
+): unknown[] => {
   const segments = urlPointer.split(".");
   if (
     segments.length === 0 ||
@@ -147,10 +149,12 @@ export const extractJsonListingUrls = (
     const isArrayPointer = segment.endsWith("[]");
     const key = isArrayPointer ? segment.slice(0, -2) : segment;
     const next: unknown[] = [];
+    let matched = false;
     for (const value of values) {
       if (!isJsonObject(value) || !(key in value)) {
         continue;
       }
+      matched = true;
       const child = value[key];
       if (isArrayPointer) {
         if (!Array.isArray(child)) {
@@ -163,13 +167,28 @@ export const extractJsonListingUrls = (
         next.push(child);
       }
     }
-    if (next.length === 0) {
+    if (!matched) {
       throw new Error(
         `JSON listing pointer "${urlPointer}" did not resolve at "${segment}"`
       );
     }
+    if (next.length === 0) {
+      return [];
+    }
     values = next;
   }
+  return values;
+};
+
+/** Extracts detail URLs from a JSON listing pointer, resolving and deduplicating absolute URLs. */
+export const extractJsonListingUrls = (
+  raw: string,
+  urlPointer: string,
+  linkPattern: RegExp,
+  baseUrl: string
+): JsonLdDiscoveryUrl[] => {
+  const parsed = parseJsonListing(raw, baseUrl);
+  const values = resolveJsonListingPointer(parsed, urlPointer);
 
   const seen = new Set<string>();
   const urls: JsonLdDiscoveryUrl[] = [];
@@ -186,6 +205,72 @@ export const extractJsonListingUrls = (
     }
   }
   return urls;
+};
+
+export interface JsonListingPagination {
+  page: number;
+  pageSize: number;
+  total: number;
+}
+
+export const validateJsonListingPagination = (
+  pagination: JsonListingPagination,
+  config: JsonLdListingPaginationConfig,
+  baseUrl: string
+): JsonListingPagination & { pageCount: number } => {
+  const { page, pageSize, total } = pagination;
+  if (
+    !Number.isInteger(page) ||
+    !Number.isInteger(pageSize) ||
+    !Number.isInteger(total) ||
+    page < 1 ||
+    pageSize < 1 ||
+    total < 0
+  ) {
+    throw new Error(
+      `JSON listing pagination at ${baseUrl} has invalid page, page size, or total`
+    );
+  }
+  const pageCount = Math.max(1, Math.ceil(total / pageSize));
+  if (page !== 1 || page > pageCount) {
+    throw new Error(
+      `JSON listing pagination at ${baseUrl} must start at page 1 and stay within ${pageCount} pages`
+    );
+  }
+  const maxPages = config.maxPages ?? 100;
+  if (pageCount > maxPages) {
+    throw new Error(
+      `JSON listing pagination at ${baseUrl} requires ${pageCount} pages, exceeding the limit of ${maxPages}`
+    );
+  }
+  return { ...pagination, pageCount };
+};
+
+export const extractJsonListingPagination = (
+  raw: string,
+  pagination: JsonLdListingPaginationConfig,
+  baseUrl: string
+): JsonListingPagination => {
+  const parsed = parseJsonListing(raw, baseUrl);
+  const readNumber = (pointer: string): number => {
+    const values = resolveJsonListingPointer(parsed, pointer);
+    const [value] = values;
+    if (
+      values.length !== 1 ||
+      typeof value !== "number" ||
+      !Number.isFinite(value)
+    ) {
+      throw new Error(
+        `JSON listing pointer "${pointer}" at ${baseUrl} did not resolve to one finite number`
+      );
+    }
+    return value;
+  };
+  return {
+    page: readNumber(pagination.pagePointer),
+    pageSize: readNumber(pagination.pageSizePointer),
+    total: readNumber(pagination.totalPointer),
+  };
 };
 
 /** Drops discovery rows whose URL matches any of the source's exclude patterns. */

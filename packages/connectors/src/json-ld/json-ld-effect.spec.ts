@@ -5,6 +5,7 @@ import {
   isReadIoFault,
   RateLimitFault,
   Server5xxFault,
+  ValidationFault,
 } from "../effect-runtime";
 import { createJsonLdClient } from "./client";
 import { createJsonLdEffectClient } from "./client-effect";
@@ -104,6 +105,60 @@ describe("json-ld Effect read adapter", () => {
       liveEnabled: true,
     });
     await expect(client.fetchListing()).rejects.toBeInstanceOf(Server5xxFault);
+  });
+
+  it("maps malformed JSON listings to validation faults", async () => {
+    const client = createJsonLdEffectClient({
+      config: prorailConfig,
+      fetchImpl: () => Promise.resolve(new Response("not json")),
+      liveEnabled: true,
+    });
+    await expect(client.fetchListing()).rejects.toBeInstanceOf(ValidationFault);
+  });
+
+  it("maps invalid pagination and first-page pointers to validation faults", async () => {
+    const invalidPaginationResponse = JSON.stringify({
+      hits: [{ pageUrl: "/jobs/one" }],
+      pagination: { page: -1, pageSize: 50, totalMatching: 1 },
+    });
+    const invalidPaginationClient = createJsonLdEffectClient({
+      config: prorailConfig,
+      fetchImpl: () => Promise.resolve(new Response(invalidPaginationResponse)),
+      liveEnabled: true,
+    });
+    await expect(invalidPaginationClient.fetchListing()).rejects.toBeInstanceOf(
+      ValidationFault
+    );
+
+    const invalidPointerClient = createJsonLdEffectClient({
+      config: {
+        ...prorailConfig,
+        discovery: {
+          kind: "json-listing",
+          linkPattern: /^\/vacatures\/[^/]+\/[^/]+\/?$/u,
+          pagination: {
+            pageParam: "page",
+            pagePointer: "pagination.page",
+            pageSizeParam: "pageSize",
+            pageSizePointer: "pagination.pageSize",
+            totalPointer: "pagination.totalMatching",
+          },
+          url: "https://example.test/jobs?page=1&pageSize=50",
+          urlPointer: "results[].pageUrl",
+        },
+      },
+      fetchImpl: () =>
+        Promise.resolve(
+          Response.json({
+            hits: [{ pageUrl: "/jobs/one" }],
+            pagination: { page: 1, pageSize: 50, totalMatching: 1 },
+          })
+        ),
+      liveEnabled: true,
+    });
+    await expect(invalidPointerClient.fetchListing()).rejects.toBeInstanceOf(
+      ValidationFault
+    );
   });
 
   it("honors AbortSignal during HTTP", async () => {

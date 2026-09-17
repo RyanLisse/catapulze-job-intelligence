@@ -62,6 +62,24 @@ describe("extractJsonLdNodes / pickJobPosting", () => {
     expect(extractJobPosting(html)).toMatchObject({ title: "Ok" });
   });
 
+  it("keeps blocks in document order and returns no nodes for a page without JSON-LD", () => {
+    const html = [
+      '<script type="application/ld+json">{"a":1}</script>',
+      "<div>filler</div>",
+      '<script type="application/ld+json">{"b":2}</script>',
+    ].join("\n");
+    expect(extractJsonLdNodes(html)).toEqual([{ a: 1 }, { b: 2 }]);
+    expect(extractJsonLdNodes("<html><body>plain</body></html>")).toEqual([]);
+  });
+
+  it("finds a JobPosting nested under @graph in a later block", () => {
+    const html = [
+      '<script type="application/ld+json">{"@type":"BreadcrumbList","itemListElement":[]}</script>',
+      '<script type="application/ld+json">{"@graph":[{"@type":"Organization"},{"@type":"JobPosting","title":"Nested"}]}</script>',
+    ].join("\n");
+    expect(extractJobPosting(html)).toMatchObject({ title: "Nested" });
+  });
+
   it("returns null when no JobPosting node is present", () => {
     const html =
       '<script type="application/ld+json">{"@type":"Organization","name":"x"}</script>';
@@ -325,6 +343,125 @@ describe("extractJsonListingUrls", () => {
         url: "https://www.werkenbijprorail.nl/vacatures/functie/technisch-projectleider",
       },
     ]);
+  });
+
+  it("returns an empty listing when an array expansion is empty", () => {
+    expect(
+      extractJsonListingUrls(
+        '{"hits":[]}',
+        "hits[].pageUrl",
+        linkPattern,
+        baseUrl
+      )
+    ).toEqual([]);
+  });
+
+  it("fetches every page described by JSON listing pagination metadata", async () => {
+    const listingUrl = "https://example.test/api/jobs?page=1&pageSize=1";
+    const responses = new Map([
+      [
+        listingUrl,
+        JSON.stringify({
+          hits: [{ pageUrl: "/jobs/one" }],
+          pagination: { page: 1, pageSize: 1, totalMatching: 2 },
+        }),
+      ],
+      [
+        "https://example.test/api/jobs?page=2&pageSize=1",
+        JSON.stringify({
+          hits: [{ pageUrl: "/jobs/two" }],
+          pagination: { page: 2, pageSize: 1, totalMatching: 2 },
+        }),
+      ],
+    ]);
+    const calls: string[] = [];
+    const mockFetch: typeof fetch = Object.assign(
+      (input: string | URL | Request) => {
+        const url = String(input);
+        calls.push(url);
+        const body = responses.get(url);
+        if (!body) {
+          throw new Error(`unexpected request ${url}`);
+        }
+        return Promise.resolve(new Response(body, { status: 200 }));
+      },
+      { preconnect: () => {} }
+    );
+    const client = createJsonLdClient({
+      config: {
+        detailBaseUrl: "https://example.test/",
+        discovery: {
+          kind: "json-listing",
+          linkPattern: /^\/jobs\/[^/]+$/u,
+          pagination: {
+            pageParam: "page",
+            pagePointer: "pagination.page",
+            pageSizeParam: "pageSize",
+            pageSizePointer: "pagination.pageSize",
+            totalPointer: "pagination.totalMatching",
+          },
+          url: listingUrl,
+          urlPointer: "hits[].pageUrl",
+        },
+        parserVersion: "test/v1",
+        slug: "test-json-pagination",
+      },
+      fetchImpl: mockFetch,
+      liveEnabled: true,
+    });
+
+    await expect(client.fetchListing()).resolves.toEqual([
+      { url: "https://example.test/jobs/one" },
+      { url: "https://example.test/jobs/two" },
+    ]);
+    expect(calls).toEqual([
+      listingUrl,
+      "https://example.test/api/jobs?page=2&pageSize=1",
+    ]);
+  });
+
+  it("rejects pagination metadata that cannot be safely bounded", async () => {
+    const listingUrl = "https://example.test/api/jobs?page=1&pageSize=50";
+    const calls: string[] = [];
+    const mockFetch: typeof fetch = Object.assign(
+      (input: string | URL | Request) => {
+        calls.push(String(input));
+        return Promise.resolve(
+          Response.json({
+            hits: [{ pageUrl: "/jobs/one" }],
+            pagination: { page: -1_000_000, pageSize: 50, totalMatching: 1 },
+          })
+        );
+      },
+      { preconnect: () => {} }
+    );
+    const client = createJsonLdClient({
+      config: {
+        detailBaseUrl: "https://example.test/",
+        discovery: {
+          kind: "json-listing",
+          linkPattern: /^\/jobs\/[^/]+$/u,
+          pagination: {
+            pageParam: "page",
+            pagePointer: "pagination.page",
+            pageSizeParam: "pageSize",
+            pageSizePointer: "pagination.pageSize",
+            totalPointer: "pagination.totalMatching",
+          },
+          url: listingUrl,
+          urlPointer: "hits[].pageUrl",
+        },
+        parserVersion: "test/v1",
+        slug: "test-json-pagination-invalid",
+      },
+      fetchImpl: mockFetch,
+      liveEnabled: true,
+    });
+
+    await expect(client.fetchListing()).rejects.toThrow(
+      "invalid page, page size, or total"
+    );
+    expect(calls).toEqual([listingUrl]);
   });
 
   it("walks nested arrays and keeps only string leaves", () => {

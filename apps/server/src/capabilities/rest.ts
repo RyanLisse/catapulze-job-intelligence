@@ -328,6 +328,23 @@ const invokeRest = async (
   })(input, { principal, requestId });
 };
 
+const findRestRoute = (
+  routes: readonly RestRouteSpec[],
+  method: string,
+  pathname: string
+): { route: RestRouteSpec; params: PathParams } | null => {
+  for (const route of routes) {
+    if (route.method !== method) {
+      continue;
+    }
+    const params = matchPath(route.pathPattern, pathname);
+    if (params !== null) {
+      return { params, route };
+    }
+  }
+  return null;
+};
+
 export const createRestCapabilityHandler =
   (
     registry: SliceARegistry,
@@ -337,15 +354,15 @@ export const createRestCapabilityHandler =
   ) =>
   async (context: Context): Promise<Response> => {
     const requestId = createRequestId();
-    const pathname = context.req.path.replace(/^\/v1/u, "/v1");
-    const matched = routes.find(
-      (route) =>
-        route.method === context.req.method &&
-        matchPath(route.pathPattern, pathname) !== null
+    const routeMatch = findRestRoute(
+      routes,
+      context.req.method,
+      context.req.path
     );
-    if (!matched) {
+    if (!routeMatch) {
       return jsonResponse(404, { error: "Route not found" });
     }
+    const { route: matched, params } = routeMatch;
     const requestHeaders = context.req.raw.headers;
     if (
       !hasAllowedCookieOrigin(
@@ -409,7 +426,6 @@ export const createRestCapabilityHandler =
         ok: false,
       });
     }
-    const params = matchPath(matched.pathPattern, pathname) ?? {};
     let body: RestJsonBody = {};
     if (context.req.method === "POST" || context.req.method === "PUT") {
       try {
@@ -434,12 +450,10 @@ export const createRestCapabilityHandler =
       requestId
     );
     if (!result.ok) {
-      const code =
-        "requestId" in result.error ? result.error.code : result.error.code;
       const status =
         "requestId" in result.error
-          ? invocationErrorStatus(code)
-          : domainErrorStatus(code);
+          ? invocationErrorStatus(result.error.code)
+          : domainErrorStatus(result.error.code);
       return jsonResponse(status, serializeRegistryJson(result));
     }
     // SAFETY: The registry validated this value against the capability output schema.

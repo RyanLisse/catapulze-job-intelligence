@@ -1,8 +1,7 @@
-import { CLEARED, UNKNOWN } from "@ji/domain";
-
 import { isTitleFallbackDescription } from "../title-fallback-description";
 import type { TitleFallbackDescriptionParts } from "../title-fallback-description";
 import { readDurableClearedKeys } from "./cleared-markers";
+import { isClearedText, isMissingText } from "./gap-predicates";
 import type {
   EnrichmentContractValue,
   EnrichmentBeschrijvingValue,
@@ -140,15 +139,6 @@ class PatchBuilder {
     return result;
   }
 }
-
-const isMissingText = (value: string | null | undefined): boolean =>
-  value === null ||
-  value === undefined ||
-  value.trim() === "" ||
-  value.trim() === UNKNOWN;
-
-const isClearedText = (value: string | null | undefined): boolean =>
-  value !== null && value !== undefined && value.trim() === CLEARED;
 
 const isMissingTarief = (facts: CuratedCommercialFacts): boolean =>
   isMissingText(facts.tariefMin) &&

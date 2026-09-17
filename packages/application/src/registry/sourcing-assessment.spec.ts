@@ -4,6 +4,7 @@ import { createSliceARegistry } from "./catalog";
 import { permissionsForRole } from "./roles";
 import {
   digestSourcingSelection,
+  createSourcingAssessmentHandler,
   evaluateSourcingAssessment,
   sourcingAssessmentInputSchema,
   SOURCING_ASSESSMENT_MAX_CLAIMS,
@@ -116,6 +117,28 @@ describe("evaluate_sourcing_assessment (RJC-447)", () => {
       ok: false,
     });
     expect(JSON.stringify(result)).not.toContain(secret);
+  });
+
+  it("preserves the configured authority failure as the handler error cause", async () => {
+    const authorityError = new Error("authority unavailable");
+    const deps = createTestSliceADeps();
+    const handler = createSourcingAssessmentHandler({
+      ...deps,
+      sourcingAssessmentAuthority: {
+        attest: () => {
+          throw authorityError;
+        },
+      },
+    });
+
+    await expect(
+      handler(completeSourcingFixture, {
+        operation: "evaluate_sourcing_assessment",
+        principal,
+        requestId: "authority-cause",
+        transport: "mcp",
+      })
+    ).rejects.toMatchObject({ cause: authorityError });
   });
 
   it("returns a sanitized correlated failure when configured authority is malformed", async () => {

@@ -16,9 +16,11 @@ import {
   applyExcludes,
   buildDetailPayload,
   dedupeUrls,
+  extractJsonListingPagination,
   extractSitemapUrls,
   parseListingSource,
   selectSitemapIndexChildren,
+  validateJsonListingPagination,
 } from "./discovery";
 import {
   buildLiveFetchHeaders,
@@ -139,6 +141,106 @@ const loadFixtureJsonEffect = (
     },
   });
 
+const parseJsonListingPagesEffect = (
+  options: JsonLdEffectClientOptions,
+  firstRaw: string
+): Effect.Effect<JsonLdDiscoveryUrl[], ReadIoFault> => {
+  const { config } = options;
+  if (
+    config.discovery.kind !== "json-listing" ||
+    !config.discovery.pagination
+  ) {
+    return Effect.try({
+      catch: (cause) =>
+        new ValidationFault({
+          cause,
+          message: `Failed to parse ${config.slug} listing`,
+        }),
+      try: () => parseListingSource(config, firstRaw),
+    });
+  }
+  const { pagination } = config.discovery;
+  const metadata = Effect.try({
+    catch: (cause) =>
+      new ValidationFault({
+        cause,
+        message: `Failed to parse ${config.slug} listing pagination`,
+      }),
+    try: () =>
+      validateJsonListingPagination(
+        extractJsonListingPagination(
+          firstRaw,
+          pagination,
+          config.discovery.url
+        ),
+        pagination,
+        config.discovery.url
+      ),
+  });
+  return metadata.pipe(
+    Effect.flatMap(({ page, pageSize, pageCount }) => {
+      const firstPage = Effect.try({
+        catch: (cause) =>
+          new ValidationFault({
+            cause,
+            message: `Failed to parse ${config.slug} listing`,
+          }),
+        try: () => parseListingSource(config, firstRaw),
+      });
+      const pageUrls = Array.from(
+        { length: Math.max(0, pageCount - page) },
+        (_, index) => page + index + 1
+      );
+      return firstPage.pipe(
+        Effect.flatMap((firstUrls) =>
+          Effect.forEach(
+            pageUrls,
+            (nextPage) => {
+              if (!resolveLiveEnabled(options)) {
+                return Effect.fail(
+                  new ValidationFault({
+                    message: `JSON listing fixture ${config.listingFixturePath ?? `${config.slug}/listing-page-0.json`} requires an unavailable page`,
+                  })
+                );
+              }
+              const nextUrl = new URL(config.discovery.url);
+              nextUrl.searchParams.set(pagination.pageParam, String(nextPage));
+              nextUrl.searchParams.set(
+                pagination.pageSizeParam,
+                String(pageSize)
+              );
+              return fetchLiveTextEffect(options, nextUrl.toString()).pipe(
+                Effect.flatMap((raw) =>
+                  Effect.try({
+                    catch: (cause) =>
+                      new ValidationFault({
+                        cause,
+                        message: `Failed to parse ${config.slug} listing`,
+                      }),
+                    try: () => parseListingSource(config, raw),
+                  })
+                )
+              );
+            },
+            { concurrency: 1 }
+          ).pipe(
+            Effect.map((pages) => {
+              const seen = new Set<string>();
+              return [...firstUrls, ...pages.flat()].filter((entry) => {
+                if (seen.has(entry.url)) {
+                  return false;
+                }
+                seen.add(entry.url);
+                return true;
+              });
+            })
+          )
+        )
+      );
+    })
+  );
+};
+
 export const fetchListingEffect = (
   options: JsonLdEffectClientOptions
 ): Effect.Effect<JsonLdDiscoveryUrl[], ReadIoFault> => {
@@ -164,7 +266,7 @@ export const fetchListingEffect = (
   }
   if (config.discovery.kind !== "sitemap-index") {
     return indexEffect.pipe(
-      Effect.map((raw) => parseListingSource(config, raw))
+      Effect.flatMap((raw) => parseJsonListingPagesEffect(options, raw))
     );
   }
 

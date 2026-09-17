@@ -14,6 +14,7 @@ import type {
   ManticoreSearchRequestBody,
   ManticoreSortDirection,
 } from "./json";
+import { tableExistsInShowTables } from "./show-tables";
 import { ManticoreTimeoutError } from "./timeout-error";
 
 export { ManticoreTimeoutError } from "./timeout-error";
@@ -443,6 +444,35 @@ export const buildManticoreSort = (
   }
 };
 
+const applyHybrid = (
+  request: ManticoreSearchRequestBody,
+  knnQueryText: string | undefined
+): void => {
+  if (!knnQueryText) {
+    throw new Error("Hybrid search requires positive KNN query text");
+  }
+  request.knn = { field: "embedding", query: knnQueryText };
+  request.options = { fusion_method: "rrf" };
+  request._source = ["document_id"];
+};
+
+const applyFilterQuery = (
+  request: ManticoreSearchRequestBody,
+  query: ManticoreQueryBody | null,
+  filters: SearchFilters
+): void => {
+  const filter = buildFilterClauses(filters);
+  if (filter.length > 0) {
+    // Filters only apply inside query.bool (see ManticoreFilteredQueryBody).
+    request.query =
+      query === null
+        ? { bool: { filter } }
+        : { bool: { filter, must: [query] } };
+  } else if (query !== null) {
+    request.query = query;
+  }
+};
+
 export const buildManticoreSearchRequest = (
   index: string,
   query: ManticoreQueryBody | null,
@@ -477,25 +507,9 @@ export const buildManticoreSearchRequest = (
   };
 
   if (mode === "hybrid") {
-    if (!knnQueryText) {
-      throw new Error("Hybrid search requires positive KNN query text");
-    }
-    request.knn = { field: "embedding", query: knnQueryText };
-    request.options = { fusion_method: "rrf" };
-    request._source = ["document_id"];
+    applyHybrid(request, knnQueryText);
   }
-
-  const filter = buildFilterClauses(filters);
-  if (filter.length > 0) {
-    // Filters only apply inside query.bool (see ManticoreFilteredQueryBody).
-    request.query =
-      query === null
-        ? { bool: { filter } }
-        : { bool: { filter, must: [query] } };
-  } else if (query !== null) {
-    request.query = query;
-  }
-
+  applyFilterQuery(request, query, filters);
   return request;
 };
 
@@ -521,24 +535,11 @@ export const buildManticoreCountRequest = (
     track_total_hits: true,
   };
   if (mode === "hybrid") {
-    if (!knnQueryText) {
-      throw new Error("Hybrid search requires positive KNN query text");
-    }
-    request.knn = { field: "embedding", query: knnQueryText };
-    request.options = { fusion_method: "rrf" };
-    request._source = ["document_id"];
+    applyHybrid(request, knnQueryText);
     request.max_matches = DEFAULT_MAX_MATCHES;
     delete request.sort;
   }
-  const filter = buildFilterClauses(filters);
-  if (filter.length > 0) {
-    request.query =
-      query === null
-        ? { bool: { filter } }
-        : { bool: { filter, must: [query] } };
-  } else if (query !== null) {
-    request.query = query;
-  }
+  applyFilterQuery(request, query, filters);
   return request;
 };
 
@@ -616,20 +617,6 @@ export interface ManticoreTableInfo {
   readonly exists: boolean;
 }
 
-interface ManticoreShowTablesRow {
-  /** Column name for Manticore <= ~6.x. */
-  readonly Index?: string;
-  /** Column name on Manticore 29.x (the shadow-instance conf under
-   * tools/manticore/probe-manticore29.sh) — `SHOW TABLES` renamed the
-   * column from `Index` to `Table`. Accept either so a healthy 29.x table
-   * doesn't read back as "table_missing" -> permanent readiness failure. */
-  readonly Table?: string;
-}
-
-interface ManticoreShowTablesEnvelope {
-  readonly data?: readonly ManticoreShowTablesRow[];
-}
-
 /**
  * Cheap Manticore reachability + table-existence probe for readiness
  * (RJC-391) — no query engine, no bulk write, just `SHOW TABLES` over
@@ -671,14 +658,5 @@ export const describeManticoreTable = async (
   }
 
   const raw = await response.text();
-  // SAFETY: a 2xx `/sql?mode=raw` response is always
-  // `[{ data: [{ Index, Type }, ...], ... }]` — any other shape would have
-  // been a non-2xx response, already thrown above.
-  const parsed = JSON.parse(raw) as ManticoreShowTablesEnvelope[];
-  const rows = Array.isArray(parsed) ? (parsed[0]?.data ?? []) : [];
-  return {
-    exists: rows.some(
-      (row) => row.Index === tableName || row.Table === tableName
-    ),
-  };
+  return { exists: tableExistsInShowTables(raw, tableName) };
 };

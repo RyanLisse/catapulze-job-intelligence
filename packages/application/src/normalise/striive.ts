@@ -10,16 +10,11 @@ import {
   closingMomentInstant,
   field,
   hasClosingMomentPassed,
+  isPresent,
+  numberToStringOrUnknown,
   stripHtml,
 } from "./types";
 import type { NormalisedAanvraagDraft, NormalisedTarief } from "./types";
-
-const isPresent = <Value>(value: Value | null | undefined): value is Value =>
-  value !== null && value !== undefined;
-
-const numberToStringOrUnknown = (
-  value: number | null | undefined
-): string | typeof UNKNOWN => (isPresent(value) ? String(value) : UNKNOWN);
 
 /** ISO datetime -> ISO date (`YYYY-MM-DD`); UNKNOWN when absent. Striive's
  * date fields are ISO datetimes with a time component (e.g.

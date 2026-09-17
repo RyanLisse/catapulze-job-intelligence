@@ -9,24 +9,26 @@ interface PreparedExternalIdCrosswalk {
   readonly record: ExternalIdCrosswalkRecord;
 }
 
+type CrosswalkIdentity = Pick<
+  ExternalIdCrosswalkRecord,
+  "actionType" | "canonicalVacancyId" | "scopeId" | "target"
+>;
+
+const keyFor = (identity: CrosswalkIdentity): string =>
+  JSON.stringify([
+    identity.scopeId,
+    buildExportIdempotencyKey(
+      identity.target,
+      identity.canonicalVacancyId,
+      identity.actionType
+    ),
+  ]);
+
 export class MemoryExternalIdCrosswalkStore implements ExternalIdCrosswalkStore {
   private readonly byKey = new Map<string, ExternalIdCrosswalkRecord>();
 
-  get(input: {
-    actionType: ExternalIdCrosswalkRecord["actionType"];
-    canonicalVacancyId: string;
-    scopeId: string;
-    target: ExternalIdCrosswalkRecord["target"];
-  }): Promise<ExternalIdCrosswalkRecord | null> {
-    const key = JSON.stringify([
-      input.scopeId,
-      buildExportIdempotencyKey(
-        input.target,
-        input.canonicalVacancyId,
-        input.actionType
-      ),
-    ]);
-    const record = this.byKey.get(key);
+  get(input: CrosswalkIdentity): Promise<ExternalIdCrosswalkRecord | null> {
+    const record = this.byKey.get(keyFor(input));
     return Promise.resolve(record ? { ...record } : null);
   }
 
@@ -41,14 +43,7 @@ export class MemoryExternalIdCrosswalkStore implements ExternalIdCrosswalkStore 
   prepare(
     record: Omit<ExternalIdCrosswalkRecord, "createdAt">
   ): PreparedExternalIdCrosswalk {
-    const key = JSON.stringify([
-      record.scopeId,
-      buildExportIdempotencyKey(
-        record.target,
-        record.canonicalVacancyId,
-        record.actionType
-      ),
-    ]);
+    const key = keyFor(record);
     const existing = this.byKey.get(key);
     if (existing && existing.externalId !== record.externalId) {
       throw new Error("External ID crosswalk already has a different ID");

@@ -15,6 +15,13 @@ export const prorailConfig: JsonLdConnectorConfig = {
   discovery: {
     kind: "json-listing",
     linkPattern: /^\/vacatures\/[^/]+\/[^/]+\/?$/u,
+    pagination: {
+      pageParam: "page",
+      pagePointer: "pagination.page",
+      pageSizeParam: "pageSize",
+      pageSizePointer: "pagination.pageSize",
+      totalPointer: "pagination.totalMatching",
+    },
     url: "https://www.prorail.nl/nl/api/v1/vacancysearch?page=1&pageSize=50",
     urlPointer: "hits[].pageUrl",
   },

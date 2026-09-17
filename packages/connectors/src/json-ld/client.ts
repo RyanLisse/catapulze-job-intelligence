@@ -4,9 +4,11 @@ import {
   applyExcludes,
   buildDetailPayload,
   dedupeUrls,
+  extractJsonListingPagination,
   extractSitemapUrls,
   parseListingSource,
   selectSitemapIndexChildren,
+  validateJsonListingPagination,
 } from "./discovery";
 import type { JsonLdDetailPayload } from "./discovery";
 import {
@@ -81,6 +83,38 @@ export const createJsonLdClient = (
       });
     }, timeoutMs);
 
+  const fetchJsonListingPages = async (
+    firstRaw: string,
+    fetchPage: (page: number, pageSize: number) => Promise<string>
+  ): Promise<JsonLdDiscoveryUrl[]> => {
+    if (config.discovery.kind !== "json-listing") {
+      return parseListingSource(config, firstRaw);
+    }
+    const { pagination } = config.discovery;
+    if (!pagination) {
+      return parseListingSource(config, firstRaw);
+    }
+    const { page, pageSize, pageCount } = validateJsonListingPagination(
+      extractJsonListingPagination(firstRaw, pagination, config.discovery.url),
+      pagination,
+      config.discovery.url
+    );
+    const discovered = parseListingSource(config, firstRaw);
+    for (let nextPage = page + 1; nextPage <= pageCount; nextPage += 1) {
+      // oxlint-disable-next-line no-await-in-loop -- pagination requests stay ordered and bounded.
+      const raw = await fetchPage(nextPage, pageSize);
+      discovered.push(...parseListingSource(config, raw));
+    }
+    const seen = new Set<string>();
+    return discovered.filter((entry) => {
+      if (seen.has(entry.url)) {
+        return false;
+      }
+      seen.add(entry.url);
+      return true;
+    });
+  };
+
   return {
     fetchDetail: async (url) => {
       if (!liveEnabled) {
@@ -134,13 +168,34 @@ export const createJsonLdClient = (
         if (config.discovery.kind === "json-listing") {
           const fixture =
             await loadConnectorFixture<unknown>(listingFixturePath);
-          return parseListingSource(config, JSON.stringify(fixture.payload));
+          return await fetchJsonListingPages(
+            JSON.stringify(fixture.payload),
+            () => {
+              throw new Error(
+                `JSON listing fixture ${listingFixturePath} requires an unavailable page`
+              );
+            }
+          );
         }
         const fixture = await loadConnectorFixture<string>(listingFixturePath);
         return parseListingSource(config, fixture.payload);
       }
       const raw = await fetchLiveText(config.discovery.url);
-      return parseListingSource(config, raw);
+      return await fetchJsonListingPages(raw, async (page, pageSize) => {
+        const nextUrl = new URL(config.discovery.url);
+        if (config.discovery.kind !== "json-listing") {
+          return raw;
+        }
+        nextUrl.searchParams.set(
+          config.discovery.pagination?.pageParam ?? "page",
+          String(page)
+        );
+        nextUrl.searchParams.set(
+          config.discovery.pagination?.pageSizeParam ?? "pageSize",
+          String(pageSize)
+        );
+        return await fetchLiveText(nextUrl.toString());
+      });
     },
   };
 };
