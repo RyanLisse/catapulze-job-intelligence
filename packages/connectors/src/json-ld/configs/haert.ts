@@ -25,6 +25,6 @@ export const haertConfig: JsonLdConnectorConfig = {
   ],
   listingFixturePath: "haert/listing-page-0.json",
   liveEnvVar: "HAERT_LIVE",
-  parserVersion: "haert/v1",
+  parserVersion: "haert/v2",
   slug: "haert",
 };

@@ -58,6 +58,7 @@ const bronFactsInputSchema = z.object({
   skills: z.unknown().optional().transform(normaliseSkills),
   startDatum: sourceTextSchema,
   start_datum: sourceTextSchema,
+  verwachte_duur: sourceTextSchema,
   werkvorm: sourceTextSchema,
 });
 
@@ -119,7 +120,8 @@ export const readAanvraagBronFacts = (
       values.duur,
       values.duration,
       values.periode,
-      values.looptijd_tekst
+      values.looptijd_tekst,
+      values.verwachte_duur
     ),
     opdrachtgeverNaam: firstSourceText(
       values.opdrachtgeverNaam,

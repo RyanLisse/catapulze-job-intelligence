@@ -3,6 +3,7 @@ import { CTM_PARSER_VERSION } from "@ji/connectors/ctm";
 import { UNKNOWN } from "@ji/domain";
 import { resolveLifecycleStatus } from "@ji/domain/lifecycle";
 
+import { toDraftContactpersonen } from "./contactpersonen";
 import { closingMomentInstant, field, hasClosingMomentPassed } from "./types";
 import type { NormalisedAanvraagDraft, NormalisedTarief } from "./types";
 
@@ -74,9 +75,17 @@ export const parseCtmPayload = (
   });
 
   // DEC-008 minimisation: the connector's own parser (client.ts toCtmEntry)
-  // already whitelists on the way in — contactPerson, authority address
-  // fields and the free-text description blocks are never parsed into
-  // CtmEntry in the first place, so nothing extra needs stripping here.
+  // already whitelists on the way in — authority address fields and the
+  // free-text description blocks are never parsed into CtmEntry in the first
+  // place. CTP-610 explicitly added the <contactPerson> element to that
+  // whitelist (the feed publishes it for aanbieders submitting questions);
+  // the bron's contactpersoon_beleid decides whether it may be stored.
+  const contactpersonen = toDraftContactpersonen(
+    "ctm",
+    entry.contactpersonen,
+    parserVersion,
+    "publication.contactPerson"
+  );
   const bronSpecifiek = {
     aanvraagnummer: entry.aanvraagnummer,
     cpv: toJsonCpv(entry.cpv),
@@ -86,7 +95,7 @@ export const parseCtmPayload = (
     sluitingstijd_raw: entry.sluitingstijd ?? null,
   };
 
-  return {
+  const draft: NormalisedAanvraagDraft = {
     beschrijving: field(buildBeschrijving(entry), parserVersion, "entry"),
     bronReferentie: field(
       entry.aanvraagnummer,
@@ -118,6 +127,10 @@ export const parseCtmPayload = (
     tarief: UNKNOWN_TARIEF,
     titel: field(entry.titel, parserVersion, "entry.title"),
   };
+  if (contactpersonen) {
+    draft.contactpersonen = contactpersonen;
+  }
+  return draft;
 };
 
 export const decodeCtmPayload = (body: Uint8Array): CtmFetchedPayload =>

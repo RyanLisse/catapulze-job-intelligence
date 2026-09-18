@@ -13,6 +13,7 @@ export {
   type ConnectorFixture,
   type ConnectorObservation,
   type DiscoverItem,
+  type SourceContact,
 } from "./contract";
 export {
   loadConnectorFixture,

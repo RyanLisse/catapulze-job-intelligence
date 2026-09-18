@@ -17,6 +17,7 @@ export const hashInhuurdeskListingItem = (
     clientNameSlug: item.clientNameSlug ?? null,
     closingDateClient: item.closingDateClient ?? null,
     closingDateInvoice: item.closingDateInvoice ?? null,
+    contactpersonen: item.contactpersonen ?? null,
     content: item.content ?? null,
     endDate: item.endDate ?? null,
     hasMaxRate: item.hasMaxRate ?? null,

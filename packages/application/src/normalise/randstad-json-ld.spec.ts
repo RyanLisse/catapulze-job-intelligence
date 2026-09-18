@@ -24,7 +24,7 @@ describe("normalise and curate Randstad JSON-LD", () => {
     const payload: JsonLdFetchedPayload = {
       jobPosting: detail.jobPosting,
       labelBlock: detail.labelBlock,
-      parserVersion: "randstad/v1",
+      parserVersion: "randstad/v2",
       slug: "randstad",
       url,
     };

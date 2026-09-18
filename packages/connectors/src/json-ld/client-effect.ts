@@ -16,9 +16,11 @@ import {
   applyExcludes,
   buildDetailPayload,
   dedupeUrls,
+  detailFixtureBody,
   extractJsonListingPagination,
   extractSitemapUrls,
   parseListingSource,
+  resolveDetailFetchUrl,
   selectSitemapIndexChildren,
   validateJsonListingPagination,
 } from "./discovery";
@@ -332,13 +334,15 @@ export const fetchDetailEffect = (
           cause,
           message: `Failed to load detail fixture ${relativePath}`,
         }),
-      try: () => loadConnectorFixture<string>(relativePath),
+      try: () => loadConnectorFixture<unknown>(relativePath),
     }).pipe(
-      Effect.map((fixture) => buildDetailPayload(config, url, fixture.payload))
+      Effect.map((fixture) =>
+        buildDetailPayload(config, url, detailFixtureBody(fixture.payload))
+      )
     );
   }
 
-  return fetchLiveTextEffect(options, url).pipe(
+  return fetchLiveTextEffect(options, resolveDetailFetchUrl(config, url)).pipe(
     Effect.map((html) => buildDetailPayload(config, url, html))
   );
 };

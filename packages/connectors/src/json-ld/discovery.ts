@@ -1,20 +1,17 @@
 /* oxlint-disable anti-slop/no-runtime-typeof -- JSON listing traversal narrows JSON.parse output at this I/O boundary. */
 import { decodeHtmlEntities } from "../html-entities";
-import type { NextJobDataSynthesis } from "./extract";
-import {
-  extractJobPosting,
-  extractLabelBlock,
-  synthesizeJobPostingFromNextData,
-  synthesizeJobPostingFromVike,
-} from "./extract";
+import { extractJobPosting, extractLabelBlock } from "./extract";
 import type {
+  DetailSynthesis,
   JsonLdConnectorConfig,
   JsonLdDiscoveryUrl,
   JsonLdListingPaginationConfig,
   JsonLdNode,
+  SourceContact,
 } from "./types";
 
 export interface JsonLdDetailPayload {
+  contactpersonen?: SourceContact[];
   jobPosting: JsonLdNode | null;
   labelBlock: Record<string, string>;
   url: string;
@@ -335,23 +332,52 @@ export const parseListingSource = (
   return applyExcludes(urls, config.excludePatterns);
 };
 
-/** Builds the detail payload for one page: explicit JSON-LD JobPosting first, falling
- * back to framework-state synthesis when the source opts in (`synthesizeFromNextJobData`
- * for Next.js `__NEXT_DATA__`, `synthesizeFromVikeJobData` for Vike `vike_pageContext`). */
+/** Resolves the URL the detail fetch actually requests: `detailUrlRewrite` maps
+ * the public vacancy URL onto the endpoint that serves its data (a JSON API
+ * detail, say), while the observation keeps the public URL as its identity.
+ * No rewrite configured or no match → the discovered URL is fetched as-is. */
+export const resolveDetailFetchUrl = (
+  config: JsonLdConnectorConfig,
+  url: string
+): string => {
+  const rewrite = config.detailUrlRewrite;
+  if (!rewrite) {
+    return url;
+  }
+  const parsed = new URL(url);
+  const rewritten = parsed.pathname.replace(rewrite.pattern, rewrite.replace);
+  if (rewritten === parsed.pathname) {
+    return url;
+  }
+  parsed.pathname = rewritten;
+  return parsed.toString();
+};
+
+/** A detail fixture's `payload` is JsonValue: HTML pages are recorded as
+ * strings, but a JSON-API detail (Alliander's `/api/vacancy`) is recorded as a
+ * parsed object and must be serialised back to the raw body text the
+ * synthesizer parses. */
+// oxlint-disable-next-line anti-slop/no-unknown-parameters -- the fixture envelope's payload is JsonValue by contract; this helper IS the boundary narrowing.
+export const detailFixtureBody = (payload: unknown): string =>
+  // oxlint-disable-next-line anti-slop/no-runtime-typeof -- narrowing the recorded fixture payload's representation at the I/O boundary.
+  typeof payload === "string" ? payload : JSON.stringify(payload);
+
+/** Builds the detail payload for one page. The synthesizer runs on every body
+ * so it may surface `contactpersonen` alongside explicit JSON-LD; its
+ * `jobPosting` only fills in when no explicit JobPosting node exists (Next.js
+ * `__NEXT_DATA__`, Vike `vike_pageContext`, JSON API records, embedded page
+ * state). */
 export const buildDetailPayload = (
   config: JsonLdConnectorConfig,
   url: string,
   html: string
 ): JsonLdDetailPayload => {
   const explicitJobPosting = extractJobPosting(html);
-  let synthesis: NextJobDataSynthesis | null = null;
-  if (!explicitJobPosting && config.synthesizeFromNextJobData) {
-    synthesis = synthesizeJobPostingFromNextData(html, url);
-  } else if (!explicitJobPosting && config.synthesizeFromVikeJobData) {
-    synthesis = synthesizeJobPostingFromVike(html, url);
-  }
+  const synthesis: DetailSynthesis | null =
+    config.detailSynthesizer?.(html, url) ?? null;
   const jobPosting = explicitJobPosting ?? synthesis?.jobPosting ?? null;
   return {
+    contactpersonen: synthesis?.contactpersonen ?? [],
     jobPosting,
     labelBlock: {
       ...extractLabelBlock(html, jobPosting, config.labelBlock),

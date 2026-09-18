@@ -183,6 +183,13 @@
       "when": 1790064000000,
       "tag": "0025_enrichment_beschrijving_field",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1790121600000,
+      "tag": "0026_aanvraag_contactpersonen",
+      "breakpoints": true
     }
   ]
 }

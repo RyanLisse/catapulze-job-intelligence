@@ -12,7 +12,7 @@ The sitemap is global. The connector keeps canonical careers detail URLs and dro
 
 ## Detail parsing
 
-ASML detail pages do not publish a `JobPosting` JSON-LD block. With the ASML-only `synthesizeFromNextJobData` config flag, the shared JSON-LD client reads `props.pageProps.jobData` from `__NEXT_DATA__` and synthesises the minimum `JobPosting` node needed by the shared normaliser.
+ASML detail pages do not publish a `JobPosting` JSON-LD block. With the ASML-only `detailSynthesizer` config field, the shared JSON-LD client reads `props.pageProps.jobData` from `__NEXT_DATA__` and synthesises the minimum `JobPosting` node needed by the shared normaliser.
 
 The sample maps as follows:
 

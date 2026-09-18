@@ -5,6 +5,7 @@ import type {
   ConnectorCheckpoint,
   ConnectorDiscoverResult,
   DiscoverItem,
+  SourceContact,
 } from "../contract";
 import { shouldSkipFetch } from "../known-hash";
 import type { KnownHashStore } from "../known-hash";
@@ -40,6 +41,45 @@ const projectStriiveContractAndSkills = (raw: StriiveJob) => ({
   tags: raw.tags ?? null,
 });
 
+const clean = (value: string | null | undefined): string | null =>
+  value?.trim() || null;
+
+/** CTP-610: folds the raw recruiter/order-contact/requester slots into
+ * `contactpersonen`. Field list confirmed in the live capture's scrub note
+ * (fixtures/connectors/striive/listing-live.json) -- the slots exist on
+ * every record; values were stripped from fixtures but flow live. */
+export const projectStriiveContacts = (
+  raw: StriiveJob
+): SourceContact[] | null => {
+  const contacts: SourceContact[] = [];
+  const recruiterNaam = [
+    clean(raw.recruiterFirstName),
+    clean(raw.recruiterMiddleName),
+    clean(raw.recruiterLastName),
+  ]
+    .filter((part): part is string => part !== null)
+    .join(" ");
+  const recruiter: SourceContact = {
+    email: clean(raw.recruiterEmail),
+    naam: recruiterNaam || null,
+    rol: clean(raw.recruiterFunctionTitle),
+    telefoon: clean(raw.recruiterPhoneNumber),
+  };
+  if (recruiter.naam || recruiter.email || recruiter.telefoon) {
+    contacts.push(recruiter);
+  }
+  const orderNaam =
+    clean(raw.orderContactFullName) ?? clean(raw.orderContactLegalName);
+  if (orderNaam) {
+    contacts.push({ naam: orderNaam, rol: "ordercontact" });
+  }
+  const requester = clean(raw.requesterEmail);
+  if (requester && !contacts.some((c) => c.email === requester)) {
+    contacts.push({ email: requester, rol: "aanvrager" });
+  }
+  return contacts.length > 0 ? contacts : null;
+};
+
 /** DEC-008: never let more than the whitelisted fields reach
  * `listingPayload` or the stored body. The live endpoint returns a much
  * larger raw record per job -- recruiter name/email/phone and internal
@@ -53,6 +93,7 @@ const projectStriiveJob = (raw: StriiveJob): StriiveJob => ({
   clientName: raw.clientName ?? null,
   closingDateClient: raw.closingDateClient ?? null,
   closingDateInvoice: raw.closingDateInvoice ?? null,
+  contactpersonen: projectStriiveContacts(raw) ?? undefined,
   content: raw.content ?? null,
   endDate: raw.endDate ?? null,
   hoursPerWeekMax: raw.hoursPerWeekMax ?? null,

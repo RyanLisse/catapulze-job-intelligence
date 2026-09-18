@@ -1,3 +1,5 @@
+import type { SourceContact } from "../contract";
+
 /**
  * Striive is a Craft CMS-fronted JSON API (`striive-cms.codebridge.nl`)
  * aggregating opdrachten from several brokers/HeadFirst-family sources.
@@ -23,17 +25,19 @@ export interface StriiveGeoPoint {
 }
 
 /** Whitelisted job fields kept past the connector boundary -- see the
- * `docs/sources/striive.md` field-mapping table. Recruiter name/email/phone
- * remain deliberately absent (PII, DEC-008). The tariff fields below were
- * previously excluded too, but that exclusion was never a DEC-008 (PII)
- * concern -- they are commercial facts, and DEC-008 governs raw-data
- * minimisation for personal data only (docs/IMPLEMENTATION_BACKLOG.md
- * "Definieer raw-data-minimalisatie en retentie"). They were confirmed
- * live to be zero/false across the full 109-record capture at the time
- * (`hasMaxRate: false`, `hourlyRateMin/Max: 0`, `monthlyRateMin/Max: 0`,
- * `rateType: 0`) -- unusable then, not forbidden. Kept whitelisted now
- * (CTP-524, F09) so a future capture with real values is honestly mapped
- * instead of silently dropped.
+ * `docs/sources/striive.md` field-mapping table. Recruiter/order-contact/
+ * requester slots were folded into `contactpersonen` under CTP-610 (owner
+ * decision: werkenbij- and platform-contacts are in scope); the raw person
+ * slots below stay projection-inputs only and never leave the boundary.
+ * The tariff fields below were previously excluded too, but that exclusion
+ * was never a DEC-008 (PII) concern -- they are commercial facts, and
+ * DEC-008 governs raw-data minimisation for personal data only
+ * (docs/IMPLEMENTATION_BACKLOG.md "Definieer raw-data-minimalisatie en
+ * retentie"). They were confirmed live to be zero/false across the full
+ * 109-record capture at the time (`hasMaxRate: false`, `hourlyRateMin/Max:
+ * 0`, `monthlyRateMin/Max: 0`, `rateType: 0`) -- unusable then, not
+ * forbidden. Kept whitelisted now (CTP-524, F09) so a future capture with
+ * real values is honestly mapped instead of silently dropped.
  */
 export interface StriiveJob {
   id: string;
@@ -80,6 +84,23 @@ export interface StriiveJob {
    * non-empty, so entry shape is unverified; `normaliseSkills` drops
    * anything that is not a plain string. */
   tags?: unknown[] | null;
+  /** CTP-610: contactpersonen built by the projection from the raw
+   * recruiter- and orderContact/requester slots below (confirmed in the live
+   * field list, scrubbed from fixtures -- see listing-live.json's note).
+   * The raw fields themselves never leave the connector boundary; only
+   * this folded list is whitelisted. */
+  contactpersonen?: SourceContact[];
+  // --- projection inputs only (raw API fields; not emitted by
+  // projectStriiveJob, folded into `contactpersonen`) ---
+  recruiterFirstName?: string | null;
+  recruiterMiddleName?: string | null;
+  recruiterLastName?: string | null;
+  recruiterFunctionTitle?: string | null;
+  recruiterEmail?: string | null;
+  recruiterPhoneNumber?: string | null;
+  orderContactFullName?: string | null;
+  orderContactLegalName?: string | null;
+  requesterEmail?: string | null;
 }
 
 export interface StriiveListingResponse {
@@ -91,7 +112,7 @@ export interface StriiveFetchedPayload {
   job: StriiveJob;
 }
 
-export const STRIIVE_PARSER_VERSION = "striive/v2" as const;
+export const STRIIVE_PARSER_VERSION = "striive/v3" as const;
 
 export const STRIIVE_JOBS_PATH = "/api/jobs";
 

@@ -1,3 +1,4 @@
+import { synthesizeContactsFromProrailPage } from "../extract";
 import type { JsonLdConnectorConfig } from "../types";
 
 export const prorailConfig: JsonLdConnectorConfig = {
@@ -12,6 +13,7 @@ export const prorailConfig: JsonLdConnectorConfig = {
     "https://www.werkenbijprorail.nl/vacatures/verkeersleiding/treinverkeersleider-maastricht":
       "prorail/detail-treinverkeersleider-maastricht.json",
   },
+  detailSynthesizer: (body) => synthesizeContactsFromProrailPage(body),
   discovery: {
     kind: "json-listing",
     linkPattern: /^\/vacatures\/[^/]+\/[^/]+\/?$/u,
@@ -27,6 +29,6 @@ export const prorailConfig: JsonLdConnectorConfig = {
   },
   listingFixturePath: "prorail/listing-page-0.json",
   liveEnvVar: "PRORAIL_LIVE",
-  parserVersion: "prorail/v1",
+  parserVersion: "prorail/v2",
   slug: "prorail",
 };

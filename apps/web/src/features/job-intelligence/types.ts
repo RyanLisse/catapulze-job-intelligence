@@ -154,6 +154,14 @@ export type MarkeringSyncState =
   | "failure"
   | "uncertain";
 
+/** CTP-610: a contactpersoon the source published on the vacancy. */
+export interface JobContactpersoon {
+  readonly email: string | null;
+  readonly naam: string | null;
+  readonly rol: string | null;
+  readonly telefoon: string | null;
+}
+
 export interface JobListing {
   readonly id: string;
   readonly title: string;
@@ -163,6 +171,11 @@ export interface JobListing {
   readonly provincie?: string | null;
   readonly country: "NL" | null;
   readonly contractType: JobContractType | null;
+  /** CTP-610: contactpersonen published by the source (recruiter detail only). */
+  readonly contactpersonen?: readonly JobContactpersoon[];
+  /** CTP-610: set when this listing shares a dedup group with another
+   * aanvraag — surfaced as a duplicate indicator, never filtered out. */
+  readonly dedupGroepId?: string | null;
   readonly rate: JobRate | null;
   readonly skills: readonly string[];
   readonly sourceRecords: readonly JobSourceRecord[];

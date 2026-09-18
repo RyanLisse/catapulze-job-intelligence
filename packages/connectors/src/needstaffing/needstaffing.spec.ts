@@ -14,6 +14,7 @@ import {
   createNeedstaffingClient,
   decodeNeedstaffingEntities,
   extractNeedstaffingCompetenties,
+  extractNeedstaffingContactpersonen,
   extractNeedstaffingId,
   extractNeedstaffingReferentie,
   parseNeedstaffingDetail,
@@ -188,6 +189,32 @@ describe("Needstaffing HTML parsing", () => {
       titel: "Operationeel Database Ontwikkelaar 2026-BZB-0457",
       uren: "36",
     });
+  });
+
+  it("extracts the .vacancy-contact-info block as a contact channel (CTP-610)", async () => {
+    const detail = await parseNeedstaffingDetail(DETAIL_HTML, "15520");
+    expect(detail.contactpersonen).toEqual([
+      {
+        email: "recruiter@example.invalid",
+        naam: "Test Recruiter",
+        telefoon: null,
+      },
+    ]);
+  });
+
+  it("returns undefined contactpersonen when the page carries no contact block", () => {
+    expect(
+      extractNeedstaffingContactpersonen("<div><p>gewone tekst</p></div>")
+    ).toBeUndefined();
+  });
+
+  it("keeps a tel-only contact block (no name paragraph)", () => {
+    const html = `<div class="vacancy-contact-info">
+      <a href="tel:+31000000000">Bel ons</a>
+    </div>`;
+    expect(extractNeedstaffingContactpersonen(html)).toEqual([
+      { email: null, naam: null, telefoon: "+31000000000" },
+    ]);
   });
 
   it("decodes &amp; and &nbsp; entities in typed fields (opdrachtgeverNaam, locatie)", async () => {
