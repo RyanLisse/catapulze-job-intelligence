@@ -1,4 +1,5 @@
 /* oxlint-disable anti-slop/no-unknown-parameters, anti-slop/no-runtime-typeof -- the private listing API is an untrusted JSON boundary and is narrowed before projection. */
+import { resolveEgressFetch } from "../egress";
 import { loadConnectorFixture } from "../fixtures/load";
 import { resolveHttpTimeoutMs, withHttpTimeout } from "../http-timeout";
 import {
@@ -268,7 +269,7 @@ const parseLiveOpdrachtoverheidListing = (
 export const createOpdrachtoverheidClient = (
   options: OpdrachtoverheidClientOptions = {}
 ): OpdrachtoverheidClient => {
-  const fetchImpl = options.fetchImpl ?? fetch;
+  const fetchImpl = options.fetchImpl ?? resolveEgressFetch("opdrachtoverheid");
   const timeoutMs = resolveHttpTimeoutMs(options.timeoutMs);
   const liveEnabled =
     options.liveEnabled ?? process.env.OPDRACHTOVERHEID_LIVE === "1";

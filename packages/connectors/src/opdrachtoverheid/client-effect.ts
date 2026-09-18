@@ -113,6 +113,7 @@ export const fetchListingEffect = (
       headers: { "Content-Type": "application/json" },
       method: "POST",
     },
+    sourceSlug: "opdrachtoverheid",
     url: `${baseUrl}${OPDRACHTOVERHEID_SEARCH_PATH}`,
   }).pipe(
     Effect.flatMap(readListingEffect),
@@ -177,6 +178,7 @@ export const fetchSitemapEffect = (
   const siteBaseUrl = options.siteBaseUrl ?? OPDRACHTOVERHEID_SITE_BASE_URL;
   return httpRequest({
     fetchImpl: options.fetchImpl,
+    sourceSlug: "opdrachtoverheid",
     url: `${siteBaseUrl}${OPDRACHTOVERHEID_SITEMAP_PATH}`,
   }).pipe(
     Effect.flatMap((response) => readBoundedPageEffect(response, "sitemap")),
@@ -201,6 +203,7 @@ export const fetchDetailEffect = (
   }
   return httpRequest({
     fetchImpl: options.fetchImpl,
+    sourceSlug: "opdrachtoverheid",
     url: entry.detailUrl,
   }).pipe(
     Effect.flatMap((response) => readBoundedPageEffect(response, "detail")),

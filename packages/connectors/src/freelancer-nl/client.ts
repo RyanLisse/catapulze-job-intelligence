@@ -1,3 +1,4 @@
+import { resolveEgressFetch } from "../egress";
 import { loadConnectorFixture } from "../fixtures/load";
 import { decodeHtmlEntities } from "../html-entities";
 import type {
@@ -267,7 +268,7 @@ export const parseFreelancerNlDetail = (
 export const createFreelancerNlClient = (
   options: FreelancerNlClientOptions = {}
 ): FreelancerNlClient => {
-  const fetchImpl = options.fetchImpl ?? fetch;
+  const fetchImpl = options.fetchImpl ?? resolveEgressFetch("freelancer-nl");
   const liveEnabled =
     options.liveEnabled ?? process.env.FREELANCER_NL_LIVE === "1";
   const listingFixturePath =

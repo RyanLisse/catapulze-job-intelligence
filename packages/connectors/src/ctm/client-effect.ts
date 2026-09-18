@@ -51,6 +51,7 @@ export const fetchListingEffect = (
   const url = `${baseUrl}${CTM_FEED_PATH}?days=${days}&b=${bulletin}`;
   return httpRequest({
     fetchImpl: options.fetchImpl,
+    sourceSlug: "ctm",
     url,
   }).pipe(
     Effect.flatMap(readTextBody),
