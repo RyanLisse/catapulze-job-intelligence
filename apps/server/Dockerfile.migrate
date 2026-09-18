@@ -19,4 +19,8 @@ USER bun
 # One-shot migrator: do not add a Docker health instruction. Coolify substring-matches
 # that keyword in this file and then expects .State.Health. Keep health_check_enabled=false
 # on the Coolify migrator app (see hetzner-deploy.md).
-CMD ["bun", "run", "db:migrate"]
+# Coolify runs this container with restart=unless-stopped and ignores
+# custom_docker_run_options=--restart=no, so a clean exit-0 migrator restart-loops
+# forever. On success park the container so it shows Up and runs exactly once per
+# deploy; on failure the non-zero exit still makes Coolify retry.
+CMD ["sh", "-c", "bun run db:migrate && exec tail -f /dev/null"]
