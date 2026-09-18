@@ -1,7 +1,6 @@
 export {
   contactpersoonBeleidVoor,
   contactpersonenBinnenRetentie,
-  slugFromParserVersion,
   type ContactpersoonBeleid,
   type ContactpersoonPublicatiedoel,
 } from "./contactpersoon-beleid";

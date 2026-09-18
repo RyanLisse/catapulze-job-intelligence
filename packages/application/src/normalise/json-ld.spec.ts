@@ -54,7 +54,7 @@ describe("normaliseJsonLdObservation -- Werken voor Nederland", () => {
         title: "Kubernetes Software Platform Engineer",
       },
       labelBlock: {},
-      parserVersion: "werken-voor-nederland/v1",
+      parserVersion: "werken-voor-nederland/v2",
       slug: "werken-voor-nederland",
       url: "https://www.werkenvoornederland.nl/vacatures/kubernetes-software-platform-engineer-CJIB-2026-9570",
     };
@@ -151,7 +151,7 @@ describe("normaliseJsonLdObservation -- Rabobank", () => {
           title: "Active Directory  Engineer",
         },
         labelBlock: {},
-        parserVersion: "rabobank/v1",
+        parserVersion: "rabobank/v2",
         slug: "rabobank",
         url: "https://rabobank.jobs/en/job/active-directory-engineer/JR_00144349/",
       })
@@ -519,7 +519,7 @@ describe("parseJsonLdPayload -- Bij Oranje", () => {
       validThrough: "2026-09-23T00:00:00+00:00",
     },
     labelBlock: {},
-    parserVersion: "bij-oranje/v1",
+    parserVersion: "bij-oranje/v2",
     slug: "bij-oranje",
     url: "https://www.bijoranje.nl/vacatures/onbekend/data-analist-noord-holland-65099",
   };
@@ -619,7 +619,7 @@ describe("parseJsonLdPayload -- TenMonks", () => {
       validThrough: "2027-01-01T00:00:00+00:00",
     },
     labelBlock: {},
-    parserVersion: "tenmonks/v1",
+    parserVersion: "tenmonks/v2",
     slug: "tenmonks",
     url: "https://tenmonks.nl/opdrachten/34350/data-analist/",
   };
@@ -1129,7 +1129,7 @@ describe("parseJsonLdPayload -- contactpersonen (CTP-610)", () => {
       {
         jobPosting: baseJobPosting,
         labelBlock: {},
-        parserVersion: "eneco/v1",
+        parserVersion: "eneco/v2",
         slug: "eneco",
         url: "https://example.test/vacature/3",
       },
@@ -1203,7 +1203,7 @@ describe("parseJsonLdPayload -- contactpersonen (CTP-610)", () => {
           },
         },
         labelBlock: {},
-        parserVersion: "intermediair/v1",
+        parserVersion: "intermediair/v2",
         slug: "intermediair",
         url: "https://example.test/vacature/6",
       },
@@ -1229,13 +1229,35 @@ describe("parseJsonLdPayload -- contactpersonen (CTP-610)", () => {
       {
         jobPosting: baseJobPosting,
         labelBlock: {},
-        parserVersion: "eneco/v1",
+        parserVersion: "eneco/v2",
         slug: "eneco",
         url: "https://example.test/vacature/7",
       },
       HASH
     );
     expect(nameOnly.contactpersonen).toBeUndefined();
+  });
+
+  it("keeps phone-only contacts as distinct entries (contactKey includes telefoon)", () => {
+    // Two channel-only contacts sharing naam=null/email=null used to collapse
+    // to the same "|" key — the second reachable phone number vanished.
+    const draft = parseJsonLdPayload(
+      {
+        contactpersonen: [
+          { telefoon: "+31000000001" },
+          { telefoon: "+31000000002" },
+          { telefoon: "+31000000001" },
+        ],
+        jobPosting: baseJobPosting,
+        labelBlock: {},
+        parserVersion: "prorail/v2",
+        slug: "prorail",
+        url: "https://example.test/vacature/8",
+      },
+      HASH
+    );
+
+    expect(draft.contactpersonen?.value).toHaveLength(2);
   });
 });
 

@@ -52,10 +52,6 @@ export const contactpersoonBeleidVoor = (
   return { ...DEFAULT_BELEID, ...override };
 };
 
-/** Slug resolution shared by normalisers: every parserVersion is `<slug>/v<N>`. */
-export const slugFromParserVersion = (parserVersion: string): string =>
-  parserVersion.split("/")[0] ?? parserVersion;
-
 const MS_PER_DAY = 86_400_000;
 
 /**

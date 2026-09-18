@@ -669,3 +669,80 @@ describe("curateObservation unchanged content enqueues its own events (CTP-498)"
     expect(store.outboxEvents).toHaveLength(1);
   });
 });
+
+describe("curateObservation contactpersonen pipeline fields (CTP-610)", () => {
+  const sourceContact = {
+    email: "redacted@example.invalid",
+    geinformeerdOp: null,
+    naam: "A. de Vries",
+    notificatieKanaal: null,
+    rol: "recruiter",
+    telefoon: "+31000000000",
+  };
+
+  const withContactpersonen = (
+    bronReferentie: string,
+    contentHash: string,
+    contactpersonen: (typeof sourceContact)[]
+  ) => {
+    const base = observation(bronReferentie, contentHash);
+    return {
+      ...base,
+      draft: {
+        ...base.draft,
+        contactpersonen: { provenance, value: contactpersonen },
+      },
+    };
+  };
+
+  it("carries geinformeerdOp/notificatieKanaal forward on a re-published contact", async () => {
+    const store = new InMemoryCurateStore();
+    await curateObservation(
+      store,
+      withContactpersonen("CP-1", "hash-cp-1", [sourceContact])
+    );
+
+    // The disclosure pipeline writes the art. 14 fields on the stored row.
+    const [aanvraag] = store.aanvragen;
+    const [contact] = aanvraag?.contactpersonen ?? [];
+    if (!(aanvraag && contact)) {
+      throw new Error("expected one stored contactpersoon");
+    }
+    store.aanvragen[0] = {
+      ...aanvraag,
+      contactpersonen: [
+        {
+          ...contact,
+          geinformeerdOp: "2026-09-02T00:00:00.000Z",
+          notificatieKanaal: "email",
+        },
+      ],
+    };
+
+    // The source republishes the same contact (null-emitting pipeline fields)
+    // plus one newcomer; a third stored contact is dropped upstream.
+    const newcomer = {
+      ...sourceContact,
+      naam: "R. Cruiter",
+      telefoon: "+31000000001",
+    };
+    await curateObservation(
+      store,
+      withContactpersonen("CP-1", "hash-cp-2", [sourceContact, newcomer])
+    );
+
+    const [kept, added] = store.aanvragen[0]?.contactpersonen ?? [];
+    expect(kept).toMatchObject({
+      geinformeerdOp: "2026-09-02T00:00:00.000Z",
+      naam: "A. de Vries",
+      notificatieKanaal: "email",
+    });
+    // A contact the source never published before starts its own trail.
+    expect(added).toMatchObject({
+      geinformeerdOp: null,
+      naam: "R. Cruiter",
+      notificatieKanaal: null,
+    });
+    expect(store.aanvragen[0]?.contactpersonen).toHaveLength(2);
+  });
+});

@@ -58,6 +58,10 @@ const emptyProvenance = (): StoredAanvraag["provenance"] => ({
   },
   bron_specifiek: { parserVersion: "postgres-curate-store", sourcePath: "n/a" },
   bron_url: { parserVersion: "postgres-curate-store", sourcePath: "n/a" },
+  contactpersonen: {
+    parserVersion: "postgres-curate-store",
+    sourcePath: "n/a",
+  },
   locatie_land: { parserVersion: "postgres-curate-store", sourcePath: "n/a" },
   locatie_tekst: { parserVersion: "postgres-curate-store", sourcePath: "n/a" },
   opdrachtgever_naam: {
