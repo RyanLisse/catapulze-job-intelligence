@@ -25,6 +25,7 @@ import { opdrachtoverheid } from "./opdrachtoverheid";
 import { planetInterim } from "./planet-interim";
 import { proAct } from "./pro-act";
 import { prorail } from "./prorail";
+import { prounity } from "./prounity";
 import { rabobank } from "./rabobank";
 import { randstad } from "./randstad";
 import { rijkswaterstaat } from "./rijkswaterstaat";
@@ -74,6 +75,7 @@ export const SOURCES = {
   "planet-interim": planetInterim,
   "pro-act": proAct,
   prorail,
+  prounity,
   rabobank,
   randstad,
   rijkswaterstaat,
