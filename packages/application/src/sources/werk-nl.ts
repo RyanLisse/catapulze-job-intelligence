@@ -7,7 +7,7 @@ import { normaliseWerkNlObservation } from "../normalise/werk-nl";
 import type { SourceDefinition } from "./definition";
 
 export const werkNl = {
-  bronId: "00000000-0000-4000-8000-000000000040",
+  bronId: "00000000-0000-4000-8000-000000000041",
   createConnector: ({ bronId, listingFixturePath }) =>
     createWerkNlConnector({
       bronId,
