@@ -419,6 +419,8 @@ export const JobDetail = ({
           <DetailField
             label="Organisatie"
             value={job.organization ?? "Onbekend"}
+            aangevuld={isFieldAangevuld(job, "organisatie")}
+            aangevuldField="organisatie"
           />
           <DetailField
             label="Locatie"
@@ -451,21 +453,34 @@ export const JobDetail = ({
             aangevuldField="publicatiedatum"
             value={formatDate(job.publishedAt)}
           />
-          <DetailField label="Sluit" value={formatDate(job.closingAt)} />
+          <DetailField
+            label="Sluit"
+            aangevuld={isFieldAangevuld(job, "sluitingsdatum")}
+            aangevuldField="sluitingsdatum"
+            value={formatDate(job.closingAt)}
+          />
           <DetailField
             label="Uren per week"
+            aangevuld={isFieldAangevuld(job, "uren")}
+            aangevuldField="uren"
             value={job.hoursPerWeek ?? "Onbekend"}
           />
           <DetailField
             label="Opleiding"
+            aangevuld={isFieldAangevuld(job, "opleiding")}
+            aangevuldField="opleiding"
             value={job.educationLevel ?? "Onbekend"}
           />
           <DetailField
             label="Startdatum"
+            aangevuld={isFieldAangevuld(job, "startdatum")}
+            aangevuldField="startdatum"
             value={formatOptionalDate(job.startDate)}
           />
           <DetailField
             label="Einddatum"
+            aangevuld={isFieldAangevuld(job, "einddatum")}
+            aangevuldField="einddatum"
             value={formatOptionalDate(job.endDate)}
           />
           <LooptijdField duration={job.duration} />

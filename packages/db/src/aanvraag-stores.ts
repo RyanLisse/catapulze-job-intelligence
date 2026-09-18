@@ -197,13 +197,21 @@ export class PostgresAanvraagStore implements AanvraagStore {
         ...record,
         beschrijving: overlaid.beschrijving ?? record.beschrijving,
         contracttype: overlaid.contracttype,
+        eindDatum: overlaid.eindDatum,
         enrichedFields: [...overlaid.enrichedFields],
         locatie: overlaid.locatie,
+        opdrachtgeverNaam: overlaid.opdrachtgeverNaam,
+        opleidingsniveau: overlaid.opleidingsniveau,
         publicatiedatum: overlaid.publicatiedatum,
+        sluitingsdatum: overlaid.sluitingsdatum
+          ? new Date(overlaid.sluitingsdatum)
+          : null,
+        startDatum: overlaid.startDatum,
         tariefEenheid: overlaid.tariefEenheid,
         tariefMax: overlaid.tariefMax,
         tariefMin: overlaid.tariefMin,
         tariefValuta: overlaid.tariefValuta,
+        urenPerWeek: overlaid.urenPerWeek,
         werkvorm: overlaid.werkvorm,
       };
     });
@@ -359,9 +367,15 @@ export class PostgresSearchDocumentLoader implements BulkSearchDocumentLoader {
         ...document,
         contracttype: overlaid.contracttype,
         locatie: overlaid.locatie,
+        opdrachtgeverNaam: overlaid.opdrachtgeverNaam ?? null,
+        sluitingsdatum: overlaid.sluitingsdatum
+          ? new Date(overlaid.sluitingsdatum)
+          : null,
         tariefEenheid: overlaid.tariefEenheid ?? null,
         tariefMax: overlaid.tariefMax,
         tariefMin: overlaid.tariefMin,
+        urenPerWeekMax: overlaid.urenPerWeekMax ?? null,
+        urenPerWeekMin: overlaid.urenPerWeekMin ?? null,
         werkvorm: overlaid.werkvorm ?? null,
       });
     }

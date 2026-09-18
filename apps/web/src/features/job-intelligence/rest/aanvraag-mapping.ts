@@ -40,9 +40,16 @@ export interface AanvraagPreview {
     readonly field:
       | "beschrijving"
       | "contract"
+      | "einddatum"
       | "locatie"
+      | "opleiding"
+      | "organisatie"
+      | "publicatiedatum"
       | "remote"
-      | "tarief";
+      | "sluitingsdatum"
+      | "startdatum"
+      | "tarief"
+      | "uren";
     readonly source: "deterministic" | "llm";
   }[];
   readonly eindDatum?: string | null;

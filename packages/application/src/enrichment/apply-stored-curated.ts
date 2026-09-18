@@ -39,6 +39,12 @@ const tariefValueSchema = z.object({
 const contractValueSchema = z.object({ contracttype: z.string() });
 const remoteValueSchema = z.object({ werkvorm: z.string() });
 const publicatiedatumValueSchema = z.object({ publicatiedatum: z.string() });
+const urenValueSchema = z.object({ urenPerWeek: z.string() });
+const opleidingValueSchema = z.object({ opleidingsniveau: z.string() });
+const startdatumValueSchema = z.object({ startdatum: z.string() });
+const einddatumValueSchema = z.object({ einddatum: z.string() });
+const sluitingsdatumValueSchema = z.object({ sluitingsdatum: z.string() });
+const organisatieValueSchema = z.object({ organisatie: z.string() });
 
 const rawRefSchema = z.object({
   excerpt: z.string(),
@@ -52,41 +58,30 @@ const isEnrichmentField = (field: string): field is EnrichmentField =>
 const isEnrichmentSource = (source: string): source is EnrichmentSource =>
   ENRICHMENT_SOURCES.some((candidate) => candidate === source);
 
+const FIELD_VALUE_SCHEMAS = {
+  beschrijving: beschrijvingValueSchema,
+  contract: contractValueSchema,
+  einddatum: einddatumValueSchema,
+  locatie: locatieValueSchema,
+  opleiding: opleidingValueSchema,
+  organisatie: organisatieValueSchema,
+  publicatiedatum: publicatiedatumValueSchema,
+  remote: remoteValueSchema,
+  sluitingsdatum: sluitingsdatumValueSchema,
+  startdatum: startdatumValueSchema,
+  tarief: tariefValueSchema,
+  uren: urenValueSchema,
+} satisfies Record<EnrichmentField, z.ZodTypeAny>;
+
 const parseFieldValue = (
   field: EnrichmentField,
   // oxlint-disable-next-line anti-slop/no-unknown-parameters -- aanvraag_enrichment.value jsonb; schema-parsed per field below
   value: unknown
 ): EnrichmentFieldValue | null => {
-  switch (field) {
-    case "beschrijving": {
-      const parsed = beschrijvingValueSchema.safeParse(value);
-      return parsed.success ? parsed.data : null;
-    }
-    case "locatie": {
-      const parsed = locatieValueSchema.safeParse(value);
-      return parsed.success ? parsed.data : null;
-    }
-    case "tarief": {
-      const parsed = tariefValueSchema.safeParse(value);
-      return parsed.success ? parsed.data : null;
-    }
-    case "contract": {
-      const parsed = contractValueSchema.safeParse(value);
-      return parsed.success ? parsed.data : null;
-    }
-    case "remote": {
-      const parsed = remoteValueSchema.safeParse(value);
-      return parsed.success ? parsed.data : null;
-    }
-    case "publicatiedatum": {
-      const parsed = publicatiedatumValueSchema.safeParse(value);
-      return parsed.success ? parsed.data : null;
-    }
-    default: {
-      const _exhaustive: never = field;
-      return _exhaustive;
-    }
-  }
+  const parsed = FIELD_VALUE_SCHEMAS[field].safeParse(value);
+  // SAFETY: each field's schema produces exactly that field's
+  // EnrichmentFieldValue member; the map is exhaustive over EnrichmentField.
+  return parsed.success ? (parsed.data as EnrichmentFieldValue) : null;
 };
 
 const parseRawRefs = (

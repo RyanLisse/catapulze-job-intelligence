@@ -13,6 +13,7 @@ import type {
   EnrichmentProposal,
   TitleFallbackDescriptionParts,
 } from "@ji/application/enrichment";
+import { closingMomentInstant } from "@ji/application/normalise";
 import { eq, inArray, sql } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 
@@ -25,15 +26,20 @@ export interface IncompleteAanvraagCandidate {
   readonly beschrijving: string;
   readonly bronSpecifiek: unknown;
   readonly contracttype: string | null;
+  readonly eindDatum: string | null;
   readonly id: string;
   readonly locatieTekst: string | null;
   readonly missingFields: readonly EnrichmentField[];
+  readonly opdrachtgeverNaam: string | null;
   readonly publicatiedatum: string | null;
   readonly rawPayloadRef: string;
+  readonly sluitingsdatum: string | null;
+  readonly startDatum: string | null;
   readonly tariefEenheid: string | null;
   readonly tariefMax: string | null;
   readonly tariefMin: string | null;
   readonly tariefValuta: string | null;
+  readonly urenPerWeek: string | null;
   readonly werkvorm: string | null;
   readonly titleFallbackParts: TitleFallbackDescriptionParts | null;
 }
@@ -42,14 +48,19 @@ export interface PendingCuratedApplyCandidate {
   readonly beschrijving: string;
   readonly bronSpecifiek: unknown;
   readonly contracttype: string | null;
+  readonly eindDatum: string | null;
   readonly id: string;
   readonly locatieTekst: string | null;
+  readonly opdrachtgeverNaam: string | null;
   readonly patch: CuratedEnrichmentPatch;
   readonly publicatiedatum: string | null;
+  readonly sluitingsdatum: string | null;
+  readonly startDatum: string | null;
   readonly tariefEenheid: string | null;
   readonly tariefMax: string | null;
   readonly tariefMin: string | null;
   readonly tariefValuta: string | null;
+  readonly urenPerWeek: string | null;
   readonly werkvorm: string | null;
   readonly titleFallbackParts: TitleFallbackDescriptionParts | null;
 }
@@ -148,15 +159,20 @@ export class PostgresEnrichmentStore {
         bronReferentie: aanvraag.bronReferentie,
         bronSpecifiek: aanvraag.bronSpecifiek,
         contracttype: aanvraag.contracttype,
+        eindDatum: aanvraag.eindDatum,
         id: aanvraag.id,
         locatieTekst: aanvraag.locatieTekst,
+        opdrachtgeverNaam: aanvraag.opdrachtgeverNaam,
         publicatiedatum: aanvraag.publicatiedatum,
         rawPayloadRef: aanvraag.rawPayloadRef,
+        sluitingsdatum: aanvraag.sluitingsdatum,
+        startDatum: aanvraag.startDatum,
         tariefEenheid: aanvraag.tariefEenheid,
         tariefMax: aanvraag.tariefMax,
         tariefMin: aanvraag.tariefMin,
         tariefValuta: aanvraag.tariefValuta,
         titel: aanvraag.titel,
+        urenPerWeek: aanvraag.urenPerWeek,
         werkvorm: aanvraag.werkvorm,
       })
       .from(aanvraag)
@@ -183,6 +199,27 @@ export class PostgresEnrichmentStore {
           OR trim(${aanvraag.publicatiedatum}) = ''
           OR ${aanvraag.publicatiedatum} = 'unknown'
           OR (${titleFallbackSql})
+          OR ${aanvraag.urenPerWeek} IS NULL
+          OR trim(${aanvraag.urenPerWeek}) = ''
+          OR ${aanvraag.urenPerWeek} = 'unknown'
+          OR ${aanvraag.eindDatum} IS NULL
+          OR trim(${aanvraag.eindDatum}) = ''
+          OR ${aanvraag.eindDatum} = 'unknown'
+          OR ${aanvraag.sluitingsdatum} IS NULL
+          OR COALESCE(
+            NULLIF(trim(${aanvraag.startDatum}), ''),
+            NULLIF(trim(${aanvraag.bronSpecifiek}->>'startDatum'), ''),
+            NULLIF(trim(${aanvraag.bronSpecifiek}->>'start_datum'), '')
+          ) IS NULL
+          OR COALESCE(
+            NULLIF(trim(${aanvraag.opdrachtgeverNaam}), ''),
+            NULLIF(trim(${aanvraag.bronSpecifiek}->>'opdrachtgeverNaam'), ''),
+            NULLIF(trim(${aanvraag.bronSpecifiek}->>'opdrachtgever_naam'), '')
+          ) IS NULL
+          OR COALESCE(
+            NULLIF(trim(${aanvraag.bronSpecifiek}->>'opleidingsniveau'), ''),
+            NULLIF(trim(${aanvraag.bronSpecifiek}->>'education_level'), '')
+          ) IS NULL
         )`
       )
       .limit(limit);
@@ -192,8 +229,12 @@ export class PostgresEnrichmentStore {
         beschrijving: row.beschrijving,
         bronSpecifiek: row.bronSpecifiek,
         contracttype: row.contracttype,
+        eindDatum: row.eindDatum,
         locatieTekst: row.locatieTekst,
+        opdrachtgeverNaam: row.opdrachtgeverNaam,
         publicatiedatum: row.publicatiedatum,
+        sluitingsdatum: row.sluitingsdatum?.toISOString() ?? null,
+        startDatum: row.startDatum,
         tariefEenheid: row.tariefEenheid,
         tariefMax: toNumericString(
           row.tariefMax === null ? null : String(row.tariefMax)
@@ -202,6 +243,7 @@ export class PostgresEnrichmentStore {
           row.tariefMin === null ? null : String(row.tariefMin)
         ),
         titleFallbackParts: titleFallbackParts(row),
+        urenPerWeek: row.urenPerWeek,
         werkvorm: row.werkvorm,
       });
       if (missingFields.length === 0) {
@@ -212,11 +254,15 @@ export class PostgresEnrichmentStore {
           beschrijving: row.beschrijving,
           bronSpecifiek: row.bronSpecifiek,
           contracttype: row.contracttype,
+          eindDatum: row.eindDatum,
           id: row.id,
           locatieTekst: row.locatieTekst,
           missingFields,
+          opdrachtgeverNaam: row.opdrachtgeverNaam,
           publicatiedatum: row.publicatiedatum,
           rawPayloadRef: row.rawPayloadRef,
+          sluitingsdatum: row.sluitingsdatum?.toISOString() ?? null,
+          startDatum: row.startDatum,
           tariefEenheid: row.tariefEenheid,
           tariefMax: toNumericString(
             row.tariefMax === null ? null : String(row.tariefMax)
@@ -226,6 +272,7 @@ export class PostgresEnrichmentStore {
           ),
           tariefValuta: row.tariefValuta,
           titleFallbackParts: titleFallbackParts(row),
+          urenPerWeek: row.urenPerWeek,
           werkvorm: row.werkvorm,
         },
       ];
@@ -295,12 +342,17 @@ export class PostgresEnrichmentStore {
     const setValues = values as typeof values & {
       beschrijving?: string;
       contracttype?: string;
+      eindDatum?: string;
       locatieTekst?: string;
+      opdrachtgeverNaam?: string;
       publicatiedatum?: string;
+      sluitingsdatum?: Date;
+      startDatum?: string;
       tariefEenheid?: string;
       tariefMax?: string;
       tariefMin?: string;
       tariefValuta?: string;
+      urenPerWeek?: string;
       werkvorm?: string;
     };
     if (patch.beschrijving !== undefined) {
@@ -330,6 +382,27 @@ export class PostgresEnrichmentStore {
     if (patch.publicatiedatum !== undefined) {
       setValues.publicatiedatum = patch.publicatiedatum;
     }
+    if (patch.urenPerWeek !== undefined) {
+      setValues.urenPerWeek = patch.urenPerWeek;
+    }
+    if (patch.startDatum !== undefined) {
+      setValues.startDatum = patch.startDatum;
+    }
+    if (patch.eindDatum !== undefined) {
+      setValues.eindDatum = patch.eindDatum;
+    }
+    if (patch.opdrachtgeverNaam !== undefined) {
+      setValues.opdrachtgeverNaam = patch.opdrachtgeverNaam;
+    }
+    // The patch carries the extractor's ISO date/datetime string; the
+    // timestamptz column stores the closing instant with the same
+    // Europe/Amsterdam end-of-day reading the normalisers use.
+    if (patch.sluitingsdatum !== undefined) {
+      const closing = closingMomentInstant(patch.sluitingsdatum);
+      if (closing) {
+        setValues.sluitingsdatum = closing;
+      }
+    }
     await this.database
       .update(aanvraag)
       .set(setValues)
@@ -352,17 +425,22 @@ export class PostgresEnrichmentStore {
         bronSpecifiek: aanvraag.bronSpecifiek,
         confidence: aanvraagEnrichment.confidence,
         contracttype: aanvraag.contracttype,
+        eindDatum: aanvraag.eindDatum,
         field: aanvraagEnrichment.field,
         id: aanvraag.id,
         locatieTekst: aanvraag.locatieTekst,
+        opdrachtgeverNaam: aanvraag.opdrachtgeverNaam,
         publicatiedatum: aanvraag.publicatiedatum,
         rawRefs: aanvraagEnrichment.rawRefs,
+        sluitingsdatum: aanvraag.sluitingsdatum,
         source: aanvraagEnrichment.source,
+        startDatum: aanvraag.startDatum,
         tariefEenheid: aanvraag.tariefEenheid,
         tariefMax: aanvraag.tariefMax,
         tariefMin: aanvraag.tariefMin,
         tariefValuta: aanvraag.tariefValuta,
         titel: aanvraag.titel,
+        urenPerWeek: aanvraag.urenPerWeek,
         value: aanvraagEnrichment.value,
         werkvorm: aanvraag.werkvorm,
       })
@@ -394,6 +472,27 @@ export class PostgresEnrichmentStore {
           OR trim(${aanvraag.publicatiedatum}) = ''
           OR ${aanvraag.publicatiedatum} = 'unknown'
           OR (${titleFallbackSql})
+          OR ${aanvraag.urenPerWeek} IS NULL
+          OR trim(${aanvraag.urenPerWeek}) = ''
+          OR ${aanvraag.urenPerWeek} = 'unknown'
+          OR ${aanvraag.eindDatum} IS NULL
+          OR trim(${aanvraag.eindDatum}) = ''
+          OR ${aanvraag.eindDatum} = 'unknown'
+          OR ${aanvraag.sluitingsdatum} IS NULL
+          OR COALESCE(
+            NULLIF(trim(${aanvraag.startDatum}), ''),
+            NULLIF(trim(${aanvraag.bronSpecifiek}->>'startDatum'), ''),
+            NULLIF(trim(${aanvraag.bronSpecifiek}->>'start_datum'), '')
+          ) IS NULL
+          OR COALESCE(
+            NULLIF(trim(${aanvraag.opdrachtgeverNaam}), ''),
+            NULLIF(trim(${aanvraag.bronSpecifiek}->>'opdrachtgeverNaam'), ''),
+            NULLIF(trim(${aanvraag.bronSpecifiek}->>'opdrachtgever_naam'), '')
+          ) IS NULL
+          OR COALESCE(
+            NULLIF(trim(${aanvraag.bronSpecifiek}->>'opleidingsniveau'), ''),
+            NULLIF(trim(${aanvraag.bronSpecifiek}->>'education_level'), '')
+          ) IS NULL
         )`
       )
       .limit(limit * 8);
@@ -405,7 +504,9 @@ export class PostgresEnrichmentStore {
         titleFallbackParts: TitleFallbackDescriptionParts | null;
         bronSpecifiek: unknown;
         contracttype: string | null;
+        eindDatum: string | null;
         locatieTekst: string | null;
+        opdrachtgeverNaam: string | null;
         proposals: {
           confidence: number;
           field: string;
@@ -414,10 +515,13 @@ export class PostgresEnrichmentStore {
           value: unknown;
         }[];
         publicatiedatum: string | null;
+        sluitingsdatum: string | null;
+        startDatum: string | null;
         tariefEenheid: string | null;
         tariefMax: string | null;
         tariefMin: string | null;
         tariefValuta: string | null;
+        urenPerWeek: string | null;
         werkvorm: string | null;
       }
     >();
@@ -446,9 +550,13 @@ export class PostgresEnrichmentStore {
         beschrijving: row.beschrijving,
         bronSpecifiek: row.bronSpecifiek,
         contracttype: row.contracttype,
+        eindDatum: row.eindDatum,
         locatieTekst: row.locatieTekst,
+        opdrachtgeverNaam: row.opdrachtgeverNaam,
         proposals: [proposal],
         publicatiedatum: row.publicatiedatum,
+        sluitingsdatum: row.sluitingsdatum?.toISOString() ?? null,
+        startDatum: row.startDatum,
         tariefEenheid: row.tariefEenheid,
         tariefMax: toNumericString(
           row.tariefMax === null ? null : String(row.tariefMax)
@@ -458,6 +566,7 @@ export class PostgresEnrichmentStore {
         ),
         tariefValuta: row.tariefValuta,
         titleFallbackParts: titleFallbackParts(row),
+        urenPerWeek: row.urenPerWeek,
         werkvorm: row.werkvorm,
       });
     }
@@ -472,13 +581,18 @@ export class PostgresEnrichmentStore {
           beschrijving: candidate.beschrijving,
           bronSpecifiek: candidate.bronSpecifiek,
           contracttype: candidate.contracttype,
+          eindDatum: candidate.eindDatum,
           locatieTekst: candidate.locatieTekst,
+          opdrachtgeverNaam: candidate.opdrachtgeverNaam,
           publicatiedatum: candidate.publicatiedatum,
+          sluitingsdatum: candidate.sluitingsdatum,
+          startDatum: candidate.startDatum,
           tariefEenheid: candidate.tariefEenheid,
           tariefMax: candidate.tariefMax,
           tariefMin: candidate.tariefMin,
           tariefValuta: candidate.tariefValuta,
           titleFallbackParts: candidate.titleFallbackParts,
+          urenPerWeek: candidate.urenPerWeek,
           werkvorm: candidate.werkvorm,
         },
         candidate.proposals
@@ -490,15 +604,20 @@ export class PostgresEnrichmentStore {
         beschrijving: candidate.beschrijving,
         bronSpecifiek: candidate.bronSpecifiek,
         contracttype: candidate.contracttype,
+        eindDatum: candidate.eindDatum,
         id,
         locatieTekst: candidate.locatieTekst,
+        opdrachtgeverNaam: candidate.opdrachtgeverNaam,
         patch,
         publicatiedatum: candidate.publicatiedatum,
+        sluitingsdatum: candidate.sluitingsdatum,
+        startDatum: candidate.startDatum,
         tariefEenheid: candidate.tariefEenheid,
         tariefMax: candidate.tariefMax,
         tariefMin: candidate.tariefMin,
         tariefValuta: candidate.tariefValuta,
         titleFallbackParts: candidate.titleFallbackParts,
+        urenPerWeek: candidate.urenPerWeek,
         werkvorm: candidate.werkvorm,
       });
     }

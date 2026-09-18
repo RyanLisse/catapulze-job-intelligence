@@ -11,8 +11,12 @@ const emptyFacts = {
   beschrijving: "Senior Java Developer (flextender/abc-123)",
   bronSpecifiek: {},
   contracttype: null,
+  eindDatum: null,
   locatieTekst: null,
+  opdrachtgeverNaam: null,
   publicatiedatum: null,
+  sluitingsdatum: null,
+  startDatum: null,
   tariefEenheid: null,
   tariefMax: null,
   tariefMin: null,
@@ -22,6 +26,7 @@ const emptyFacts = {
     platform: "flextender",
     title: "Senior Java Developer",
   },
+  urenPerWeek: null,
   werkvorm: null,
 } as const;
 
