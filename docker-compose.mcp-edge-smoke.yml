@@ -79,6 +79,9 @@ services:
     profiles: ["mcp-edge"]
     environment:
       MIGRATION_DATABASE_URL: postgresql://${POSTGRES_MIGRATOR_USER}:${POSTGRES_MIGRATOR_PASSWORD}@postgres:5432/${POSTGRES_DB}
+    # The image CMD parks the container after a successful migrate so Coolify's
+    # restart=unless-stopped stops looping it; the smoke must exit after migrating.
+    command: ["bun", "run", "db:migrate"]
     depends_on:
       postgres:
         condition: service_healthy
