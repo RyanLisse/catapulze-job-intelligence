@@ -5,6 +5,8 @@ const SCRIPT_PATTERN =
   /<script[^>]*type=["']application\/ld\+json["'][^>]*>(?<content>[\s\S]*?)<\/script>/giu;
 const NEXT_DATA_PATTERN =
   /<script[^>]*id=["']__NEXT_DATA__["'][^>]*>(?<content>[\s\S]*?)<\/script>/iu;
+const VIKE_PAGE_CONTEXT_PATTERN =
+  /<script[^>]*id=["']vike_pageContext["'][^>]*>(?<content>[\s\S]*?)<\/script>/iu;
 const WORKDAY_APPLY_HREF_PATTERN =
   /href=["'](?<href>https?:\/\/[^"']*myworkdayjobs\.com[^"']*)["']/iu;
 
@@ -72,6 +74,13 @@ const asRecord = (value: unknown): JsonLdNode | null =>
 
 const asString = (value: JsonLdValue | undefined): string | undefined =>
   typeof value === "string" && value.trim() ? value : undefined;
+
+const asFiniteId = (value: JsonLdValue | undefined): string | undefined => {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return String(value);
+  }
+  return asString(value);
+};
 
 const countryCode = (country: string): string =>
   country.toLowerCase() === "netherlands" ? "NL" : country;
@@ -180,6 +189,105 @@ export const synthesizeJobPostingFromNextData = (
   }
   if (applyUrl ?? fallbackApplyUrl) {
     labelBlock.workdayApplyUrl = applyUrl ?? fallbackApplyUrl ?? "";
+  }
+
+  return { jobPosting, labelBlock };
+};
+
+const extractVikeJob = (html: string): JsonLdNode | null => {
+  VIKE_PAGE_CONTEXT_PATTERN.lastIndex = 0;
+  const raw = VIKE_PAGE_CONTEXT_PATTERN.exec(html)?.groups?.content?.trim();
+  if (!raw) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(raw);
+    const root = asRecord(parsed);
+    const pageProps = asRecord(root?.pageProps);
+    return asRecord(pageProps?.job);
+  } catch {
+    return null;
+  }
+};
+
+const facetNames = (value: JsonLdValue | undefined): string[] => {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  const names: string[] = [];
+  for (const entry of value) {
+    const name = asString(asRecord(entry)?.name);
+    if (name) {
+      names.push(name);
+    }
+  }
+  return names;
+};
+
+/**
+ * Builds the minimum schema.org JobPosting shape from a Vike page's
+ * `vike_pageContext.pageProps.job` (Techniekwerkt). Same config-gated contract
+ * as `synthesizeJobPostingFromNextData`: the source publishes no explicit
+ * JobPosting node, so only opted-in sources take this path. `salary` and
+ * `contract` facets were empty on every sampled detail page (2026-09-17) —
+ * they map to labelBlock only when the source actually populates them, and
+ * never to `tarief`/`employmentType` because their value shape is unverified.
+ */
+export const synthesizeJobPostingFromVike = (
+  html: string,
+  detailUrl: string
+): NextJobDataSynthesis | null => {
+  const job = extractVikeJob(html);
+  if (!job) {
+    return null;
+  }
+
+  const id = asFiniteId(job.id);
+  const jobPosting: JsonLdNode = {
+    "@type": "JobPosting",
+    description: asString(job.description) ?? "",
+    hiringOrganization: {
+      "@type": "Organization",
+      name: asString(job.original_companyname) ?? "",
+    },
+    identifier: {
+      "@type": "PropertyValue",
+      name: "Techniekwerkt",
+      value: id ?? "",
+    },
+    jobLocation: {
+      "@type": "Place",
+      address: {
+        "@type": "PostalAddress",
+        addressCountry: "NL",
+        addressLocality: asString(job.city) ?? "",
+      },
+    },
+    title: asString(job.original_functiontitle) ?? "",
+    url: detailUrl,
+  };
+
+  const labelBlock: Record<string, string> = {};
+  if (id) {
+    labelBlock.referentienummer = id;
+  }
+  const updatedAt = asString(job.updated_at);
+  if (updatedAt) {
+    labelBlock.gewijzigdOp = updatedAt;
+  }
+  const facetLabels = {
+    branche: job.industry,
+    dienstverband: job.contract,
+    ervaring: job.experience,
+    opleiding: job.education,
+    salaris: job.salary,
+  };
+  for (const [key, facet] of Object.entries(facetLabels)) {
+    const names = facetNames(facet);
+    if (names.length > 0) {
+      labelBlock[key] = names.join(", ");
+    }
   }
 
   return { jobPosting, labelBlock };

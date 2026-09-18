@@ -1,9 +1,11 @@
 /* oxlint-disable anti-slop/no-runtime-typeof -- JSON listing traversal narrows JSON.parse output at this I/O boundary. */
 import { decodeHtmlEntities } from "../html-entities";
+import type { NextJobDataSynthesis } from "./extract";
 import {
   extractJobPosting,
   extractLabelBlock,
   synthesizeJobPostingFromNextData,
+  synthesizeJobPostingFromVike,
 } from "./extract";
 import type {
   JsonLdConnectorConfig,
@@ -334,17 +336,20 @@ export const parseListingSource = (
 };
 
 /** Builds the detail payload for one page: explicit JSON-LD JobPosting first, falling
- * back to Next.js-data synthesis when the source opts in via `synthesizeFromNextJobData`. */
+ * back to framework-state synthesis when the source opts in (`synthesizeFromNextJobData`
+ * for Next.js `__NEXT_DATA__`, `synthesizeFromVikeJobData` for Vike `vike_pageContext`). */
 export const buildDetailPayload = (
   config: JsonLdConnectorConfig,
   url: string,
   html: string
 ): JsonLdDetailPayload => {
   const explicitJobPosting = extractJobPosting(html);
-  const synthesis =
-    !explicitJobPosting && config.synthesizeFromNextJobData
-      ? synthesizeJobPostingFromNextData(html, url)
-      : null;
+  let synthesis: NextJobDataSynthesis | null = null;
+  if (!explicitJobPosting && config.synthesizeFromNextJobData) {
+    synthesis = synthesizeJobPostingFromNextData(html, url);
+  } else if (!explicitJobPosting && config.synthesizeFromVikeJobData) {
+    synthesis = synthesizeJobPostingFromVike(html, url);
+  }
   const jobPosting = explicitJobPosting ?? synthesis?.jobPosting ?? null;
   return {
     jobPosting,

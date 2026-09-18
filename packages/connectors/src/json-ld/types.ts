@@ -61,6 +61,8 @@ export interface JsonLdConnectorConfig {
   excludePatterns?: RegExp[];
   /** Opt-in synthesis for detail pages that expose JobPosting data in framework state. */
   synthesizeFromNextJobData?: boolean;
+  /** Opt-in synthesis for Vike pages carrying the vacancy in `vike_pageContext.pageProps.job`. */
+  synthesizeFromVikeJobData?: boolean;
   labelBlock?: Record<string, JsonLdLabelBlockField>;
   /** Fixture path for the sitemap/listing page when not running live. */
   listingFixturePath?: string;

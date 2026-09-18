@@ -89,7 +89,7 @@ Volledig bewijs (URL's, statuscodes, quotes): [`sources/inventory/msp-wave2.md`]
 | **ICTerGezocht** (CTP-586) | DROP-ROBOTS | geen sitemap (`→404.php`); `/*search=` `/*page=` `/*what=` `/*where=` disallowed → geen compliant discovery-route | Sluiten; heropenen alleen bij publiceerbare sitemap/API |
 | **Freelance.nl** (CTP-576) | DROP-ROBOTS | `User-agent: *` `Disallow: /`; alleen naamgenoemde bots toegestaan | Sluiten |
 | **Intermediair** (CTP-550) | BUILD | sitemap-index hourly (2.480 URL's) + JobPosting op detail; zie rung-2-rij | Connector `intermediair` gebouwd |
-| **Techniekwerkt** (CTP-551) | NO-JSONLD | vacatures.xml.gz live, maar detail = alleen `BreadcrumbList`; SSR-HTML, geen in-page state | Niet in registry; html-adapter-kandidaat (als Waternet) |
+| **Techniekwerkt** (CTP-551) | **BUILD** (gecorrigeerd 2026-09-17) | vacatures.xml.gz live (8.245 URL's); detail heeft alleen `BreadcrumbList` JSON-LD, màar wel in-page state: `vike_pageContext.pageProps.job` | Connector `techniekwerkt` via `synthesizeFromVikeJobData`; zie `sources/techniekwerkt.md`. Eerder NO-JSONLD-verdict was onvolledig (keek niet naar Vike-state) |
 | **Jooble** (CTP-553) | DROP-AGGREGATOR | sitemap-index met `/jdp/`-details crawlbaar, maar meta-aggregator → dupliceert eerste-partij-bronnen | Sluiten op datakwaliteit |
 | **Planet Interim** (CTP-582) | BUILD | `/opdrachten` publiek + JobPosting op detail; robots zonder Disallow; postback-paginering → nieuwste-pagina | Connector `planet-interim` gebouwd |
 

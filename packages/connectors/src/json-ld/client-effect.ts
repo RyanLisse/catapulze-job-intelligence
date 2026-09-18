@@ -5,7 +5,7 @@ import {
   AuthFault,
   httpRequest,
   mapHttpStatusToFault,
-  readTextBody,
+  mapUnknownToReadIoFault,
   runReadIoPromise,
   ValidationFault,
 } from "../effect-runtime";
@@ -26,6 +26,7 @@ import {
   buildLiveFetchHeaders,
   cloudflareChallengeError,
   cookieEnvVarForLiveGate,
+  decodeLiveBodyBytes,
   isCloudflareChallenge,
   toLiveFetchHeadersInit,
 } from "./live-fetch";
@@ -66,7 +67,10 @@ const readLiveBodyEffect = (
   url: string,
   response: Response
 ): Effect.Effect<string, ReadIoFault> =>
-  readTextBody(response).pipe(
+  Effect.tryPromise({
+    catch: mapUnknownToReadIoFault,
+    try: async () => decodeLiveBodyBytes(await response.arrayBuffer()),
+  }).pipe(
     Effect.flatMap((body): Effect.Effect<string, ReadIoFault> => {
       const cookieEnvVar = cookieEnvVarForLiveGate(options.config.liveEnvVar);
       if (isCloudflareChallenge(response, body)) {

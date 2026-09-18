@@ -5,6 +5,7 @@ import { curateScrapeRun } from "@ji/db/curate-scrape-run";
 import type { CurateScrapeRunInput } from "@ji/db/curate-scrape-run";
 import { writeHeartbeat } from "@ji/db/process-heartbeat";
 import { LockLostError, waitForAdvisoryLock } from "@ji/db/process-lock";
+import { pruneProcessedOutboxEvents } from "@ji/db/prune-outbox-events";
 /**
  * On-box poll and curate process (runbook: docs/runbooks/onbox-poller.md).
  *
@@ -282,6 +283,21 @@ const main = async (): Promise<void> => {
       if (abandoned.length > 0) {
         logLine(process.stdout, "poller_runs_abandoned", {
           count: abandoned.length,
+        });
+      }
+
+      // CTP-404: bound processed outbox growth; unprocessed and
+      // dead-lettered rows are never pruned. One bounded batch per cycle
+      // drains a backlog gradually instead of one giant DELETE.
+      // oxlint-disable-next-line no-await-in-loop -- one prune pass per cycle
+      const prunedOutbox = await pruneProcessedOutboxEvents(runtime.database, {
+        batchSize: Number(pollerEnv.POLLER_OUTBOX_PRUNE_BATCH),
+        now: new Date(),
+        retentionDays: Number(pollerEnv.POLLER_OUTBOX_RETENTION_DAYS),
+      });
+      if (prunedOutbox > 0) {
+        logLine(process.stdout, "poller_outbox_pruned", {
+          count: prunedOutbox,
         });
       }
 
