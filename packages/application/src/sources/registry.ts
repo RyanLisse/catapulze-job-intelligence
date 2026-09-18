@@ -3,6 +3,7 @@ import { asml } from "./asml";
 import { bam } from "./bam";
 import { bijOranje } from "./bij-oranje";
 import { bluetrail } from "./bluetrail";
+import { circle8 } from "./circle8";
 import { ctm } from "./ctm";
 import { datajobs } from "./datajobs";
 import type { SourceDefinition } from "./definition";
@@ -58,6 +59,7 @@ export const SOURCES = {
   bam,
   "bij-oranje": bijOranje,
   bluetrail,
+  circle8,
   ctm,
   datajobs,
   eneco,
