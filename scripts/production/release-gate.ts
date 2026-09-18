@@ -161,12 +161,12 @@ export const isReleaseLedgerEntry = (deployment: {
     return false;
   }
   const candidateSha = payload.candidate_sha;
-  const { workflow } = payload;
+  const provenance = payload.workflow ?? payload.source;
   if (
     typeof candidateSha !== "string" ||
     !SHA_PATTERN.test(candidateSha) ||
-    typeof workflow !== "string" ||
-    workflow.length === 0
+    typeof provenance !== "string" ||
+    provenance.length === 0
   ) {
     return false;
   }
