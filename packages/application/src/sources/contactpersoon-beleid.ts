@@ -36,6 +36,7 @@ const BELEID_OVERRIDES = {
   // questions and bids, so our use aligns with the publication purpose.
   ctm: { publicatiedoel: "aanbieder" },
   inhuurdesk: { publicatiedoel: "aanbieder" },
+  mercell: { publicatiedoel: "aanbieder" },
   needstaffing: { publicatiedoel: "aanbieder" },
   opdrachtoverheid: { publicatiedoel: "aanbieder" },
   striive: { publicatiedoel: "aanbieder" },
