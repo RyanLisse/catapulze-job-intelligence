@@ -20,9 +20,9 @@ const buildPayload = (
     applicationMethods: [{ sollicitatieWijze: 3, urlApplicationForm: "" }],
     contactPerson: {
       department: null,
-      email: "recruitment@example.nl",
-      name: "Recruiter Voorbeeld",
-      phoneNumber: "0612345678",
+      email: "recruiter@example.invalid",
+      name: "R. Cruiter",
+      phoneNumber: "+31000000000",
     },
     createdDate: "2024-04-25T00:00:00",
     cvOffer: {
@@ -148,6 +148,23 @@ describe("parseWerkNlPayload", () => {
     });
   });
 
+  it("demotes eenheid to UNKNOWN for an ambiguous beloningsvorm code", () => {
+    // salary.type 1 = "vast loon / uurloon" (live codelijst): a bare range
+    // can be hourly, so the manufactured "maand" must not publish.
+    const payload = buildPayload();
+    if (payload.detail.proposition?.salary) {
+      payload.detail.proposition.salary = {
+        amountIndication: "15-18",
+        type: 1,
+      };
+    }
+    const draft = parseWerkNlPayload(payload, "hash-1");
+    expect(draft.tarief.min).toBe("15");
+    expect(draft.tarief.max).toBe("18");
+    expect(draft.tarief.eenheid).toBe(UNKNOWN);
+    expect(draft.bronSpecifiek.value).toMatchObject({ salary_type_code: 1 });
+  });
+
   it("publishes no tarief when amountIndication is absent", () => {
     const payload = buildPayload();
     if (payload.detail.proposition?.salary) {
@@ -163,12 +180,12 @@ describe("parseWerkNlPayload", () => {
     const draft = parseWerkNlPayload(buildPayload(), "hash-1");
     expect(draft.contactpersonen?.value).toEqual([
       {
-        email: "recruitment@example.nl",
+        email: "recruiter@example.invalid",
         geinformeerdOp: null,
-        naam: "Recruiter Voorbeeld",
+        naam: "R. Cruiter",
         notificatieKanaal: null,
         rol: null,
-        telefoon: "0612345678",
+        telefoon: "+31000000000",
       },
     ]);
     expect(draft.contactpersonen?.provenance.sourcePath).toBe(

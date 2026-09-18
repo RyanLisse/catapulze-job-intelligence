@@ -9,9 +9,9 @@ import type { JsonLdConnectorConfig } from "../types";
  * is served by the public JSON endpoint `/api/vacancy/<id>`. detailUrlRewrite
  * maps each discovered public URL onto that endpoint for the fetch, while the
  * observation keeps the public URL; the detailSynthesizer projects the API
- * record onto a JobPosting. `contactPerson*` fields are dropped at the
- * synthesizer boundary (DEC-008); `compensationGrade` is a salarisschaal label
- * and lands in labelBlock only.
+ * record onto a JobPosting. `contactPerson*` fields become `contactpersonen`
+ * (CTP-610); `compensationGrade` is a salarisschaal label and lands in
+ * labelBlock only.
  */
 export const allianderConfig: JsonLdConnectorConfig = {
   detailFixtures: {
@@ -24,8 +24,11 @@ export const allianderConfig: JsonLdConnectorConfig = {
   },
   detailSynthesizer: synthesizeJobPostingFromAllianderVacancy,
   detailUrlRewrite: {
-    pattern: /^\/vacatures\/[^/]+\/(?<jr>jr\d+)\/?$/iu,
-    replace: "/api/vacancy/$<jr>",
+    // Sitemap paths carry the lowercase `jr<id>` form, but the Sitecore
+    // vacancy API routes the id uppercase — the recorded captures all hit
+    // `/api/vacancy/JR<id>`.
+    pattern: /^\/vacatures\/[^/]+\/jr(?<id>\d+)\/?$/iu,
+    replace: "/api/vacancy/JR$<id>",
   },
   discovery: {
     kind: "sitemap",

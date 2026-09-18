@@ -32,11 +32,13 @@ HTML-scraping nodig.
 | `scheduledWeeklyHours` | `workHours` + `labelBlock.urenPerWeek` → uren_per_week | Numeriek veld (40), wordt "40 uur". |
 | `contractType` | `employmentType` → contract_type | Verbatim (`Fulltime`); geen mapping naar schema.org-enum omdat de vocabulaire ongedocumenteerd is. |
 | `field`, `subField`, `educationLevel`, `compensationGrade` | `labelBlock.vakgebied` / `subvakgebied` / `opleiding` / `salarisschaal` | `compensationGrade` is een schaallabel ("Salarisschaal 11"), géén bedrag → nooit `tarief`. |
-| `contactPerson`, `contactPersonEmailAddress`, `template` | — niet overgenomen | DEC-008-minimalisatie; fixtures strippen de contact-keys en redactiepatronen dekken ook `+31 (6)`-nummers en `&#64;`-encoded e-mails in de description-prosa. |
+| `contactPerson`, `contactPersonEmailAddress` | `contactpersonen` (naam + email) | CTP-610: werkenbij-contacten zijn in scope. |
+| `template` | — niet overgenomen | DEC-008-minimalisatie. |
 
 De sitemap bevat uitsluitend URL-metadata. Daarom is `listingHashCoversDetail:
 false` en worden known hashes niet doorgestuurd. `crawlDelayMs` is 2000 en
 `voorwaardenStatus` blijft `te_toetsen`: robots staat alles toe behalve
 `/error-pages` en adverteert de sitemap expliciet. De drie vastgelegde details
 zijn echte API-opnames; recruitercontact in de description-prosa is mechanisch
-geredacteerd (namen in lopende tekst blijven — zie capture-notes).
+geredacteerd; de recruiter-naam in de description-prosa is vervangen door een
+generieke placeholder.

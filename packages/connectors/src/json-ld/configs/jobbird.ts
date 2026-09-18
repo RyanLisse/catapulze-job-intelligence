@@ -22,6 +22,6 @@ export const jobbirdConfig: JsonLdConnectorConfig = {
   },
   listingFixturePath: "jobbird/listing-page-0.json",
   liveEnvVar: "JOBBIRD_LIVE",
-  parserVersion: "jobbird/v1",
+  parserVersion: "jobbird/v2",
   slug: "jobbird",
 };

@@ -29,6 +29,6 @@ export const werkzoekenConfig: JsonLdConnectorConfig = {
   },
   listingFixturePath: "werkzoeken/listing-page-0.json",
   liveEnvVar: "WERKZOEKEN_LIVE",
-  parserVersion: "werkzoeken/v1",
+  parserVersion: "werkzoeken/v2",
   slug: "werkzoeken",
 };

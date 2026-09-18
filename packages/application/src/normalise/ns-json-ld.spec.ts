@@ -37,7 +37,7 @@ describe("normaliseJsonLdObservation -- NS", () => {
           new TextEncoder().encode(
             JSON.stringify({
               ...detail,
-              parserVersion: "ns/v1",
+              parserVersion: "ns/v2",
               slug: "ns",
               url,
             })
@@ -63,7 +63,7 @@ describe("normaliseJsonLdObservation -- NS", () => {
       new TextEncoder().encode(
         JSON.stringify({
           ...detail,
-          parserVersion: "ns/v1",
+          parserVersion: "ns/v2",
           slug: "ns",
           url,
         })

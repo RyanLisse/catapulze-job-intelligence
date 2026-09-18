@@ -6,10 +6,15 @@ import type {
   ConnectorDiscoverResult,
   DiscoverItem,
 } from "../contract";
+import { HttpStatusError } from "../json-ld/live-fetch";
 import { createWerkNlClient } from "./client";
 import type { WerkNlClient } from "./client";
 import { hashWerkNlDetailPayload, hashWerkNlListingItem } from "./hash";
-import type { WerkNlFetchedPayload, WerkNlSearchItem } from "./types";
+import type {
+  WerkNlFetchedPayload,
+  WerkNlSearchItem,
+  WerkNlVacatureDetail,
+} from "./types";
 import {
   WERK_NL_MAX_SEARCH_RESULTS,
   WERK_NL_PAGE_SIZE,
@@ -66,12 +71,31 @@ const decodeCursor = (checkpoint: ConnectorCheckpoint | null): WerkNlCursor => {
 const referenceOf = (item: WerkNlSearchItem): string =>
   String(item.referenceNumber);
 
+/** Page count for one shard. `totalResults` can be absent/non-finite
+ * upstream; then a full page means "probably more" and anything less ends
+ * the shard — the answer never feeds a NaN page calculation. */
+const totalPagesOf = (
+  totalResults: number | null | undefined,
+  rowsServed: number,
+  page: number
+): number => {
+  if (!Number.isFinite(totalResults)) {
+    return rowsServed === WERK_NL_PAGE_SIZE ? page + 1 : page;
+  }
+  return Math.ceil(
+    Math.min(totalResults ?? 0, WERK_NL_MAX_SEARCH_RESULTS) / WERK_NL_PAGE_SIZE
+  );
+};
+
 export const createWerkNlConnector = (
   options: WerkNlConnectorOptions
 ): Connector => {
   const client = options.client ?? createWerkNlClient();
   const shards = options.shardValues ?? WERK_NL_SHIFT_TYPE_SHARDS;
-  const pageLimit = options.pageLimitPerShard;
+  const pageLimit =
+    options.pageLimitPerShard !== undefined && options.pageLimitPerShard >= 1
+      ? options.pageLimitPerShard
+      : undefined;
 
   return {
     bronId: options.bronId,
@@ -79,7 +103,13 @@ export const createWerkNlConnector = (
       checkpoint: ConnectorCheckpoint | null
     ): Promise<ConnectorDiscoverResult> => {
       const cursor = decodeCursor(checkpoint);
-      const shardIndex = Math.min(cursor.s, shards.length - 1);
+      // A cursor pointing past the last shard is stale (the shard list shrank
+      // since the checkpoint): the sweep is over, not "clamp into the last
+      // shard and recrawl it".
+      if (cursor.s >= shards.length) {
+        return { checkpoint: {}, hasMore: false, items: [] };
+      }
+      const shardIndex = cursor.s;
       const shiftType = shards[shardIndex];
       if (shiftType === undefined) {
         return { checkpoint: {}, hasMore: false, items: [] };
@@ -95,13 +125,21 @@ export const createWerkNlConnector = (
         }))
       );
 
-      const totalPages = Math.ceil(
-        Math.min(listing.totalResults, WERK_NL_MAX_SEARCH_RESULTS) /
-          WERK_NL_PAGE_SIZE
-      );
+      const totalPages = totalPagesOf(listing.totalResults, rows.length, page);
       const pageLimitReached =
         pageLimit !== undefined && page >= pageLimit && page < totalPages;
-      const truncated = pageLimitReached || cursor.t === 1;
+      // An empty page while upstream still claims un-served results is an
+      // anomaly, not a clean shard end — flag it so the run reads truncated
+      // instead of letting reconcileMissedPolls stale the unseen remainder.
+      // Covers the empty last page too: totalResults 40 with an empty page 2
+      // still leaves 20 claimed items unaccounted for. A shard that shrank
+      // upstream (page beyond totalPages) is a genuine end, not an anomaly.
+      const claimedUnseen =
+        Number.isFinite(listing.totalResults) &&
+        (listing.totalResults ?? 0) > (page - 1) * WERK_NL_PAGE_SIZE;
+      const anomalousEmptyPage = rows.length === 0 && claimedUnseen;
+      const truncated =
+        pageLimitReached || anomalousEmptyPage || cursor.t === 1;
       const shardExhausted =
         rows.length === 0 || page >= totalPages || pageLimitReached;
       const nextShardIndex = shardIndex + 1;
@@ -142,7 +180,8 @@ export const createWerkNlConnector = (
         listing !== null && listing !== undefined
           ? referenceOf(listing)
           : item.bronReferentie;
-      if (!referenceNumber) {
+      const numeric = Number(referenceNumber);
+      if (!(Number.isFinite(numeric) && numeric > 0)) {
         return {
           bronReferentie: item.bronReferentie,
           reason: "listing payload missing referenceNumber",
@@ -150,7 +189,25 @@ export const createWerkNlConnector = (
         };
       }
 
-      const detail = await client.fetchDetail(referenceNumber);
+      let detail: WerkNlVacatureDetail;
+      try {
+        detail = await client.fetchDetail(referenceNumber);
+      } catch (error) {
+        // CTP-608: a vacature that expired between listing and detail read is
+        // "removed at source" — reject the item instead of stalling the sweep
+        // on a page that can never succeed. 410 Gone is the same signal.
+        if (
+          error instanceof HttpStatusError &&
+          (error.status === 404 || error.status === 410)
+        ) {
+          return {
+            bronReferentie: item.bronReferentie,
+            reason: `detail returned ${error.status} — removed at source`,
+            status: "rejected" as const,
+          };
+        }
+        throw error;
+      }
       const payload: WerkNlFetchedPayload = {
         detail,
         listing: listing ?? null,

@@ -20,6 +20,6 @@ export const heijmansConfig: JsonLdConnectorConfig = {
   ],
   listingFixturePath: "heijmans/listing-page-0.json",
   liveEnvVar: "HEIJMANS_LIVE",
-  parserVersion: "heijmans/v1",
+  parserVersion: "heijmans/v2",
   slug: "heijmans",
 };

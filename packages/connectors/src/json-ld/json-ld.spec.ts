@@ -880,7 +880,7 @@ describe("Rabobank careers JSON-LD connector", () => {
       url: "https://rabobank.jobs/api/sitemap/",
     });
     expect(rabobankConfig.liveEnvVar).toBe("RABOBANK_LIVE");
-    expect(rabobankConfig.parserVersion).toBe("rabobank/v1");
+    expect(rabobankConfig.parserVersion).toBe("rabobank/v2");
     expect(rabobankConfig.detailSynthesizer).toBeUndefined();
 
     const client = createJsonLdClient({

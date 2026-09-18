@@ -31,6 +31,6 @@ export const rabobankConfig: JsonLdConnectorConfig = {
   ],
   listingFixturePath: "rabobank/listing-page-0.json",
   liveEnvVar: "RABOBANK_LIVE",
-  parserVersion: "rabobank/v1",
+  parserVersion: "rabobank/v2",
   slug: "rabobank",
 };

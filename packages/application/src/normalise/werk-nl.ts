@@ -39,18 +39,35 @@ const firstText = (
 };
 
 /** `proposition.salary.amountIndication` is a bare range like "2500-3000"
- * with no unit or currency text. werk.nl is a jobboard and the field is the
- * vacancy's salary indication, so the shared jobboard-salaris rule applies
- * ("salaris" ranges are monthly gross); the € hint feeds the range branch
- * and the "salaris" context resolves eenheid to "maand". The numeric
- * `salary.type` code is kept raw in bronSpecifiek rather than mapped to a
- * guessed eenheid. */
-const parseWerkNlSalary = (amountIndication: string | null | undefined) => {
+ * with no unit or currency text; the "salaris" hint feeds the range branch
+ * and manufactures eenheid "maand" (the jobboard-salaris rule). Whether that
+ * manufactured unit is trustworthy depends on `salary.type` — the numeric
+ * beloningsvorm code, positional in the live codelijst
+ * `/mijn-werkmap/api/codelijsten/beloningsvorm` (2026-09-18):
+ * 1 = "vast loon / uurloon" (a bare range can be hourly — "maand" would
+ * corrupt it into €15/maand), 2 = "vrij ondernemerschap", 3 = "commissie",
+ * 4 = "beloning conform CAO" (monthly gross). Only type 4 and an absent
+ * code keep the manufactured "maand"; ambiguous codes keep min/max but
+ * demote eenheid to UNKNOWN. A unit the range text carries itself
+ * ("per uur") always wins — only the manufactured "maand" is demoted. */
+const MONTHLY_SALARY_TYPE = 4;
+const parseWerkNlSalary = (
+  amountIndication: string | null | undefined,
+  salaryType: number | null | undefined
+) => {
   const trimmed = amountIndication?.trim();
   if (!trimmed) {
     return;
   }
-  return parseTariefFromText(`salaris € ${trimmed}`);
+  const parsed = parseTariefFromText(`salaris € ${trimmed}`);
+  if (!parsed || parsed.eenheid !== "maand") {
+    return parsed;
+  }
+  const monthlySafe =
+    salaryType === null ||
+    salaryType === undefined ||
+    salaryType === MONTHLY_SALARY_TYPE;
+  return monthlySafe ? parsed : { ...parsed, eenheid: UNKNOWN };
 };
 
 const DATE_PREFIX_PATTERN = /^(?<prefix>\d{4}-\d{2}-\d{2})/u;
@@ -176,6 +193,29 @@ const bronSpecifiekOf = (
   ...listingSpecifiekOf(detail, listing),
 });
 
+const tariefOf = (
+  proposition: WerkNlVacatureDetail["proposition"]
+): NormalisedAanvraagDraft["tarief"] =>
+  parseWerkNlSalary(
+    proposition?.salary?.amountIndication,
+    proposition?.salary?.type
+  ) ?? { eenheid: UNKNOWN, max: UNKNOWN, min: UNKNOWN, valuta: "EUR" };
+
+/** Description text for the draft body: the HTML detail description wins,
+ * then the function description, then the bare title (which stripHtml
+ * passes through unchanged). */
+const beschrijvingOf = (
+  detail: WerkNlVacatureDetail,
+  proposition: WerkNlVacatureDetail["proposition"]
+): string => {
+  const tekst = firstText(
+    detail.description,
+    proposition?.function?.description,
+    detail.title
+  );
+  return stripHtml(tekst === UNKNOWN ? detail.title || "" : tekst);
+};
+
 const contactpersonenOf = (
   detail: WerkNlVacatureDetail,
   parserVersion: string
@@ -218,18 +258,9 @@ export const parseWerkNlPayload = (
     seenOpen: !sluitingsdatumPassed,
     sluitingsdatumPassed,
   });
-  const tarief = parseWerkNlSalary(proposition?.salary?.amountIndication);
-  const beschrijvingTekst = firstText(
-    detail.description,
-    proposition?.function?.description,
-    detail.title
-  );
-
   const draft: NormalisedAanvraagDraft = {
     beschrijving: field(
-      stripHtml(
-        beschrijvingTekst === UNKNOWN ? detail.title : beschrijvingTekst
-      ),
+      beschrijvingOf(detail, proposition),
       parserVersion,
       "detail.description"
     ),
@@ -274,12 +305,7 @@ export const parseWerkNlPayload = (
       "detail.proposition.contract.startDate"
     ),
     status: lifecycle,
-    tarief: tarief ?? {
-      eenheid: UNKNOWN,
-      max: UNKNOWN,
-      min: UNKNOWN,
-      valuta: "EUR",
-    },
+    tarief: tariefOf(proposition),
     titel: field(
       detail.title || listing?.vacatureTitle || referenceNumber,
       parserVersion,

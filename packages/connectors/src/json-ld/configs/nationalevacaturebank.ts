@@ -25,6 +25,6 @@ export const nationaleVacaturebankConfig: JsonLdConnectorConfig = {
   },
   listingFixturePath: "nationalevacaturebank/listing-page-0.json",
   liveEnvVar: "NVB_LIVE",
-  parserVersion: "nationalevacaturebank/v1",
+  parserVersion: "nationalevacaturebank/v2",
   slug: "nationalevacaturebank",
 };

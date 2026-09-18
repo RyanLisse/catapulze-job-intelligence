@@ -31,6 +31,6 @@ export const tennetConfig: JsonLdConnectorConfig = {
   ],
   listingFixturePath: "tennet/listing-page-0.json",
   liveEnvVar: "TENNET_LIVE",
-  parserVersion: "tennet/v1",
+  parserVersion: "tennet/v2",
   slug: "tennet",
 };

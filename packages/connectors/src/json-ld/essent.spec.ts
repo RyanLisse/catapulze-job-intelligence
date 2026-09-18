@@ -2,6 +2,7 @@ import { describe, expect, it } from "bun:test";
 
 import { createJsonLdClient } from "./client";
 import { essentConfig } from "./configs/essent";
+import { synthesizeJobPostingFromEssentFeatures } from "./extract";
 
 describe("Essent JSON-LD connector (Vue DataItems synthesis)", () => {
   it("discovers only the two-segment /nl/vacatures/<vakgebied>/<slug> URLs", async () => {
@@ -74,5 +75,30 @@ describe("Essent JSON-LD connector (Vue DataItems synthesis)", () => {
         expect(detail.jobPosting?.baseSalary).toBeUndefined();
       })
     );
+  });
+
+  it("keeps DataItems entries whose Value text or nesting contains brackets", () => {
+    // A `]` inside a Value string (or a nested array) truncated the old lazy
+    // `\[.*?\]` regex at the first bracket, silently dropping the item list.
+    const items = JSON.stringify([
+      { CssClass: "location", Value: "Rotterdam [regio zuid]" },
+      { CssClass: "salary", Value: "€3000 - €4000" },
+      { CssClass: "field", Extra: [1, 2], Value: "IT" },
+    ]);
+    const decoded = `window.__vue = { DataItems: ${items} };`;
+    const html =
+      `<h1>Spec Vacature</h1>` +
+      `<div class="content"><p>Spec body</p></div>` +
+      `<script src="data:text/javascript;base64,${Buffer.from(decoded).toString(
+        "base64"
+      )}"></script>`;
+    const detail = synthesizeJobPostingFromEssentFeatures(
+      html,
+      "https://www.werkenbijessent.nl/nl/vacatures/spec/spec-vacature"
+    );
+    expect(detail?.labelBlock.locatie).toBe("Rotterdam [regio zuid]");
+    expect(detail?.labelBlock.salaris).toBe("€3000 - €4000");
+    expect(detail?.labelBlock.vakgebied).toBe("IT");
+    expect(detail?.jobPosting?.title).toBe("Spec Vacature");
   });
 });

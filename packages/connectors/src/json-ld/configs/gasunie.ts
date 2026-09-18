@@ -16,6 +16,6 @@ export const gasunieConfig: JsonLdConnectorConfig = {
   ],
   listingFixturePath: "gasunie/listing-page-0.json",
   liveEnvVar: "GASUNIE_LIVE",
-  parserVersion: "gasunie/v1",
+  parserVersion: "gasunie/v2",
   slug: "gasunie",
 };

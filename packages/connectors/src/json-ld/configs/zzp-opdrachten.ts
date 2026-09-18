@@ -21,7 +21,7 @@ export const zzpOpdrachtenConfig: JsonLdConnectorConfig = {
   ],
   listingFixturePath: "zzp-opdrachten/listing-page-0.json",
   liveEnvVar: "ZZP_OPDRACHTEN_LIVE",
-  parserVersion: "zzp-opdrachten/v1",
+  parserVersion: "zzp-opdrachten/v2",
   sitemapFixtures: {
     "https://www.zzp-opdrachten.nl/job-sitemap57.xml":
       "zzp-opdrachten/job-sitemap57.json",

@@ -40,7 +40,7 @@ describe("normaliseJsonLdObservation -- Eneco", () => {
           new TextEncoder().encode(
             JSON.stringify({
               ...detail,
-              parserVersion: "eneco/v1",
+              parserVersion: "eneco/v2",
               slug: "eneco",
               url,
             })
@@ -75,7 +75,7 @@ describe("normaliseJsonLdObservation -- Eneco", () => {
       new TextEncoder().encode(
         JSON.stringify({
           ...detail,
-          parserVersion: "eneco/v1",
+          parserVersion: "eneco/v2",
           slug: "eneco",
           url,
         })

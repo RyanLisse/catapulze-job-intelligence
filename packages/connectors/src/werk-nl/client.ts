@@ -1,5 +1,6 @@
 import { loadConnectorFixture } from "../fixtures/load";
 import { resolveHttpTimeoutMs, withHttpTimeout } from "../http-timeout";
+import { HttpStatusError } from "../json-ld/live-fetch";
 import type {
   WerkNlSearchItem,
   WerkNlSearchResponse,
@@ -96,9 +97,29 @@ interface WerkNlSession {
   xsrfToken: string;
 }
 
-const readJson = async <Payload>(response: Response): Promise<Payload> => {
+/** ASP.NET can rotate XSRF-TOKEN mid-session via Set-Cookie; always read the
+ * current jar value rather than the bootstrap-time snapshot. */
+const xsrfTokenOf = (
+  jar: ReadonlyMap<string, StoredCookie>
+): string | undefined => {
+  for (const cookie of jar.values()) {
+    if (cookie.name === XSRF_COOKIE) {
+      return cookie.value;
+    }
+  }
+  return undefined;
+};
+
+const readJson = async <Payload>(
+  response: Response,
+  url: string
+): Promise<Payload> => {
   if (!response.ok) {
-    throw new Error(`werk.nl request failed with status ${response.status}`);
+    throw new HttpStatusError({
+      slug: "werk-nl",
+      status: response.status,
+      url,
+    });
   }
   // SAFETY: werk.nl zoekenvacatures API responses match the typed schemas.
   return (await response.json()) as Payload;
@@ -258,11 +279,16 @@ export const createWerkNlClient = (
     options.listingFixturePath ?? "werk-nl/listing-page-0.json";
   const detailFixtures = options.detailFixtures ?? {
     "56790376": "werk-nl/detail-56790376.json",
+    "66198242": "werk-nl/detail-66198242.json",
   };
   const timeoutMs = resolveHttpTimeoutMs(options.timeoutMs);
   const apiBase = options.baseUrl ?? API_BASE;
 
   let session: WerkNlSession | null = null;
+  /** Fixture replay serves the recorded page once — the first shiftType seen
+   * becomes "the" fixture shard; other shards answer an empty, finite result
+   * set so a replayed sweep terminates instead of duplicating page 1. */
+  let fixtureShard: string | null = null;
 
   /** One request through the session jar. With `followRedirects` the OAM
    * anonymous-auth chain (werk.nl -> login.werk.nl -> werk.nl) is replayed
@@ -329,11 +355,7 @@ export const createWerkNlClient = (
         `werk.nl session bootstrap failed with status ${response.status}`
       );
     }
-    for (const cookie of session.jar.values()) {
-      if (cookie.name === XSRF_COOKIE) {
-        session.xsrfToken = cookie.value;
-      }
-    }
+    session.xsrfToken = xsrfTokenOf(session.jar) ?? "";
     if (!session.xsrfToken) {
       throw new Error("werk.nl session bootstrap returned no XSRF-TOKEN");
     }
@@ -355,13 +377,19 @@ export const createWerkNlClient = (
     const attempt = async (): Promise<Response> => {
       const active = await ensureSession(signal);
       const headers = new Headers(init.headers);
-      headers.set(XSRF_HEADER, active.xsrfToken);
+      headers.set(XSRF_HEADER, xsrfTokenOf(active.jar) ?? active.xsrfToken);
       return await request(url, { ...init, headers }, signal, false);
     };
     let response = await attempt();
-    // A redirect or auth error here means the anonymous session or XSRF
-    // token went stale mid-run: re-bootstrap once and retry once.
-    if (REDIRECT_STATUSES.has(response.status) || !response.ok) {
+    // A redirect or auth error means the anonymous session or XSRF token
+    // went stale mid-run: re-bootstrap once and retry once. Other non-ok
+    // statuses (404, 429, 5xx) are endpoint answers, not session problems —
+    // bootstrapping for them would pay a full OAM dance per failed item.
+    if (
+      REDIRECT_STATUSES.has(response.status) ||
+      response.status === 401 ||
+      response.status === 403
+    ) {
       await bootstrap(signal);
       response = await attempt();
     }
@@ -388,7 +416,10 @@ export const createWerkNlClient = (
           signal
         );
         return projectWerkNlVacature(
-          await readJson<WerkNlVacatureDetail>(response)
+          await readJson<WerkNlVacatureDetail>(
+            response,
+            `${apiBase}/vacature/${referenceNumber}`
+          )
         );
       }, timeoutMs);
     },
@@ -396,11 +427,15 @@ export const createWerkNlClient = (
       if (!liveEnabled) {
         const fixture =
           await loadConnectorFixture<WerkNlSearchResponse>(listingFixturePath);
-        // Fixture/replay runs only ever serve the first search page.
-        const items = page > 1 ? [] : (fixture.payload.items ?? []);
+        fixtureShard ??= shiftType;
+        const items =
+          page === 1 && shiftType === fixtureShard
+            ? (fixture.payload.items ?? [])
+            : [];
         return {
           ...fixture.payload,
           items: items.map(projectWerkNlSearchItem),
+          totalResults: items.length,
         };
       }
       return await withHttpTimeout(async (signal) => {
@@ -416,7 +451,10 @@ export const createWerkNlClient = (
           },
           signal
         );
-        const parsed = await readJson<WerkNlSearchResponse>(response);
+        const parsed = await readJson<WerkNlSearchResponse>(
+          response,
+          `${apiBase}/search`
+        );
         return {
           ...parsed,
           items: parsed.items?.map(projectWerkNlSearchItem) ?? null,

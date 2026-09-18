@@ -18,6 +18,6 @@ export const vattenfallConfig: JsonLdConnectorConfig = {
   ],
   listingFixturePath: "vattenfall/listing-page-0.json",
   liveEnvVar: "VATTENFALL_LIVE",
-  parserVersion: "vattenfall/v1",
+  parserVersion: "vattenfall/v2",
   slug: "vattenfall",
 };

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "bun:test";
 
+import { HttpStatusError } from "@ji/connectors/json-ld";
 import {
   createWerkNlClient,
   createWerkNlConnector,
@@ -138,6 +139,142 @@ describe("werk.nl connector", () => {
     const second = await connector.discover(first.checkpoint);
     expect(second.hasMore).toBe(false);
     expect(second.truncated).toBe(true);
+  });
+
+  it("flags truncated when a shard ends on an anomalous empty page", async () => {
+    const { client } = pagedClient({ "1": 40, "2": 0 });
+    const inner = client.fetchListing;
+    client.fetchListing = (page, shiftType) =>
+      shiftType === "1" && page === 2
+        ? Promise.resolve({ facets: [], items: [], totalResults: 40 })
+        : inner(page, shiftType);
+    const connector = createWerkNlConnector({ bronId: "bron-test", client });
+
+    const first = await connector.discover(null);
+    expect(first.hasMore).toBe(true);
+    const second = await connector.discover(first.checkpoint);
+    // Page 2 comes back empty while upstream still claims 2 pages: the shard
+    // ends, but truncation propagates so the run never reads "complete".
+    expect(second.items).toHaveLength(0);
+    expect(second.hasMore).toBe(true);
+    const third = await connector.discover(second.checkpoint);
+    expect(third.hasMore).toBe(false);
+    expect(third.truncated).toBe(true);
+  });
+
+  it("ends the sweep on a cursor past the last shard instead of recrawling", async () => {
+    const { client, calls } = pagedClient({ "1": 40 });
+    const connector = createWerkNlConnector({ bronId: "bron-test", client });
+    const result = await connector.discover({
+      cursor: 'werk-nl:{"s":5,"p":1}',
+    });
+    expect(result.hasMore).toBe(false);
+    expect(result.items).toHaveLength(0);
+    expect(calls).toHaveLength(0);
+  });
+
+  it("serves fixture items once for the first shard only", async () => {
+    const connector = createWerkNlConnector({
+      bronId: "bron-test",
+      client: createWerkNlClient({ liveEnabled: false }),
+    });
+    const first = await connector.discover(null);
+    expect(first.items).toHaveLength(2);
+    const second = await connector.discover(first.checkpoint);
+    expect(second.items).toHaveLength(0);
+    expect(second.hasMore).toBe(false);
+  });
+
+  it("rejects a detail that 404s — removed at source (CTP-608)", async () => {
+    const client: WerkNlClient = {
+      fetchDetail: () =>
+        Promise.reject(
+          new HttpStatusError({
+            slug: "werk-nl",
+            status: 404,
+            url: "https://www.werk.nl/vacature/42",
+          })
+        ),
+      fetchListing: (page) =>
+        Promise.resolve({
+          facets: [],
+          items: page === 1 ? [makeItem(42)] : [],
+          totalResults: 1,
+        }),
+    };
+    const connector = createWerkNlConnector({
+      bronId: "bron-test",
+      client,
+      shardValues: ["1"],
+    });
+    const { items } = await connector.discover(null);
+    const [item] = items;
+    if (!item) {
+      throw new Error("expected one discover item");
+    }
+    const fetched = await connector.fetch(item);
+    expect(fetched?.status).toBe("rejected");
+  });
+
+  it("rejects a detail that 410s — gone at source (CTP-608)", async () => {
+    const client: WerkNlClient = {
+      fetchDetail: () =>
+        Promise.reject(
+          new HttpStatusError({
+            slug: "werk-nl",
+            status: 410,
+            url: "https://www.werk.nl/vacature/42",
+          })
+        ),
+      fetchListing: (page) =>
+        Promise.resolve({
+          facets: [],
+          items: page === 1 ? [makeItem(42)] : [],
+          totalResults: 1,
+        }),
+    };
+    const connector = createWerkNlConnector({
+      bronId: "bron-test",
+      client,
+      shardValues: ["1"],
+    });
+    const { items } = await connector.discover(null);
+    const [item] = items;
+    if (!item) {
+      throw new Error("expected one discover item");
+    }
+    const fetched = await connector.fetch(item);
+    expect(fetched?.status).toBe("rejected");
+  });
+
+  it("propagates non-404 detail errors instead of rejecting them", async () => {
+    const client: WerkNlClient = {
+      fetchDetail: () =>
+        Promise.reject(
+          new HttpStatusError({
+            slug: "werk-nl",
+            status: 500,
+            url: "https://www.werk.nl/vacature/42",
+          })
+        ),
+      fetchListing: (page) =>
+        Promise.resolve({
+          facets: [],
+          items: page === 1 ? [makeItem(42)] : [],
+          totalResults: 1,
+        }),
+    };
+    const connector = createWerkNlConnector({
+      bronId: "bron-test",
+      client,
+      shardValues: ["1"],
+    });
+    const { items } = await connector.discover(null);
+    const [item] = items;
+    if (!item) {
+      throw new Error("expected one discover item");
+    }
+    await expect(connector.fetch(item)).rejects.toThrow("status 500");
   });
 
   it("fetches a detail payload keyed by referenceNumber", async () => {

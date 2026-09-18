@@ -152,14 +152,22 @@ const auditSource = async (source: SourceDefinition): Promise<SourceReport> => {
     listingPayload?: unknown;
   }[] = [];
   let checkpoint: Parameters<typeof connector.discover>[0] = null;
-  for (let page = 0; page < 10; page += 1) {
-    // oxlint-disable-next-line no-await-in-loop -- discovery is checkpoint-dependent: each page needs the previous discover() checkpoint.
-    const result = await connector.discover(checkpoint);
-    items.push(...result.items);
-    if (!result.hasMore) {
-      break;
+  try {
+    for (let page = 0; page < 10; page += 1) {
+      // oxlint-disable-next-line no-await-in-loop -- discovery is checkpoint-dependent: each page needs the previous discover() checkpoint.
+      const result = await connector.discover(checkpoint);
+      items.push(...result.items);
+      if (!result.hasMore) {
+        break;
+      }
+      ({ checkpoint } = result);
     }
-    ({ checkpoint } = result);
+  } catch (error) {
+    // A malformed listing fixture reports as a source error instead of
+    // dropping the source from the report table entirely.
+    report.errors.push(
+      `discover: ${error instanceof Error ? error.message : String(error)}`
+    );
   }
 
   for (const item of items) {

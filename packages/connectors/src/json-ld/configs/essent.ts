@@ -33,6 +33,6 @@ export const essentConfig: JsonLdConnectorConfig = {
   ],
   listingFixturePath: "essent/listing-page-0.json",
   liveEnvVar: "ESSENT_LIVE",
-  parserVersion: "essent/v1",
+  parserVersion: "essent/v2",
   slug: "essent",
 };

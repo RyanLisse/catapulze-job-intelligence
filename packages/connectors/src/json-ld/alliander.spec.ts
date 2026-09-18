@@ -22,12 +22,14 @@ describe("Alliander JSON-LD connector (JSON vacancy API)", () => {
   });
 
   it("rewrites the public detail URL onto the vacancy API for the fetch", () => {
+    // The sitemap ids are lowercase jr<id>, but the recorded API path
+    // segments are uppercase JR<id> — the rewrite must uppercase the id.
     expect(
       resolveDetailFetchUrl(
         allianderConfig,
         "https://werkenbij.alliander.com/vacatures/gasmonteur-in-opleiding/jr18244"
       )
-    ).toBe("https://werkenbij.alliander.com/api/vacancy/jr18244");
+    ).toBe("https://werkenbij.alliander.com/api/vacancy/JR18244");
     expect(
       resolveDetailFetchUrl(
         allianderConfig,

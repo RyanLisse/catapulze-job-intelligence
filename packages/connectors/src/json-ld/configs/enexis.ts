@@ -18,6 +18,6 @@ export const enexisConfig: JsonLdConnectorConfig = {
   ],
   listingFixturePath: "enexis/listing-page-0.json",
   liveEnvVar: "ENEXIS_LIVE",
-  parserVersion: "enexis/v1",
+  parserVersion: "enexis/v2",
   slug: "enexis",
 };

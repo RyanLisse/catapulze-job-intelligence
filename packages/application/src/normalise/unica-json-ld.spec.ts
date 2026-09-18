@@ -46,7 +46,7 @@ describe("normaliseJsonLdObservation -- Unica", () => {
           new TextEncoder().encode(
             JSON.stringify({
               ...detail,
-              parserVersion: "unica/v1",
+              parserVersion: "unica/v2",
               slug: "unica",
               url,
             })
@@ -86,7 +86,7 @@ describe("normaliseJsonLdObservation -- Unica", () => {
       new TextEncoder().encode(
         JSON.stringify({
           ...detail,
-          parserVersion: "unica/v1",
+          parserVersion: "unica/v2",
           slug: "unica",
           url,
         })

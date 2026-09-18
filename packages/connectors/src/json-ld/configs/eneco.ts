@@ -18,6 +18,6 @@ export const enecoConfig: JsonLdConnectorConfig = {
   ],
   listingFixturePath: "eneco/listing-page-0.json",
   liveEnvVar: "ENECO_LIVE",
-  parserVersion: "eneco/v1",
+  parserVersion: "eneco/v2",
   slug: "eneco",
 };

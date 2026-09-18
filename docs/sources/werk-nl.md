@@ -62,15 +62,17 @@ detail op (zelfde redenering als tenderned, RJC-357/RJC-401).
 | locatieLand | `workLocation.countryCode` → `workLocationForeignCountry` → `"NL"` bij aanwezige NL-postcode (expliciete brondata); anders UNKNOWN |
 | startDatum | `proposition.contract.startDate` (date-prefix) |
 | sluitingsdatum | `expirationDate` via `closingMomentInstant` (naive → Europe/Amsterdam) |
-| tarief | `salary.amountIndication` ("2500-3000") via jobboard-salarisregel → min/max + `maand`; `salary.type`-code blijft rauw in bronSpecifiek |
+| tarief | `salary.amountIndication` ("2500-3000") → min/max; `maand` alleen bij `salary.type` 4 ("beloning conform CAO") of afwezige code — type 1 ("vast loon / uurloon") kan een uurrange zijn → `UNKNOWN` |
 | contactpersonen | `contactPerson` (naam/email/telefoon/department→rol); CTP-610-beleid `sollicitant`, default extractie aan |
 | lifecycle | `expirationDate` verstreken → closed |
 
 `werkLocation.type`/`contract.type`/`salary.type`/`werktijden` zijn numerieke
 codes; de overeenkomstige `/api/codelijsten/*`-lijsten gebruiken string-ids in
 dezelfde volgorde (contract.type 2 = "Mogelijk vast" ✓ live geverifieerd
-tegen listing-labels), maar de codes blijven rauw in bronSpecifiek — geen
-hardgecodeerde index→label-mapping.
+tegen listing-labels; `salary.type` telt posititioneel in de live-lijst
+`/api/codelijsten/beloningsvorm`: 1 = "vast-loon-uurloon", 4 =
+"beloning-conform-cao"). De codes blijven ook rauw in bronSpecifiek —
+`salary.type` stuurt alleen de tarief-eenheid, geen index→label-tekst.
 
 ## DEC-008
 

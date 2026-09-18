@@ -492,7 +492,44 @@ export const synthesizeJobPostingFromAllianderVacancy = (
 
 const DATA_URI_SCRIPT_PATTERN =
   /<script[^>]+src=["']?data:text\/javascript;base64,(?<b64>[A-Za-z0-9+/=]+)["']?/giu;
-const DATA_ITEMS_PATTERN = /DataItems\s*:\s*(?<items>\[[\s\S]*?\])/u;
+const DATA_ITEMS_START_PATTERN = /DataItems\s*:\s*\[/u;
+
+/** Slices the JSON array that starts at `openBracket` — counts nested
+ * brackets and skips string bodies, so a `]` inside a `Value` text or a
+ * nested array doesn't truncate the slice (a lazy `\[.*?\]` regex would
+ * stop at the first `]` and silently drop the whole item list). */
+const sliceBalancedArray = (
+  text: string,
+  openBracket: number
+): string | null => {
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (let i = openBracket; i < text.length; i += 1) {
+    const ch = text[i];
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+      } else if (ch === "\\") {
+        escaped = true;
+      } else if (ch === '"') {
+        inString = false;
+      }
+      continue;
+    }
+    if (ch === '"') {
+      inString = true;
+    } else if (ch === "[") {
+      depth += 1;
+    } else if (ch === "]") {
+      depth -= 1;
+      if (depth === 0) {
+        return text.slice(openBracket, i + 1);
+      }
+    }
+  }
+  return null;
+};
 const ESSENT_CONTENT_PATTERN =
   /<div\s+class=["']?content[^>]*>(?<body>[\s\S]*?)<\/div>/iu;
 const ESSENT_VAC_ITEM_PATTERN =
@@ -515,7 +552,10 @@ const decodeEssentDataItems = (html: string): JsonLdNode[] => {
     if (encoded) {
       try {
         const decoded = Buffer.from(encoded, "base64").toString("utf-8");
-        const raw = DATA_ITEMS_PATTERN.exec(decoded)?.groups?.items;
+        const start = DATA_ITEMS_START_PATTERN.exec(decoded);
+        const raw = start
+          ? sliceBalancedArray(decoded, start.index + start[0].length - 1)
+          : null;
         if (raw) {
           const parsed: unknown = JSON.parse(raw);
           if (Array.isArray(parsed)) {
@@ -686,14 +726,21 @@ const mergeContact = (
   contacts: SourceContact[],
   contact: SourceContact | null
 ): void => {
-  if (!contact?.naam) {
+  // Channel-only contacts (a bare tel/mailto link) are still reachable
+  // contacts — match toContactpersoon, which drops only the fully empty
+  // entry. Telefoon is part of the dedupe key so two phone-only contacts
+  // don't collapse into one.
+  if (!(contact?.naam || contact?.email || contact?.telefoon)) {
     return;
   }
   const naam = collapseWhitespace(contact.naam);
   const normalised = { ...contact, naam };
   if (
     !contacts.some(
-      (entry) => entry.naam === naam && entry.email === normalised.email
+      (entry) =>
+        entry.naam === naam &&
+        entry.email === normalised.email &&
+        entry.telefoon === normalised.telefoon
     )
   ) {
     contacts.push(normalised);

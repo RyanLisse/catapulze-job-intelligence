@@ -17,6 +17,6 @@ export const nsConfig: JsonLdConnectorConfig = {
   },
   listingFixturePath: "ns/listing-page-0.json",
   liveEnvVar: "NS_LIVE",
-  parserVersion: "ns/v1",
+  parserVersion: "ns/v2",
   slug: "ns",
 };
