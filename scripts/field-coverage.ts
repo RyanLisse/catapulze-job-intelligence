@@ -1,0 +1,288 @@
+import path from "node:path";
+
+import type {
+  JsonValue,
+  NormalisedAanvraagDraft,
+} from "@ji/application/normalise";
+import { SOURCES, SUPPORTED_BRON_SLUGS } from "@ji/application/sources";
+import type { SourceDefinition } from "@ji/application/sources";
+import { CLEARED, UNKNOWN } from "@ji/domain";
+
+/**
+ * Field-coverage audit: replays every source's committed fixtures through its
+ * real connector + normaliser and reports which of the 11 detail-page fields
+ * land per bron. Read-only; writes nothing.
+ *
+ * Usage: bun run scripts/field-coverage.ts [--bron <slug>] [--json]
+ */
+
+const FIELDS = [
+  "organisatie",
+  "locatie",
+  "tarief",
+  "contract",
+  "werkvorm",
+  "gepubliceerd",
+  "sluit",
+  "uren",
+  "opleiding",
+  "startdatum",
+  "einddatum",
+] as const;
+
+type FieldName = (typeof FIELDS)[number];
+
+/* oxlint-disable anti-slop/no-unknown-parameters, anti-slop/no-runtime-typeof -- these guards are the script's own I/O boundary: bronSpecifiek is a free-form JsonValue map whose shape is established here before any field evaluation reads it. */
+const isRecord = (value: unknown): value is Record<string, JsonValue> =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+
+/** A bronSpecifiek scalar counts as "field landed" when it is a non-zero
+ * number or a non-blank, non-sentinel string. */
+const isLiveValue = (value: unknown): value is number | string =>
+  (typeof value === "number" && value !== 0) ||
+  (typeof value === "string" &&
+    value.trim() !== "" &&
+    value !== UNKNOWN &&
+    value !== CLEARED);
+
+/** Blank or sentinel string keys do not count toward key coverage. */
+const isBlankText = (value: unknown): value is string =>
+  typeof value === "string" && (value.trim() === "" || value === UNKNOWN);
+
+const liveText = (record: Record<string, JsonValue>, keys: string[]): boolean =>
+  keys.some((key) => isLiveValue(record[key]));
+
+const draftText = (value: string): boolean =>
+  value.trim() !== "" && value !== UNKNOWN && value !== CLEARED;
+
+const tariefBound = (v: string): boolean =>
+  v !== UNKNOWN && v !== CLEARED && v.trim() !== "";
+
+const evaluateDraft = (draft: NormalisedAanvraagDraft) => {
+  const bronValue = draft.bronSpecifiek.value;
+  const bron: Record<string, JsonValue> = isRecord(bronValue) ? bronValue : {};
+  return {
+    contract: liveText(bron, [
+      "contracttype",
+      "contract_type",
+      "employment_type",
+    ]),
+    einddatum: liveText(bron, ["eind_datum", "eindDatum"]),
+    gepubliceerd: liveText(bron, [
+      "publicatiedatum",
+      "gepubliceerd_op",
+      "publicatie_datum",
+      "json_ld_date_posted",
+    ]),
+    locatie: draftText(draft.locatieTekst.value),
+    opleiding: liveText(bron, ["opleidingsniveau", "education_level"]),
+    organisatie:
+      draftText(draft.opdrachtgeverNaam.value) ||
+      liveText(bron, ["opdrachtgever_naam", "opdrachtgeverNaam"]),
+    sluit: draft.sluitingsdatum !== undefined,
+    startdatum:
+      draftText(draft.startDatum.value) ||
+      liveText(bron, ["start_datum", "startDatum"]),
+    tarief:
+      tariefBound(draft.tarief.min) ||
+      tariefBound(draft.tarief.max) ||
+      tariefBound(draft.tarief.eenheid),
+    uren: liveText(bron, ["uren_per_week", "uren_per_week_raw"]),
+    werkvorm: liveText(bron, ["werkvorm"]),
+  };
+};
+
+const KEY_DENYLIST = new Set(["_cleared", "label_block"]);
+
+const bronKeysPresent = (draft: NormalisedAanvraagDraft): string[] => {
+  const bron = draft.bronSpecifiek.value;
+  if (!isRecord(bron)) {
+    return [];
+  }
+  return Object.entries(bron)
+    .filter(([key, value]) => {
+      if (KEY_DENYLIST.has(key) || value === null || isBlankText(value)) {
+        return false;
+      }
+      if (Array.isArray(value)) {
+        return value.length > 0;
+      }
+      return true;
+    })
+    .map(([key]) => key)
+    .toSorted();
+};
+
+interface SourceReport {
+  bronId: string;
+  errors: string[];
+  fields: Record<FieldName, number>;
+  keys: Record<string, number>;
+  records: number;
+  rejected: number;
+  slug: string;
+}
+
+const auditSource = async (source: SourceDefinition): Promise<SourceReport> => {
+  const report: SourceReport = {
+    bronId: source.bronId,
+    errors: [],
+    // SAFETY: FIELDS is the literal tuple behind FieldName, so fromEntries
+    // produces exactly one entry per FieldName key.
+    fields: Object.fromEntries(FIELDS.map((f) => [f, 0])) as Record<
+      FieldName,
+      number
+    >,
+    keys: {},
+    records: 0,
+    rejected: 0,
+    slug: source.slug,
+  };
+  const listingFixturePath = path.join(source.slug, "listing-page-0.json");
+  const connector = source.createConnector({
+    bronId: source.bronId,
+    listingFixturePath,
+    live: false,
+    runKind: "test",
+  });
+
+  const items: {
+    bronReferentie: string;
+    contentHash: string;
+    listingPayload?: unknown;
+  }[] = [];
+  let checkpoint: Parameters<typeof connector.discover>[0] = null;
+  for (let page = 0; page < 10; page += 1) {
+    // oxlint-disable-next-line no-await-in-loop -- discovery is checkpoint-dependent: each page needs the previous discover() checkpoint.
+    const result = await connector.discover(checkpoint);
+    items.push(...result.items);
+    if (!result.hasMore) {
+      break;
+    }
+    ({ checkpoint } = result);
+  }
+
+  for (const item of items) {
+    let fetched: Awaited<ReturnType<typeof connector.fetch>>;
+    try {
+      // oxlint-disable-next-line no-await-in-loop -- fixture fetches replay sequentially so errors map to the item being processed.
+      fetched = await connector.fetch(item);
+    } catch (error) {
+      report.errors.push(
+        `fetch ${item.bronReferentie}: ${error instanceof Error ? error.message : String(error)}`
+      );
+      continue;
+    }
+    if (!fetched) {
+      continue;
+    }
+    if (fetched.status === "rejected") {
+      report.rejected += 1;
+      continue;
+    }
+    try {
+      const draft = source.normalise(fetched.body, fetched.contentHash);
+      report.records += 1;
+      const coverage = evaluateDraft(draft);
+      for (const field of FIELDS) {
+        if (coverage[field]) {
+          report.fields[field] += 1;
+        }
+      }
+      for (const key of bronKeysPresent(draft)) {
+        report.keys[key] = (report.keys[key] ?? 0) + 1;
+      }
+    } catch (error) {
+      report.errors.push(
+        `${item.bronReferentie}: ${error instanceof Error ? error.message : String(error)}`
+      );
+    }
+  }
+  return report;
+};
+
+const CELL_WIDTH = 4;
+
+const printTable = (reports: readonly SourceReport[]): void => {
+  const header = [
+    "bron".padEnd(24),
+    "n".padStart(3),
+    ...FIELDS.map((f) => f.slice(0, 3).padStart(CELL_WIDTH)),
+  ].join(" ");
+  console.log(header);
+  console.log("-".repeat(header.length));
+  for (const report of reports) {
+    const cells = FIELDS.map((field) => {
+      const count = report.fields[field];
+      let mark = `${count}`;
+      if (report.records === 0) {
+        mark = "·";
+      } else if (count === report.records) {
+        mark = "✓";
+      } else if (count === 0) {
+        mark = "✗";
+      }
+      return mark.padStart(CELL_WIDTH);
+    });
+    console.log(
+      [
+        report.slug.padEnd(24),
+        String(report.records).padStart(3),
+        ...cells,
+      ].join(" ")
+    );
+  }
+  console.log(
+    `\nvelden: ${FIELDS.map((f) => `${f.slice(0, 3)}=${f}`).join("  ")}`
+  );
+};
+
+const printDetails = (reports: readonly SourceReport[]): void => {
+  for (const report of reports) {
+    console.log(
+      `\n== ${report.slug} (${report.records} records, ${report.rejected} rejected)`
+    );
+    const keys = Object.entries(report.keys).toSorted((a, b) =>
+      a[0].localeCompare(b[0])
+    );
+    console.log(
+      `   bronSpecifiek keys: ${keys.map(([k, n]) => `${k}×${n}`).join(", ") || "(none)"}`
+    );
+    for (const error of report.errors) {
+      console.log(`   ERROR ${error}`);
+    }
+  }
+};
+
+const args = process.argv.slice(2);
+const bronArg = args.includes("--bron")
+  ? args[args.indexOf("--bron") + 1]
+  : undefined;
+const asJson = args.includes("--json");
+
+const slugs = bronArg ? ([bronArg] as const) : SUPPORTED_BRON_SLUGS;
+
+const reports: SourceReport[] = [];
+for (const slug of slugs) {
+  // SAFETY: SOURCES is keyed by bron slug; the guard below rejects unknown slugs.
+  const source = (SOURCES as Record<string, SourceDefinition>)[slug];
+  if (!source) {
+    console.error(`unknown bron slug: ${slug}`);
+    process.exit(1);
+  }
+  try {
+    // oxlint-disable-next-line no-await-in-loop -- sources audit sequentially so report order matches the slug order.
+    reports.push(await auditSource(source));
+  } catch (error) {
+    console.error(
+      `== ${slug}: audit failed: ${error instanceof Error ? error.message : String(error)}`
+    );
+  }
+}
+
+if (asJson) {
+  console.log(JSON.stringify(reports, null, 2));
+} else {
+  printTable(reports);
+  printDetails(reports);
+}
