@@ -35,3 +35,18 @@ fields instead of a separate HTML-adapter (added for Alliander/Essent/TenneT,
 
 Fields the source does not publish stay UNKNOWN — synthesis must not infer
 location, dates, hours or tarief from prose.
+
+## Field coverage
+
+`bun run check:field-coverage` replays every source's committed fixtures
+through its connector + normaliser (the same replay as
+`bun scripts/field-coverage.ts`) and fails when a source's per-field count
+drops below `fixtures/field-coverage/baseline.json`. The gate runs it, so a
+normaliser or connector change that silently drops a field blocks the push.
+
+When a change intentionally moves coverage — a trimmed fixture, a normaliser
+that stops filling a field — regenerate the baseline in the same commit:
+`bun run check:field-coverage -- --write-baseline`. Sources absent from the
+baseline warn but do not fail, so a new source merged on a parallel branch
+needs no baseline refresh to stay green; run `--write-baseline` on the next
+coverage-touching change to record it.

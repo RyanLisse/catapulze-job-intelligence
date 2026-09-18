@@ -1,0 +1,726 @@
+{
+  "generatedAt": "2026-09-18T21:16:14.963Z",
+  "sourceSha": "d11d6376e8eab59553ac1048910b644e6a809d47",
+  "sources": {
+    "alliander": {
+      "fields": {
+        "contract": 3,
+        "einddatum": 0,
+        "gepubliceerd": 3,
+        "locatie": 3,
+        "opleiding": 0,
+        "organisatie": 3,
+        "sluit": 3,
+        "startdatum": 0,
+        "tarief": 3,
+        "uren": 3,
+        "werkvorm": 0
+      },
+      "records": 3
+    },
+    "asml": {
+      "fields": {
+        "contract": 1,
+        "einddatum": 0,
+        "gepubliceerd": 1,
+        "locatie": 1,
+        "opleiding": 0,
+        "organisatie": 1,
+        "sluit": 0,
+        "startdatum": 0,
+        "tarief": 0,
+        "uren": 0,
+        "werkvorm": 0
+      },
+      "records": 1
+    },
+    "bam": {
+      "fields": {
+        "contract": 3,
+        "einddatum": 0,
+        "gepubliceerd": 3,
+        "locatie": 3,
+        "opleiding": 0,
+        "organisatie": 3,
+        "sluit": 0,
+        "startdatum": 0,
+        "tarief": 3,
+        "uren": 3,
+        "werkvorm": 0
+      },
+      "records": 3
+    },
+    "bij-oranje": {
+      "fields": {
+        "contract": 1,
+        "einddatum": 0,
+        "gepubliceerd": 1,
+        "locatie": 0,
+        "opleiding": 0,
+        "organisatie": 1,
+        "sluit": 1,
+        "startdatum": 0,
+        "tarief": 0,
+        "uren": 0,
+        "werkvorm": 0
+      },
+      "records": 1
+    },
+    "bluetrail": {
+      "fields": {
+        "contract": 3,
+        "einddatum": 3,
+        "gepubliceerd": 3,
+        "locatie": 3,
+        "opleiding": 0,
+        "organisatie": 3,
+        "sluit": 3,
+        "startdatum": 3,
+        "tarief": 0,
+        "uren": 3,
+        "werkvorm": 0
+      },
+      "records": 3
+    },
+    "ctm": {
+      "fields": {
+        "contract": 0,
+        "einddatum": 0,
+        "gepubliceerd": 5,
+        "locatie": 0,
+        "opleiding": 0,
+        "organisatie": 5,
+        "sluit": 5,
+        "startdatum": 0,
+        "tarief": 0,
+        "uren": 0,
+        "werkvorm": 0
+      },
+      "records": 5
+    },
+    "datajobs": {
+      "fields": {
+        "contract": 3,
+        "einddatum": 0,
+        "gepubliceerd": 3,
+        "locatie": 3,
+        "opleiding": 0,
+        "organisatie": 3,
+        "sluit": 0,
+        "startdatum": 0,
+        "tarief": 2,
+        "uren": 2,
+        "werkvorm": 0
+      },
+      "records": 3
+    },
+    "eneco": {
+      "fields": {
+        "contract": 0,
+        "einddatum": 0,
+        "gepubliceerd": 3,
+        "locatie": 3,
+        "opleiding": 3,
+        "organisatie": 3,
+        "sluit": 0,
+        "startdatum": 0,
+        "tarief": 3,
+        "uren": 3,
+        "werkvorm": 0
+      },
+      "records": 3
+    },
+    "enexis": {
+      "fields": {
+        "contract": 0,
+        "einddatum": 0,
+        "gepubliceerd": 3,
+        "locatie": 3,
+        "opleiding": 0,
+        "organisatie": 3,
+        "sluit": 0,
+        "startdatum": 0,
+        "tarief": 3,
+        "uren": 0,
+        "werkvorm": 0
+      },
+      "records": 3
+    },
+    "essent": {
+      "fields": {
+        "contract": 0,
+        "einddatum": 0,
+        "gepubliceerd": 5,
+        "locatie": 5,
+        "opleiding": 0,
+        "organisatie": 5,
+        "sluit": 0,
+        "startdatum": 0,
+        "tarief": 1,
+        "uren": 5,
+        "werkvorm": 0
+      },
+      "records": 5
+    },
+    "flinter": {
+      "fields": {
+        "contract": 0,
+        "einddatum": 0,
+        "gepubliceerd": 0,
+        "locatie": 1,
+        "opleiding": 0,
+        "organisatie": 1,
+        "sluit": 0,
+        "startdatum": 0,
+        "tarief": 0,
+        "uren": 1,
+        "werkvorm": 0
+      },
+      "records": 1
+    },
+    "freelancer-nl": {
+      "fields": {
+        "contract": 0,
+        "einddatum": 0,
+        "gepubliceerd": 1,
+        "locatie": 1,
+        "opleiding": 0,
+        "organisatie": 0,
+        "sluit": 0,
+        "startdatum": 1,
+        "tarief": 0,
+        "uren": 0,
+        "werkvorm": 0
+      },
+      "records": 1
+    },
+    "gasunie": {
+      "fields": {
+        "contract": 0,
+        "einddatum": 0,
+        "gepubliceerd": 2,
+        "locatie": 0,
+        "opleiding": 0,
+        "organisatie": 2,
+        "sluit": 2,
+        "startdatum": 0,
+        "tarief": 2,
+        "uren": 0,
+        "werkvorm": 0
+      },
+      "records": 2
+    },
+    "haert": {
+      "fields": {
+        "contract": 3,
+        "einddatum": 0,
+        "gepubliceerd": 3,
+        "locatie": 3,
+        "opleiding": 0,
+        "organisatie": 3,
+        "sluit": 3,
+        "startdatum": 0,
+        "tarief": 3,
+        "uren": 0,
+        "werkvorm": 0
+      },
+      "records": 3
+    },
+    "harveynash": {
+      "fields": {
+        "contract": 0,
+        "einddatum": 0,
+        "gepubliceerd": 1,
+        "locatie": 1,
+        "opleiding": 0,
+        "organisatie": 1,
+        "sluit": 1,
+        "startdatum": 1,
+        "tarief": 1,
+        "uren": 1,
+        "werkvorm": 1
+      },
+      "records": 1
+    },
+    "hays": {
+      "fields": {
+        "contract": 3,
+        "einddatum": 0,
+        "gepubliceerd": 3,
+        "locatie": 3,
+        "opleiding": 0,
+        "organisatie": 3,
+        "sluit": 3,
+        "startdatum": 0,
+        "tarief": 1,
+        "uren": 0,
+        "werkvorm": 0
+      },
+      "records": 3
+    },
+    "heijmans": {
+      "fields": {
+        "contract": 3,
+        "einddatum": 0,
+        "gepubliceerd": 3,
+        "locatie": 3,
+        "opleiding": 0,
+        "organisatie": 3,
+        "sluit": 0,
+        "startdatum": 0,
+        "tarief": 3,
+        "uren": 3,
+        "werkvorm": 0
+      },
+      "records": 3
+    },
+    "hero": {
+      "fields": {
+        "contract": 2,
+        "einddatum": 0,
+        "gepubliceerd": 2,
+        "locatie": 2,
+        "opleiding": 0,
+        "organisatie": 2,
+        "sluit": 0,
+        "startdatum": 0,
+        "tarief": 0,
+        "uren": 2,
+        "werkvorm": 0
+      },
+      "records": 2
+    },
+    "inhuurdesk": {
+      "fields": {
+        "contract": 0,
+        "einddatum": 4,
+        "gepubliceerd": 4,
+        "locatie": 4,
+        "opleiding": 0,
+        "organisatie": 4,
+        "sluit": 4,
+        "startdatum": 4,
+        "tarief": 3,
+        "uren": 4,
+        "werkvorm": 0
+      },
+      "records": 4
+    },
+    "intermediair": {
+      "fields": {
+        "contract": 3,
+        "einddatum": 0,
+        "gepubliceerd": 3,
+        "locatie": 3,
+        "opleiding": 3,
+        "organisatie": 3,
+        "sluit": 3,
+        "startdatum": 0,
+        "tarief": 1,
+        "uren": 3,
+        "werkvorm": 0
+      },
+      "records": 3
+    },
+    "jobbird": {
+      "fields": {
+        "contract": 3,
+        "einddatum": 0,
+        "gepubliceerd": 3,
+        "locatie": 3,
+        "opleiding": 0,
+        "organisatie": 3,
+        "sluit": 0,
+        "startdatum": 0,
+        "tarief": 0,
+        "uren": 0,
+        "werkvorm": 0
+      },
+      "records": 3
+    },
+    "needstaffing": {
+      "fields": {
+        "contract": 0,
+        "einddatum": 0,
+        "gepubliceerd": 0,
+        "locatie": 1,
+        "opleiding": 0,
+        "organisatie": 1,
+        "sluit": 1,
+        "startdatum": 1,
+        "tarief": 1,
+        "uren": 1,
+        "werkvorm": 0
+      },
+      "records": 1
+    },
+    "ns": {
+      "fields": {
+        "contract": 3,
+        "einddatum": 0,
+        "gepubliceerd": 3,
+        "locatie": 3,
+        "opleiding": 3,
+        "organisatie": 3,
+        "sluit": 2,
+        "startdatum": 0,
+        "tarief": 3,
+        "uren": 3,
+        "werkvorm": 0
+      },
+      "records": 3
+    },
+    "onefellow": {
+      "fields": {
+        "contract": 0,
+        "einddatum": 1,
+        "gepubliceerd": 6,
+        "locatie": 6,
+        "opleiding": 0,
+        "organisatie": 6,
+        "sluit": 6,
+        "startdatum": 6,
+        "tarief": 3,
+        "uren": 6,
+        "werkvorm": 6
+      },
+      "records": 6
+    },
+    "opdrachtoverheid": {
+      "fields": {
+        "contract": 0,
+        "einddatum": 0,
+        "gepubliceerd": 0,
+        "locatie": 5,
+        "opleiding": 0,
+        "organisatie": 5,
+        "sluit": 5,
+        "startdatum": 5,
+        "tarief": 5,
+        "uren": 5,
+        "werkvorm": 0
+      },
+      "records": 5
+    },
+    "planet-interim": {
+      "fields": {
+        "contract": 3,
+        "einddatum": 0,
+        "gepubliceerd": 3,
+        "locatie": 3,
+        "opleiding": 0,
+        "organisatie": 3,
+        "sluit": 3,
+        "startdatum": 0,
+        "tarief": 0,
+        "uren": 3,
+        "werkvorm": 0
+      },
+      "records": 3
+    },
+    "pro-act": {
+      "fields": {
+        "contract": 2,
+        "einddatum": 2,
+        "gepubliceerd": 2,
+        "locatie": 2,
+        "opleiding": 0,
+        "organisatie": 2,
+        "sluit": 2,
+        "startdatum": 2,
+        "tarief": 0,
+        "uren": 2,
+        "werkvorm": 0
+      },
+      "records": 2
+    },
+    "prorail": {
+      "fields": {
+        "contract": 2,
+        "einddatum": 0,
+        "gepubliceerd": 2,
+        "locatie": 2,
+        "opleiding": 2,
+        "organisatie": 2,
+        "sluit": 2,
+        "startdatum": 0,
+        "tarief": 1,
+        "uren": 2,
+        "werkvorm": 0
+      },
+      "records": 2
+    },
+    "prounity": {
+      "fields": {
+        "contract": 0,
+        "einddatum": 2,
+        "gepubliceerd": 0,
+        "locatie": 2,
+        "opleiding": 0,
+        "organisatie": 0,
+        "sluit": 2,
+        "startdatum": 2,
+        "tarief": 0,
+        "uren": 0,
+        "werkvorm": 0
+      },
+      "records": 2
+    },
+    "rabobank": {
+      "fields": {
+        "contract": 1,
+        "einddatum": 0,
+        "gepubliceerd": 1,
+        "locatie": 1,
+        "opleiding": 0,
+        "organisatie": 1,
+        "sluit": 0,
+        "startdatum": 0,
+        "tarief": 0,
+        "uren": 0,
+        "werkvorm": 0
+      },
+      "records": 1
+    },
+    "randstad": {
+      "fields": {
+        "contract": 2,
+        "einddatum": 0,
+        "gepubliceerd": 2,
+        "locatie": 2,
+        "opleiding": 2,
+        "organisatie": 2,
+        "sluit": 2,
+        "startdatum": 0,
+        "tarief": 2,
+        "uren": 2,
+        "werkvorm": 0
+      },
+      "records": 2
+    },
+    "rijkswaterstaat": {
+      "fields": {
+        "contract": 0,
+        "einddatum": 0,
+        "gepubliceerd": 3,
+        "locatie": 3,
+        "opleiding": 0,
+        "organisatie": 3,
+        "sluit": 0,
+        "startdatum": 0,
+        "tarief": 3,
+        "uren": 0,
+        "werkvorm": 0
+      },
+      "records": 3
+    },
+    "stedin": {
+      "fields": {
+        "contract": 0,
+        "einddatum": 0,
+        "gepubliceerd": 2,
+        "locatie": 2,
+        "opleiding": 2,
+        "organisatie": 2,
+        "sluit": 0,
+        "startdatum": 0,
+        "tarief": 2,
+        "uren": 2,
+        "werkvorm": 0
+      },
+      "records": 2
+    },
+    "striive": {
+      "fields": {
+        "contract": 0,
+        "einddatum": 5,
+        "gepubliceerd": 0,
+        "locatie": 5,
+        "opleiding": 0,
+        "organisatie": 5,
+        "sluit": 5,
+        "startdatum": 5,
+        "tarief": 0,
+        "uren": 5,
+        "werkvorm": 0
+      },
+      "records": 5
+    },
+    "tbi": {
+      "fields": {
+        "contract": 1,
+        "einddatum": 0,
+        "gepubliceerd": 1,
+        "locatie": 1,
+        "opleiding": 1,
+        "organisatie": 1,
+        "sluit": 0,
+        "startdatum": 0,
+        "tarief": 0,
+        "uren": 0,
+        "werkvorm": 0
+      },
+      "records": 1
+    },
+    "techniekwerkt": {
+      "fields": {
+        "contract": 0,
+        "einddatum": 0,
+        "gepubliceerd": 0,
+        "locatie": 3,
+        "opleiding": 0,
+        "organisatie": 3,
+        "sluit": 0,
+        "startdatum": 0,
+        "tarief": 3,
+        "uren": 0,
+        "werkvorm": 0
+      },
+      "records": 3
+    },
+    "tenderned": {
+      "fields": {
+        "contract": 0,
+        "einddatum": 0,
+        "gepubliceerd": 1,
+        "locatie": 1,
+        "opleiding": 0,
+        "organisatie": 1,
+        "sluit": 0,
+        "startdatum": 0,
+        "tarief": 0,
+        "uren": 0,
+        "werkvorm": 0
+      },
+      "records": 1
+    },
+    "tenmonks": {
+      "fields": {
+        "contract": 1,
+        "einddatum": 0,
+        "gepubliceerd": 1,
+        "locatie": 1,
+        "opleiding": 0,
+        "organisatie": 1,
+        "sluit": 1,
+        "startdatum": 0,
+        "tarief": 1,
+        "uren": 0,
+        "werkvorm": 0
+      },
+      "records": 1
+    },
+    "tennet": {
+      "fields": {
+        "contract": 0,
+        "einddatum": 0,
+        "gepubliceerd": 0,
+        "locatie": 0,
+        "opleiding": 0,
+        "organisatie": 3,
+        "sluit": 0,
+        "startdatum": 0,
+        "tarief": 3,
+        "uren": 0,
+        "werkvorm": 0
+      },
+      "records": 3
+    },
+    "unica": {
+      "fields": {
+        "contract": 3,
+        "einddatum": 0,
+        "gepubliceerd": 3,
+        "locatie": 3,
+        "opleiding": 0,
+        "organisatie": 3,
+        "sluit": 3,
+        "startdatum": 0,
+        "tarief": 3,
+        "uren": 0,
+        "werkvorm": 0
+      },
+      "records": 3
+    },
+    "vattenfall": {
+      "fields": {
+        "contract": 3,
+        "einddatum": 0,
+        "gepubliceerd": 3,
+        "locatie": 3,
+        "opleiding": 0,
+        "organisatie": 3,
+        "sluit": 3,
+        "startdatum": 0,
+        "tarief": 1,
+        "uren": 0,
+        "werkvorm": 0
+      },
+      "records": 3
+    },
+    "volkerwessels": {
+      "fields": {
+        "contract": 0,
+        "einddatum": 0,
+        "gepubliceerd": 3,
+        "locatie": 3,
+        "opleiding": 0,
+        "organisatie": 3,
+        "sluit": 0,
+        "startdatum": 0,
+        "tarief": 0,
+        "uren": 0,
+        "werkvorm": 0
+      },
+      "records": 3
+    },
+    "werk-nl": {
+      "fields": {
+        "contract": 2,
+        "einddatum": 1,
+        "gepubliceerd": 2,
+        "locatie": 2,
+        "opleiding": 2,
+        "organisatie": 2,
+        "sluit": 2,
+        "startdatum": 2,
+        "tarief": 1,
+        "uren": 2,
+        "werkvorm": 0
+      },
+      "records": 2
+    },
+    "werken-voor-nederland": {
+      "fields": {
+        "contract": 1,
+        "einddatum": 0,
+        "gepubliceerd": 1,
+        "locatie": 1,
+        "opleiding": 0,
+        "organisatie": 1,
+        "sluit": 1,
+        "startdatum": 0,
+        "tarief": 1,
+        "uren": 0,
+        "werkvorm": 0
+      },
+      "records": 1
+    },
+    "zzp-opdrachten": {
+      "fields": {
+        "contract": 3,
+        "einddatum": 0,
+        "gepubliceerd": 3,
+        "locatie": 3,
+        "opleiding": 0,
+        "organisatie": 3,
+        "sluit": 3,
+        "startdatum": 0,
+        "tarief": 3,
+        "uren": 0,
+        "werkvorm": 0
+      },
+      "records": 3
+    }
+  }
+}
