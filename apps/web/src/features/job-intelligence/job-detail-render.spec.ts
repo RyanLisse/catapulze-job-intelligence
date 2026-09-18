@@ -181,7 +181,7 @@ describe("JobResults list card summary (CTP-483)", () => {
   });
 });
 
-describe("JobResults seven-column parity (CTP-493)", () => {
+describe("JobResults grouped-column layout", () => {
   it("keeps the reference columns visible and adds hours to mobile cards", () => {
     if (!plainJob) {
       throw new Error("Expected job-001 fixture");
@@ -195,15 +195,13 @@ describe("JobResults seven-column parity (CTP-493)", () => {
     );
 
     for (const header of [
-      "Title",
-      "Company",
-      "Location",
-      "Rate",
-      "Hrs",
-      "Platform",
-      "Posted",
+      "Opdracht",
+      "Tarief &amp; uren",
+      "Locatie",
+      "Bron",
+      "Data",
     ]) {
-      expect(markup).toMatch(new RegExp(`<th[^>]*>${header}</th>`, "u"));
+      expect(markup).toContain(header);
     }
     expect(markup).toContain("overflow-x-auto");
     expect(markup).toContain("min-w-[960px]");

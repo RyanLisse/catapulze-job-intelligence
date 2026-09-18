@@ -321,8 +321,7 @@ export const JOB_FIXTURES: readonly JobListing[] = [
     ],
     status: "open",
     summary: "Begeleid vergunningaanvragen voor de Omgevingswet.",
-    title:
-      "Adviseur Vergunningverlening Omgevingswet en Ruimtelijke Ordening",
+    title: "Adviseur Vergunningverlening Omgevingswet en Ruimtelijke Ordening",
   },
   {
     closingAt: null,

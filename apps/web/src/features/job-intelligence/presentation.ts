@@ -5,6 +5,7 @@ import type {
   JobContractType,
   JobEnrichedField,
   JobListing,
+  JobRatePeriod,
   JobSearchStatus,
   JobSort,
   JobSource,
@@ -86,38 +87,69 @@ export const formatDate = (value: string | null): string =>
 export const formatContract = (job: JobListing): string =>
   job.contractType ? contractLabels[job.contractType] : "Onbekend";
 
-export const formatRemote = (job: JobListing): string => {
+/**
+ * The work-form label the source published, or null when absent. Callers that
+ * render "Onbekend"/"—" for missing data decide that themselves.
+ */
+export const remoteLabel = (job: JobListing): string | null => {
   if (job.workArrangement) {
     return job.workArrangement;
   }
   if (job.remote === null) {
-    return "Onbekend";
+    return null;
   }
   return job.remote ? "Hybride" : "Op locatie";
 };
 
-export const formatRate = (job: JobListing): string => {
+export const formatRemote = (job: JobListing): string =>
+  remoteLabel(job) ?? "Onbekend";
+
+const ratePeriodSuffixes = {
+  day: "/ dag",
+  hour: "/ uur",
+  month: "/ maand",
+  unknown: "(periode onbekend)",
+  year: "/ jaar",
+} satisfies Record<JobRatePeriod, string>;
+
+export interface RateParts {
+  /** Suffix for the value, e.g. "/ uur" or "(periode onbekend)". */
+  readonly period: string;
+  /** Amount without the period suffix, e.g. "€ 3.150–€ 6.500". */
+  readonly value: string;
+}
+
+/**
+ * Rate split into primary (amount) and secondary (period) parts so the results
+ * table can put them on separate lines. Null when the source published none.
+ */
+export const formatRateParts = (job: JobListing): RateParts | null => {
   if (!job.rate) {
-    return "Tarief onbekend";
+    return null;
   }
 
-  const suffix = {
-    day: "/ dag",
-    hour: "/ uur",
-    month: "/ maand",
-    unknown: "(periode onbekend)",
-    year: "/ jaar",
-  }[job.rate.period];
+  const period = ratePeriodSuffixes[job.rate.period];
   if (job.rate.min === null) {
-    return `tot ${currencyFormatter.format(job.rate.max)} ${suffix}`;
+    return { period, value: `tot ${currencyFormatter.format(job.rate.max)}` };
   }
   if (job.rate.max === null) {
-    return `vanaf ${currencyFormatter.format(job.rate.min)} ${suffix}`;
+    return {
+      period,
+      value: `vanaf ${currencyFormatter.format(job.rate.min)}`,
+    };
   }
   if (job.rate.min === job.rate.max) {
-    return `${currencyFormatter.format(job.rate.max)} ${suffix}`;
+    return { period, value: currencyFormatter.format(job.rate.max) };
   }
-  return `${currencyFormatter.format(job.rate.min)}–${currencyFormatter.format(job.rate.max)} ${suffix}`;
+  return {
+    period,
+    value: `${currencyFormatter.format(job.rate.min)}–${currencyFormatter.format(job.rate.max)}`,
+  };
+};
+
+export const formatRate = (job: JobListing): string => {
+  const parts = formatRateParts(job);
+  return parts ? `${parts.value} ${parts.period}` : "Tarief onbekend";
 };
 
 export const primarySource = (job: JobListing): string => {

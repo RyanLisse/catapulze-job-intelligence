@@ -9,11 +9,14 @@ import {
 } from "lucide-react";
 
 import {
+  contractLabels,
   formatContract,
   formatDate,
   formatRate,
+  formatRateParts,
   formatRemote,
   primarySource,
+  remoteLabel,
 } from "./presentation";
 import { stripHtmlToText } from "./sanitize-job-html";
 import type { JobListing } from "./types";
@@ -43,7 +46,9 @@ const ResultTitleButton = ({
     className="group max-w-full rounded-sm text-left outline-none focus-visible:ring-2 focus-visible:ring-ring"
   >
     <span className="flex items-start gap-1.5 font-medium text-foreground transition-colors group-hover:text-primary">
-      <span className="line-clamp-2">{job.title}</span>
+      <span className="line-clamp-2" title={job.title}>
+        {job.title}
+      </span>
       <ArrowUpRight
         aria-hidden="true"
         className="mt-0.5 size-3 shrink-0 opacity-0 transition-opacity group-hover:opacity-100"
@@ -105,6 +110,166 @@ const resultRowBackground = (
   return selectedIds?.has(job.id) ? "bg-primary/10" : "";
 };
 
+const joinKnown = (parts: readonly (string | null | undefined)[]): string =>
+  parts
+    .filter(
+      (part): part is string =>
+        part !== null && part !== undefined && part !== ""
+    )
+    .join(" · ");
+
+const MAX_REFERENCE_LENGTH = 8;
+
+const shortReference = (reference: string): string =>
+  reference.length > MAX_REFERENCE_LENGTH
+    ? `${reference.slice(0, MAX_REFERENCE_LENGTH)}…`
+    : reference;
+
+const OpdrachtCell = ({
+  job,
+  onSelect,
+  onToggleRow,
+  selectedIds,
+}: {
+  readonly job: JobListing;
+  readonly onSelect: JobResultsProps["onSelect"];
+  readonly onToggleRow: JobResultsProps["onToggleRow"];
+  readonly selectedIds: ReadonlySet<string> | undefined;
+}) => {
+  const meta = joinKnown([
+    job.contractType ? contractLabels[job.contractType] : null,
+    job.organization,
+  ]);
+  return (
+    <td className="px-3 py-2.5 align-top">
+      <div className="flex items-start gap-2.5">
+        <Checkbox
+          aria-label={`Selecteer ${job.title}`}
+          checked={selectedIds?.has(job.id) ?? false}
+          onCheckedChange={() => onToggleRow?.(job.id)}
+          className="mt-0.5 size-4 shrink-0 accent-primary"
+        />
+        <div className="min-w-0">
+          <ResultTitleButton
+            job={job}
+            onSelect={onSelect}
+            showOrganization={false}
+          />
+          <div className="mt-1 flex items-center gap-1.5 text-[10px] text-muted-foreground">
+            <JobStatus job={job} />
+            {meta ? (
+              <span className="min-w-0 truncate" title={meta}>
+                · {meta}
+              </span>
+            ) : null}
+          </div>
+        </div>
+      </div>
+    </td>
+  );
+};
+
+const ConditiesCell = ({ job }: { readonly job: JobListing }) => {
+  const rate = formatRateParts(job);
+  const meta = joinKnown([
+    rate?.period,
+    job.hoursPerWeek ? `${job.hoursPerWeek} u/w` : null,
+    remoteLabel(job),
+  ]);
+  return (
+    <td className="px-3 py-2.5 align-top text-muted-foreground">
+      <span className="block truncate font-mono" title={formatRate(job)}>
+        {rate?.value ?? "—"}
+      </span>
+      <span
+        className="mt-0.5 block truncate text-[10px]"
+        title={meta || undefined}
+      >
+        {meta || "—"}
+      </span>
+    </td>
+  );
+};
+
+const LocatieCell = ({ job }: { readonly job: JobListing }) => (
+  <td className="px-3 py-2.5 align-top text-muted-foreground">
+    <span className="block truncate" title={job.location ?? undefined}>
+      {job.location ?? "—"}
+    </span>
+    {job.provincie ? (
+      <span className="mt-0.5 block truncate text-[10px]" title={job.provincie}>
+        {job.provincie}
+      </span>
+    ) : null}
+  </td>
+);
+
+const BronCell = ({ job }: { readonly job: JobListing }) => {
+  const reference = job.sourceRecords[0]?.reference ?? null;
+  return (
+    <td className="px-3 py-2.5 align-top text-muted-foreground">
+      <span className="block truncate" title={primarySource(job)}>
+        {primarySource(job)}
+      </span>
+      {reference ? (
+        <span
+          className="mt-0.5 block truncate font-mono text-[10px]"
+          title={reference}
+        >
+          {shortReference(reference)}
+        </span>
+      ) : null}
+    </td>
+  );
+};
+
+const DataCell = ({ job }: { readonly job: JobListing }) => (
+  <td className="px-3 py-2.5 align-top text-muted-foreground">
+    <time
+      className="block truncate font-mono"
+      dateTime={job.publishedAt ?? undefined}
+    >
+      {job.publishedAt ? formatDate(job.publishedAt) : "—"}
+    </time>
+    <span
+      className={`mt-0.5 block truncate text-[10px] ${
+        job.status === "closing-soon" && job.closingAt ? "text-chart-2" : ""
+      }`}
+    >
+      {job.closingAt ? `Sluit ${formatDate(job.closingAt)}` : "—"}
+    </span>
+  </td>
+);
+
+const DesktopResultRow = ({
+  job,
+  onSelect,
+  onToggleRow,
+  selectedJobId,
+  selectedIds,
+}: {
+  readonly job: JobListing;
+  readonly onSelect: JobResultsProps["onSelect"];
+  readonly onToggleRow: JobResultsProps["onToggleRow"];
+  readonly selectedJobId: string | null;
+  readonly selectedIds: ReadonlySet<string> | undefined;
+}) => (
+  <tr
+    className={`border-t border-border transition-colors hover:bg-accent/60 ${resultRowBackground(job, selectedJobId, selectedIds)}`}
+  >
+    <OpdrachtCell
+      job={job}
+      onSelect={onSelect}
+      onToggleRow={onToggleRow}
+      selectedIds={selectedIds}
+    />
+    <ConditiesCell job={job} />
+    <LocatieCell job={job} />
+    <BronCell job={job} />
+    <DataCell job={job} />
+  </tr>
+);
+
 const DesktopResults = ({
   jobs,
   onSelect,
@@ -118,108 +283,49 @@ const DesktopResults = ({
     <table className="min-w-[960px] w-full table-fixed text-left text-xs">
       <caption className="sr-only">Gevonden opdrachten</caption>
       <colgroup>
-        <col className="w-[4%]" />
-        <col className="w-[24%]" />
-        <col className="w-[17%]" />
+        <col className="w-[36%]" />
+        <col className="w-[18%]" />
+        <col className="w-[15%]" />
         <col className="w-[16%]" />
-        <col className="w-[12%]" />
-        <col className="w-[8%]" />
-        <col className="w-[11%]" />
-        <col className="w-[8%]" />
+        <col className="w-[15%]" />
       </colgroup>
       <thead className="bg-secondary/60 text-[11px] tracking-wide text-muted-foreground uppercase">
         <tr>
           <th scope="col" className="px-3 py-2 font-medium">
-            <Checkbox
-              aria-label="Selecteer alle resultaten op deze pagina"
-              checked={pageFullySelected}
-              onCheckedChange={onTogglePage}
-              className="size-4 accent-primary"
-            />
+            <span className="flex items-center gap-2.5">
+              <Checkbox
+                aria-label="Selecteer alle resultaten op deze pagina"
+                checked={pageFullySelected}
+                onCheckedChange={onTogglePage}
+                className="size-4 accent-primary"
+              />
+              Opdracht
+            </span>
           </th>
           <th scope="col" className="px-3 py-2 font-medium">
-            Title
+            Tarief &amp; uren
           </th>
           <th scope="col" className="px-3 py-2 font-medium">
-            Company
+            Locatie
           </th>
           <th scope="col" className="px-3 py-2 font-medium">
-            Location
+            Bron
           </th>
           <th scope="col" className="px-3 py-2 font-medium">
-            Rate
-          </th>
-          <th scope="col" className="px-3 py-2 font-medium">
-            Hrs
-          </th>
-          <th scope="col" className="px-3 py-2 font-medium">
-            Platform
-          </th>
-          <th scope="col" className="px-3 py-2 font-medium">
-            Posted
+            Data
           </th>
         </tr>
       </thead>
       <tbody>
         {jobs.map((job) => (
-          <tr
+          <DesktopResultRow
             key={job.id}
-            className={`border-t border-border transition-colors hover:bg-accent/60 ${resultRowBackground(job, selectedJobId, selectedIds)}`}
-          >
-            <td className="px-3 py-2.5 align-top">
-              <Checkbox
-                aria-label={`Selecteer ${job.title}`}
-                checked={selectedIds?.has(job.id) ?? false}
-                onCheckedChange={() => onToggleRow?.(job.id)}
-                className="size-4 accent-primary"
-              />
-            </td>
-            <td className="px-3 py-2.5 align-top">
-              <ResultTitleButton
-                job={job}
-                onSelect={onSelect}
-                showOrganization={false}
-              />
-              <div className="mt-1.5 flex flex-wrap items-center gap-2">
-                <JobStatus job={job} />
-                <span className="text-[10px] text-muted-foreground">
-                  {formatContract(job)}
-                </span>
-              </div>
-            </td>
-            <td className="truncate px-3 py-2.5 align-top text-muted-foreground">
-              {job.organization ?? "Onbekend"}
-            </td>
-            <td className="truncate px-3 py-2.5 align-top text-muted-foreground">
-              {job.location ?? "Onbekend"}
-              <span className="mt-0.5 block text-[10px]">
-                {formatRemote(job)}
-              </span>
-            </td>
-            <td className="px-3 py-2.5 align-top font-mono text-muted-foreground">
-              <span className="whitespace-nowrap">{formatRate(job)}</span>
-            </td>
-            <td className="px-3 py-2.5 align-top font-mono text-muted-foreground">
-              {job.hoursPerWeek ?? "Onbekend"}
-            </td>
-            <td className="truncate px-3 py-2.5 align-top text-muted-foreground">
-              {primarySource(job)}
-              <span className="mt-0.5 block font-mono text-[10px]">
-                {job.sourceRecords[0]?.reference ?? "—"}
-              </span>
-            </td>
-            <td className="px-3 py-2.5 align-top text-muted-foreground">
-              <time
-                className="font-mono"
-                dateTime={job.publishedAt ?? undefined}
-              >
-                {formatDate(job.publishedAt)}
-              </time>
-              <span className="mt-0.5 block text-[10px]">
-                Sluit {formatDate(job.closingAt)}
-              </span>
-            </td>
-          </tr>
+            job={job}
+            onSelect={onSelect}
+            onToggleRow={onToggleRow}
+            selectedIds={selectedIds}
+            selectedJobId={selectedJobId}
+          />
         ))}
       </tbody>
     </table>
