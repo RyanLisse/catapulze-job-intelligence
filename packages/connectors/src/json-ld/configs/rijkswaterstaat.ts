@@ -1,3 +1,4 @@
+import { synthesizeContactsFromRijkswaterstaatPage } from "../extract";
 import type { JsonLdConnectorConfig } from "../types";
 
 /** Rijkswaterstaat's broad CMS sitemap is reduced to its numeric vacancy
@@ -11,6 +12,7 @@ export const rijkswaterstaatConfig: JsonLdConnectorConfig = {
     "https://werkenbij.rijkswaterstaat.nl/vacatures/jurist-handhaving/1318820":
       "rijkswaterstaat/detail-jurist-handhaving-1318820.json",
   },
+  detailSynthesizer: (body) => synthesizeContactsFromRijkswaterstaatPage(body),
   discovery: {
     kind: "sitemap",
     url: "https://werkenbij.rijkswaterstaat.nl/sitemap.xml",
@@ -20,6 +22,6 @@ export const rijkswaterstaatConfig: JsonLdConnectorConfig = {
   ],
   listingFixturePath: "rijkswaterstaat/listing-page-0.json",
   liveEnvVar: "RIJKSWATERSTAAT_LIVE",
-  parserVersion: "rijkswaterstaat/v1",
+  parserVersion: "rijkswaterstaat/v2",
   slug: "rijkswaterstaat",
 };

@@ -881,7 +881,7 @@ describe("Rabobank careers JSON-LD connector", () => {
     });
     expect(rabobankConfig.liveEnvVar).toBe("RABOBANK_LIVE");
     expect(rabobankConfig.parserVersion).toBe("rabobank/v1");
-    expect(rabobankConfig.synthesizeFromNextJobData).toBeUndefined();
+    expect(rabobankConfig.detailSynthesizer).toBeUndefined();
 
     const client = createJsonLdClient({
       config: rabobankConfig,
@@ -941,7 +941,7 @@ describe("TBI Drupal/ubeeo JSON-LD connector", () => {
       url: "https://werkenbij.tbi.nl/sitemap.xml",
     });
     expect(tbiConfig.liveEnvVar).toBe("TBI_LIVE");
-    expect(tbiConfig.parserVersion).toBe("tbi/v1");
+    expect(tbiConfig.parserVersion).toBe("tbi/v2");
 
     const client = createJsonLdClient({
       config: tbiConfig,

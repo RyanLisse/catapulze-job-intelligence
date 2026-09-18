@@ -1,3 +1,4 @@
+import { synthesizeContactsFromVolkerwesselsPage } from "../extract";
 import type { JsonLdConnectorConfig } from "../types";
 
 export const volkerwesselsConfig: JsonLdConnectorConfig = {
@@ -9,6 +10,7 @@ export const volkerwesselsConfig: JsonLdConnectorConfig = {
     "https://www.werkenbijvolkerwessels.nl/vacature/3440/projectleider-industriebouw":
       "volkerwessels/detail-projectleider-industriebouw-3440.json",
   },
+  detailSynthesizer: (body) => synthesizeContactsFromVolkerwesselsPage(body),
   discovery: {
     kind: "sitemap",
     url: "https://www.werkenbijvolkerwessels.nl/sitemap.vacancy.xml",
@@ -18,6 +20,6 @@ export const volkerwesselsConfig: JsonLdConnectorConfig = {
   ],
   listingFixturePath: "volkerwessels/listing-page-0.json",
   liveEnvVar: "VOLKERWESSELS_LIVE",
-  parserVersion: "volkerwessels/v1",
+  parserVersion: "volkerwessels/v2",
   slug: "volkerwessels",
 };

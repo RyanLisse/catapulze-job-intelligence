@@ -1,3 +1,5 @@
+import type { SourceContact } from "../contract";
+
 /**
  * Inhuurdesk (Staffing MS / HeadFirst-family) WP JSON search endpoint,
  * `GET /wp-json/headfirst-assignments/search?page=N` -> `{ total, data[] }`.
@@ -40,6 +42,33 @@ export interface InhuurdeskAssignment {
   hasMaxRate?: boolean | null;
   hourlyRateMin?: number | null;
   hourlyRateMax?: number | null;
+  /** CTP-610: contactpersonen folded by the projection from the raw
+   * recruiter/requester slots below (real fields in the ~120-field live
+   * record, null/`""` on all 21 capture records -- see
+   * fixtures/connectors/inhuurdesk/listing-page-0.json). The raw slots
+   * never leave the connector boundary; only this list is whitelisted. */
+  contactpersonen?: SourceContact[];
+  // --- projection inputs only (raw API fields; folded into
+  // `contactpersonen`, never emitted by projectInhuurdeskAssignment) ---
+  /** Never confirmed non-null live (null on all 21 capture records).
+   * HeadFirst-family sibling Striive carries the person slots flat
+   * (recruiterFirstName/...); Inhuurdesk's `recruiter` reads as a nested
+   * object, so the projection reads it defensively and ignores
+   * non-object values. */
+  recruiter?: {
+    firstName?: string | null;
+    middleName?: string | null;
+    lastName?: string | null;
+    name?: string | null;
+    functionTitle?: string | null;
+    email?: string | null;
+    phoneNumber?: string | null;
+  } | null;
+  recruiterEmail?: string | null;
+  recruiterPhoneNumber?: string | null;
+  /** Live 2026-09-03: `""` on all 21 records -- an empty string is "no
+   * requester e-mail published", not a value. */
+  requesterEmail?: string | null;
 }
 
 export interface InhuurdeskListingPage {
@@ -51,6 +80,6 @@ export interface InhuurdeskFetchedPayload {
   assignment: InhuurdeskAssignment;
 }
 
-export const INHUURDESK_PARSER_VERSION = "inhuurdesk/v3" as const;
+export const INHUURDESK_PARSER_VERSION = "inhuurdesk/v4" as const;
 
 export const INHUURDESK_SEARCH_PATH = "/wp-json/headfirst-assignments/search";

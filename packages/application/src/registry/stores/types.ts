@@ -1,3 +1,4 @@
+import type { Contactpersoon } from "@ji/domain";
 import type { SearchFilters, SearchScope, SearchVersion } from "@ji/search";
 
 import type { TitleFallbackDescriptionParts } from "../../title-fallback-description";
@@ -71,7 +72,15 @@ export interface AanvraagRecord {
   readonly bronId: string;
   readonly bronReferentie: string;
   readonly bronUrl?: string | null;
+  /** CTP-610: contactpersonen the source published, after the bron's
+   * contactpersoon_beleid retention mask. Empty/absent for bronnen that
+   * publish none. */
+  readonly contactpersonen?: readonly Contactpersoon[];
   readonly contracttype?: string | null;
+  /** Existing dedup identity: set when this record shares a dedup group with
+   * at least one other aanvraag. The UI surfaces it as a duplicate badge;
+   * the record itself is never filtered out. */
+  readonly dedupGroepId?: string | null;
   /** Duration text the source published when only a duration is given, not an end date (CTP-514, F11). */
   readonly duur?: string | null;
   /** Provenance for fields filled by the enrichment worker (CTP-482). */

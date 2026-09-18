@@ -22,7 +22,7 @@ describe("normalise and curate Hays JSON-LD", () => {
     const payload: JsonLdFetchedPayload = {
       jobPosting: detail.jobPosting,
       labelBlock: detail.labelBlock,
-      parserVersion: "hays/v1",
+      parserVersion: "hays/v2",
       slug: "hays",
       url,
     };

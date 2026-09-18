@@ -25,6 +25,6 @@ export const tbiConfig: JsonLdConnectorConfig = {
   ],
   listingFixturePath: "tbi/listing-page-0.json",
   liveEnvVar: "TBI_LIVE",
-  parserVersion: "tbi/v1",
+  parserVersion: "tbi/v2",
   slug: "tbi",
 };

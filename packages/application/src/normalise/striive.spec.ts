@@ -40,6 +40,49 @@ const buildPayload = (
 });
 
 describe("parseStriivePayload", () => {
+  it("maps the projected contactpersonen into the draft (CTP-610)", () => {
+    const draft = parseStriivePayload(
+      buildPayload({
+        contactpersonen: [
+          {
+            email: "recruiter@example.invalid",
+            naam: "J. Cruiter",
+            rol: "Recruiter",
+            telefoon: "+31000000000",
+          },
+          { naam: "K. Klant", rol: "ordercontact" },
+        ],
+      }),
+      "hash-contact"
+    );
+    expect(draft.contactpersonen?.value).toEqual([
+      {
+        email: "recruiter@example.invalid",
+        geinformeerdOp: null,
+        naam: "J. Cruiter",
+        notificatieKanaal: null,
+        rol: "Recruiter",
+        telefoon: "+31000000000",
+      },
+      {
+        email: null,
+        geinformeerdOp: null,
+        naam: "K. Klant",
+        notificatieKanaal: null,
+        rol: "ordercontact",
+        telefoon: null,
+      },
+    ]);
+    expect(draft.contactpersonen?.provenance.sourcePath).toBe(
+      "job.contactpersonen"
+    );
+  });
+
+  it("omits contactpersonen when the payload carries none", () => {
+    const draft = parseStriivePayload(buildPayload(), "hash-none");
+    expect(draft.contactpersonen).toBeUndefined();
+  });
+
   it("maps the real Functioneel Beheerder Youforce job into the normalised draft", () => {
     const draft = parseStriivePayload(buildPayload(), "hash-1");
 

@@ -10,7 +10,7 @@ import {
 
 import { createStriiveClient, striiveBronReferentie } from "./client";
 import type { StriiveClient } from "./client";
-import { createStriiveConnector } from "./connector";
+import { createStriiveConnector, projectStriiveContacts } from "./connector";
 import type { StriiveFetchedPayload, StriiveJob } from "./types";
 import { STRIIVE_MAX_PAGES, STRIIVE_PAGE_SIZE } from "./types";
 
@@ -25,6 +25,57 @@ const retryPolicy = {
 describe("Striive listing helpers", () => {
   it("uses the job id as bronReferentie", () => {
     expect(striiveBronReferentie({ id: "abc-123" })).toBe("abc-123");
+  });
+});
+
+describe("Striive contact projection (CTP-610)", () => {
+  it("folds the recruiter, order contact and requester slots", () => {
+    expect(
+      projectStriiveContacts({
+        id: "j1",
+        orderContactFullName: "K. Klant",
+        recruiterEmail: "recruiter@example.invalid",
+        recruiterFirstName: "J.",
+        recruiterFunctionTitle: "Recruiter",
+        recruiterLastName: "Cruiter",
+        recruiterPhoneNumber: "+31000000000",
+        requesterEmail: "aanvrager@example.invalid",
+        title: "t",
+      })
+    ).toEqual([
+      {
+        email: "recruiter@example.invalid",
+        naam: "J. Cruiter",
+        rol: "Recruiter",
+        telefoon: "+31000000000",
+      },
+      { naam: "K. Klant", rol: "ordercontact" },
+      { email: "aanvrager@example.invalid", rol: "aanvrager" },
+    ]);
+  });
+
+  it("falls back to orderContactLegalName and dedupes the requester", () => {
+    expect(
+      projectStriiveContacts({
+        id: "j2",
+        orderContactLegalName: "Klant BV",
+        recruiterEmail: "shared@example.invalid",
+        requesterEmail: "shared@example.invalid",
+        title: "t",
+      })
+    ).toEqual([
+      {
+        email: "shared@example.invalid",
+        naam: null,
+        rol: null,
+        telefoon: null,
+      },
+      { naam: "Klant BV", rol: "ordercontact" },
+    ]);
+  });
+
+  it("returns null when every contact slot is empty (the fixture state)", () => {
+    expect(projectStriiveContacts({ id: "j3", title: "t" })).toBeNull();
   });
 });
 

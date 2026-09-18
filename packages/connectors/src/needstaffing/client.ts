@@ -1,3 +1,4 @@
+import type { SourceContact } from "../contract";
 import { loadConnectorFixture } from "../fixtures/load";
 import { decodeHtmlEntities } from "../html-entities";
 import type {
@@ -344,6 +345,68 @@ export const parseNeedstaffingListing = async (
   return { hasNextPage, items };
 };
 
+const VACANCY_TEXT_MARKER = '<div class="vacancy-text">';
+const VACANCY_CONTACT_MARKER = '<div class="vacancy-contact-info">';
+
+/** Grabs the balanced `div` opened by `marker` (depth-counted) and returns
+ * its inner HTML. */
+const extractBalancedDiv = (
+  html: string,
+  marker: string
+): string | undefined => {
+  const start = html.indexOf(marker);
+  if (start === -1) {
+    return;
+  }
+  const contentStart = start + marker.length;
+  const tagPattern = /<\/?div\b[^>]*>/giu;
+  tagPattern.lastIndex = contentStart;
+  let depth = 1;
+  let match = tagPattern.exec(html);
+  while (match) {
+    depth += match[0].startsWith("</") ? -1 : 1;
+    if (depth === 0) {
+      return html.slice(contentStart, match.index);
+    }
+    match = tagPattern.exec(html);
+  }
+};
+
+const extractVacancyTextHtml = (html: string): string | undefined =>
+  extractBalancedDiv(html, VACANCY_TEXT_MARKER);
+
+const PARAGRAPH_PATTERN = /<p[^>]*>(?<inner>[\s\S]*?)<\/p>/giu;
+const MAILTO_PATTERN = /href="mailto:(?<email>[^"?]+)/iu;
+const TEL_PATTERN = /href="tel:(?<telefoon>[^"]+)/iu;
+const TAG_PATTERN = /<[^>]+>/gu;
+
+const stripTags = (html: string): string =>
+  decodeNeedstaffingEntities(html.replaceAll(TAG_PATTERN, "")).trim();
+
+/** CTP-610: reads the `.vacancy-contact-info` block (published for
+ * aanbieders). Shape confirmed against the spec fixture: one `<p>` per
+ * contact name plus `mailto:`/`tel:` links. Committed detail fixtures carry
+ * no block (mechanically stripped), so this only yields contacts from live
+ * captures. */
+export const extractNeedstaffingContactpersonen = (
+  html: string
+): SourceContact[] | undefined => {
+  const block = extractBalancedDiv(html, VACANCY_CONTACT_MARKER);
+  if (!block) {
+    return;
+  }
+  const naam =
+    [...block.matchAll(PARAGRAPH_PATTERN)]
+      .map((m) => stripTags(m.groups?.inner ?? ""))
+      .find((name) => name.length > 0) ?? null;
+  const email = MAILTO_PATTERN.exec(block)?.groups?.email?.trim();
+  const telefoon = TEL_PATTERN.exec(block)?.groups?.telefoon?.trim();
+  if (!(naam || email || telefoon)) {
+    return;
+  }
+  return [{ email: email ?? null, naam, telefoon: telefoon ?? null }];
+};
+
 export const parseNeedstaffingDetail = async (
   html: string,
   id: string
@@ -401,39 +464,18 @@ export const parseNeedstaffingDetail = async (
     trimmed.tarief
   );
   const competenties = extractNeedstaffingCompetenties(html);
+  const contactpersonen = extractNeedstaffingContactpersonen(html);
 
   return {
     ...trimmed,
     competenties: competenties.length > 0 ? competenties : undefined,
+    contactpersonen,
     id,
     referentie: extractNeedstaffingReferentie(titel),
     tariefMax,
     tariefMin,
     titel,
   };
-};
-
-const VACANCY_TEXT_MARKER = '<div class="vacancy-text">';
-
-/** Grabs the balanced `.vacancy-text` div (depth-counted) — the only chunk of
- * the detail page persisted: no header/footer/nav/scripts/contact info. */
-const extractVacancyTextHtml = (html: string): string | undefined => {
-  const start = html.indexOf(VACANCY_TEXT_MARKER);
-  if (start === -1) {
-    return;
-  }
-  const contentStart = start + VACANCY_TEXT_MARKER.length;
-  const tagPattern = /<\/?div\b[^>]*>/giu;
-  tagPattern.lastIndex = contentStart;
-  let depth = 1;
-  let match = tagPattern.exec(html);
-  while (match) {
-    depth += match[0].startsWith("</") ? -1 : 1;
-    if (depth === 0) {
-      return html.slice(contentStart, match.index);
-    }
-    match = tagPattern.exec(html);
-  }
 };
 
 const RESPOND_CTA_PATTERN = /<a[^>]*\/RESPOND"[^>]*>[\s\S]*?<\/a>/giu;
