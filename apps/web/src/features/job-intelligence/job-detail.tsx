@@ -1,4 +1,6 @@
-import { ExternalLink, X } from "lucide-react";
+import { ExternalLink, Sparkles, X } from "lucide-react";
+
+import { useMarktvragenChat } from "@/features/marktvragen/marktvragen-chat-context";
 
 import { JobBodyContent } from "./job-body-content";
 import {
@@ -327,6 +329,40 @@ const markeringActionTitle = (
     : "Markeren vereist de U7 REST-capability";
 };
 
+const AskMarktvragenButton = ({
+  job,
+  onHandoff,
+}: {
+  readonly job: JobListing;
+  readonly onHandoff: () => void;
+}) => {
+  const { enabled, sendToChat } = useMarktvragenChat();
+
+  if (!enabled) {
+    return null;
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={() => {
+        sendToChat(`Vertel me over deze aanvraag: ${job.title}`, {
+          aanvraagId: job.id,
+          kind: "aanvraag",
+          label: job.title,
+        });
+        // The detail is a modal <dialog> (top layer): the chat panel can never
+        // paint above it, so the handoff must close the detail to be visible.
+        onHandoff();
+      }}
+      className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-md border border-border bg-card px-4 text-sm font-medium text-foreground outline-none transition-colors hover:bg-secondary focus-visible:ring-2 focus-visible:ring-ring"
+    >
+      <Sparkles aria-hidden="true" className="size-4" />
+      Vraag de agent over deze aanvraag
+    </button>
+  );
+};
+
 export const JobDetail = ({
   descriptionId,
   job,
@@ -508,6 +544,7 @@ export const JobDetail = ({
         >
           {markeringActionLabel(markering, isMarkeringMutationPending)}
         </button>
+        <AskMarktvragenButton job={job} onHandoff={onClose} />
       </div>
     </div>
   );

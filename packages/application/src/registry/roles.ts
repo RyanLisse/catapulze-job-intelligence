@@ -6,6 +6,8 @@ export const ROLE_APPROVER = "approver" as const;
 export const PERM_SLICE_READ = "slice-a:read" as const;
 export const PERM_APPROVAL = "approval" as const;
 export const PERM_EXPORT = "export" as const;
+/** Read-only marts analytics (Marktvragen / JI-DSH-07) — revocable apart from slice-a reads. */
+export const PERM_MARTS_READ = "marts:read" as const;
 
 export const sliceARoles = [
   ROLE_RECRUITER,
@@ -21,6 +23,7 @@ export const permissionsForRole = (role: SliceARole): ReadonlySet<string> => {
     case ROLE_ADMIN: {
       return new Set([
         PERM_SLICE_READ,
+        PERM_MARTS_READ,
         PERM_APPROVAL,
         PERM_EXPORT,
         ROLE_RECRUITER,
@@ -29,13 +32,18 @@ export const permissionsForRole = (role: SliceARole): ReadonlySet<string> => {
       ]);
     }
     case ROLE_APPROVER: {
-      return new Set([PERM_SLICE_READ, PERM_APPROVAL, PERM_EXPORT]);
+      return new Set([
+        PERM_SLICE_READ,
+        PERM_MARTS_READ,
+        PERM_APPROVAL,
+        PERM_EXPORT,
+      ]);
     }
     case ROLE_OPERATOR: {
-      return new Set([PERM_SLICE_READ, ROLE_OPERATOR]);
+      return new Set([PERM_SLICE_READ, PERM_MARTS_READ, ROLE_OPERATOR]);
     }
     case ROLE_RECRUITER: {
-      return new Set([PERM_SLICE_READ, ROLE_RECRUITER]);
+      return new Set([PERM_SLICE_READ, PERM_MARTS_READ, ROLE_RECRUITER]);
     }
     default: {
       const _exhaustive: never = role;
