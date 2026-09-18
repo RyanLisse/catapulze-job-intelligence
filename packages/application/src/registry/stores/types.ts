@@ -1,5 +1,6 @@
 import type { SearchFilters, SearchScope, SearchVersion } from "@ji/search";
 
+import type { JsonValue } from "../../normalise/types";
 import type { TitleFallbackDescriptionParts } from "../../title-fallback-description";
 import type {
   BronRunKindFilter,
@@ -848,4 +849,53 @@ export interface BronOverlapResult {
 
 export interface BronOverlapReader {
   bronOverlap: () => Promise<BronOverlapResult>;
+}
+
+/**
+ * Read-only analytics port over the `marts` schema (Marktvragen / JI-DSH-07).
+ * Implementations enforce the SELECT-only contract themselves — the port
+ * deliberately takes raw SQL because the agent writes it. Handlers must not
+ * pre-execute or mutate the SQL beyond validation.
+ */
+export interface MartsColumnInfo {
+  readonly dataType: string;
+  readonly name: string;
+  readonly nullable: boolean;
+}
+
+export interface MartsTableInfo {
+  readonly columns: readonly MartsColumnInfo[];
+  readonly name: string;
+}
+
+/** One marts result row: JSON-shaped cell values keyed by column name. */
+export type MartsRow = Readonly<Record<string, JsonValue>>;
+
+export interface MartsQueryResult {
+  readonly columns: readonly string[];
+  readonly rows: readonly MartsRow[];
+  /** True when more rows matched than the reader's row cap returned. */
+  readonly truncated: boolean;
+}
+
+/**
+ * SQL-level outcome: `ok:false` means the query itself was rejected (guard
+ * violation or Postgres parse/plan error) and `reason` is safe to show the
+ * agent — it is the feedback signal it rewrites against. Infra failures
+ * (connection, timeout misconfiguration) still throw.
+ */
+export type MartsSqlOutcome<T> =
+  | { readonly ok: true; readonly value: T }
+  | { readonly ok: false; readonly reason: string };
+
+export interface MartsReader {
+  /** Pre-execution validation (EXPLAIN). Returns one plan line per row. */
+  explain: (sql: string) => Promise<MartsSqlOutcome<readonly string[]>>;
+  /** Live introspection of the marts schema (tables + columns). */
+  listTables: () => Promise<readonly MartsTableInfo[]>;
+  /**
+   * Execute a guarded SELECT inside a read-only transaction with a statement
+   * timeout and a row cap.
+   */
+  query: (sql: string) => Promise<MartsSqlOutcome<MartsQueryResult>>;
 }

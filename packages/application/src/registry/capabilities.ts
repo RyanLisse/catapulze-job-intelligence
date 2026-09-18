@@ -103,10 +103,25 @@ import {
   listScrapeRunsOutputSchema,
 } from "./handlers/dashboard";
 import type { SliceAHandlerDeps } from "./handlers/deps";
+import {
+  createGetDataDictionaryHandler,
+  createListMartsTablesHandler,
+  createQueryMartsHandler,
+  createSearchQueryCatalogHandler,
+  getDataDictionaryInputSchema,
+  getDataDictionaryOutputSchema,
+  listMartsTablesInputSchema,
+  listMartsTablesOutputSchema,
+  queryMartsInputSchema,
+  queryMartsOutputSchema,
+  searchQueryCatalogInputSchema,
+  searchQueryCatalogOutputSchema,
+} from "./handlers/marts";
 import { defineSliceACapabilityEntry } from "./metadata";
 import {
   PERM_APPROVAL,
   PERM_EXPORT,
+  PERM_MARTS_READ,
   PERM_SLICE_READ,
   ROLE_OPERATOR,
   ROLE_RECRUITER,
@@ -622,6 +637,67 @@ export const createSliceACapabilityCatalog = (deps: SliceAHandlerDeps) => {
     outputSchema: getBronOverlapOutputSchema,
   });
 
+  const listMartsTables = defineCapability({
+    authorization: { permission: PERM_MARTS_READ },
+    bindings: dualBindings("GET", "/v1/marts/tables", "list_marts_tables"),
+    effect: "read",
+    failureSchema: domainFailureSchema,
+    grounding: true,
+    handler: createListMartsTablesHandler(deps),
+    id: "list_marts_tables",
+    inputSchema: listMartsTablesInputSchema,
+    outcome: "Introspecteer het live marts-schema (tabellen + kolommen)",
+    outputSchema: listMartsTablesOutputSchema,
+  });
+
+  const queryMarts = defineCapability({
+    authorization: { permission: PERM_MARTS_READ },
+    bindings: dualBindings("POST", "/v1/marts/query", "query_marts"),
+    effect: "read",
+    failureSchema: domainFailureSchema,
+    grounding: true,
+    handler: createQueryMartsHandler(deps),
+    id: "query_marts",
+    inputSchema: queryMartsInputSchema,
+    outcome:
+      "Voer een bewaakte SELECT op marts uit (dry-run, 10s timeout, 10k-rij cap, SQL in output)",
+    outputSchema: queryMartsOutputSchema,
+  });
+
+  const searchQueryCatalog = defineCapability({
+    authorization: { permission: PERM_MARTS_READ },
+    bindings: dualBindings(
+      "POST",
+      "/v1/marts/query-catalog",
+      "search_query_catalog"
+    ),
+    effect: "read",
+    failureSchema: domainFailureSchema,
+    grounding: true,
+    handler: createSearchQueryCatalogHandler(deps),
+    id: "search_query_catalog",
+    inputSchema: searchQueryCatalogInputSchema,
+    outcome: "Doorzoek opgeslagen query-recepten vóór nieuwe SQL te schrijven",
+    outputSchema: searchQueryCatalogOutputSchema,
+  });
+
+  const getDataDictionary = defineCapability({
+    authorization: { permission: PERM_MARTS_READ },
+    bindings: dualBindings(
+      "GET",
+      "/v1/marts/data-dictionary",
+      "get_data_dictionary"
+    ),
+    effect: "read",
+    failureSchema: domainFailureSchema,
+    grounding: true,
+    handler: createGetDataDictionaryHandler(deps),
+    id: "get_data_dictionary",
+    inputSchema: getDataDictionaryInputSchema,
+    outcome: "Lees de statische marts data-dictionary (semantiek + metrieken)",
+    outputSchema: getDataDictionaryOutputSchema,
+  });
+
   const completeTask = defineCapability({
     authorization: { permission: ROLE_RECRUITER },
     bindings: dualBindings("POST", "/v1/agent/complete-task", "complete_task"),
@@ -979,6 +1055,48 @@ export const createSliceACapabilityCatalog = (deps: SliceAHandlerDeps) => {
       target: "internal",
       wiredTransports: ["mcp:get_bron_overlap", "rest:GET /v1/bronnen/overlap"],
     }),
+    defineSliceACapabilityEntry(listMartsTables, {
+      auditClass: "access",
+      reversible: true,
+      sideEffectClass: "read",
+      target: "internal",
+      wiredTransports: [
+        "mcp:list_marts_tables",
+        "rest:GET /v1/marts/tables",
+        "ui:MarktvragenChat.ListTables",
+      ],
+    }),
+    defineSliceACapabilityEntry(queryMarts, {
+      auditClass: "access",
+      reversible: true,
+      sideEffectClass: "read",
+      target: "internal",
+      wiredTransports: [
+        "mcp:query_marts",
+        "rest:POST /v1/marts/query",
+        "ui:MarktvragenChat.Query",
+      ],
+    }),
+    defineSliceACapabilityEntry(searchQueryCatalog, {
+      auditClass: "access",
+      reversible: true,
+      sideEffectClass: "read",
+      target: "internal",
+      wiredTransports: [
+        "mcp:search_query_catalog",
+        "rest:POST /v1/marts/query-catalog",
+      ],
+    }),
+    defineSliceACapabilityEntry(getDataDictionary, {
+      auditClass: "access",
+      reversible: true,
+      sideEffectClass: "read",
+      target: "internal",
+      wiredTransports: [
+        "mcp:get_data_dictionary",
+        "rest:GET /v1/marts/data-dictionary",
+      ],
+    }),
     defineSliceACapabilityEntry(completeTask, {
       auditClass: "none",
       reversible: true,
@@ -1011,6 +1129,10 @@ export const sliceACapabilityIds = [
   "list_scrape_runs",
   "get_scrape_run",
   "get_bron_overlap",
+  "list_marts_tables",
+  "query_marts",
+  "search_query_catalog",
+  "get_data_dictionary",
   "get_operator_context",
   "search_aanvragen",
   "get_aanvraag",

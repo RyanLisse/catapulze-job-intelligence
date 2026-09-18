@@ -30,6 +30,7 @@ import {
   PostgresSavedSearchStore,
   PostgresSearchVersionStore,
   createBronRuntimeClient,
+  createPostgresMartsReader,
 } from "@ji/db";
 import { PostgresCurateStore } from "@ji/db/postgres-curate-store";
 import type { ResultCacheBackend } from "@ji/search";
@@ -163,6 +164,10 @@ export const createProductionSliceADeps = async (
     engine,
   });
   const curateStore = new PostgresCurateStore(runtime.database);
+  // Marktvragen (JI-DSH-07): dedicated read-only pool pinned to the marts
+  // schema — separate from the runtime pool so analytics queries never share
+  // connections with ingest writes.
+  const marts = createPostgresMartsReader({ databaseUrl: input.databaseUrl });
 
   return {
     bronOverlapReader: new PostgresBronOverlapReader(runtime.database),
@@ -183,10 +188,13 @@ export const createProductionSliceADeps = async (
       unavailableCapabilityIds: () =>
         new Set(PRODUCTION_UNAVAILABLE_CAPABILITIES.keys()),
     },
-    close: runtime.close,
+    close: async () => {
+      await Promise.all([runtime.close(), marts.close()]);
+    },
     curateStore,
     database: runtime.database,
     manticoreUrl: input.manticoreUrl,
+    martsReader: marts.reader,
     objectStore,
     rawObjectStoreKind: rawObjectStore.kind,
     scopeId: CATAPULZE_DEPLOYMENT_SCOPE_ID,

@@ -124,6 +124,15 @@ export {
   type BronOverlapDatabase,
   PostgresBronOverlapReader,
 } from "./bron-overlap";
+export {
+  createPostgresMartsReader,
+  guardMartsSql,
+  MARTS_DEFAULT_ROW_CAP,
+  MARTS_DEFAULT_STATEMENT_TIMEOUT_MS,
+  type MartsSqlGuardResult,
+  type PostgresMartsReaderHandle,
+  type PostgresMartsReaderOptions,
+} from "./marts-reader";
 export { PostgresKnownHashStore } from "./known-hash-store";
 export {
   PostgresEnrichmentStore,
