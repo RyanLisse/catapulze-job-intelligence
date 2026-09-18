@@ -37,6 +37,7 @@ const storedAanvraag = (
   bronReferentie,
   bronSpecifiek: {},
   bronUrl: null,
+  contactpersonen: [],
   contentHash: `hash-${bronReferentie}`,
   contracttype: null,
   dedupGroepId: null,

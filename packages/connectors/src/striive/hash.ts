@@ -29,6 +29,7 @@ export const hashStriiveListingItem = (job: StriiveJob): Promise<string> => {
     clientName: job.clientName ?? null,
     closingDateClient: job.closingDateClient ?? null,
     closingDateInvoice: job.closingDateInvoice ?? null,
+    contactpersonen: job.contactpersonen ?? null,
     content: job.content ?? null,
     endDate: job.endDate ?? null,
     hoursPerWeekMax: job.hoursPerWeekMax ?? null,

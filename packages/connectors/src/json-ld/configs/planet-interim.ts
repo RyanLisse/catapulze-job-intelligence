@@ -19,6 +19,6 @@ export const planetInterimConfig: JsonLdConnectorConfig = {
   },
   listingFixturePath: "planet-interim/listing-page-0.json",
   liveEnvVar: "PLANET_INTERIM_LIVE",
-  parserVersion: "planet-interim/v1",
+  parserVersion: "planet-interim/v2",
   slug: "planet-interim",
 };

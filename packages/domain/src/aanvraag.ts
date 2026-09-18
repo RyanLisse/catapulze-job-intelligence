@@ -48,6 +48,22 @@ export type ExtractieMethode = typeof ExtractieMethodeSchema.Type;
 
 export const TARIEF_EENHEDEN = ["uur", "dag", "maand"] as const;
 
+/**
+ * CTP-610: one contactpersoon as published on a vacancy by a source. The
+ * `geinformeerd*`/`notificatie*` fields are pipeline-owned (the art. 14
+ * disclosure trail) — a source payload never sets them; they start null.
+ */
+export const ContactpersoonSchema = Schema.Struct({
+  email: Schema.NullOr(Schema.String),
+  geinformeerdOp: Schema.NullOr(Schema.String),
+  naam: Schema.NullOr(Schema.String),
+  notificatieKanaal: Schema.NullOr(Schema.String),
+  rol: Schema.NullOr(Schema.String),
+  telefoon: Schema.NullOr(Schema.String),
+});
+
+export type Contactpersoon = typeof ContactpersoonSchema.Type;
+
 /** Effect Schema SoT for tarief eenheid. */
 export const TariefEenheidSchema = Schema.Literals(TARIEF_EENHEDEN);
 

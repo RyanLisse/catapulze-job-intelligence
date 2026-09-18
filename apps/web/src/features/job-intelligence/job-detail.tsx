@@ -1,4 +1,6 @@
-import { ExternalLink, X } from "lucide-react";
+import { ExternalLink, Sparkles, X } from "lucide-react";
+
+import { useMarktvragenChat } from "@/features/marktvragen/marktvragen-chat-context";
 
 import { JobBodyContent } from "./job-body-content";
 import {
@@ -11,6 +13,7 @@ import {
 } from "./presentation";
 import { isSafeHref } from "./sanitize-job-html";
 import type {
+  JobContactpersoon,
   JobEnrichedField,
   JobListing,
   JobMarkering,
@@ -122,6 +125,110 @@ const DetailSection = ({
   </div>
 );
 
+const JobBadges = ({ job }: { readonly job: JobListing }) => (
+  <div className="mt-3 flex flex-wrap gap-1.5">
+    <span className={`${badgeClass} border-primary/40 text-primary`}>
+      {formatContract(job)}
+    </span>
+    {job.status === "closing-soon" ? (
+      <span className={`${badgeClass} border-chart-2/40 text-chart-2`}>
+        Sluit binnenkort
+      </span>
+    ) : null}
+    {job.dedupGroepId ? (
+      <span
+        className={badgeClass}
+        title="Deze vacature is ook via een andere bron gevonden"
+      >
+        Duplicaat
+      </span>
+    ) : null}
+    <span className={badgeClass}>{formatRemote(job)}</span>
+  </div>
+);
+
+const MAILTO_SAFE_EMAIL =
+  /^[^\s@?&'"/\\<>]+@[^\s@?&'"/\\<>]+\.[^\s@?&'"/\\<>]+$/u;
+const TEL_SAFE_PHONE = /^\+?[0-9][0-9 ()-]{4,}$/u;
+
+const contactEmailNode = (email: string | null): React.ReactNode => {
+  if (!email) {
+    return null;
+  }
+  // A scraped email may carry `?`/`&` — that would inject RFC-6068
+  // headers (bcc/subject) into the mailto. Only a clean addr-spec gets
+  // a link; anything else still renders as text.
+  if (!MAILTO_SAFE_EMAIL.test(email)) {
+    return <span className="font-mono">{email}</span>;
+  }
+  return (
+    <a
+      className="underline decoration-dotted underline-offset-2 hover:text-foreground"
+      href={`mailto:${email}`}
+    >
+      {email}
+    </a>
+  );
+};
+
+const contactTelefoonNode = (telefoon: string | null): React.ReactNode => {
+  if (!telefoon) {
+    return null;
+  }
+  // Same scraped-input rule as the mailto: only a plausibly diallable
+  // number becomes a tel: link; anything else renders as text.
+  if (!TEL_SAFE_PHONE.test(telefoon)) {
+    return <span className="font-mono">{telefoon}</span>;
+  }
+  return (
+    <a
+      className="font-mono underline decoration-dotted underline-offset-2 hover:text-foreground"
+      href={`tel:${telefoon.replaceAll(/[^+0-9]/gu, "")}`}
+    >
+      {telefoon}
+    </a>
+  );
+};
+
+const ContactpersoonCard = ({
+  contact,
+}: {
+  readonly contact: JobContactpersoon;
+}) => (
+  <li className="rounded-lg border border-border bg-background/60 p-3">
+    <p className="text-xs font-medium">
+      {contact.naam ?? "Naam onbekend"}
+      {contact.rol ? (
+        <span className="ml-1.5 font-normal text-[10px] text-muted-foreground">
+          {contact.rol}
+        </span>
+      ) : null}
+    </p>
+    <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-[11px] text-muted-foreground">
+      {contactEmailNode(contact.email)}
+      {contactTelefoonNode(contact.telefoon)}
+    </div>
+  </li>
+);
+
+const ContactpersonenSection = ({
+  contactpersonen,
+}: {
+  readonly contactpersonen?: readonly JobContactpersoon[];
+}) =>
+  contactpersonen && contactpersonen.length > 0 ? (
+    <DetailSection title="Contactpersonen">
+      <ul className="space-y-2">
+        {contactpersonen.map((contact) => (
+          <ContactpersoonCard
+            key={`${contact.naam ?? ""}|${contact.email ?? ""}|${contact.telefoon ?? ""}|${contact.rol ?? ""}`}
+            contact={contact}
+          />
+        ))}
+      </ul>
+    </DetailSection>
+  ) : null;
+
 const ProvenanceCard = ({
   record,
 }: {
@@ -222,6 +329,40 @@ const markeringActionTitle = (
     : "Markeren vereist de U7 REST-capability";
 };
 
+const AskMarktvragenButton = ({
+  job,
+  onHandoff,
+}: {
+  readonly job: JobListing;
+  readonly onHandoff: () => void;
+}) => {
+  const { enabled, sendToChat } = useMarktvragenChat();
+
+  if (!enabled) {
+    return null;
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={() => {
+        sendToChat(`Vertel me over deze aanvraag: ${job.title}`, {
+          aanvraagId: job.id,
+          kind: "aanvraag",
+          label: job.title,
+        });
+        // The detail is a modal <dialog> (top layer): the chat panel can never
+        // paint above it, so the handoff must close the detail to be visible.
+        onHandoff();
+      }}
+      className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-md border border-border bg-card px-4 text-sm font-medium text-foreground outline-none transition-colors hover:bg-secondary focus-visible:ring-2 focus-visible:ring-ring"
+    >
+      <Sparkles aria-hidden="true" className="size-4" />
+      Vraag de agent over deze aanvraag
+    </button>
+  );
+};
+
 export const JobDetail = ({
   descriptionId,
   job,
@@ -261,17 +402,7 @@ export const JobDetail = ({
           <p id={descriptionId} className="mt-1 text-xs text-muted-foreground">
             {job.organization ?? "Onbekend"} · {job.location ?? "Onbekend"}
           </p>
-          <div className="mt-3 flex flex-wrap gap-1.5">
-            <span className={`${badgeClass} border-primary/40 text-primary`}>
-              {formatContract(job)}
-            </span>
-            {job.status === "closing-soon" ? (
-              <span className={`${badgeClass} border-chart-2/40 text-chart-2`}>
-                Sluit binnenkort
-              </span>
-            ) : null}
-            <span className={badgeClass}>{formatRemote(job)}</span>
-          </div>
+          <JobBadges job={job} />
         </div>
         <button
           type="button"
@@ -360,6 +491,8 @@ export const JobDetail = ({
           </DetailSection>
         ) : null}
 
+        <ContactpersonenSection contactpersonen={job.contactpersonen} />
+
         <DetailSection title="Herkomst">
           <div className="space-y-2.5">
             {job.sourceRecords.map((record) => (
@@ -411,6 +544,7 @@ export const JobDetail = ({
         >
           {markeringActionLabel(markering, isMarkeringMutationPending)}
         </button>
+        <AskMarktvragenButton job={job} onHandoff={onClose} />
       </div>
     </div>
   );

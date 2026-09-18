@@ -20,6 +20,6 @@ export const werkenVoorNederlandConfig: JsonLdConnectorConfig = {
   ],
   listingFixturePath: "werken-voor-nederland/listing-page-0.json",
   liveEnvVar: "WERKEN_VOOR_NEDERLAND_LIVE",
-  parserVersion: "werken-voor-nederland/v1",
+  parserVersion: "werken-voor-nederland/v2",
   slug: "werken-voor-nederland",
 };

@@ -3,6 +3,7 @@ import type {
   AanvraagLifecycle,
   AanvraagId,
   BronId,
+  Contactpersoon,
   ScrapeRunId,
 } from "@ji/domain";
 import { CLEARED, CLEARED_BRON_MARKER_KEY, UNKNOWN } from "@ji/domain";
@@ -12,6 +13,7 @@ import { z } from "zod";
 import type { NormalisedAanvraagDraft } from "../normalise";
 import { buildDedupKey, buildProvenanceMap } from "../normalise";
 import { classifyContractAndWork } from "../normalise/classify-contract-work";
+import { mergeContactpersoonPipelineVelden } from "../normalise/contactpersonen";
 import { toCanonicalContractType } from "../normalise/contract-type";
 import type {
   AanvraagSnapshot,
@@ -32,6 +34,9 @@ export interface StoredAanvraag {
   bronReferentie: string;
   bronSpecifiek: BronSpecifiekJson;
   bronUrl: string | null;
+  /** CTP-610: source-published contactpersonen (0..n). Empty for bronnen
+   * without contact fields or with `contactpersoon_beleid.extractie` off. */
+  contactpersonen: Contactpersoon[];
   contentHash: string;
   contracttype: string | null;
   dedupGroepId: string | null;
@@ -581,6 +586,7 @@ const toStoredFields = (
     bronReferentie: draft.bronReferentie.value,
     bronSpecifiek,
     bronUrl: draftTextColumn(draft.bronUrl.value),
+    contactpersonen: draft.contactpersonen?.value ?? [],
     contentHash: draft.contentHash,
     contracttype: toCanonicalContractType(
       readBronText(
@@ -726,6 +732,20 @@ const fillNullCommercialColumns = (
   }
 };
 
+/** CTP-610: rows curated before a bron gained contact extraction (or before
+ * migratie 0026) hold []. When the unchanged draft now carries contacts,
+ * backfill them — same staleness class as locatieTekst/sluitingsdatum. */
+const contactpersonenBackfill = (
+  draft: NormalisedAanvraagDraft,
+  existing: StoredAanvraag
+): Contactpersoon[] | undefined => {
+  if (existing.contactpersonen.length > 0) {
+    return;
+  }
+  const value = draft.contactpersonen?.value;
+  return value && value.length > 0 ? value : undefined;
+};
+
 const buildUnchangedContentPatch = (
   input: CurateObservationInput,
   existing: StoredAanvraag
@@ -790,6 +810,10 @@ const buildUnchangedContentPatch = (
     draft.sluitingsdatum.getTime() !== existing.sluitingsdatum?.getTime()
   ) {
     patch.sluitingsdatum = draft.sluitingsdatum;
+  }
+  const backfilledContactpersonen = contactpersonenBackfill(draft, existing);
+  if (backfilledContactpersonen) {
+    patch.contactpersonen = backfilledContactpersonen;
   }
   return patch;
 };
@@ -985,6 +1009,13 @@ export const curateObservation = async (
       bronUrl: applyCoalesce(
         coalescePatchFromDraft(draft.bronUrl.value),
         existing.bronUrl
+      ),
+      // Pipeline-owned art. 14 fields (geinformeerdOp, notificatieKanaal) are
+      // not source data — carry them forward per contact identity instead of
+      // letting the draft's null-emitting list erase the disclosure trail.
+      contactpersonen: mergeContactpersoonPipelineVelden(
+        existing.contactpersonen,
+        next.contactpersonen
       ),
       contracttype: coalesceNullable(
         toCanonicalContractType(

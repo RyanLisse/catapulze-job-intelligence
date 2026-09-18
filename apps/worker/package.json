@@ -10,13 +10,16 @@
     "poller": "bun src/poller/main.ts"
   },
   "dependencies": {
+    "@ai-sdk/otel": "1.0.97",
     "@ji/application": "workspace:*",
     "@ji/connectors": "workspace:*",
     "@ji/db": "workspace:*",
     "@ji/domain": "workspace:*",
     "@ji/env": "workspace:*",
     "@ji/search": "workspace:*",
+    "@openrouter/ai-sdk-provider": "3.0.0",
     "@trigger.dev/sdk": "4.5.13",
+    "ai": "7.0.97",
     "dotenv": "catalog:",
     "effect": "catalog:",
     "zod": "catalog:"

@@ -1,6 +1,9 @@
 import { describe, expect, test } from "bun:test";
 
-import { toCanonicalContractType } from "./contract-type";
+import {
+  toCanonicalContractType,
+  toCanonicalEmploymentTypes,
+} from "./contract-type";
 
 describe("toCanonicalContractType", () => {
   test("maps detachering-family tokens to detachering", () => {
@@ -41,5 +44,33 @@ describe("toCanonicalContractType", () => {
     expect(toCanonicalContractType("")).toBeNull();
     expect(toCanonicalContractType(null)).toBeNull();
     expect(toCanonicalContractType()).toBeNull();
+  });
+});
+
+describe("toCanonicalEmploymentTypes", () => {
+  test("maps a single contract-form token the same as toCanonicalContractType", () => {
+    expect(toCanonicalEmploymentTypes(["CONTRACTOR"])).toBe("freelance");
+    expect(toCanonicalEmploymentTypes(["TEMPORARY"])).toBe("interim");
+  });
+
+  test("ignores hours tokens and resolves a lone contract-form token in a mixed array", () => {
+    expect(toCanonicalEmploymentTypes(["TEMPORARY", "FULL_TIME"])).toBe(
+      "interim"
+    );
+    expect(
+      toCanonicalEmploymentTypes(["CONTRACTOR", "PART_TIME", "OTHER"])
+    ).toBe("freelance");
+  });
+
+  test("returns null when two distinct contract forms are published (ambiguous)", () => {
+    expect(
+      toCanonicalEmploymentTypes(["TEMPORARY", "CONTRACTOR", "FULL_TIME"])
+    ).toBeNull();
+  });
+
+  test("returns null for hours-only arrays and empty input", () => {
+    expect(toCanonicalEmploymentTypes(["FULL_TIME", "PART_TIME"])).toBeNull();
+    expect(toCanonicalEmploymentTypes(["OTHER"])).toBeNull();
+    expect(toCanonicalEmploymentTypes([])).toBeNull();
   });
 });

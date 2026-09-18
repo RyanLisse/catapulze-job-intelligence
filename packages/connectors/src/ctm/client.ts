@@ -1,6 +1,7 @@
 /* oxlint-disable anti-slop/no-unknown-parameters, anti-slop/no-runtime-typeof -- This is the CTM Atom/fast-xml-parser I/O boundary: parsed XML nodes arrive as `unknown` shapes (attributes vs. text nodes vs. omitted elements), so the string contract is established here. */
 import { XMLParser, XMLValidator } from "fast-xml-parser";
 
+import type { SourceContact } from "../contract";
 import { loadConnectorFixture } from "../fixtures/load";
 import type { CtmCpvCode, CtmEntry, CtmListingPage } from "./types";
 import { CTM_FEED_PATH } from "./types";
@@ -62,44 +63,77 @@ const toCpvCodes = (value: unknown): CtmCpvCode[] | undefined => {
   return codes.length > 0 ? codes : undefined;
 };
 
+interface ParsedCtmContactPerson {
+  "@_firstName"?: unknown;
+  "@_middleName"?: unknown;
+  "@_lastName"?: unknown;
+  "@_email"?: unknown;
+  phone?: {
+    "@_countryCode"?: unknown;
+    "@_areaCode"?: unknown;
+    // The feed's own attribute really is spelled "munber" (confirmed in
+    // fixtures/connectors/ctm/listing-page-0.json's raw capture).
+    "@_munber"?: unknown;
+  };
+}
+
 interface ParsedCtmEntry {
   id?: string;
   link?: { "@_href"?: string };
   published?: string;
   title?: { "#text"?: string } | string;
   content?: {
-    publication?: {
-      authority?: { "@_name"?: unknown };
-      cpvCodes?: { cpvCode?: unknown };
-      etq?: string;
-      processTemplate?: string;
-    };
+    publication?: ParsedCtmPublication;
   };
 }
 
-const toCtmEntry = (raw: unknown): CtmEntry | null => {
-  // SAFETY: Atom entry shape per eu-supply CTM feed sample (see docs/sources/ctm.md).
-  const entry = raw as ParsedCtmEntry;
-  const id = asText(entry.id);
-  const titel =
-    typeof entry.title === "string"
-      ? entry.title
-      : asText(entry.title?.["#text"]);
-  if (!(id && titel)) {
+interface ParsedCtmPublication {
+  authority?: { "@_name"?: unknown };
+  contactPerson?: ParsedCtmContactPerson;
+  cpvCodes?: { cpvCode?: unknown };
+  etq?: string;
+  processTemplate?: string;
+}
+
+/** CTP-610: the publication's <contactPerson> element. Most CTM entries ship
+ * it with every attribute empty; the contact is only emitted when at least one
+ * of name/email/phone is actually populated. */
+const toContactPerson = (
+  raw: ParsedCtmContactPerson | undefined
+): SourceContact | null => {
+  if (!raw) {
     return null;
   }
-
-  const publication = entry.content?.publication;
-  const ctmEntry: CtmEntry = {
-    aanvraagnummer: extractCtmAanvraagnummer(id),
-    link: asText(entry.link?.["@_href"]) ?? id,
-    referentie: id,
-    titel,
-  };
-  const publicatiedatum = asText(entry.published);
-  if (publicatiedatum) {
-    ctmEntry.publicatiedatum = publicatiedatum;
+  const naam = [
+    asText(raw["@_firstName"]),
+    asText(raw["@_middleName"]),
+    asText(raw["@_lastName"]),
+  ]
+    .filter((part): part is string => part !== undefined)
+    .join(" ");
+  const email = asText(raw["@_email"]);
+  const { phone } = raw;
+  const telefoon = [
+    asText(phone?.["@_countryCode"]),
+    asText(phone?.["@_areaCode"]),
+    asText(phone?.["@_munber"]),
+  ]
+    .filter((part): part is string => part !== undefined)
+    .join("");
+  if (!(naam || email || telefoon)) {
+    return null;
   }
+  return {
+    email: email ?? null,
+    naam: naam || null,
+    telefoon: telefoon || null,
+  };
+};
+
+const applyPublicationFields = (
+  ctmEntry: CtmEntry,
+  publication: ParsedCtmPublication | undefined
+): void => {
   const organisatie = asText(publication?.authority?.["@_name"]);
   if (organisatie) {
     ctmEntry.organisatie = organisatie;
@@ -114,6 +148,35 @@ const toCtmEntry = (raw: unknown): CtmEntry | null => {
   if (cpv) {
     ctmEntry.cpv = cpv;
   }
+  const contactPerson = toContactPerson(publication?.contactPerson);
+  if (contactPerson) {
+    ctmEntry.contactpersonen = [contactPerson];
+  }
+};
+
+const toCtmEntry = (raw: unknown): CtmEntry | null => {
+  // SAFETY: Atom entry shape per eu-supply CTM feed sample (see docs/sources/ctm.md).
+  const entry = raw as ParsedCtmEntry;
+  const id = asText(entry.id);
+  const titel =
+    typeof entry.title === "string"
+      ? entry.title
+      : asText(entry.title?.["#text"]);
+  if (!(id && titel)) {
+    return null;
+  }
+
+  const ctmEntry: CtmEntry = {
+    aanvraagnummer: extractCtmAanvraagnummer(id),
+    link: asText(entry.link?.["@_href"]) ?? id,
+    referentie: id,
+    titel,
+  };
+  const publicatiedatum = asText(entry.published);
+  if (publicatiedatum) {
+    ctmEntry.publicatiedatum = publicatiedatum;
+  }
+  applyPublicationFields(ctmEntry, entry.content?.publication);
   return ctmEntry;
 };
 

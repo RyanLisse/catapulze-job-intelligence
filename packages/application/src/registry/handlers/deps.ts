@@ -5,6 +5,7 @@ import type { SpottWriteClient } from "../../export/spott/client";
 import type {
   BronOverlapReader,
   BronRunStatsReader,
+  MartsReader,
   ScrapeRunReader,
   SliceAStores,
 } from "../stores/types";
@@ -33,6 +34,12 @@ export interface SourcingAssessmentAttestationPayload {
 export interface SliceAHandlerDeps {
   readonly bronOverlapReader?: BronOverlapReader;
   readonly bronRunStatsReader?: BronRunStatsReader;
+  /**
+   * Read-only analytics port over `marts` (Marktvragen / JI-DSH-07). Absent
+   * means the deployment has no marts database — the four marts capabilities
+   * then fail closed as unavailable rather than silently degrading.
+   */
+  readonly martsReader?: MartsReader;
   readonly scrapeRunReader?: ScrapeRunReader;
   readonly bronnen: {
     getById: (bronId: string) => Promise<PublicBronView | null>;

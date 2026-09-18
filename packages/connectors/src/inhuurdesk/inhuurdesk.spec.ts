@@ -11,7 +11,10 @@ import {
 
 import { createInhuurdeskClient, inhuurdeskBronReferentie } from "./client";
 import type { InhuurdeskClient } from "./client";
-import { projectInhuurdeskAssignment } from "./connector";
+import {
+  projectInhuurdeskAssignment,
+  projectInhuurdeskContacts,
+} from "./connector";
 import { hashInhuurdeskListingItem } from "./hash";
 import type { InhuurdeskAssignment, InhuurdeskFetchedPayload } from "./types";
 
@@ -22,6 +25,64 @@ const retryPolicy = {
   maxDelayMs: 0,
   multiplier: 1,
 };
+
+describe("Inhuurdesk contact projection (CTP-610)", () => {
+  it("folds the nested recruiter object plus flat fallbacks and requester", () => {
+    expect(
+      projectInhuurdeskContacts({
+        id: "a1",
+        recruiter: {
+          email: "nested@example.invalid",
+          firstName: "P.",
+          functionTitle: "Recruiter",
+          lastName: "Persoon",
+        },
+        recruiterPhoneNumber: "+31000000000",
+        requesterEmail: "aanvrager@example.invalid",
+        title: "t",
+      })
+    ).toEqual([
+      {
+        email: "nested@example.invalid",
+        naam: "P. Persoon",
+        rol: "Recruiter",
+        telefoon: "+31000000000",
+      },
+      { email: "aanvrager@example.invalid", rol: "aanvrager" },
+    ]);
+  });
+
+  it("uses the flat recruiter slots when recruiter is not an object", () => {
+    expect(
+      projectInhuurdeskContacts({
+        id: "a2",
+        recruiter: null,
+        recruiterEmail: "flat@example.invalid",
+        title: "t",
+      })
+    ).toEqual([
+      {
+        email: "flat@example.invalid",
+        naam: null,
+        rol: null,
+        telefoon: null,
+      },
+    ]);
+  });
+
+  it("returns null when every contact slot is empty (the fixture state)", () => {
+    expect(
+      projectInhuurdeskContacts({
+        id: "a3",
+        recruiter: null,
+        recruiterEmail: null,
+        recruiterPhoneNumber: null,
+        requesterEmail: "",
+        title: "t",
+      })
+    ).toBeNull();
+  });
+});
 
 describe("Inhuurdesk connector", () => {
   it("uses the platform UUID as bronReferentie", () => {
@@ -228,6 +289,11 @@ describe("Inhuurdesk listing hash coverage (RJC-357 / RJC-401)", () => {
       { clientNameSlug: "gemeente-amsterdam" },
       { closingDateClient: "2026-09-09T12:00:00" },
       { closingDateInvoice: "2026-09-09T12:00:00" },
+      {
+        contactpersonen: [
+          { email: "recruiter@example.invalid", naam: "R. Cruiter" },
+        ],
+      },
       { content: "<p>Andere omschrijving</p>" },
       { endDate: "2027-01-01T00:00:00" },
       { hasMaxRate: true },

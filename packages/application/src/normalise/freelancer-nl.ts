@@ -24,6 +24,20 @@ export const parseFreelancerNlDate = (
     : UNKNOWN;
 };
 
+const GEPLAATST_PATTERN = /^geplaatst\s+(?<date>.+)$/iu;
+
+/** The `geplaatst` label carries either a real DD-MM-YYYY date or a relative
+ * phrase ("Geplaatst 12 uur geleden"). Only the dated form is a publication
+ * date; a relative phrase can never become one honestly. */
+const publicatiedatumOf = (geplaatst?: string): string | null => {
+  const match = GEPLAATST_PATTERN.exec(geplaatst?.trim() ?? "");
+  if (!match?.groups) {
+    return null;
+  }
+  const parsed = parseFreelancerNlDate(match.groups.date);
+  return parsed === UNKNOWN ? null : parsed;
+};
+
 const unknownTarief: NormalisedTarief = {
   eenheid: UNKNOWN,
   max: UNKNOWN,
@@ -70,6 +84,7 @@ export const parseFreelancerNlPayload = (
       {
         categorie: detail.categorie ?? null,
         geplaatst: detail.geplaatst ?? null,
+        publicatiedatum: publicatiedatumOf(detail.geplaatst),
         reacties: detail.reacties ?? listing.reacties ?? null,
         skills: skills.length > 0 ? skills : null,
         soort_budget: detail.soortBudget ?? listing.budget ?? null,

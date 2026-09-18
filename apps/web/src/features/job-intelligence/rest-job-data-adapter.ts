@@ -322,7 +322,11 @@ export const createRestJobIntelligence = ({
         previewFallbackAllowed
       ),
     ]);
-    const rawPreview = await loadRawPreview(detail.aanvraag.rawPayloadRef);
+    // CTP-610: raw payloads embed contactpersonen and read_raw is recruiter-
+    // gated; a 403 on `full` means the raw read would fail the same way.
+    const rawPreview = previewFallbackAllowed
+      ? undefined
+      : await loadRawPreview(detail.aanvraag.rawPayloadRef);
 
     return mapAanvraagToJobListing({
       aanvraag: detail.aanvraag,

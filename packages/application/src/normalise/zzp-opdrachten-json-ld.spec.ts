@@ -24,7 +24,7 @@ describe("normaliseJsonLdObservation -- ZZP-Opdrachten", () => {
     const payload: JsonLdFetchedPayload = {
       jobPosting: detail.jobPosting,
       labelBlock: detail.labelBlock,
-      parserVersion: "zzp-opdrachten/v1",
+      parserVersion: "zzp-opdrachten/v2",
       slug: "zzp-opdrachten",
       url,
     };

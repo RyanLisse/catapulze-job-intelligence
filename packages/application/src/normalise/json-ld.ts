@@ -6,10 +6,15 @@ import type {
   JsonLdValue,
 } from "@ji/connectors/json-ld";
 import { UNKNOWN } from "@ji/domain";
+import type { Contactpersoon } from "@ji/domain";
 import { resolveLifecycleStatus } from "@ji/domain/lifecycle";
 
+import { contactpersoonBeleidVoor } from "../sources/contactpersoon-beleid";
+import { pushUniqueContactpersoon, toContactpersoon } from "./contactpersonen";
+import { toCanonicalEmploymentTypes } from "./contract-type";
 import { formatHoursPerWeek } from "./hours";
 import { toCanonicalProvincie } from "./provincie";
+import type { Provincie } from "./provincie";
 import { normaliseSkills } from "./skills";
 import { parseTariefFromText } from "./tarief";
 import {
@@ -21,21 +26,56 @@ import {
 } from "./types";
 import type { NormalisedAanvraagDraft } from "./types";
 
-// An array-valued employmentType (seen in the wild: some sources publish
-// ["FULL_TIME", "CONTRACTOR"] instead of a single string) is not a string, so
-// asText returns "" for it and the caller falls through to null/UNKNOWN. That
-// leaves the prose classifier (classifyContractAndWork) as the only path to a
-// contracttype for those records; documented here, not changed by CTP-514.
 const asText = (value: JsonLdValue | undefined): string =>
   typeof value === "string" ? value : "";
 
 const asTextOrNull = (value: JsonLdValue | undefined): string | null =>
   asText(value) || null;
 
+/** An `employmentType` may be a single token or an array (seen in the wild:
+ * ["TEMPORARY", "FULL_TIME"], ["OTHER"]). Only the string entries are
+ * published tokens; anything else is dropped rather than stringified. */
+const asTextList = (value: JsonLdValue | undefined): string[] => {
+  if (typeof value === "string") {
+    return value.trim() === "" ? [] : [value];
+  }
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.filter(
+    (entry): entry is string => typeof entry === "string" && entry.trim() !== ""
+  );
+};
+
 const asNode = (value: JsonLdValue | undefined): JsonLdNode | undefined =>
   value && typeof value === "object" && !Array.isArray(value)
     ? value
     : undefined;
+
+/** Collects the education-level text a JobPosting publishes under
+ * `educationRequirements` or `qualifications`. Schema.org allows a string
+ * ("hbo/wo"), a string list (["MBO", "HBO"]), an
+ * `EducationalOccupationalCredential` node (level under `credentialCategory`,
+ * e.g. Intermediair's "bachelor degree"), or a list mixing those. Every
+ * published level is kept verbatim, deduped, and joined the way sources
+ * themselves write level lists ("MBO/HBO"). English credential categories
+ * stay verbatim -- translating "bachelor degree" to a Dutch level would be a
+ * mapping the source did not publish. */
+const educationLevelText = (value: JsonLdValue | undefined): string | null => {
+  const entries = Array.isArray(value) ? value : [value];
+  const levels: string[] = [];
+  for (const entry of entries) {
+    const text =
+      typeof entry === "string"
+        ? entry
+        : asText(asNode(entry)?.credentialCategory);
+    const trimmed = text.trim();
+    if (trimmed && !levels.includes(trimmed)) {
+      levels.push(trimmed);
+    }
+  }
+  return levels.length > 0 ? levels.join("/") : null;
+};
 
 const DUTCH_MONTHS = new Map<string, string>([
   ["januari", "01"],
@@ -216,16 +256,27 @@ const tariefFromBaseSalary = (
  * bare number, so `parseWeeklyHoursRange` downstream would otherwise treat
  * the whole string as unparseable. */
 const HOURS_TEXT_PATTERN =
-  /(?<min>\d+(?:[.,]\d+)?)\s*(?:[-–]\s*(?<max>\d+(?:[.,]\d+)?))?\s*u(?:ur)?\b/iu;
+  /(?<min>\d+(?:[.,]\d+)?)\s*(?:[-–]\s*(?<max>\d+(?:[.,]\d+)?))?\s*(?:u(?:ur)?|hours?|hrs?)\b/iu;
 
-/** Extracts a clean `formatHoursPerWeek`-shaped string ("36" or "32-40") from
- * free-text weekly-hours copy. Text without a recognisable hour count (e.g.
- * absent, or "bespreekbaar" alone) yields `null` -- never a guess. */
+/** A whole-field bare number or numeric range: "40" (Stedin), "32-36"
+ * (ProRail). Anchored to the whole string so a schedule like "9am-5pm" never
+ * reads as weekly hours. */
+const BARE_HOURS_PATTERN =
+  /^(?<min>\d+(?:[.,]\d+)?)(?:\s*[-–]\s*(?<max>\d+(?:[.,]\d+)?))?$/u;
+
+/** Extracts a clean `formatHoursPerWeek`-shaped string ("36" or "32–40") from
+ * free-text weekly-hours copy. Dutch (`u`, `uur`), English (`hour`, `hours`,
+ * `hr`) and -- only when the whole field is numeric -- bare numbers are
+ * recognised, because the field itself (`workHours`, label-block
+ * `urenPerWeek`) already declares the unit. Text without a recognisable hour
+ * count (e.g. absent, "bespreekbaar", or "Full time uur per week") yields
+ * `null` -- never a guess. */
 const hoursTextToPerWeek = (text: string | null | undefined): string | null => {
   if (!text) {
     return null;
   }
-  const match = HOURS_TEXT_PATTERN.exec(text);
+  const match =
+    HOURS_TEXT_PATTERN.exec(text) ?? BARE_HOURS_PATTERN.exec(text.trim());
   if (!match?.groups?.min) {
     return null;
   }
@@ -310,6 +361,152 @@ const resolveOpdrachtgever = (
       };
 };
 
+const asContactPoint = (value: JsonLdValue | undefined): JsonLdNode[] => {
+  if (Array.isArray(value)) {
+    return value.filter(
+      (entry): entry is JsonLdNode =>
+        typeof entry === "object" && entry !== null && !Array.isArray(entry)
+    );
+  }
+  const node = asNode(value);
+  return node ? [node] : [];
+};
+
+interface ContactpersonenResolution {
+  readonly contactpersonen: Contactpersoon[];
+  readonly sourcePath: string;
+}
+
+/** Maps a schema.org `ContactPoint` node (`contactPoint` or
+ * `applicationContact`) to the canonical contact shape. */
+const fromContactPoint = (point: JsonLdNode): Contactpersoon | null =>
+  toContactpersoon({
+    email: asTextOrNull(point.email),
+    naam: asTextOrNull(point.name),
+    rol: asTextOrNull(point.contactType),
+    telefoon: asTextOrNull(point.telephone),
+  });
+
+/** CTP-610: resolves this observation's contactpersonen from every place a
+ * source publishes them:
+ * - `payload.contactpersonen` (synthesizer output -- Alliander API fields,
+ *   ASML hiringManager, Techniekwerkt vike state, ProRail/VolkerWessels
+ *   recruiter blocks)
+ * - `hiringOrganization.contactPoint` (DataJobs, Haert, TBI)
+ * - `jobPosting.applicationContact` (schema.org property on the JobPosting
+ *   itself -- TBI publishes it, ProRail scrubs it from fixtures)
+ * - `hiringOrganization.email`/`telephone` (org-level channel when no
+ *   contactPoint exists -- Intermediair's org node carries the slots)
+ * All paths merge and dedupe on (naam, email); the bron's
+ * `contactpersoon_beleid` decides whether the list may be stored at all. */
+const resolveContactpersonen = (
+  payload: JsonLdFetchedPayload,
+  jobPosting: JsonLdNode,
+  hiringOrganization: JsonLdNode | undefined
+): ContactpersonenResolution | null => {
+  if (!contactpersoonBeleidVoor(payload.slug).extractie) {
+    return null;
+  }
+  const contactpersonen: Contactpersoon[] = [];
+  const sourcePaths: string[] = [];
+  for (const contact of payload.contactpersonen ?? []) {
+    pushUniqueContactpersoon(contactpersonen, toContactpersoon(contact));
+  }
+  if (contactpersonen.length > 0) {
+    sourcePaths.push("payload.contactpersonen");
+  }
+  const beforeContactPoint = contactpersonen.length;
+  for (const point of asContactPoint(hiringOrganization?.contactPoint)) {
+    pushUniqueContactpersoon(contactpersonen, fromContactPoint(point));
+  }
+  if (contactpersonen.length > beforeContactPoint) {
+    sourcePaths.push("jobPosting.hiringOrganization.contactPoint");
+  }
+  const beforeApplicationContact = contactpersonen.length;
+  for (const point of asContactPoint(jobPosting.applicationContact)) {
+    pushUniqueContactpersoon(contactpersonen, fromContactPoint(point));
+  }
+  if (contactpersonen.length > beforeApplicationContact) {
+    sourcePaths.push("jobPosting.applicationContact");
+  }
+  if (hiringOrganization) {
+    // Org-level channel fallback: only an email/telephone makes the org a
+    // reachable contact. A bare org name is not a contact channel — without
+    // this guard every vacancy would list its hiringOrganization as a
+    // contactpersoon (proven by the spec fixture's "Spec Org" leak).
+    const orgChannel =
+      asTextOrNull(hiringOrganization.email) ??
+      asTextOrNull(hiringOrganization.telephone);
+    if (orgChannel) {
+      const orgContact = toContactpersoon({
+        email: asTextOrNull(hiringOrganization.email),
+        naam: asTextOrNull(hiringOrganization.name),
+        telefoon: asTextOrNull(hiringOrganization.telephone),
+      });
+      const before = contactpersonen.length;
+      pushUniqueContactpersoon(contactpersonen, orgContact);
+      if (contactpersonen.length > before) {
+        sourcePaths.push("jobPosting.hiringOrganization");
+      }
+    }
+  }
+  return contactpersonen.length > 0
+    ? { contactpersonen, sourcePath: sourcePaths.join("+") }
+    : null;
+};
+
+interface JsonLdBronSpecifiekInput {
+  employmentTypes: string[];
+  jobPosting: JsonLdNode;
+  labelBlock: Record<string, string>;
+  opdrachtgever: OpdrachtgeverResolution;
+  provincie: Provincie | null;
+  skills: string[];
+  slug: string;
+  url: string;
+}
+
+const jsonLdBronSpecifiekOf = (input: JsonLdBronSpecifiekInput) => {
+  const {
+    employmentTypes,
+    jobPosting,
+    labelBlock,
+    opdrachtgever,
+    provincie,
+    skills,
+    slug,
+    url,
+  } = input;
+  return {
+    contract_type:
+      typeof jobPosting.employmentType === "string"
+        ? asTextOrNull(jobPosting.employmentType)
+        : null,
+    contracttype: toCanonicalEmploymentTypes(employmentTypes),
+    eind_datum: labelBlock.eindDatum ?? null,
+    eindklant_naam: opdrachtgever.eindklantNaam,
+    employment_type: Array.isArray(jobPosting.employmentType)
+      ? employmentTypes.join(", ") || null
+      : null,
+    identifier: jobPosting.identifier ?? null,
+    label_block: labelBlock,
+    opleidingsniveau:
+      educationLevelText(jobPosting.educationRequirements) ??
+      educationLevelText(jobPosting.qualifications),
+    provincie,
+    publicatiedatum: asTextOrNull(jobPosting.datePosted),
+    referentienummer: labelBlock.referentienummer ?? null,
+    skills,
+    slug,
+    sluitings_datum: labelBlock.sluitingsDatum ?? null,
+    uren_per_week:
+      hoursTextToPerWeek(labelBlock.urenPerWeek) ??
+      hoursTextToPerWeek(asTextOrNull(jobPosting.workHours)),
+    url,
+    valid_through: asTextOrNull(jobPosting.validThrough),
+  };
+};
+
 export const parseJsonLdPayload = (
   payload: JsonLdFetchedPayload,
   contentHash: string
@@ -317,6 +514,11 @@ export const parseJsonLdPayload = (
   const { jobPosting, labelBlock, parserVersion, url } = payload;
   const descriptionText = stripHtml(asText(jobPosting.description));
   const hiringOrganization = asNode(jobPosting.hiringOrganization);
+  const contactpersonen = resolveContactpersonen(
+    payload,
+    jobPosting,
+    hiringOrganization
+  );
   // Schema.org permits one Place or an array of Places. TBI publishes the
   // latter; use the first published address rather than dropping the location.
   const firstJobLocation = Array.isArray(jobPosting.jobLocation)
@@ -366,8 +568,9 @@ export const parseJsonLdPayload = (
   // not concise skill tags, so they are left out -- mapping them would be
   // free-text mining, not the structured-list mapping F15 asks for.
   const skills = normaliseSkills(parseListItems(labelBlock.competenties));
+  const employmentTypes = asTextList(jobPosting.employmentType);
 
-  return {
+  const draft: NormalisedAanvraagDraft = {
     beschrijving: field(
       descriptionText,
       parserVersion,
@@ -375,24 +578,16 @@ export const parseJsonLdPayload = (
     ),
     bronReferentie: field(urlSlugBronReferentie(url), parserVersion, "url"),
     bronSpecifiek: field(
-      {
-        contract_type: asTextOrNull(jobPosting.employmentType),
-        eind_datum: labelBlock.eindDatum ?? null,
-        eindklant_naam: opdrachtgever.eindklantNaam,
-        identifier: jobPosting.identifier ?? null,
-        label_block: labelBlock,
+      jsonLdBronSpecifiekOf({
+        employmentTypes,
+        jobPosting,
+        labelBlock,
+        opdrachtgever,
         provincie,
-        publicatiedatum: asTextOrNull(jobPosting.datePosted),
-        referentienummer: labelBlock.referentienummer ?? null,
         skills,
         slug: payload.slug,
-        sluitings_datum: labelBlock.sluitingsDatum ?? null,
-        uren_per_week:
-          hoursTextToPerWeek(labelBlock.urenPerWeek) ??
-          hoursTextToPerWeek(asTextOrNull(jobPosting.workHours)),
         url,
-        valid_through: asTextOrNull(jobPosting.validThrough),
-      },
+      }),
       parserVersion,
       "jobPosting"
     ),
@@ -424,6 +619,14 @@ export const parseJsonLdPayload = (
     tarief,
     titel: field(asText(jobPosting.title), parserVersion, "jobPosting.title"),
   };
+  if (contactpersonen) {
+    draft.contactpersonen = field(
+      contactpersonen.contactpersonen,
+      parserVersion,
+      contactpersonen.sourcePath
+    );
+  }
+  return draft;
 };
 
 export const decodeJsonLdPayload = (body: Uint8Array): JsonLdFetchedPayload =>

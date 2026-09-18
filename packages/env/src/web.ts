@@ -3,6 +3,7 @@ import { createEnv } from "@t3-oss/env-nextjs";
 import { resolveInternalServerUrl } from "./internal-server-url";
 import {
   HttpUrlString,
+  NonEmptyString,
   onEnvValidationError,
   Schema,
   toEnvSchema,
@@ -22,6 +23,8 @@ export const webEnvEffectSchemas = {
   INTERNAL_SERVER_URL: Schema.optional(HttpUrlString),
   NEXT_PUBLIC_SERVER_URL: UrlString,
   NEXT_PUBLIC_USE_FIXTURES: Schema.optional(Schema.String),
+  /** Server-only: Trigger.dev secret for chat session + token server actions. */
+  TRIGGER_SECRET_KEY: Schema.optional(NonEmptyString),
 } as const;
 
 export const env = createEnv({
@@ -43,6 +46,7 @@ export const env = createEnv({
     INTERNAL_SERVER_URL: process.env.INTERNAL_SERVER_URL,
     NEXT_PUBLIC_SERVER_URL: process.env.NEXT_PUBLIC_SERVER_URL,
     NEXT_PUBLIC_USE_FIXTURES: process.env.NEXT_PUBLIC_USE_FIXTURES,
+    TRIGGER_SECRET_KEY: process.env.TRIGGER_SECRET_KEY,
   },
   server: {
     APP_RELEASE_SHA: toEnvSchema(webEnvEffectSchemas.APP_RELEASE_SHA),
@@ -52,6 +56,10 @@ export const env = createEnv({
     // http(s) only: "server:3000" is a *valid* WHATWG URL (scheme "server"),
     // so a bare URL check would accept the classic forgotten-scheme typo.
     INTERNAL_SERVER_URL: toEnvSchema(webEnvEffectSchemas.INTERNAL_SERVER_URL),
+    // Server-only Trigger.dev secret (marktvragen chat server actions).
+    // Optional so local dev without a Trigger env keeps booting; the actions
+    // fail fast with a clear error when it is called while unset.
+    TRIGGER_SECRET_KEY: toEnvSchema(webEnvEffectSchemas.TRIGGER_SECRET_KEY),
   },
 });
 

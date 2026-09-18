@@ -16,6 +16,6 @@ export const stedinConfig: JsonLdConnectorConfig = {
   ],
   listingFixturePath: "stedin/listing-page-0.json",
   liveEnvVar: "STEDIN_LIVE",
-  parserVersion: "stedin/v1",
+  parserVersion: "stedin/v2",
   slug: "stedin",
 };

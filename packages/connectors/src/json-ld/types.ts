@@ -1,3 +1,5 @@
+import type { SourceContact } from "../contract";
+
 export type JsonLdPrimitive = boolean | null | number | string;
 
 export type JsonLdValue =
@@ -51,18 +53,42 @@ export interface JsonLdLabelBlockField {
   source?: "description" | "html";
 }
 
+/** CTP-610: re-exported from the connector contract -- contactpersonen are a
+ * cross-family shape (json-ld synthesizers, CTM Atom, …), not a json-ld-only
+ * concept. */
+export type { SourceContact } from "../contract";
+
+/** A JobPosting (+label-block fields) rebuilt from non-JSON-LD detail data —
+ * framework state (`__NEXT_DATA__`, `vike_pageContext`), embedded payloads, or
+ * a JSON API body — by a source's `detailSynthesizer`. A synthesizer may also
+ * return only `contactpersonen` (e.g. a recruiter block outside the JSON-LD
+ * node) with `jobPosting: null`, and it runs on every detail body so those
+ * contacts are extracted even when an explicit JobPosting exists. */
+export interface DetailSynthesis {
+  contactpersonen?: SourceContact[];
+  jobPosting: JsonLdNode | null;
+  labelBlock: Record<string, string>;
+}
+
 export interface JsonLdConnectorConfig {
   /** Absolute base URL relative hrefs are resolved against for `discovery.kind === "listing"`. */
   detailBaseUrl?: string;
   /** Fixture path per discovered detail URL, keyed by the exact URL string. */
   detailFixtures?: Record<string, string>;
+  /** Rewrites the discovered detail URL for the live fetch only (e.g. Alliander's
+   * public `/vacatures/<slug>/jr<id>` page is client-rendered; the same record is
+   * served at `/api/vacancy/JR<id>`). The observation keeps the public URL. */
+  detailUrlRewrite?: { pattern: RegExp; replace: string };
   discovery: JsonLdDiscoveryConfig;
   /** URLs matching any of these are dropped from discovery (facet/order/pagination links). */
   excludePatterns?: RegExp[];
-  /** Opt-in synthesis for detail pages that expose JobPosting data in framework state. */
-  synthesizeFromNextJobData?: boolean;
-  /** Opt-in synthesis for Vike pages carrying the vacancy in `vike_pageContext.pageProps.job`. */
-  synthesizeFromVikeJobData?: boolean;
+  /** Opt-in synthesis for detail bodies that carry JobPosting data outside
+   * `ld+json` (Next.js `__NEXT_DATA__`, Vike `vike_pageContext`, a JSON API
+   * record, or embedded page state). Its `jobPosting` is used only when no
+   * explicit JobPosting node exists; it runs on every detail body so a
+   * synthesizer may also surface `contactpersonen` alongside explicit
+   * JSON-LD. */
+  detailSynthesizer?: (body: string, url: string) => DetailSynthesis | null;
   labelBlock?: Record<string, JsonLdLabelBlockField>;
   /** Fixture path for the sitemap/listing page when not running live. */
   listingFixturePath?: string;
@@ -76,6 +102,10 @@ export interface JsonLdConnectorConfig {
 
 /** Fetched detail-page payload, stored as the connector's raw JSON observation body. */
 export interface JsonLdFetchedPayload {
+  /** CTP-610: contactpersonen the source published on this detail (synthesizer
+   * output or, in normalise, `hiringOrganization.contactPoint`). Absent/empty
+   * for sources without contact fields. */
+  contactpersonen?: SourceContact[];
   jobPosting: JsonLdNode;
   labelBlock: Record<string, string>;
   parserVersion: string;

@@ -302,3 +302,85 @@ describe("curated contract period fields", () => {
     expect(markup).toContain(">zo spoedig mogelijk</span>");
   });
 });
+
+describe("CTP-610 contactpersonen + duplicaat-indicator", () => {
+  it("renders contactpersonen with naam, rol, mailto email and telefoon", () => {
+    if (!plainJob) {
+      throw new Error("Expected job-001 fixture");
+    }
+    const markup = renderToStaticMarkup(
+      createElement(JobDetail, {
+        descriptionId: "d",
+        job: {
+          ...plainJob,
+          contactpersonen: [
+            {
+              email: "redacted@example.invalid",
+              naam: "A. de Vries",
+              rol: "recruiter",
+              telefoon: "+31000000000",
+            },
+          ],
+        },
+        onClose: () => {},
+        titleId: "t",
+      })
+    );
+    expect(markup).toContain(">Contactpersonen<");
+    expect(markup).toContain("A. de Vries");
+    expect(markup).toContain("recruiter");
+    expect(markup).toContain('href="mailto:redacted@example.invalid"');
+    expect(markup).toContain("+31000000000");
+  });
+
+  it("hides the contactpersonen section when the bron published none", () => {
+    if (!plainJob) {
+      throw new Error("Expected job-001 fixture");
+    }
+    const markup = renderToStaticMarkup(
+      createElement(JobDetail, {
+        descriptionId: "d",
+        job: { ...plainJob, contactpersonen: [] },
+        onClose: () => {},
+        titleId: "t",
+      })
+    );
+    expect(markup).not.toContain(">Contactpersonen<");
+  });
+
+  it("shows a Duplicaat badge on detail and list rows when dedupGroepId is set", () => {
+    if (!plainJob) {
+      throw new Error("Expected job-001 fixture");
+    }
+    const duplicateJob: JobListing = {
+      ...plainJob,
+      dedupGroepId: "dedup-group-1",
+    };
+    const detail = renderToStaticMarkup(
+      createElement(JobDetail, {
+        descriptionId: "d",
+        job: duplicateJob,
+        onClose: () => {},
+        titleId: "t",
+      })
+    );
+    const results = renderToStaticMarkup(
+      createElement(JobResults, {
+        jobs: [duplicateJob],
+        onSelect: () => {},
+        selectedJobId: null,
+      })
+    );
+    expect(detail).toContain(">Duplicaat<");
+    expect(results).toContain(">Duplicaat<");
+
+    const withoutGroup = renderToStaticMarkup(
+      createElement(JobResults, {
+        jobs: [plainJob],
+        onSelect: () => {},
+        selectedJobId: null,
+      })
+    );
+    expect(withoutGroup).not.toContain(">Duplicaat<");
+  });
+});

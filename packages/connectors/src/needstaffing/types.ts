@@ -1,3 +1,5 @@
+import type { SourceContact } from "../contract";
+
 export interface NeedstaffingInfoFields {
   deadline?: string;
   locatie?: string;
@@ -33,6 +35,12 @@ export interface NeedstaffingDetail extends NeedstaffingInfoFields {
    * "Overtuigingskracht", "Inhoudelijke scherpte", "Analytisch sterk").
    * Absent when the detail page has no Competenties section. */
   competenties?: string[];
+  /** CTP-610: the `.vacancy-contact-info` block is a real contact channel
+   * published for aanbieders (name + mailto/tel links). It stays out of
+   * `raw.html` (that field is description-only by contract) and is folded
+   * here instead. Committed fixtures carry no block (mechanically
+   * stripped), so populated entries only flow from live captures. */
+  contactpersonen?: SourceContact[];
   referentie?: string;
   tariefMax?: string;
   tariefMin?: string;
@@ -46,7 +54,7 @@ export interface NeedstaffingFetchedPayload {
   raw: { html: string };
 }
 
-export const NEEDSTAFFING_PARSER_VERSION = "needstaffing/v4" as const;
+export const NEEDSTAFFING_PARSER_VERSION = "needstaffing/v5" as const;
 
 export const NEEDSTAFFING_OPDRACHTEN_PATH = "/Opdrachten";
 

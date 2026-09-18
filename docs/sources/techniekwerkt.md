@@ -1,7 +1,7 @@
 # Techniekwerkt — ingest-recept
 
 Status: **connector toegevoegd** — adapter-categorie `json-ld` met
-`synthesizeFromVikeJobData` (CTP-551).
+`detailSynthesizer` (CTP-551).
 
 ## Endpoints
 

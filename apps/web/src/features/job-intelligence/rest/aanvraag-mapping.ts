@@ -7,6 +7,7 @@ import type {
   JobMarkering,
   JobRatePeriod,
   JobSource,
+  JobSourceRecord,
 } from "../types";
 import { bronNameToSource } from "./bron-catalog";
 import type { BronCatalogEntry } from "./bron-catalog";
@@ -22,7 +23,17 @@ export interface AanvraagPreview {
   readonly bronId: string;
   readonly bronReferentie: string;
   readonly bronUrl?: string | null;
+  /** CTP-610: contactpersonen the source published (full mode only). */
+  readonly contactpersonen?: readonly {
+    readonly email: string | null;
+    readonly naam: string | null;
+    readonly rol: string | null;
+    readonly telefoon: string | null;
+  }[];
   readonly contracttype?: string | null;
+  /** CTP-610: dedup-group identity — present in preview so list rows can
+   * badge duplicates without recruiter detail. */
+  readonly dedupGroepId?: string | null;
   readonly duur?: string | null;
   readonly enrichedFields?: readonly {
     readonly confidence: number;
@@ -199,6 +210,69 @@ const mapRemote = (werkvorm: string | null | undefined): boolean | null => {
   return null;
 };
 
+const bronUrlOrFallback = (aanvraag: AanvraagPreview): string => {
+  const candidate = aanvraag.bronUrl?.trim() ?? "";
+  if (candidate.length > 0 && isSafeHref(candidate)) {
+    return candidate;
+  }
+  return `#bron/${aanvraag.bronId}`;
+};
+
+const toSourceRecord = (input: {
+  readonly aanvraag: AanvraagPreview;
+  readonly source: { readonly displayName: string; readonly name: JobSource };
+  readonly versie: AanvraagVersieView | null;
+}): JobSourceRecord => ({
+  displayName: input.source.displayName,
+  firstSeenAt: null,
+  id: `${input.source.name}-${input.aanvraag.bronReferentie}`,
+  lastSeenAt: null,
+  name: input.source.name,
+  normalizationVersion: input.versie?.normalisatieversie ?? "onbekend",
+  reference: input.aanvraag.bronReferentie,
+  scrapeRunId: input.aanvraag.scrapeRunId,
+  url: bronUrlOrFallback(input.aanvraag),
+  validFrom: input.versie?.geldigVan ?? null,
+  validTo: input.versie?.geldigTot ?? null,
+});
+
+/* oxlint-disable anti-slop/no-unknown-parameters, anti-slop/no-runtime-typeof, anti-slop/no-unsafe-dictionary-type -- these guards ARE the I/O boundary: the aanvraag envelope is UnknownRecord on the wire and `contactpersonen` gets its concrete shape established here before the renderer reads it. */
+const isContactRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+
+const isNonBlankText = (value: unknown): value is string =>
+  typeof value === "string" && value.trim() !== "";
+/* oxlint-enable anti-slop/no-unknown-parameters, anti-slop/no-runtime-typeof, anti-slop/no-unsafe-dictionary-type */
+
+/** The envelope is UnknownRecord on the wire — a non-array `contactpersonen`
+ * or a null entry must not reach the renderer (.map would crash there). */
+const toJobContactpersonen = (
+  value: AanvraagPreview["contactpersonen"]
+): JobListing["contactpersonen"] => {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.flatMap((entry) => {
+    if (!isContactRecord(entry)) {
+      return [];
+    }
+    const email = isNonBlankText(entry.email) ? entry.email : null;
+    const naam = isNonBlankText(entry.naam) ? entry.naam : null;
+    const telefoon = isNonBlankText(entry.telefoon) ? entry.telefoon : null;
+    if (!(email || telefoon || naam)) {
+      return [];
+    }
+    return [
+      {
+        email,
+        naam,
+        rol: isNonBlankText(entry.rol) ? entry.rol : null,
+        telefoon,
+      },
+    ];
+  });
+};
+
 export const mapAanvraagToJobListing = (input: {
   readonly aanvraag: AanvraagPreview;
   readonly bronCatalog: ReadonlyMap<string, BronCatalogEntry>;
@@ -211,8 +285,10 @@ export const mapAanvraagToJobListing = (input: {
 
   return {
     closingAt: input.aanvraag.sluitingsdatum ?? null,
+    contactpersonen: toJobContactpersonen(input.aanvraag.contactpersonen),
     contractType: mapContractType(input.aanvraag.contracttype ?? null),
     country: input.aanvraag.locatieLand === "NL" ? "NL" : null,
+    dedupGroepId: input.aanvraag.dedupGroepId ?? null,
     description: input.aanvraag.beschrijving,
     duration: optionalText(input.aanvraag.duur),
     educationLevel: optionalText(input.aanvraag.opleidingsniveau),
@@ -230,25 +306,7 @@ export const mapAanvraagToJobListing = (input: {
     remote: mapRemote(input.aanvraag.werkvorm),
     skills: input.aanvraag.skills ?? [],
     sourceRecords: [
-      {
-        displayName: source.displayName,
-        firstSeenAt: null,
-        id: `${source.name}-${input.aanvraag.bronReferentie}`,
-        lastSeenAt: null,
-        name: source.name,
-        normalizationVersion: versie?.normalisatieversie ?? "onbekend",
-        reference: input.aanvraag.bronReferentie,
-        scrapeRunId: input.aanvraag.scrapeRunId,
-        url: (() => {
-          const candidate = input.aanvraag.bronUrl?.trim() ?? "";
-          if (candidate.length > 0 && isSafeHref(candidate)) {
-            return candidate;
-          }
-          return `#bron/${input.aanvraag.bronId}`;
-        })(),
-        validFrom: versie?.geldigVan ?? null,
-        validTo: versie?.geldigTot ?? null,
-      },
+      toSourceRecord({ aanvraag: input.aanvraag, source, versie }),
     ],
     startDate: optionalText(input.aanvraag.startDatum),
     status: mapApiStatus(input.aanvraag.status),

@@ -13,8 +13,13 @@ import type {
   RawPayloadRecord,
   RawPayloadStore,
 } from "@ji/application/registry";
+import {
+  contactpersoonBeleidVoor,
+  contactpersonenBinnenRetentie,
+  SOURCES,
+} from "@ji/application/sources";
 import type { ObjectStore } from "@ji/connectors";
-import type { AanvraagLifecycle } from "@ji/domain";
+import type { AanvraagLifecycle, Contactpersoon } from "@ji/domain";
 import type { BulkSearchDocumentLoader, SearchDocument } from "@ji/search";
 import { asc, eq, inArray } from "drizzle-orm";
 
@@ -81,6 +86,32 @@ const resolveCuratedFields = (
   werkvorm: row.werkvorm ?? bronFacts.werkvorm,
 });
 
+/** CTP-610: the stored jsonb is written from `Contactpersoon[]` at curate
+ * time; the bron's contactpersoon_beleid retention window is applied on the
+ * read path so a policy change takes effect without rewriting rows. */
+/** bron_id (uuid) → source slug for the contactpersoon_beleid lookup; an
+ * unregistered bron falls through to the default policy. */
+const SLUG_BY_BRON_ID = new Map<string, string>(
+  Object.values(SOURCES).map((definition) => [
+    definition.bronId,
+    definition.slug,
+  ])
+);
+
+const readContactpersonen = (row: AanvraagRow): Contactpersoon[] => {
+  const stored = Array.isArray(row.contactpersonen)
+    ? (row.contactpersonen as Contactpersoon[])
+    : [];
+  const beleid = contactpersoonBeleidVoor(
+    SLUG_BY_BRON_ID.get(row.bronId) ?? ""
+  );
+  return contactpersonenBinnenRetentie(
+    stored,
+    row.laatstGezienOp,
+    beleid.retentieDagen
+  );
+};
+
 const toAanvraagRecord = (
   row: AanvraagRow,
   versies: readonly AanvraagVersieRecord[]
@@ -92,6 +123,8 @@ const toAanvraagRecord = (
     bronId: row.bronId,
     bronReferentie: row.bronReferentie,
     bronUrl: row.bronUrl,
+    contactpersonen: readContactpersonen(row),
+    dedupGroepId: row.dedupGroepId,
     duur: bronFacts.duur,
     eindDatum: row.eindDatum,
     enrichedFields: [],

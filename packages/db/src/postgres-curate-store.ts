@@ -58,6 +58,10 @@ const emptyProvenance = (): StoredAanvraag["provenance"] => ({
   },
   bron_specifiek: { parserVersion: "postgres-curate-store", sourcePath: "n/a" },
   bron_url: { parserVersion: "postgres-curate-store", sourcePath: "n/a" },
+  contactpersonen: {
+    parserVersion: "postgres-curate-store",
+    sourcePath: "n/a",
+  },
   locatie_land: { parserVersion: "postgres-curate-store", sourcePath: "n/a" },
   locatie_tekst: { parserVersion: "postgres-curate-store", sourcePath: "n/a" },
   opdrachtgever_naam: {
@@ -91,6 +95,9 @@ const toStoredAanvraag = (
   // SAFETY: Drizzle jsonb for bron_specifiek matches BronSpecifiekJson at runtime.
   bronSpecifiek: row.bronSpecifiek as StoredAanvraag["bronSpecifiek"],
   bronUrl: row.bronUrl,
+  // SAFETY: the jsonb column stores Contactpersoon objects written by the
+  // application layer (CTP-610); the shape is the writer's contract.
+  contactpersonen: row.contactpersonen as StoredAanvraag["contactpersonen"],
   contentHash: row.contentHash,
   contracttype: row.contracttype,
   dedupGroepId: row.dedupGroepId,
@@ -212,6 +219,7 @@ export class PostgresCurateStore implements CurateStore {
         bronReferentie: input.bronReferentie,
         bronSpecifiek: input.bronSpecifiek,
         bronUrl: input.bronUrl,
+        contactpersonen: input.contactpersonen,
         contentHash: input.contentHash,
         contracttype: input.contracttype,
         dedupGroepId: input.dedupGroepId,
@@ -329,6 +337,7 @@ export class PostgresCurateStore implements CurateStore {
         bronReferentie: patch.bronReferentie,
         bronSpecifiek: patch.bronSpecifiek,
         bronUrl: patch.bronUrl,
+        contactpersonen: patch.contactpersonen,
         contentHash: patch.contentHash,
         contracttype: patch.contracttype,
         dedupGroepId: patch.dedupGroepId,
