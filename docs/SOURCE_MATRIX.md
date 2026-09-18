@@ -37,6 +37,7 @@ Verificatie 2026-08-27, read-only met headless Chrome + curl, geen logins, geen 
 | **Enexis** (werkenbij) | sitemap + JSON-LD JobPosting op detail | titel, locatie, salaris (maand), publicatiedatum, beschrijving (geen deadline/uren) | robots `Allow: /`; disclaimer geen scraping-clausule | 170 vacatures; connector `json-ld` (CTP-558) |
 | **Intermediair** (CTP-550) | `intermediair.nl/cdn/sitemaps/vacature.xml` (sitemap-index, hourly child) + JSON-LD JobPosting op `/vacature/<uuid>/<slug>` | titel, opdrachtgever, locatie, publicatie-/sluitingsdatum, dienstverband, salaris indien gepubliceerd | robots: zoek/paginatie-paden disallowed, sitemap-route toegestaan; `ClaudeBot` disallowed; DPG-consent-poort op browser-UA → live via ops-cookie | 2.480 vacature-URL's; connector `json-ld`; zie `sources/intermediair.md` |
 | **Planet Interim** (CTP-582) | `planetinterim.nl/opdrachten` + JSON-LD JobPosting op `/<slug>/<id>/p<cat>/default.html` | titel, locatie, publicatie-/sluitingsdatum, CONTRACTOR; tarief afwezig bij de bron | robots zonder Disallow (alleen TDM-preambule); paginering = ASP.NET-postback → nieuwste-pagina-dekking | 20 opdrachten zichtbaar; connector `json-ld`; zie `sources/planet-interim.md` |
+| **Haert** (Driessen Groep, CTP-607) | `haert.nl/sitemap.xml` (Drupal-urlset) + JSON-LD JobPosting op `/opdrachten/<slug>-<id>` | titel, locatie, publicatie-/sluitingsdatum, CONTRACTOR, **uurtarief** (`baseSalary` EUR/HOUR), opdracht-id; eindklant in tekst (niet gemined) | robots Drupal-default (opdracht-/sitemap-paden toegestaan); AV-PDF zonder scraping-/databankclausule → `te_toetsen` | 44 opdracht-URL's; connector `json-ld`; zie `sources/haert.md` |
 
 ### Rung 3 — Playwright met eigen leveranciersaccount · account regelen, dan activeren
 
@@ -79,7 +80,7 @@ Volledig bewijs (URL's, statuscodes, quotes): [`sources/inventory/msp-wave2.md`]
 | **Het Flexhuis** (CTP-546; Nash Squared) | NO-PUBLIC-SURFACE | `hetflexhuis.nl` → `flexhuisglobal.com/nl/`; robots/sitemap/opdrachten redirecten naar homepage | Sluiten; overlap met Harvey Nash NL verifiëren |
 | **Nétive VMS** (CTP-547, incl. DioR CTP-571) | NO-PUBLIC-SURFACE (platform) | `netive.nl` → `netivevms.com`; klantcases NS, BAM Flexplein, Pontoon, Maandag; geen publieke tenant-listing | Sluiten als platform-notitie |
 | **Brainnet** (CTP-548) | ALIAS(of Magnit) | 301 → `www.brainnet.nl` → 301 → `magnitglobal.com/nl` | Sluiten |
-| **Haert** (Driessen Groep; bijvangst) | PUBLIC→build-candidate, route JSON-LD | `haert.nl/opdrachten` Drupal-SSR, JobPosting JSON-LD met `baseSalary 125 EUR/HOUR`, `validThrough`, eindklant in tekst | Wave 3-kandidaat (nieuw issue), effort S |
+| **Haert** (Driessen Groep; bijvangst, CTP-607) | BUILD | `haert.nl/opdrachten` Drupal-SSR, JobPosting JSON-LD met `baseSalary` EUR/HOUR, `validThrough`, eindklant in tekst; sitemap-urlset als discovery (44 detail-URL's); zie rung-2-rij | Connector `haert` gebouwd |
 
 ### Wave 1B · board-inventaris (2026-09-17, CTP-550/551/553/576/582/586) · zie `sources/inventory/boards-wave1b.md`
 
