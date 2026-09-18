@@ -17,6 +17,7 @@ import { AANGEVULD_MIN_CONFIDENCE } from "./types";
 const fixtureSourceLabels: ReadonlyMap<string, string> = new Map([
   ["indeed", "Indeed"],
   ["inhuurdesk", "Inhuurdesk"],
+  ["nationale-vacaturebank", "Nationale Vacaturebank"],
   ["tenderned", "TenderNed"],
   ["werkenvoor", "Werken voor Nederland"],
 ]);
