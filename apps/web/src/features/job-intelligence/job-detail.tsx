@@ -183,9 +183,9 @@ const ContactpersonenSection = ({
   contactpersonen && contactpersonen.length > 0 ? (
     <DetailSection title="Contactpersonen">
       <ul className="space-y-2">
-        {contactpersonen.map((contact, index) => (
+        {contactpersonen.map((contact) => (
           <ContactpersoonCard
-            key={`${contact.naam ?? ""}-${contact.email ?? ""}-${index}`}
+            key={`${contact.naam ?? ""}|${contact.email ?? ""}|${contact.telefoon ?? ""}|${contact.rol ?? ""}`}
             contact={contact}
           />
         ))}
