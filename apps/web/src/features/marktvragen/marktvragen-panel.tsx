@@ -55,14 +55,16 @@ export const MarktvragenMessages = () => {
                 return (
                   <p
                     className="leading-relaxed whitespace-pre-wrap"
-                    key={index}
+                    key={`${message.id}:text:${index}`}
                   >
                     {part.text}
                   </p>
                 );
               }
               if (isToolUIPart(part)) {
-                return <MarktvragenToolPart key={index} part={part} />;
+                return (
+                  <MarktvragenToolPart key={part.toolCallId} part={part} />
+                );
               }
               return null;
             })}

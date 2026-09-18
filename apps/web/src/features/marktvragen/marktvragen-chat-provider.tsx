@@ -51,11 +51,12 @@ export const MarktvragenChatProvider = ({
   const [screenOverride, setScreenOverride] =
     useState<MarktvragenScreen | null>(null);
 
-  const chatId = useMemo(
-    () =>
-      session?.user?.id ? `${session.user.id}~${crypto.randomUUID()}` : null,
-    [session?.user?.id]
-  );
+  // Lazy state init mints the id once per mount — randomUUID() inside useMemo
+  // is impure, which blocks the React Compiler from memoizing this component.
+  const [chatIdSuffix] = useState(() => crypto.randomUUID());
+  const chatId = session?.user?.id
+    ? `${session.user.id}~${chatIdSuffix}`
+    : null;
 
   const clientData = useMemo<MarktvragenClientData>(
     () => ({ screen: screenOverride ?? screenForPath(pathname) }),
