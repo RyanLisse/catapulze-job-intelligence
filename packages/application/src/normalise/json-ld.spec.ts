@@ -1,7 +1,7 @@
 import { describe, expect, it } from "bun:test";
 
 import { bluetrailConfig, createJsonLdClient } from "@ji/connectors/json-ld";
-import type { JsonLdFetchedPayload } from "@ji/connectors/json-ld";
+import type { JsonLdFetchedPayload, JsonLdNode } from "@ji/connectors/json-ld";
 import { UNKNOWN } from "@ji/domain";
 
 import {
@@ -54,7 +54,7 @@ describe("normaliseJsonLdObservation -- Werken voor Nederland", () => {
         title: "Kubernetes Software Platform Engineer",
       },
       labelBlock: {},
-      parserVersion: "werken-voor-nederland/v1",
+      parserVersion: "werken-voor-nederland/v2",
       slug: "werken-voor-nederland",
       url: "https://www.werkenvoornederland.nl/vacatures/kubernetes-software-platform-engineer-CJIB-2026-9570",
     };
@@ -106,7 +106,7 @@ describe("normaliseJsonLdObservation -- ASML", () => {
           workdayApplyUrl:
             "https://asml.wd3.myworkdayjobs.com/ASMLEXT1/job/Veldhoven-Netherlands/_J-00333473/apply",
         },
-        parserVersion: "asml/v1",
+        parserVersion: "asml/v2",
         slug: "asml",
         url: "https://www.asml.com/en/careers/find-your-job/senior-electrical-safety-expert-nominated-person--installatie-verantwoordelijke-euv-factory-j00333473",
       })
@@ -151,7 +151,7 @@ describe("normaliseJsonLdObservation -- Rabobank", () => {
           title: "Active Directory  Engineer",
         },
         labelBlock: {},
-        parserVersion: "rabobank/v1",
+        parserVersion: "rabobank/v2",
         slug: "rabobank",
         url: "https://rabobank.jobs/en/job/active-directory-engineer/JR_00144349/",
       })
@@ -198,7 +198,7 @@ describe("normaliseJsonLdObservation -- TBI", () => {
           title: "Service Technicus W",
         },
         labelBlock: {},
-        parserVersion: "tbi/v1",
+        parserVersion: "tbi/v2",
         slug: "tbi",
         url: "https://werkenbij.tbi.nl/vacatures/service-technicus-w-1280611",
       })
@@ -519,7 +519,7 @@ describe("parseJsonLdPayload -- Bij Oranje", () => {
       validThrough: "2026-09-23T00:00:00+00:00",
     },
     labelBlock: {},
-    parserVersion: "bij-oranje/v1",
+    parserVersion: "bij-oranje/v2",
     slug: "bij-oranje",
     url: "https://www.bijoranje.nl/vacatures/onbekend/data-analist-noord-holland-65099",
   };
@@ -619,7 +619,7 @@ describe("parseJsonLdPayload -- TenMonks", () => {
       validThrough: "2027-01-01T00:00:00+00:00",
     },
     labelBlock: {},
-    parserVersion: "tenmonks/v1",
+    parserVersion: "tenmonks/v2",
     slug: "tenmonks",
     url: "https://tenmonks.nl/opdrachten/34350/data-analist/",
   };
@@ -1039,4 +1039,395 @@ describe("BlueTrail description tarief false positives (CTP-605)", () => {
       });
     }
   );
+});
+
+describe("parseJsonLdPayload -- contactpersonen (CTP-610)", () => {
+  const baseJobPosting = {
+    "@type": "JobPosting",
+    description: "Spec vacancy description.",
+    hiringOrganization: { "@type": "Organization", name: "Spec Org" },
+    title: "Spec title",
+  };
+
+  it("maps synthesizer-provided payload.contactpersonen with provenance", () => {
+    const draft = parseJsonLdPayload(
+      {
+        contactpersonen: [
+          {
+            email: "redacted@example.invalid",
+            naam: "A. de Vries",
+            rol: "recruiter",
+            telefoon: "+31000000000",
+          },
+        ],
+        jobPosting: baseJobPosting,
+        labelBlock: {},
+        parserVersion: "prorail/v2",
+        slug: "prorail",
+        url: "https://example.test/vacature/1",
+      },
+      HASH
+    );
+
+    expect(draft.contactpersonen?.value).toEqual([
+      {
+        email: "redacted@example.invalid",
+        geinformeerdOp: null,
+        naam: "A. de Vries",
+        notificatieKanaal: null,
+        rol: "recruiter",
+        telefoon: "+31000000000",
+      },
+    ]);
+    expect(draft.contactpersonen?.provenance).toEqual({
+      parserVersion: "prorail/v2",
+      sourcePath: "payload.contactpersonen",
+    });
+  });
+
+  it("maps a schema.org contactPoint on hiringOrganization (DataJobs/Haert/TBI)", () => {
+    const draft = parseJsonLdPayload(
+      {
+        jobPosting: {
+          ...baseJobPosting,
+          hiringOrganization: {
+            "@type": "Organization",
+            contactPoint: {
+              "@type": "ContactPoint",
+              contactType: "recruiter",
+              email: "redacted@example.invalid",
+              telephone: "+31000000000",
+            },
+            name: "Spec Org",
+          },
+        },
+        labelBlock: {},
+        parserVersion: "tbi/v2",
+        slug: "tbi",
+        url: "https://example.test/vacature/2",
+      },
+      HASH
+    );
+
+    expect(draft.contactpersonen?.value).toEqual([
+      {
+        email: "redacted@example.invalid",
+        geinformeerdOp: null,
+        naam: null,
+        notificatieKanaal: null,
+        rol: "recruiter",
+        telefoon: "+31000000000",
+      },
+    ]);
+    expect(draft.contactpersonen?.provenance.sourcePath).toBe(
+      "jobPosting.hiringOrganization.contactPoint"
+    );
+  });
+
+  it("leaves contactpersonen absent when the bron publishes none", () => {
+    const draft = parseJsonLdPayload(
+      {
+        jobPosting: baseJobPosting,
+        labelBlock: {},
+        parserVersion: "eneco/v2",
+        slug: "eneco",
+        url: "https://example.test/vacature/3",
+      },
+      HASH
+    );
+
+    expect(draft.contactpersonen).toBeUndefined();
+  });
+
+  it("drops contacts without naam, email or telefoon", () => {
+    const draft = parseJsonLdPayload(
+      {
+        contactpersonen: [{ rol: "recruiter" }],
+        jobPosting: baseJobPosting,
+        labelBlock: {},
+        parserVersion: "prorail/v2",
+        slug: "prorail",
+        url: "https://example.test/vacature/4",
+      },
+      HASH
+    );
+
+    expect(draft.contactpersonen).toBeUndefined();
+  });
+
+  it("maps jobPosting.applicationContact (TBI publishes it)", () => {
+    const draft = parseJsonLdPayload(
+      {
+        jobPosting: {
+          ...baseJobPosting,
+          applicationContact: {
+            "@type": "ContactPoint",
+            contactType: "recruiter",
+            email: "redacted@example.invalid",
+            name: "B. Bakker",
+          },
+        },
+        labelBlock: {},
+        parserVersion: "tbi/v2",
+        slug: "tbi",
+        url: "https://example.test/vacature/5",
+      },
+      HASH
+    );
+
+    expect(draft.contactpersonen?.value).toEqual([
+      {
+        email: "redacted@example.invalid",
+        geinformeerdOp: null,
+        naam: "B. Bakker",
+        notificatieKanaal: null,
+        rol: "recruiter",
+        telefoon: null,
+      },
+    ]);
+    expect(draft.contactpersonen?.provenance.sourcePath).toBe(
+      "jobPosting.applicationContact"
+    );
+  });
+
+  it("maps an org-level email/telephone channel but never a bare org name", () => {
+    const withChannel = parseJsonLdPayload(
+      {
+        jobPosting: {
+          ...baseJobPosting,
+          hiringOrganization: {
+            "@type": "Organization",
+            email: "werving@example.invalid",
+            name: "Spec Org",
+            telephone: "+31000000000",
+          },
+        },
+        labelBlock: {},
+        parserVersion: "intermediair/v2",
+        slug: "intermediair",
+        url: "https://example.test/vacature/6",
+      },
+      HASH
+    );
+    expect(withChannel.contactpersonen?.value).toEqual([
+      {
+        email: "werving@example.invalid",
+        geinformeerdOp: null,
+        naam: "Spec Org",
+        notificatieKanaal: null,
+        rol: null,
+        telefoon: "+31000000000",
+      },
+    ]);
+    expect(withChannel.contactpersonen?.provenance.sourcePath).toBe(
+      "jobPosting.hiringOrganization"
+    );
+
+    // A bare org name is not a contact channel: "Spec Org" alone must not
+    // become a contactpersoon.
+    const nameOnly = parseJsonLdPayload(
+      {
+        jobPosting: baseJobPosting,
+        labelBlock: {},
+        parserVersion: "eneco/v2",
+        slug: "eneco",
+        url: "https://example.test/vacature/7",
+      },
+      HASH
+    );
+    expect(nameOnly.contactpersonen).toBeUndefined();
+  });
+
+  it("keeps phone-only contacts as distinct entries (contactKey includes telefoon)", () => {
+    // Two channel-only contacts sharing naam=null/email=null used to collapse
+    // to the same "|" key — the second reachable phone number vanished.
+    const draft = parseJsonLdPayload(
+      {
+        contactpersonen: [
+          { telefoon: "+31000000001" },
+          { telefoon: "+31000000002" },
+          { telefoon: "+31000000001" },
+        ],
+        jobPosting: baseJobPosting,
+        labelBlock: {},
+        parserVersion: "prorail/v2",
+        slug: "prorail",
+        url: "https://example.test/vacature/8",
+      },
+      HASH
+    );
+
+    expect(draft.contactpersonen?.value).toHaveLength(2);
+  });
+});
+
+describe("parseJsonLdPayload -- CTP-611 published-field coverage", () => {
+  const basePayload: JsonLdFetchedPayload = {
+    jobPosting: {
+      "@type": "JobPosting",
+      description: "Spec vacancy description.",
+      hiringOrganization: { "@type": "Organization", name: "Spec Org" },
+      title: "Spec title",
+    },
+    labelBlock: {},
+    parserVersion: "spec/v1",
+    slug: "eneco",
+    url: "https://example.test/vacature/1",
+  };
+
+  const withJobPosting = (extra: JsonLdNode): JsonLdFetchedPayload => ({
+    ...basePayload,
+    jobPosting: { ...basePayload.jobPosting, ...extra },
+  });
+
+  it("maps educationRequirements as a plain string to opleidingsniveau (prorail 'hbo/wo')", () => {
+    const draft = parseJsonLdPayload(
+      withJobPosting({ educationRequirements: "hbo/wo" }),
+      HASH
+    );
+    expect(draft.bronSpecifiek.value).toMatchObject({
+      opleidingsniveau: "hbo/wo",
+    });
+  });
+
+  it("maps educationRequirements as a string list (eneco ['MBO','HBO'])", () => {
+    const draft = parseJsonLdPayload(
+      withJobPosting({ educationRequirements: ["MBO", "HBO"] }),
+      HASH
+    );
+    expect(draft.bronSpecifiek.value).toMatchObject({
+      opleidingsniveau: "MBO/HBO",
+    });
+  });
+
+  it("maps an EducationalOccupationalCredential node's credentialCategory (intermediair)", () => {
+    const draft = parseJsonLdPayload(
+      withJobPosting({
+        educationRequirements: {
+          "@type": "EducationalOccupationalCredential",
+          credentialCategory: "bachelor degree",
+        },
+      }),
+      HASH
+    );
+    expect(draft.bronSpecifiek.value).toMatchObject({
+      opleidingsniveau: "bachelor degree",
+    });
+  });
+
+  it("leaves opleidingsniveau null for an empty educationRequirements list (heijmans)", () => {
+    const draft = parseJsonLdPayload(
+      withJobPosting({ educationRequirements: [] }),
+      HASH
+    );
+    expect(draft.bronSpecifiek.value).toMatchObject({ opleidingsniveau: null });
+  });
+
+  it("falls back to qualifications when educationRequirements is absent (tbi 'MBO')", () => {
+    const draft = parseJsonLdPayload(
+      withJobPosting({ qualifications: "MBO" }),
+      HASH
+    );
+    expect(draft.bronSpecifiek.value).toMatchObject({
+      opleidingsniveau: "MBO",
+    });
+  });
+
+  it("prefers educationRequirements over qualifications when both are published", () => {
+    const draft = parseJsonLdPayload(
+      withJobPosting({
+        educationRequirements: "HBO",
+        qualifications: "WO",
+      }),
+      HASH
+    );
+    expect(draft.bronSpecifiek.value).toMatchObject({
+      opleidingsniveau: "HBO",
+    });
+  });
+
+  it("parses a bare-number workHours ('40' stedin)", () => {
+    const draft = parseJsonLdPayload(withJobPosting({ workHours: "40" }), HASH);
+    expect(draft.bronSpecifiek.value).toMatchObject({ uren_per_week: "40" });
+  });
+
+  it("parses a unit-less dash-range workHours ('32-36' prorail)", () => {
+    const draft = parseJsonLdPayload(
+      withJobPosting({ workHours: "32-36" }),
+      HASH
+    );
+    expect(draft.bronSpecifiek.value).toMatchObject({
+      uren_per_week: "32–36",
+    });
+  });
+
+  it("parses English 'hours per week' workHours (bam)", () => {
+    const draft = parseJsonLdPayload(
+      withJobPosting({ workHours: "40 hours per week" }),
+      HASH
+    );
+    expect(draft.bronSpecifiek.value).toMatchObject({ uren_per_week: "40" });
+  });
+
+  it("leaves junk workHours ('Full time uur per week') null", () => {
+    const draft = parseJsonLdPayload(
+      withJobPosting({ workHours: "Full time uur per week" }),
+      HASH
+    );
+    expect(draft.bronSpecifiek.value).toMatchObject({ uren_per_week: null });
+  });
+
+  it("maps ['TEMPORARY','FULL_TIME'] to canonical interim and keeps the raw token list", () => {
+    const draft = parseJsonLdPayload(
+      withJobPosting({ employmentType: ["TEMPORARY", "FULL_TIME"] }),
+      HASH
+    );
+    expect(draft.bronSpecifiek.value).toMatchObject({
+      contracttype: "interim",
+      employment_type: "TEMPORARY, FULL_TIME",
+    });
+  });
+
+  it("maps ['TEMPORARY','CONTRACTOR','FULL_TIME'] (opdrachtoverheid) to null -- two published contract forms", () => {
+    const draft = parseJsonLdPayload(
+      withJobPosting({
+        employmentType: ["TEMPORARY", "CONTRACTOR", "FULL_TIME"],
+      }),
+      HASH
+    );
+    expect(draft.bronSpecifiek.value).toMatchObject({
+      contracttype: null,
+      employment_type: "TEMPORARY, CONTRACTOR, FULL_TIME",
+    });
+  });
+
+  it("keeps ['FULL_TIME','PART_TIME'] contracttype null (no contract form published)", () => {
+    const draft = parseJsonLdPayload(
+      withJobPosting({ employmentType: ["FULL_TIME", "PART_TIME"] }),
+      HASH
+    );
+    expect(draft.bronSpecifiek.value).toMatchObject({ contracttype: null });
+  });
+
+  it("keeps a single-token employmentType landing in contract_type with canonical contracttype", () => {
+    const draft = parseJsonLdPayload(
+      withJobPosting({ employmentType: "CONTRACTOR" }),
+      HASH
+    );
+    expect(draft.bronSpecifiek.value).toMatchObject({
+      contract_type: "CONTRACTOR",
+      contracttype: "freelance",
+    });
+  });
+
+  it("keeps ['OTHER'] honest: contracttype null, raw list preserved", () => {
+    const draft = parseJsonLdPayload(
+      withJobPosting({ employmentType: ["OTHER"] }),
+      HASH
+    );
+    expect(draft.bronSpecifiek.value).toMatchObject({
+      contracttype: null,
+      employment_type: "OTHER",
+    });
+  });
 });

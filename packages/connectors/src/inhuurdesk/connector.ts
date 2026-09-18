@@ -5,6 +5,7 @@ import type {
   ConnectorCheckpoint,
   ConnectorDiscoverResult,
   DiscoverItem,
+  SourceContact,
 } from "../contract";
 import { shouldSkipFetch } from "../known-hash";
 import type { KnownHashStore } from "../known-hash";
@@ -19,6 +20,52 @@ export interface InhuurdeskConnectorOptions {
   knownHashes?: KnownHashStore;
 }
 
+const clean = (value: string | null | undefined): string | null =>
+  value?.trim() || null;
+
+/** CTP-610: folds the raw recruiter/requester slots into `contactpersonen`.
+ * All were null/`""` across the 21-record live capture (2026-09-03) but are
+ * real fields that flow live; `recruiter` reads as a nested person object
+ * (HeadFirst-family shape), so non-object values are ignored. */
+export const projectInhuurdeskContacts = (
+  raw: InhuurdeskAssignment
+): SourceContact[] | null => {
+  const contacts: SourceContact[] = [];
+  const rec = raw.recruiter;
+  if (rec) {
+    const naam =
+      clean(rec.name) ??
+      ([clean(rec.firstName), clean(rec.middleName), clean(rec.lastName)]
+        .filter((part): part is string => part !== null)
+        .join(" ") ||
+        null);
+    const contact: SourceContact = {
+      email: clean(rec.email) ?? clean(raw.recruiterEmail),
+      naam,
+      rol: clean(rec.functionTitle),
+      telefoon: clean(rec.phoneNumber) ?? clean(raw.recruiterPhoneNumber),
+    };
+    if (contact.naam || contact.email || contact.telefoon) {
+      contacts.push(contact);
+    }
+  } else {
+    const contact: SourceContact = {
+      email: clean(raw.recruiterEmail),
+      naam: null,
+      rol: null,
+      telefoon: clean(raw.recruiterPhoneNumber),
+    };
+    if (contact.email || contact.telefoon) {
+      contacts.push(contact);
+    }
+  }
+  const requester = clean(raw.requesterEmail);
+  if (requester && !contacts.some((c) => c.email === requester)) {
+    contacts.push({ email: requester, rol: "aanvrager" });
+  }
+  return contacts.length > 0 ? contacts : null;
+};
+
 /** DEC-008: the live record carries ~120 raw fields (recruiter name/email/
  * phone slots, worksite, positionRule*, Salesforce ids); only the whitelist
  * below reaches `listingPayload` or the stored body. Build a fresh object
@@ -30,6 +77,7 @@ export const projectInhuurdeskAssignment = (
   clientNameSlug: raw.clientNameSlug ?? null,
   closingDateClient: raw.closingDateClient ?? null,
   closingDateInvoice: raw.closingDateInvoice ?? null,
+  contactpersonen: projectInhuurdeskContacts(raw) ?? undefined,
   content: raw.content ?? null,
   endDate: raw.endDate ?? null,
   hasMaxRate: raw.hasMaxRate ?? null,

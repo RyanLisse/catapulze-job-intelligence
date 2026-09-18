@@ -1,9 +1,10 @@
+import { synthesizeJobPostingFromVike } from "../extract";
 import type { JsonLdConnectorConfig } from "../types";
 
 /**
  * Techniekwerkt detail pages carry no JobPosting JSON-LD (only a BreadcrumbList),
  * but the Vike SSR payload `vike_pageContext.pageProps.job` holds the vacancy as
- * a structured object — the `synthesizeFromVikeJobData` path rebuilds the
+ * a structured object — the configured detailSynthesizer rebuilds the
  * JobPosting from it. The vacancy sitemap is served gzip-compressed under
  * `application/x-compressed` without a `Content-Encoding` header; the shared
  * live reader inflates it by magic bytes. `salary`/`contract` facets were empty
@@ -19,6 +20,7 @@ export const techniekwerktConfig: JsonLdConnectorConfig = {
     "https://techniekwerkt.nl/nl/vacature/pcs-7-software-engineer-unica-zwolle-973447":
       "techniekwerkt/detail-pcs-7-software-engineer-unica-zwolle.json",
   },
+  detailSynthesizer: synthesizeJobPostingFromVike,
   discovery: {
     kind: "sitemap",
     url: "https://media.techniekwerkt.nl/sitemaps/vacatures.xml.gz",
@@ -28,7 +30,6 @@ export const techniekwerktConfig: JsonLdConnectorConfig = {
   ],
   listingFixturePath: "techniekwerkt/listing-page-0.json",
   liveEnvVar: "TECHNIEKWERKT_LIVE",
-  parserVersion: "techniekwerkt/v1",
+  parserVersion: "techniekwerkt/v2",
   slug: "techniekwerkt",
-  synthesizeFromVikeJobData: true,
 };

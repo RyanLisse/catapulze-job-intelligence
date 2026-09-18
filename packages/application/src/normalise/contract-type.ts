@@ -42,3 +42,26 @@ export const toCanonicalContractType = (
   const key = token.trim().toLowerCase();
   return CONTRACT_TYPE_TOKENS.get(key) ?? null;
 };
+
+/**
+ * Maps a schema.org `employmentType` list to one canonical contract form.
+ * Sources publish arrays mixing contract-form tokens with hours/employment
+ * tokens (["TEMPORARY", "FULL_TIME"]). Tokens that describe something other
+ * than contract form are ignored; the list yields a canonical form only when
+ * its mappable tokens all agree. ["TEMPORARY", "CONTRACTOR"] is an explicit
+ * either/or the source published, not a single contract form, and yields
+ * null so the caller falls back to the prose classifier.
+ */
+export const toCanonicalEmploymentTypes = (
+  tokens: readonly string[]
+): ClassifiedContractType | null => {
+  const canonical = new Set<ClassifiedContractType>();
+  for (const token of tokens) {
+    const mapped = toCanonicalContractType(token);
+    if (mapped !== null) {
+      canonical.add(mapped);
+    }
+  }
+  const [single] = canonical;
+  return canonical.size === 1 ? (single ?? null) : null;
+};

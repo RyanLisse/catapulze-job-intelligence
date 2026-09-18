@@ -21,7 +21,7 @@ describe("normaliseJsonLdObservation -- Jobbird", () => {
     const payload: JsonLdFetchedPayload = {
       jobPosting: detail.jobPosting,
       labelBlock: detail.labelBlock,
-      parserVersion: "jobbird/v1",
+      parserVersion: "jobbird/v2",
       slug: "jobbird",
       url,
     };

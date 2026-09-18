@@ -45,6 +45,7 @@ describe("normaliseFreelancerNlObservation", () => {
     expect(draft.bronSpecifiek.value).toMatchObject({
       categorie: "Design & Creative",
       geplaatst: "Geplaatst 15-09-2026",
+      publicatiedatum: "2026-09-15",
       skills: ["archicad", "designer", "architect"],
       soort_budget: "In overleg",
       status: "Open",
@@ -52,6 +53,20 @@ describe("normaliseFreelancerNlObservation", () => {
     });
     expect(draft.lifecycle).toBe("active");
     expect(draft.tarief.min).toBe(UNKNOWN);
+  });
+
+  it("never promotes a relative 'Geplaatst X geleden' to publicatiedatum", () => {
+    const draft = parseFreelancerNlPayload(
+      {
+        ...payload,
+        detail: { ...payload.detail, geplaatst: "Geplaatst 12 uur geleden" },
+      },
+      "hash-freelancer-nl-rel"
+    );
+    expect(draft.bronSpecifiek.value).toMatchObject({
+      geplaatst: "Geplaatst 12 uur geleden",
+      publicatiedatum: null,
+    });
   });
 
   it("round-trips the connector JSON payload", () => {

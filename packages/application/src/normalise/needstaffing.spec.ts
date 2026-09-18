@@ -56,6 +56,39 @@ const buildPayload = (
 });
 
 describe("parseNeedstaffingPayload", () => {
+  it("maps the .vacancy-contact-info contactpersonen into the draft (CTP-610)", () => {
+    const draft = parseNeedstaffingPayload(
+      buildPayload({
+        contactpersonen: [
+          {
+            email: "recruiter@example.invalid",
+            naam: "Test Recruiter",
+            telefoon: null,
+          },
+        ],
+      }),
+      "hash-contact"
+    );
+    expect(draft.contactpersonen?.value).toEqual([
+      {
+        email: "recruiter@example.invalid",
+        geinformeerdOp: null,
+        naam: "Test Recruiter",
+        notificatieKanaal: null,
+        rol: null,
+        telefoon: null,
+      },
+    ]);
+    expect(draft.contactpersonen?.provenance.sourcePath).toBe(
+      "detail.contactpersonen"
+    );
+  });
+
+  it("omits contactpersonen when the detail carries none", () => {
+    const draft = parseNeedstaffingPayload(buildPayload(), "hash-none");
+    expect(draft.contactpersonen).toBeUndefined();
+  });
+
   it("maps the real Operationeel Database Ontwikkelaar record end-to-end", () => {
     const draft = parseNeedstaffingPayload(buildPayload(), "hash-1");
     expect(draft.bronReferentie.value).toBe("15520");

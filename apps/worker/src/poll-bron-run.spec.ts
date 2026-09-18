@@ -1013,6 +1013,7 @@ describe("runPollBron scrape_run.gesloten and unchanged metrics (RJC-414)", () =
       bronReferentie: "staled-ref",
       bronSpecifiek: {},
       bronUrl: null,
+      contactpersonen: [],
       contentHash: "hash-99",
       contracttype: null,
       dedupGroepId: null,

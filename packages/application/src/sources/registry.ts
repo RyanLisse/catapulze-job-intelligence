@@ -1,3 +1,4 @@
+import { alliander } from "./alliander";
 import { asml } from "./asml";
 import { bam } from "./bam";
 import { bijOranje } from "./bij-oranje";
@@ -7,6 +8,7 @@ import { datajobs } from "./datajobs";
 import type { SourceDefinition } from "./definition";
 import { eneco } from "./eneco";
 import { enexis } from "./enexis";
+import { essent } from "./essent";
 import { flinter } from "./flinter";
 import { freelancerNl } from "./freelancer-nl";
 import { gasunie } from "./gasunie";
@@ -35,9 +37,11 @@ import { tbi } from "./tbi";
 import { techniekwerkt } from "./techniekwerkt";
 import { tenderned } from "./tenderned";
 import { tenmonks } from "./tenmonks";
+import { tennet } from "./tennet";
 import { unica } from "./unica";
 import { vattenfall } from "./vattenfall";
 import { volkerwessels } from "./volkerwessels";
+import { werkNl } from "./werk-nl";
 import { werkenVoorNederland } from "./werken-voor-nederland";
 import { zzpOpdrachten } from "./zzp-opdrachten";
 
@@ -49,6 +53,7 @@ export { resolveTenderNedTestImportDays } from "./tenderned";
 
 /** Registry of every ingestable bron. Adding a source = one file in this folder + one line here. */
 export const SOURCES = {
+  alliander,
   asml,
   bam,
   "bij-oranje": bijOranje,
@@ -57,6 +62,7 @@ export const SOURCES = {
   datajobs,
   eneco,
   enexis,
+  essent,
   flinter,
   "freelancer-nl": freelancerNl,
   gasunie,
@@ -85,9 +91,11 @@ export const SOURCES = {
   techniekwerkt,
   tenderned,
   tenmonks,
+  tennet,
   unica,
   vattenfall,
   volkerwessels,
+  "werk-nl": werkNl,
   "werken-voor-nederland": werkenVoorNederland,
   "zzp-opdrachten": zzpOpdrachten,
 } as const satisfies Record<string, SourceDefinition>;

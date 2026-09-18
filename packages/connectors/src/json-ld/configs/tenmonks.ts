@@ -23,6 +23,6 @@ export const tenmonksConfig: JsonLdConnectorConfig = {
   ],
   listingFixturePath: "tenmonks/listing-page-0.json",
   liveEnvVar: "TENMONKS_LIVE",
-  parserVersion: "tenmonks/v1",
+  parserVersion: "tenmonks/v2",
   slug: "tenmonks",
 };

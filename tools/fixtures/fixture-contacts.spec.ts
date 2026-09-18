@@ -25,10 +25,16 @@ const REDACTED_PHONE = "+31000000000";
 
 const FIXTURES_ROOT = path.resolve(import.meta.dir, "../../fixtures");
 
+/** The recorder preserves the source's own encoding of `+`: a number emitted
+ * as `&#43;31…` or `&#x2B;31…` keeps its entity prefix when the digits are
+ * zeroed, so the placeholder can appear in any of the pattern's forms. */
+const decodePhoneEntities = (match: string): string =>
+  match.replaceAll(/&#43;|&#x2[Bb];/gu, "+");
+
 const isRedacted = (label: string, match: string): boolean =>
   label === "email"
     ? REDACTED_EMAIL_HOST.test(match)
-    : match === REDACTED_PHONE;
+    : decodePhoneEntities(match) === REDACTED_PHONE;
 
 const findContacts = (
   text: string
@@ -66,20 +72,25 @@ describe("fixture contact redaction", () => {
   });
 
   it("has no unredacted contact detail in any committed fixture", async () => {
-    const offenders: string[] = [];
+    const filePaths: string[] = [];
     for await (const filePath of new Bun.Glob("**/*.json").scan({
       absolute: true,
       cwd: FIXTURES_ROOT,
     })) {
-      const found = findContacts(await Bun.file(filePath).text());
-      if (found.length > 0) {
-        const relative = path.relative(FIXTURES_ROOT, filePath);
-        offenders.push(
-          `${relative}: ${found.map(({ label, match }) => `${label} ${match}`).join(", ")}`
-        );
-      }
+      filePaths.push(filePath);
     }
+    const scanned = await Promise.all(
+      filePaths.map(async (filePath) => {
+        const found = findContacts(await Bun.file(filePath).text());
+        if (found.length === 0) {
+          return null;
+        }
+        const relative = path.relative(FIXTURES_ROOT, filePath);
+        return `${relative}: ${found.map(({ label, match }) => `${label} ${match}`).join(", ")}`;
+      })
+    );
+    const offenders = scanned.filter((offender) => offender !== null);
 
     expect(offenders, offenders.join("\n")).toEqual([]);
-  });
+  }, 30_000);
 });

@@ -1,3 +1,9 @@
+export {
+  contactpersoonBeleidVoor,
+  contactpersonenBinnenRetentie,
+  type ContactpersoonBeleid,
+  type ContactpersoonPublicatiedoel,
+} from "./contactpersoon-beleid";
 export type {
   CreateSourceConnectorInput,
   SourceDefinition,

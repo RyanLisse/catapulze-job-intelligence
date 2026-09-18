@@ -34,4 +34,20 @@ describe("Hays JSON-LD connector", () => {
       validThrough: "2026-12-07",
     });
   });
+
+  it("folds the consultant card (gtm_jobowner_name + jd_telephone) into contactpersonen (CTP-610)", async () => {
+    const detail = await client.fetchDetail(buyerUrl);
+    expect(detail.contactpersonen).toEqual([
+      {
+        naam: "A. de Vries",
+        rol: "jobowner",
+        telefoon: "+31000000000",
+      },
+    ]);
+  });
+
+  it("yields no contactpersonen when the page carries no consultant card", async () => {
+    const detail = await client.fetchDetail(scrumUrl);
+    expect(detail.contactpersonen).toEqual([]);
+  });
 });

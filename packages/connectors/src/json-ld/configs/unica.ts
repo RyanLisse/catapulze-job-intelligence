@@ -18,6 +18,6 @@ export const unicaConfig: JsonLdConnectorConfig = {
   ],
   listingFixturePath: "unica/listing-page-0.json",
   liveEnvVar: "UNICA_LIVE",
-  parserVersion: "unica/v1",
+  parserVersion: "unica/v2",
   slug: "unica",
 };

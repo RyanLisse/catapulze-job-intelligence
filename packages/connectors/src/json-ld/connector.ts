@@ -120,6 +120,9 @@ export const createJsonLdConnector = (
         slug: config.slug,
         url: entry.url,
       };
+      if (detail.contactpersonen && detail.contactpersonen.length > 0) {
+        payload.contactpersonen = detail.contactpersonen;
+      }
       const body = new TextEncoder().encode(JSON.stringify(payload));
       const contentHash = await hashJsonLdPayload(body);
       return {

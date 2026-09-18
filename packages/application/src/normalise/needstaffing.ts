@@ -4,6 +4,7 @@ import { NEEDSTAFFING_PARSER_VERSION } from "@ji/connectors/needstaffing";
 import { UNKNOWN } from "@ji/domain";
 import { resolveLifecycleStatus } from "@ji/domain/lifecycle";
 
+import { toDraftContactpersonen } from "./contactpersonen";
 import { normaliseSkills } from "./skills";
 import {
   closingMomentInstant,
@@ -113,8 +114,14 @@ export const parseNeedstaffingPayload = (
     seenOpen: true,
     sluitingsdatumPassed,
   });
+  const contactpersonen = toDraftContactpersonen(
+    "needstaffing",
+    detail.contactpersonen,
+    parserVersion,
+    "detail.contactpersonen"
+  );
 
-  return {
+  const draft: NormalisedAanvraagDraft = {
     beschrijving: field(beschrijving, parserVersion, "raw.html"),
     bronReferentie: field(detail.id, parserVersion, "detail.id"),
     bronSpecifiek: field(
@@ -174,6 +181,10 @@ export const parseNeedstaffingPayload = (
     },
     titel: field(detail.titel, parserVersion, "detail.titel"),
   };
+  if (contactpersonen) {
+    draft.contactpersonen = contactpersonen;
+  }
+  return draft;
 };
 
 export const decodeNeedstaffingPayload = (

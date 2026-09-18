@@ -12,6 +12,7 @@ import type { CtmEntry } from "./types";
 export const hashCtmListingItem = (item: CtmEntry): Promise<string> => {
   const canonical = JSON.stringify({
     aanvraagnummer: item.aanvraagnummer,
+    contactpersonen: item.contactpersonen ?? null,
     cpv: item.cpv ?? null,
     link: item.link,
     organisatie: item.organisatie ?? null,

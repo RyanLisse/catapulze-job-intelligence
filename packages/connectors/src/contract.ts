@@ -126,3 +126,13 @@ export const mergeRunMetrics = (
   }
   return merged;
 };
+
+/** CTP-610: one contactpersoon as published by a source payload. The
+ * pipeline-owned art. 14 fields (`geinformeerdOp`, `notificatieKanaal`) are
+ * added downstream; a source only ever supplies these four. */
+export interface SourceContact {
+  email?: string | null;
+  naam?: string | null;
+  rol?: string | null;
+  telefoon?: string | null;
+}

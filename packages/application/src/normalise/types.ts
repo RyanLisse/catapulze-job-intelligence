@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 
 import type {
   AanvraagLifecycle,
+  Contactpersoon,
   ExtractieMethode,
   TariefEenheid,
   CLEARED,
@@ -23,6 +24,7 @@ export type JsonValue =
 export interface AanvraagProvenanceMap {
   beschrijving: FieldProvenanceSource;
   bron_referentie: FieldProvenanceSource;
+  contactpersonen?: FieldProvenanceSource;
   bron_specifiek: FieldProvenanceSource;
   bron_url: FieldProvenanceSource;
   locatie_land: FieldProvenanceSource;
@@ -58,6 +60,10 @@ export interface NormalisedAanvraagDraft {
   bronReferentie: NormalisedField<string>;
   bronSpecifiek: NormalisedField<JsonValue>;
   bronUrl: NormalisedField<string | typeof UNKNOWN>;
+  /** CTP-610: contactpersonen published by the source (0..n). Absent for
+   * bronnen without contact fields; a bron's `contactpersoon_beleid` may
+   * also mask the field on the way in. */
+  contactpersonen?: NormalisedField<Contactpersoon[]>;
   contentHash: string;
   extractieMethode: ExtractieMethode;
   lifecycle: AanvraagLifecycle;
@@ -353,26 +359,32 @@ export const field = <Value>(
 
 export const buildProvenanceMap = (
   draft: NormalisedAanvraagDraft
-): AanvraagProvenanceMap => ({
-  beschrijving: draft.beschrijving.provenance,
-  bron_referentie: draft.bronReferentie.provenance,
-  bron_specifiek: draft.bronSpecifiek.provenance,
-  bron_url: draft.bronUrl.provenance,
-  locatie_land: draft.locatieLand.provenance,
-  locatie_tekst: draft.locatieTekst.provenance,
-  opdrachtgever_naam: draft.opdrachtgeverNaam.provenance,
-  start_datum: draft.startDatum.provenance,
-  tarief_eenheid: {
-    parserVersion: draft.parserVersion,
-    sourcePath: "tarief.eenheid",
-  },
-  tarief_max: {
-    parserVersion: draft.parserVersion,
-    sourcePath: "tarief.max",
-  },
-  tarief_min: {
-    parserVersion: draft.parserVersion,
-    sourcePath: "tarief.min",
-  },
-  titel: draft.titel.provenance,
-});
+): AanvraagProvenanceMap => {
+  const map: AanvraagProvenanceMap = {
+    beschrijving: draft.beschrijving.provenance,
+    bron_referentie: draft.bronReferentie.provenance,
+    bron_specifiek: draft.bronSpecifiek.provenance,
+    bron_url: draft.bronUrl.provenance,
+    locatie_land: draft.locatieLand.provenance,
+    locatie_tekst: draft.locatieTekst.provenance,
+    opdrachtgever_naam: draft.opdrachtgeverNaam.provenance,
+    start_datum: draft.startDatum.provenance,
+    tarief_eenheid: {
+      parserVersion: draft.parserVersion,
+      sourcePath: "tarief.eenheid",
+    },
+    tarief_max: {
+      parserVersion: draft.parserVersion,
+      sourcePath: "tarief.max",
+    },
+    tarief_min: {
+      parserVersion: draft.parserVersion,
+      sourcePath: "tarief.min",
+    },
+    titel: draft.titel.provenance,
+  };
+  if (draft.contactpersonen) {
+    map.contactpersonen = draft.contactpersonen.provenance;
+  }
+  return map;
+};

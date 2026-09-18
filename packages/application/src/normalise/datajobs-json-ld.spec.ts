@@ -20,7 +20,7 @@ describe("normaliseJsonLdObservation -- DataJobs", () => {
     const payload: JsonLdFetchedPayload = {
       jobPosting: detail.jobPosting,
       labelBlock: detail.labelBlock,
-      parserVersion: "datajobs/v1",
+      parserVersion: "datajobs/v2",
       slug: "datajobs",
       url,
     };

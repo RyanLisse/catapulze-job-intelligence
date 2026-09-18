@@ -18,7 +18,7 @@ export const intermediairConfig: JsonLdConnectorConfig = {
   },
   listingFixturePath: "intermediair/listing-page-0.json",
   liveEnvVar: "INTERMEDIAIR_LIVE",
-  parserVersion: "intermediair/v1",
+  parserVersion: "intermediair/v2",
   sitemapFixtures: {
     "https://intermediair.nl/cdn/sitemaps/vacature/vacature-1.xml":
       "intermediair/sitemap-vacature-1.json",

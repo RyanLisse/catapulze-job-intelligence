@@ -4,6 +4,7 @@ import {
   Building2,
   CalendarClock,
   Clock3,
+  Copy,
   MapPin,
   RadioTower,
 } from "lucide-react";
@@ -94,6 +95,19 @@ const JobStatus = ({ job }: { readonly job: JobListing }) => {
   );
 };
 
+/** CTP-610: `dedupGroepId` means another aanvraag describes the same vacancy
+ * — surfaced as an indicator, the record itself is never hidden. */
+const DuplicaatBadge = ({ job }: { readonly job: JobListing }) =>
+  job.dedupGroepId ? (
+    <span
+      className="inline-flex items-center gap-1 text-[10px] font-medium tracking-wide text-muted-foreground uppercase"
+      title="Deze vacature is ook via een andere bron gevonden"
+    >
+      <Copy aria-hidden="true" className="size-3" />
+      Duplicaat
+    </span>
+  ) : null;
+
 const resultRowBackground = (
   job: JobListing,
   selectedJobId: string | null,
@@ -182,6 +196,7 @@ const DesktopResults = ({
               />
               <div className="mt-1.5 flex flex-wrap items-center gap-2">
                 <JobStatus job={job} />
+                <DuplicaatBadge job={job} />
                 <span className="text-[10px] text-muted-foreground">
                   {formatContract(job)}
                 </span>
@@ -250,6 +265,7 @@ const MobileResults = ({
               className="size-4 accent-primary"
             />
             <JobStatus job={job} />
+            <DuplicaatBadge job={job} />
           </div>
           <span className="text-[10px] text-muted-foreground">
             {formatContract(job)}

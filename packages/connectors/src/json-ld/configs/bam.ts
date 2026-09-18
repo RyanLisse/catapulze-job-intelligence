@@ -18,6 +18,6 @@ export const bamConfig: JsonLdConnectorConfig = {
   ],
   listingFixturePath: "bam/listing-page-0.json",
   liveEnvVar: "BAM_LIVE",
-  parserVersion: "bam/v1",
+  parserVersion: "bam/v2",
   slug: "bam",
 };

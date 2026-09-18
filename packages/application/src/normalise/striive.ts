@@ -3,6 +3,7 @@ import { STRIIVE_PARSER_VERSION } from "@ji/connectors/striive";
 import { UNKNOWN } from "@ji/domain";
 import { resolveLifecycleStatus } from "@ji/domain/lifecycle";
 
+import { toDraftContactpersonen } from "./contactpersonen";
 import { formatHoursPerWeek } from "./hours";
 import { findProvincieInText } from "./provincie";
 import { normaliseSkills } from "./skills";
@@ -164,7 +165,14 @@ export const parseStriivePayload = (
     uren_per_week: formatHoursPerWeek(job.hoursPerWeekMin, job.hoursPerWeekMax),
   };
 
-  return {
+  const contactpersonen = toDraftContactpersonen(
+    "striive",
+    job.contactpersonen,
+    parserVersion,
+    "job.contactpersonen"
+  );
+
+  const draft: NormalisedAanvraagDraft = {
     beschrijving: field(resolveBeschrijving(job), parserVersion, "job.content"),
     bronReferentie: field(job.id, parserVersion, "job.id"),
     bronSpecifiek: field(bronSpecifiek, parserVersion, "job"),
@@ -198,6 +206,10 @@ export const parseStriivePayload = (
     tarief: resolveTarief(job),
     titel: field(job.title, parserVersion, "job.title"),
   };
+  if (contactpersonen) {
+    draft.contactpersonen = contactpersonen;
+  }
+  return draft;
 };
 
 export const decodeStriivePayload = (body: Uint8Array): StriiveFetchedPayload =>

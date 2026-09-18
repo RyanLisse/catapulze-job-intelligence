@@ -24,6 +24,6 @@ export const bijOranjeConfig: JsonLdConnectorConfig = {
   ],
   listingFixturePath: "bij-oranje/listing-page-0.json",
   liveEnvVar: "BIJORANJE_LIVE",
-  parserVersion: "bij-oranje/v1",
+  parserVersion: "bij-oranje/v2",
   slug: "bij-oranje",
 };

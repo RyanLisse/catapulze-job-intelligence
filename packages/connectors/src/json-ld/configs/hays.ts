@@ -1,3 +1,4 @@
+import { synthesizeContactsFromHaysPage } from "../extract";
 import type { JsonLdConnectorConfig } from "../types";
 
 /** Hays exposes a static search page whose links carry stable tracking query
@@ -12,6 +13,7 @@ export const haysConfig: JsonLdConnectorConfig = {
     "https://www.hays.nl/vacature-details/scrum-master-provincie-utrecht_1049921?q=&location=&applyId=JOB_5377570&jobSource=HaysGCJ&isSponsored=N&specialismId=&subSpecialismId=&jobName=projects/mineral-balm-174308/tenants/ab5d683d-f9a5-4b85-bfe0-eb74881e24cf/jobs/103039416380859078&lang=nl":
       "hays/detail-scrum-master-provincie-utrecht-1049921.json",
   },
+  detailSynthesizer: (body) => synthesizeContactsFromHaysPage(body),
   discovery: {
     kind: "listing",
     linkPattern: /^\/vacature-details\/[^/?]+$/u,
@@ -19,6 +21,6 @@ export const haysConfig: JsonLdConnectorConfig = {
   },
   listingFixturePath: "hays/listing-page-0.json",
   liveEnvVar: "HAYS_LIVE",
-  parserVersion: "hays/v1",
+  parserVersion: "hays/v2",
   slug: "hays",
 };

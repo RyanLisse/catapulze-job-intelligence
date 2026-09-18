@@ -211,6 +211,7 @@ export const aanvraag = curatedSchema.table(
     bronSpecifiek: jsonb("bron_specifiek").default({}).notNull(),
     bronUrl: text("bron_url"),
     compleetheidScore: numeric("compleetheid_score"),
+    contactpersonen: jsonb("contactpersonen").default([]).notNull(),
     contentHash: text("content_hash").notNull(),
     contracttype: text("contracttype"),
     createdAt: timestamp("created_at", { withTimezone: true })

@@ -20,6 +20,6 @@ export const datajobsConfig: JsonLdConnectorConfig = {
   ],
   listingFixturePath: "datajobs/listing-page-0.json",
   liveEnvVar: "DATAJOBS_LIVE",
-  parserVersion: "datajobs/v1",
+  parserVersion: "datajobs/v2",
   slug: "datajobs",
 };

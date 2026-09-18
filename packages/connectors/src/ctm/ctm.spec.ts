@@ -52,6 +52,23 @@ describe("CTM feed parser", () => {
     ]);
   });
 
+  it("parses a populated <contactPerson> into entry.contactpersonen (CTP-610)", () => {
+    const xml = SAMPLE_FEED_XML.replace(
+      '<contactPerson firstName="" middleName="" lastName="" email=""><phone countryCode="" areaCode="" munber="" /></contactPerson>',
+      '<contactPerson firstName="A." middleName="" lastName="de Vries" email="redacted@example.invalid"><phone countryCode="+31" areaCode="20" munber="0000000" /></contactPerson>'
+    );
+    const listing = parseCtmFeed(xml);
+    expect(listing.entries[0]?.contactpersonen).toEqual([
+      {
+        email: "redacted@example.invalid",
+        naam: "A. de Vries",
+        telefoon: "+31200000000",
+      },
+    ]);
+    // The second entry keeps the all-empty contactPerson element -> absent.
+    expect(listing.entries[1]?.contactpersonen).toBeUndefined();
+  });
+
   it("extracts the PID as the stable aanvraagnummer, falling back to the raw id", () => {
     expect(
       extractCtmAanvraagnummer(
@@ -200,6 +217,11 @@ describe("CTM listing hash coverage (RJC-357 / RJC-401)", () => {
   it("covers every CtmEntry field the normaliser can read", async () => {
     const variants: Partial<CtmEntry>[] = [
       { aanvraagnummer: "999" },
+      {
+        contactpersonen: [
+          { email: "redacted@example.invalid", naam: "A. de Vries" },
+        ],
+      },
       { cpv: [{ code: "35111320-4", name: "Portable fire-extinguishers" }] },
       { link: "https://example.test/other" },
       { organisatie: "Andere Organisatie" },
