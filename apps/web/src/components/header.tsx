@@ -1,6 +1,12 @@
 "use client";
 
-import { Activity, Database, LayoutDashboard, Search } from "lucide-react";
+import {
+  Activity,
+  Database,
+  LayoutDashboard,
+  MessageSquare,
+  Search,
+} from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect } from "react";
@@ -30,6 +36,11 @@ const navigationItems = [
     href: "/bronnen",
     icon: Activity,
     label: "Bronnen",
+  },
+  {
+    href: "/chat",
+    icon: MessageSquare,
+    label: "Marktvragen",
   },
 ] as const;
 
