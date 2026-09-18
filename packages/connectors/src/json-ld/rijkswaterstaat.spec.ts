@@ -41,4 +41,24 @@ describe("Rijkswaterstaat JSON-LD connector", () => {
       title: "Adviseur assetmanagement rivierbodem",
     });
   });
+
+  it("folds each .contact-person block (name, function in parens, tel + mailto) into contactpersonen (CTP-610)", async () => {
+    const url =
+      "https://werkenbij.rijkswaterstaat.nl/vacatures/adviseur-assetmanagement-rivierbodem/1330716";
+    const detail = await client.fetchDetail(url);
+    expect(detail.contactpersonen).toEqual([
+      {
+        email: "redacted@example.invalid",
+        naam: "Nathalie Veen",
+        rol: null,
+        telefoon: "+31610151705",
+      },
+      {
+        email: "redacted@example.invalid",
+        naam: "Joey Ewals",
+        rol: "Expert Vastgoed en Infrastructuur",
+        telefoon: "+31611017664",
+      },
+    ]);
+  });
 });

@@ -11,6 +11,7 @@ import {
 } from "./presentation";
 import { isSafeHref } from "./sanitize-job-html";
 import type {
+  JobContactpersoon,
   JobEnrichedField,
   JobListing,
   JobMarkering,
@@ -121,6 +122,76 @@ const DetailSection = ({
     {children}
   </div>
 );
+
+const JobBadges = ({ job }: { readonly job: JobListing }) => (
+  <div className="mt-3 flex flex-wrap gap-1.5">
+    <span className={`${badgeClass} border-primary/40 text-primary`}>
+      {formatContract(job)}
+    </span>
+    {job.status === "closing-soon" ? (
+      <span className={`${badgeClass} border-chart-2/40 text-chart-2`}>
+        Sluit binnenkort
+      </span>
+    ) : null}
+    {job.dedupGroepId ? (
+      <span
+        className={badgeClass}
+        title="Deze vacature is ook via een andere bron gevonden"
+      >
+        Duplicaat
+      </span>
+    ) : null}
+    <span className={badgeClass}>{formatRemote(job)}</span>
+  </div>
+);
+
+const ContactpersoonCard = ({
+  contact,
+}: {
+  readonly contact: JobContactpersoon;
+}) => (
+  <li className="rounded-lg border border-border bg-background/60 p-3">
+    <p className="text-xs font-medium">
+      {contact.naam ?? "Naam onbekend"}
+      {contact.rol ? (
+        <span className="ml-1.5 font-normal text-[10px] text-muted-foreground">
+          {contact.rol}
+        </span>
+      ) : null}
+    </p>
+    <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-[11px] text-muted-foreground">
+      {contact.email && isSafeHref(`mailto:${contact.email}`) ? (
+        <a
+          className="underline decoration-dotted underline-offset-2 hover:text-foreground"
+          href={`mailto:${contact.email}`}
+        >
+          {contact.email}
+        </a>
+      ) : null}
+      {contact.telefoon ? (
+        <span className="font-mono">{contact.telefoon}</span>
+      ) : null}
+    </div>
+  </li>
+);
+
+const ContactpersonenSection = ({
+  contactpersonen,
+}: {
+  readonly contactpersonen?: readonly JobContactpersoon[];
+}) =>
+  contactpersonen && contactpersonen.length > 0 ? (
+    <DetailSection title="Contactpersonen">
+      <ul className="space-y-2">
+        {contactpersonen.map((contact, index) => (
+          <ContactpersoonCard
+            key={`${contact.naam ?? ""}-${contact.email ?? ""}-${index}`}
+            contact={contact}
+          />
+        ))}
+      </ul>
+    </DetailSection>
+  ) : null;
 
 const ProvenanceCard = ({
   record,
@@ -261,17 +332,7 @@ export const JobDetail = ({
           <p id={descriptionId} className="mt-1 text-xs text-muted-foreground">
             {job.organization ?? "Onbekend"} · {job.location ?? "Onbekend"}
           </p>
-          <div className="mt-3 flex flex-wrap gap-1.5">
-            <span className={`${badgeClass} border-primary/40 text-primary`}>
-              {formatContract(job)}
-            </span>
-            {job.status === "closing-soon" ? (
-              <span className={`${badgeClass} border-chart-2/40 text-chart-2`}>
-                Sluit binnenkort
-              </span>
-            ) : null}
-            <span className={badgeClass}>{formatRemote(job)}</span>
-          </div>
+          <JobBadges job={job} />
         </div>
         <button
           type="button"
@@ -359,6 +420,8 @@ export const JobDetail = ({
             </div>
           </DetailSection>
         ) : null}
+
+        <ContactpersonenSection contactpersonen={job.contactpersonen} />
 
         <DetailSection title="Herkomst">
           <div className="space-y-2.5">

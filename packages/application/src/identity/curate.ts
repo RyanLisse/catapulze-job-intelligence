@@ -3,6 +3,7 @@ import type {
   AanvraagLifecycle,
   AanvraagId,
   BronId,
+  Contactpersoon,
   ScrapeRunId,
 } from "@ji/domain";
 import { CLEARED, CLEARED_BRON_MARKER_KEY, UNKNOWN } from "@ji/domain";
@@ -32,6 +33,9 @@ export interface StoredAanvraag {
   bronReferentie: string;
   bronSpecifiek: BronSpecifiekJson;
   bronUrl: string | null;
+  /** CTP-610: source-published contactpersonen (0..n). Empty for bronnen
+   * without contact fields or with `contactpersoon_beleid.extractie` off. */
+  contactpersonen: Contactpersoon[];
   contentHash: string;
   contracttype: string | null;
   dedupGroepId: string | null;
@@ -581,6 +585,7 @@ const toStoredFields = (
     bronReferentie: draft.bronReferentie.value,
     bronSpecifiek,
     bronUrl: draftTextColumn(draft.bronUrl.value),
+    contactpersonen: draft.contactpersonen?.value ?? [],
     contentHash: draft.contentHash,
     contracttype: toCanonicalContractType(
       readBronText(

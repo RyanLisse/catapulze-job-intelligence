@@ -4,6 +4,7 @@ import { INHUURDESK_PARSER_VERSION } from "@ji/connectors/inhuurdesk";
 import { UNKNOWN } from "@ji/domain";
 import { resolveLifecycleStatus } from "@ji/domain/lifecycle";
 
+import { toDraftContactpersonen } from "./contactpersonen";
 import { formatHoursPerWeek } from "./hours";
 import { findProvincieInText } from "./provincie";
 import { parseTariefFromText } from "./tarief";
@@ -94,8 +95,14 @@ export const parseInhuurdeskPayload = (
     seenOpen: true,
     sluitingsdatumPassed: hasClosingMomentPassed(assignment.closingDateClient),
   });
+  const contactpersonen = toDraftContactpersonen(
+    "inhuurdesk",
+    assignment.contactpersonen,
+    parserVersion,
+    "assignment.contactpersonen"
+  );
 
-  return {
+  const draft: NormalisedAanvraagDraft = {
     beschrijving: field(beschrijving, parserVersion, "assignment.content"),
     bronReferentie: field(assignment.id, parserVersion, "assignment.id"),
     bronSpecifiek: field(
@@ -148,6 +155,10 @@ export const parseInhuurdeskPayload = (
     tarief: resolveTarief(assignment, beschrijving),
     titel: field(assignment.title, parserVersion, "assignment.title"),
   };
+  if (contactpersonen) {
+    draft.contactpersonen = contactpersonen;
+  }
+  return draft;
 };
 
 export const decodeInhuurdeskPayload = (

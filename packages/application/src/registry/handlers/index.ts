@@ -77,10 +77,14 @@ const previewAanvraag = (record: AanvraagRecord) => ({
   beschrijving: previewText(record.beschrijving),
   bronId: record.bronId,
   bronReferentie: record.bronReferentie,
-  bronUrl: record.bronUrl ?? null,
-  contracttype: record.contracttype ?? null,
+  bronUrl: orNull(record.bronUrl),
+  contracttype: orNull(record.contracttype),
+  // CTP-610: the duplicate badge needs the group id on list rows too —
+  // it is an opaque identity, not vacancy content. contactpersonen stays
+  // full-mode only (recruiter-gated PII).
+  dedupGroepId: orNull(record.dedupGroepId),
   duur: orNull(record.duur),
-  eindDatum: record.eindDatum ?? null,
+  eindDatum: orNull(record.eindDatum),
   enrichedFields: record.enrichedFields ?? [],
   id: record.id,
   locatie: record.locatie ?? null,

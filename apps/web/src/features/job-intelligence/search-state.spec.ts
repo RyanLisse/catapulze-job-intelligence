@@ -295,6 +295,8 @@ describe("fixture job search", () => {
       { id: "job-003", max: 125, period: "hour" },
       { id: "job-005", max: 120, period: "hour" },
       { id: "job-001", max: 115, period: "hour" },
+      { id: "job-dedup-001", max: 110, period: "hour" },
+      { id: "job-dedup-002", max: 110, period: "hour" },
       { id: "job-004", max: 108, period: "hour" },
       { id: "job-007", max: 105, period: "hour" },
       { id: "job-009", max: 103, period: "hour" },

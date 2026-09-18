@@ -44,16 +44,28 @@ export { intermediairConfig } from "./configs/intermediair";
 export { planetInterimConfig } from "./configs/planet-interim";
 export { haertConfig } from "./configs/haert";
 export { techniekwerktConfig } from "./configs/techniekwerkt";
+export { allianderConfig } from "./configs/alliander";
+export { essentConfig } from "./configs/essent";
+export { tennetConfig } from "./configs/tennet";
 export {
   extractJobPosting,
   extractJsonLdNodes,
   extractLabelBlock,
   pickJobPosting,
+  synthesizeContactsFromHaysPage,
+  synthesizeContactsFromProrailPage,
+  synthesizeContactsFromRandstadPage,
+  synthesizeContactsFromRijkswaterstaatPage,
+  synthesizeContactsFromVolkerwesselsPage,
+  synthesizeJobPostingFromAllianderVacancy,
+  synthesizeJobPostingFromAvature,
+  synthesizeJobPostingFromEssentFeatures,
   synthesizeJobPostingFromNextData,
   synthesizeJobPostingFromVike,
 } from "./extract";
 export { hashJsonLdListingItem, hashJsonLdPayload } from "./hash";
 export type {
+  DetailSynthesis,
   JsonLdConnectorConfig,
   JsonLdDiscoveryConfig,
   JsonLdDiscoveryUrl,
@@ -62,6 +74,7 @@ export type {
   JsonLdNode,
   JsonLdPrimitive,
   JsonLdValue,
+  SourceContact,
 } from "./types";
 
 export {

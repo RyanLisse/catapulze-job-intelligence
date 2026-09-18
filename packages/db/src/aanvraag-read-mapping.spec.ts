@@ -106,6 +106,17 @@ describe("readAanvraagBronFacts", () => {
     ).toBe("4 maanden");
   });
 
+  it("accepts freelancer-nl's verwachte_duur alias for the looptijd fact (CTP-611)", () => {
+    expect(readAanvraagBronFacts({ verwachte_duur: "In Overleg" }).duur).toBe(
+      "In Overleg"
+    );
+    // Canonical duur still wins when both exist.
+    expect(
+      readAanvraagBronFacts({ duur: "3 maanden", verwachte_duur: "In Overleg" })
+        .duur
+    ).toBe("3 maanden");
+  });
+
   it("passes a canonical province through unchanged", () => {
     expect(
       readAanvraagBronFacts({ provincie: "Noord-Holland" }).provincie

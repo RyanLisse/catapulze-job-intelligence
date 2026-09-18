@@ -28,7 +28,7 @@ describe("normalise and curate Rijkswaterstaat JSON-LD", () => {
     const payload: JsonLdFetchedPayload = {
       jobPosting: detail.jobPosting,
       labelBlock: detail.labelBlock,
-      parserVersion: "rijkswaterstaat/v1",
+      parserVersion: "rijkswaterstaat/v2",
       slug: "rijkswaterstaat",
       url,
     };

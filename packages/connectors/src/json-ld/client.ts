@@ -4,9 +4,11 @@ import {
   applyExcludes,
   buildDetailPayload,
   dedupeUrls,
+  detailFixtureBody,
   extractJsonListingPagination,
   extractSitemapUrls,
   parseListingSource,
+  resolveDetailFetchUrl,
   selectSitemapIndexChildren,
   validateJsonListingPagination,
 } from "./discovery";
@@ -122,10 +124,14 @@ export const createJsonLdClient = (
         if (!relativePath) {
           throw new Error(`Missing ${config.slug} detail fixture for ${url}`);
         }
-        const fixture = await loadConnectorFixture<string>(relativePath);
-        return buildDetailPayload(config, url, fixture.payload);
+        const fixture = await loadConnectorFixture<unknown>(relativePath);
+        return buildDetailPayload(
+          config,
+          url,
+          detailFixtureBody(fixture.payload)
+        );
       }
-      const html = await fetchLiveText(url);
+      const html = await fetchLiveText(resolveDetailFetchUrl(config, url));
       return buildDetailPayload(config, url, html);
     },
     fetchListing: async () => {
@@ -186,12 +192,10 @@ export const createJsonLdClient = (
         if (config.discovery.kind !== "json-listing") {
           return raw;
         }
+        const { pagination } = config.discovery;
+        nextUrl.searchParams.set(pagination?.pageParam ?? "page", String(page));
         nextUrl.searchParams.set(
-          config.discovery.pagination?.pageParam ?? "page",
-          String(page)
-        );
-        nextUrl.searchParams.set(
-          config.discovery.pagination?.pageSizeParam ?? "pageSize",
+          pagination?.pageSizeParam ?? "pageSize",
           String(pageSize)
         );
         return await fetchLiveText(nextUrl.toString());

@@ -228,6 +228,7 @@ describe("PostgresMissedPollsStore through executeBronRun", () => {
             bronReferentie: ref,
             bronSpecifiek: {},
             bronUrl: null,
+            contactpersonen: [],
             contentHash: hexDigest(ref),
             contracttype: null,
             dedupGroepId: null,

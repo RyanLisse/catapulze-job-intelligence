@@ -133,6 +133,7 @@ describe("batch_get_aanvragen (RJC-379)", () => {
       "bronReferentie",
       "bronUrl",
       "contracttype",
+      "dedupGroepId",
       "duur",
       "eindDatum",
       "enrichedFields",

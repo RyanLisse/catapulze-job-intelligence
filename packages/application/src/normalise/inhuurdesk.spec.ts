@@ -41,10 +41,44 @@ const buildPayload = (
 });
 
 describe("parseInhuurdeskPayload (live schema, captured 2026-09-03)", () => {
+  it("maps the projected contactpersonen into the draft (CTP-610)", () => {
+    const draft = parseInhuurdeskPayload(
+      buildPayload({
+        contactpersonen: [
+          {
+            email: "recruiter@example.invalid",
+            naam: "P. Persoon",
+            rol: "Recruiter",
+            telefoon: "+31000000000",
+          },
+        ],
+      }),
+      "hash-contact"
+    );
+    expect(draft.contactpersonen?.value).toEqual([
+      {
+        email: "recruiter@example.invalid",
+        geinformeerdOp: null,
+        naam: "P. Persoon",
+        notificatieKanaal: null,
+        rol: "Recruiter",
+        telefoon: "+31000000000",
+      },
+    ]);
+    expect(draft.contactpersonen?.provenance.sourcePath).toBe(
+      "assignment.contactpersonen"
+    );
+  });
+
+  it("omits contactpersonen when the payload carries none", () => {
+    const draft = parseInhuurdeskPayload(buildPayload(), "hash-none");
+    expect(draft.contactpersonen).toBeUndefined();
+  });
+
   it("maps the real Planner C record into the normalised draft", () => {
     const draft = parseInhuurdeskPayload(buildPayload(), "hash-1");
 
-    expect(draft.parserVersion).toBe("inhuurdesk/v3");
+    expect(draft.parserVersion).toBe("inhuurdesk/v4");
     expect(draft.titel.value).toBe("Planner C");
     expect(draft.bronReferentie.value).toBe(
       "3c9792fd-d0ef-4bcc-9500-c2ceaba566a4"

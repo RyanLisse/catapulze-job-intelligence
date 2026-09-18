@@ -50,4 +50,16 @@ describe("Randstad JSON-LD connector", () => {
       validThrough: "2026-10-23",
     });
   });
+
+  it("folds the contactitem__container tel/mailto channels into contactpersonen (CTP-610)", async () => {
+    const detail = await client.fetchDetail(
+      "https://www.randstad.nl/vacatures/752363/teamleider"
+    );
+    expect(detail.contactpersonen).toEqual([
+      {
+        email: "redacted@example.invalid",
+        telefoon: "088 -126 99 88",
+      },
+    ]);
+  });
 });
