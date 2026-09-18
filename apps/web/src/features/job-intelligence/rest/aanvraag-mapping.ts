@@ -236,6 +236,43 @@ const toSourceRecord = (input: {
   validTo: input.versie?.geldigTot ?? null,
 });
 
+/* oxlint-disable anti-slop/no-unknown-parameters, anti-slop/no-runtime-typeof, anti-slop/no-unsafe-dictionary-type -- these guards ARE the I/O boundary: the aanvraag envelope is UnknownRecord on the wire and `contactpersonen` gets its concrete shape established here before the renderer reads it. */
+const isContactRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+
+const isNonBlankText = (value: unknown): value is string =>
+  typeof value === "string" && value.trim() !== "";
+/* oxlint-enable anti-slop/no-unknown-parameters, anti-slop/no-runtime-typeof, anti-slop/no-unsafe-dictionary-type */
+
+/** The envelope is UnknownRecord on the wire — a non-array `contactpersonen`
+ * or a null entry must not reach the renderer (.map would crash there). */
+const toJobContactpersonen = (
+  value: AanvraagPreview["contactpersonen"]
+): JobListing["contactpersonen"] => {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.flatMap((entry) => {
+    if (!isContactRecord(entry)) {
+      return [];
+    }
+    const email = isNonBlankText(entry.email) ? entry.email : null;
+    const naam = isNonBlankText(entry.naam) ? entry.naam : null;
+    const telefoon = isNonBlankText(entry.telefoon) ? entry.telefoon : null;
+    if (!(email || telefoon || naam)) {
+      return [];
+    }
+    return [
+      {
+        email,
+        naam,
+        rol: isNonBlankText(entry.rol) ? entry.rol : null,
+        telefoon,
+      },
+    ];
+  });
+};
+
 export const mapAanvraagToJobListing = (input: {
   readonly aanvraag: AanvraagPreview;
   readonly bronCatalog: ReadonlyMap<string, BronCatalogEntry>;
@@ -248,7 +285,7 @@ export const mapAanvraagToJobListing = (input: {
 
   return {
     closingAt: input.aanvraag.sluitingsdatum ?? null,
-    contactpersonen: input.aanvraag.contactpersonen ?? [],
+    contactpersonen: toJobContactpersonen(input.aanvraag.contactpersonen),
     contractType: mapContractType(input.aanvraag.contracttype ?? null),
     country: input.aanvraag.locatieLand === "NL" ? "NL" : null,
     dedupGroepId: input.aanvraag.dedupGroepId ?? null,

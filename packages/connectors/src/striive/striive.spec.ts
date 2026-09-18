@@ -54,7 +54,7 @@ describe("Striive contact projection (CTP-610)", () => {
     ]);
   });
 
-  it("falls back to orderContactLegalName and dedupes the requester", () => {
+  it("drops orderContactLegalName (an org, not a person) and dedupes the requester", () => {
     expect(
       projectStriiveContacts({
         id: "j2",
@@ -70,7 +70,6 @@ describe("Striive contact projection (CTP-610)", () => {
         rol: null,
         telefoon: null,
       },
-      { naam: "Klant BV", rol: "ordercontact" },
     ]);
   });
 

@@ -430,3 +430,49 @@ describe("markeer_aanvraag writes audit event", () => {
     }
   });
 });
+
+describe("read_raw contact-PII gate (CTP-610)", () => {
+  it.each(["approver", "operator"] as const)(
+    "denies %s principals before the handler",
+    async (role) => {
+      const bundle = createTestSliceARegistry();
+      const invoker = bundle.registry.createInvoker({
+        capabilityId: "read_raw",
+        operation: "GET /v1/raw/{ref}",
+        transport: "rest",
+      });
+      const result = await invoker(
+        { ref: "raw/missing.json" },
+        {
+          principal: {
+            kind: "user" as const,
+            permissions: permissionsForRole(role),
+            subjectId: `${role}-1`,
+          },
+          requestId: `read-raw-${role}`,
+        }
+      );
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.code).toBe("FORBIDDEN");
+      }
+    }
+  );
+
+  it("lets a recruiter reach the handler — NOT_FOUND, not FORBIDDEN", async () => {
+    const bundle = createTestSliceARegistry();
+    const invoker = bundle.registry.createInvoker({
+      capabilityId: "read_raw",
+      operation: "GET /v1/raw/{ref}",
+      transport: "rest",
+    });
+    const result = await invoker(
+      { ref: "raw/missing.json" },
+      { principal: recruiterPrincipal, requestId: "read-raw-recruiter" }
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error.code).toBe("NOT_FOUND");
+    }
+  });
+});

@@ -58,7 +58,7 @@ describe("Randstad JSON-LD connector", () => {
     expect(detail.contactpersonen).toEqual([
       {
         email: "redacted@example.invalid",
-        telefoon: "088 -126 99 88",
+        telefoon: "+31000000000",
       },
     ]);
   });

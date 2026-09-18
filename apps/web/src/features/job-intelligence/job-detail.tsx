@@ -145,6 +145,49 @@ const JobBadges = ({ job }: { readonly job: JobListing }) => (
   </div>
 );
 
+const MAILTO_SAFE_EMAIL =
+  /^[^\s@?&'"/\\<>]+@[^\s@?&'"/\\<>]+\.[^\s@?&'"/\\<>]+$/u;
+const TEL_SAFE_PHONE = /^\+?[0-9][0-9 ()-]{4,}$/u;
+
+const contactEmailNode = (email: string | null): React.ReactNode => {
+  if (!email) {
+    return null;
+  }
+  // A scraped email may carry `?`/`&` — that would inject RFC-6068
+  // headers (bcc/subject) into the mailto. Only a clean addr-spec gets
+  // a link; anything else still renders as text.
+  if (!MAILTO_SAFE_EMAIL.test(email)) {
+    return <span className="font-mono">{email}</span>;
+  }
+  return (
+    <a
+      className="underline decoration-dotted underline-offset-2 hover:text-foreground"
+      href={`mailto:${email}`}
+    >
+      {email}
+    </a>
+  );
+};
+
+const contactTelefoonNode = (telefoon: string | null): React.ReactNode => {
+  if (!telefoon) {
+    return null;
+  }
+  // Same scraped-input rule as the mailto: only a plausibly diallable
+  // number becomes a tel: link; anything else renders as text.
+  if (!TEL_SAFE_PHONE.test(telefoon)) {
+    return <span className="font-mono">{telefoon}</span>;
+  }
+  return (
+    <a
+      className="font-mono underline decoration-dotted underline-offset-2 hover:text-foreground"
+      href={`tel:${telefoon.replaceAll(/[^+0-9]/gu, "")}`}
+    >
+      {telefoon}
+    </a>
+  );
+};
+
 const ContactpersoonCard = ({
   contact,
 }: {
@@ -160,17 +203,8 @@ const ContactpersoonCard = ({
       ) : null}
     </p>
     <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-[11px] text-muted-foreground">
-      {contact.email && isSafeHref(`mailto:${contact.email}`) ? (
-        <a
-          className="underline decoration-dotted underline-offset-2 hover:text-foreground"
-          href={`mailto:${contact.email}`}
-        >
-          {contact.email}
-        </a>
-      ) : null}
-      {contact.telefoon ? (
-        <span className="font-mono">{contact.telefoon}</span>
-      ) : null}
+      {contactEmailNode(contact.email)}
+      {contactTelefoonNode(contact.telefoon)}
     </div>
   </li>
 );

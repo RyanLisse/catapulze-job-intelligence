@@ -149,9 +149,9 @@ export const CONTACT_REDACTIONS = [
     label: "phone",
     pattern: new RegExp(
       [
-        `(?:\\+31|0031|&#43;31)${CONTACT_SEPARATOR}\\(?0?\\)?${CONTACT_SEPARATOR}\\d(?:${CONTACT_SEPARATOR}\\d){8}`,
+        `(?:\\+31|0031|&#43;31|&#x2[Bb];31)${CONTACT_SEPARATOR}\\(?0?\\)?${CONTACT_SEPARATOR}\\d(?:${CONTACT_SEPARATOR}\\d){8}`,
         // `+31 (6) 42492333`: the parenthesised digit counts toward the nine.
-        `(?:\\+31|&#43;31)${CONTACT_SEPARATOR}\\(\\d{1,2}\\)${CONTACT_SEPARATOR}\\d(?:${CONTACT_SEPARATOR}\\d){7}`,
+        `(?:\\+31|&#43;31|&#x2[Bb];31)${CONTACT_SEPARATOR}\\(\\d{1,2}\\)${CONTACT_SEPARATOR}\\d(?:${CONTACT_SEPARATOR}\\d){7}`,
         `\\b06${CONTACT_SEPARATOR}\\d(?:${CONTACT_SEPARATOR}\\d){7}\\b`,
         String.raw`\b0\d{2,3}-\d{6,7}\b`,
         String.raw`\b0\d{2,3}\s\d{3}\s?\d{2}\s?\d{2}\b`,

@@ -39,7 +39,7 @@ describe("Hays JSON-LD connector", () => {
     const detail = await client.fetchDetail(buyerUrl);
     expect(detail.contactpersonen).toEqual([
       {
-        naam: "Sander Bobeldijk",
+        naam: "A. de Vries",
         rol: "jobowner",
         telefoon: "+31000000000",
       },

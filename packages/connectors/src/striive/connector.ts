@@ -68,8 +68,9 @@ export const projectStriiveContacts = (
   if (recruiter.naam || recruiter.email || recruiter.telefoon) {
     contacts.push(recruiter);
   }
-  const orderNaam =
-    clean(raw.orderContactFullName) ?? clean(raw.orderContactLegalName);
+  // Only fullName: legalName is the contracting legal entity (an
+  // organisation), not a person — org names never count as contactpersonen.
+  const orderNaam = clean(raw.orderContactFullName);
   if (orderNaam) {
     contacts.push({ naam: orderNaam, rol: "ordercontact" });
   }

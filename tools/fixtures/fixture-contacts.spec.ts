@@ -25,10 +25,16 @@ const REDACTED_PHONE = "+31000000000";
 
 const FIXTURES_ROOT = path.resolve(import.meta.dir, "../../fixtures");
 
+/** The recorder preserves the source's own encoding of `+`: a number emitted
+ * as `&#43;31…` or `&#x2B;31…` keeps its entity prefix when the digits are
+ * zeroed, so the placeholder can appear in any of the pattern's forms. */
+const decodePhoneEntities = (match: string): string =>
+  match.replaceAll(/&#43;|&#x2[Bb];/gu, "+");
+
 const isRedacted = (label: string, match: string): boolean =>
   label === "email"
     ? REDACTED_EMAIL_HOST.test(match)
-    : match === REDACTED_PHONE;
+    : decodePhoneEntities(match) === REDACTED_PHONE;
 
 const findContacts = (
   text: string

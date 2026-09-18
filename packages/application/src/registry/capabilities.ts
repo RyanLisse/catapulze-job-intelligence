@@ -199,7 +199,10 @@ export const createSliceACapabilityCatalog = (deps: SliceAHandlerDeps) => {
   });
 
   const readRaw = defineCapability({
-    authorization: { permission: PERM_SLICE_READ },
+    // Raw bodies now embed source contactpersonen (CTP-610) within the
+    // preview window, so the recruiter gate that covered `full` must cover
+    // the preview too — approver/operator lose raw reads entirely.
+    authorization: { permission: ROLE_RECRUITER },
     bindings: dualBindings("GET", "/v1/raw/{ref}", "read_raw"),
     effect: "read",
     failureSchema: domainFailureSchema,
