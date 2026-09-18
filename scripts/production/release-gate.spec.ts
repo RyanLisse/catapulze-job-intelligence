@@ -112,6 +112,32 @@ describe("production release gate rejection paths", () => {
     ).toBe(false);
   });
 
+  it("counts operator-lane releases whose payload carries source instead of workflow", () => {
+    const candidate = "d".repeat(40);
+    expect(
+      isReleaseLedgerEntry({
+        description: "Manual production release (operator lane)",
+        payload: {
+          candidate_sha: candidate,
+          release_sha: candidate,
+          roles: ["server", "web", "projector"],
+          source: "manual-operator-deploy",
+        },
+        sha: candidate,
+      })
+    ).toBe(true);
+    expect(
+      isReleaseLedgerEntry({
+        payload: { candidate_sha: candidate },
+      })
+    ).toBe(false);
+    expect(
+      isReleaseLedgerEntry({
+        payload: { candidate_sha: candidate, source: "" },
+      })
+    ).toBe(false);
+  });
+
   it("rejects an unknown review mode and defaults to trusted-approver", () => {
     const unset: ReviewModeProbe = {};
     expect(parseReviewMode(unset.mode)).toBe("trusted-approver");

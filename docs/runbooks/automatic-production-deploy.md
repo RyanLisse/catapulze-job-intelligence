@@ -49,14 +49,16 @@ therefore makes the lane block on itself: the first run saw its own record,
 refused to continue, and left a `failure` status behind that blocked every
 later run as well.
 
-Only records this workflow wrote itself count as release ledger entries. The
+Only records release tooling wrote itself count as release ledger entries. The
 workflow writes a JSON payload of `workflow`, `workflow_run_id`, `run_attempt`,
 `job`, and `candidate_sha`, plus a description that starts with `Automatic
-production release`. A record counts as a ledger entry only when its payload
-parses and carries a full 40-character lowercase `candidate_sha` and a
-non-empty `workflow`. GitHub returns `payload` as an object on some routes and
-as a JSON string on others, so both forms are parsed. Anything else is one of
-GitHub's own environment records and is ignored by the gate, by the deploy
+production release`. The operator lane writes `source`,
+`candidate_sha`, `release_sha`, and `roles` instead. A record counts as a
+ledger entry only when its payload parses, carries a full 40-character
+lowercase `candidate_sha`, and names its provenance with a non-empty
+`workflow` or `source`. GitHub returns `payload` as an object on some routes
+and as a JSON string on others, so both forms are parsed. Anything else is one
+of GitHub's own environment records and is ignored by the gate, by the deploy
 driver, and by the lease step. `scripts/production/release-gate.ts` exports the
 predicate as `isReleaseLedgerEntry` and every filter uses it.
 
