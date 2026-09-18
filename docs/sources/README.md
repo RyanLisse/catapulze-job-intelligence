@@ -13,3 +13,25 @@ Every ingestable bron is one entry in the source registry: `packages/application
 The smoke seed writes `mappingRef = fixtures/connectors/<slug>/mapping.json` on the bron row. That path is a reference only — nothing reads it today, and no source ships one yet.
 
 `apps/web` must not import `@ji/application/sources` (enforced by `bun run check-layering`); the UI's source list comes from the API's bron catalog.
+
+## Sources without JobPosting JSON-LD
+
+Some werkenbij-sites publish no `ld+json` JobPosting but do carry the vacancy as
+structured data elsewhere. For those the json-ld connector has two config
+fields instead of a separate HTML-adapter (added for Alliander/Essent/TenneT,
+2026-09-30):
+
+- `detailSynthesizer(body, url)` — a per-source function that rebuilds the
+  JobPosting (+ label block) from whatever the detail body carries: framework
+  state (ASML `__NEXT_DATA__`, Techniekwerkt `vike_pageContext`), an embedded
+  payload (Essent's base64 Vue `DataItems`), narrative markup (TenneT's Avature
+  `article--details` + `og:` metas), or a JSON API record (Alliander). It runs
+  only when no explicit JobPosting node exists, and returns `null` when the
+  expected structure is absent — fail closed, never guess.
+- `detailUrlRewrite` — maps the discovered public URL onto the endpoint that
+  actually serves the record (Alliander's client-rendered
+  `/vacatures/<slug>/jr<id>` page vs. its `/api/vacancy/<id>` JSON). The
+  observation keeps the public URL as its identity.
+
+Fields the source does not publish stay UNKNOWN — synthesis must not infer
+location, dates, hours or tarief from prose.
