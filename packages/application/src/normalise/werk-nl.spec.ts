@@ -210,6 +210,25 @@ describe("parseWerkNlPayload", () => {
     });
   });
 
+  it("maps the source's own workLocationType label to canonical werkvorm (CTP-611)", () => {
+    const draft = parseWerkNlPayload(buildPayload(), "hash-1");
+    expect(draft.bronSpecifiek.value).toMatchObject({
+      werklocatie_type: "Wisselende werklocatie",
+      werkvorm: "Wisselende werklocatie",
+    });
+  });
+
+  it("keeps werkvorm absent when the listing label is absent", () => {
+    const draft = parseWerkNlPayload(
+      { ...buildPayload(), listing: null },
+      "hash-1"
+    );
+    expect(draft.bronSpecifiek.value).toMatchObject({
+      werklocatie_type: null,
+      werkvorm: null,
+    });
+  });
+
   it("keeps a published contract endDate as eind_datum", () => {
     const payload = buildPayload();
     if (payload.detail.proposition?.contract) {

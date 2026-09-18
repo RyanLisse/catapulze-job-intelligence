@@ -31,9 +31,10 @@ geo-tussenroutes zonder `-{8hex}`, zijn geen detailrecords en worden genegeerd.
 | Label/value `Status` | `bronSpecifiek.status` / lifecycle | `Open` wordt `active`. |
 | Label/value `Categorie` | `bronSpecifiek.categorie` | `Design & Creative`. |
 | Label/value `Locatie` | `locatieTekst` | `Remote`. |
-| Label/value `Soort Budget` | `bronSpecifiek.soort_budget` | `In overleg`; geen bedrag afgeleid. |
+| `.budget`-blok (listing + detail, `itemprop="baseSalary"`) | `tarief` | Alleen bij expliciete eenheid (`€30 — €40 Per Uur` → 30/40 uur). `Vaste Prijs`/`In overleg` blijft UNKNOWN — een projecttotaal is geen tarief en zou anders ten onrechte `uur` worden gelabeld. |
+| Label/value `Soort Budget` | `bronSpecifiek.soort_budget` | `In overleg`; eigen bronlabel als provenance, geen bedrag afgeleid. |
 | Label/value `Start` | `startDatum`, `bronSpecifiek.start` | `05-10-2026` wordt `2026-10-05`. |
-| Label/value `Verwachte Duur` | `bronSpecifiek.verwachte_duur` | `In Overleg`. |
+| Label/value `Verwachte Duur` | `bronSpecifiek.duur`, `bronSpecifiek.verwachte_duur` | `In Overleg`; canonieke sleutel plus bronlabel-provenance. |
 | Detail stats `Geplaatst` | `bronSpecifiek.geplaatst` | `15-09-2026`. |
 | `Opdracht Omschrijving` description card | `beschrijving` | HTML wordt gestript voor het canonieke tekstveld. |
 | Tags onder `Gevraagde Skills` | `bronSpecifiek.skills` | Structured chips, bijvoorbeeld `archicad`, `designer`, `architect`. |

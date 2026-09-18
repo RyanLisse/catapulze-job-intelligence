@@ -74,6 +74,11 @@ tegen listing-labels; `salary.type` telt posititioneel in de live-lijst
 "beloning-conform-cao"). De codes blijven ook rauw in bronSpecifiek —
 `salary.type` stuurt alleen de tarief-eenheid, geen index→label-tekst.
 
+`bronSpecifiek.werkvorm` neemt het eigen `workLocationType`-label van het
+listing-item verbatim over ("Vaste werklocatie"/"Wisselende werklocatie");
+de numerieke `proposition.workLocation.type` blijft rauw in
+`werklocatie_type_code` (geen geverifieerde codelijst-mapping).
+
 ## DEC-008
 
 `projectWerkNlVacature`/`projectWerkNlSearchItem` whitelisten elk veld dat de
