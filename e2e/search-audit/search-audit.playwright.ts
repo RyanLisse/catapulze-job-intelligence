@@ -13,20 +13,28 @@ const HISTORICAL_CATALOG_LABEL = "SYNTHETIC Historisch Archief";
 const CLOSED_TITLE = "SYNTHETIC gesloten archiefopdracht";
 const RATE_CASES = [
   {
-    rate: /€\s*4\.000–€\s*6\.000 \/ maand/u,
+    detailRate: /€\s*4\.000–€\s*6\.000 \/ maand/u,
+    period: "/ maand",
     title: "SYNTHETIC maandtarief",
+    value: /€\s*4\.000–€\s*6\.000/u,
   },
   {
-    rate: /€\s*500–€\s*750 \/ dag/u,
+    detailRate: /€\s*500–€\s*750 \/ dag/u,
+    period: "/ dag",
     title: "SYNTHETIC dagtarief",
+    value: /€\s*500–€\s*750/u,
   },
   {
-    rate: /€\s*3\.750–€\s*4\.250 \(periode onbekend\)/u,
+    detailRate: /€\s*3\.750–€\s*4\.250 \(periode onbekend\)/u,
+    period: "(periode onbekend)",
     title: "SYNTHETIC tarief zonder periode",
+    value: /€\s*3\.750–€\s*4\.250/u,
   },
   {
-    rate: /vanaf €\s*650 \/ dag/u,
+    detailRate: /vanaf €\s*650 \/ dag/u,
+    period: "/ dag",
     title: "SYNTHETIC minimum dagtarief",
+    value: /vanaf €\s*650/u,
   },
 ] as const;
 
@@ -416,32 +424,26 @@ test("distinguishes published commercial facts from unknown source facts", async
     .getByRole("row")
     .filter({ hasText: "Amsterdam, Noord-Holland platformopdracht" });
   const publishedCells = publishedRow.getByRole("cell");
-  // Selection / seven English columns: Title / Company / Location / Rate /
-  // Hrs / Platform / Posted
-  await expect(publishedCells.nth(1)).toContainText("Detachering");
-  await expect(
-    publishedCells.nth(2).getByText("Onbekend", { exact: true })
-  ).toBeVisible();
-  await expect(publishedCells.nth(3)).toContainText(COMMA_LOCATION);
-  await expect(publishedCells.nth(3)).toContainText("remote");
-  await expect(publishedCells.nth(4).getByText(/\/ uur$/u)).toBeVisible();
-  await expect(publishedCells.nth(7).locator("time")).toHaveText("1 sep 2026");
-  await expect(publishedCells.nth(7)).toContainText("Sluit 30 sep 2099");
+  // Grouped cells: Opdracht / Tarief & uren / Locatie / Bron / Data
+  await expect(publishedCells.nth(0)).toContainText("Detachering");
+  await expect(publishedCells.nth(1)).toContainText(/€\s*90–€\s*110/u);
+  await expect(publishedCells.nth(1)).toContainText("/ uur · remote");
+  await expect(publishedCells.nth(2)).toContainText(COMMA_LOCATION);
+  await expect(publishedCells.nth(3)).toContainText("TenderNed");
+  await expect(publishedCells.nth(4).locator("time")).toHaveText("1 sep 2026");
+  await expect(publishedCells.nth(4)).toContainText("Sluit 30 sep 2099");
 
   const unknownRow = results
     .getByRole("row")
     .filter({ hasText: "Brongetrouwe onbekende velden" });
   const unknownCells = unknownRow.getByRole("cell");
-  await expect(
-    unknownCells.nth(1).getByText("Onbekend", { exact: true })
-  ).toHaveCount(1);
-  await expect(unknownCells.nth(2)).toHaveText("Onbekend");
-  await expect(unknownCells.nth(3)).toHaveText(/^Onbekend\s*Onbekend$/u);
-  await expect(
-    unknownCells.nth(4).getByText("Tarief onbekend", { exact: true })
-  ).toBeVisible();
-  await expect(unknownCells.nth(7).locator("time")).toHaveText("Onbekend");
-  await expect(unknownCells.nth(7)).toContainText("Sluit Onbekend");
+  await expect(unknownCells.nth(1).getByText("—", { exact: true })).toHaveCount(
+    2
+  );
+  await expect(unknownCells.nth(1)).not.toContainText("Tarief onbekend");
+  await expect(unknownCells.nth(2)).toHaveText("—");
+  await expect(unknownCells.nth(4).locator("time")).toHaveText("—");
+  await expect(unknownCells.nth(4)).not.toContainText("Sluit");
   await page.screenshot({
     animations: "disabled",
     fullPage: true,
@@ -449,20 +451,22 @@ test("distinguishes published commercial facts from unknown source facts", async
   });
 });
 
-for (const { rate, title } of RATE_CASES) {
+for (const { detailRate, period, title, value } of RATE_CASES) {
   test(`shows ${title} in results and detail`, async ({ page }) => {
     await openJobs(page);
     const results = page.getByRole("region", { name: "Zoekresultaten" });
     const row = results.getByRole("row").filter({ hasText: title });
     await expect(row).toBeVisible();
-    await expect(row).toContainText(rate);
-    await expect(row).not.toContainText("/ uur");
+    const condities = row.getByRole("cell").nth(1);
+    await expect(condities).toContainText(value);
+    await expect(condities).toContainText(period);
+    await expect(condities).not.toContainText("/ uur");
 
     await row.getByRole("button", { name: title }).click();
     const detail = page.getByRole("dialog", { exact: true, name: title });
     await expect(detail).toBeVisible();
     await expect(detail.getByRole("heading", { name: title })).toBeVisible();
-    await expect(detail).toContainText(rate);
+    await expect(detail).toContainText(detailRate);
     await expect(detail).not.toContainText("/ uur");
 
     await detail

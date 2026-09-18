@@ -350,6 +350,163 @@ export const JOB_FIXTURES: readonly JobListing[] = [
     summary: "Wij zoeken een TypeScript engineer. React Node.js",
     title: "TypeScript Engineer (HTML body fixture)",
   },
+  // Arena stress fixtures: long real-world values that made the fixed-width
+  // results table overlap in production (month rates, long titles, long
+  // platform names, UUID references, absent fields). Kept at the end so the
+  // regular fixtures keep their positions under default sort.
+  {
+    closingAt: null,
+    contractType: "interim",
+    country: "NL",
+    description:
+      "Je adviseert over vergunningverlening binnen de Omgevingswet en begeleidt complexe aanvragen voor de gemeente.",
+    hoursPerWeek: "32–40",
+    id: "job-stress-001",
+    location: "Eindhoven",
+    organization: "Teamspoor Aannemerscombinatie Regio Eindhoven",
+    publishedAt: "2026-08-11T08:00:00.000Z",
+    rate: { currency: "EUR", max: 6500, min: 3150, period: "month" },
+    remote: null,
+    skills: ["Omgevingswet", "Vergunningverlening"],
+    sourceRecords: [
+      sourceRecord(
+        "nationale-vacaturebank",
+        "cebc352f2-4191-483b-8f01-7c2a9b4d5e6f",
+        "2026-08-11T08:15:00.000Z"
+      ),
+    ],
+    status: "open",
+    summary: "Begeleid vergunningaanvragen voor de Omgevingswet.",
+    title: "Adviseur Vergunningverlening Omgevingswet en Ruimtelijke Ordening",
+  },
+  {
+    closingAt: null,
+    contractType: null,
+    country: "NL",
+    description:
+      "Je coördineert de energietransitie over meerdere gemeentelijke projecten heen.",
+    hoursPerWeek: null,
+    id: "job-stress-002",
+    location: null,
+    organization:
+      "Emmert Groep Vastgoedontwikkeling en Duurzame Energieprojecten",
+    publishedAt: "2026-08-09T07:00:00.000Z",
+    rate: null,
+    remote: null,
+    skills: [],
+    sourceRecords: [
+      sourceRecord(
+        "nationale-vacaturebank",
+        "ce021ff2-97b3-4c98-8f7d-aa2f1b8c3301",
+        "2026-08-09T07:20:00.000Z"
+      ),
+    ],
+    status: "open",
+    summary: "Coördineer energietransitieprojecten.",
+    title: "Senior Projectcoördinator Energietransitie Zuid-Nederland",
+  },
+  {
+    closingAt: "2026-09-19T17:00:00.000Z",
+    contractType: "freelance",
+    country: "NL",
+    description:
+      "Je bent commercieel intercedent voor de regio Venlo en omstreken.",
+    hoursPerWeek: "24–40",
+    id: "job-stress-003",
+    location: "Venlo-Blerick",
+    organization: "Timing Uitzendbureau",
+    publishedAt: "2026-08-10T09:00:00.000Z",
+    rate: { currency: "EUR", max: 3510, min: 2600, period: "month" },
+    remote: false,
+    skills: ["Sales", "Recruitment"],
+    sourceRecords: [
+      sourceRecord(
+        "nationale-vacaturebank",
+        "95acf1b6-eb77-4a89-87c2-6f41e9d0a2b3",
+        "2026-08-10T09:10:00.000Z"
+      ),
+    ],
+    status: "closing-soon",
+    summary: "Commercieel intercedent voor de regio Venlo.",
+    title: "Commercieel Intercedent Venlo",
+    workArrangement: "Op locatie",
+  },
+  {
+    closingAt: "2026-10-01T12:00:00.000Z",
+    contractType: "vast",
+    country: "NL",
+    description:
+      "Je begeleidt bewoners in beschermd wonen trajecten in Dordrecht.",
+    hoursPerWeek: "36",
+    id: "job-stress-004",
+    location: "Dordrecht",
+    organization: "CGNet Zorg en Welzijn",
+    publishedAt: "2026-08-08T10:00:00.000Z",
+    rate: { currency: "EUR", max: 4148, min: 3088, period: "month" },
+    remote: false,
+    skills: ["Beschermd wonen"],
+    sourceRecords: [
+      sourceRecord(
+        "werkenvoor",
+        "4b3d536e-96f8-49ee-a2c1-9e5f6d7a8b9c",
+        "2026-08-08T10:30:00.000Z"
+      ),
+    ],
+    status: "open",
+    summary: "Begeleid bewoners in beschermd wonen trajecten.",
+    title: "Woonbegeleider Beschermd Wonen",
+    workArrangement: "Hybride",
+  },
+  {
+    closingAt: "2026-11-30T12:00:00.000Z",
+    contractType: "interim",
+    country: "NL",
+    description:
+      "Je treedt op als corporate recruiter met een dagtarief voor een half jaar.",
+    hoursPerWeek: "40",
+    id: "job-stress-005",
+    location: "'s-Hertogenbosch",
+    organization: "Raak Personeel Detachering Noord-Nederland",
+    publishedAt: "2026-08-07T12:00:00.000Z",
+    rate: { currency: "EUR", max: 760, min: 540, period: "day" },
+    remote: true,
+    skills: ["Recruitment", "Sourcing"],
+    sourceRecords: [
+      sourceRecord(
+        "inhuurdesk",
+        "d4f7b30c-4b4e-4c1a-a1f2-3e5d6c7b8a90",
+        "2026-08-07T12:45:00.000Z"
+      ),
+    ],
+    status: "open",
+    summary: "Corporate recruiter op dagtarief.",
+    title: "Corporate Recruiter",
+  },
+  {
+    closingAt: "2026-09-25T12:00:00.000Z",
+    contractType: "interim",
+    country: "NL",
+    description:
+      "Als elektromonteur dagdienst werk je aan utiliteitsprojecten in Drachten.",
+    hoursPerWeek: "1–40",
+    id: "job-stress-006",
+    location: "Drachten",
+    organization: "Start People",
+    publishedAt: "2026-08-06T06:00:00.000Z",
+    rate: { currency: "EUR", max: 88, min: null, period: "hour" },
+    remote: null,
+    skills: [],
+    sourceRecords: [
+      sourceRecord(
+        "indeed",
+        "3c1c3f92-9b8b-4d4b-8c3d-2e1f0a9b8c7d",
+        "2026-08-06T06:20:00.000Z"
+      ),
+    ],
+    status: "open",
+    summary: "Elektromonteur dagdienst voor utiliteitsprojecten.",
+    title: "Elektromonteur dagdienst",
+  },
 ] as const;
 
 // RJC-368: mirrors the live adapter's contract — derived from the fixture

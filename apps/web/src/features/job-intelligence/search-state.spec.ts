@@ -303,9 +303,15 @@ describe("fixture job search", () => {
       { id: "job-002", max: 98, period: "hour" },
       { id: "job-006", max: 94, period: "hour" },
       { id: "job-html-nvb", max: 90, period: "hour" },
+      { id: "job-stress-006", max: 88, period: "hour" },
+      { id: "job-stress-005", max: 760, period: "day" },
+      { id: "job-stress-001", max: 6500, period: "month" },
+      { id: "job-stress-004", max: 4148, period: "month" },
+      { id: "job-stress-003", max: 3510, period: "month" },
       { id: "job-008", max: 102_000, period: "year" },
       { id: "job-010", max: 96_000, period: "year" },
       { id: "job-011", max: null, period: null },
+      { id: "job-stress-002", max: null, period: null },
     ]);
   });
 
