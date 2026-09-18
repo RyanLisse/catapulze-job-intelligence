@@ -74,20 +74,21 @@ describe("fixture contact redaction", () => {
       paths.push(filePath);
     }
 
-    const offenders = (
-      await Promise.all(
-        paths.map(async (filePath) => {
-          const found = findContacts(await Bun.file(filePath).text());
-          if (found.length === 0) {
-            return null;
-          }
-          const relative = path.relative(FIXTURES_ROOT, filePath);
-          return `${relative}: ${found
-            .map(({ label, match }) => `${label} ${match}`)
-            .join(", ")}`;
-        })
-      )
-    ).filter((offender): offender is string => offender !== null);
+    const results = await Promise.all(
+      paths.map(async (filePath) => {
+        const found = findContacts(await Bun.file(filePath).text());
+        if (found.length === 0) {
+          return null;
+        }
+        const relative = path.relative(FIXTURES_ROOT, filePath);
+        return `${relative}: ${found
+          .map(({ label, match }) => `${label} ${match}`)
+          .join(", ")}`;
+      })
+    );
+    const offenders = results.filter(
+      (offender): offender is string => offender !== null
+    );
 
     expect(offenders, offenders.join("\n")).toEqual([]);
   });
