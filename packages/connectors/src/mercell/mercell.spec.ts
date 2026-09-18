@@ -101,6 +101,8 @@ describe("Mercell connector", () => {
     const payload = JSON.parse(new TextDecoder().decode(fetched.body)) as {
       detail: {
         ContactPersonDisplayName?: string | null;
+        publicationAuthorities?: string[];
+        PublicationAuthorities?: unknown;
         RequirementBoxes?: unknown;
         TenderName?: string;
       };
@@ -109,6 +111,10 @@ describe("Mercell connector", () => {
     };
     expect(payload.tenderId).toBe("228236");
     expect(payload.detail.TenderName).toContain("zero emissie motorfietsen");
+    // The wire carries PublicationAuthorities[] records; only the Mnemonic
+    // list survives projection, as `publicationAuthorities`.
+    expect(payload.detail.publicationAuthorities).toEqual(["MeFormsAuthority"]);
+    expect(payload.detail.PublicationAuthorities).toBeUndefined();
     // Contact fields are whitelisted but were PII-stripped at capture time.
     expect(payload.detail.ContactPersonDisplayName).toBeNull();
     expect(payload.detail.RequirementBoxes).toBeUndefined();

@@ -99,6 +99,23 @@ const emptyListingPage = (startIndex: number): MercellListingPage => ({
   startIndex,
 });
 
+/** Wire shape of the detail response — `PublicationAuthorities` carries full
+ * authority records; only `Mnemonic` is modelled downstream. Fixture payloads
+ * are raw wire bodies, so this mapping applies to both fetch paths. */
+type MercellDetailWire = Omit<MercellDetail, "publicationAuthorities"> & {
+  PublicationAuthorities?: { Mnemonic?: string | null }[] | null;
+};
+
+const toMercellDetail = (raw: MercellDetailWire): MercellDetail => {
+  const { PublicationAuthorities, ...rest } = raw;
+  return {
+    ...rest,
+    publicationAuthorities: (PublicationAuthorities ?? []).flatMap(
+      (authority) => (authority?.Mnemonic ? [authority.Mnemonic] : [])
+    ),
+  };
+};
+
 export const createMercellClient = (
   options: MercellClientOptions = {}
 ): MercellClient => {
@@ -107,10 +124,10 @@ export const createMercellClient = (
   const timeoutMs = resolveHttpTimeoutMs(options.timeoutMs);
   const { baseUrl } = options;
   const listingUrl = baseUrl
-    ? `${baseUrl}${LISTING_URL.slice(LISTING_URL.indexOf("/api"))}`
+    ? `${baseUrl}${new URL(LISTING_URL).pathname}`
     : LISTING_URL;
   const detailUrl = baseUrl
-    ? `${baseUrl}${DETAIL_URL.slice(DETAIL_URL.indexOf("/api"))}`
+    ? `${baseUrl}${new URL(DETAIL_URL).pathname}`
     : DETAIL_URL;
   const listingFixturePath =
     options.listingFixturePath ?? "mercell/listing-page-0.json";
@@ -130,15 +147,18 @@ export const createMercellClient = (
         if (!relativePath) {
           throw new Error(`Missing Mercell detail fixture for ${tenderId}`);
         }
-        const fixture = await loadConnectorFixture<MercellDetail>(relativePath);
-        return fixture.payload;
+        const fixture =
+          await loadConnectorFixture<MercellDetailWire>(relativePath);
+        return toMercellDetail(fixture.payload);
       }
       return withHttpTimeout(async (signal) => {
         const response = await fetchImpl(
           `${detailUrl}?tenderId=${encodeURIComponent(tenderId)}`,
           { signal }
         );
-        return readJson<MercellDetail>(response, "detail");
+        return toMercellDetail(
+          await readJson<MercellDetailWire>(response, "detail")
+        );
       }, timeoutMs);
     },
     fetchListing: async (page, fetchOptions) => {
