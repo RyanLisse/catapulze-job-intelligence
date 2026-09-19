@@ -22,6 +22,7 @@ import { inhuurdesk } from "./inhuurdesk";
 import { intermediair } from "./intermediair";
 import { jobbird } from "./jobbird";
 import { linkedin } from "./linkedin";
+import { mercell } from "./mercell";
 import { needstaffing } from "./needstaffing";
 import { ns } from "./ns";
 import { onefellow } from "./onefellow";
@@ -78,6 +79,7 @@ export const SOURCES = {
   intermediair,
   jobbird,
   linkedin,
+  mercell,
   needstaffing,
   ns,
   onefellow,
