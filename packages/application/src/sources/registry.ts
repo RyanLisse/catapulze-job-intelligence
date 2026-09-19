@@ -21,6 +21,7 @@ import { hero } from "./hero";
 import { inhuurdesk } from "./inhuurdesk";
 import { intermediair } from "./intermediair";
 import { jobbird } from "./jobbird";
+import { linkedin } from "./linkedin";
 import { needstaffing } from "./needstaffing";
 import { ns } from "./ns";
 import { onefellow } from "./onefellow";
@@ -76,6 +77,7 @@ export const SOURCES = {
   inhuurdesk,
   intermediair,
   jobbird,
+  linkedin,
   needstaffing,
   ns,
   onefellow,
