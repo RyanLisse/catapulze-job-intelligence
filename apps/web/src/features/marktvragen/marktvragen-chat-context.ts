@@ -3,11 +3,6 @@
 import type { UIMessage } from "ai";
 import { createContext, useContext } from "react";
 
-// Shared with the worker task id (apps/worker/src/tasks/marktvragen-chat.ts).
-// Lives here — not in actions.ts — because "use server" files may only export
-// async functions.
-export const MARKTVRAGEN_CHAT_TASK_ID = "marktvragen-chat" as const;
-
 export interface MarktvragenScreen {
   readonly aanvraagId?: string;
   readonly bronId?: string;
@@ -15,10 +10,6 @@ export interface MarktvragenScreen {
   readonly kind: "aanvraag" | "bron" | "chat" | "dashboard" | "search";
   readonly label?: string;
   readonly savedSearchId?: string;
-}
-
-export interface MarktvragenClientData extends Record<string, unknown> {
-  readonly screen?: MarktvragenScreen;
 }
 
 export interface MarktvragenChatContextValue {

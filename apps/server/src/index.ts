@@ -23,6 +23,9 @@ import {
 import { createHealthRoutes } from "./http/health";
 import { createProjectorRuntimeHandler } from "./http/projector-runtime";
 import { createReleaseHandler } from "./http/release";
+import { createMarktvragenChatHandler } from "./marktvragen/chat";
+import { getMarktvragenModel } from "./marktvragen/model";
+import { createTurnRateLimiter } from "./marktvragen/rate-limit";
 import { createReadinessDeps, createReadinessHandler } from "./readiness";
 import { jsonBodyLimit } from "./request-body-limit";
 import { createProductionSliceARegistry } from "./slice-a-registry";
@@ -50,6 +53,7 @@ app.use(
 );
 app.use("/v1/*", jsonBodyLimit());
 app.use("/mcp", jsonBodyLimit());
+app.use("/marktvragen/*", jsonBodyLimit());
 
 app.on(["POST", "GET"], "/api/auth/*", (c) => auth.handler(c.req.raw));
 
@@ -145,6 +149,21 @@ const mcpHandler = createMcpHandler(sliceA.registry, resolvePrincipal, {
   },
   unavailableCapabilities: PRODUCTION_UNAVAILABLE_CAPABILITIES,
 });
+
+// On-box Marktvragen chat: streamText over the same registry + principal
+// resolver the REST/MCP surfaces use. Replaces the Trigger.dev chat.agent
+// task — no cloud runs, per-user turn budget via the in-memory limiter.
+app.post(
+  "/marktvragen/chat",
+  createMarktvragenChatHandler({
+    model: getMarktvragenModel,
+    rateLimiter: createTurnRateLimiter({
+      maxPerWindow: env.MARKTVRAGEN_MAX_TURNS_PER_HOUR ?? 30,
+    }),
+    registry: sliceA.registry,
+    resolvePrincipal,
+  })
+);
 
 app.get("/v1/capabilities", capabilityDiscoveryHandler);
 app.all("/v1/*", (context) => restHandler(context));

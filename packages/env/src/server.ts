@@ -38,9 +38,17 @@ export const serverEnvEffectSchemas = {
   MANTICORE_URL: UrlString.pipe(
     Schema.withDecodingDefault(Effect.succeed("http://127.0.0.1:9308"))
   ),
+  MARKTVRAGEN_CHAT_MODEL: Schema.optional(NonEmptyString),
+  MARKTVRAGEN_MAX_TURNS_PER_HOUR: Schema.optional(
+    Schema.FiniteFromString.check(
+      Schema.isInt(),
+      Schema.isBetween({ maximum: 10_000, minimum: 1 })
+    )
+  ),
   NODE_ENV: Schema.Literals(["development", "production", "test"]).pipe(
     Schema.withDecodingDefault(Effect.succeed("development" as const))
   ),
+  OPENROUTER_API_KEY: Schema.optional(NonEmptyString),
   PERF_EFFECT_SPANS: Schema.Literals(["0", "1"]).pipe(
     Schema.withDecodingDefault(Effect.succeed("0" as const))
   ),
@@ -81,7 +89,14 @@ export const env = createEnv({
     JI_EFFECT_SEARCH: toEnvSchema(serverEnvEffectSchemas.JI_EFFECT_SEARCH),
     JI_EFFECT_SERVER: toEnvSchema(serverEnvEffectSchemas.JI_EFFECT_SERVER),
     MANTICORE_URL: toEnvSchema(serverEnvEffectSchemas.MANTICORE_URL),
+    MARKTVRAGEN_CHAT_MODEL: toEnvSchema(
+      serverEnvEffectSchemas.MARKTVRAGEN_CHAT_MODEL
+    ),
+    MARKTVRAGEN_MAX_TURNS_PER_HOUR: toEnvSchema(
+      serverEnvEffectSchemas.MARKTVRAGEN_MAX_TURNS_PER_HOUR
+    ),
     NODE_ENV: toEnvSchema(serverEnvEffectSchemas.NODE_ENV),
+    OPENROUTER_API_KEY: toEnvSchema(serverEnvEffectSchemas.OPENROUTER_API_KEY),
     PERF_EFFECT_SPANS: toEnvSchema(serverEnvEffectSchemas.PERF_EFFECT_SPANS),
     PORT: toEnvSchema(serverEnvEffectSchemas.PORT),
     RAW_OBJECT_STORE_PATH: toEnvSchema(

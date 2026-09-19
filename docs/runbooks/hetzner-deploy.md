@@ -90,6 +90,8 @@ git of in chat.**
 | `RAW_OBJECT_STORE_PATH` | nee | alleen relevant voor de filesystem-fallback (niet-productie) | — |
 | `NODE_ENV` | nee (default `development`) | productie-guards (filesystem-weigering, Redis-boot-weigering) staan dan uit — zet hem in productie dus expliciet op `production` | deploy-configuratie |
 | `PORT` | nee (default 3000) | — | deploy-configuratie |
+| `OPENROUTER_API_KEY` | alleen voor de Marktvragen-chat | `POST /marktvragen/chat` geeft 503 `CHAT_NOT_CONFIGURED` en het paneel toont een nette foutmelding; de rest van de API blijft werken | operator/1Password — server-app env in Coolify, komt nooit in de browser |
+| `MARKTVRAGEN_CHAT_MODEL` | nee (default `openai/gpt-oss-120b`) | — | operator, modelkeuze; de `:free`-variant van die slug is door OpenRouter uitgeschakeld (404) |
 
 ### Web (apps/web) — leest via `packages/env/src/web.ts`
 

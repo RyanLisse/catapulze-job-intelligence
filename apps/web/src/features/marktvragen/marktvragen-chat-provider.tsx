@@ -1,21 +1,17 @@
 "use client";
 
 import { useChat } from "@ai-sdk/react";
-import { useTriggerChatTransport } from "@trigger.dev/sdk/chat/react";
+import { env } from "@ji/env/web";
+import { DefaultChatTransport } from "ai";
 import { usePathname } from "next/navigation";
 import { useCallback, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 
 import { authClient } from "@/lib/auth-client";
 
-import { mintMarktvragenAccessToken, startMarktvragenSession } from "./actions";
-import {
-  MARKTVRAGEN_CHAT_TASK_ID,
-  MarktvragenChatContext,
-} from "./marktvragen-chat-context";
+import { MarktvragenChatContext } from "./marktvragen-chat-context";
 import type {
   MarktvragenChatContextValue,
-  MarktvragenClientData,
   MarktvragenScreen,
 } from "./marktvragen-chat-context";
 
@@ -39,6 +35,11 @@ const screenForPath = (pathname: string): MarktvragenScreen => {
  * sidebar and /chat render the same `useChat` state, so client-side
  * navigation keeps the thread. A full page reload starts a fresh chatId
  * (history restore is a documented follow-up).
+ *
+ * Transport is the on-box route on apps/server: the browser posts the UI
+ * messages plus the current screen context, the better-auth session cookie
+ * authorizes the turn (credentials: "include"), and the response is the same
+ * UI message stream the Trigger.dev transport produced.
  */
 export const MarktvragenChatProvider = ({
   children,
@@ -58,18 +59,17 @@ export const MarktvragenChatProvider = ({
     ? `${session.user.id}~${chatIdSuffix}`
     : null;
 
-  const clientData = useMemo<MarktvragenClientData>(
-    () => ({ screen: screenOverride ?? screenForPath(pathname) }),
-    [pathname, screenOverride]
-  );
+  const screen = screenOverride ?? screenForPath(pathname);
 
-  const transport = useTriggerChatTransport({
-    accessToken: ({ chatId: id }) => mintMarktvragenAccessToken(id),
-    clientData,
-    startSession: ({ chatId: id, clientData: data }) =>
-      startMarktvragenSession({ chatId: id, clientData: data }),
-    task: MARKTVRAGEN_CHAT_TASK_ID,
-  });
+  const transport = useMemo(
+    () =>
+      new DefaultChatTransport({
+        api: `${env.NEXT_PUBLIC_SERVER_URL}/marktvragen/chat`,
+        body: () => ({ screen }),
+        credentials: "include",
+      }),
+    [screen]
+  );
 
   const { error, messages, sendMessage, status, stop } = useChat({
     id: chatId ?? "marktvragen-anonymous",
@@ -89,9 +89,9 @@ export const MarktvragenChatProvider = ({
   );
 
   const sendToChat = useCallback(
-    (text: string, screen?: MarktvragenScreen) => {
-      if (screen) {
-        setScreenOverride(screen);
+    (text: string, targetScreen?: MarktvragenScreen) => {
+      if (targetScreen) {
+        setScreenOverride(targetScreen);
       }
       setOpen(true);
       void send(text);
