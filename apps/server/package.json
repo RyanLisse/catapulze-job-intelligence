@@ -23,7 +23,9 @@
     "@ji/search": "workspace:*",
     "@modelcontextprotocol/hono": "2.0.0",
     "@modelcontextprotocol/server": "2.0.0",
+    "@openrouter/ai-sdk-provider": "3.0.0",
     "@trpc/server": "catalog:",
+    "ai": "7.0.97",
     "better-auth": "catalog:",
     "dotenv": "catalog:",
     "effect": "catalog:",
@@ -32,6 +34,7 @@
     "zod": "catalog:"
   },
   "devDependencies": {
+    "@ai-sdk/provider": "4.0.13",
     "@ji/config": "workspace:*",
     "@modelcontextprotocol/client": "2.0.0",
     "@types/bun": "catalog:",

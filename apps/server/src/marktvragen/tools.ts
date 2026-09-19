@@ -1,8 +1,11 @@
-import type { InvocationPrincipal } from "@ji/application/registry";
+import type {
+  CapabilityRegistry,
+  InvocationPrincipal,
+  SliceACapabilityCatalog,
+} from "@ji/application/registry";
 import { tool } from "ai";
+import type { ToolSet } from "ai";
 import { z } from "zod";
-
-import type { MarktvragenRuntime } from "./runtime";
 
 /**
  * AI SDK toolset over the Slice A capability registry. Each tool execute goes
@@ -31,17 +34,21 @@ const toToolOutput = <T>(result: {
         },
       };
 
+export type MarktvragenRegistry = CapabilityRegistry<
+  SliceACapabilityCatalog[number]["capability"][]
+>;
+
 export interface MarktvragenToolContext {
   readonly principal: InvocationPrincipal | null;
   readonly requestIdPrefix: string;
 }
 
 export const createMarktvragenTools = (
-  runtime: MarktvragenRuntime,
+  registry: MarktvragenRegistry,
   context: MarktvragenToolContext
-) => {
+): ToolSet => {
   const invoker = (capabilityId: string) =>
-    runtime.registry.createInvoker({
+    registry.createInvoker({
       capabilityId,
       operation: capabilityId,
       transport: "mcp",
@@ -94,4 +101,4 @@ export const createMarktvragenTools = (
   };
 };
 
-export type MarktvragenTools = ReturnType<typeof createMarktvragenTools>;
+export type MarktvragenTools = ToolSet;

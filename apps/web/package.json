@@ -18,7 +18,6 @@
     "@swc/helpers": "^0.5.23",
     "@tanstack/react-form": "^1.33.2",
     "@tanstack/react-query": "^5.101.4",
-    "@trigger.dev/sdk": "4.5.13",
     "@trpc/client": "catalog:",
     "@trpc/server": "catalog:",
     "@trpc/tanstack-react-query": "^11.18.0",
