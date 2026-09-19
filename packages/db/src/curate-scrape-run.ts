@@ -8,17 +8,7 @@ import type {
   StoredObject,
 } from "@ji/connectors";
 import type { BronId, ScrapeRunId } from "@ji/domain";
-import {
-  and,
-  asc,
-  count,
-  desc,
-  eq,
-  gt,
-  inArray,
-  min,
-  notInArray,
-} from "drizzle-orm";
+import { and, asc, count, desc, eq, gt, inArray, min, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { z } from "zod";
 
@@ -99,17 +89,18 @@ const DOMINATED_SWEEP_LIMIT = 5000;
 const CURATION_FAILED_STATUS = "curation_failed";
 
 /**
- * A later same-content sibling does not dominate when it sits on a status an
- * operator can still revive. `curation_failed` and the missing-raw deferrals
- * are cleared by hand; if they were cleared and the earlier row had already
- * been superseded, the identity would lose the only observation still able to
- * refresh its `laatstGezienOp`. A sibling in any other status -- active,
- * blocked, or terminally applied -- either applies on its own or has already
- * proven the content is recorded, so it dominates safely.
+ * Statuses a later same-content sibling may carry while dominating an earlier
+ * `unchanged` row. Active and ordering-blocked siblings still apply on their
+ * own; applied siblings already proved the content is recorded. Everything
+ * else is excluded: `curation_failed` and the missing-raw deferrals are
+ * operator-revivable, and `superseded` or `quarantined` rows are terminal
+ * without having applied, so none of them can stand in for the earlier row.
  */
-const NON_DOMINATING_STATUSES = [
-  CURATION_FAILED_STATUS,
-  ...MISSING_RAW_STATUSES,
+const DOMINATING_STATUSES = [
+  ...CANDIDATE_STATUSES,
+  "already_committed",
+  "curated",
+  "unchanged",
 ] as const;
 
 /** Enough of the chain to name the failing statement without flooding stderr. */
@@ -358,6 +349,17 @@ export const classifyRecoveryCandidate = (input: {
   return "process";
 };
 
+/**
+ * The observation timestamp as a timestamptz ordering key. `compareSourcePointerOrder`
+ * is the contract for which row is an identity's head, so the per-identity
+ * bound must order by the same tuple or the bound can cut the head itself: a
+ * backfilled row has a late `created_at` but an early pointer, and a
+ * `created_at`-ordered slice would load only its successors, which then block
+ * on the unloaded head every pass. The guard keeps malformed payloads from
+ * aborting the pass through a failed cast.
+ */
+const observedAtOrder = sql`CASE WHEN ${aanvraagObservation.payload}->>'observedAt' ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}T' THEN (${aanvraagObservation.payload}->>'observedAt')::timestamptz END`;
+
 const queryCandidates = (
   input: CurateScrapeRunInput,
   statuses: readonly string[],
@@ -393,7 +395,14 @@ const queryCandidates = (
         inArray(aanvraagObservation.sourceRecordId, [...sourceRecordIds])
       )
     )
-    .orderBy(asc(aanvraagObservation.createdAt), asc(aanvraagObservation.id))
+    .orderBy(
+      asc(scrapeRun.gestart),
+      asc(observedAtOrder),
+      asc(aanvraagObservation.scrapeRunId),
+      asc(aanvraagObservation.contentHash),
+      asc(sql`${aanvraagObservation.payload}->>'rawPayloadRef'`),
+      asc(aanvraagObservation.id)
+    )
     .limit(limit);
 
 /**
@@ -458,24 +467,32 @@ const candidateSourceRecordIds = async (
 };
 
 /**
- * Marks `unchanged` observations `superseded` when a later run already holds
- * the same content.
+ * Marks `unchanged` observations `superseded` when they are provably no-op
+ * refreshes: a later succeeded run holds the same `contentHash` for the same
+ * source record, and the canonical record is already `active` on that hash.
  *
- * An `unchanged` row can only ever refresh `laatstGezienOp` or flip a
- * lifecycle status back; it never writes a content version. When a later
- * succeeded run recorded the same `contentHash` for the same source record,
- * that later sibling performs the same refresh, so the earlier row is dead
- * weight. This is what made the Bij Oranje backlog a treadmill (CTP-621):
- * ~85% of its recoverable rows were dominated `unchanged` re-observations
- * that the bounded scan re-read every pass while real `new`/`changed` work
- * starved behind them.
+ * Both halves of that proof matter. Without the canonical check, an earlier
+ * row could still be the one that reactivates a `stale` or `closed` record;
+ * superseding it would move the lifecycle transition to the later sibling's
+ * pointer and lose the SCD2 interval the earlier row would have written.
+ * Without a dominator restricted to statuses that will apply or already did,
+ * the earlier row could be superseded behind a sibling that turns out to be
+ * unprocessable and leaves nothing able to refresh the record. With both, a
+ * dominated row can only ever repeat the refresh the sibling performs --
+ * canonical content and status are already correct, so at worst a
+ * `laatstGezienOp` update waits for the later observation, which reports the
+ * truth more accurately anyway.
+ *
+ * This is what made the Bij Oranje backlog a treadmill (CTP-621): ~85% of its
+ * recoverable rows were dominated `unchanged` re-observations that the
+ * bounded scan re-read every pass while real `new`/`changed` work starved
+ * behind them.
  *
  * Ordering uses `scrape_run.gestart` like `compareSourcePointerOrder`, and the
  * `(scrapeRunId, sourceRecordId, contentHash)` unique constraint means a
  * sibling is always in a strictly later run, so no same-run row can dominate
- * itself. Siblings on {@link NON_DOMINATING_STATUSES} do not count: an
- * operator can revive them, and the earlier row is the fallback. The row stays
- * in the table with an honest terminal status, so history is preserved.
+ * itself. The row stays in the table with an honest terminal status, so
+ * history is preserved.
  */
 const markDominatedUnchangedObservations = async (
   input: CurateScrapeRunInput
@@ -496,6 +513,19 @@ const markDominatedUnchangedObservations = async (
       )
     )
     .innerJoin(
+      sourceRecord,
+      eq(sourceRecord.id, aanvraagObservation.sourceRecordId)
+    )
+    .innerJoin(
+      aanvraag,
+      and(
+        eq(aanvraag.bronId, aanvraagObservation.bronId),
+        eq(aanvraag.bronReferentie, sourceRecord.bronReferentie),
+        eq(aanvraag.contentHash, aanvraagObservation.contentHash),
+        eq(aanvraag.status, "active")
+      )
+    )
+    .innerJoin(
       dominatingObservation,
       and(
         eq(
@@ -503,7 +533,11 @@ const markDominatedUnchangedObservations = async (
           aanvraagObservation.sourceRecordId
         ),
         eq(dominatingObservation.contentHash, aanvraagObservation.contentHash),
-        notInArray(dominatingObservation.status, [...NON_DOMINATING_STATUSES])
+        inArray(dominatingObservation.status, [...DOMINATING_STATUSES]),
+        eq(
+          sql`${dominatingObservation.payload}->>'contractVersion'`,
+          CONNECTOR_OBSERVATION_CONTRACT_VERSION
+        )
       )
     )
     .innerJoin(

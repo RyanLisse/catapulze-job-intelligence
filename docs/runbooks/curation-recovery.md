@@ -44,15 +44,19 @@ for one identity blocks later observations for that identity, while other
 identities continue. An unexpected normalisation or database failure aborts
 the task with the observation ID so the task retry retains diagnostics.
 
-An `unchanged` observation whose identical `content_hash` was also recorded
-in a strictly later succeeded run for the same source record is dominated:
-the later sibling produces the same `laatst_gezien_op` refresh or lifecycle
-flip, so the earlier row can add nothing. Each pass marks such rows
-`superseded` in one bounded statement (up to 5,000 per pass) before selecting
-candidates. The row stays in the table for history; it is not deleted and no
-canonical data is rewritten. A later sibling does not dominate while it sits
-on `curation_failed` or a missing-raw deferral, because an operator can revive
-it and the earlier row is then the fallback.
+An `unchanged` observation is superseded only when it is provably a no-op
+refresh: the canonical record is already `active` on the same `content_hash`,
+and a strictly later succeeded run holds an observation of the same source
+record with that hash whose status will still apply or already did (active,
+ordering-blocked, or applied) and whose payload carries the current contract
+version. Rows that could still write a lifecycle transition — the canonical
+record is `stale` or `closed`, or the hash differs — are never dominated,
+and neither are rows whose only later siblings sit on `curation_failed`, a
+missing-raw deferral, `quarantined`, or `superseded`, because those siblings
+either need an operator or cannot stand in for the earlier row. Each pass
+marks dominated rows `superseded` in one bounded statement (up to 5,000 per
+pass) before selecting candidates. The row stays in the table for history;
+it is not deleted and no canonical data is rewritten.
 
 Each invocation attempts at most 100 observations by default (configurable by
 the internal caller from 1 through 500). It returns a bounded attempted-ID list,

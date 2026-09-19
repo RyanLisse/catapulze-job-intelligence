@@ -10,13 +10,15 @@
  * Apply mode performs exactly one thing: the same dominated-`unchanged`
  * supersession the runtime now does each pass in
  * `packages/db/src/curate-scrape-run.ts` (`markDominatedUnchangedObservations`).
- * An `unchanged` row is dominated when a later succeeded run holds an
- * observation of the same source record with the same `content_hash` whose
- * status is not `curation_failed` or a missing-raw deferral -- statuses an
- * operator can still revive. The dominated row cannot produce a version the
- * later sibling would not also produce, so it is marked `superseded` and kept
- * in the table for history. Nothing else is mutated: no requeues, no raw
- * reads, no canonical writes.
+ * An `unchanged` row is dominated only when it is provably a no-op refresh:
+ * the canonical record is already `active` on the same `content_hash`, and a
+ * later succeeded run holds an observation of the same source record with
+ * that hash whose status will apply or already did and whose payload carries
+ * the current contract version. Rows that could still write a lifecycle
+ * transition, and rows dominated only by a failed, deferred, quarantined, or
+ * already-superseded sibling, are never touched. The dominated row is marked
+ * `superseded` and kept in the table for history. Nothing else is mutated:
+ * no requeues, no raw reads, no canonical writes.
  *
  * `--apply` requires `--ingest-quiesced` and is bounded by `--limit`; it is
  * idempotent, so an operator reruns until `remainingDominated` reaches zero.
@@ -39,10 +41,14 @@ const RECOVERABLE_STATUSES = [
   "blocked_ordering_legacy",
 ] as const;
 
-const NON_DOMINATING_STATUSES = [
-  "curation_failed",
-  "deferred_missing_raw",
-  "deferred_missing_raw_legacy",
+const DOMINATING_STATUSES = [
+  "awaiting_curation",
+  "pending",
+  "blocked_ordering",
+  "blocked_ordering_legacy",
+  "already_committed",
+  "curated",
+  "unchanged",
 ] as const;
 
 interface CliArguments {
@@ -143,6 +149,12 @@ const dominatedCount = async (
     SELECT count(*)::text AS count
     FROM staging.aanvraag_observation o
     JOIN curated.scrape_run r ON r.id = o.scrape_run_id
+    JOIN staging.source_record sr ON sr.id = o.source_record_id
+    JOIN curated.aanvraag a
+      ON a.bron_id = o.bron_id
+      AND a.bron_referentie = sr.bron_referentie
+      AND a.content_hash = o.content_hash
+      AND a.status = 'active'
     WHERE o.bron_id = ${bronId}
       AND r.status = 'succeeded'
       AND o.outcome = 'unchanged'
@@ -156,7 +168,9 @@ const dominatedCount = async (
           AND dominating.content_hash = o.content_hash
           AND dominating_run.status = 'succeeded'
           AND dominating_run.gestart > r.gestart
-          AND dominating.status <> ALL(${[...NON_DOMINATING_STATUSES]})
+          AND dominating.status = ANY(${[...DOMINATING_STATUSES]})
+          AND dominating.payload->>'contractVersion' =
+            ${CONNECTOR_OBSERVATION_CONTRACT_VERSION}
       )
   `;
   return Number(row?.count ?? 0);
@@ -276,6 +290,12 @@ const runApply = async (input: {
           SELECT o.id
           FROM staging.aanvraag_observation o
           JOIN curated.scrape_run r ON r.id = o.scrape_run_id
+          JOIN staging.source_record sr ON sr.id = o.source_record_id
+          JOIN curated.aanvraag a
+            ON a.bron_id = o.bron_id
+            AND a.bron_referentie = sr.bron_referentie
+            AND a.content_hash = o.content_hash
+            AND a.status = 'active'
           WHERE o.bron_id = ${input.bronId}
             AND r.status = 'succeeded'
             AND o.outcome = 'unchanged'
@@ -289,7 +309,9 @@ const runApply = async (input: {
                 AND dominating.content_hash = o.content_hash
                 AND dominating_run.status = 'succeeded'
                 AND dominating_run.gestart > r.gestart
-                AND dominating.status <> ALL(${[...NON_DOMINATING_STATUSES]})
+                AND dominating.status = ANY(${[...DOMINATING_STATUSES]})
+                AND dominating.payload->>'contractVersion' =
+                  ${CONNECTOR_OBSERVATION_CONTRACT_VERSION}
             )
           LIMIT ${input.limit}
         )
