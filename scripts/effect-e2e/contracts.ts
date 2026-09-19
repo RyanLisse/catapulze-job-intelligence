@@ -24,15 +24,25 @@ export interface EffectE2eAuthFile {
   readonly email: string;
   readonly name: string;
   readonly password: string;
-  readonly role: "operator";
+  readonly role: "operator" | "recruiter";
   readonly subjectId: string;
 }
 
-export interface EffectE2eSeedArtifact {
-  readonly auth: {
-    readonly role: "operator";
+export interface EffectE2eAuthBundle {
+  readonly operator: EffectE2eAuthFile & { readonly role: "operator" };
+  readonly recruiter: EffectE2eAuthFile & { readonly role: "recruiter" };
+}
+
+export interface EffectE2eAuthEvidence {
+  readonly operator: { readonly role: "operator"; readonly subjectId: string };
+  readonly recruiter: {
+    readonly role: "recruiter";
     readonly subjectId: string;
   };
+}
+
+export interface EffectE2eSeedArtifact {
+  readonly auth: EffectE2eAuthEvidence;
   readonly canary: {
     readonly digest: string;
     readonly id: string;
@@ -43,6 +53,7 @@ export interface EffectE2eSeedArtifact {
     readonly aanvraagId: string;
     readonly bronId: string;
     readonly database: "disposable";
+    readonly outboxId: string;
     readonly scrapeRunId: string;
   };
   readonly evidence: {
@@ -59,8 +70,14 @@ export interface EffectE2eSeedArtifact {
 
 export const seedArtifactSchema = z.object({
   auth: z.object({
-    role: z.literal("operator"),
-    subjectId: z.string().min(1),
+    operator: z.object({
+      role: z.literal("operator"),
+      subjectId: z.string().min(1),
+    }),
+    recruiter: z.object({
+      role: z.literal("recruiter"),
+      subjectId: z.string().min(1),
+    }),
   }),
   canary: z.object({
     digest: z.string().regex(/^[a-f0-9]{64}$/u),
@@ -72,6 +89,7 @@ export const seedArtifactSchema = z.object({
     aanvraagId: z.string().uuid(),
     bronId: z.string().uuid(),
     database: z.literal("disposable"),
+    outboxId: z.string().uuid(),
     scrapeRunId: z.string().uuid(),
   }),
   evidence: z.object({
@@ -243,7 +261,7 @@ export const readEffectE2eConfig = (
 };
 
 export const canaryQuery = (canaryId: string): string =>
-  `EFFECT_E2E_${canaryId.slice(0, 8).toUpperCase()}`;
+  `EFFECTE2E${canaryId.slice(0, 8).toUpperCase()}`;
 
 export const privateAuthPath = (
   environment: EffectE2eEnvironment,

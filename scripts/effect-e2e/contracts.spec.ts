@@ -32,6 +32,21 @@ describe("Effect E2E environment contract", () => {
     });
   });
 
+  it("accepts the runner-shaped lowercase run identity and marker", () => {
+    const runId = "20260919t095543z-31034";
+    const canaryId = validEnvironment.EFFECT_E2E_CANARY_ID;
+
+    expect(
+      readEffectE2eConfig({
+        ...validEnvironment,
+        EFFECT_E2E_ARTIFACT_DIR: `/tmp/effect-e2e/${runId}`,
+        EFFECT_E2E_CANARY_ID: canaryId,
+        EFFECT_E2E_DB_MARKER: `effect-e2e-${runId}-${canaryId.slice(0, 12)}`,
+        EFFECT_E2E_PRIVATE_DIR: `/tmp/effect-e2e-private/${runId}`,
+      })
+    ).toMatchObject({ runId });
+  });
+
   it("refuses a missing disposable database guard", () => {
     expect(() =>
       readEffectE2eConfig({

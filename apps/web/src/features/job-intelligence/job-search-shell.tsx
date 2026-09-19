@@ -3,7 +3,7 @@
 import { fixturesEnabled } from "@ji/env/web";
 import { Button } from "@ji/ui/components/button";
 import Link from "next/link";
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { authClient } from "@/lib/auth-client";
 
@@ -14,6 +14,8 @@ import { createRestJobIntelligence } from "./rest-job-data-adapter";
 
 export const JobSearchShell = () => {
   const { data: session, isPending } = authClient.useSession();
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
   const isAuthenticated = Boolean(session?.user.id);
   const wiring = useMemo(
     () =>
@@ -30,7 +32,7 @@ export const JobSearchShell = () => {
     );
   }
 
-  if (isPending) {
+  if (!mounted || isPending) {
     return null;
   }
 

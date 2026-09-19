@@ -7,12 +7,14 @@ import { z } from "zod";
 
 import {
   EFFECT_E2E_SCHEMA_VERSION,
+  canaryQuery,
   privateAuthPath,
   readEffectE2eConfig,
   seedArtifactSchema,
 } from "./contracts";
 import type {
-  EffectE2eAuthFile,
+  EffectE2eAuthBundle,
+  EffectE2eAuthEvidence,
   EffectE2eConfig,
   EffectE2eEnvironment,
 } from "./contracts";
@@ -21,15 +23,16 @@ const authFileSchema = z.object({
   email: z.string().email(),
   name: z.string().min(1),
   password: z.string().min(12),
-  role: z.literal("operator"),
+  role: z.union([z.literal("operator"), z.literal("recruiter")]),
   subjectId: z.string().min(1),
+});
+const authBundleSchema = z.object({
+  operator: authFileSchema.extend({ role: z.literal("operator") }),
+  recruiter: authFileSchema.extend({ role: z.literal("recruiter") }),
 });
 
 interface EffectE2eCheckArtifact {
-  readonly auth: {
-    readonly role: "operator";
-    readonly subjectId: string;
-  };
+  readonly auth: EffectE2eAuthEvidence;
   readonly canary: {
     readonly digest: string;
     readonly id: string;
@@ -62,10 +65,7 @@ interface EffectE2eCheckArtifact {
 }
 
 interface EffectE2eFailureArtifact {
-  readonly auth: {
-    readonly role: "operator";
-    readonly subjectId: string;
-  };
+  readonly auth: EffectE2eAuthEvidence;
   readonly canary: {
     readonly digest: string;
     readonly id: string;
@@ -86,6 +86,12 @@ interface EffectE2eFailureArtifact {
   };
   readonly schemaVersion: 1;
   readonly status: "failed";
+}
+
+interface EffectE2eCheckState {
+  auth?: EffectE2eAuthBundle;
+  readonly browserErrors: string[];
+  seed?: z.infer<typeof seedArtifactSchema>;
 }
 
 interface JsonResponse {
@@ -203,7 +209,8 @@ const readSeed = async (config: EffectE2eConfig) => {
   if (
     parsed.canary.id !== config.canaryId ||
     parsed.canary.digest !== config.canaryDigest ||
-    parsed.auth.role !== "operator"
+    parsed.auth.recruiter.role !== "recruiter" ||
+    parsed.auth.operator.role !== "operator"
   ) {
     throw new Error("seed.json does not match the configured canary.");
   }
@@ -213,10 +220,10 @@ const readSeed = async (config: EffectE2eConfig) => {
 const readAuth = async (
   environment: EffectE2eEnvironment,
   config: EffectE2eConfig
-): Promise<EffectE2eAuthFile> => {
+): Promise<EffectE2eAuthBundle> => {
   const authPath = privateAuthPath(environment, config.privateDir);
   const authText = await readFile(authPath, "utf-8");
-  return authFileSchema.parse(parseJson(authText));
+  return authBundleSchema.parse(parseJson(authText));
 };
 
 const runFfmpeg = async (args: readonly string[]): Promise<void> => {
@@ -284,8 +291,26 @@ const transcodeAndExtractFrames = async (
 };
 
 const attachBrowserErrorListeners = (page: Page, errors: string[]): void => {
-  page.on("pageerror", () => errors.push("pageerror"));
-  page.on("requestfailed", () => errors.push("requestfailed"));
+  page.on("pageerror", (error) => {
+    errors.push(`pageerror:${error.message.slice(0, 160)}`);
+  });
+  page.on("requestfailed", (request) => {
+    const failure = request.failure()?.errorText ?? "unknown";
+    if (failure === "net::ERR_ABORTED" && request.isNavigationRequest()) {
+      // Chromium reports expected document-request cancellation during a
+      // successful navigation as requestfailed; it is not a runtime failure.
+      return;
+    }
+    const requestUrl = request.url();
+    const requestMethod = request.method();
+    let pathname = "unknown";
+    try {
+      ({ pathname } = new URL(requestUrl));
+    } catch {
+      // Keep malformed URLs out of the receipt rather than recording them.
+    }
+    errors.push(`requestfailed:${requestMethod}:${pathname}:${failure}`);
+  });
   page.on("response", (response) => {
     if (response.status() >= 500) {
       errors.push(`http-${response.status()}`);
@@ -293,9 +318,70 @@ const attachBrowserErrorListeners = (page: Page, errors: string[]): void => {
   });
 };
 
+const inspectApiSearch = async (
+  page: Page,
+  config: EffectE2eConfig,
+  query: string
+): Promise<void> => {
+  const diagnostic = await page.evaluate(
+    async ({ apiUrl, searchQuery }) => {
+      const response = await fetch(new URL("/v1/aanvragen/search", apiUrl), {
+        body: JSON.stringify({
+          filters: {},
+          limit: 100,
+          offset: 0,
+          query: searchQuery,
+          scope: "active",
+          sort: "relevance",
+        }),
+        credentials: "include",
+        headers: { "content-type": "application/json" },
+        method: "POST",
+      });
+      // SAFETY: Diagnostic output reads only bounded response fields; unknown
+      // API fields are ignored and never written to the evidence artifact.
+      const body = (await response.json()) as {
+        readonly value?: {
+          readonly hits?: readonly unknown[];
+          readonly ids?: readonly unknown[];
+          readonly total?: number;
+        };
+        readonly hits?: readonly unknown[];
+        readonly ids?: readonly unknown[];
+        readonly total?: number;
+      };
+      const result = body.value ?? body;
+      const ids = Array.isArray(result.ids) ? result.ids.map(String) : [];
+      const hits = Array.isArray(result.hits) ? result.hits.length : 0;
+      return {
+        hitCount: hits,
+        ids,
+        keys: Object.keys(result),
+        status: response.status,
+        total: Number.isFinite(result.total) ? (result.total ?? null) : null,
+      };
+    },
+    { apiUrl: config.apiUrl, searchQuery: query }
+  );
+  await writeFile(
+    path.join(config.artifactDir, "api-search.json"),
+    `${JSON.stringify(diagnostic, null, 2)}\n`,
+    { encoding: "utf-8", mode: 0o644 }
+  );
+  if (diagnostic.status !== 200) {
+    throw new Error(
+      "Authenticated search API diagnostic did not return HTTP 200."
+    );
+  }
+};
+
+const checkState: EffectE2eCheckState = {
+  browserErrors: [],
+};
+
 const runBrowserFlow = async (
   config: EffectE2eConfig,
-  auth: EffectE2eAuthFile,
+  auth: EffectE2eAuthBundle,
   seed: Awaited<ReturnType<typeof readSeed>>
 ): Promise<{
   readonly browserErrors: readonly string[];
@@ -305,7 +391,7 @@ const runBrowserFlow = async (
   };
 }> => {
   const browser = await chromium.launch({ headless: true });
-  const browserErrors: string[] = [];
+  const { browserErrors } = checkState;
   const loginContext = await browser.newContext();
   const loginPage = await loginContext.newPage();
   attachBrowserErrorListeners(loginPage, browserErrors);
@@ -317,16 +403,20 @@ const runBrowserFlow = async (
     if (!loginResponse || loginResponse.status() !== 200) {
       throw new Error("Browser login page did not return HTTP 200.");
     }
-    await loginPage.getByLabel("Email").fill(auth.email);
-    await loginPage.getByLabel("Password").fill(auth.password);
+    await loginPage.getByLabel("Email").fill(auth.recruiter.email);
+    await loginPage.getByLabel("Password").fill(auth.recruiter.password);
     await loginPage.getByRole("button", { name: "Sign In" }).click();
     await loginPage.waitForURL(/\/dashboard$/u, { timeout: 15_000 });
     await loginPage
-      .getByText(`Welcome ${auth.name}`, { exact: true })
+      .getByText(`Welcome ${auth.recruiter.name}`, { exact: true })
       .waitFor();
+    await inspectApiSearch(loginPage, config, seed.canary.query);
 
     const storageStatePath = path.join(config.privateDir, "storage-state.json");
     await loginContext.storageState({ path: storageStatePath });
+  } catch (error) {
+    await browser.close();
+    throw error;
   } finally {
     await loginContext.close();
   }
@@ -362,15 +452,34 @@ const runBrowserFlow = async (
     if ((await exactTitle.count()) !== 1) {
       throw new Error("Boolean search did not return exactly one seeded row.");
     }
+    const searchFramePath = path.join(
+      config.artifactDir,
+      "browser-flow-search.png"
+    );
+    await page.screenshot({ path: searchFramePath });
+    await context.clearCookies();
+    await page.goto(new URL("/login", config.baseUrl).href, {
+      waitUntil: "domcontentloaded",
+    });
+    await page.getByLabel("Email").fill(auth.operator.email);
+    await page.getByLabel("Password").fill(auth.operator.password);
+    await page.getByRole("button", { name: "Sign In" }).click();
+    await page.waitForURL(/\/dashboard$/u, { timeout: 15_000 });
+    await page
+      .getByText(`Welcome ${auth.operator.name}`, { exact: true })
+      .waitFor();
     await page.goto(new URL("/bronnen?window=7d", config.baseUrl).href, {
       waitUntil: "domcontentloaded",
     });
     await page
       .getByRole("heading", { exact: true, name: "Bronnen" })
       .waitFor({ state: "visible", timeout: 15_000 });
-    await page
-      .getByTestId("bronnen-kpi-runs")
-      .waitFor({ state: "visible", timeout: 15_000 });
+    const visibleKpi = (testId: string) =>
+      page.locator(`[data-testid="${testId}"]:visible`);
+    await visibleKpi("bronnen-kpi-runs").waitFor({
+      state: "visible",
+      timeout: 15_000,
+    });
     await Promise.all(
       [
         "bronnen-kpi-success",
@@ -379,7 +488,7 @@ const runBrowserFlow = async (
         "bronnen-kpi-ongewijzigd",
         "bronnen-kpi-rejected",
       ].map((testId) =>
-        page.getByTestId(testId).waitFor({ state: "visible", timeout: 15_000 })
+        visibleKpi(testId).waitFor({ state: "visible", timeout: 15_000 })
       )
     );
     const visibleTextParts = await page.locator(":visible").allTextContents();
@@ -400,7 +509,16 @@ const runBrowserFlow = async (
   }
   const webmPath = await video.path();
   const evidenceVideo = await transcodeAndExtractFrames(config, webmPath);
-  return { browserErrors, video: evidenceVideo };
+  return {
+    browserErrors,
+    video: {
+      ...evidenceVideo,
+      frames: [
+        path.join(config.artifactDir, "browser-flow-search.png"),
+        ...evidenceVideo.frames,
+      ],
+    },
+  };
 };
 
 const writeCheckArtifact = async (
@@ -417,8 +535,13 @@ const writeCheckArtifact = async (
 
 const main = async (config: EffectE2eConfig): Promise<void> => {
   const seed = await readSeed(config);
+  checkState.seed = seed;
   const auth = await readAuth(process.env, config);
-  if (auth.subjectId !== seed.auth.subjectId || auth.role !== seed.auth.role) {
+  checkState.auth = auth;
+  if (
+    auth.operator.subjectId !== seed.auth.operator.subjectId ||
+    auth.recruiter.subjectId !== seed.auth.recruiter.subjectId
+  ) {
     throw new Error("Private auth identity does not match seed.json.");
   }
   const ready = await assertReady(config);
@@ -457,20 +580,35 @@ const writeFailureArtifact = async (
   config: EffectE2eConfig,
   error: Error
 ): Promise<void> => {
+  const { auth, seed } = checkState;
   const artifact: EffectE2eFailureArtifact = {
-    auth: { role: "operator", subjectId: "unavailable" },
+    auth: auth
+      ? {
+          operator: {
+            role: auth.operator.role,
+            subjectId: auth.operator.subjectId,
+          },
+          recruiter: {
+            role: auth.recruiter.role,
+            subjectId: auth.recruiter.subjectId,
+          },
+        }
+      : {
+          operator: { role: "operator", subjectId: "unavailable" },
+          recruiter: { role: "recruiter", subjectId: "unavailable" },
+        },
     canary: {
-      digest: config.canaryDigest,
-      id: config.canaryId,
-      query: `EFFECT_E2E_${config.canaryId.slice(0, 8).toUpperCase()}`,
+      digest: seed?.canary.digest ?? config.canaryDigest,
+      id: seed?.canary.id ?? config.canaryId,
+      query: seed?.canary.query ?? canaryQuery(config.canaryId),
     },
-    cleanup: { database: "disposable", seedRead: false },
+    cleanup: { database: "disposable", seedRead: seed !== undefined },
     evidence: {
-      browserErrors: [],
+      browserErrors: checkState.browserErrors,
       checkPath: path.join(config.artifactDir, "check.json"),
       failure: safeError(error),
     },
-    rows: { booleanJobs: 0, bronnen: 0 },
+    rows: seed?.rows ?? { booleanJobs: 0, bronnen: 0 },
     schemaVersion: EFFECT_E2E_SCHEMA_VERSION,
     status: "failed",
   };

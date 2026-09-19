@@ -9,7 +9,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { Suspense, useEffect } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { toast } from "sonner";
 
 import {
@@ -62,10 +62,14 @@ const ForbiddenToastListener = () => {
 const Header = () => {
   const pathname = usePathname();
   const { data: session, isPending } = authClient.useSession();
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
   const parsedSession = sessionRoleSchema.safeParse(session);
-  const canViewBronnen = canAccessBronnen(
-    parsedSession.success ? parsedSession.data.user.role : null
-  );
+  const canViewBronnen =
+    mounted &&
+    canAccessBronnen(
+      parsedSession.success ? parsedSession.data.user.role : null
+    );
 
   return (
     <header className="sticky top-0 z-40 border-b border-border bg-background/85 backdrop-blur">
@@ -91,7 +95,10 @@ const Header = () => {
 
         <nav aria-label="Hoofdnavigatie" className="flex items-center gap-1">
           {navigationItems.map(({ href, icon: Icon, label }) => {
-            if (href === "/bronnen" && (isPending || !canViewBronnen)) {
+            if (
+              href === "/bronnen" &&
+              (!mounted || isPending || !canViewBronnen)
+            ) {
               return null;
             }
 

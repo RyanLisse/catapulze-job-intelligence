@@ -76,6 +76,7 @@ const axis = {
 const weekLabelFormatter = new Intl.DateTimeFormat("nl-NL", {
   day: "2-digit",
   month: "short",
+  timeZone: "UTC",
 });
 
 export interface WeekPoint {
@@ -283,6 +284,7 @@ const SPARKLINE_HEIGHT = 36;
 const dayLabelFormatter = new Intl.DateTimeFormat("nl-NL", {
   day: "2-digit",
   month: "short",
+  timeZone: "UTC",
 });
 
 export interface BronTrendPoint {

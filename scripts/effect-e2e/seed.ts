@@ -20,13 +20,17 @@ import {
   privateAuthPath,
   readEffectE2eConfig,
 } from "./contracts";
-import type { EffectE2eAuthFile, EffectE2eSeedArtifact } from "./contracts";
+import type {
+  EffectE2eAuthBundle,
+  EffectE2eAuthFile,
+  EffectE2eSeedArtifact,
+} from "./contracts";
 
 const authBootstrapConfirmation = "PROVISION_AUTH_USER";
 
 const writePrivateJson = async (
   filePath: string,
-  value: EffectE2eAuthFile
+  value: EffectE2eAuthBundle
 ): Promise<void> => {
   await mkdir(path.dirname(filePath), { mode: 0o700, recursive: true });
   await writeFile(filePath, `${JSON.stringify(value)}\n`, {
@@ -36,16 +40,17 @@ const writePrivateJson = async (
   await chmod(filePath, 0o600);
 };
 
-const provisionOperator = async (
+const provisionUser = async (
   config: ReturnType<typeof readEffectE2eConfig>,
-  credentials: Omit<EffectE2eAuthFile, "subjectId" | "role">
+  credentials: Omit<EffectE2eAuthFile, "subjectId" | "role">,
+  role: EffectE2eAuthFile["role"]
 ): Promise<void> => {
   const serverSecret = process.env.BETTER_AUTH_SECRET;
   const betterAuthUrl = process.env.BETTER_AUTH_URL;
   const corsOrigin = process.env.CORS_ORIGIN;
   if (!serverSecret || !betterAuthUrl || !corsOrigin) {
     throw new Error(
-      "BETTER_AUTH_SECRET, BETTER_AUTH_URL, and CORS_ORIGIN are required to provision the synthetic operator."
+      "BETTER_AUTH_SECRET, BETTER_AUTH_URL, and CORS_ORIGIN are required to provision synthetic E2E users."
     );
   }
 
@@ -58,7 +63,7 @@ const provisionOperator = async (
       AUTH_BOOTSTRAP_ENABLED: "1",
       AUTH_BOOTSTRAP_NAME: credentials.name,
       AUTH_BOOTSTRAP_PASSWORD: credentials.password,
-      AUTH_BOOTSTRAP_ROLE: "operator",
+      AUTH_BOOTSTRAP_ROLE: role,
       BETTER_AUTH_SECRET: serverSecret,
       BETTER_AUTH_URL: betterAuthUrl,
       CORS_ORIGIN: corsOrigin,
@@ -72,7 +77,7 @@ const provisionOperator = async (
     new Response(child.stdout).text(),
   ]);
   if (exitCode !== 0) {
-    throw new Error("Synthetic operator provisioning failed.");
+    throw new Error("Synthetic E2E user provisioning failed.");
   }
   const output = stdout
     .trim()
@@ -80,18 +85,18 @@ const provisionOperator = async (
     .map((line) => line.trim())
     .findLast((line) => line.length > 0);
   if (!output) {
-    throw new Error("Synthetic operator provisioning returned no status.");
+    throw new Error("Synthetic E2E user provisioning returned no status.");
   }
   let parsed: { readonly status?: string };
   try {
     // SAFETY: provision-user emits one JSON status object per successful run.
     parsed = JSON.parse(output) as { readonly status?: string };
   } catch {
-    throw new Error("Synthetic operator provisioning returned invalid status.");
+    throw new Error("Synthetic E2E user provisioning returned invalid status.");
   }
   if (parsed.status !== "provisioned") {
     throw new Error(
-      "Synthetic operator provisioning did not create a new user."
+      "Synthetic E2E user provisioning did not create a new user."
     );
   }
 };
@@ -117,14 +122,15 @@ const assertDisposableDatabase = async (
 
 const readUser = async (
   database: ReturnType<typeof drizzle>,
-  email: string
+  email: string,
+  role: "operator" | "recruiter"
 ): Promise<{ readonly id: string; readonly role: string }> => {
   const [stored] = await database
     .select({ id: authSchema.user.id, role: authSchema.user.role })
     .from(authSchema.user)
     .where(eq(authSchema.user.email, email));
   if (!stored) {
-    throw new Error("Synthetic operator was not found after provisioning.");
+    throw new Error(`Synthetic ${role} was not found after provisioning.`);
   }
   return stored;
 };
@@ -132,7 +138,7 @@ const readUser = async (
 const main = async (): Promise<void> => {
   const config = readEffectE2eConfig();
   const query = canaryQuery(config.canaryId);
-  const title = `Effect E2E Boolean ${config.canaryId.slice(0, 8).toUpperCase()}`;
+  const title = `Effect E2E Boolean ${query}`;
   const bronId = randomUUID();
   const scrapeRunId = randomUUID();
   const aanvraagId = config.canaryId;
@@ -141,9 +147,12 @@ const main = async (): Promise<void> => {
   const now = new Date();
   const started = new Date(now.getTime() - 1000);
   const shortId = config.canaryId.slice(0, 8);
-  const email = `effect-e2e-operator-${shortId}@example.invalid`;
-  const name = `Effect E2E Operator ${shortId}`;
-  const password = randomBytes(24).toString("base64url");
+  const operatorEmail = `effect-e2e-operator-${shortId}@example.invalid`;
+  const operatorName = `Effect E2E Operator ${shortId}`;
+  const operatorPassword = randomBytes(24).toString("base64url");
+  const recruiterEmail = `effect-e2e-recruiter-${shortId}@example.invalid`;
+  const recruiterName = `Effect E2E Recruiter ${shortId}`;
+  const recruiterPassword = randomBytes(24).toString("base64url");
   const authPath = privateAuthPath(process.env, config.privateDir);
 
   const databaseClient = postgres(config.databaseUrl, {
@@ -177,10 +186,28 @@ const main = async (): Promise<void> => {
       );
     }
 
-    await provisionOperator(config, { email, name, password });
-    const user = await readUser(database, email);
-    if (user.role !== "operator") {
-      throw new Error("Synthetic operator role readback failed.");
+    await provisionUser(
+      config,
+      {
+        email: operatorEmail,
+        name: operatorName,
+        password: operatorPassword,
+      },
+      "operator"
+    );
+    await provisionUser(
+      config,
+      {
+        email: recruiterEmail,
+        name: recruiterName,
+        password: recruiterPassword,
+      },
+      "recruiter"
+    );
+    const operator = await readUser(database, operatorEmail, "operator");
+    const recruiter = await readUser(database, recruiterEmail, "recruiter");
+    if (operator.role !== "operator" || recruiter.role !== "recruiter") {
+      throw new Error("Synthetic E2E role readback failed.");
     }
 
     await database.transaction(async (transaction) => {
@@ -246,15 +273,27 @@ const main = async (): Promise<void> => {
     });
 
     await writePrivateJson(authPath, {
-      email,
-      name,
-      password,
-      role: "operator",
-      subjectId: user.id,
+      operator: {
+        email: operatorEmail,
+        name: operatorName,
+        password: operatorPassword,
+        role: "operator",
+        subjectId: operator.id,
+      },
+      recruiter: {
+        email: recruiterEmail,
+        name: recruiterName,
+        password: recruiterPassword,
+        role: "recruiter",
+        subjectId: recruiter.id,
+      },
     });
     await mkdir(config.artifactDir, { mode: 0o755, recursive: true });
     const artifact: EffectE2eSeedArtifact = {
-      auth: { role: "operator", subjectId: user.id },
+      auth: {
+        operator: { role: "operator", subjectId: operator.id },
+        recruiter: { role: "recruiter", subjectId: recruiter.id },
+      },
       canary: {
         digest: config.canaryDigest,
         id: aanvraagId,
@@ -265,6 +304,7 @@ const main = async (): Promise<void> => {
         aanvraagId,
         bronId,
         database: "disposable",
+        outboxId,
         scrapeRunId,
       },
       evidence: {

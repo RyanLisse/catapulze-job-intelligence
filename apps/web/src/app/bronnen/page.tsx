@@ -110,6 +110,7 @@ const formatDate = (value: string | null): string =>
     ? new Intl.DateTimeFormat("nl-NL", {
         dateStyle: "medium",
         timeStyle: "short",
+        timeZone: "UTC",
       }).format(new Date(value))
     : "Nog geen runs";
 
