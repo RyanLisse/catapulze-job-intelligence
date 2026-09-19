@@ -8,7 +8,18 @@ import type {
   StoredObject,
 } from "@ji/connectors";
 import type { BronId, ScrapeRunId } from "@ji/domain";
-import { and, asc, count, desc, eq, inArray } from "drizzle-orm";
+import {
+  and,
+  asc,
+  count,
+  desc,
+  eq,
+  gt,
+  inArray,
+  min,
+  notInArray,
+} from "drizzle-orm";
+import { alias } from "drizzle-orm/pg-core";
 import { z } from "zod";
 
 import { compareSourcePointerOrder } from "./bron-runtime";
@@ -44,6 +55,26 @@ const RECOVERABLE_STATUSES = [
 const APPLIED_STATUSES = new Set(["already_committed", "curated", "unchanged"]);
 
 /**
+ * Statuses that produce candidates. `deferred_missing_raw*` rows are
+ * recoverable for `hasEarlierRecoverable` and `remaining` purposes but are
+ * never processed: they wait on an operator requeue, so they do not rank
+ * identities and are not loaded as candidates.
+ */
+const CANDIDATE_STATUSES = [...ACTIVE_STATUSES, ...BLOCKED_STATUSES] as const;
+
+/**
+ * How many dominated rows one pass may supersede in a single statement.
+ *
+ * The dominated sweep exists for the Bij Oranje treadmill (CTP-621): roughly
+ * 85% of that backlog is `unchanged` re-observations whose later sibling
+ * already carries the same content, so marking them `superseded` is the only
+ * way intake stops outrunning the curation budget. The bound keeps one UPDATE
+ * statement from locking an entire source's backlog at once; the sweep is
+ * idempotent, so whatever is left is taken on the next pass.
+ */
+const DOMINATED_SWEEP_LIMIT = 5000;
+
+/**
  * Terminal review status for an observation whose processing threw something
  * `processCandidate` does not classify.
  *
@@ -66,6 +97,20 @@ const APPLIED_STATUSES = new Set(["already_committed", "curated", "unchanged"]);
  * `docs/runbooks/onbox-poller.md`.
  */
 const CURATION_FAILED_STATUS = "curation_failed";
+
+/**
+ * A later same-content sibling does not dominate when it sits on a status an
+ * operator can still revive. `curation_failed` and the missing-raw deferrals
+ * are cleared by hand; if they were cleared and the earlier row had already
+ * been superseded, the identity would lose the only observation still able to
+ * refresh its `laatstGezienOp`. A sibling in any other status -- active,
+ * blocked, or terminally applied -- either applies on its own or has already
+ * proven the content is recorded, so it dominates safely.
+ */
+const NON_DOMINATING_STATUSES = [
+  CURATION_FAILED_STATUS,
+  ...MISSING_RAW_STATUSES,
+] as const;
 
 /** Enough of the chain to name the failing statement without flooding stderr. */
 const MAX_LOGGED_CAUSE_LENGTH = 500;
@@ -317,17 +362,9 @@ const queryCandidates = (
   input: CurateScrapeRunInput,
   statuses: readonly string[],
   limit: number,
-  scrapeRunId?: string
-) => {
-  const filters = [
-    eq(aanvraagObservation.bronId, input.bronId),
-    eq(scrapeRun.status, "succeeded"),
-    inArray(aanvraagObservation.status, [...statuses]),
-  ];
-  if (scrapeRunId) {
-    filters.push(eq(aanvraagObservation.scrapeRunId, scrapeRunId));
-  }
-  return input.database
+  sourceRecordIds: readonly string[]
+) =>
+  input.database
     .select({
       bronId: aanvraagObservation.bronId,
       bronReferentie: sourceRecord.bronReferentie,
@@ -348,9 +385,160 @@ const queryCandidates = (
       sourceRecord,
       eq(sourceRecord.id, aanvraagObservation.sourceRecordId)
     )
-    .where(and(...filters))
+    .where(
+      and(
+        eq(aanvraagObservation.bronId, input.bronId),
+        eq(scrapeRun.status, "succeeded"),
+        inArray(aanvraagObservation.status, [...statuses]),
+        inArray(aanvraagObservation.sourceRecordId, [...sourceRecordIds])
+      )
+    )
     .orderBy(asc(aanvraagObservation.createdAt), asc(aanvraagObservation.id))
     .limit(limit);
+
+/**
+ * Picks which identities this pass works on, before any rows are loaded.
+ *
+ * CTP-621: the old scan took the first `scanLimit` rows by `created_at` and
+ * forced every active row of the current run into the candidate map. On a
+ * backlog deeper than the scan window that read the same oldest slice every
+ * pass, so an identity whose head fell outside the window never appeared,
+ * while its freshly injected current-run row became the de-facto head and was
+ * parked `blocked_ordering`. Ranking identities by their earliest recoverable
+ * `created_at` instead means a pass always sees each selected identity's true
+ * head; identities observed in the current run are still added, so a brand-new
+ * identity with no backlog is not left to the next poll.
+ */
+const candidateSourceRecordIds = async (
+  input: CurateScrapeRunInput,
+  attemptLimit: number
+): Promise<string[]> => {
+  const [ranked, currentRun] = await Promise.all([
+    input.database
+      .select({
+        firstCreatedAt: min(aanvraagObservation.createdAt),
+        sourceRecordId: aanvraagObservation.sourceRecordId,
+      })
+      .from(aanvraagObservation)
+      .innerJoin(scrapeRun, eq(scrapeRun.id, aanvraagObservation.scrapeRunId))
+      .where(
+        and(
+          eq(aanvraagObservation.bronId, input.bronId),
+          eq(scrapeRun.status, "succeeded"),
+          inArray(aanvraagObservation.status, [...CANDIDATE_STATUSES])
+        )
+      )
+      .groupBy(aanvraagObservation.sourceRecordId)
+      .orderBy(asc(min(aanvraagObservation.createdAt)))
+      .limit(attemptLimit),
+    input.database
+      .selectDistinct({
+        sourceRecordId: aanvraagObservation.sourceRecordId,
+      })
+      .from(aanvraagObservation)
+      .innerJoin(scrapeRun, eq(scrapeRun.id, aanvraagObservation.scrapeRunId))
+      .where(
+        and(
+          eq(aanvraagObservation.bronId, input.bronId),
+          eq(scrapeRun.status, "succeeded"),
+          eq(aanvraagObservation.scrapeRunId, input.scrapeRunId),
+          inArray(aanvraagObservation.status, [...ACTIVE_STATUSES])
+        )
+      ),
+  ]);
+  const sourceRecordIds = ranked.map((row) => row.sourceRecordId);
+  const seen = new Set(sourceRecordIds);
+  for (const row of currentRun) {
+    if (!seen.has(row.sourceRecordId)) {
+      seen.add(row.sourceRecordId);
+      sourceRecordIds.push(row.sourceRecordId);
+    }
+  }
+  return sourceRecordIds;
+};
+
+/**
+ * Marks `unchanged` observations `superseded` when a later run already holds
+ * the same content.
+ *
+ * An `unchanged` row can only ever refresh `laatstGezienOp` or flip a
+ * lifecycle status back; it never writes a content version. When a later
+ * succeeded run recorded the same `contentHash` for the same source record,
+ * that later sibling performs the same refresh, so the earlier row is dead
+ * weight. This is what made the Bij Oranje backlog a treadmill (CTP-621):
+ * ~85% of its recoverable rows were dominated `unchanged` re-observations
+ * that the bounded scan re-read every pass while real `new`/`changed` work
+ * starved behind them.
+ *
+ * Ordering uses `scrape_run.gestart` like `compareSourcePointerOrder`, and the
+ * `(scrapeRunId, sourceRecordId, contentHash)` unique constraint means a
+ * sibling is always in a strictly later run, so no same-run row can dominate
+ * itself. Siblings on {@link NON_DOMINATING_STATUSES} do not count: an
+ * operator can revive them, and the earlier row is the fallback. The row stays
+ * in the table with an honest terminal status, so history is preserved.
+ */
+const markDominatedUnchangedObservations = async (
+  input: CurateScrapeRunInput
+): Promise<number> => {
+  const dominatingObservation = alias(
+    aanvraagObservation,
+    "dominating_observation"
+  );
+  const dominatingRun = alias(scrapeRun, "dominating_run");
+  const dominated = await input.database
+    .selectDistinct({ id: aanvraagObservation.id })
+    .from(aanvraagObservation)
+    .innerJoin(
+      scrapeRun,
+      and(
+        eq(scrapeRun.id, aanvraagObservation.scrapeRunId),
+        eq(scrapeRun.status, "succeeded")
+      )
+    )
+    .innerJoin(
+      dominatingObservation,
+      and(
+        eq(
+          dominatingObservation.sourceRecordId,
+          aanvraagObservation.sourceRecordId
+        ),
+        eq(dominatingObservation.contentHash, aanvraagObservation.contentHash),
+        notInArray(dominatingObservation.status, [...NON_DOMINATING_STATUSES])
+      )
+    )
+    .innerJoin(
+      dominatingRun,
+      and(
+        eq(dominatingRun.id, dominatingObservation.scrapeRunId),
+        eq(dominatingRun.status, "succeeded"),
+        gt(dominatingRun.gestart, scrapeRun.gestart)
+      )
+    )
+    .where(
+      and(
+        eq(aanvraagObservation.bronId, input.bronId),
+        eq(aanvraagObservation.outcome, "unchanged"),
+        inArray(aanvraagObservation.status, [...RECOVERABLE_STATUSES])
+      )
+    )
+    .limit(DOMINATED_SWEEP_LIMIT);
+  if (dominated.length === 0) {
+    return 0;
+  }
+  const marked = await input.database
+    .update(aanvraagObservation)
+    .set({ status: "superseded" })
+    .where(
+      and(
+        inArray(
+          aanvraagObservation.id,
+          dominated.map((row) => row.id)
+        ),
+        inArray(aanvraagObservation.status, [...RECOVERABLE_STATUSES])
+      )
+    )
+    .returning({ id: aanvraagObservation.id });
+  return marked.length;
 };
 
 const loadCandidates = async (
@@ -360,13 +548,21 @@ const loadCandidates = async (
   candidates: RecoveryCandidate[];
   invalidRows: { id: string; status: string }[];
 }> => {
-  const scanLimit = attemptLimit * SCAN_MULTIPLIER;
-  const [currentRows, activeRows, blockedRows] = await Promise.all([
-    queryCandidates(input, ACTIVE_STATUSES, scanLimit, input.scrapeRunId),
-    queryCandidates(input, ACTIVE_STATUSES, scanLimit),
-    queryCandidates(input, BLOCKED_STATUSES, attemptLimit),
-  ]);
-  const rows = [...currentRows, ...activeRows, ...blockedRows];
+  const sourceRecordIds = await candidateSourceRecordIds(input, attemptLimit);
+  // Bound per identity rather than globally: a global `created_at` window can
+  // still exclude a selected identity's head entirely when earlier identities
+  // own the oldest rows, which is the starvation this selection strategy is
+  // meant to remove. Every selected identity contributes its head plus up to
+  // SCAN_MULTIPLIER successors; longer tails reload on a later pass once the
+  // head has applied.
+  const chainRows = await Promise.all(
+    sourceRecordIds.map((sourceRecordId) =>
+      queryCandidates(input, CANDIDATE_STATUSES, SCAN_MULTIPLIER, [
+        sourceRecordId,
+      ])
+    )
+  );
+  const rows = chainRows.flat();
 
   const candidates: RecoveryCandidate[] = [];
   const invalidRows: { id: string; status: string }[] = [];
@@ -1063,6 +1259,9 @@ export const curateScrapeRun = async (
   ) {
     throw new RangeError("attemptLimit must be an integer between 1 and 500");
   }
+  // Runs before candidate selection so dominated rows can neither rank their
+  // identity nor consume an attempt slot this pass.
+  const dominatedMarked = await markDominatedUnchangedObservations(input);
   const loaded = await loadCandidates(input, attemptLimit);
   const candidates = fairOldestFirst(loaded.candidates, attemptLimit);
   // Malformed review rows use only capacity left after valid work, so a large
@@ -1080,7 +1279,7 @@ export const curateScrapeRun = async (
     pending: 0,
     quarantined: 0,
     remaining: 0,
-    superseded: 0,
+    superseded: dominatedMarked,
     unchanged: 0,
   };
   for (const invalidRow of invalidRows) {

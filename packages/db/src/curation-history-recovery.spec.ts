@@ -150,6 +150,7 @@ interface SeedObservationInput {
   database: TestDatabase;
   minute: number;
   objectStore?: InMemoryObjectStore;
+  outcome?: "changed" | "new" | "unchanged";
   rawPayloadRef?: string;
   scrapeRunId: ScrapeRunId;
   sourceRecordId: string;
@@ -175,7 +176,7 @@ const seedObservation = async (
     contentHash: input.contentHash,
     createdAt: atMinute(input.minute),
     id,
-    outcome: "changed",
+    outcome: input.outcome ?? "changed",
     payload: {
       bronId: BRON_ID,
       bronReferentie: input.bronReferentie,
@@ -1922,9 +1923,9 @@ describe("historical curation recovery (RJC-433)", () => {
     const first = await curateScrapeRun(input);
     remainingTrend.push(first.remaining);
     expect(first).toMatchObject({
-      blockedOrdering: 16,
-      curated: 84,
-      remaining: identityCount * (historicalObservationCount + 1) - 84,
+      blockedOrdering: 0,
+      curated: 100,
+      remaining: identityCount * (historicalObservationCount + 1) - 100,
     });
 
     const firstHeads = await database
@@ -1968,12 +1969,339 @@ describe("historical curation recovery (RJC-433)", () => {
       .from(aanvraagObservation)
       .where(eq(aanvraagObservation.bronId, BRON_ID));
     expect(finalStatuses.every((row) => row.status === "curated")).toBe(true);
-    // This is intentionally the reproduction assertion: the bounded
-    // created_at scan does not contain every identity's pointer head, while
-    // currentRows puts all current-run identities into the map first.
+    // CTP-621: identity-first selection guarantees every ranked identity's
+    // true pointer head is loaded, so no current-run row can be attempted
+    // ahead of its historical chain. Before the fix this pass curated 84
+    // heads and parked 16 current-run rows `blocked_ordering`.
     expect({ firstCurrentCount, firstHistoricalHeadCount }).toEqual({
       firstCurrentCount: 0,
       firstHistoricalHeadCount: 100,
     });
   }, 120_000);
+
+  it("supersedes unchanged observations dominated by a later same-content sibling", async () => {
+    if (!available || !database) {
+      expect(available).toBe(false);
+      return;
+    }
+    const objectStore = new InMemoryObjectStore();
+    const firstRunId = await seedRun(database, 0);
+    const secondRunId = await seedRun(database, 10);
+    const latestRunId = await seedRun(database, 20);
+    const bronReferentie = `rjc-621-dominated-${crypto.randomUUID()}`;
+    const sourceRecordId = await seedSourceRecord(
+      database,
+      bronReferentie,
+      firstRunId
+    );
+
+    const firstDominatedId = await seedObservation({
+      bronReferentie,
+      contentHash: "dup-hash",
+      database,
+      minute: 1,
+      outcome: "unchanged",
+      scrapeRunId: firstRunId,
+      sourceRecordId,
+      title: "Dominated duplicate",
+    });
+    const secondDominatedId = await seedObservation({
+      bronReferentie,
+      contentHash: "dup-hash",
+      database,
+      minute: 11,
+      outcome: "unchanged",
+      scrapeRunId: secondRunId,
+      sourceRecordId,
+      title: "Dominated duplicate",
+    });
+    const survivingId = await seedObservation({
+      bronReferentie,
+      contentHash: "dup-hash",
+      database,
+      minute: 21,
+      objectStore,
+      outcome: "unchanged",
+      scrapeRunId: latestRunId,
+      sourceRecordId,
+      title: "Dominated duplicate",
+    });
+
+    const first = await curateScrapeRun({
+      bronId: BRON_ID,
+      bronSlug: BRON_SLUG,
+      database,
+      objectStore,
+      scrapeRunId: latestRunId,
+    });
+    expect(first).toMatchObject({
+      curated: 1,
+      remaining: 0,
+      superseded: 2,
+    });
+
+    const statuses = await database
+      .select({
+        id: aanvraagObservation.id,
+        status: aanvraagObservation.status,
+      })
+      .from(aanvraagObservation)
+      .where(eq(aanvraagObservation.bronId, BRON_ID));
+    const statusById = new Map(
+      statuses.map((row) => [row.id, row.status] as const)
+    );
+    expect(statusById.get(firstDominatedId)).toBe("superseded");
+    expect(statusById.get(secondDominatedId)).toBe("superseded");
+    expect(statusById.get(survivingId)).toBe("curated");
+
+    // The sweep is idempotent: a second pass finds nothing left to dominate
+    // and does not reopen the terminally marked rows.
+    const second = await curateScrapeRun({
+      bronId: BRON_ID,
+      bronSlug: BRON_SLUG,
+      database,
+      objectStore,
+      scrapeRunId: latestRunId,
+    });
+    expect(second).toMatchObject({ remaining: 0, superseded: 0 });
+  });
+
+  it("keeps an unchanged head when its only later siblings are revivable", async () => {
+    if (!available || !database) {
+      expect(available).toBe(false);
+      return;
+    }
+    const objectStore = new InMemoryObjectStore();
+    const firstRunId = await seedRun(database, 0);
+    const secondRunId = await seedRun(database, 10);
+    const thirdRunId = await seedRun(database, 20);
+    const fourthRunId = await seedRun(database, 30);
+
+    const failedRef = `rjc-621-failed-sibling-${crypto.randomUUID()}`;
+    const failedSourceId = await seedSourceRecord(
+      database,
+      failedRef,
+      firstRunId
+    );
+    const failedSurvivorId = await seedObservation({
+      bronReferentie: failedRef,
+      contentHash: "failed-dup-hash",
+      database,
+      minute: 1,
+      objectStore,
+      outcome: "unchanged",
+      scrapeRunId: firstRunId,
+      sourceRecordId: failedSourceId,
+      title: "Duplicate before failure",
+    });
+    const failedSiblingId = await seedObservation({
+      bronReferentie: failedRef,
+      contentHash: "failed-dup-hash",
+      database,
+      minute: 11,
+      outcome: "unchanged",
+      scrapeRunId: secondRunId,
+      sourceRecordId: failedSourceId,
+      status: "curation_failed",
+      title: "Duplicate before failure",
+    });
+
+    const missingRawRef = `rjc-621-missing-raw-sibling-${crypto.randomUUID()}`;
+    const missingRawSourceId = await seedSourceRecord(
+      database,
+      missingRawRef,
+      thirdRunId
+    );
+    const missingRawSurvivorId = await seedObservation({
+      bronReferentie: missingRawRef,
+      contentHash: "missing-raw-dup-hash",
+      database,
+      minute: 21,
+      objectStore,
+      outcome: "unchanged",
+      scrapeRunId: thirdRunId,
+      sourceRecordId: missingRawSourceId,
+      title: "Duplicate before missing raw",
+    });
+    const missingRawSiblingId = await seedObservation({
+      bronReferentie: missingRawRef,
+      contentHash: "missing-raw-dup-hash",
+      database,
+      minute: 31,
+      outcome: "unchanged",
+      scrapeRunId: fourthRunId,
+      sourceRecordId: missingRawSourceId,
+      status: "deferred_missing_raw",
+      title: "Duplicate before missing raw",
+    });
+
+    const result = await curateScrapeRun({
+      bronId: BRON_ID,
+      bronSlug: BRON_SLUG,
+      database,
+      objectStore,
+      scrapeRunId: fourthRunId,
+    });
+    // An operator can revive a failed or missing-raw sibling, and then the
+    // earlier row is the fallback that still refreshes the identity, so
+    // neither head is dominated. The deferred sibling stays recoverable
+    // backlog until that requeue.
+    expect(result).toMatchObject({
+      curated: 2,
+      pending: 1,
+      remaining: 1,
+      superseded: 0,
+    });
+
+    const statuses = await database
+      .select({
+        id: aanvraagObservation.id,
+        status: aanvraagObservation.status,
+      })
+      .from(aanvraagObservation)
+      .where(eq(aanvraagObservation.bronId, BRON_ID));
+    const statusById = new Map(
+      statuses.map((row) => [row.id, row.status] as const)
+    );
+    expect(statusById.get(failedSurvivorId)).toBe("curated");
+    expect(statusById.get(failedSiblingId)).toBe("curation_failed");
+    expect(statusById.get(missingRawSurvivorId)).toBe("curated");
+    expect(statusById.get(missingRawSiblingId)).toBe("deferred_missing_raw");
+  });
+
+  it("does not supersede an unchanged observation whose later sibling carries different content", async () => {
+    if (!available || !database) {
+      expect(available).toBe(false);
+      return;
+    }
+    const objectStore = new InMemoryObjectStore();
+    const firstRunId = await seedRun(database, 0);
+    const secondRunId = await seedRun(database, 10);
+    const bronReferentie = `rjc-621-different-hash-${crypto.randomUUID()}`;
+    const sourceRecordId = await seedSourceRecord(
+      database,
+      bronReferentie,
+      firstRunId
+    );
+    const unchangedId = await seedObservation({
+      bronReferentie,
+      contentHash: "older-hash",
+      database,
+      minute: 1,
+      objectStore,
+      outcome: "unchanged",
+      scrapeRunId: firstRunId,
+      sourceRecordId,
+      title: "Older content",
+    });
+    const changedId = await seedObservation({
+      bronReferentie,
+      contentHash: "newer-hash",
+      database,
+      minute: 11,
+      objectStore,
+      scrapeRunId: secondRunId,
+      sourceRecordId,
+      title: "Newer content",
+    });
+
+    const result = await curateScrapeRun({
+      bronId: BRON_ID,
+      bronSlug: BRON_SLUG,
+      database,
+      objectStore,
+      scrapeRunId: secondRunId,
+    });
+    expect(result).toMatchObject({
+      curated: 2,
+      remaining: 0,
+      superseded: 0,
+    });
+
+    const statuses = await database
+      .select({
+        id: aanvraagObservation.id,
+        status: aanvraagObservation.status,
+      })
+      .from(aanvraagObservation)
+      .where(eq(aanvraagObservation.bronId, BRON_ID));
+    const statusById = new Map(
+      statuses.map((row) => [row.id, row.status] as const)
+    );
+    expect(statusById.get(unchangedId)).toBe("curated");
+    expect(statusById.get(changedId)).toBe("curated");
+  });
+
+  it("drains a dominated-heavy backlog while real changes still curate", async () => {
+    if (!available || !database) {
+      expect(available).toBe(false);
+      return;
+    }
+    const objectStore = new InMemoryObjectStore();
+    const identityCount = 10;
+    const runIds: ScrapeRunId[] = [];
+    for (let run = 0; run < 4; run += 1) {
+      // oxlint-disable-next-line no-await-in-loop -- run starts define pointer order
+      runIds.push(await seedRun(database, run * 10));
+    }
+    const firstRunId = runIds.at(0);
+    const latestRunId = runIds.at(-1);
+    if (!(firstRunId && latestRunId)) {
+      throw new Error("Expected fixture runs");
+    }
+    for (let identity = 0; identity < identityCount; identity += 1) {
+      const bronReferentie = `rjc-621-treadmill-${identity}-${crypto.randomUUID()}`;
+      // oxlint-disable-next-line no-await-in-loop -- deterministic fixture order
+      const sourceRecordId = await seedSourceRecord(
+        database,
+        bronReferentie,
+        firstRunId
+      );
+      for (let duplicate = 0; duplicate < 3; duplicate += 1) {
+        const runId = runIds[duplicate];
+        if (!runId) {
+          throw new Error("Expected a run per duplicate");
+        }
+        // oxlint-disable-next-line no-await-in-loop -- deterministic fixture order
+        await seedObservation({
+          bronReferentie,
+          contentHash: `treadmill-dup-${identity}`,
+          database,
+          minute: identity * 4 + duplicate,
+          // The newest duplicate still processes, so it needs raw; the two
+          // dominated rows are superseded without a read.
+          objectStore: duplicate === 2 ? objectStore : undefined,
+          outcome: "unchanged",
+          scrapeRunId: runId,
+          sourceRecordId,
+          title: `Treadmill duplicate ${identity}`,
+        });
+      }
+      // oxlint-disable-next-line no-await-in-loop -- deterministic fixture order
+      await seedObservation({
+        bronReferentie,
+        contentHash: `treadmill-new-${identity}`,
+        database,
+        minute: identity * 4 + 3,
+        objectStore,
+        scrapeRunId: latestRunId,
+        sourceRecordId,
+        title: `Treadmill change ${identity}`,
+      });
+    }
+
+    const result = await curateScrapeRun({
+      bronId: BRON_ID,
+      bronSlug: BRON_SLUG,
+      database,
+      objectStore,
+      scrapeRunId: latestRunId,
+    });
+    expect(result).toMatchObject({
+      blockedOrdering: 0,
+      curated: 20,
+      remaining: 0,
+      superseded: 20,
+    });
+  });
 });
