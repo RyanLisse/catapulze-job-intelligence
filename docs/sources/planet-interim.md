@@ -1,6 +1,6 @@
 # Planet Interim (planetinterim.nl) — ingest-recept
 
-Status: **probe afgerond; connector toegevoegd** — JSON-LD listing-discovery (CTP-582).
+Status: **bounded pagination toegevoegd; productie-egress geblokkeerd** — JSON-LD listing-discovery (CTP-582/620).
 
 ## Endpoints
 
@@ -12,11 +12,36 @@ Status: **probe afgerond; connector toegevoegd** — JSON-LD listing-discovery (
 ## Discovery
 
 `kind: "listing"` op `/opdrachten`, `linkPattern`
-`^/[a-z0-9-]+/\d+/p\d+/default\.html$`. De pagina toont de 20 nieuwste
-opdrachten; verdere paginering is een ASP.NET-WebForms-postback
-(`WebForm_DoPostBackWithOptions`) en dus niet via GET crawlbaar. Dekking groeit
-incrementeel via de known-hash store: elke poll pakt de nieuwste pagina.
-Er is geen sitemap (`/sitemap.xml` → 404).
+`^/[a-z0-9-]+/\d+/p\d+/default\.html$`. Een listingpagina toont 20 opdrachten;
+de volgende pagina gebruikt een ASP.NET-WebForms-postback
+(`WebForm_DoPostBackWithOptions`) met cookies en hidden state en is niet via GET
+crawlbaar. De Planet-specifieke client bewaart die sessiestaat, post de
+`nextPostbackButton` sequentieel en stopt bij een disabled/ontbrekende next-knop.
+De client heeft een harde limiet van 50 pagina's en faalt gesloten bij een
+herhaalde pagina, malformed HTML of een block page. De actuele lokale probe
+(2026-09-19T14:55:09.976Z–2026-09-19T14:55:16.069Z) liep 26 pagina's door: 25
+pagina's met 20 URLs en een laatste pagina met 10 URLs (510 unieke
+detail-URLs). De echte, mechanisch gestrippte first/next/last-responses staan
+als `pagination-first.json`, `pagination-next.json` en `pagination-last.json`
+onder `fixtures/connectors/planet-interim/`; hun `capturedAt` komt van de
+raw-file mtime. Deze bounded diagnose gebruikte `pageDelayMs=0`; de connector
+gebruikt standaard 2 seconden tussen POSTs.
+
+Dit bewijst de publieke route vanaf de probe-host. De operator-probe vanaf de
+productiebox op 2026-09-19T14:31:24Z kreeg HTTP 403 op listing en detail (robots
+bleef 200). Productie-ingest blijft daarom geblokkeerd tot provider-toegang,
+allowlisting of een aantoonbaar werkende geautoriseerde egress/feed beschikbaar
+is; geen `PLANET_INTERIM_LIVE=1` activeren vóór die egress-gate.
+
+De bestaande `JsonLdClient.fetchListing()`-interface geeft geen
+`AbortSignal` door. De losse pager ondersteunt cancellation voor directe
+aanroepen en test dit, maar een connector-run kan een lopende Planet-paginareeks
+niet extern annuleren zonder een aparte interface-uitbreiding.
+
+Er is geen sitemap (`/sitemap.xml`, `/sitemap_index.xml` en `/sitemap` → 404)
+en de gecontroleerde Atom/feed-routes (`/opdrachten/atom.xml`, `/atom.xml`,
+`/feed`) geven 404. `robots.txt` gaf 200 zonder `Disallow` en zonder Sitemap-
+verwijzing.
 
 ## Veldmapping → canoniek `aanvraag`
 
