@@ -1438,3 +1438,181 @@ describe.serial("0015 to 0016 bron_health and alert migration", () => {
     expect(remainingAlert).toHaveLength(0);
   });
 });
+
+describe.serial("0027 to 0028 poller health telemetry migration", () => {
+  let client: ReturnType<typeof postgres> | undefined;
+  let priorStatements: string[] = [];
+  let telemetryStatements: string[] = [];
+
+  const priorMigrations = [
+    "0000_core.sql",
+    "0001_u3_durable_ingestion.sql",
+    "0002_u8_backfill_observability.sql",
+    "0003_u9_snapshot_approval.sql",
+    "0004_u10_export_idempotency.sql",
+    "0005_u11_external_receipt.sql",
+    "0006_search_projection_checkpoint.sql",
+    "0007_snapshot_search_version.sql",
+    "0008_bulk_projector_claims.sql",
+    "0009_source_record_missed_polls.sql",
+    "0010_query_snapshot_search_scope.sql",
+    "0011_aanvraag_locatie_sluitingsdatum.sql",
+    "0012_source_record_listing_hash.sql",
+    "0013_durable_user_writes.sql",
+    "0014_auth_user_role.sql",
+    "0015_dedup_groep_dedup_key.sql",
+    "0016_bron_health_and_alerts.sql",
+    "0017_export_effect_reservation.sql",
+    "0018_saved_search_soft_delete.sql",
+    "0019_markering_clear_tombstone.sql",
+    "0020_aanvraag_enrichment.sql",
+    "0021_merge_duplicate_bron_namen.sql",
+    "0022_aanvraag_commercial_columns.sql",
+    "0023_search_projector_runtime.sql",
+    "0024_enrichment_publicatiedatum_field.sql",
+    "0025_enrichment_beschrijving_field.sql",
+    "0026_aanvraag_contactpersonen.sql",
+    "0027_enrichment_detail_fields.sql",
+  ];
+
+  beforeAll(async () => {
+    if (!upgradeDatabaseUrl) {
+      if (upgradeDatabaseRequired) {
+        throw new Error("Required upgrade test database URL is unavailable");
+      }
+      return;
+    }
+    client = createMigrationUpgradeClient(upgradeDatabaseUrl);
+    const perMigration = await Promise.all(
+      priorMigrations.map((name) => readMigrationStatements(name))
+    );
+    priorStatements = perMigration.flat();
+    telemetryStatements = await readMigrationStatements(
+      "0028_poller_health_telemetry.sql"
+    );
+  });
+
+  afterAll(async () => {
+    await client?.end({ timeout: 5 });
+  });
+
+  it("preserves legacy bron health while adding nullable telemetry state", async () => {
+    if (!client) {
+      expect(upgradeDatabaseUrl).toBeUndefined();
+      return;
+    }
+
+    await client.unsafe(`
+      DROP SCHEMA IF EXISTS curated CASCADE;
+      DROP SCHEMA IF EXISTS marts CASCADE;
+      DROP SCHEMA IF EXISTS staging CASCADE;
+      DROP SCHEMA IF EXISTS drizzle CASCADE;
+      DROP SCHEMA IF EXISTS public CASCADE;
+      CREATE SCHEMA public;
+    `);
+
+    await client.begin(async (transaction) => {
+      for (const statement of priorStatements) {
+        // oxlint-disable-next-line no-await-in-loop -- migration statements are order-dependent
+        await transaction.unsafe(statement);
+      }
+    });
+
+    const bronId = "10000000-0000-0000-0000-000000000028";
+    await client.unsafe(`
+      INSERT INTO curated.bron (id, naam, categorie, status, voorwaarden_status)
+      VALUES ('${bronId}', 'Legacy telemetry source', 'test', 'ready', 'toegestaan');
+      INSERT INTO curated.bron_health (
+        bron_id,
+        circuit_status,
+        last_run_at,
+        last_run_status,
+        silence_alert_open,
+        updated_at
+      ) VALUES (
+        '${bronId}',
+        'open',
+        '2026-09-19T10:00:00.000Z',
+        'failed',
+        true,
+        '2026-09-19T10:01:00.000Z'
+      );
+    `);
+
+    await client.begin(async (transaction) => {
+      for (const statement of telemetryStatements) {
+        // oxlint-disable-next-line no-await-in-loop -- migration statements are order-dependent
+        await transaction.unsafe(statement);
+      }
+    });
+
+    const [health] = await client<
+      {
+        bronId: string;
+        circuitStatus: string;
+        lastRunAt: string;
+        lastRunStatus: string;
+        silenceAlertOpen: boolean;
+        updatedAt: string;
+        activeRunId: string | null;
+        lastCompletionOutcome: string | null;
+        lastFullySuccessfulAt: string | null;
+        progressAt: string | null;
+        progressPhase: string | null;
+        phaseStartedAt: string | null;
+      }[]
+    >`
+      SELECT
+        bron_id::text AS "bronId",
+        circuit_status AS "circuitStatus",
+        to_char(last_run_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "lastRunAt",
+        last_run_status AS "lastRunStatus",
+        silence_alert_open AS "silenceAlertOpen",
+        to_char(updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "updatedAt",
+        active_run_id::text AS "activeRunId",
+        last_completion_outcome AS "lastCompletionOutcome",
+        last_fully_successful_at::text AS "lastFullySuccessfulAt",
+        progress_at::text AS "progressAt",
+        progress_phase AS "progressPhase",
+        phase_started_at::text AS "phaseStartedAt"
+      FROM curated.bron_health
+      WHERE bron_id = ${bronId}
+    `;
+    expect(health).toEqual({
+      activeRunId: null,
+      bronId,
+      circuitStatus: "open",
+      lastCompletionOutcome: null,
+      lastFullySuccessfulAt: null,
+      lastRunAt: "2026-09-19T10:00:00.000Z",
+      lastRunStatus: "failed",
+      phaseStartedAt: null,
+      progressAt: null,
+      progressPhase: null,
+      silenceAlertOpen: true,
+      updatedAt: "2026-09-19T10:01:00.000Z",
+    });
+
+    const [runtimeCount] = await client<{ count: string }[]>`
+      SELECT count(*)::text AS count FROM curated.poller_runtime
+    `;
+    expect(runtimeCount?.count).toBe("0");
+
+    const constraints = await client<{ name: string; validated: boolean }[]>`
+      SELECT conname AS name, convalidated AS validated
+      FROM pg_constraint
+      WHERE conrelid = 'curated.bron_health'::regclass
+        AND conname IN (
+        'bron_health_active_run_fk',
+        'bron_health_progress_phase_check',
+        'bron_health_completion_outcome_check'
+      )
+      ORDER BY conname
+    `;
+    expect([...constraints]).toEqual([
+      { name: "bron_health_active_run_fk", validated: true },
+      { name: "bron_health_completion_outcome_check", validated: true },
+      { name: "bron_health_progress_phase_check", validated: true },
+    ]);
+  });
+});
