@@ -1,18 +1,38 @@
 # ADR-0014 — Projectbrede EffectTS-adoptie, Effect Schema-eigenaarschap en fasering
 
-- Status: Accepted
-- Datum: 2026-09-07
+- Status: Accepted; gedeeltelijk superseded voor durability en platformruntime door CTP-617/A0
+- Datum: 2026-09-19 (oorspronkelijk besluit 2026-09-07)
 - Eigenaar: Job Intelligence platform
-- Issues: CTP-456 (parent CTP-453); baseline CTP-454 / [ADR-0013](ADR-0013-effectts-platform-baseline.md); volgende slice CTP-455
+- Issues: CTP-617 (parent CTP-613); CTP-456 (parent CTP-453); baseline CTP-454 / [ADR-0013](ADR-0013-effectts-platform-baseline.md); volgende implementatieslices CTP-455+
 - Zie ook: [migratiekaart](../effectts/migration-map.md), [JSON-LD/Spott wire-contract](../effectts/json-ld-spott-wire-contract.md), [platform-integratie-inventaris](../platform-integration-inventory.md), [ADR-0001](ADR-0001-performance-evidence-contract.md), [ADR-0003](ADR-0003-performance-budgets-and-regression-policy.md)
 
 ## Context
 
 Op **5 september 2026** heeft Ryan EffectTS gekozen voor het complete Catapulze-project. Nieuwe first-party TypeScript volgt die richting; bestaande Promise/Zod-code migreert gefaseerd. Metingen bepalen veilige migratie en regressiegrenzen; ze heropenen de adoptiekeuze **niet**.
 
-CTP-454 legde de meet- en foutsemantiekbaseline vast ([ADR-0013](ADR-0013-effectts-platform-baseline.md)) met native warm/cold fixture-evidence onder [`docs/evidence/ctp-454/`](../evidence/ctp-454/). Op peildatum `origin/main` @ `117bfe81` is `effect` nog **geen** first-party dependency (alleen transitief via Prisma). Dit ADR registreert het projectbrede besluit, frameworkgrenzen, Effect Schema-eigenaarschap en de fasering; de uitvoerbare slicekaart staat in [`docs/effectts/migration-map.md`](../effectts/migration-map.md).
+CTP-454 legde de meet- en foutsemantiekbaseline vast ([ADR-0013](ADR-0013-effectts-platform-baseline.md)) met native warm/cold fixture-evidence onder [`docs/evidence/ctp-454/`](../evidence/ctp-454/). De verwijzing naar `origin/main` @ `117bfe81` is een historische snapshot van 7 september 2026: daarin was `effect` nog **geen** first-party dependency (alleen transitief via Prisma). De actuele A0-status en overgang staan in de migratiekaart; dit ADR registreert het projectbrede besluit, frameworkgrenzen, Effect Schema-eigenaarschap en de fasering. De uitvoerbare slicekaart staat in [`docs/effectts/migration-map.md`](../effectts/migration-map.md).
 
 Dit issue/PR levert besluit + plan. Het claimt **niet** dat de migratie is uitgevoerd, claimt **niet** CTP-453 Done, en activeert **geen** productie.
+
+## CTP-617/A0 — traceerbare supersession
+
+Dit ADR blijft leidend voor projectbrede Effect Schema-eigenaarschap, smalle
+frameworkgrenzen en gefaseerde migratie. CTP-617 supersedeert alleen de eerdere
+keuze dat Trigger.dev de doel-eigenaar van duurzame task execution blijft. Die
+keuze staat hieronder als historische transitiefase geregistreerd; nieuwe
+first-party backend-I/O en nieuwe jobs mogen geen nieuwe Trigger-durability
+afhankelijkheid introduceren.
+
+| Eerdere richting | Status na A0 | Traceerbare grens |
+| --- | --- | --- |
+| Trigger.dev als doel-eigenaar van duurzame task execution | **Superseded als doelarchitectuur** | Effect-owned Services/Layers en een nog per flow te kiezen duurzame Effect-runtime; de bestaande Trigger-adapter blijft alleen tijdens de migratie actief. T6 (CTP-635) mag pas na Z5 en eigen crash/replay-bewijs uitschakelen. |
+| Python FastAPI + Pydantic als JI-runtime | **Superseded voor JI** | De historische doelplaat wordt vervangen door Bun/TypeScript/Effect/Drizzle. De intentie rond capabilities, provenance en system of record blijft behouden. |
+| Python/LangGraph als first-party agentruntime | **Niet aangenomen en superseded voor JI** | Agents gebruiken dezelfde server-geautoriseerde capability- en actioncontracten. Er komt geen parallel first-party LangGraph-runtime in deze migratielijn. |
+| Temporal of een andere algemene orchestrator | **Niet gekozen** | Alleen heropenen na gemeten noodzaak, een expliciet ADR en passend crash/replay-bewijs. |
+
+Deze tabel wijzigt geen productie- of providerrechten. De historische bronnen
+blijven leesbaar als onderzoekscontext; hun uitvoeringskeuze is niet langer een
+startvoorwaarde voor nieuwe JI-slices.
 
 ## Relatie tot eerdere ontwerpkeuzes (bevestiging / beperking / supersession)
 
@@ -30,8 +50,8 @@ Dit issue/PR levert besluit + plan. Het claimt **niet** dat de migratie is uitge
 ### 1. Projectbrede EffectTS-adoptie
 
 - **Eigen TypeScript** (domain, application, connectors, search, performance, API/server handlers, worker-task *logica*, gedeelde libs): Effect als primaire runtime voor nieuwe code en voor gemigreerde slices.
-- **Framework-/SDK-/wiregrenzen**: Effect stopt waar een framework of SDK de lifecycle, serialisatie of durable execution al bezit. Interop-adapters (thin) mogen blijven; zie inventaris hieronder.
-- **Trigger.dev** blijft eigenaar van **duurzame task execution** (retries op taskniveau, queues, schedules). Effect vervangt Trigger niet; Effect leeft *binnen* task handlers en shared libs. Request-retry blijft adapter-eigenaar per ADR-0013.
+- **Framework-/SDK-/wiregrenzen**: Effect stopt waar een framework of SDK de lifecycle of serialisatie al bezit. Duurzame uitvoering is een expliciete first-party Effect-grens; tijdelijke interop-adapters mogen blijven totdat de flow is gemigreerd. Zie de inventaris hieronder.
+- **Trigger.dev** is alleen een tijdelijke interop-adapter voor bestaande taken. De doelarchitectuur legt first-party backend-I/O en joblogica achter Effect Services/Layers en een per flow gekozen duurzame Effect-runtime. Een gewone duurzame job gebruikt de eenvoudigste bewezen persistente queue; Workflow/DurableQueue is alleen toegestaan wanneer de werkelijke workflow dat nodig maakt. De bestaande Trigger-retry- en schedulegrenzen blijven onveranderd totdat T6 ze aantoonbaar vervangt. Request-retry blijft adapter-eigenaar per ADR-0013.
 - **Geen** herbouw van autorisatie, database-SoR, outbox/leases, provider-idempotentie of export-commitpaden in dezelfde refactor als een Effect-I/O-slice.
 - **Geen automatische productieactivatie** door afronden van ADR, baseline of eerste adapters. Productie-aan zet alleen via een aparte gecontroleerde implementatie/release met eigen bewijs.
 
@@ -50,7 +70,7 @@ Dit issue/PR levert besluit + plan. Het claimt **niet** dat de migratie is uitge
 | `packages/api` | tRPC routers | **Interop**: procedures roepen application Effects aan; tRPC input/output via afgeleide schemas indien nodig | Geen parallel handmatig Zod-model |
 | `packages/ui` / `packages/config` | UI-primitives, TS-config | **Gemotiveerd behoud** (pure/config) | Geen Effect-runtime in UI-primitives tenzij gedeelde schema-types |
 | `apps/server` | Hono + REST/MCP/tRPC transports | **Interop**: transport blijft Hono/Better Auth; handlers `runPromise`/`Runtime` aan boundary | Authz/origin/MCP-session per ADR-0012 ongemoeid in I/O-slices |
-| `apps/worker` | Trigger.dev tasks | **Interop**: Trigger owns durability; task body gebruikt Effect Runtime per invocatie | Task-retry-plafond ADR-0013; geen dubbele blind retries |
+| `apps/worker` | Huidige Trigger tasks en toekomstige Effect jobs | **Interop tijdens migratie**: task entrypoint mag Trigger blijven; first-party job-I/O en nieuwe durability lopen via Effect Services/Layers | Geen nieuwe Trigger-only flow; T6 vereist één actieve uitvoerder, crash/replay-bewijs en rollbackpad |
 | `apps/web` | Next.js UI | **Beperkt toepassen**: serialiseerbare DTO/types uit SoT; geen Effect-runtime in RSC tenzij expliciete slice | Geen UI→DB; data via server/API |
 | `apps/api` (indien aanwezig/legacy pad) | HTTP+MCP volgens KTD1 | Zelfde als server-boundary | Align met capability registry |
 
@@ -68,14 +88,14 @@ Dit issue/PR levert besluit + plan. Het claimt **niet** dat de migratie is uitge
 ### 4. Eerste operationele grens en runtimecontract
 
 - **Eerste operationele grens**: JSON-LD listing/detail + Spott REST list/get onder één begrensd uitvoeringscontract (**CTP-455**), wired zoals [`docs/effectts/json-ld-spott-wire-contract.md`](../effectts/json-ld-spott-wire-contract.md) en fault/retry-tabel in ADR-0013.
-- **Runtime / Layer lifetime**: per request (server) of per Trigger-task invocatie (worker) een begrensde Runtime; geen process-globale mutable Layer-state voor request-scoped deps (HTTP clients, abort, credentials handles). Shared immutable Layers (clock, config stubs) mogen.
+- **Runtime / Layer lifetime**: per request (server) of per job-invocatie (worker) een begrensde Runtime; geen process-globale mutable Layer-state voor request-scoped deps (HTTP clients, abort, credentials handles). Shared immutable Layers (clock, config stubs) mogen. Een Effect-fiber is nooit op zichzelf een durable checkpoint.
 - **Tracing**: critical-path labels via `@ji/performance` waar het pad al instrumenteert; Effect spans/annotations alignen, geen PII in spans/artifacts.
 - **Foutmapping**: ADR-0013-categorieën (`auth`, `validation`, `not_found`, `rate_limit`, `transient_network`, `server_5xx`, `cancel`) aan de adaptergrens; geen lekken van ruwe provider-internals naar capability clients.
 - **Cancellation**: `AbortSignal` / Effect interrupt doorgeven tot fetch/timers; cleanup verplicht (ADR-0013).
-- **Rollout / rollback**: feature-flag of module-swap per slice; default **uit** in productie tot aparte release. Rollback = vorige adapterimplementatie + flag off; geen data-migratie vereist voor pure read-I/O-slices.
+- **Rollout / rollback**: feature-flag of module-swap per slice; default **uit** in productie tot aparte release. Rollback = vorige adapterimplementatie + flag off; geen data-migratie vereist voor pure read-I/O-slices. Voor durable jobs is rollback alleen geldig wanneer de bestaande receipt-, queue- of outboxstatus opnieuw door de vorige eigenaar kan worden hervat.
 - **Stopcriteria** (slice mag niet mergen / niet aanzetten): wire-contract regressie; retry-plafondstijging zonder ADR; fixture incorrectness; PII in artifacts; productieflag aan zonder release-bewijs.
 
-Fasering is gemotiveerd door: (1) twee representatieve adapters hergebruik bewijzen, (2) onboarding van volgende connectors goedkoper maken, (3) onderhoud van één fout/retry/cancel-model, (4) platformgroei zonder Zod/Effect-dualiteit.
+Fasering is gemotiveerd door: (1) twee representatieve adapters hergebruik bewijzen, (2) onboarding van volgende connectors goedkoper maken, (3) onderhoud van één fout/retry/cancel-model, (4) platformgroei zonder Zod/Effect-dualiteit en (5) Trigger gecontroleerd verlaten zonder een tweede first-party runtime naast Effect te introduceren.
 
 ### 5. Docs en lint
 
@@ -88,12 +108,15 @@ Fasering is gemotiveerd door: (1) twee representatieve adapters hergebruik bewij
 - CTP-455 implementeert de eerste Effect-runtime + JSON-LD/Spott-migratie tegen dit ADR en ADR-0013; dual-path meting volgt daar.
 - Latere slices volgen [`migration-map.md`](../effectts/migration-map.md); uitstel van een slice wijzigt de projectbrede richting niet.
 - Nieuwe publieke schemas worden in Effect Schema geschreven; Zod-only nieuwe canonieke modellen zijn afgewezen.
+- JI en Candidate Intelligence zijn zelfstandig toegankelijke apps/modules. Een Candidate-only gebruiker hoeft JI niet te openen. Een platformlaag mag beide tonen, maar dit besluit maakt geen keuze voor één deployment, impliciete multitenancy of een gedeelde module-database.
 - Motian en overige productrepos buiten deze JI-repo blijven buiten scope.
 
 ## Verificatie
 
 - Onafhankelijke ADR-review tegen ADR-0013-baseline en (na CTP-455) beide implementaties.
 - Controle dat migratiekaart alle packages/apps dekt met ownership, deps, AC, testbewijs en rollback.
+- Controle dat de flowregistratie ingest, search, chat, export, feedback, herstel en toekomstige providers dekt en per flow runtime, owner, flag, status en bewijs noemt.
+- Controle dat 15 minuten discovery-freshness en 5 minuten p95 zichtbaarheid als voorgestelde acceptance targets zijn gelabeld en dat bronreconciliatie plus RPO/RTO niet als bestaande garanties worden gepresenteerd.
 - Geen productieactivatie in deze PR; geen CTP-455-runtimecode in deze PR.
 
 ## Referenties
