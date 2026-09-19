@@ -1,7 +1,7 @@
 # Catapulze-platform — integratie-inventaris
 
-Status: RJC-451, concept voor review<br>
-Peildatum: 6 september 2026 (repository-, ADR- en PR-status)<br>
+Status: RJC-451 inventaris; A0-doelgrenzen geaccepteerd onder CTP-617, provider- en tenantgates open<br>
+Peildatum: 19 september 2026 (repository-, ADR-, Linear- en providerstatus)<br>
 Providerdocumentatie: read-only gecontroleerd op 5 september 2026<br>
 Scope: Job Intelligence (JI), Spott, Microsoft 365, Clay, LinkedIn, Please, Moneybird, Revolut en optioneel Metaview
 
@@ -35,6 +35,23 @@ flowchart TB
 
 MCP is in dit model een transport. Identity, rechten, approvals, idempotency, receipts, bewaartermijnen en audit worden in de Company OS-laag afgedwongen.
 
+## Zelfstandige JI- en Candidate-module
+
+Job Intelligence en Candidate Intelligence zijn zelfstandig toegankelijke
+apps/modules. Een Candidate-only gebruiker hoeft JI niet te openen. Een
+platform-shell mag beide producten tonen en gedeelde auth/UI-contracten leveren,
+maar de inventaris beslist niet dat ze één deployment, tenantmodel of database
+delen. Elke module houdt een eigen capabilitygrens, write-owner, provenance en
+readinessgate. Gedeelde auth betekent server-gevalideerde actor- en
+scopecontext, niet impliciete toegang tot de andere module.
+
+Candidate Intelligence blijft readiness onder CTP-345/CI0. De provider/use-case
+registers, DPIA/grondslag, provenance en TTL per assertion, correctie/bezwaar,
+betekenisvolle menselijke review en fairness-evaluaties zijn voorwaarden voor
+een build-issue. De eerste toekomstige vertical is een read-only bewijskaart.
+Deze inventaris autoriseert geen kandidaatmatching, ranking, screening,
+auto-reject of automatische kandidaatstatuswrite.
+
 ## Bewijslabels
 
 | Label | Betekenis |
@@ -50,7 +67,7 @@ Rollen in dit document zijn voorstellen. Er staan bewust geen persoonsnamen in. 
 | Systeem | Bedrijfsuitkomst | Voorgestelde verantwoordelijke rol | Bron van waarheid | Richting en oppervlak | Frequentie, volume en freshness/SLO | Rechten, quota en sandbox | Contractstatus op peildatum |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | Job Intelligence | Aanvragen uit meerdere bronnen verzamelen, herleidbaar normaliseren, doorzoeken en als vaste snapshot laten goedkeuren | Product owner JI + platform engineering | `aanvraag` en `bron`; eigen canonieke ID's, observaties, snapshots, approvals en exportreceipts | Inbound API/feed/HTML/browser en batch waar toegestaan; API/MCP als leespad; webhooks per bron onbekend; gecontroleerde outbound action naar Spott | Bronritme en volume per bron; totaal en actuele SLO nog per bronmatrix te bevestigen. Repo-ontwerp noemt 600k nieuwe aanvragen/maand en p95 ≤100 ms als ontwerpschaal, niet als huidige productieclaim | Bronrechten, quota en sandbox per bron onbekend; productiepayloads buiten documentatie | Intern contract deels geïmplementeerd; actuele production readiness valt buiten RJC-451 |
-| Spott | Goedgekeurde aanvragen omzetten in ATS/CRM-vacatures en later voorstel-/plaatsingsresultaten teruglezen | Recruitment operations + integration owner | `professional`, `opdrachtgever`, `voorstel`, `plaatsing`; Spott vacancy `id` is externe crosswalk voor een geëxporteerde aanvraag | REST read/write; MCP alleen als gebruikersassistent en niet als standing export; webhook en batch voor de beoogde flow onbekend; eerste keten JI → Spott | Eventgedreven na approval; voorgestelde freshness ≤5 min. Werkelijk volume onbekend. Publieke limiet in repo-spike: 600 requests/min; bij tenant bevestigen | REST `x-api-key`; secretref `SPOTT_API_KEY`. Tenant write scopes en sandboxautorisatie onbekend | Publieke API-overview en OpenAPI bevestigd; repo-spike bevestigt GET en minimale POST-vorm. Geen providerwrite uitgevoerd |
+| Spott | Goedgekeurde aanvragen omzetten in ATS/CRM-vacatures en later voorstel-/plaatsingsresultaten teruglezen | Recruitment operations + integration owner | `professional`, `opdrachtgever`, `voorstel`, `plaatsing`; Spott vacancy `id` is externe crosswalk voor een geëxporteerde aanvraag | REST read/write; MCP alleen als gebruikersassistent en niet als standing export; webhook en batch voor de beoogde flow onbekend; eerste keten JI → Spott | Eventgedreven na approval. A0 stelt voor JI-zichtbaarheid p95 ≤5 min vanaf gecommitteerde mutatie tot leesbaar resultaat; dit is niet gemeten en provider-event-freshness blijft onbekend. Werkelijk volume onbekend. Publieke limiet in repo-spike: 600 requests/min; bij tenant bevestigen | REST `x-api-key`; secretref `SPOTT_API_KEY`. Tenant write scopes en sandboxautorisatie onbekend | Publieke API-overview en OpenAPI bevestigd; repo-spike bevestigt GET en minimale POST-vorm. Geen providerwrite uitgevoerd |
 | Microsoft 365 | Organisatie-identiteit, agenda, e-mail, bestanden en samenwerking gecontroleerd beschikbaar maken voor Company OS-flows | M365 tenant admin + security/privacy owner | M365 blijft bron van waarheid voor tenantidentiteit en workspace-objecten; geen van de acht canonieke recruitment-/financiële entiteiten verhuist hierheen | Microsoft Graph REST; change notifications waar het gekozen resourcecontract dat ondersteunt; MCP alleen als aanvullend transport | Voorgesteld: events via notifications, reconcile-batch dagelijks; volume, abonnementsduur en SLO per resource/tenant onbekend | Entra app/consent en least-privilege Graph permissions vereist; secretrefs nog niet geregistreerd. Throttling is resource- en tenantafhankelijk. Geschikte ontwikkeltenant/sandbox onbekend | Officiële Graph-overview, permissions, change notifications en throttlingdocs bevestigd |
 | Clay | Goedgekeurde bedrijfs- of contactrecords verrijken voor een concrete workflow | Growth/research operations + privacy owner | Clay is afgeleide verrijkingsbron; Catapulze bewaart provenance, geen nieuw canoniek eigenaarschap | Publieke productintegraties bestaan; gewenste API/webhook/batch/MCP-contracten voor deze tenant onbekend | Alleen on-demand/bounded batch voorgesteld; volume, freshness/SLO en kostenquota onbekend | Tenantrechten, credits/quota, sandbox en secretrefs onbekend | Officiële Clay-documentatie en integratiepagina bereikbaar; geen bruikbaar publiek integratiecontract voor de beoogde flow bevestigd |
 | LinkedIn | Goedgekeurde sourcing- of organisatiecontext ophalen binnen verleende productrechten | Sourcing operations + privacy/legal owner | LinkedIn blijft bron van waarheid voor eigen member/company-data; Catapulze bewaart alleen minimale assertions met provenance | OAuth API uitsluitend voor goedgekeurde producten/scopes; geen browserautomatisering als API-vervanging; webhook/batch/MCP onbekend | Alleen on-demand of binnen contractueel toegestaan ritme; volume, freshness/SLO en rate limits hangen af van producttoegang | De meeste permissions en partnerprogramma's vereisen expliciete LinkedIn-goedkeuring; tenant/app, quota, sandbox en secretrefs onbekend | Officiële toegangspagina bevestigd; feitelijke recruitment-/member-scopes niet bevestigd |
@@ -59,7 +76,11 @@ Rollen in dit document zijn voorstellen. Er staan bewust geen persoonsnamen in. 
 | Revolut | Ontvangsten/uitgaven en betaalreconciliatie koppelen aan financiële bewijsstukken | Finance operations + security owner | Banktransacties bij Revolut; Catapulze bewaart alleen financiële crosswalk/status. Moneybird blijft eigenaar van `factuur` | Voorgesteld: read-only transactiereconcile; betaalwrite is buiten deze inventaris. Business API/webhooks nader contracteren; MCP onbekend | Dagelijkse reconcile voorgesteld; volume, freshness/SLO en quota onbekend | Business-accountrechten, certificaten/scopes, sandbox en secretrefs onbekend | Officiële developer-URL bekend, maar geautomatiseerde readback kreeg een security challenge; contractinhoud niet als bevestigd opgenomen |
 | Metaview (optioneel) | Met toestemming gespreksnotities of gestructureerde interviewuitkomsten aan een bestaande context koppelen | Recruitment operations + privacy owner | Metaview blijft bron voor transcript/notitie; Catapulze bewaart alleen goedgekeurde minimale afleiding en provenance | Officiële integratiepagina beschikbaar; API/webhook/batch/MCP onbekend | Alleen eventgedreven na expliciete deelname-/verwerkingsgrond; volume en SLO onbekend | Tenantrechten, consentmodel, quota, sandbox en secretrefs onbekend | Product- en integratiepagina bevestigd; geen publiek technisch contract bevestigd. Niet opnemen in eerste twee integraties |
 
-`Candidate Intelligence` is een toekomstig product, geen extra systeemrij in deze inventaris. Kandidaatmatching, ranking en statusautomatisering blijven achter de eigen gate RJC-345. Deze inventaris autoriseert geen verwerking of scoring van kandidaten.
+`Candidate Intelligence` is een zelfstandig toekomstig product en daarom geen
+extra provider- of systeemrij in deze inventaris. Kandidaatmatching, ranking en
+statusautomatisering blijven achter de eigen gate CTP-345. Deze inventaris
+autoriseert geen verwerking of scoring van kandidaten en maakt CI niet
+afhankelijk van JI-navigatie.
 
 ## Canonieke entiteiten en crosswalks
 
@@ -118,6 +139,14 @@ Stopconditie voor de Microsoft 365-baseline: geen code of tenantactie voordat é
 ## EffectTS-migratiegrens
 
 EffectTS geldt projectbreed voor nieuwe en gemigreerde applicatiecode, maar vervangt geen databasegaranties, externe systemen of frameworkcontracten. Bestaande outbox leases/fencing, checkpoints, idempotency keys, approvals, receipts en crosswalks blijven domein- en databasegaranties.
+
+CTP-617/A0 verduidelijkt de runtime-eigenaarschapgrens. Nieuwe first-party
+backend-I/O en jobs lopen via Effect Services/Layers en Effect Schema. Trigger.dev
+blijft alleen tijdelijke interop voor bestaande taken en is geen doel-eigenaar
+van nieuwe durability. Python/FastAPI/Pydantic en Python/LangGraph zijn geen
+parallelle JI-runtime. Een gewone duurzame job kiest de eenvoudigste bewezen
+persistente queue; Workflow/DurableQueue vereist een eigen behoefte- en
+crash/replaybesluit. Geen van deze doelgrenzen activeert productie.
 
 RJC-456 moet een gefaseerde migratiekaart opleveren voor:
 

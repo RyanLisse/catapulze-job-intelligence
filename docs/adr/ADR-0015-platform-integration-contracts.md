@@ -1,9 +1,9 @@
 # ADR-0015 — Modulegrenzen, identities en versioned integratiecontracten
 
-- Status: Proposed
-- Datum: 2026-09-09
+- Status: Proposed; A0 target contracts accepted for planning, implementation, product- and production-gates remain open
+- Datum: 2026-09-19 (oorspronkelijk voorstel 2026-09-09)
 - Eigenaar: Job Intelligence platform
-- Issue: CTP-452
+- Issues: CTP-617/A0, CTP-452
 - Zie ook: [platform-integratie-inventaris](../platform-integration-inventory.md), [ADR-0012](ADR-0012-first-party-mcp-client-auth.md), [ADR-0014](ADR-0014-effectts-project-wide-adoption.md), [EffectTS-migratiekaart](../effectts/migration-map.md)
 
 ## Context
@@ -20,6 +20,32 @@ Dit ADR legt het doelcontract tussen modules en systemen vast. Het implementeert
 geen envelope, schema, database, provider, tenantrecht, production rollout of
 retentieperiode. Waar dit ADR van de bestaande JI-code afwijkt of verder gaat,
 is het een ontwerpbesluit voor een afzonderlijke, begrensde implementatie.
+
+## 0. Zelfstandige product- en modulegrens
+
+Job Intelligence en Candidate Intelligence zijn twee zelfstandig toegankelijke
+apps/modules. Een gebruiker die alleen Candidate Intelligence gebruikt, hoeft
+Job Intelligence niet te openen. Een platform-shell mag beide producten tonen
+en gedeelde auth- en UI-contracten aanbieden, maar dat maakt JI niet tot een
+voorwaarde voor CI en maakt CI niet tot een nieuwe JI-capability.
+
+Dit besluit legt geen aparte deployment, database, tenantmodel of impliciete
+multitenancy vast. Iedere module behoudt een eigen capabilitygrens, write-owner,
+provenance en readinessgate. Gedeelde auth betekent server-gevalideerde actor- en
+scopecontext, niet dat een client toegang tot de andere module krijgt.
+
+| Oppervlak | JI | Candidate Intelligence |
+| --- | --- | --- |
+| Zelfstandige toegang | JI-capabilities via eigen server/API/MCP-boundary | CI-capabilities via eigen server/API/MCP-boundary; niet afhankelijk van JI-navigatie |
+| Canonieke writes | JI-use-cases bezitten aanvragen, bronnen, snapshots, approvals en exportreceipts | Geen build of kandidaatwrite vóór CTP-345/CI0-readiness; eerste bewijskaart is read-only |
+| Gedeeld contract | server-owned actor/scope, versioned envelopes en afgeleide UI-DTO's | hetzelfde contractpatroon, met eigen schemas, provenance en privacybesluiten |
+| Niet besloten | deployment topology, tenantmodel en gedeelde opslag | deployment topology, tenantmodel, matching/ranking en kandidaatstatuswrites |
+
+CTP-345 blijft de productgate voor CI. Provider/use-case register, DPIA en
+grondslag, provenance en TTL per assertion, correctie/bezwaar, betekenisvolle
+menselijke review en fairness-evaluaties zijn voorwaarden voor een build-issue.
+Auto-reject, verborgen top-N als beslissing, automatische kandidaatstatuswrites
+en matching/screening als P0 blijven buiten scope.
 
 ## Besluit
 
@@ -54,8 +80,10 @@ semantiek nodig heeft. Tot die tijd is plaatsing:
   `@ji/application`;
 - provider-wirevertaling in `@ji/connectors` of de bestaande Spott-adapter;
 - durable JI-opslag en migrations in `@ji/db`;
-- session/auth-context en transportmapping in `apps/server`; durable scheduling
-  en task-herstart in `apps/worker`/Trigger.dev.
+- session/auth-context en transportmapping in `apps/server`; bestaande durable
+  scheduling en task-herstart blijven tijdelijk als `apps/worker`/Trigger.dev
+  interop-pad bestaan. Nieuwe jobs krijgen per flow een Effect-owned durable
+  record/runtime; er komen geen nieuwe Trigger-only flows.
 
 ### 2. Scoped identities en crosswalks
 
@@ -214,11 +242,16 @@ generiek inbox-protocol.
 
 Een Effect-fiber is uitsluitend een begrensde in-process uitvoering. Hij kan
 geannuleerd of onderbroken worden en draagt geen durable checkpoint, replay of
-exactly-once garantie. Trigger.dev blijft eigenaar van duurzame task execution
-volgens ADR-0014; een worker mag een Effect-programma binnen één task uitvoeren,
-maar niet als vervanging voor de action ledger/outbox/inbox. MCP is alleen
-transport: iedere `tools/call` doorloopt de server-authz- en scopegrens uit
-ADR-0012 en kan nooit op zichzelf een provider-commit autoriseren.
+exactly-once garantie. Volgens CTP-617/A0 is Trigger.dev geen doel-eigenaar
+meer voor nieuwe duurzame jobs. Polling en curatie draaien al in de on-box
+poller; `enrich-incomplete`, `schedule-enrich-incomplete`, `drain-outbox` en
+`backfill-neon-v1` blijven tijdelijk als retained interop-pad bestaan. Nieuwe
+first-party job-I/O gebruikt Effect Services/Layers en een expliciet gekozen
+durable record of Effect-runtime. Een gewone job kiest de eenvoudigste bewezen
+persistente queue. Workflow/DurableQueue is geen standaardkeuze en vereist
+werkelijk workflow- en crash/replay-bewijs. MCP is alleen transport: iedere
+`tools/call` doorloopt de server-authz- en scopegrens uit ADR-0012 en kan nooit
+op zichzelf een provider-commit autoriseren.
 
 #### Concrete crash- en replayscenario's
 
@@ -294,19 +327,25 @@ Een handmatig parallel Zod- en Effect Schema-model voor hetzelfde contract is
 niet toegestaan. Persistentie is geen publiek wire-schema: Drizzle-tables
 blijven bij `@ji/db`, met een expliciete mapping op de boundary. Effect-migratie
 mag evenmin authz, scope-, lease-, outbox- of provider-idempotencysemantiek
-herbouwen; die hebben ieder een eigen testbare verandering nodig.
+stilzwijgend herdefiniëren. De durability-eigenaar mag wel veranderen van
+Trigger naar een first-party Effect-pad, maar alleen per flow met een eigen
+contract-, crash/replay-, rollback- en operatorbewijs.
 
 ## Gevolgen en open gates
 
 - Nieuwe integraties moeten vóór code een flow-owner, contractversie,
   server-scopebron, idempotency-key, inbox/outbox of alternatief durable record,
   receiptvorm, replay/DLQ-procedure en retentie-eigenaar aanwijzen.
+- JI- en CI-capabilities moeten elk zelfstandig aanspreekbaar zijn. Een
+  platform-shell mag links en gedeelde UI/auth-contracten leveren, maar mag geen
+  cross-module databasewrite of impliciete tenant/deploymentkeuze introduceren.
 - Een tweede concrete consumer is vereist voordat deze contracttypes naar een
   nieuw gedeeld package of service verhuizen.
 - Product-, tenant-, provider-, privacy- en retentie-gates blijven beslissingen
   van hun bevoegde owners. Dit ADR kiest geen Spott write scope, M365 resource,
   Graph permission, bewaartermijn, provideraccount of production-enablement.
-- CTP-452 is een ontwerpbesluit. Implementatie, migratie en productiebewijs
+- CTP-452 is door CTP-617/A0 als targetcontract geaccepteerd. Implementatie,
+  migratie en productiebewijs
   horen in afzonderlijke issues met contracttests, replayevidence en waar nodig
   tenant-/providerbewijs.
 
@@ -317,5 +356,12 @@ herbouwen; die hebben ieder een eigen testbare verandering nodig.
   client worden overschreven; oude envelopes blijven leesbaar binnen de
   afgesproken termijn; duplicate/replay/unknown-providerpaden maken geen tweede
   effect; en MCP bereikt dezelfde server-authz-grens als andere transports.
+- Controleer de twee verticale bewijspaden afzonderlijk: JI van ingest naar
+  zichtbaar searchresultaat en een toekomstige CI-read-only bewijskaart. Geen van
+  beide mag de database-eigenaar van de andere module omzeilen.
+- Freshness 15 minuten voor discovery en p95 5 minuten tot zichtbaarheid zijn
+  voorgestelde JI-acceptance targets, geen gemeten garanties. Reconciliatie is
+  brongebonden en verplicht; numerieke RPO/RTO blijven open totdat de product- en
+  operations-eigenaren een waarde plus restorebewijs accepteren.
 - Productie-, tenant- en providerclaims vragen apart runtimebewijs; dit document
   levert dat niet.
