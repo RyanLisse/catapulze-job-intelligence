@@ -61,6 +61,33 @@ interface EffectE2eCheckArtifact {
   readonly status: "passed";
 }
 
+interface EffectE2eFailureArtifact {
+  readonly auth: {
+    readonly role: "operator";
+    readonly subjectId: string;
+  };
+  readonly canary: {
+    readonly digest: string;
+    readonly id: string;
+    readonly query: string;
+  };
+  readonly cleanup: {
+    readonly database: "disposable";
+    readonly seedRead: boolean;
+  };
+  readonly evidence: {
+    readonly browserErrors: readonly string[];
+    readonly checkPath: string;
+    readonly failure: string;
+  };
+  readonly rows: {
+    readonly booleanJobs: number;
+    readonly bronnen: number;
+  };
+  readonly schemaVersion: 1;
+  readonly status: "failed";
+}
+
 interface JsonResponse {
   readonly body: ParsedJson;
   readonly status: number;
@@ -378,7 +405,7 @@ const runBrowserFlow = async (
 
 const writeCheckArtifact = async (
   config: EffectE2eConfig,
-  artifact: EffectE2eCheckArtifact
+  artifact: EffectE2eCheckArtifact | EffectE2eFailureArtifact
 ): Promise<void> => {
   await mkdir(config.artifactDir, { mode: 0o755, recursive: true });
   await writeFile(
@@ -388,8 +415,7 @@ const writeCheckArtifact = async (
   );
 };
 
-const main = async (): Promise<void> => {
-  const config = readEffectE2eConfig();
+const main = async (config: EffectE2eConfig): Promise<void> => {
   const seed = await readSeed(config);
   const auth = await readAuth(process.env, config);
   if (auth.subjectId !== seed.auth.subjectId || auth.role !== seed.auth.role) {
@@ -427,11 +453,40 @@ const main = async (): Promise<void> => {
   process.stdout.write(`${JSON.stringify(artifact)}\n`);
 };
 
+const writeFailureArtifact = async (
+  config: EffectE2eConfig,
+  error: Error
+): Promise<void> => {
+  const artifact: EffectE2eFailureArtifact = {
+    auth: { role: "operator", subjectId: "unavailable" },
+    canary: {
+      digest: config.canaryDigest,
+      id: config.canaryId,
+      query: `EFFECT_E2E_${config.canaryId.slice(0, 8).toUpperCase()}`,
+    },
+    cleanup: { database: "disposable", seedRead: false },
+    evidence: {
+      browserErrors: [],
+      checkPath: path.join(config.artifactDir, "check.json"),
+      failure: safeError(error),
+    },
+    rows: { booleanJobs: 0, bronnen: 0 },
+    schemaVersion: EFFECT_E2E_SCHEMA_VERSION,
+    status: "failed",
+  };
+  await writeCheckArtifact(config, artifact);
+};
+
+let activeConfig: EffectE2eConfig | undefined;
 try {
-  await main();
+  activeConfig = readEffectE2eConfig();
+  await main(activeConfig);
 } catch (error) {
-  process.stderr.write(
-    `${safeError(error instanceof Error ? error : new Error("Effect E2E check failed."))}\n`
-  );
+  const normalizedError =
+    error instanceof Error ? error : new Error("Effect E2E check failed.");
+  if (activeConfig) {
+    await writeFailureArtifact(activeConfig, normalizedError);
+  }
+  process.stderr.write(`${safeError(normalizedError)}\n`);
   process.exitCode = 1;
 }
