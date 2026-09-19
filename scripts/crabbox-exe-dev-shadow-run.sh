@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-readonly EXPECTED_CRABBOX_VERSION="0.46.0"
+readonly EXPECTED_CRABBOX_VERSION="0.62.0"
+readonly EXPECTED_CRABBOX_ARCHIVE_SHA256="7e742950103248c976b429c3ceab6fc6c37e091c96cfd47b473c29565f68f2dc"
+readonly EXPECTED_CRABBOX_BINARY_SHA256="a3efd851358ada2624c8cccf3254a64fab52afe8e8e2c3ec399db9c707a06d01"
 readonly MATERIALIZATION_CLEANUP_ATTEMPTS=3
 readonly MATERIALIZATION_CLEANUP_RETRY_DELAY_SECONDS="0.05"
 
@@ -102,13 +104,6 @@ for required_tool in bun crabbox python3 rsync tar; do
   fi
 done
 
-crabbox_version="$(crabbox --version)"
-if [[ "$crabbox_version" != "$EXPECTED_CRABBOX_VERSION" ]]; then
-  printf 'exe.dev shadow: expected Crabbox %s, found %s\n' \
-    "$EXPECTED_CRABBOX_VERSION" "$crabbox_version" >&2
-  exit 1
-fi
-
 monotonic_ms() {
   python3 -c 'import time; print(time.monotonic_ns() // 1_000_000)'
 }
@@ -120,6 +115,34 @@ sha256_file() {
   fi
   shasum -a 256 "$1" | awk '{print $1}'
 }
+
+crabbox_path="$(command -v crabbox)"
+crabbox_provenance_file="${CRABBOX_PROVENANCE_FILE:-${crabbox_path}.provenance}"
+expected_crabbox_binary_sha256="$EXPECTED_CRABBOX_BINARY_SHA256"
+if [[ ! -r "$crabbox_provenance_file" ]]; then
+  printf 'exe.dev shadow: Crabbox provenance file is missing: %s\n' \
+    "$crabbox_provenance_file" >&2
+  exit 1
+fi
+
+provenance_archive_sha256="$(awk -F= '$1 == "archive_sha256" { print $2; exit }' "$crabbox_provenance_file")"
+provenance_binary_sha256="$(awk -F= '$1 == "binary_sha256" { print $2; exit }' "$crabbox_provenance_file")"
+if [[ "$provenance_archive_sha256" != "$EXPECTED_CRABBOX_ARCHIVE_SHA256" ]]; then
+  printf 'exe.dev shadow: Crabbox provenance archive digest does not match the pinned release\n' >&2
+  exit 1
+fi
+actual_crabbox_binary_sha256="$(sha256_file "$crabbox_path")"
+if [[ ! "$provenance_binary_sha256" =~ ^[0-9a-f]{64}$ || "$provenance_binary_sha256" != "$expected_crabbox_binary_sha256" || "$actual_crabbox_binary_sha256" != "$expected_crabbox_binary_sha256" ]]; then
+  printf 'exe.dev shadow: Crabbox binary digest does not match its provenance file\n' >&2
+  exit 1
+fi
+
+crabbox_version="$(crabbox --version)"
+if [[ "$crabbox_version" != "$EXPECTED_CRABBOX_VERSION" ]]; then
+  printf 'exe.dev shadow: expected Crabbox %s, found %s\n' \
+    "$EXPECTED_CRABBOX_VERSION" "$crabbox_version" >&2
+  exit 1
+fi
 
 materialization_root="$(mktemp -d "${TMPDIR:-/tmp}/ji-exe-dev-shadow.XXXXXX")"
 materialized_workspace="${materialization_root}/workspace"
@@ -205,7 +228,7 @@ input_preflight_started_ms="$(monotonic_ms)"
 )
 input_preflight_ended_ms="$(monotonic_ms)"
 
-# Crabbox v0.46.0 sync is Git-based when sync.gitSeed is true, so seed the
+# Crabbox sync is Git-based when sync.gitSeed is true, so seed the
 # materialized input with a throwaway repository. Crabbox may fingerprint this
 # synthetic commit, while the evidence fingerprint remains bound to the
 # explicitly exported CRABBOX_SOURCE_GIT_SHA and CRABBOX_SOURCE_GIT_STATE.

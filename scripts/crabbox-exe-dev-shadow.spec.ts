@@ -1,4 +1,5 @@
 import { describe, expect, setDefaultTimeout, test } from "bun:test";
+import { createHash } from "node:crypto";
 import {
   chmodSync,
   existsSync,
@@ -24,7 +25,11 @@ import {
 const LAUNCHER_TEST_TIMEOUT_MS = 60_000;
 setDefaultTimeout(LAUNCHER_TEST_TIMEOUT_MS);
 
-const launcher = path.join(import.meta.dir, "crabbox-exe-dev-shadow-run.sh");
+const launcherSource = path.join(
+  import.meta.dir,
+  "crabbox-exe-dev-shadow-run.sh"
+);
+let launcher = launcherSource;
 const shadowScript = path.join(import.meta.dir, "crabbox-exe-dev-shadow.sh");
 const unitDiagnosticsScript = path.join(
   import.meta.dir,
@@ -38,6 +43,8 @@ const launcherFixtureTimeoutMs = 30_000;
 const nodeImage =
   "node:24-slim@sha256:ba849c60be29959425b8734d57b8b4b7d56f98edd9504c9af091d5281095a71e";
 const remoteEvidencePath = "crabbox-output/exe-dev-shadow";
+const crabboxArchiveSha256 =
+  "7e742950103248c976b429c3ceab6fc6c37e091c96cfd47b473c29565f68f2dc";
 
 const createExecutable = (filePath: string, contents: string): void => {
   writeFileSync(filePath, contents);
@@ -104,12 +111,13 @@ else
 fi
 `
   );
+  const crabboxPath = path.join(binDirectory, "crabbox");
   createExecutable(
-    path.join(binDirectory, "crabbox"),
+    crabboxPath,
     `#!/usr/bin/env bash
 set -euo pipefail
 if [[ "$#" -eq 1 && "$1" == "--version" ]]; then
-  printf '%s\\n' "\${CRABBOX_VERSION_OUTPUT:-0.46.0}"
+  printf '%s\\n' "\${CRABBOX_VERSION_OUTPUT:-0.62.0}"
   exit 0
 fi
 if [[ -n "\${CRABBOX_FIXTURE_HOLD_PID:-}" ]]; then
@@ -147,6 +155,22 @@ fi
 exit "\${CRABBOX_FIXTURE_EXIT_STATUS:-0}"
 `
   );
+  const crabboxBinarySha256 = createHash("sha256")
+    .update(readFileSync(crabboxPath))
+    .digest("hex");
+  const provenanceFile = `${crabboxPath}.provenance`;
+  writeFileSync(
+    provenanceFile,
+    `archive_sha256=${crabboxArchiveSha256}\nbinary_sha256=${crabboxBinarySha256}\n`
+  );
+  launcher = path.join(workspace, "crabbox-exe-dev-shadow-run.sh");
+  createExecutable(
+    launcher,
+    readFileSync(launcherSource, "utf-8").replace(
+      /readonly EXPECTED_CRABBOX_BINARY_SHA256="[0-9a-f]+"/u,
+      `readonly EXPECTED_CRABBOX_BINARY_SHA256="${crabboxBinarySha256}"`
+    )
+  );
   createExecutable(
     path.join(binDirectory, "rm"),
     `#!/usr/bin/env bash
@@ -169,7 +193,9 @@ exec "$REAL_RM" "$@"
     binDirectory,
     environmentFile,
     gitStateFile,
+    launcherPath: launcher,
     materializedWorkspaceFile,
+    provenanceFile,
     rmFailureMarker,
     workspace,
   };
@@ -291,15 +317,18 @@ describe("exe.dev shadow scripts", () => {
     test(`reports permanent materialization cleanup failure without changing status ${originalExitStatus}`, () => {
       const fixture = createLauncherFixture();
       try {
-        const result = Bun.spawnSync(["bash", launcher, "--dry-run"], {
-          env: {
-            ...launcherEnvironment(fixture),
-            CRABBOX_FIXTURE_EXIT_STATUS: String(originalExitStatus),
-            CRABBOX_FIXTURE_RM_ALWAYS_FAIL: "1",
-          },
-          stderr: "pipe",
-          stdout: "pipe",
-        });
+        const result = Bun.spawnSync(
+          ["bash", fixture.launcherPath, "--dry-run"],
+          {
+            env: {
+              ...launcherEnvironment(fixture),
+              CRABBOX_FIXTURE_EXIT_STATUS: String(originalExitStatus),
+              CRABBOX_FIXTURE_RM_ALWAYS_FAIL: "1",
+            },
+            stderr: "pipe",
+            stdout: "pipe",
+          }
+        );
 
         expect(result.exitCode).toBe(originalExitStatus);
         expect(result.stderr.toString()).toContain(
@@ -587,7 +616,30 @@ describe("exe.dev shadow scripts", () => {
 
       expect(result.exitCode).not.toBe(0);
       expect(result.stderr.toString()).toContain(
-        "expected Crabbox 0.46.0, found 0.47.0"
+        "expected Crabbox 0.62.0, found 0.47.0"
+      );
+      expect(() => readFileSync(fixture.argumentsFile)).toThrow();
+    } finally {
+      rmSync(fixture.workspace, { force: true, recursive: true });
+    }
+  });
+
+  test("rejects a Crabbox binary without matching release provenance", () => {
+    const fixture = createLauncherFixture();
+    try {
+      writeFileSync(
+        fixture.provenanceFile,
+        `archive_sha256=${"0".repeat(64)}\nbinary_sha256=${"0".repeat(64)}\n`
+      );
+      const result = Bun.spawnSync(["bash", launcher, "--dry-run"], {
+        env: launcherEnvironment(fixture),
+        stderr: "pipe",
+        stdout: "pipe",
+      });
+
+      expect(result.exitCode).not.toBe(0);
+      expect(result.stderr.toString()).toContain(
+        "provenance archive digest does not match"
       );
       expect(() => readFileSync(fixture.argumentsFile)).toThrow();
     } finally {
@@ -837,7 +889,7 @@ exit 0
     try {
       const spawnedEnvironment = {
         ...process.env,
-        CRABBOX_CLIENT_VERSION: "0.46.0",
+        CRABBOX_CLIENT_VERSION: "0.62.0",
         CRABBOX_SOURCE_GIT_SHA: sourceSha,
         CRABBOX_SOURCE_GIT_STATE: "clean",
         CRABBOX_SOURCE_MANIFEST_FILE_COUNT: "1",
@@ -1109,7 +1161,7 @@ exit 0
           cwd: workspace,
           env: {
             ...process.env,
-            CRABBOX_CLIENT_VERSION: "0.46.0",
+            CRABBOX_CLIENT_VERSION: "0.62.0",
             CRABBOX_SOURCE_MANIFEST_FILE_COUNT: "1",
             CRABBOX_SOURCE_MANIFEST_SHA256: `sha256:${"c".repeat(64)}`,
             CRABBOX_SOURCE_MATERIALIZATION_DURATION_MS: "12",
@@ -1130,7 +1182,7 @@ exit 0
       expect(result.stderr.toString()).toBe("");
       expect(result.exitCode).toBe(0);
       expect(fingerprint.machine).toBe("2cpu-8gb-40gb");
-      expect(fingerprint.crabboxClientVersion).toBe("0.46.0");
+      expect(fingerprint.crabboxClientVersion).toBe("0.62.0");
       expect(fingerprint.cpuModel.length).toBeGreaterThan(0);
       expect(fingerprint.nodeImage).toBe(nodeImage);
       expect(fingerprint.sourceManifestFileCount).toBe(1);
