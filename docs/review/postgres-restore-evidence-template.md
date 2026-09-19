@@ -6,7 +6,7 @@ Copy this file per drill. Do **not** treat Compose config or a successful backup
 
 | Field | Value |
 | --- | --- |
-| Runbook version | postgres-restore-v1.md v1.0 |
+| Runbook version | postgres-restore-v1.md v1.1 |
 | Date (UTC) | |
 | Operator | |
 | Environment | `ci-isolated-minio-fixture` / `hetzner-production-drill` |
