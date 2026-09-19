@@ -1840,4 +1840,140 @@ describe("historical curation recovery (RJC-433)", () => {
       .from(outboxEvent);
     expect(afterOutbox).toEqual(beforeOutbox);
   });
+
+  it("selects oldest heads across a bounded scan larger than one batch", async () => {
+    if (!available || !database) {
+      expect(available).toBe(false);
+      return;
+    }
+    const objectStore = new InMemoryObjectStore();
+    const identityCount = 101;
+    const historicalObservationCount = 11;
+    const historicalRunIds: ScrapeRunId[] = [];
+    for (
+      let revision = 0;
+      revision < historicalObservationCount;
+      revision += 1
+    ) {
+      // oxlint-disable-next-line no-await-in-loop -- run starts define pointer order
+      historicalRunIds.push(await seedRun(database, revision * 10));
+    }
+    const currentRunId = await seedRun(database, 600);
+    const [firstHistoricalRunId] = historicalRunIds;
+    if (!firstHistoricalRunId) {
+      throw new Error("Expected historical fixture runs");
+    }
+
+    for (let identity = 0; identity < identityCount; identity += 1) {
+      const bronReferentie = `rjc-621-large-${identity}-${crypto.randomUUID()}`;
+      // oxlint-disable-next-line no-await-in-loop -- deterministic fixture order
+      const sourceRecordId = await seedSourceRecord(
+        database,
+        bronReferentie,
+        firstHistoricalRunId
+      );
+      for (
+        let revision = 0;
+        revision < historicalObservationCount;
+        revision += 1
+      ) {
+        const historicalRunId = historicalRunIds[revision];
+        if (!historicalRunId) {
+          throw new Error("Expected historical run for every revision");
+        }
+        // oxlint-disable-next-line no-await-in-loop -- deterministic fixture order
+        await seedObservation({
+          bronReferentie,
+          contentHash: `rjc-621-${identity}-${revision}`,
+          database,
+          minute: identity * (historicalObservationCount + 1) + revision,
+          objectStore,
+          scrapeRunId: historicalRunId,
+          sourceRecordId,
+          title: `CTP621 ${identity} revision ${revision}`,
+        });
+      }
+      // The current-run pointer is later than every historical head but is
+      // inserted into the current-run scan before the source-wide scan.
+      // oxlint-disable-next-line no-await-in-loop -- deterministic fixture order
+      await seedObservation({
+        bronReferentie,
+        contentHash: `rjc-621-${identity}-current`,
+        database,
+        minute:
+          identity * (historicalObservationCount + 1) +
+          historicalObservationCount,
+        objectStore,
+        scrapeRunId: currentRunId,
+        sourceRecordId,
+        title: `CTP621 ${identity} current`,
+      });
+    }
+
+    const input = {
+      attemptLimit: 100,
+      bronId: BRON_ID,
+      bronSlug: BRON_SLUG,
+      database,
+      objectStore,
+      scrapeRunId: currentRunId,
+    };
+    const remainingTrend: number[] = [];
+    const first = await curateScrapeRun(input);
+    remainingTrend.push(first.remaining);
+    expect(first).toMatchObject({
+      blockedOrdering: 16,
+      curated: 84,
+      remaining: identityCount * (historicalObservationCount + 1) - 84,
+    });
+
+    const firstHeads = await database
+      .select({
+        contentHash: aanvraagObservation.contentHash,
+        status: aanvraagObservation.status,
+      })
+      .from(aanvraagObservation)
+      .where(eq(aanvraagObservation.bronId, BRON_ID));
+    const firstHistoricalHeadCount = firstHeads.filter(
+      (row) => row.contentHash.endsWith("-0") && row.status === "curated"
+    ).length;
+    const firstCurrentCount = firstHeads.filter(
+      (row) =>
+        row.contentHash.endsWith("-current") &&
+        row.status !== "awaiting_curation"
+    ).length;
+
+    for (let pass = 0; pass < historicalObservationCount + 2; pass += 1) {
+      if (remainingTrend.at(-1) === 0) {
+        break;
+      }
+      // oxlint-disable-next-line no-await-in-loop -- repeated bounded recovery pass
+      const next = await curateScrapeRun(input);
+      remainingTrend.push(next.remaining);
+    }
+
+    expect(remainingTrend.at(-1)).toBe(0);
+    for (const [index, remaining] of remainingTrend.entries()) {
+      if (index === 0) {
+        continue;
+      }
+      const previous = remainingTrend[index - 1];
+      if (previous === undefined) {
+        throw new Error("Expected previous remaining count");
+      }
+      expect(remaining).toBeLessThan(previous);
+    }
+    const finalStatuses = await database
+      .select({ status: aanvraagObservation.status })
+      .from(aanvraagObservation)
+      .where(eq(aanvraagObservation.bronId, BRON_ID));
+    expect(finalStatuses.every((row) => row.status === "curated")).toBe(true);
+    // This is intentionally the reproduction assertion: the bounded
+    // created_at scan does not contain every identity's pointer head, while
+    // currentRows puts all current-run identities into the map first.
+    expect({ firstCurrentCount, firstHistoricalHeadCount }).toEqual({
+      firstCurrentCount: 0,
+      firstHistoricalHeadCount: 100,
+    });
+  }, 120_000);
 });
