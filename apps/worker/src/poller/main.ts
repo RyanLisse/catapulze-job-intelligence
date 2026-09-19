@@ -26,6 +26,7 @@ import { getPollerEnv } from "@ji/env/poller";
 
 import { createPollBronRuntime, runBronIngestPipeline } from "../poll-bron-run";
 import type { PollBronRuntime } from "../poll-bron-run";
+import { withAbortFinalization } from "./abort-finalization";
 import { drainBacklog } from "./drain-backlog";
 import { heartbeatFilePath, MAX_POLLER_HEARTBEAT_AGE_MS } from "./heartbeat";
 import { runWithPollerLiveness } from "./liveness";
@@ -127,40 +128,46 @@ const pollSource = async (
     }
     // The budget is for draining, so it starts when the poll ends: a poll that
     // outlasts it must still get its curation passes.
-    const drained = await drainBacklog(
-      {
-        deadlineMs: Date.now() + curateBudgetMs,
-        input: {
-          bronId: result.bronId,
-          bronSlug: result.bronSlug,
-          database: runtime.database,
-          objectStore: runtime.objectStore,
-          onProgress: () =>
-            reportTelemetryCallback(
-              health.callbacks.onCurationProgress,
-              result,
-              {
-                bronId: result.bronId,
-                bronSlug: result.bronSlug,
-                scrapeRunId: result.scrapeRunId,
-                telemetryPhase: "curation_progress",
-              },
-              signal
-            ),
-          scrapeRunId: result.scrapeRunId,
-          signal,
-        },
-        signal,
-        start: {
-          curated: result.curated,
-          failed: result.failed,
-          quarantined: result.quarantined,
-          remaining: result.remaining,
-        },
+    const drained = await withAbortFinalization(
+      signal,
+      async () => {
+        await health.callbacks.onAborted?.(result);
       },
-      curateScrapeRun
+      () =>
+        drainBacklog(
+          {
+            deadlineMs: Date.now() + curateBudgetMs,
+            input: {
+              bronId: result.bronId,
+              bronSlug: result.bronSlug,
+              database: runtime.database,
+              objectStore: runtime.objectStore,
+              onProgress: () =>
+                reportTelemetryCallback(
+                  health.callbacks.onCurationProgress,
+                  result,
+                  {
+                    bronId: result.bronId,
+                    bronSlug: result.bronSlug,
+                    scrapeRunId: result.scrapeRunId,
+                    telemetryPhase: "curation_progress",
+                  },
+                  signal
+                ),
+              scrapeRunId: result.scrapeRunId,
+              signal,
+            },
+            signal,
+            start: {
+              curated: result.curated,
+              failed: result.failed,
+              quarantined: result.quarantined,
+              remaining: result.remaining,
+            },
+          },
+          curateScrapeRun
+        )
     );
-    signal.throwIfAborted();
     await health.finish(result, drained);
     return {
       bronSlug: candidate.bronSlug,

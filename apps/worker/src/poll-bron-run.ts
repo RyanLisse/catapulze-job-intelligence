@@ -59,6 +59,7 @@ import { ManticoreSearchEngine } from "@ji/search";
 import { and, eq } from "drizzle-orm";
 
 import { readSearchProjectorMode, requireManticoreUrl } from "./poll-bron-env";
+import { withAbortFinalization } from "./poller/abort-finalization";
 import { redactErrorMessage } from "./poller/source-log";
 import { reportTelemetryCallback } from "./poller/telemetry-callback";
 import type { SliceABronSlug } from "./slice-a-bronnen";
@@ -226,6 +227,7 @@ const summarizeLifecycle = (
   };
 
 export interface PollBronRunOptions {
+  onAborted?: (pollResult: PollBronRunResult) => Promise<void> | void;
   /** CTP-490: bounds the connector run; see `ConnectorRunInput.signal`. */
   signal?: AbortSignal;
   /** Optional connector milestone observer; telemetry failures are isolated. */
@@ -777,64 +779,82 @@ export const runBronIngestPipeline = async (
           writtenRecords: persistedRun.new + persistedRun.changed,
         }
       : await runPollBron(payload, runtime, runKind, options);
-  await enforceDiscoveryFloor(pollResult, runtime, runKind);
-  const silenceAlert = await handleSilenceAndHealth(
-    pollResult,
-    runtime,
-    runKind
-  );
-  await reportTelemetryCallback(
-    options.onCurationStarted,
-    pollResult,
-    {
-      bronId: pollResult.bronId,
-      bronSlug: pollResult.bronSlug,
-      scrapeRunId: pollResult.scrapeRunId,
-      telemetryPhase: "curation_started",
+  if (
+    pollResult.completeness?.complete === false &&
+    pollResult.completeness.reason === "aborted"
+  ) {
+    await options.onAborted?.(pollResult);
+    throw (
+      options.signal?.reason ??
+      new DOMException("Source run aborted", "AbortError")
+    );
+  }
+  return withAbortFinalization(
+    options.signal,
+    async () => {
+      await options.onAborted?.(pollResult);
     },
-    options.signal
+    async () => {
+      await enforceDiscoveryFloor(pollResult, runtime, runKind);
+      const silenceAlert = await handleSilenceAndHealth(
+        pollResult,
+        runtime,
+        runKind
+      );
+      await reportTelemetryCallback(
+        options.onCurationStarted,
+        pollResult,
+        {
+          bronId: pollResult.bronId,
+          bronSlug: pollResult.bronSlug,
+          scrapeRunId: pollResult.scrapeRunId,
+          telemetryPhase: "curation_started",
+        },
+        options.signal
+      );
+      const curateResult = await curateScrapeRun({
+        bronId: pollResult.bronId,
+        bronSlug: pollResult.bronSlug,
+        database: runtime.database,
+        objectStore: runtime.objectStore,
+        onProgress: options.onCurationProgress
+          ? () =>
+              reportTelemetryCallback(
+                options.onCurationProgress,
+                pollResult,
+                {
+                  bronId: pollResult.bronId,
+                  bronSlug: pollResult.bronSlug,
+                  scrapeRunId: pollResult.scrapeRunId,
+                  telemetryPhase: "curation_progress",
+                },
+                options.signal
+              )
+          : undefined,
+        scrapeRunId: pollResult.scrapeRunId,
+        signal: options.signal,
+      });
+
+      const drainSummary = await drainOrDeferToProjector(runtime);
+
+      return {
+        ...pollResult,
+        alreadyCommitted: curateResult.alreadyCommitted,
+        attemptedObservationIds: curateResult.attemptedObservationIds,
+        blockedOrdering: curateResult.blockedOrdering,
+        curated: curateResult.curated,
+        drained: drainSummary.drained,
+        failed: curateResult.failed,
+        indexVersion: drainSummary.indexVersion,
+        pending: curateResult.pending,
+        quarantined: curateResult.quarantined,
+        remaining: curateResult.remaining,
+        silenceAlert,
+        superseded: curateResult.superseded,
+        unchanged: curateResult.unchanged,
+      };
+    }
   );
-  const curateResult = await curateScrapeRun({
-    bronId: pollResult.bronId,
-    bronSlug: pollResult.bronSlug,
-    database: runtime.database,
-    objectStore: runtime.objectStore,
-    onProgress: options.onCurationProgress
-      ? () =>
-          reportTelemetryCallback(
-            options.onCurationProgress,
-            pollResult,
-            {
-              bronId: pollResult.bronId,
-              bronSlug: pollResult.bronSlug,
-              scrapeRunId: pollResult.scrapeRunId,
-              telemetryPhase: "curation_progress",
-            },
-            options.signal
-          )
-      : undefined,
-    scrapeRunId: pollResult.scrapeRunId,
-    signal: options.signal,
-  });
-
-  const drainSummary = await drainOrDeferToProjector(runtime);
-
-  return {
-    ...pollResult,
-    alreadyCommitted: curateResult.alreadyCommitted,
-    attemptedObservationIds: curateResult.attemptedObservationIds,
-    blockedOrdering: curateResult.blockedOrdering,
-    curated: curateResult.curated,
-    drained: drainSummary.drained,
-    failed: curateResult.failed,
-    indexVersion: drainSummary.indexVersion,
-    pending: curateResult.pending,
-    quarantined: curateResult.quarantined,
-    remaining: curateResult.remaining,
-    silenceAlert,
-    superseded: curateResult.superseded,
-    unchanged: curateResult.unchanged,
-  };
 };
 
 export { requireDatabaseUrl, requireManticoreUrl } from "./poll-bron-env";

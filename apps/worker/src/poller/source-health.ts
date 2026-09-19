@@ -64,6 +64,27 @@ export const createSourceHealthCallbacks = (
     lastProgressWriteAt = input.at.getTime();
   };
   const callbacks: PollBronRunOptions = {
+    onAborted: async (run) => {
+      const owned = await Effect.runPromise(
+        Effect.gen(function* abortSource() {
+          const telemetry = yield* PollerHealthTelemetry;
+          return yield* telemetry.finishSource({
+            bronId: run.bronId,
+            completedAt: now(),
+            discoveryComplete: false,
+            drained: false,
+            fenceToken: run.fenceToken,
+            hasFailures: false,
+            hasQuarantined: false,
+            outcome: "incomplete",
+            runId: run.scrapeRunId,
+          });
+        }).pipe(Effect.provide(layer))
+      );
+      if (!owned) {
+        throw new RunOwnershipLostError();
+      }
+    },
     onCurationProgress: (run) =>
       recordProgress({
         at: now(),
