@@ -44,12 +44,42 @@ for one identity blocks later observations for that identity, while other
 identities continue. An unexpected normalisation or database failure aborts
 the task with the observation ID so the task retry retains diagnostics.
 
+An `unchanged` observation is superseded only when it is provably a no-op
+refresh: the canonical record is already `active` on the same `content_hash`,
+and a strictly later succeeded run holds an observation of the same source
+record with that hash whose payload passes the same full
+observation-contract check candidate selection applies and which already
+applied. A sibling that has not applied yet — awaiting, ordering-blocked,
+or pending — proves nothing: it may still fail or defer when attempted.
+Such a will-apply sibling (with a readable raw object) only suppresses its
+predecessors from that pass's candidacy, so they consume no attempt slots
+while staying recoverable; the pass marks them `superseded` in a second
+bounded sweep after processing, solely when a dominator actually applied.
+A dominator that fails, defers on missing raw, or stays blocked marks
+nothing, so the suppressed rows resume as ordinary candidates next pass.
+Rows that could still write a lifecycle transition — the canonical
+record is `stale` or `closed`, or the hash differs — are never dominated,
+and neither are rows whose only later siblings sit on `curation_failed`, a
+missing-raw deferral, `quarantined`, or `superseded`, because those siblings
+either need an operator or cannot stand in for the earlier row. Each sweep
+marks dominated rows `superseded` in one bounded statement (up to 5,000
+rows) before candidate selection and again after it. The row stays in the
+table for history; it is not deleted and no canonical data is rewritten.
+
 Each invocation attempts at most 100 observations by default (configurable by
 the internal caller from 1 through 500). It returns a bounded attempted-ID list,
 a true remaining-backlog count, and cause counts for curated, unchanged,
 pending, quarantined, already committed, superseded, and ordering-blocked rows.
 Every identity is processed oldest-first. The source-record lock, curated/SCD2 and
 outbox writes, and observation terminal marker commit in one transaction.
+Identities are ranked by their earliest recoverable `created_at` — up to the
+attempt limit, plus up to the attempt limit more observed in the current
+run — and each selected identity contributes its chain in pointer order (run
+start, `observedAt`, run id, hash, raw ref), so a deep backlog cannot push
+one identity's head outside the scan window while its current-run rows are
+attempted out of order. `observedAt` is ordered as stored text rather than
+cast, so a malformed timestamp reaches the blocking classification path
+instead of aborting candidate selection.
 
 ## Retry and reconcile
 
@@ -92,7 +122,32 @@ outbox writes, and observation terminal marker commit in one transaction.
    RETURNING id, status;
    ```
 
-4. Review `blocked_ordering` and `blocked_ordering_legacy` rows manually. Do not
+4. When a backlog grows faster than the bounded pass drains it, diagnose its
+   composition before any repair. The report categorizes recoverable rows into
+   missing raw, parse-invalid, ordering-blocked, `curation_failed`, dominated
+   `unchanged` duplicates, and actionable work; it is read-only:
+
+   ```bash
+   DATABASE_URL=... bun tools/backfill/curation-backlog-repair.ts \
+     --bron <bron-uuid>
+   ```
+
+   Dominated duplicates are the only category the tool mutates, and only with
+   an explicit quiesced apply bounded by `--limit`. The update is identical to
+   the runtime dominated sweep and idempotent; rerun until
+   `remainingDominated` is zero. The printed JSON is the audit receipt —
+   redirect it to a file for the release record:
+
+   ```bash
+   DATABASE_URL=... bun tools/backfill/curation-backlog-repair.ts \
+     --bron <bron-uuid> --apply --ingest-quiesced --limit 5000 \
+     > repair-receipt-$(date -u +%Y%m%dT%H%M%SZ).json
+   ```
+
+   Do not requeue `curation_failed` rows or mass-update statuses through this
+   path; those categories need a separately reviewed repair plan.
+
+5. Review `blocked_ordering` and `blocked_ordering_legacy` rows manually. Do not
    change them back to an active status until the source identity, observation
    time, run start, hash, and raw reference establish a unique order.
    Use this read-only query for the reported IDs:
@@ -107,7 +162,7 @@ outbox writes, and observation terminal marker commit in one transaction.
    WHERE o.id = ANY($1::uuid[])
    ORDER BY r.gestart, observed_at, o.id;
    ```
-5. After the backlog is empty, let the normal outbox projector drain. Use the
+6. After the backlog is empty, let the normal outbox projector drain. Use the
    projection repair runbook only when its reconciliation reports a search
    divergence; curation retry itself must not synthesize duplicate outbox
    events.
