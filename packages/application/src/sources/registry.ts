@@ -18,6 +18,7 @@ import { harveynash } from "./harveynash";
 import { hays } from "./hays";
 import { heijmans } from "./heijmans";
 import { hero } from "./hero";
+import { indeed } from "./indeed";
 import { inhuurdesk } from "./inhuurdesk";
 import { intermediair } from "./intermediair";
 import { jobbird } from "./jobbird";
@@ -75,6 +76,7 @@ export const SOURCES = {
   hays,
   heijmans,
   hero,
+  indeed,
   inhuurdesk,
   intermediair,
   jobbird,
