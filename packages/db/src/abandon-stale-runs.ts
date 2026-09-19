@@ -1,4 +1,4 @@
-import { and, eq, lt } from "drizzle-orm";
+import { and, eq, lt, sql } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 
 import { runStalenessCutoff } from "./run-staleness";
@@ -49,6 +49,7 @@ export const abandonStaleRuns = async (
     .update(scrapeRun)
     .set({
       ...ABANDONED_RUN_FAILURE,
+      fenceToken: sql`${scrapeRun.fenceToken} + 1`,
       geindigd: options.now,
       status: "failed",
     })

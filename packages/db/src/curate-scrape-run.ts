@@ -236,7 +236,16 @@ export interface CurateScrapeRunInput {
   database: BronRuntimeDatabase;
   objectStore: ObjectStore;
   scrapeRunId: ScrapeRunId;
+  signal?: AbortSignal;
 }
+
+const throwIfAborted = (signal: AbortSignal | undefined): void => {
+  if (signal?.aborted) {
+    throw signal.reason instanceof Error
+      ? signal.reason
+      : new DOMException("Aborted", "AbortError");
+  }
+};
 
 export interface CurateScrapeRunResult {
   alreadyCommitted: number;
@@ -780,18 +789,22 @@ const processCandidate = async (
   input: CurateScrapeRunInput,
   candidate: RecoveryCandidate
 ): Promise<CandidateDisposition> => {
+  throwIfAborted(input.signal);
   const preliminaryCommitted =
     isLegacyStatus(candidate.status) &&
     (await isObservationCommittedVersion(input.database, candidate.payload));
+  throwIfAborted(input.signal);
   const preliminaryCurrent = await committedFallback(
     input.database,
     candidate.payload
   );
+  throwIfAborted(input.signal);
   const preliminaryHighWater = await appliedHighWater(
     input.database,
     candidate,
     preliminaryCurrent
   );
+  throwIfAborted(input.signal);
   const preliminaryDisposition = preliminaryCommitted
     ? "already_committed"
     : classifyRecoveryCandidate({
@@ -809,16 +822,19 @@ const processCandidate = async (
     preliminaryDisposition === "process"
       ? await readStoredRaw(input.objectStore, candidate.payload.rawPayloadRef)
       : null;
+  throwIfAborted(input.signal);
   if (preliminaryDisposition === "process" && !stored) {
     await markObservation(
       input.database,
       candidate.id,
       missingRawStatus(candidate.status)
     );
+    throwIfAborted(input.signal);
     return "pending";
   }
 
   return input.database.transaction(async (tx) => {
+    throwIfAborted(input.signal);
     const [lockedRun] = await tx
       .select({
         bronId: scrapeRun.bronId,
@@ -828,6 +844,7 @@ const processCandidate = async (
       .where(eq(scrapeRun.id, candidate.scrapeRunId))
       .limit(1)
       .for("key share");
+    throwIfAborted(input.signal);
     if (
       !lockedRun ||
       lockedRun.bronId !== input.bronId ||
@@ -845,6 +862,7 @@ const processCandidate = async (
       .where(eq(sourceRecord.id, candidate.sourceRecordId))
       .limit(1)
       .for("update");
+    throwIfAborted(input.signal);
     if (
       !lockedIdentity ||
       lockedIdentity.bronId !== candidate.payload.bronId ||
@@ -865,6 +883,7 @@ const processCandidate = async (
       .where(eq(aanvraagObservation.id, candidate.id))
       .limit(1)
       .for("update");
+    throwIfAborted(input.signal);
     if (!locked || !isRecoverableStatus(locked.status)) {
       return "already_committed" as const;
     }
@@ -876,21 +895,27 @@ const processCandidate = async (
       !OBSERVATION_SCHEMA.safeParse(locked.payload).success
     ) {
       await markObservation(tx, candidate.id, blockedStatus(locked.status));
+      throwIfAborted(input.signal);
       return "blocked_ordering" as const;
     }
-    if (await hasEarlierRecoverable(tx, candidate)) {
+    const hasEarlier = await hasEarlierRecoverable(tx, candidate);
+    throwIfAborted(input.signal);
+    if (hasEarlier) {
       await markObservation(tx, candidate.id, blockedStatus(locked.status));
+      throwIfAborted(input.signal);
       return "blocked_ordering" as const;
     }
 
     const committed =
       isLegacyStatus(locked.status) &&
       (await isObservationCommittedVersion(tx, candidate.payload));
+    throwIfAborted(input.signal);
     const current = await appliedHighWater(
       tx,
       candidate,
       await committedFallback(tx, candidate.payload)
     );
+    throwIfAborted(input.signal);
     const disposition = committed
       ? "already_committed"
       : classifyRecoveryCandidate({
@@ -906,13 +931,16 @@ const processCandidate = async (
           ? blockedStatus(locked.status)
           : disposition
       );
+      throwIfAborted(input.signal);
       return disposition;
     }
 
     if (!stored) {
       await markObservation(tx, candidate.id, blockedStatus(locked.status));
+      throwIfAborted(input.signal);
       return "blocked_ordering" as const;
     }
+    throwIfAborted(input.signal);
     const processed = await processObservation(new PostgresCurateStore(tx), {
       body: stored.body,
       bronId: candidate.payload.bronId,
@@ -922,10 +950,12 @@ const processCandidate = async (
       rawPayloadRef: candidate.payload.rawPayloadRef,
       scrapeRunId: candidate.payload.scrapeRunId,
     });
+    throwIfAborted(input.signal);
     await tx
       .update(aanvraagObservation)
       .set({ status: processed.status })
       .where(eq(aanvraagObservation.id, candidate.id));
+    throwIfAborted(input.signal);
     return processed.status;
   });
 };
@@ -1011,6 +1041,7 @@ const parkFailedCandidate = async (input: {
   await markObservation(database, observationId, CURATION_FAILED_STATUS);
 };
 
+// oxlint-disable-next-line complexity -- bounded cancellation checks preserve candidate ordering and rollback semantics
 export const curateScrapeRun = async (
   input: CurateScrapeRunInput
 ): Promise<CurateScrapeRunResult> => {
@@ -1047,6 +1078,7 @@ export const curateScrapeRun = async (
     unchanged: 0,
   };
   for (const invalidRow of invalidRows) {
+    throwIfAborted(input.signal);
     // oxlint-disable-next-line no-await-in-loop -- each invalid row receives a durable review marker
     const marked = await markObservation(
       input.database,
@@ -1057,9 +1089,11 @@ export const curateScrapeRun = async (
       result.attemptedObservationIds.push(invalidRow.id);
       result.blockedOrdering += 1;
     }
+    throwIfAborted(input.signal);
   }
   const blockedIdentities = new Set<string>();
   for (const candidate of candidates) {
+    throwIfAborted(input.signal);
     if (blockedIdentities.has(candidate.sourceRecordId)) {
       continue;
     }
@@ -1079,7 +1113,11 @@ export const curateScrapeRun = async (
       // status that only an operator can clear, on a condition a retry would
       // have cleared by itself, so both abort the pass and leave every row in
       // an active status for the next poll.
-      if (isRawReadError({ error }) || isTransientPostgresError({ error })) {
+      if (
+        input.signal?.aborted ||
+        isRawReadError({ error }) ||
+        isTransientPostgresError({ error })
+      ) {
         throw error;
       }
       // oxlint-disable-next-line no-await-in-loop -- the marker must land before the next candidate

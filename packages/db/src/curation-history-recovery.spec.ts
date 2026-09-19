@@ -1564,4 +1564,146 @@ describe("historical curation recovery (RJC-433)", () => {
     expect(history.events).toHaveLength(1);
     expectMonotoneHistory(history.versions);
   });
+
+  it("rolls back the final observation update when cancellation arrives before return", async () => {
+    if (!available || !database) {
+      expect(available).toBe(false);
+      return;
+    }
+    const objectStore = new InMemoryObjectStore();
+    const runId = await seedRun(database, 0);
+    const bronReferentie = `rjc-618-db-abort-${crypto.randomUUID()}`;
+    const sourceRecordId = await seedSourceRecord(
+      database,
+      bronReferentie,
+      runId
+    );
+    const observationId = await seedObservation({
+      bronReferentie,
+      contentHash: "abort-hash",
+      database,
+      minute: 10,
+      objectStore,
+      scrapeRunId: runId,
+      sourceRecordId,
+      title: "Abort after update",
+    });
+    const abortController = new AbortController();
+    const abortReason = new Error("poller lock lost");
+    let finalObservationUpdateExecuted = false;
+    const beforeOutbox = await database
+      .select({ id: outboxEvent.id })
+      .from(outboxEvent);
+    /* oxlint-disable promise/prefer-await-to-callbacks, unicorn/prefer-type-error, anti-slop/no-known-value-widening, anti-slop/no-object-parameters, anti-slop/no-reflect-get, anti-slop/no-runtime-typeof, anti-slop/no-unknown-parameters, anti-slop/no-unknown-returns, anti-slop/no-reflect-apply, anti-slop/require-safety-comment-for-type-assertion -- This test-only Proxy sits at the Drizzle transaction boundary to place a real AbortController barrier on the final observation UPDATE. */
+    const wrapObservationQuery = (query: object): object =>
+      new Proxy(query, {
+        get(target, property, receiver) {
+          const value = Reflect.get(target, property, receiver);
+          if (property === "then" && typeof value === "function") {
+            return (
+              onFulfilled?: (result: unknown) => unknown,
+              onRejected?: (error: unknown) => unknown
+            ) =>
+              Reflect.apply(value, target, [
+                (result: unknown) => {
+                  finalObservationUpdateExecuted = true;
+                  abortController.abort(abortReason);
+                  return onFulfilled?.(result);
+                },
+                onRejected,
+              ]);
+          }
+          if (typeof value !== "function") {
+            return value;
+          }
+          return (...args: unknown[]) => {
+            const next = Reflect.apply(value, target, args);
+            if (
+              next !== null &&
+              (typeof next === "object" || typeof next === "function")
+            ) {
+              return wrapObservationQuery(next);
+            }
+            return next;
+          };
+        },
+      });
+    const wrapTransaction = (transaction: object): object =>
+      new Proxy(transaction, {
+        get(target, property, receiver) {
+          const value = Reflect.get(target, property, receiver);
+          if (property !== "update" || typeof value !== "function") {
+            return value;
+          }
+          return (table: unknown, ...args: unknown[]) => {
+            const query = Reflect.apply(value, target, [table, ...args]);
+            if (table !== aanvraagObservation) {
+              return query;
+            }
+            if (
+              query === null ||
+              (typeof query !== "object" && typeof query !== "function")
+            ) {
+              throw new Error("Expected observation update query builder");
+            }
+            return wrapObservationQuery(query);
+          };
+        },
+      });
+    const databaseWithAbortBarrier = new Proxy(database, {
+      get(target, property, receiver) {
+        const value = Reflect.get(target, property, receiver);
+        if (property !== "transaction" || typeof value !== "function") {
+          return value;
+        }
+        return (callback: unknown, ...args: unknown[]) => {
+          if (typeof callback !== "function") {
+            throw new Error("Expected transaction callback");
+          }
+          return Reflect.apply(value, target, [
+            (transaction: object, ...callbackArgs: unknown[]) =>
+              Reflect.apply(callback, undefined, [
+                wrapTransaction(transaction),
+                ...callbackArgs,
+              ]),
+            ...args,
+          ]);
+        };
+      },
+    });
+    /* oxlint-enable promise/prefer-await-to-callbacks, unicorn/prefer-type-error, anti-slop/no-known-value-widening, anti-slop/no-object-parameters, anti-slop/no-reflect-get, anti-slop/no-runtime-typeof, anti-slop/no-unknown-parameters, anti-slop/no-unknown-returns, anti-slop/no-reflect-apply, anti-slop/require-safety-comment-for-type-assertion */
+
+    await expect(
+      curateScrapeRun({
+        bronId: BRON_ID,
+        bronSlug: BRON_SLUG,
+        database: databaseWithAbortBarrier,
+        objectStore,
+        scrapeRunId: runId,
+        signal: abortController.signal,
+      })
+    ).rejects.toThrow(abortReason);
+
+    expect(finalObservationUpdateExecuted).toBe(true);
+
+    const [observation] = await database
+      .select({ status: aanvraagObservation.status })
+      .from(aanvraagObservation)
+      .where(eq(aanvraagObservation.id, observationId));
+    expect(observation?.status).toBe("awaiting_curation");
+    const history = await database
+      .select({ id: aanvraag.id })
+      .from(aanvraag)
+      .where(
+        and(
+          eq(aanvraag.bronId, BRON_ID),
+          eq(aanvraag.bronReferentie, bronReferentie)
+        )
+      );
+    expect(history).toHaveLength(0);
+    const afterOutbox = await database
+      .select({ id: outboxEvent.id })
+      .from(outboxEvent);
+    expect(afterOutbox).toEqual(beforeOutbox);
+  });
 });

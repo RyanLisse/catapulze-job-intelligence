@@ -1,10 +1,10 @@
 import type { BronId } from "@ji/domain";
 
 import type { Sleep } from "./retry";
-import { sleep } from "./retry";
+import { awaitWithSignal, sleep } from "./retry";
 
 export interface RequestLimiter {
-  acquire: (bronId: BronId) => Promise<void>;
+  acquire: (bronId: BronId, signal?: AbortSignal) => Promise<void>;
 }
 
 export interface CrawlDelayLimiterOptions {
@@ -44,7 +44,7 @@ export class CrawlDelayLimiter implements RequestLimiter {
     this.wait = wait;
   }
 
-  async acquire(bronId: BronId): Promise<void> {
+  async acquire(bronId: BronId, signal?: AbortSignal): Promise<void> {
     const currentTime = this.now();
     const requestAt = Math.max(
       currentTime,
@@ -54,7 +54,7 @@ export class CrawlDelayLimiter implements RequestLimiter {
     // Reserve synchronously so overlapping callers cannot claim the same window.
     this.nextRequestAt.set(bronId, requestAt + this.minimumIntervalMs);
     if (waitMs > 0) {
-      await this.wait(waitMs);
+      await awaitWithSignal(this.wait(waitMs, signal), signal);
     }
   }
 }

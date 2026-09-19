@@ -23,6 +23,7 @@ import type {
   ConnectorRunMetrics,
   DiscoverItem,
 } from "./contract";
+import { isAbortLike, isReadIoFault } from "./effect-runtime/faults";
 import type { RequestLimiter } from "./limiter";
 import {
   buildContentAddressedRawObjectPath,
@@ -86,6 +87,14 @@ const FAILURE_ENVELOPES = {
   },
 } as const satisfies Record<string, RunFailureEnvelope>;
 
+/** Marks cancellation that came from the run-owned request boundary. */
+class ConnectorRequestAbortedError extends Error {
+  constructor(cause: unknown) {
+    super("Connector request aborted", { cause });
+    this.name = "ConnectorRequestAbortedError";
+  }
+}
+
 const withFailureEnvelope = async <Result>(
   operation: () => Promise<Result>,
   envelope: RunFailureEnvelope
@@ -95,7 +104,8 @@ const withFailureEnvelope = async <Result>(
   } catch (error) {
     if (
       error instanceof RunOwnershipLostError ||
-      error instanceof ConnectorRunFailure
+      error instanceof ConnectorRunFailure ||
+      error instanceof ConnectorRequestAbortedError
     ) {
       throw error;
     }
@@ -119,8 +129,9 @@ export interface ConnectorRunInput {
   /**
    * CTP-490: when aborted, the run stops at the next item boundary, persists
    * what it has and closes the row with `completeness.reason = "aborted"`
-   * instead of staying `running` until the process dies. Requests already in
-   * flight finish under their own HTTP timeouts.
+   * instead of staying `running` until the process dies. A cancellable
+   * connector request may stop in flight; persistence keeps its own failure
+   * semantics and is never swallowed as a benign run abort.
    */
   signal?: AbortSignal;
   startedAt?: Date;
@@ -153,6 +164,7 @@ export type RunIncompleteReason = Exclude<
 export interface ConnectorRunResult {
   checkpoint: ConnectorCheckpoint;
   completeness: RunCompleteness;
+  fenceToken: number;
   metrics: ConnectorRunMetrics;
   /**
    * Every bron_referentie the listing showed this run, including rejected
@@ -163,18 +175,50 @@ export interface ConnectorRunResult {
   writtenRecords: number;
 }
 
+/* oxlint-disable anti-slop/no-unknown-parameters -- this is the Promise catch boundary for request abort values from fetch, Effect, and AbortSignal.reason. */
+const isRunAbort = (error: unknown, signal: AbortSignal | undefined): boolean =>
+  signal?.aborted === true &&
+  (error === signal.reason ||
+    isAbortLike(error) ||
+    (isReadIoFault(error) && error._tag === "cancel"));
+/* oxlint-enable anti-slop/no-unknown-parameters */
+
+const retryRequest = async <Result>(
+  operation: () => Promise<Result>,
+  retryPolicy: RetryPolicy,
+  wait: Sleep | undefined,
+  signal: AbortSignal | undefined
+): Promise<Result> => {
+  try {
+    return await withRetry(operation, retryPolicy, wait, signal);
+  } catch (error: unknown) {
+    if (isRunAbort(error, signal)) {
+      throw new ConnectorRequestAbortedError(error);
+    }
+    throw error;
+  }
+};
+
 const request = <Result>(
   operation: () => Promise<Result>,
   bronId: BronId,
   limiter: RequestLimiter,
   retryPolicy: RetryPolicy,
-  wait?: Sleep
+  wait?: Sleep,
+  signal?: AbortSignal
 ): Promise<Result> => {
   const limitedOperation = async (): Promise<Result> => {
-    await limiter.acquire(bronId);
-    return operation();
+    try {
+      await limiter.acquire(bronId, signal);
+      return await operation();
+    } catch (error) {
+      if (isRunAbort(error, signal)) {
+        throw new ConnectorRequestAbortedError(error);
+      }
+      throw error;
+    }
   };
-  return withRetry(limitedOperation, retryPolicy, wait);
+  return retryRequest(limitedOperation, retryPolicy, wait, signal);
 };
 
 const isAborted = (signal: AbortSignal | undefined): boolean =>
@@ -216,6 +260,7 @@ const resolveCompleteness = (
   return { complete: true };
 };
 
+// oxlint-disable-next-line complexity -- the run state machine keeps request, persistence, and ownership outcomes distinct
 const runConnectorInner = async (
   input: ConnectorRunInput
 ): Promise<ConnectorRunResult> => {
@@ -276,6 +321,38 @@ const runConnectorInner = async (
   let truncated = false;
   let aborted = false;
 
+  const completeAbortedRun = async (): Promise<ConnectorRunResult> => {
+    aborted = true;
+    progress.checkpoint = checkpoint;
+    await withFailureEnvelope(
+      () =>
+        runLifecycleStore.checkpoint(
+          checkpointKey,
+          structuredClone(progress),
+          canonicalRun.fenceToken
+        ),
+      FAILURE_ENVELOPES.checkpoint
+    );
+    await withFailureEnvelope(
+      () =>
+        runLifecycleStore.complete({
+          fenceToken: canonicalRun.fenceToken,
+          finishedAt: now(),
+          key: checkpointKey,
+          progress: structuredClone(progress),
+        }),
+      FAILURE_ENVELOPES.complete
+    );
+    return {
+      checkpoint: checkpoint ?? {},
+      completeness: resolveCompleteness(resumed, truncated, aborted),
+      fenceToken: canonicalRun.fenceToken,
+      metrics,
+      observedBronReferenties: [...observedBronReferenties],
+      writtenRecords,
+    };
+  };
+
   const persistItem = async (
     item: DiscoverItem,
     itemObservedAt: Date
@@ -284,13 +361,19 @@ const runConnectorInner = async (
       () =>
         timeCriticalPathPhase("ingest-fetch", () =>
           connector.fetchUsesNetwork === false
-            ? withRetry(() => connector.fetch(item), retryPolicy, wait)
+            ? retryRequest(
+                () => connector.fetch(item, signal),
+                retryPolicy,
+                wait,
+                signal
+              )
             : request(
-                () => connector.fetch(item),
+                () => connector.fetch(item, signal),
                 bronId,
                 limiter,
                 retryPolicy,
-                wait
+                wait,
+                signal
               )
         ),
       FAILURE_ENVELOPES.fetch
@@ -335,7 +418,8 @@ const runConnectorInner = async (
                 path: rawPayloadRef,
               }),
             retryPolicy,
-            wait
+            wait,
+            signal
           )
         ),
       FAILURE_ENVELOPES.rawStore
@@ -410,11 +494,12 @@ const runConnectorInner = async (
         () =>
           timeCriticalPathPhase("ingest-discover", () =>
             request(
-              () => connector.discover(currentCheckpoint),
+              () => connector.discover(currentCheckpoint, signal),
               bronId,
               limiter,
               retryPolicy,
-              wait
+              wait,
+              signal
             )
           ),
         FAILURE_ENVELOPES.discover
@@ -450,6 +535,9 @@ const runConnectorInner = async (
       FAILURE_ENVELOPES.complete
     );
   } catch (error) {
+    if (error instanceof ConnectorRequestAbortedError && signal?.aborted) {
+      return completeAbortedRun();
+    }
     if (error instanceof RunOwnershipLostError) {
       throw error;
     }
@@ -484,6 +572,7 @@ const runConnectorInner = async (
   return {
     checkpoint: checkpoint ?? {},
     completeness: resolveCompleteness(resumed, truncated, aborted),
+    fenceToken: canonicalRun.fenceToken,
     metrics,
     observedBronReferenties: [...observedBronReferenties],
     writtenRecords,

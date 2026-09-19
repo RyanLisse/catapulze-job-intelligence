@@ -128,12 +128,14 @@ pure helper with its own spec:
 - A source that throws is captured, logged as one `poller_source` line with
   `errorName` and `errorMessage`, and does not stop the sources beside it or
   end the cycle.
-- The abort signal is checked before each start, never mid source. SIGTERM
-  therefore stops new sources and lets the ones in flight finish, which is the
-  same shutdown contract the sequential loop had.
+- The abort signal is checked before each start and is passed into connector
+  discovery, fetch, limiter waits and retry backoff. SIGTERM therefore stops
+  new sources and lets uncancellable persistence finish its current boundary;
+  cancellable HTTP requests and waits stop promptly.
 
-The heartbeat is still written before every source starts and before every
-curation pass, so the file stays fresh no matter which slot is running.
+The scoped liveness fiber refreshes the heartbeat independently of source
+progress, so a long connector or curation pass cannot make process liveness
+look stale. Source progress and freshness are separate signals.
 
 Postgres load is bounded by the same number. Each source's drain step runs
 inside that source's budget, so `POLLER_CONCURRENCY` is also the ceiling on
@@ -189,12 +191,14 @@ Every connector run now takes an `AbortSignal` (`ConnectorRunInput.signal`,
 - `AbortSignal.timeout(POLLER_RUN_BUDGET_MS)`, so a stalled run is bounded
   even without a restart.
 
-When the signal fires the run finishes the request already in flight (HTTP
-timeouts still bound that), stops before the next item, persists the metrics
-it has and closes the row through the normal `complete` path with
+When the signal fires, cancellable connector requests and limiter/retry waits
+stop at once. An uncancellable persistence call is allowed to finish its
+current item; a persistence error remains a run failure. The run then stops
+before the next item, persists the metrics it has and closes the row through
+the normal `complete` path with
 `completeness = { complete: false, reason: "aborted" }`. Nothing observed so
-far is lost: every fetched item is already in the object store and the
-observation table. The interrupted page keeps the checkpoint it *started*
+far is lost: observations whose persistence completed before the abort remain
+in the object store and observation table. The interrupted page keeps the checkpoint it *started*
 from, because the items after the cut were never seen, so the next poll
 re-reads that page. Missed-poll reconciliation treats `aborted` like
 `truncated` and `resumed`: it never stales a record the run did not reach.
@@ -243,10 +247,10 @@ healthy, and logs one `poller_lock_waiting` line at most every 30 seconds. It
 polls nothing until it holds the lock. Two pollers therefore never run at once,
 which is what keeps a source from being polled twice concurrently.
 
-The lock is re-asserted at the top of every cycle, not just taken once at
-startup. A lock dropped silently by idle connection reaping or database
-autosuspend raises `LockLostError` and exits the process rather than letting it
-poll on without ownership.
+The scoped liveness fiber re-asserts the lock periodically with a bounded
+probe, not just at cycle boundaries. A lock dropped silently by idle connection
+reaping or database autosuspend raises `LockLostError` and exits the process
+rather than letting it poll on without ownership.
 
 The lock key is an arbitrary constant, `ADVISORY_LOCK_KEY` in
 `apps/worker/src/poller/main.ts`, deliberately different from the projector's in
@@ -256,20 +260,13 @@ constant.
 
 ## Heartbeat and supervision
 
-The poller has no HTTP surface, so liveness is a file. It writes the current
-epoch millis to `POLLER_HEARTBEAT_FILE` at the top of every cycle, before every
-source, and before every curation pass. The Dockerfile HEALTHCHECK runs
-`bun src/poller/heartbeat.ts --check` and reports healthy while that file is
-younger than `MAX_POLLER_HEARTBEAT_AGE_MS`, 300 seconds.
-
-That allowance is deliberately not the projector's 60 seconds. The projector
-drains a 500 row batch in seconds, so 60 seconds means something is wrong. The
-poller's longest single step between two heartbeat writes is one source's poll
-run, which averaged 121 seconds under the old Trigger task, plus one
-`curateScrapeRun` pass. At 60 seconds a single ordinary source with a backlog
-would fail four consecutive checks and Docker would restart a container that is
-working correctly. 300 seconds covers that step with headroom and still turns a
-genuinely stuck process unhealthy inside one tick.
+The poller has no HTTP surface, so process liveness is a file. Its scoped
+liveness fiber writes the current epoch millis independently of source progress
+and the Dockerfile HEALTHCHECK runs `bun src/poller/heartbeat.ts --check`.
+The check reports healthy while that file is younger than
+`MAX_POLLER_HEARTBEAT_AGE_MS`, 300 seconds. A separate bounded lock probe runs
+every 10 seconds; a fresh heartbeat does not prove database readiness, lock
+ownership or source freshness.
 
 The `--check` entrypoint is a separate module from `main.ts` on purpose, so a
 health check every 15 seconds does not boot the typed environment, the database
@@ -281,17 +278,19 @@ Put the process under a supervisor. Docker Compose uses
 
 A rolling deploy works the same way it does for the projector. Coolify starts the
 replacement container, which stays healthy while it waits for the lock, then
-removes the outgoing one, whose SIGTERM path finishes the sources in flight,
-releases the lock and exits 0. The replacement acquires it on its next poll.
+removes the outgoing one. SIGTERM cancels cancellable source I/O, drains
+uncancellable persistence and the scoped liveness probes, releases the lock
+and exits 0. The replacement acquires it on its next poll.
 
 ### Give shutdown enough time
 
 Shutdown is cooperative, so the stop timeout has to cover it. On SIGTERM the
-poller stops starting new sources immediately, but every source already running
-finishes its poll and its curation passes before the lock is released. Those
-sources run side by side, so the wait is still one poll plus up to one curation
-pass rather than `POLLER_CONCURRENCY` of them in series: the same budget the
-heartbeat allowance is sized against, so the `poller` service in
+poller stops starting new sources immediately. Sources already running cancel
+connector requests and waits, then drain any uncancellable persistence and
+their curation boundary before the lock is released. Those sources run side by
+side, so the wait is still one bounded source drain rather than
+`POLLER_CONCURRENCY` of them in series: the same budget the heartbeat
+and bounded probe teardown must fit within the stop grace, so the `poller` service in
 `docker-compose.yml` keeps `stop_grace_period: 300s`.
 
 Set the same 300 second stop timeout on the Coolify application. Coolify's
@@ -405,10 +404,10 @@ Logs never carry raw payloads or database URLs.
 | Database unreachable | The cycle's candidate load throws out of the loop and the process exits 1 with `poller_fatal`. The supervisor restarts it. |
 | `POLLER_DATABASE_URL` missing or a known pooler URL | Typed env validation fails before startup and the process exits non-zero. Supply the direct endpoint for the same database and role. |
 | Second instance started | Waits for the advisory lock instead of exiting: polls every 2 s, keeps the heartbeat fresh so it stays healthy, logs `poller_lock_waiting` at most every 30 s, polls nothing. SIGINT or SIGTERM during the wait exits 0 without ever having held the lock. |
-| Lock silently dropped | Caught by the every-cycle re-assert. If the lock is free the same session retakes it; if another session has it, `LockLostError` exits the process 1. |
+| Lock silently dropped | Caught by the scoped periodic bounded probe. If the lock is free the same session retakes it; if another session has it, `LockLostError` exits the process 1. |
 | Backlog cannot shrink | The drain loop for that source ends as soon as a curation pass fails to reduce `remaining`, rather than burning the whole budget. The next cycle tries again. |
 | A due source has no live flag in production | Skipped before its connector is built, logged as `poller_source_skipped` with `reason: "not_live"`. No scrape run, no fixture data in `curated`. |
-| SIGINT / SIGTERM | Aborts the loop. The due sources not yet started are dropped; every source in flight finishes its poll and stops draining after the pass it is in, so a poll is never killed mid-write. Then a shutdown line, the lock release, the connection close, and exit 0. A repeated signal is logged as `poller_shutdown_in_progress` and otherwise ignored. This needs a stop timeout of at least 300 s on both Compose and Coolify; below that Docker escalates to SIGKILL, which nothing in userspace can catch and which can leave the advisory lock held until Postgres notices the dead connection. |
+| SIGINT / SIGTERM | Aborts the loop. The due sources not yet started are dropped; cancellable source requests and waits stop, while uncancellable persistence drains its current write boundary. Then a shutdown line, the lock release, the connection close, and exit 0 unless a process-level failure occurs. Source-level persistence or ownership failures are logged and do not necessarily change the process exit code. A repeated signal is logged as `poller_shutdown_in_progress` and otherwise ignored. This needs a stop timeout of at least 300 s on both Compose and Coolify; below that Docker escalates to SIGKILL, which nothing in userspace can catch and which can leave the advisory lock held until Postgres notices the dead connection. |
 
 ## Related work
 

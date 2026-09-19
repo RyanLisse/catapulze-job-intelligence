@@ -61,6 +61,31 @@ describe("connector HTTP timeout", () => {
     expect(signal?.aborted).toBe(true);
   });
 
+  it("aborts a request when the parent run signal aborts", async () => {
+    const controller = new AbortController();
+    let signal: AbortSignal | undefined;
+    const request = Promise.withResolvers<never>();
+    const pending = withHttpTimeout(
+      (operationSignal) => {
+        signal = operationSignal;
+        operationSignal.addEventListener(
+          "abort",
+          () => request.reject(operationSignal.reason),
+          { once: true }
+        );
+        return request.promise;
+      },
+      1000,
+      controller.signal
+    );
+    const reason = new Error("run stopped");
+
+    controller.abort(reason);
+
+    await expect(pending).rejects.toBe(reason);
+    expect(signal?.aborted).toBe(true);
+  });
+
   it("returns a completed fetch and body operation", async () => {
     const result = await withHttpTimeout(
       async () => await Promise.resolve("ok"),

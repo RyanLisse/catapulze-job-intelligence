@@ -7,7 +7,7 @@ import { abortableSleep } from "@ji/db/abortable-sleep";
 import { curateScrapeRun } from "@ji/db/curate-scrape-run";
 import type { CurateScrapeRunInput } from "@ji/db/curate-scrape-run";
 import { writeHeartbeat } from "@ji/db/process-heartbeat";
-import { LockLostError, waitForAdvisoryLock } from "@ji/db/process-lock";
+import { waitForAdvisoryLock } from "@ji/db/process-lock";
 import { pruneProcessedOutboxEvents } from "@ji/db/prune-outbox-events";
 /**
  * On-box poll and curate process (runbook: docs/runbooks/onbox-poller.md).
@@ -26,6 +26,7 @@ import { getPollerEnv } from "@ji/env/poller";
 import { createPollBronRuntime, runBronIngestPipeline } from "../poll-bron-run";
 import type { PollBronRuntime } from "../poll-bron-run";
 import { heartbeatFilePath } from "./heartbeat";
+import { runWithPollerLiveness } from "./liveness";
 import { runWithConcurrency } from "./pool";
 import type { PollCandidate } from "./schedule";
 import {
@@ -78,8 +79,6 @@ interface BacklogDrain {
 interface DrainBacklogOptions {
   deadlineMs: number;
   input: CurateScrapeRunInput;
-  /** Refreshes the heartbeat between passes; a pass can outlast its allowed age. */
-  onPass: () => Promise<void>;
   signal: AbortSignal;
   start: BacklogDrain;
 }
@@ -94,12 +93,10 @@ interface DrainBacklogOptions {
 const drainBacklog = async (
   options: DrainBacklogOptions
 ): Promise<BacklogDrain> => {
-  const { deadlineMs, input, onPass, signal, start } = options;
+  const { deadlineMs, input, signal, start } = options;
   let curatedTotal = start.curated;
   let remainingCount = start.remaining;
   while (remainingCount > 0 && Date.now() < deadlineMs && !signal.aborted) {
-    // oxlint-disable-next-line no-await-in-loop -- the heartbeat must be fresh before a pass that can outlast the check interval
-    await onPass();
     // oxlint-disable-next-line no-await-in-loop -- curation passes are sequential by design; they must not overlap on one source
     const next = await curateScrapeRun(input);
     curatedTotal += next.curated;
@@ -115,7 +112,6 @@ const drainBacklog = async (
 interface PollSourceOptions {
   candidate: PollCandidate;
   curateBudgetMs: number;
-  onHeartbeat: () => Promise<void>;
   runBudgetMs: number;
   runtime: PollBronRuntime;
   signal: AbortSignal;
@@ -132,14 +128,7 @@ const runAbortSignal = (shutdown: AbortSignal, budgetMs: number): AbortSignal =>
 const pollSource = async (
   options: PollSourceOptions
 ): Promise<PollerSourceLog> => {
-  const {
-    candidate,
-    curateBudgetMs,
-    onHeartbeat,
-    runBudgetMs,
-    runtime,
-    signal,
-  } = options;
+  const { candidate, curateBudgetMs, runBudgetMs, runtime, signal } = options;
   const startedAt = Date.now();
   const scrapeRunId = crypto.randomUUID();
   try {
@@ -169,8 +158,8 @@ const pollSource = async (
         database: runtime.database,
         objectStore: runtime.objectStore,
         scrapeRunId: result.scrapeRunId,
+        signal,
       },
-      onPass: onHeartbeat,
       signal,
       start: { curated: result.curated, remaining: result.remaining },
     });
@@ -271,94 +260,99 @@ const main = async (): Promise<void> => {
   });
 
   try {
-    while (!controller.signal.aborted) {
-      const cycleStartedAt = Date.now();
-      // oxlint-disable-next-line no-await-in-loop -- one cycle at a time by design; cycles must not overlap
-      await recordHeartbeat();
-      // The lock connection can drop silently (idle reaping, autosuspend)
-      // without the loop seeing an error, so re-assert it every cycle.
-      // oxlint-disable-next-line no-await-in-loop -- the lock must be re-asserted before this cycle polls anything
-      const stillHeld = await lock.reassert();
-      if (!stillHeld) {
-        throw new LockLostError(ADVISORY_LOCK_KEY);
-      }
-
-      // Before the candidates, so a run this process abandons is already
-      // closed when `loadPollCandidates` reads the newest run per source.
-      // oxlint-disable-next-line no-await-in-loop -- one repair pass per cycle
-      const abandoned = await abandonStaleRuns(runtime.database, {
-        now: new Date(),
-        olderThanMs: abandonRunAfterMs,
-      });
-      if (abandoned.length > 0) {
-        logLine(process.stdout, "poller_runs_abandoned", {
-          count: abandoned.length,
-        });
-      }
-
-      // CTP-404: bound processed outbox growth; unprocessed and
-      // dead-lettered rows are never pruned. One bounded batch per cycle
-      // drains a backlog gradually instead of one giant DELETE.
-      // oxlint-disable-next-line no-await-in-loop -- one prune pass per cycle
-      const prunedOutbox = await pruneProcessedOutboxEvents(runtime.database, {
-        batchSize: Number(pollerEnv.POLLER_OUTBOX_PRUNE_BATCH),
-        now: new Date(),
-        retentionDays: Number(pollerEnv.POLLER_OUTBOX_RETENTION_DAYS),
-      });
-      if (prunedOutbox > 0) {
-        logLine(process.stdout, "poller_outbox_pruned", {
-          count: prunedOutbox,
-        });
-      }
-
-      // oxlint-disable-next-line no-await-in-loop -- candidates are loaded once per cycle
-      const candidates = await loadPollCandidates(runtime, {
-        now: new Date(),
-        olderThanMs: abandonRunAfterMs,
-      });
-      const { live, notLive } = partitionByLiveFlag(
-        dueCandidates(candidates, new Date()),
-        process.env
-      );
-      for (const candidate of notLive) {
-        logLine(process.stdout, "poller_source_skipped", {
-          bronSlug: candidate.bronSlug,
-          reason: "not_live",
-        });
-      }
-      // At most POLLER_CONCURRENCY sources in flight. Each source still runs
-      // one at a time and keeps its own `crawl_delay_ms` pacing, so this buys
-      // cycle wall clock without touching politeness per host. Each in-flight
-      // source can hold one `curateScrapeRun` drain, so the concurrency is
-      // also the ceiling on concurrent drains against Postgres.
-      // oxlint-disable-next-line no-await-in-loop -- the cycle owns its sources; cycles must not overlap
-      await runWithConcurrency(
-        live,
-        concurrency,
-        async (candidate) => {
-          await recordHeartbeat();
-          const log = await pollSource({
-            candidate,
-            curateBudgetMs,
-            onHeartbeat: recordHeartbeat,
-            runBudgetMs,
-            runtime,
-            signal: controller.signal,
-          });
-          logLine(process.stdout, "poller_source", log);
+    await runWithPollerLiveness(
+      {
+        heartbeat: recordHeartbeat,
+        lockKey: ADVISORY_LOCK_KEY,
+        lockReassert: lock.reassert,
+        onLockLoss: (error) => {
+          controller.abort(error);
         },
-        controller.signal
-      );
-      logLine(process.stdout, "poller_cycle", {
-        due: live.length,
-        durationMs: Date.now() - cycleStartedAt,
-        pollable: candidates.length,
-        skipped: notLive.length,
-      });
+        signal: controller.signal,
+      },
+      async () => {
+        while (!controller.signal.aborted) {
+          const cycleStartedAt = Date.now();
 
-      // oxlint-disable-next-line no-await-in-loop -- the tick interval must elapse before the next cycle
-      await abortableSleep(tickMs, controller.signal);
-    }
+          // Before the candidates, so a run this process abandons is already
+          // closed when `loadPollCandidates` reads the newest run per source.
+          // oxlint-disable-next-line no-await-in-loop -- one repair pass per cycle
+          const abandoned = await abandonStaleRuns(runtime.database, {
+            now: new Date(),
+            olderThanMs: abandonRunAfterMs,
+          });
+          if (abandoned.length > 0) {
+            logLine(process.stdout, "poller_runs_abandoned", {
+              count: abandoned.length,
+            });
+          }
+
+          // CTP-404: bound processed outbox growth; unprocessed and
+          // dead-lettered rows are never pruned. One bounded batch per cycle
+          // drains a backlog gradually instead of one giant DELETE.
+          // oxlint-disable-next-line no-await-in-loop -- one prune pass per cycle
+          const prunedOutbox = await pruneProcessedOutboxEvents(
+            runtime.database,
+            {
+              batchSize: Number(pollerEnv.POLLER_OUTBOX_PRUNE_BATCH),
+              now: new Date(),
+              retentionDays: Number(pollerEnv.POLLER_OUTBOX_RETENTION_DAYS),
+            }
+          );
+          if (prunedOutbox > 0) {
+            logLine(process.stdout, "poller_outbox_pruned", {
+              count: prunedOutbox,
+            });
+          }
+
+          // oxlint-disable-next-line no-await-in-loop -- candidates are loaded once per cycle
+          const candidates = await loadPollCandidates(runtime, {
+            now: new Date(),
+            olderThanMs: abandonRunAfterMs,
+          });
+          const { live, notLive } = partitionByLiveFlag(
+            dueCandidates(candidates, new Date()),
+            process.env
+          );
+          for (const candidate of notLive) {
+            logLine(process.stdout, "poller_source_skipped", {
+              bronSlug: candidate.bronSlug,
+              reason: "not_live",
+            });
+          }
+          // At most POLLER_CONCURRENCY sources in flight. Each source still runs
+          // one at a time and keeps its own `crawl_delay_ms` pacing, so this buys
+          // cycle wall clock without touching politeness per host. Each in-flight
+          // source can hold one `curateScrapeRun` drain, so the concurrency is
+          // also the ceiling on concurrent drains against Postgres.
+          // oxlint-disable-next-line no-await-in-loop -- the cycle owns its sources; cycles must not overlap
+          await runWithConcurrency(
+            live,
+            concurrency,
+            async (candidate) => {
+              const log = await pollSource({
+                candidate,
+                curateBudgetMs,
+                runBudgetMs,
+                runtime,
+                signal: controller.signal,
+              });
+              logLine(process.stdout, "poller_source", log);
+            },
+            controller.signal
+          );
+          logLine(process.stdout, "poller_cycle", {
+            due: live.length,
+            durationMs: Date.now() - cycleStartedAt,
+            pollable: candidates.length,
+            skipped: notLive.length,
+          });
+
+          // oxlint-disable-next-line no-await-in-loop -- the tick interval must elapse before the next cycle
+          await abortableSleep(tickMs, controller.signal);
+        }
+      }
+    );
     logLine(process.stdout, "poller_shutdown", {});
   } catch (error) {
     logLine(process.stderr, "poller_fatal", {

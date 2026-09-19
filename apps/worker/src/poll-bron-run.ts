@@ -23,7 +23,7 @@ import {
 import type { AlertStore, BronHealthStore } from "@ji/application/registry";
 import { SOURCES } from "@ji/application/sources";
 import type { SourceDefinition } from "@ji/application/sources";
-import { fullJitter } from "@ji/connectors";
+import { fullJitter, RunOwnershipLostError } from "@ji/connectors";
 import type {
   Connector,
   ConnectorRunKind,
@@ -79,6 +79,7 @@ export interface PollBronRunResult {
   bronSlug: SliceABronSlug;
   /** Null when the result was replayed from an already-succeeded run row. */
   completeness: RunCompleteness | null;
+  fenceToken: number;
   lifecycle: PollBronLifecycleSummary | null;
   metrics: ConnectorRunMetrics;
   scrapeRunId: ScrapeRunId;
@@ -249,16 +250,28 @@ export const runPollBron = async (
   });
 
   if (result.lifecycle && result.lifecycle.staled.length > 0) {
-    await runtime.database
+    const [updatedRun] = await runtime.database
       .update(scrapeRun)
       .set({ gesloten: result.lifecycle.staled.length })
-      .where(eq(scrapeRun.id, scrapeRunId));
+      .where(
+        and(
+          eq(scrapeRun.id, scrapeRunId),
+          eq(scrapeRun.bronId, bronId),
+          eq(scrapeRun.status, "succeeded"),
+          eq(scrapeRun.fenceToken, result.fenceToken)
+        )
+      )
+      .returning({ id: scrapeRun.id });
+    if (!updatedRun) {
+      throw new RunOwnershipLostError();
+    }
   }
 
   return {
     bronId,
     bronSlug: payload.bronSlug,
     completeness: result.completeness,
+    fenceToken: result.fenceToken,
     lifecycle: summarizeLifecycle(result.lifecycle),
     metrics: result.metrics,
     scrapeRunId,
@@ -497,7 +510,7 @@ export const enforceDiscoveryFloor = async (
   // selects only `status = 'succeeded'` — excludes it and tomorrow's baseline
   // is not poisoned by today's collapse. Matching on `status = 'succeeded'`
   // keeps this from stomping a row that is running or already failed.
-  await runtime.database
+  const [failedRun] = await runtime.database
     .update(scrapeRun)
     .set({
       failureClass: DISCOVERY_FLOOR_FAILURE.class,
@@ -509,9 +522,15 @@ export const enforceDiscoveryFloor = async (
     .where(
       and(
         eq(scrapeRun.id, pollResult.scrapeRunId),
+        eq(scrapeRun.bronId, pollResult.bronId),
+        eq(scrapeRun.fenceToken, pollResult.fenceToken),
         eq(scrapeRun.status, "succeeded")
       )
-    );
+    )
+    .returning({ id: scrapeRun.id });
+  if (!failedRun) {
+    throw new RunOwnershipLostError();
+  }
 
   await writeDiscoveryFloorAlert(pollResult, runtime, {
     bronNaam,
@@ -608,6 +627,7 @@ export const runBronIngestPipeline = async (
       bronId: scrapeRun.bronId,
       changed: scrapeRun.gewijzigd,
       error: scrapeRun.fouten,
+      fenceToken: scrapeRun.fenceToken,
       found: scrapeRun.aantalGevonden,
       new: scrapeRun.nieuw,
       rejected: scrapeRun.rejected,
@@ -647,6 +667,7 @@ export const runBronIngestPipeline = async (
           bronId: payload.bronId as BronId,
           bronSlug: payload.bronSlug,
           completeness: null,
+          fenceToken: persistedRun.fenceToken,
           lifecycle: null,
           metrics: {
             changed: persistedRun.changed,
@@ -674,6 +695,7 @@ export const runBronIngestPipeline = async (
     database: runtime.database,
     objectStore: runtime.objectStore,
     scrapeRunId: pollResult.scrapeRunId,
+    signal: options.signal,
   });
 
   const drainSummary = await drainOrDeferToProjector(runtime);

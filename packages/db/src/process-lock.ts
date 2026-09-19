@@ -17,6 +17,46 @@ export class LockLostError extends Error {
   }
 }
 
+const LOCK_PROBE_TIMEOUT_NAME = "LockProbeTimeoutError";
+const LOCK_RELEASE_TIMEOUT_MS = 2000;
+const LOCK_CONNECTION_END_TIMEOUT_SECONDS = 1;
+
+const ignorePostgresError = (_error: Error): void => {
+  // The connection is being torn down; cancellation/end errors are already
+  // represented by the owning lock probe or release operation.
+};
+
+const lockProbeTimeoutError = (timeoutMs: number): Error => {
+  const error = new Error(`Advisory lock probe timed out after ${timeoutMs}ms`);
+  error.name = LOCK_PROBE_TIMEOUT_NAME;
+  return error;
+};
+
+/** Bounds a postgres query while keeping its eventual rejection observed. */
+export const runBoundedLockQuery = async <Result>(
+  query: PromiseLike<Result>,
+  timeoutMs: number,
+  timeoutError: Error,
+  onTimeout: () => void
+): Promise<Result> => {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    // oxlint-disable-next-line promise/avoid-new -- bridge a postgres query to a bounded timeout
+    return await new Promise<Result>((resolve, reject) => {
+      timer = setTimeout(() => {
+        onTimeout();
+        reject(timeoutError);
+      }, timeoutMs);
+      // oxlint-disable-next-line promise/prefer-catch -- both query outcomes settle the timeout bridge
+      query.then(resolve, reject);
+    });
+  } finally {
+    if (timer !== undefined) {
+      clearTimeout(timer);
+    }
+  }
+};
+
 export interface AdvisoryLockHandle {
   readonly acquired: boolean;
   /** No-op when `acquired` is false. */
@@ -28,7 +68,7 @@ export interface AdvisoryLockHandle {
    * connection reaped by the pool/proxy/Neon autosuspend) and was free to
    * retake, false if another session grabbed it in between.
    */
-  reassert: () => Promise<boolean>;
+  reassert: (options?: { timeoutMs?: number }) => Promise<boolean>;
 }
 
 /**
@@ -46,7 +86,8 @@ export interface AdvisoryLockHandle {
 export const acquireAdvisoryLock = async (
   databaseUrl: string,
   lockKey: number,
-  databaseUrlVariable: string
+  databaseUrlVariable: string,
+  createClient: typeof postgres = postgres
 ): Promise<AdvisoryLockHandle> => {
   // Validate at the lock boundary too: callers cannot accidentally bypass
   // the typed process env and put a session lock behind Neon's pooler.
@@ -54,7 +95,7 @@ export const acquireAdvisoryLock = async (
     databaseUrl,
     databaseUrlVariable
   );
-  const sql = postgres(directDatabaseUrl, {
+  const sql = createClient(directDatabaseUrl, {
     idle_timeout: 0,
     max: 1,
     max_lifetime: null,
@@ -73,10 +114,45 @@ export const acquireAdvisoryLock = async (
     };
   }
 
-  const tryLockQuery = (): Promise<{ locked: boolean }[]> =>
+  const tryLockQuery = () =>
     sql<{ locked: boolean }[]>`
       select pg_try_advisory_lock(${lockKey}) as locked
     `;
+  let lockConnectionPoisoned = false;
+  let lockConnectionTeardown: Promise<void> | undefined;
+  const endLockConnection = (): Promise<void> => {
+    if (!lockConnectionTeardown) {
+      lockConnectionTeardown = (async () => {
+        try {
+          await sql.end({ timeout: LOCK_CONNECTION_END_TIMEOUT_SECONDS });
+        } catch (error) {
+          ignorePostgresError(
+            error instanceof Error ? error : new Error(String(error))
+          );
+        }
+      })();
+    }
+    return lockConnectionTeardown;
+  };
+
+  const runLockQuery = async (
+    timeoutMs: number
+  ): Promise<{ locked: boolean }[]> => {
+    if (lockConnectionPoisoned) {
+      throw lockProbeTimeoutError(timeoutMs);
+    }
+    return await runBoundedLockQuery(
+      tryLockQuery(),
+      timeoutMs,
+      lockProbeTimeoutError(timeoutMs),
+      () => {
+        lockConnectionPoisoned = true;
+        // Closing the dedicated connection settles the in-flight query and
+        // prevents a retry from running on a poisoned session.
+        void endLockConnection();
+      }
+    );
+  };
 
   // ponytail: the query issued right as the connection dies (idle reap,
   // Neon autosuspend, or a killed backend) can reject once or twice while
@@ -86,13 +162,21 @@ export const acquireAdvisoryLock = async (
   // which is the correct fallback anyway.
   const RECONNECT_RETRIES = 3;
   const RECONNECT_RETRY_DELAY_MS = 25;
-  const reassert = async (): Promise<boolean> => {
+  const reassert = async (
+    options: { timeoutMs?: number } = {}
+  ): Promise<boolean> => {
+    const timeoutMs = options.timeoutMs ?? 5000;
     for (let attempt = 0; attempt < RECONNECT_RETRIES; attempt += 1) {
       try {
         // oxlint-disable-next-line no-await-in-loop -- each retry must wait for the previous attempt to settle before trying again
-        const retryRows = await tryLockQuery();
+        const retryRows = await runLockQuery(timeoutMs);
         return retryRows[0]?.locked === true;
       } catch (error) {
+        if (error instanceof Error && error.name === LOCK_PROBE_TIMEOUT_NAME) {
+          // Do not start a retry while the dedicated connection is being
+          // torn down after a timed-out query.
+          throw error;
+        }
         if (attempt === RECONNECT_RETRIES - 1) {
           throw error;
         }
@@ -110,12 +194,29 @@ export const acquireAdvisoryLock = async (
     acquired: true,
     reassert,
     release: async () => {
+      if (lockConnectionPoisoned) {
+        await endLockConnection();
+        return;
+      }
       // pg_advisory_lock is reference-counted per session — every
       // `reassert()` call while already holding it adds another count on
       // the same session. `unlock_all` drops the session's entire advisory
       // lock stack in one call instead of needing N matching unlocks.
-      await sql`select pg_advisory_unlock_all()`;
-      await sql.end({ timeout: 5 });
+      try {
+        await runBoundedLockQuery(
+          sql`select pg_advisory_unlock_all()`,
+          LOCK_RELEASE_TIMEOUT_MS,
+          new Error(
+            `Advisory lock release timed out after ${LOCK_RELEASE_TIMEOUT_MS}ms`
+          ),
+          () => {
+            lockConnectionPoisoned = true;
+            void endLockConnection();
+          }
+        );
+      } finally {
+        await endLockConnection();
+      }
     },
   };
 };

@@ -36,6 +36,48 @@ const hangUntilAbort = (init?: RequestInit): Promise<void> =>
   });
 
 describe("json-ld Effect read adapter", () => {
+  for (const operation of ["listing", "detail"] as const) {
+    for (const abortOwner of ["run", "client"] as const) {
+      it(`cancels ${operation} HTTP from the ${abortOwner} signal`, async () => {
+        const runController = new AbortController();
+        const clientController = new AbortController();
+        const started = Promise.withResolvers<null>();
+        const stopped = Promise.withResolvers<null>();
+        let requests = 0;
+        const client = createJsonLdEffectClient({
+          config: heroConfig,
+          fetchImpl: async (_url, init) => {
+            requests += 1;
+            const pending = hangUntilAbort(init);
+            init?.signal?.addEventListener(
+              "abort",
+              () => stopped.resolve(null),
+              {
+                once: true,
+              }
+            );
+            started.resolve(null);
+            await pending;
+            return new Response("unexpected completion");
+          },
+          liveEnabled: true,
+          signal: clientController.signal,
+        });
+        const pending =
+          operation === "listing"
+            ? client.fetchListing(runController.signal)
+            : client.fetchDetail(detailUrl(), runController.signal);
+        await started.promise;
+        const controller =
+          abortOwner === "run" ? runController : clientController;
+        controller.abort();
+        await expect(pending).rejects.toMatchObject({ _tag: "cancel" });
+        await stopped.promise;
+        expect(requests).toBe(1);
+      });
+    }
+  }
+
   it("reads JSON listing fixtures as parsed payloads", async () => {
     const client = createJsonLdEffectClient({
       config: prorailConfig,

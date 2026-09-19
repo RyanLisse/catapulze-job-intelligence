@@ -426,6 +426,7 @@ describe("runBronIngestPipeline silence evaluation (RJC-409)", () => {
       bronId,
       bronSlug: "tenderned" as const,
       completeness: null,
+      fenceToken: 1,
       lifecycle: null,
       metrics: {
         changed: 0,
@@ -540,6 +541,7 @@ describe("runBronIngestPipeline silence evaluation (RJC-409)", () => {
       bronId,
       bronSlug: "tenderned" as const,
       completeness: null,
+      fenceToken: 1,
       lifecycle: null,
       metrics: {
         changed: 2,
@@ -635,6 +637,7 @@ describe("runBronIngestPipeline silence evaluation (RJC-409)", () => {
       bronId,
       bronSlug: "tenderned" as const,
       completeness: null,
+      fenceToken: 1,
       lifecycle: null,
       metrics: {
         changed: 0,
@@ -734,6 +737,7 @@ describe("runBronIngestPipeline silence evaluation (RJC-409)", () => {
       bronId,
       bronSlug: "tenderned" as const,
       completeness: null,
+      fenceToken: 1,
       lifecycle: null,
       metrics: {
         changed: 0,
@@ -794,6 +798,7 @@ describe("runBronIngestPipeline silence evaluation (RJC-409)", () => {
     bronId,
     bronSlug: "tenderned" as const,
     completeness: null,
+    fenceToken: 1,
     lifecycle: null,
     metrics: {
       changed: 0,
@@ -990,7 +995,9 @@ describe("runPollBron scrape_run.gesloten and unchanged metrics (RJC-414)", () =
         set: (values: { gesloten?: number }) => ({
           where: () => {
             updatedRows.push({ values });
-            return Promise.resolve([]);
+            return {
+              returning: () => Promise.resolve([{ id: scrapeRunId }]),
+            };
           },
         }),
       }),
@@ -1163,6 +1170,7 @@ describe("discovery floor guard", () => {
     bronId,
     bronSlug: "tenderned" as const,
     completeness: null,
+    fenceToken: 1,
     lifecycle: null,
     metrics: {
       changed: 0,
@@ -1182,6 +1190,7 @@ describe("discovery floor guard", () => {
     bronHealth: BronHealthStore;
     captured: DiscoveryFloorUpdate[];
     loadBaseline: () => Promise<RunBaselineSample[]>;
+    ownsRun?: boolean;
   }) => ({
     alerts: input.alerts,
     bronHealth: input.bronHealth,
@@ -1202,7 +1211,12 @@ describe("discovery floor guard", () => {
         set: (values: DiscoveryFloorUpdate) => ({
           where: () => {
             input.captured.push(values);
-            return Promise.resolve([]);
+            return {
+              returning: () =>
+                Promise.resolve(
+                  input.ownsRun === false ? [] : [{ id: scrapeRunId }]
+                ),
+            };
           },
         }),
       }),
@@ -1292,6 +1306,27 @@ describe("discovery floor guard", () => {
     ).rejects.toThrow(collapsedMessage);
 
     expect(await alerts.listOpen()).toHaveLength(1);
+  });
+
+  it("stops before alerting when the fenced failure update owns no row", async () => {
+    const { RunOwnershipLostError } = await import("@ji/connectors");
+    const { enforceDiscoveryFloor } = await import("./poll-bron-run");
+
+    const { alerts, bronHealth } = await createFloorStores();
+    const captured: DiscoveryFloorUpdate[] = [];
+    const runtime = createRuntime({
+      alerts,
+      bronHealth,
+      captured,
+      loadBaseline: () => Promise.resolve(healthyBaseline()),
+      ownsRun: false,
+    });
+
+    await expect(
+      enforceDiscoveryFloor(pollResultWithFound(0), runtime, "poll")
+    ).rejects.toBeInstanceOf(RunOwnershipLostError);
+    expect(await alerts.listOpen()).toEqual([]);
+    expect(await bronHealth.getByBronId(bronId)).toBeNull();
   });
 
   it("preserves the circuit and silence signals it does not own", async () => {

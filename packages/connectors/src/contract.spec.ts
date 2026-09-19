@@ -3,6 +3,7 @@ import { describe, expect, it } from "bun:test";
 import type { BronId, ScrapeRunId } from "@ji/domain";
 
 import type { Connector } from "./contract";
+import { CancelFault } from "./effect-runtime/faults";
 import { CrawlDelayLimiter } from "./limiter";
 import {
   buildContentAddressedRawObjectPath,
@@ -10,9 +11,10 @@ import {
   InMemoryObjectStore,
   parseContentAddressedRawObjectPath,
 } from "./object-store";
+import type { ObjectStore } from "./object-store";
 import { InMemoryObservationRecorder } from "./observation-recorder";
 import type { ObservationRecordInput } from "./observation-recorder";
-import { withRetry } from "./retry";
+import { sleep, withRetry } from "./retry";
 import { runConnector } from "./run";
 import {
   ConnectorRunFailure,
@@ -272,6 +274,27 @@ describe("CrawlDelayLimiter", () => {
       ).toThrow("rateLimitPerMinute must be a positive integer");
     }
   });
+
+  it("cancels a delayed acquire promptly", async () => {
+    const controller = new AbortController();
+    let waitStartedResolve: (() => void) | undefined;
+    // oxlint-disable-next-line promise/avoid-new -- deterministic wait barrier
+    const waitStarted = new Promise<void>((resolve) => {
+      waitStartedResolve = resolve;
+    });
+    const limiter = new CrawlDelayLimiter({
+      crawlDelayMs: 1000,
+      wait: (milliseconds, signal) => {
+        waitStartedResolve?.();
+        return sleep(milliseconds, signal);
+      },
+    });
+    await limiter.acquire("bron-abort-wait");
+    const pending = limiter.acquire("bron-abort-wait", controller.signal);
+    await waitStarted;
+    controller.abort();
+    await expect(pending).rejects.toMatchObject({ name: "AbortError" });
+  });
 });
 
 describe("withRetry", () => {
@@ -319,6 +342,37 @@ describe("withRetry", () => {
         multiplier: 2,
       })
     ).rejects.toThrow("maxAttempts must be a positive integer");
+  });
+
+  it("cancels a retry backoff before starting another attempt", async () => {
+    const controller = new AbortController();
+    let attempts = 0;
+    let waitStartedResolve: (() => void) | undefined;
+    // oxlint-disable-next-line promise/avoid-new -- deterministic retry barrier
+    const waitStarted = new Promise<void>((resolve) => {
+      waitStartedResolve = resolve;
+    });
+    const pending = withRetry(
+      () => {
+        attempts += 1;
+        return Promise.reject(new Error("temporary"));
+      },
+      {
+        initialDelayMs: 25,
+        maxAttempts: 2,
+        maxDelayMs: 25,
+        multiplier: 1,
+      },
+      (milliseconds, signal) => {
+        waitStartedResolve?.();
+        return sleep(milliseconds, signal);
+      },
+      controller.signal
+    );
+    await waitStarted;
+    controller.abort();
+    await expect(pending).rejects.toMatchObject({ name: "AbortError" });
+    expect(attempts).toBe(1);
   });
 });
 
@@ -574,6 +628,50 @@ describe("InMemoryRunLifecycleStore", () => {
 });
 
 describe("runConnector", () => {
+  it("passes the run AbortSignal through discover and fetch", async () => {
+    const controller = new AbortController();
+    const signals: AbortSignal[] = [];
+    const bronId = "bron-signal-propagation";
+    const dependencies = runDependencies("run-signal-propagation");
+
+    await runConnector({
+      ...dependencies,
+      bronId,
+      bronSlug: "signal-propagation",
+      connector: {
+        bronId,
+        discover: (_checkpoint, signal) => {
+          if (signal) {
+            signals.push(signal);
+          }
+          return Promise.resolve({
+            checkpoint: { page: 1 },
+            hasMore: false,
+            items: [{ bronReferentie: "signal-1", contentHash: "listing" }],
+          });
+        },
+        fetch: (item, signal) => {
+          if (signal) {
+            signals.push(signal);
+          }
+          return Promise.resolve({
+            body: new TextEncoder().encode(item.bronReferentie),
+            bronReferentie: item.bronReferentie,
+            contentHash:
+              "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            contentType: "json" as const,
+            status: "fetched" as const,
+          });
+        },
+        fetchUsesNetwork: false,
+      },
+      signal: controller.signal,
+    });
+
+    expect(signals).toHaveLength(2);
+    expect(signals.every((signal) => signal === controller.signal)).toBe(true);
+  });
+
   it("stores an oversized bron_referentie as one bounded key in staging, the observation, and the seen-set (CTP-500)", async () => {
     const oversized = "vacatures/".concat("x".repeat(3000));
     const bronId = "bron-bounded-ref";
@@ -1291,6 +1389,334 @@ describe("runConnector", () => {
       scrapeRunId: "run-aborted",
     });
     expect(stored?.checkpoint).toBeNull();
+  });
+
+  it("gracefully closes after an in-flight fetch aborts and preserves the page checkpoint", async () => {
+    const dependencies = runDependencies("run-fetch-abort");
+    const controller = new AbortController();
+    let fetchStartedResolve: (() => void) | undefined;
+    // oxlint-disable-next-line promise/avoid-new -- deterministic fetch barrier
+    const fetchStarted = new Promise<void>((resolve) => {
+      fetchStartedResolve = resolve;
+    });
+    const pending = runConnector({
+      ...dependencies,
+      bronId: "bron-fetch-abort",
+      bronSlug: "tenderned",
+      connector: {
+        bronId: "bron-fetch-abort",
+        discover: () =>
+          Promise.resolve({
+            checkpoint: { page: 1 },
+            hasMore: true,
+            items: [{ bronReferentie: "TN-1", contentHash: "a" }],
+          }),
+        fetch: (_item, signal) =>
+          // oxlint-disable-next-line promise/avoid-new, promise/param-names -- controlled in-flight request
+          // oxlint-disable-next-line promise/avoid-new -- controlled in-flight request
+          new Promise((_resolve, reject) => {
+            fetchStartedResolve?.();
+            signal?.addEventListener(
+              "abort",
+              () => reject(new DOMException("Aborted", "AbortError")),
+              { once: true }
+            );
+          }),
+      },
+      signal: controller.signal,
+    });
+    await fetchStarted;
+    controller.abort();
+    const result = await pending;
+    expect(result.completeness).toEqual({
+      complete: false,
+      reason: "aborted",
+    });
+    expect(result.checkpoint).toEqual({});
+    expect(
+      dependencies.runLifecycleStore.events.map((event) => event.type)
+    ).toEqual(["start", "checkpoint", "complete"]);
+  });
+
+  it("accepts an arbitrary signal reason from an in-flight fetch", async () => {
+    const dependencies = runDependencies("run-fetch-reason");
+    const controller = new AbortController();
+    let fetchStartedResolve: (() => void) | undefined;
+    // oxlint-disable-next-line promise/avoid-new -- deterministic fetch barrier
+    const fetchStarted = new Promise<void>((resolve) => {
+      fetchStartedResolve = resolve;
+    });
+    const pending = runConnector({
+      ...dependencies,
+      bronId: "bron-fetch-reason",
+      bronSlug: "tenderned",
+      connector: {
+        bronId: "bron-fetch-reason",
+        discover: () =>
+          Promise.resolve({
+            checkpoint: { page: 1 },
+            hasMore: true,
+            items: [{ bronReferentie: "TN-1", contentHash: "a" }],
+          }),
+        fetch: (_item, signal) =>
+          // oxlint-disable-next-line promise/avoid-new -- controlled in-flight request
+          new Promise((_resolve, reject) => {
+            fetchStartedResolve?.();
+            signal?.addEventListener("abort", () => reject(signal.reason), {
+              once: true,
+            });
+          }),
+      },
+      signal: controller.signal,
+    });
+    await fetchStarted;
+    const reason = new Error("run budget elapsed");
+    controller.abort(reason);
+    await expect(pending).resolves.toMatchObject({
+      completeness: { complete: false, reason: "aborted" },
+    });
+  });
+
+  it("recognises a typed cancel fault from an aborted run signal", async () => {
+    const dependencies = runDependencies("run-typed-cancel");
+    const controller = new AbortController();
+    let fetchStartedResolve: (() => void) | undefined;
+    // oxlint-disable-next-line promise/avoid-new -- deterministic fetch barrier
+    const fetchStarted = new Promise<void>((resolve) => {
+      fetchStartedResolve = resolve;
+    });
+    const pending = runConnector({
+      ...dependencies,
+      bronId: "bron-typed-cancel",
+      bronSlug: "tenderned",
+      connector: {
+        bronId: "bron-typed-cancel",
+        discover: () =>
+          Promise.resolve({
+            checkpoint: { page: 1 },
+            hasMore: true,
+            items: [{ bronReferentie: "TN-1", contentHash: "a" }],
+          }),
+        fetch: (_item, signal) =>
+          // oxlint-disable-next-line promise/avoid-new -- controlled in-flight request
+          new Promise((_resolve, reject) => {
+            fetchStartedResolve?.();
+            signal?.addEventListener(
+              "abort",
+              () => reject(new CancelFault({ message: "request cancelled" })),
+              { once: true }
+            );
+          }),
+      },
+      signal: controller.signal,
+    });
+    await fetchStarted;
+    controller.abort();
+    await expect(pending).resolves.toMatchObject({
+      completeness: { complete: false, reason: "aborted" },
+    });
+  });
+
+  it("cancels retry backoff through runConnector without a second fetch", async () => {
+    const dependencies = runDependencies("run-fetch-backoff-abort");
+    const controller = new AbortController();
+    let attempts = 0;
+    let waitStartedResolve: (() => void) | undefined;
+    // oxlint-disable-next-line promise/avoid-new -- deterministic retry barrier
+    const waitStarted = new Promise<void>((resolve) => {
+      waitStartedResolve = resolve;
+    });
+    const pending = runConnector({
+      ...dependencies,
+      bronId: "bron-fetch-backoff-abort",
+      bronSlug: "tenderned",
+      connector: {
+        bronId: "bron-fetch-backoff-abort",
+        discover: () =>
+          Promise.resolve({
+            checkpoint: { page: 1 },
+            hasMore: false,
+            items: [{ bronReferentie: "TN-1", contentHash: "a" }],
+          }),
+        fetch: () => {
+          attempts += 1;
+          return Promise.reject(new Error("temporary fetch failure"));
+        },
+      },
+      retryPolicy: {
+        ...retryPolicy,
+        initialDelayMs: 1000,
+        maxAttempts: 3,
+        maxDelayMs: 1000,
+      },
+      signal: controller.signal,
+      wait: (milliseconds, signal) => {
+        waitStartedResolve?.();
+        return sleep(milliseconds, signal);
+      },
+    });
+    await waitStarted;
+    controller.abort();
+    await expect(pending).resolves.toMatchObject({
+      completeness: { complete: false, reason: "aborted" },
+    });
+    expect(attempts).toBe(1);
+  });
+
+  it("propagates ownership loss during abort cleanup without calling fail", async () => {
+    for (const phase of ["checkpoint", "complete"] as const) {
+      const base = runDependencies(`run-abort-owner-${phase}`);
+      const baseStore = base.runLifecycleStore;
+      let failCalls = 0;
+      const runLifecycleStore: RunLifecycleStore = {
+        checkpoint: (key, progress, fenceToken) =>
+          phase === "checkpoint"
+            ? Promise.reject(new RunOwnershipLostError())
+            : baseStore.checkpoint(key, progress, fenceToken),
+        complete: (input) =>
+          phase === "complete"
+            ? Promise.reject(new RunOwnershipLostError())
+            : baseStore.complete(input),
+        fail: (input) => {
+          failCalls += 1;
+          return baseStore.fail(input);
+        },
+        load: (key) => baseStore.load(key),
+        start: (input) => baseStore.start(input),
+      };
+      const controller = new AbortController();
+      let fetchStartedResolve: (() => void) | undefined;
+      // oxlint-disable-next-line promise/avoid-new -- deterministic fetch barrier
+      const fetchStarted = new Promise<void>((resolve) => {
+        fetchStartedResolve = resolve;
+      });
+      const pending = runConnector({
+        ...base,
+        bronId: `bron-abort-owner-${phase}`,
+        bronSlug: "tenderned",
+        connector: {
+          bronId: `bron-abort-owner-${phase}`,
+          discover: () =>
+            Promise.resolve({
+              checkpoint: { page: 1 },
+              hasMore: true,
+              items: [{ bronReferentie: "TN-1", contentHash: "a" }],
+            }),
+          fetch: (_item, signal) =>
+            // oxlint-disable-next-line promise/avoid-new -- controlled in-flight request
+            new Promise((_resolve, reject) => {
+              fetchStartedResolve?.();
+              if (signal?.aborted) {
+                reject(new DOMException("Aborted", "AbortError"));
+                return;
+              }
+              signal?.addEventListener(
+                "abort",
+                () => reject(new DOMException("Aborted", "AbortError")),
+                { once: true }
+              );
+            }),
+        },
+        runLifecycleStore,
+        signal: controller.signal,
+      });
+      // oxlint-disable-next-line no-await-in-loop -- each phase must reach its in-flight abort boundary
+      await fetchStarted;
+      controller.abort();
+      // oxlint-disable-next-line no-await-in-loop -- each phase asserts its own ownership outcome
+      await expect(pending).rejects.toBeInstanceOf(RunOwnershipLostError);
+      expect(failCalls).toBe(0);
+    }
+  });
+
+  it("gracefully closes after an in-flight discovery aborts without retrying", async () => {
+    const dependencies = runDependencies("run-discover-abort");
+    const controller = new AbortController();
+    let discoverCalls = 0;
+    let discoverStartedResolve: (() => void) | undefined;
+    // oxlint-disable-next-line promise/avoid-new -- deterministic discovery barrier
+    const discoverStarted = new Promise<void>((resolve) => {
+      discoverStartedResolve = resolve;
+    });
+    const pending = runConnector({
+      ...dependencies,
+      bronId: "bron-discover-abort",
+      bronSlug: "tenderned",
+      connector: {
+        bronId: "bron-discover-abort",
+        discover: (_checkpoint, signal) =>
+          // oxlint-disable-next-line promise/avoid-new, promise/param-names -- controlled in-flight request
+          new Promise((_resolve, reject) => {
+            discoverCalls += 1;
+            discoverStartedResolve?.();
+            signal?.addEventListener(
+              "abort",
+              () => reject(new DOMException("Aborted", "AbortError")),
+              { once: true }
+            );
+          }),
+        fetch: () => Promise.resolve(null),
+      },
+      retryPolicy: { ...retryPolicy, maxAttempts: 3 },
+      signal: controller.signal,
+    });
+    await discoverStarted;
+    controller.abort();
+    const result = await pending;
+    expect(result.completeness).toEqual({
+      complete: false,
+      reason: "aborted",
+    });
+    expect(discoverCalls).toBe(1);
+    expect(
+      dependencies.runLifecycleStore.events.map((event) => event.type)
+    ).toEqual(["start", "checkpoint", "complete"]);
+  });
+
+  it("keeps a raw-store failure fatal when abort races the storage write", async () => {
+    const controller = new AbortController();
+    let putStartedResolve: (() => void) | undefined;
+    // oxlint-disable-next-line promise/avoid-new -- deterministic storage barrier
+    const putStarted = new Promise<void>((resolve) => {
+      putStartedResolve = resolve;
+    });
+    const objectStore: ObjectStore = {
+      deleteExpired: () => Promise.resolve(0),
+      get: () => Promise.resolve(null),
+      put: () => {
+        putStartedResolve?.();
+        // oxlint-disable-next-line promise/avoid-new, promise/param-names -- controlled in-flight storage write
+        return new Promise((_resolve, reject) => {
+          controller.signal.addEventListener(
+            "abort",
+            () => reject(new Error("storage failed after abort")),
+            { once: true }
+          );
+        });
+      },
+    };
+    const dependencies = {
+      ...runDependencies("run-raw-abort-failure"),
+      objectStore,
+    };
+    const pending = runConnector({
+      ...dependencies,
+      bronId: "bron-raw-abort-failure",
+      bronSlug: "tenderned",
+      connector: createFakeConnector("bron-raw-abort-failure"),
+      signal: controller.signal,
+    });
+    await putStarted;
+    controller.abort();
+    await expect(pending).rejects.toMatchObject({
+      envelope: {
+        code: "RAW_STORE_WRITE_FAILED",
+        phase: "raw-store",
+      },
+    });
+    expect(
+      dependencies.runLifecycleStore.events.map((event) => event.type)
+    ).toContain("fail");
   });
 
   it("ignores a signal that fires after the last page was read in full", async () => {

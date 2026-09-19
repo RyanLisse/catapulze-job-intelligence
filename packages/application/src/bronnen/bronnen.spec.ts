@@ -4,6 +4,7 @@ import {
   InMemoryObservationRecorder,
   InMemoryObjectStore,
   InMemoryRunLifecycleStore,
+  sleep,
 } from "@ji/connectors";
 
 import { executeBronRun as execute } from "./execute";
@@ -418,6 +419,81 @@ describe("bron register", () => {
     await executeOnce("run-policy-3", 60);
 
     expect(waits).toEqual([2000, 1000]);
+  });
+
+  it("does not poison a shared policy-transition reservation when one run aborts", async () => {
+    const record = {
+      ...tendernedBron(),
+      actief: true,
+      bronId: "bron-policy-transition-abort",
+      lastRun: null,
+      status: "ready" as const,
+    };
+    const now = 0;
+    let releasePreviousWait: (() => void) | undefined;
+    let previousWaitStartedResolve: (() => void) | undefined;
+    // oxlint-disable-next-line promise/avoid-new -- deterministic shared-wait barrier
+    const previousWaitStarted = new Promise<void>((resolve) => {
+      previousWaitStartedResolve = resolve;
+    });
+    const wait = (milliseconds: number, signal?: AbortSignal) => {
+      if (milliseconds === 2000 && !releasePreviousWait) {
+        previousWaitStartedResolve?.();
+        // The transition's shared reservation deliberately has no signal.
+        // Individual callers cancel their await around this promise.
+        // oxlint-disable-next-line promise/avoid-new -- deterministic shared-wait barrier
+        return new Promise<void>((resolve) => {
+          releasePreviousWait = resolve;
+        });
+      }
+      return sleep(milliseconds, signal);
+    };
+    const executeOnce = (
+      scrapeRunId: string,
+      rateLimitPerMinute: number,
+      signal?: AbortSignal
+    ) =>
+      execute(
+        persistenceFor({
+          ...record,
+          rateLimitPerMinute,
+        }),
+        {
+          bronId: record.bronId,
+          bronSlug: "tenderned",
+          connector: {
+            bronId: record.bronId,
+            discover: () =>
+              Promise.resolve({ checkpoint: {}, hasMore: false, items: [] }),
+            fetch: () => Promise.resolve(null),
+          },
+          now: () => now,
+          objectStore: new InMemoryObjectStore(),
+          observationRecorder: new InMemoryObservationRecorder(),
+          runLifecycleStore: new InMemoryRunLifecycleStore(),
+          scrapeRunId,
+          signal,
+          wait,
+        }
+      );
+
+    await executeOnce("run-policy-transition-seed", 30);
+    const controller = new AbortController();
+    const aborted = executeOnce(
+      "run-policy-transition-aborted",
+      60,
+      controller.signal
+    );
+    await previousWaitStarted;
+    const concurrent = executeOnce("run-policy-transition-survivor", 60);
+    controller.abort();
+    await expect(aborted).resolves.toMatchObject({
+      completeness: { complete: false, reason: "aborted" },
+    });
+    releasePreviousWait?.();
+    await expect(concurrent).resolves.toMatchObject({
+      completeness: { complete: true },
+    });
   });
 
   it("isolates limiter windows across concurrent runs for distinct bronnen", async () => {

@@ -48,9 +48,10 @@ export const createJsonLdConnector = (
   return {
     bronId: options.bronId,
     discover: async (
-      _checkpoint: ConnectorCheckpoint | null
+      _checkpoint: ConnectorCheckpoint | null,
+      signal?: AbortSignal
     ): Promise<ConnectorDiscoverResult> => {
-      const urls = await client.fetchListing();
+      const urls = await client.fetchListing(signal);
       const items: DiscoverItem[] = await Promise.all(
         urls.map(async (entry) => ({
           bronReferentie: urlSlugBronReferentie(entry.url),
@@ -64,7 +65,7 @@ export const createJsonLdConnector = (
         items,
       };
     },
-    fetch: async (item) => {
+    fetch: async (item, signal) => {
       // SAFETY: discover() attaches JsonLdDiscoveryUrl rows as listingPayload.
       const entry = item.listingPayload as { url?: string } | undefined;
       if (!entry?.url) {
@@ -88,7 +89,7 @@ export const createJsonLdConnector = (
 
       let detail;
       try {
-        detail = await client.fetchDetail(entry.url);
+        detail = await client.fetchDetail(entry.url, signal);
       } catch (error) {
         // A URL in the source's own sitemap can already be gone: reject that
         // item instead of failing the whole run (CTP-608: one dead

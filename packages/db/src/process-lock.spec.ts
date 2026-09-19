@@ -3,7 +3,11 @@ import { beforeAll, describe, expect, it } from "bun:test";
 import { PROJECTOR_DATABASE_URL_DIRECT_MESSAGE } from "@ji/env/projector-database-url";
 import postgres from "postgres";
 
-import { acquireAdvisoryLock, waitForAdvisoryLock } from "./process-lock";
+import {
+  acquireAdvisoryLock,
+  runBoundedLockQuery,
+  waitForAdvisoryLock,
+} from "./process-lock";
 
 const testDatabaseUrl =
   process.env.DATABASE_TEST_URL ??
@@ -24,6 +28,40 @@ const isPostgresAvailable = async (): Promise<boolean> => {
   }
 };
 
+describe("runBoundedLockQuery", () => {
+  it("bounds teardown without leaving a late query rejection unobserved", async () => {
+    const query = Promise.withResolvers<never>();
+    const timeoutError = new Error("probe timed out");
+    let teardownStarted = false;
+    const pending = runBoundedLockQuery(query.promise, 5, timeoutError, () => {
+      teardownStarted = true;
+    });
+
+    await expect(pending).rejects.toBe(timeoutError);
+    expect(teardownStarted).toBe(true);
+    query.reject(new Error("cancelled after teardown"));
+  });
+
+  it("propagates a query cancellation rejection before the deadline", async () => {
+    const query = Promise.withResolvers<never>();
+    const cancellation = new Error("cancelled");
+    let timedOut = false;
+    const pending = runBoundedLockQuery(
+      query.promise,
+      1000,
+      cancellation,
+      () => {
+        timedOut = true;
+      }
+    );
+
+    query.reject(cancellation);
+
+    await expect(pending).rejects.toBe(cancellation);
+    expect(timedOut).toBe(false);
+  });
+});
+
 describe("acquireAdvisoryLock (RJC-387)", () => {
   let postgresAvailable = false;
 
@@ -42,6 +80,50 @@ describe("acquireAdvisoryLock (RJC-387)", () => {
         "PROJECTOR_DATABASE_URL"
       )
     ).rejects.toThrow(PROJECTOR_DATABASE_URL_DIRECT_MESSAGE);
+  });
+
+  it("poisons a timed-out probe and bounds the actual handle release", async () => {
+    const probe = Promise.withResolvers<never>();
+    let queryCount = 0;
+    let endCount = 0;
+    // SAFETY: this fake implements only the tagged query and bounded end
+    // methods used by acquireAdvisoryLock; the probe remains half-open until
+    // the test rejects it after teardown has been requested.
+    const fakeSql = Object.assign(
+      () => {
+        queryCount += 1;
+        return queryCount === 1
+          ? Promise.resolve([{ locked: true }])
+          : probe.promise;
+      },
+      {
+        end: () => {
+          endCount += 1;
+          return Promise.resolve();
+        },
+      }
+    ) as never;
+    // SAFETY: the injected factory returns the tagged fake above and is used
+    // only to exercise timeout teardown without opening a socket.
+    const fakePostgres = (() => fakeSql) as never;
+    const handle = await acquireAdvisoryLock(
+      "postgresql://test@127.0.0.1:5432/test",
+      900_000_099,
+      "PROJECTOR_DATABASE_URL",
+      fakePostgres
+    );
+
+    await expect(handle.reassert({ timeoutMs: 5 })).rejects.toThrow(
+      "timed out"
+    );
+    expect(queryCount).toBe(2);
+    await expect(handle.reassert({ timeoutMs: 5 })).rejects.toThrow(
+      "timed out"
+    );
+    expect(queryCount).toBe(2);
+    await handle.release();
+    expect(endCount).toBe(1);
+    probe.reject(new Error("closed after bounded teardown"));
   });
 
   it("refuses a second holder while the first holds the lock, then allows it after release", async () => {

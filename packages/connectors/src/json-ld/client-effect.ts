@@ -354,13 +354,19 @@ export const fetchDetailEffect = (
  */
 export const createJsonLdEffectClient = (
   options: JsonLdEffectClientOptions
-): JsonLdClient => ({
-  fetchDetail: (url) =>
-    runReadIoPromise(fetchDetailEffect(options, url), {
-      signal: options.signal,
-    }),
-  fetchListing: () =>
-    runReadIoPromise(fetchListingEffect(options), {
-      signal: options.signal,
-    }),
-});
+): JsonLdClient => {
+  const requestSignal = (signal?: AbortSignal): AbortSignal | undefined =>
+    signal && options.signal
+      ? AbortSignal.any([signal, options.signal])
+      : (signal ?? options.signal);
+  return {
+    fetchDetail: (url, signal) =>
+      runReadIoPromise(fetchDetailEffect(options, url), {
+        signal: requestSignal(signal),
+      }),
+    fetchListing: (signal) =>
+      runReadIoPromise(fetchListingEffect(options), {
+        signal: requestSignal(signal),
+      }),
+  };
+};
