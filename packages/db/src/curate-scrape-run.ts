@@ -90,11 +90,13 @@ const CURATION_FAILED_STATUS = "curation_failed";
 
 /**
  * Statuses a later same-content sibling may carry while dominating an earlier
- * `unchanged` row. Active and ordering-blocked siblings still apply on their
- * own; applied siblings already proved the content is recorded. Everything
- * else is excluded: `curation_failed` and the missing-raw deferrals are
- * operator-revivable, and `superseded` or `quarantined` rows are terminal
- * without having applied, so none of them can stand in for the earlier row.
+ * `unchanged` row. An applied sibling proves the refresh already landed and
+ * allows an immediate mark; an active or ordering-blocked sibling can only
+ * suppress the earlier row from this pass's candidacy, because it may still
+ * fail or defer when attempted. Everything else is excluded: `curation_failed`
+ * and the missing-raw deferrals are operator-revivable, and `superseded` or
+ * `quarantined` rows are terminal without having applied, so none of them can
+ * stand in for the earlier row.
  */
 const DOMINATING_STATUSES = [
   ...CANDIDATE_STATUSES,
@@ -538,6 +540,15 @@ export const candidateSourceRecordIds = async (
  * `laatstGezienOp` update waits for the later observation, which reports the
  * truth more accurately anyway.
  *
+ * Only applied dominators are marked here. A will-apply dominator instead
+ * suppresses its predecessors from this pass's candidacy -- they consume no
+ * attempt slots, but they stay recoverable until a dominator actually
+ * applies, so a dominator that then fails, defers, or stays blocked never
+ * strands the earlier refresh. The function runs a second time after
+ * candidate processing to mark rows whose dominator applied during the
+ * pass, and returns the suppression map so `hasEarlierRecoverable` can let
+ * a dominator past its own suppressed predecessors.
+ *
  * This is what made the Bij Oranje backlog a treadmill (CTP-621): ~85% of its
  * recoverable rows were dominated `unchanged` re-observations that the
  * bounded scan re-read every pass while real `new`/`changed` work starved
@@ -588,12 +599,13 @@ const readStoredRaw = async (
 /**
  * A dominated `unchanged` row paired with one candidate dominator. Both the
  * runtime sweep and the operator repair tool produce this shape so the
- * standing-dominator proof below is applied identically in each.
+ * dominator classification below is applied identically in each.
  */
 export interface DominatedPair {
   dominatorBronId: string;
   dominatorBronReferentie: string;
   dominatorContentHash: string;
+  dominatorId: string;
   dominatorPayload: unknown;
   dominatorRunBronId: string;
   dominatorScrapeRunId: string;
@@ -603,31 +615,46 @@ export interface DominatedPair {
   id: string;
 }
 
+export interface ResolvedDominatedPairs {
+  /**
+   * Rows dominated by an already-applied sibling. The refresh provably
+   * landed, so these may be marked `superseded` immediately.
+   */
+  appliedDominatedIds: Set<string>;
+  /**
+   * Rows dominated by a sibling that has not applied yet, mapped to the
+   * dominator ids that stand for it. These are suppressed from candidacy
+   * for the pass so they do not consume attempt slots, but they are NOT
+   * marked: a dominator that subsequently fails, defers, or stays blocked
+   * leaves the row recoverable for the next pass.
+   */
+  willApplyDominatedBy: Map<string, Set<string>>;
+}
+
 /**
- * The dominated ids that have at least one standing dominator.
+ * Splits dominated ids by dominator proof strength.
  *
- * A dominator stands when it is provably able to perform the refresh the
- * earlier row would have: its payload passes the full contract check
+ * A dominator stands when its payload passes the full contract check
  * candidate selection applies, and it either already applied (its raw was
  * consumed) or still will apply because its raw object is present. A
  * will-apply sibling whose raw is missing would defer to
- * `deferred_missing_raw` the first time it is attempted, so superseding the
- * earlier row behind it would lose the `laatstGezienOp` refresh entirely --
- * exactly the lifecycle history this sweep exists to preserve. Raw reads
- * dedupe per `rawPayloadRef` and are capped by DOMINATED_RAW_CHECK_LIMIT;
- * an unreachable store aborts the pass rather than silently disqualifying,
- * matching candidate semantics.
+ * `deferred_missing_raw` the first time it is attempted, so it cannot even
+ * suppress the earlier row. Raw reads dedupe per `rawPayloadRef` and are
+ * capped by DOMINATED_RAW_CHECK_LIMIT; an unreachable store aborts the pass
+ * rather than silently disqualifying, matching candidate semantics. Without
+ * an object store only the applied half is resolved.
  */
-export const resolveDominatedObservationIds = async (input: {
-  objectStore: ObjectStore;
+export const resolveDominatedPairs = async (input: {
+  objectStore?: ObjectStore;
   pairs: readonly DominatedPair[];
-}): Promise<Set<string>> => {
-  const dominatedIds = new Set<string>();
+}): Promise<ResolvedDominatedPairs> => {
+  const appliedDominatedIds = new Set<string>();
+  const willApplyDominatedBy = new Map<string, Set<string>>();
   const rawAvailability = new Map<string, boolean>();
   let rawChecks = 0;
   for (const pair of input.pairs) {
     if (
-      dominatedIds.has(pair.id) ||
+      appliedDominatedIds.has(pair.id) ||
       !isValidCandidatePayload({
         bronId: pair.dominatorBronId,
         bronReferentie: pair.dominatorBronReferentie,
@@ -642,7 +669,11 @@ export const resolveDominatedObservationIds = async (input: {
       continue;
     }
     if (APPLIED_STATUSES.has(pair.dominatorStatus)) {
-      dominatedIds.add(pair.id);
+      appliedDominatedIds.add(pair.id);
+      willApplyDominatedBy.delete(pair.id);
+      continue;
+    }
+    if (!input.objectStore) {
       continue;
     }
     // SAFETY: isValidCandidatePayload validated every field consumed here.
@@ -664,14 +695,17 @@ export const resolveDominatedObservationIds = async (input: {
         continue;
       }
     }
-    dominatedIds.add(pair.id);
+    const dominators = willApplyDominatedBy.get(pair.id) ?? new Set<string>();
+    dominators.add(pair.dominatorId);
+    willApplyDominatedBy.set(pair.id, dominators);
   }
-  return dominatedIds;
+  return { appliedDominatedIds, willApplyDominatedBy };
 };
 
 const markDominatedUnchangedObservations = async (
-  input: CurateScrapeRunInput
-): Promise<number> => {
+  input: CurateScrapeRunInput,
+  includeSuppression: boolean
+): Promise<{ marked: number; suppressedBy: Map<string, Set<string>> }> => {
   const dominatingObservation = alias(
     aanvraagObservation,
     "dominating_observation"
@@ -682,6 +716,7 @@ const markDominatedUnchangedObservations = async (
       dominatorBronId: dominatingObservation.bronId,
       dominatorBronReferentie: sourceRecord.bronReferentie,
       dominatorContentHash: dominatingObservation.contentHash,
+      dominatorId: dominatingObservation.id,
       dominatorPayload: dominatingObservation.payload,
       dominatorRunBronId: dominatingRun.bronId,
       dominatorScrapeRunId: dominatingObservation.scrapeRunId,
@@ -739,29 +774,35 @@ const markDominatedUnchangedObservations = async (
       )
     )
     .limit(DOMINATED_SWEEP_LIMIT);
-  const dominatedIds = await resolveDominatedObservationIds({
-    objectStore: input.objectStore,
+  const resolved = await resolveDominatedPairs({
+    // The post-pass rerun only marks freshly applied dominators, so it skips
+    // the will-apply half and its raw reads entirely.
+    objectStore: includeSuppression ? input.objectStore : undefined,
     pairs: dominatedPairs,
   });
-  if (dominatedIds.size === 0) {
-    return 0;
+  for (const id of resolved.appliedDominatedIds) {
+    resolved.willApplyDominatedBy.delete(id);
+  }
+  if (resolved.appliedDominatedIds.size === 0) {
+    return { marked: 0, suppressedBy: resolved.willApplyDominatedBy };
   }
   const marked = await input.database
     .update(aanvraagObservation)
     .set({ status: "superseded" })
     .where(
       and(
-        inArray(aanvraagObservation.id, [...dominatedIds]),
+        inArray(aanvraagObservation.id, [...resolved.appliedDominatedIds]),
         inArray(aanvraagObservation.status, [...RECOVERABLE_STATUSES])
       )
     )
     .returning({ id: aanvraagObservation.id });
-  return marked.length;
+  return { marked: marked.length, suppressedBy: resolved.willApplyDominatedBy };
 };
 
 const loadCandidates = async (
   input: CurateScrapeRunInput,
-  attemptLimit: number
+  attemptLimit: number,
+  suppressedBy: Map<string, Set<string>>
 ): Promise<{
   candidates: RecoveryCandidate[];
   invalidRows: { id: string; status: string }[];
@@ -801,7 +842,7 @@ const loadCandidates = async (
   const invalidRows: { id: string; status: string }[] = [];
   const seen = new Set<string>();
   for (const row of rows) {
-    if (seen.has(row.id)) {
+    if (seen.has(row.id) || suppressedBy.has(row.id)) {
       continue;
     }
     seen.add(row.id);
@@ -1111,7 +1152,8 @@ const appliedHighWater = async (
 
 const hasEarlierRecoverable = async (
   database: RecoveryDatabase,
-  candidate: RecoveryCandidate
+  candidate: RecoveryCandidate,
+  suppressedBy: Map<string, Set<string>>
 ): Promise<boolean> => {
   const rows = await database
     .select({
@@ -1131,6 +1173,12 @@ const hasEarlierRecoverable = async (
   const candidatePointer = toCandidatePointer(candidate);
   return rows.some((row) => {
     if (row.id === candidate.id) {
+      return false;
+    }
+    // A row suppressed behind this candidate must not block it: the
+    // dominator is the row that will perform the refresh its suppressed
+    // predecessors are waiting on.
+    if (suppressedBy.get(row.id)?.has(candidate.id)) {
       return false;
     }
     const parsed = OBSERVATION_SCHEMA.safeParse(row.payload);
@@ -1172,7 +1220,8 @@ const markObservation = async (
 
 const processCandidate = async (
   input: CurateScrapeRunInput,
-  candidate: RecoveryCandidate
+  candidate: RecoveryCandidate,
+  suppressedBy: Map<string, Set<string>>
 ): Promise<{ disposition: CandidateDisposition; madeProgress: boolean }> => {
   throwIfAborted(input.signal);
   const preliminaryCommitted =
@@ -1284,7 +1333,7 @@ const processCandidate = async (
       throwIfAborted(input.signal);
       return "blocked_ordering" as const;
     }
-    const hasEarlier = await hasEarlierRecoverable(tx, candidate);
+    const hasEarlier = await hasEarlierRecoverable(tx, candidate, suppressedBy);
     throwIfAborted(input.signal);
     if (hasEarlier) {
       await markObservation(tx, candidate.id, blockedStatus(locked.status));
@@ -1447,9 +1496,15 @@ export const curateScrapeRun = async (
     throw new RangeError("attemptLimit must be an integer between 1 and 500");
   }
   // Runs before candidate selection so dominated rows can neither rank their
-  // identity nor consume an attempt slot this pass.
-  const dominatedMarked = await markDominatedUnchangedObservations(input);
-  const loaded = await loadCandidates(input, attemptLimit);
+  // identity nor consume an attempt slot this pass. Rows dominated only by a
+  // will-apply sibling are suppressed, not marked: they resume as ordinary
+  // candidates next pass if the dominator does not apply.
+  const dominated = await markDominatedUnchangedObservations(input, true);
+  const loaded = await loadCandidates(
+    input,
+    attemptLimit,
+    dominated.suppressedBy
+  );
   const candidates = fairOldestFirst(loaded.candidates, attemptLimit);
   // Malformed review rows use only capacity left after valid work, so a large
   // historical review queue cannot starve current curation.
@@ -1466,7 +1521,7 @@ export const curateScrapeRun = async (
     pending: 0,
     quarantined: 0,
     remaining: 0,
-    superseded: dominatedMarked,
+    superseded: dominated.marked,
     unchanged: 0,
   };
   for (const invalidRow of invalidRows) {
@@ -1493,7 +1548,11 @@ export const curateScrapeRun = async (
     let madeProgress = false;
     try {
       // oxlint-disable-next-line no-await-in-loop -- recovery is ordered per identity
-      const processed = await processCandidate(input, candidate);
+      const processed = await processCandidate(
+        input,
+        candidate,
+        dominated.suppressedBy
+      );
       recordDisposition(
         result,
         blockedIdentities,
@@ -1544,6 +1603,11 @@ export const curateScrapeRun = async (
       await input.onProgress?.();
     }
   }
+  // Dominators that applied during this pass now prove their suppressed
+  // predecessors redundant; dominators that failed, deferred, or stayed
+  // blocked mark nothing, so those rows resume next pass.
+  const lateDominated = await markDominatedUnchangedObservations(input, false);
+  result.superseded += lateDominated.marked;
   const [backlogRows, missingRawRows] = await Promise.all([
     input.database
       .select({ value: count() })

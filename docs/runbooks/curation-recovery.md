@@ -48,19 +48,23 @@ An `unchanged` observation is superseded only when it is provably a no-op
 refresh: the canonical record is already `active` on the same `content_hash`,
 and a strictly later succeeded run holds an observation of the same source
 record with that hash whose payload passes the same full
-observation-contract check candidate selection applies and which either
-already applied or still will apply because its raw object is readable
-(applied, or active/ordering-blocked with a present raw object). A sibling
-whose raw is missing would only defer to `deferred_missing_raw`, so it can
-never stand in for the earlier row's refresh. Rows that could
-still write a lifecycle transition — the canonical
+observation-contract check candidate selection applies and which already
+applied. A sibling that has not applied yet — awaiting, ordering-blocked,
+or pending — proves nothing: it may still fail or defer when attempted.
+Such a will-apply sibling (with a readable raw object) only suppresses its
+predecessors from that pass's candidacy, so they consume no attempt slots
+while staying recoverable; the pass marks them `superseded` in a second
+bounded sweep after processing, solely when a dominator actually applied.
+A dominator that fails, defers on missing raw, or stays blocked marks
+nothing, so the suppressed rows resume as ordinary candidates next pass.
+Rows that could still write a lifecycle transition — the canonical
 record is `stale` or `closed`, or the hash differs — are never dominated,
 and neither are rows whose only later siblings sit on `curation_failed`, a
 missing-raw deferral, `quarantined`, or `superseded`, because those siblings
-either need an operator or cannot stand in for the earlier row. Each pass
-marks dominated rows `superseded` in one bounded statement (up to 5,000 per
-pass) before selecting candidates. The row stays in the table for history;
-it is not deleted and no canonical data is rewritten.
+either need an operator or cannot stand in for the earlier row. Each sweep
+marks dominated rows `superseded` in one bounded statement (up to 5,000
+rows) before candidate selection and again after it. The row stays in the
+table for history; it is not deleted and no canonical data is rewritten.
 
 Each invocation attempts at most 100 observations by default (configurable by
 the internal caller from 1 through 500). It returns a bounded attempted-ID list,

@@ -14,10 +14,12 @@
  * the canonical record is already `active` on the same `content_hash`, and a
  * later succeeded run holds an observation of the same source record with
  * that hash whose payload passes the same full contract check candidate
- * selection applies and which either already applied or still will apply
- * because its raw object is readable. Raw availability uses the same
- * `RAW_S3_*`/`RAW_OBJECT_STORE_PATH` environment the worker resolves through
- * `createRawObjectStore`. Rows that could still write a lifecycle
+ * selection applies and which already applied. A sibling that has not
+ * applied yet -- awaiting, ordering-blocked, or pending -- proves nothing:
+ * it may still fail or defer when attempted, so the runtime only lets it
+ * suppress its predecessors inside one pass and marks them solely after the
+ * dominator actually applies. This tool marks the same provable subset.
+ * Rows that could still write a lifecycle
  * transition, and rows dominated only by a failed, deferred, quarantined, or
  * already-superseded sibling, are never touched. The dominated row is marked
  * `superseded` and kept in the table for history. Nothing else is mutated:
@@ -29,9 +31,7 @@
  * attach to the release record.
  */
 import { CONNECTOR_OBSERVATION_CONTRACT_VERSION } from "@ji/connectors";
-import type { ObjectStore } from "@ji/connectors";
-import { createRawObjectStore } from "@ji/connectors/s3-object-client";
-import { resolveDominatedObservationIds } from "@ji/db/curate-scrape-run";
+import { resolveDominatedPairs } from "@ji/db/curate-scrape-run";
 import type { DominatedPair } from "@ji/db/curate-scrape-run";
 import postgres from "postgres";
 
@@ -153,13 +153,13 @@ interface ApplyReceipt {
 
 /**
  * Recoverable `unchanged` rows with at least one candidate dominator, paired
- * with that dominator's row so the shared standing-dominator proof in
- * `resolveDominatedObservationIds` -- full contract check plus applied
- * status or a readable raw object -- can qualify each dominated id.
+ * with that dominator's row so the shared `resolveDominatedPairs` contract
+ * check applies. The tool marks only the applied half: a dominator that has
+ * not applied yet can suppress its predecessors inside a curation pass, but
+ * only an applied dominator proves the earlier row's refresh already landed.
  */
 const findDominatedObservationIds = async (
   sql: postgres.Sql | postgres.TransactionSql,
-  objectStore: ObjectStore,
   bronId: string,
   limit: number
 ): Promise<string[]> => {
@@ -168,6 +168,7 @@ const findDominatedObservationIds = async (
            dom.bron_id::text AS "dominatorBronId",
            sr.bron_referentie AS "dominatorBronReferentie",
            dom.content_hash AS "dominatorContentHash",
+           dom.id::text AS "dominatorId",
            dom.payload AS "dominatorPayload",
            dr.bron_id::text AS "dominatorRunBronId",
            dom.scrape_run_id::text AS "dominatorScrapeRunId",
@@ -197,43 +198,23 @@ const findDominatedObservationIds = async (
       AND o.status = ANY(${[...RECOVERABLE_STATUSES]})
     LIMIT ${limit}
   `;
-  const dominatedIds = await resolveDominatedObservationIds({
-    objectStore,
-    pairs,
-  });
-  return [...dominatedIds];
+  const resolved = await resolveDominatedPairs({ pairs });
+  return [...resolved.appliedDominatedIds];
 };
 
 const dominatedCount = async (
   sql: postgres.Sql | postgres.TransactionSql,
-  objectStore: ObjectStore,
   bronId: string
 ): Promise<number> => {
-  const ids = await findDominatedObservationIds(
-    sql,
-    objectStore,
-    bronId,
-    REPORT_SCAN_LIMIT
-  );
+  const ids = await findDominatedObservationIds(sql, bronId, REPORT_SCAN_LIMIT);
   return ids.length;
 };
-
-const rawObjectStoreEnv = () =>
-  createRawObjectStore({
-    RAW_OBJECT_STORE_PATH: process.env.RAW_OBJECT_STORE_PATH,
-    RAW_S3_ACCESS_KEY_ID: process.env.RAW_S3_ACCESS_KEY_ID,
-    RAW_S3_BUCKET: process.env.RAW_S3_BUCKET,
-    RAW_S3_ENDPOINT: process.env.RAW_S3_ENDPOINT,
-    RAW_S3_REGION: process.env.RAW_S3_REGION,
-    RAW_S3_SECRET_ACCESS_KEY: process.env.RAW_S3_SECRET_ACCESS_KEY,
-  }).store;
 
 const runReport = async (bronId: string): Promise<RepairReport> => {
   const databaseUrl = process.env.DATABASE_URL?.trim();
   if (!databaseUrl) {
     throw new Error("DATABASE_URL is required");
   }
-  const objectStore = rawObjectStoreEnv();
   const sql = postgres(databaseUrl, {
     connect_timeout: 10,
     connection: {
@@ -270,7 +251,7 @@ const runReport = async (bronId: string): Promise<RepairReport> => {
             ${CONNECTOR_OBSERVATION_CONTRACT_VERSION}
         )
     `;
-    const dominated = await dominatedCount(sql, objectStore, bronId);
+    const dominated = await dominatedCount(sql, bronId);
 
     const byStatus = new Map(
       statusRows.map((row) => [row.status, Number(row.count)] as const)
@@ -323,7 +304,6 @@ const runApply = async (input: {
   if (!databaseUrl) {
     throw new Error("DATABASE_URL is required");
   }
-  const objectStore = rawObjectStoreEnv();
   const sql = postgres(databaseUrl, {
     connect_timeout: 10,
     connection: {
@@ -339,7 +319,6 @@ const runApply = async (input: {
     await sql.begin(async (tx) => {
       const ids = await findDominatedObservationIds(
         tx,
-        objectStore,
         input.bronId,
         input.limit
       );
@@ -357,11 +336,7 @@ const runApply = async (input: {
       `;
       applied = marked.length;
     });
-    const remainingDominated = await dominatedCount(
-      sql,
-      objectStore,
-      input.bronId
-    );
+    const remainingDominated = await dominatedCount(sql, input.bronId);
     return {
       applied,
       bronId: input.bronId,

@@ -2349,12 +2349,30 @@ describe("historical curation recovery (RJC-433)", () => {
       objectStore,
       scrapeRunId: latestRunId,
     });
+    // The dominated rows only yield to their dominator: the changed rows
+    // still see them as earlier recoverable work, so they wait one pass
+    // while the dominators apply and the post-pass sweep marks the dups.
     expect(result).toMatchObject({
+      blockedOrdering: 10,
+      curated: 0,
+      remaining: 10,
+      superseded: 20,
+      unchanged: 10,
+    });
+
+    const second = await curateScrapeRun({
+      bronId: BRON_ID,
+      bronSlug: BRON_SLUG,
+      database,
+      objectStore,
+      scrapeRunId: latestRunId,
+    });
+    expect(second).toMatchObject({
       blockedOrdering: 0,
       curated: 10,
       remaining: 0,
-      superseded: 20,
-      unchanged: 10,
+      superseded: 0,
+      unchanged: 0,
     });
   });
 
@@ -2809,5 +2827,102 @@ describe("historical curation recovery (RJC-433)", () => {
     );
     expect(statusById.get(dominatedId)).toBe("unchanged");
     expect(statusById.get(dominatorId)).toBe("deferred_missing_raw");
+  });
+
+  it("re-queues a suppressed row when its dominator fails during processing", async () => {
+    if (!available || !database) {
+      expect(available).toBe(false);
+      return;
+    }
+    const objectStore = new InMemoryObjectStore();
+    const firstRunId = await seedRun(database, 0);
+    const secondRunId = await seedRun(database, 10);
+    const bronReferentie = `rjc-621-failing-dominator-${crypto.randomUUID()}`;
+    const sourceRecordId = await seedSourceRecord(
+      database,
+      bronReferentie,
+      firstRunId
+    );
+    await seedCommitted({
+      bronReferentie,
+      contentHash: "failing-dominator-hash",
+      database,
+      minute: 0,
+      scrapeRunId: firstRunId,
+      title: "Failing dominator",
+    });
+    const dominatedId = await seedObservation({
+      bronReferentie,
+      contentHash: "failing-dominator-hash",
+      database,
+      minute: 1,
+      objectStore,
+      outcome: "unchanged",
+      rawPayloadRef: `raw/opdrachtoverheid/rjc-621/dominated-${crypto.randomUUID()}.json`,
+      scrapeRunId: firstRunId,
+      sourceRecordId,
+      title: "Failing dominator",
+    });
+    // The dominator reads a raw object, so it suppresses the earlier row
+    // this pass, but its body cannot be normalised: superseding eagerly
+    // would strand the earlier refresh behind a dominator that parks.
+    const dominatorRef = `raw/opdrachtoverheid/rjc-621/failing-${crypto.randomUUID()}.json`;
+    await objectStore.put({
+      body: new TextEncoder().encode("{not-json"),
+      contentType: "json",
+      expiresAt: atMinute(10_000),
+      path: dominatorRef,
+    });
+    const dominatorId = await seedObservation({
+      bronReferentie,
+      contentHash: "failing-dominator-hash",
+      database,
+      minute: 11,
+      outcome: "unchanged",
+      rawPayloadRef: dominatorRef,
+      scrapeRunId: secondRunId,
+      sourceRecordId,
+      title: "Failing dominator",
+    });
+
+    const input = {
+      bronId: BRON_ID,
+      bronSlug: BRON_SLUG,
+      database,
+      objectStore,
+      scrapeRunId: secondRunId,
+    };
+    const first = await curateScrapeRun(input);
+    expect(first).toMatchObject({
+      failed: 1,
+      remaining: 1,
+      superseded: 0,
+      unchanged: 0,
+    });
+
+    const statuses = await database
+      .select({
+        id: aanvraagObservation.id,
+        status: aanvraagObservation.status,
+      })
+      .from(aanvraagObservation)
+      .where(inArray(aanvraagObservation.id, [dominatedId, dominatorId]));
+    const statusById = new Map(
+      statuses.map((row) => [row.id, row.status] as const)
+    );
+    expect(statusById.get(dominatedId)).toBe("awaiting_curation");
+    expect(statusById.get(dominatorId)).toBe("curation_failed");
+
+    const second = await curateScrapeRun(input);
+    expect(second).toMatchObject({
+      remaining: 0,
+      superseded: 0,
+      unchanged: 1,
+    });
+    const [dominated] = await database
+      .select({ status: aanvraagObservation.status })
+      .from(aanvraagObservation)
+      .where(eq(aanvraagObservation.id, dominatedId));
+    expect(dominated?.status).toBe("unchanged");
   });
 });
