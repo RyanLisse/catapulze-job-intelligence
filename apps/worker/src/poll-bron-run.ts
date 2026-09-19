@@ -49,6 +49,7 @@ import {
   scrapeRun,
 } from "@ji/db";
 import type { BronRuntimeDatabase } from "@ji/db";
+import type { BronHealthDatabase } from "@ji/db/bron-health-stores";
 import { curateScrapeRun } from "@ji/db/curate-scrape-run";
 import { describeCauseChain, errorNameOf } from "@ji/db/error-cause-chain";
 import { PostgresCurateStore } from "@ji/db/postgres-curate-store";
@@ -129,6 +130,13 @@ export interface PollBronRuntime {
   objectStore: ObjectStore;
   observationRecorder: ObservationRecorder;
   runLifecycleStore: RunLifecycleStore;
+  withSourceHealthTransaction: <T>(
+    runOperation: (stores: {
+      alerts: AlertStore;
+      bronHealth: BronHealthStore;
+      database: BronHealthDatabase;
+    }) => Promise<T>
+  ) => Promise<T>;
 }
 
 export const createPollBronRuntime = (
@@ -195,6 +203,14 @@ export const createPollBronRuntime = (
     objectStore,
     observationRecorder: client.observationRecorder,
     runLifecycleStore: client.runLifecycleStore,
+    withSourceHealthTransaction: (runOperation) =>
+      client.database.transaction((transaction) =>
+        runOperation({
+          alerts: new PostgresAlertStore(transaction),
+          bronHealth: new PostgresBronHealthStore(transaction),
+          database: transaction,
+        })
+      ),
   };
 };
 
@@ -387,38 +403,65 @@ const loadRunBaseline = async (
   }
 };
 
+const upsertBronHealthForRun = async (
+  bronHealth: BronHealthStore,
+  run: Pick<PollBronRunResult, "bronId" | "fenceToken" | "scrapeRunId">,
+  record: Parameters<BronHealthStore["upsert"]>[0]
+): Promise<void> => {
+  if (!bronHealth.upsertForRun) {
+    throw new Error("Run-owned source health writes are unavailable");
+  }
+  const updated = await bronHealth.upsertForRun({
+    bronId: run.bronId,
+    fenceToken: run.fenceToken,
+    record,
+    runId: run.scrapeRunId,
+  });
+  if (!updated) {
+    throw new RunOwnershipLostError();
+  }
+};
+
 const recordSucceededRun = async (
+  runtime: PollBronRuntime,
   bronId: BronId,
   now: Date,
-  alerts: AlertStore,
-  bronHealth: BronHealthStore,
   metrics: ConnectorRunMetrics,
-  context: Pick<PollBronRunResult, "bronSlug" | "scrapeRunId">
+  context: Pick<
+    PollBronRunResult,
+    "bronId" | "bronSlug" | "fenceToken" | "scrapeRunId"
+  >
 ): Promise<void> => {
-  const existing = await bronHealth.getByBronId(bronId);
-  const openAlert = await alerts.findOpenByDedupeKey(
-    buildSilenceDedupeKey(bronId)
-  );
-  const recovered = openAlert !== null && metrics.new + metrics.changed > 0;
-  if (recovered) {
-    await alerts.ack(openAlert.id, SILENCE_AUTO_RESOLVE_ACTOR);
-    process.stderr.write(
-      `${JSON.stringify({
-        alertId: openAlert.id,
+  await runtime.withSourceHealthTransaction(
+    async ({ alerts: transactionAlerts, bronHealth: transactionHealth }) => {
+      const existing = await transactionHealth.getByBronId(bronId);
+      const openAlert = await transactionAlerts.findOpenByDedupeKey(
+        buildSilenceDedupeKey(bronId)
+      );
+      const recovered = openAlert !== null && metrics.new + metrics.changed > 0;
+
+      await upsertBronHealthForRun(transactionHealth, context, {
         bronId,
-        bronSlug: context.bronSlug,
-        event: "silence_alert_auto_resolved",
-        scrapeRunId: context.scrapeRunId,
-      })}\n`
-    );
-  }
-  await bronHealth.upsert({
-    bronId,
-    circuitStatus: existing?.circuitStatus ?? "closed",
-    lastRunAt: now,
-    lastRunStatus: "succeeded",
-    silenceAlertOpen: openAlert !== null && !recovered,
-  });
+        circuitStatus: existing?.circuitStatus ?? "closed",
+        lastRunAt: now,
+        lastRunStatus: "succeeded",
+        silenceAlertOpen: openAlert !== null && !recovered,
+      });
+
+      if (recovered) {
+        await transactionAlerts.ack(openAlert.id, SILENCE_AUTO_RESOLVE_ACTOR);
+        process.stderr.write(
+          `${JSON.stringify({
+            alertId: openAlert.id,
+            bronId,
+            bronSlug: context.bronSlug,
+            event: "silence_alert_auto_resolved",
+            scrapeRunId: context.scrapeRunId,
+          })}\n`
+        );
+      }
+    }
+  );
 };
 
 const resolveBronNaam = async (
@@ -462,41 +505,39 @@ const writeDiscoveryFloorAlert = async (
     evidence: DiscoveryFloorEvidence;
   }
 ): Promise<void> => {
-  const alerts = runtime.alerts ?? new PostgresAlertStore(runtime.database);
-  const bronHealth =
-    runtime.bronHealth ?? new PostgresBronHealthStore(runtime.database);
   const dedupeKey = buildDiscoveryFloorDedupeKey(pollResult.bronId);
 
-  const open = await alerts.findOpenByDedupeKey(dedupeKey);
-  if (!open) {
-    await alerts.create({
-      bronId: pollResult.bronId,
-      dedupeKey,
-      evidence: {
-        baseline_samples: input.evidence.baselineSamples,
-        baseline_window_days: input.evidence.baselineWindowDays,
-        bron: pollResult.bronId,
-        current_found: input.evidence.found,
-        detectietijd: input.detectedAt.toISOString(),
-        last_non_zero_at: input.evidence.lastNonZeroAt,
-        last_non_zero_found: input.evidence.lastNonZeroFound,
-      },
-      kind: DISCOVERY_FLOOR_ALERT_KIND,
-      message: buildDiscoveryFloorMessage(input.bronNaam, input.evidence),
-    });
-  }
+  await runtime.withSourceHealthTransaction(
+    async ({ alerts: transactionAlerts, bronHealth: transactionHealth }) => {
+      const existing = await transactionHealth.getByBronId(pollResult.bronId);
+      await upsertBronHealthForRun(transactionHealth, pollResult, {
+        bronId: pollResult.bronId,
+        circuitStatus: existing?.circuitStatus ?? "closed",
+        lastRunAt: input.detectedAt,
+        lastRunStatus: "failed",
+        silenceAlertOpen: existing?.silenceAlertOpen ?? false,
+      });
 
-  // `circuitStatus` belongs to the circuit breaker and `silenceAlertOpen` to
-  // the silence detector; carry both across rather than resetting a signal
-  // this guard knows nothing about.
-  const existing = await bronHealth.getByBronId(pollResult.bronId);
-  await bronHealth.upsert({
-    bronId: pollResult.bronId,
-    circuitStatus: existing?.circuitStatus ?? "closed",
-    lastRunAt: input.detectedAt,
-    lastRunStatus: "failed",
-    silenceAlertOpen: existing?.silenceAlertOpen ?? false,
-  });
+      const open = await transactionAlerts.findOpenByDedupeKey(dedupeKey);
+      if (!open) {
+        await transactionAlerts.create({
+          bronId: pollResult.bronId,
+          dedupeKey,
+          evidence: {
+            baseline_samples: input.evidence.baselineSamples,
+            baseline_window_days: input.evidence.baselineWindowDays,
+            bron: pollResult.bronId,
+            current_found: input.evidence.found,
+            detectietijd: input.detectedAt.toISOString(),
+            last_non_zero_at: input.evidence.lastNonZeroAt,
+            last_non_zero_found: input.evidence.lastNonZeroFound,
+          },
+          kind: DISCOVERY_FLOOR_ALERT_KIND,
+          message: buildDiscoveryFloorMessage(input.bronNaam, input.evidence),
+        });
+      }
+    }
+  );
 };
 
 export const enforceDiscoveryFloor = async (
@@ -532,27 +573,39 @@ export const enforceDiscoveryFloor = async (
   // selects only `status = 'succeeded'` — excludes it and tomorrow's baseline
   // is not poisoned by today's collapse. Matching on `status = 'succeeded'`
   // keeps this from stomping a row that is running or already failed.
-  const [failedRun] = await runtime.database
-    .update(scrapeRun)
-    .set({
-      failureClass: DISCOVERY_FLOOR_FAILURE.class,
-      failureCode: DISCOVERY_FLOOR_FAILURE.code,
-      failureMessage: DISCOVERY_FLOOR_FAILURE.message,
-      failurePhase: DISCOVERY_FLOOR_FAILURE.phase,
-      status: "failed",
-    })
-    .where(
-      and(
-        eq(scrapeRun.id, pollResult.scrapeRunId),
-        eq(scrapeRun.bronId, pollResult.bronId),
-        eq(scrapeRun.fenceToken, pollResult.fenceToken),
-        eq(scrapeRun.status, "succeeded")
-      )
-    )
-    .returning({ id: scrapeRun.id });
-  if (!failedRun) {
-    throw new RunOwnershipLostError();
-  }
+  await runtime.withSourceHealthTransaction(
+    async ({ bronHealth, database }) => {
+      const existing = await bronHealth.getByBronId(pollResult.bronId);
+      await upsertBronHealthForRun(bronHealth, pollResult, {
+        bronId: pollResult.bronId,
+        circuitStatus: existing?.circuitStatus ?? "closed",
+        lastRunAt: now,
+        lastRunStatus: "failed",
+        silenceAlertOpen: existing?.silenceAlertOpen ?? false,
+      });
+      const [failedRun] = await database
+        .update(scrapeRun)
+        .set({
+          failureClass: DISCOVERY_FLOOR_FAILURE.class,
+          failureCode: DISCOVERY_FLOOR_FAILURE.code,
+          failureMessage: DISCOVERY_FLOOR_FAILURE.message,
+          failurePhase: DISCOVERY_FLOOR_FAILURE.phase,
+          status: "failed",
+        })
+        .where(
+          and(
+            eq(scrapeRun.id, pollResult.scrapeRunId),
+            eq(scrapeRun.bronId, pollResult.bronId),
+            eq(scrapeRun.fenceToken, pollResult.fenceToken),
+            eq(scrapeRun.status, "succeeded")
+          )
+        )
+        .returning({ id: scrapeRun.id });
+      if (!failedRun) {
+        throw new RunOwnershipLostError();
+      }
+    }
+  );
 
   await writeDiscoveryFloorAlert(pollResult, runtime, {
     bronNaam,
@@ -588,17 +641,13 @@ export const handleSilenceAndHealth = async (
   }
 
   const now = new Date();
-  const alerts = runtime.alerts ?? new PostgresAlertStore(runtime.database);
-  const bronHealth =
-    runtime.bronHealth ?? new PostgresBronHealthStore(runtime.database);
 
   const load = await loadRunBaseline(pollResult, runtime, now);
   if (!load.ok) {
     await recordSucceededRun(
+      runtime,
       pollResult.bronId,
       now,
-      alerts,
-      bronHealth,
       pollResult.metrics,
       pollResult
     );
@@ -609,24 +658,47 @@ export const handleSilenceAndHealth = async (
   const lastSuccessAt = baseline.length > 0 ? (baseline[0]?.at ?? null) : null;
   const bronNaam = await resolveBronNaam(pollResult, runtime);
 
-  const writer = createSilenceAlertWriter({ alerts, bronHealth });
-  const result = await observeConnectorRunSilence({
-    baseline,
-    bronId: pollResult.bronId,
-    bronNaam,
-    detectedAt: now,
-    httpStatus: 200,
-    lastSuccessAt,
-    metrics: pollResult.metrics,
-    writer,
-  });
+  const result = await runtime.withSourceHealthTransaction(
+    async ({ alerts: transactionAlerts, bronHealth: transactionHealth }) => {
+      // Hold the source health row lock across the ownership gate, alert
+      // mutation, and final health write. A successor waits for this
+      // transaction, so it cannot race a stale alert side effect.
+      const existing = await transactionHealth.getByBronId(pollResult.bronId);
+      await upsertBronHealthForRun(transactionHealth, pollResult, {
+        bronId: pollResult.bronId,
+        circuitStatus: existing?.circuitStatus ?? "closed",
+        lastRunAt: now,
+        lastRunStatus: "succeeded",
+        silenceAlertOpen: existing?.silenceAlertOpen ?? false,
+      });
+
+      const writer = createSilenceAlertWriter({
+        alerts: transactionAlerts,
+        bronHealth: transactionHealth,
+        upsertBronHealth: (input) =>
+          upsertBronHealthForRun(transactionHealth, pollResult, {
+            ...input,
+            circuitStatus: existing?.circuitStatus ?? "closed",
+          }),
+      });
+      return observeConnectorRunSilence({
+        baseline,
+        bronId: pollResult.bronId,
+        bronNaam,
+        detectedAt: now,
+        httpStatus: 200,
+        lastSuccessAt,
+        metrics: pollResult.metrics,
+        writer,
+      });
+    }
+  );
 
   if (!result.event) {
     await recordSucceededRun(
+      runtime,
       pollResult.bronId,
       now,
-      alerts,
-      bronHealth,
       pollResult.metrics,
       pollResult
     );

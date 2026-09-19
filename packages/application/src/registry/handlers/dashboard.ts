@@ -207,7 +207,17 @@ export const getDashboardOverviewOutputSchema = toCapabilitySchema(
 );
 
 export const createGetDashboardOverviewHandler =
-  (deps: SliceAHandlerDeps) =>
+  (
+    deps: Pick<
+      SliceAHandlerDeps,
+      "bronRunStatsReader" | "sourceHealthReader"
+    > & {
+      readonly stores: Pick<
+        SliceAHandlerDeps["stores"],
+        "bronHealth" | "alerts"
+      >;
+    }
+  ) =>
   async (input: SchemaType<typeof getDashboardOverviewInputSchema>) => {
     if (!deps.bronRunStatsReader) {
       throw new Error("BronRunStatsReader unavailable");

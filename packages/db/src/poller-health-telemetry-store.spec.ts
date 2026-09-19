@@ -6,6 +6,7 @@ import { drizzle } from "drizzle-orm/postgres-js";
 import { migrate } from "drizzle-orm/postgres-js/migrator";
 import postgres from "postgres";
 
+import { PostgresBronHealthStore } from "./bron-health-stores";
 import { PostgresPollerHealthTelemetryStore } from "./poller-health-telemetry-store";
 import * as schema from "./schema";
 import { bron, bronHealth, pollerRuntime, scrapeRun } from "./schema";
@@ -268,6 +269,162 @@ describe("poller health telemetry store", () => {
         runId: runCollisionId,
       })
     ).toBe(true);
+  });
+
+  it("fences stale health writes and completion after a successor takes ownership", async () => {
+    if (!postgresAvailable || !db) {
+      expect(postgresAvailable).toBe(false);
+      return;
+    }
+
+    const takeoverBronId = crypto.randomUUID();
+    const oldRunId = crypto.randomUUID();
+    const newRunId = crypto.randomUUID();
+    await db.insert(bron).values({
+      categorie: "test",
+      id: takeoverBronId,
+      naam: "source-takeover-regression",
+    });
+    await db.insert(scrapeRun).values([
+      {
+        bronId: takeoverBronId,
+        fenceToken: 1,
+        id: oldRunId,
+        runKind: "poll",
+        status: "running",
+      },
+      {
+        bronId: takeoverBronId,
+        fenceToken: 2,
+        id: newRunId,
+        runKind: "poll",
+        status: "running",
+      },
+    ]);
+    try {
+      const telemetry = new PostgresPollerHealthTelemetryStore(db);
+      const health = new PostgresBronHealthStore(db);
+      const s1CompletedAt = at("2026-09-19T11:30:00.000Z");
+      const s2CompletedAt = at("2026-09-19T11:32:00.000Z");
+
+      expect(
+        await telemetry.claimSourceOwnership({
+          bronId: takeoverBronId,
+          fenceToken: 1,
+          phase: "fetch",
+          phaseStartedAt: at("2026-09-19T11:00:00.000Z"),
+          runId: oldRunId,
+        })
+      ).toBe(true);
+      await db
+        .update(scrapeRun)
+        .set({ geindigd: s1CompletedAt, status: "succeeded" })
+        .where(
+          and(eq(scrapeRun.id, oldRunId), eq(scrapeRun.bronId, takeoverBronId))
+        );
+
+      expect(
+        await telemetry.claimSourceOwnership({
+          bronId: takeoverBronId,
+          fenceToken: 2,
+          phase: "fetch",
+          phaseStartedAt: at("2026-09-19T11:31:00.000Z"),
+          runId: newRunId,
+        })
+      ).toBe(true);
+
+      expect(
+        await health.upsertForRun({
+          bronId: takeoverBronId,
+          fenceToken: 1,
+          record: {
+            bronId: takeoverBronId,
+            circuitStatus: "closed",
+            lastRunAt: s1CompletedAt,
+            lastRunStatus: "succeeded",
+            silenceAlertOpen: true,
+          },
+          runId: oldRunId,
+        })
+      ).toBeNull();
+
+      const [afterStaleHealthWrite] = await db
+        .select({
+          activeRunId: bronHealth.activeRunId,
+          lastRunAt: bronHealth.lastRunAt,
+          lastRunStatus: bronHealth.lastRunStatus,
+          silenceAlertOpen: bronHealth.silenceAlertOpen,
+        })
+        .from(bronHealth)
+        .where(eq(bronHealth.bronId, takeoverBronId));
+      expect(afterStaleHealthWrite).toEqual({
+        activeRunId: newRunId,
+        lastRunAt: null,
+        lastRunStatus: null,
+        silenceAlertOpen: false,
+      });
+
+      expect(
+        await telemetry.finishSource({
+          bronId: takeoverBronId,
+          completedAt: s1CompletedAt,
+          discoveryComplete: true,
+          drained: true,
+          fenceToken: 1,
+          hasFailures: false,
+          hasQuarantined: false,
+          outcome: "complete",
+          runId: oldRunId,
+        })
+      ).toBe(false);
+
+      await db
+        .update(scrapeRun)
+        .set({ geindigd: s2CompletedAt, status: "succeeded" })
+        .where(
+          and(eq(scrapeRun.id, newRunId), eq(scrapeRun.bronId, takeoverBronId))
+        );
+      expect(
+        await telemetry.claimSourceOwnership({
+          bronId: takeoverBronId,
+          fenceToken: 2,
+          phase: "curation",
+          phaseStartedAt: at("2026-09-19T11:31:30.000Z"),
+          runId: newRunId,
+        })
+      ).toBe(true);
+      expect(
+        await telemetry.finishSource({
+          bronId: takeoverBronId,
+          completedAt: s2CompletedAt,
+          discoveryComplete: true,
+          drained: true,
+          fenceToken: 2,
+          hasFailures: false,
+          hasQuarantined: false,
+          outcome: "complete",
+          runId: newRunId,
+        })
+      ).toBe(true);
+
+      const [afterSuccessorFinish] = await db
+        .select({
+          activeRunId: bronHealth.activeRunId,
+          lastCompletionOutcome: bronHealth.lastCompletionOutcome,
+          lastFullySuccessfulAt: bronHealth.lastFullySuccessfulAt,
+        })
+        .from(bronHealth)
+        .where(eq(bronHealth.bronId, takeoverBronId));
+      expect(afterSuccessorFinish).toEqual({
+        activeRunId: null,
+        lastCompletionOutcome: "complete",
+        lastFullySuccessfulAt: s2CompletedAt,
+      });
+    } finally {
+      await db.delete(scrapeRun).where(eq(scrapeRun.bronId, takeoverBronId));
+      await db.delete(bronHealth).where(eq(bronHealth.bronId, takeoverBronId));
+      await db.delete(bron).where(eq(bron.id, takeoverBronId));
+    }
   });
 
   it("records freshness only for complete, drained, failure-free curation", async () => {

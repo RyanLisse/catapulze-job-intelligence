@@ -347,6 +347,16 @@ export interface BronHealthRecord {
   readonly silenceAlertOpen: boolean;
 }
 
+export interface BronHealthRunFence {
+  readonly bronId: string;
+  readonly fenceToken: number;
+  readonly runId: string;
+}
+
+export interface BronHealthRunWrite extends BronHealthRunFence {
+  readonly record: BronHealthRecord;
+}
+
 export interface SavedSearchStore {
   createWithAudit: (
     record: Omit<SavedSearchRecord, "createdAt" | "id" | "updatedAt">,
@@ -509,6 +519,13 @@ export interface BronHealthStore {
   getByBronId: (bronId: string) => Promise<BronHealthRecord | null>;
   list: () => Promise<readonly BronHealthRecord[]>;
   upsert: (record: BronHealthRecord) => Promise<BronHealthRecord>;
+  /**
+   * Updates health only while this run still owns the source. The null result
+   * is an ownership loss and must not be treated as a successful health write.
+   */
+  upsertForRun?: (
+    input: BronHealthRunWrite
+  ) => Promise<BronHealthRecord | null>;
 }
 
 export interface OperatorRunStore {

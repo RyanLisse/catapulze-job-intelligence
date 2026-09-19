@@ -29,7 +29,12 @@ const previousSearchProjector = process.env.SEARCH_PROJECTOR;
 process.env.DATABASE_URL = applicationUrl;
 process.env.SEARCH_PROJECTOR = "onbox";
 
-const { createBronRuntimeClient, PostgresCurateStore } = await import("@ji/db");
+const {
+  createBronRuntimeClient,
+  PostgresCurateStore,
+  PostgresAlertStore,
+  PostgresBronHealthStore,
+} = await import("@ji/db");
 const { aanvraag, aanvraagVersie, bron, dedupGroep, outboxEvent, scrapeRun } =
   await import("@ji/db/schema/index");
 const { aanvraagObservation } = await import("@ji/db/schema/staging");
@@ -172,6 +177,14 @@ const createRecoveryRuntime = () => {
     curateStore: new PostgresCurateStore(client.database),
     loadBaseline: () => Promise.resolve([]),
     objectStore,
+    withSourceHealthTransaction: (runOperation) =>
+      client.database.transaction((tx) =>
+        runOperation({
+          alerts: new PostgresAlertStore(tx),
+          bronHealth: new PostgresBronHealthStore(tx),
+          database: tx,
+        })
+      ),
   } satisfies PollBronRuntime;
   return {
     get connectorInvocations(): number {

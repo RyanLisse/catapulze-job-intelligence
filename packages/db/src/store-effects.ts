@@ -102,23 +102,35 @@ export const wrapScrapeRunReaderEffect = (
 export const wrapBronHealthStoreEffect = (
   store: BronHealthStore,
   options: WrapStoreEffectOptions = {}
-): BronHealthStore => ({
-  getByBronId: (bronId) =>
-    runDbStorePromise(
-      fromStorePromise(() => store.getByBronId(bronId)),
-      options
-    ),
-  list: () =>
-    runDbStorePromise(
-      fromStorePromise(() => store.list()),
-      options
-    ),
-  upsert: (record) =>
-    runDbStorePromise(
-      fromStorePromise(() => store.upsert(record)),
-      options
-    ),
-});
+): BronHealthStore => {
+  const wrapped: BronHealthStore = {
+    getByBronId: (bronId) =>
+      runDbStorePromise(
+        fromStorePromise(() => store.getByBronId(bronId)),
+        options
+      ),
+    list: () =>
+      runDbStorePromise(
+        fromStorePromise(() => store.list()),
+        options
+      ),
+    upsert: (record) =>
+      runDbStorePromise(
+        fromStorePromise(() => store.upsert(record)),
+        options
+      ),
+  };
+  if (store.upsertForRun) {
+    wrapped.upsertForRun = (input) =>
+      runDbStorePromise(
+        fromStorePromise(
+          () => store.upsertForRun?.(input) ?? Promise.resolve(null)
+        ),
+        options
+      );
+  }
+  return wrapped;
+};
 
 export const wrapAlertStoreEffect = (
   store: AlertStore,

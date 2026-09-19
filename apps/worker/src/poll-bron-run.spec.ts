@@ -3,8 +3,10 @@ import { describe, expect, it } from "bun:test";
 import type { RunBaselineSample } from "@ji/application/observability";
 import type { AlertStore, BronHealthStore } from "@ji/application/registry";
 import { resolveTenderNedTestImportDays } from "@ji/application/sources";
+import type { BronHealthDatabase } from "@ji/db/bron-health-stores";
 
 import { requireDatabaseUrl, requireManticoreUrl } from "./poll-bron-env";
+import type { PollBronRuntime } from "./poll-bron-run";
 
 // `createBronRuntimeClient` builds a lazy postgres-js client — no network
 // dial happens at construction, only on an actual query. Safe to call with
@@ -14,6 +16,28 @@ process.env.DATABASE_URL ??= "postgres://user:pass@127.0.0.1:1/db";
 const databaseUrl = process.env.DATABASE_URL;
 
 const { createPollBronRuntime } = await import("./poll-bron-run");
+
+// Unit fixtures assume one owned run; real PostgreSQL ownership is tested separately.
+const ownedHealthTransaction =
+  (
+    alerts: AlertStore,
+    health: BronHealthStore,
+    // SAFETY: Non-floor fixtures never query this; floor fixtures supply their update double.
+    database: BronHealthDatabase = {} as never,
+    ownsRun = true
+  ): PollBronRuntime["withSourceHealthTransaction"] =>
+  (runOperation) =>
+    runOperation({
+      alerts,
+      bronHealth: {
+        getByBronId: (id) => health.getByBronId(id),
+        list: () => health.list(),
+        upsert: (record) => health.upsert(record),
+        upsertForRun: ({ record }) =>
+          ownsRun ? health.upsert(record) : Promise.resolve(null),
+      },
+      database,
+    });
 
 describe("createPollBronRuntime raw object store production guard (RJC-386)", () => {
   it("throws naming RAW_S3_BUCKET when production resolves to the filesystem store", () => {
@@ -371,6 +395,8 @@ describe("runPollBron missed-poll lifecycle wiring (RJC-397)", () => {
       objectStore: new InMemoryObjectStore(),
       observationRecorder: new InMemoryObservationRecorder(),
       runLifecycleStore: new InMemoryRunLifecycleStore(),
+      withSourceHealthTransaction: <T>(): Promise<T> =>
+        Promise.reject(new Error("unused")),
     };
 
     let progressCallbacks = 0;
@@ -547,6 +573,7 @@ describe("runBronIngestPipeline silence evaluation (RJC-409)", () => {
       get runLifecycleStore(): never {
         return unusedSilenceProp("runLifecycleStore");
       },
+      withSourceHealthTransaction: ownedHealthTransaction(alerts, bronHealth),
     };
 
     // First run: silence detected -> alert created, silenceAlertOpen set to true
@@ -662,6 +689,7 @@ describe("runBronIngestPipeline silence evaluation (RJC-409)", () => {
       get runLifecycleStore(): never {
         return unusedSilenceProp("runLifecycleStore");
       },
+      withSourceHealthTransaction: ownedHealthTransaction(alerts, bronHealth),
     };
 
     const result = await handleSilenceAndHealth(
@@ -746,6 +774,7 @@ describe("runBronIngestPipeline silence evaluation (RJC-409)", () => {
       get runLifecycleStore(): never {
         return unusedSilenceProp("runLifecycleStore");
       },
+      withSourceHealthTransaction: ownedHealthTransaction(alerts, bronHealth),
     };
 
     const stderrLines: string[] = [];
@@ -840,6 +869,7 @@ describe("runBronIngestPipeline silence evaluation (RJC-409)", () => {
       get runLifecycleStore(): never {
         return unusedSilenceProp("runLifecycleStore");
       },
+      withSourceHealthTransaction: ownedHealthTransaction(alerts, bronHealth),
     };
 
     const result = await handleSilenceAndHealth(
@@ -919,6 +949,7 @@ describe("runBronIngestPipeline silence evaluation (RJC-409)", () => {
     get runLifecycleStore(): never {
       return unusedSilenceProp("runLifecycleStore");
     },
+    withSourceHealthTransaction: ownedHealthTransaction(alerts, bronHealth),
   });
 
   it("auto-resolves an open silence alert when a later poll has activity", async () => {
@@ -1145,6 +1176,8 @@ describe("runPollBron scrape_run.gesloten and unchanged metrics (RJC-414)", () =
       objectStore: new InMemoryObjectStore(),
       observationRecorder: new InMemoryObservationRecorder(),
       runLifecycleStore: new InMemoryRunLifecycleStore(),
+      withSourceHealthTransaction: <T>(): Promise<T> =>
+        Promise.reject(new Error("unused")),
     };
 
     const result = await runPollBron(
@@ -1247,22 +1280,9 @@ describe("discovery floor guard", () => {
     captured: DiscoveryFloorUpdate[];
     loadBaseline: () => Promise<RunBaselineSample[]>;
     ownsRun?: boolean;
-  }) => ({
-    alerts: input.alerts,
-    bronHealth: input.bronHealth,
-    bronPersistence: {
-      activate: () => Promise.reject(new Error("unused")),
-      create: () => Promise.reject(new Error("unused")),
-      findById: () => Promise.resolve(bronRecord),
-      list: () => Promise.resolve([bronRecord]),
-    },
-    close: () => Promise.resolve(),
-    createConnector: () => unusedFloorProp("createConnector"),
-    get curateStore(): never {
-      return unusedFloorProp("curateStore");
-    },
+  }) => {
     // SAFETY: Test double fulfills the update subset enforceDiscoveryFloor uses.
-    database: {
+    const database = {
       update: () => ({
         set: (values: DiscoveryFloorUpdate) => ({
           where: () => {
@@ -1276,24 +1296,46 @@ describe("discovery floor guard", () => {
           },
         }),
       }),
-    } as never,
-    get knownHashStore(): never {
-      return unusedFloorProp("knownHashStore");
-    },
-    get lifecycle(): never {
-      return unusedFloorProp("lifecycle");
-    },
-    loadBaseline: input.loadBaseline,
-    get objectStore(): never {
-      return unusedFloorProp("objectStore");
-    },
-    get observationRecorder(): never {
-      return unusedFloorProp("observationRecorder");
-    },
-    get runLifecycleStore(): never {
-      return unusedFloorProp("runLifecycleStore");
-    },
-  });
+    } as never;
+    return {
+      alerts: input.alerts,
+      bronHealth: input.bronHealth,
+      bronPersistence: {
+        activate: () => Promise.reject(new Error("unused")),
+        create: () => Promise.reject(new Error("unused")),
+        findById: () => Promise.resolve(bronRecord),
+        list: () => Promise.resolve([bronRecord]),
+      },
+      close: () => Promise.resolve(),
+      createConnector: () => unusedFloorProp("createConnector"),
+      get curateStore(): never {
+        return unusedFloorProp("curateStore");
+      },
+      database,
+      get knownHashStore(): never {
+        return unusedFloorProp("knownHashStore");
+      },
+      get lifecycle(): never {
+        return unusedFloorProp("lifecycle");
+      },
+      loadBaseline: input.loadBaseline,
+      get objectStore(): never {
+        return unusedFloorProp("objectStore");
+      },
+      get observationRecorder(): never {
+        return unusedFloorProp("observationRecorder");
+      },
+      get runLifecycleStore(): never {
+        return unusedFloorProp("runLifecycleStore");
+      },
+      withSourceHealthTransaction: ownedHealthTransaction(
+        input.alerts,
+        input.bronHealth,
+        database,
+        input.ownsRun ?? true
+      ),
+    };
+  };
 
   it("fails the run, alerts and throws when a bron with history discovers nothing", async () => {
     const { DiscoveryFloorBreachedError, enforceDiscoveryFloor } =
