@@ -20,6 +20,7 @@ export {
 } from "./tarief";
 export {
   formatHoursPerWeek,
+  hoursTextToPerWeek,
   parseWeeklyHoursRange,
   type WeeklyHoursRange,
 } from "./hours";
@@ -31,8 +32,10 @@ export {
   boundDedupKey,
   buildDedupKey,
   buildProvenanceMap,
+  closingMomentInstant,
   DEDUP_KEY_MAX_BYTES,
   field,
+  isValidCalendarDate,
   normalizeDedupText,
   provenanceFor,
   stripHtml,

@@ -7,6 +7,12 @@ export const ENRICHMENT_FIELDS = [
   "remote",
   "publicatiedatum",
   "beschrijving",
+  "uren",
+  "opleiding",
+  "startdatum",
+  "einddatum",
+  "sluitingsdatum",
+  "organisatie",
 ] as const;
 
 export type EnrichmentField = (typeof ENRICHMENT_FIELDS)[number];
@@ -54,13 +60,43 @@ export interface EnrichmentBeschrijvingValue {
   readonly beschrijving: string;
 }
 
+export interface EnrichmentUrenValue {
+  readonly urenPerWeek: string;
+}
+
+export interface EnrichmentOpleidingValue {
+  readonly opleidingsniveau: string;
+}
+
+export interface EnrichmentStartdatumValue {
+  readonly startdatum: string;
+}
+
+export interface EnrichmentEinddatumValue {
+  readonly einddatum: string;
+}
+
+export interface EnrichmentSluitingsdatumValue {
+  readonly sluitingsdatum: string;
+}
+
+export interface EnrichmentOrganisatieValue {
+  readonly organisatie: string;
+}
+
 export type EnrichmentFieldValue =
   | EnrichmentBeschrijvingValue
   | EnrichmentContractValue
+  | EnrichmentEinddatumValue
   | EnrichmentLocatieValue
+  | EnrichmentOpleidingValue
+  | EnrichmentOrganisatieValue
   | EnrichmentPublicatiedatumValue
   | EnrichmentRemoteValue
-  | EnrichmentTariefValue;
+  | EnrichmentSluitingsdatumValue
+  | EnrichmentStartdatumValue
+  | EnrichmentTariefValue
+  | EnrichmentUrenValue;
 
 export interface EnrichmentProposal {
   readonly confidence: number;
@@ -75,14 +111,19 @@ export interface EnrichmentRunInput {
   readonly beschrijving: string;
   readonly bronSpecifiek: unknown;
   readonly contracttype?: string | null;
+  readonly eindDatum?: string | null;
   readonly enableLlmResidual?: boolean;
   readonly locatieTekst?: string | null;
+  readonly opdrachtgeverNaam?: string | null;
   readonly publicatiedatum?: string | null;
   readonly rawHtml?: string | null;
+  readonly sluitingsdatum?: string | null;
+  readonly startDatum?: string | null;
   readonly titleFallbackParts?: TitleFallbackDescriptionParts | null;
   readonly tariefEenheid?: string | null;
   readonly tariefMax?: string | null;
   readonly tariefMin?: string | null;
+  readonly urenPerWeek?: string | null;
   readonly werkvorm?: string | null;
 }
 

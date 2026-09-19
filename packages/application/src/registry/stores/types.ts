@@ -61,10 +61,16 @@ export interface AanvraagEnrichedField {
   readonly field:
     | "contract"
     | "beschrijving"
+    | "einddatum"
     | "locatie"
+    | "opleiding"
+    | "organisatie"
     | "publicatiedatum"
     | "remote"
-    | "tarief";
+    | "sluitingsdatum"
+    | "startdatum"
+    | "tarief"
+    | "uren";
   readonly source: "deterministic" | "llm";
 }
 

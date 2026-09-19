@@ -133,11 +133,17 @@ export interface JobMarkering {
 
 export type JobEnrichedFieldName =
   | "beschrijving"
-  | "locatie"
-  | "tarief"
   | "contract"
+  | "einddatum"
+  | "locatie"
+  | "opleiding"
+  | "organisatie"
+  | "publicatiedatum"
   | "remote"
-  | "publicatiedatum";
+  | "sluitingsdatum"
+  | "startdatum"
+  | "tarief"
+  | "uren";
 
 export interface JobEnrichedField {
   readonly confidence: number;

@@ -21,6 +21,12 @@ const sourceTextSchema = z
 const bronSpecifiekSchema = z.object({
   contract_type: sourceTextSchema,
   contracttype: sourceTextSchema,
+  education_level: sourceTextSchema,
+  opdrachtgeverNaam: sourceTextSchema,
+  opdrachtgever_naam: sourceTextSchema,
+  opleidingsniveau: sourceTextSchema,
+  startDatum: sourceTextSchema,
+  start_datum: sourceTextSchema,
   werkvorm: sourceTextSchema,
 });
 
@@ -28,6 +34,9 @@ type ParsedBronSpecifiek = z.output<typeof bronSpecifiekSchema>;
 
 interface ParsedBronFacts {
   readonly contracttype: string | null;
+  readonly opleidingsniveau: string | null;
+  readonly opdrachtgeverNaam: string | null;
+  readonly startDatum: string | null;
   readonly werkvorm: string | null;
 }
 
@@ -35,11 +44,16 @@ export interface IncompleteAanvraagFacts {
   readonly beschrijving: string;
   readonly bronSpecifiek: unknown;
   readonly contracttype?: string | null;
+  readonly eindDatum: string | null;
   readonly locatieTekst: string | null;
+  readonly opdrachtgeverNaam: string | null;
   readonly publicatiedatum?: string | null;
+  readonly sluitingsdatum: string | null;
+  readonly startDatum: string | null;
   readonly tariefEenheid: string | null;
   readonly tariefMax: string | null;
   readonly tariefMin: string | null;
+  readonly urenPerWeek: string | null;
   readonly werkvorm?: string | null;
   readonly titleFallbackParts?: TitleFallbackDescriptionParts | null;
 }
@@ -97,12 +111,32 @@ const parseBronSpecifiek = (
 
 const readBronFacts = (parsed: ParsedBronSpecifiek | null): ParsedBronFacts => {
   if (parsed === null) {
-    return { contracttype: null, werkvorm: null };
+    return {
+      contracttype: null,
+      opdrachtgeverNaam: null,
+      opleidingsniveau: null,
+      startDatum: null,
+      werkvorm: null,
+    };
   }
   const contracttype =
     parsed.contracttype?.trim() || parsed.contract_type?.trim() || null;
+  const opleidingsniveau =
+    parsed.opleidingsniveau?.trim() || parsed.education_level?.trim() || null;
+  const opdrachtgeverNaam =
+    parsed.opdrachtgeverNaam?.trim() ||
+    parsed.opdrachtgever_naam?.trim() ||
+    null;
+  const startDatum =
+    parsed.startDatum?.trim() || parsed.start_datum?.trim() || null;
   const werkvorm = parsed.werkvorm?.trim() || null;
-  return { contracttype, werkvorm };
+  return {
+    contracttype,
+    opdrachtgeverNaam,
+    opleidingsniveau,
+    startDatum,
+    werkvorm,
+  };
 };
 
 const isContractIncomplete = (facts: IncompleteAanvraagFacts): boolean => {
@@ -163,13 +197,149 @@ const isBeschrijvingIncomplete = (facts: IncompleteAanvraagFacts): boolean =>
   !isClearedText(facts.beschrijving) &&
   isTitleFallbackDescription(facts.beschrijving, facts.titleFallbackParts);
 
+/**
+ * `uren_per_week` is read from the curated column only (no bron_specifiek
+ * fallback on the read path), so the gap is the column alone.
+ */
+const isUrenIncomplete = (facts: IncompleteAanvraagFacts): boolean => {
+  if (isClearedText(facts.urenPerWeek)) {
+    return false;
+  }
+  const bronCleared = readDurableClearedKeys(facts.bronSpecifiek);
+  if (
+    durableClearedIntersects(bronCleared, [
+      "uren",
+      "uren_per_week",
+      "urenPerWeek",
+    ])
+  ) {
+    return false;
+  }
+  return isFillableGap(facts.urenPerWeek);
+};
+
+/**
+ * `opleidingsniveau` has no curated column -- the read path surfaces it from
+ * bron_specifiek (`opleidingsniveau`/`education_level`), so the gap is
+ * exactly that bron fact.
+ */
+const isOpleidingIncomplete = (facts: IncompleteAanvraagFacts): boolean => {
+  const bronCleared = readDurableClearedKeys(facts.bronSpecifiek);
+  if (
+    durableClearedIntersects(bronCleared, [
+      "opleiding",
+      "opleidingsniveau",
+      "education_level",
+    ])
+  ) {
+    return false;
+  }
+  const bronFacts = readBronFacts(parseBronSpecifiek(facts.bronSpecifiek));
+  if (isClearedText(bronFacts.opleidingsniveau)) {
+    return false;
+  }
+  return isMissingText(bronFacts.opleidingsniveau);
+};
+
+/** `start_datum` reads column first, then the bron fact fallback. */
+const isStartdatumIncomplete = (facts: IncompleteAanvraagFacts): boolean => {
+  if (isClearedText(facts.startDatum) || !isMissingText(facts.startDatum)) {
+    return false;
+  }
+  const bronCleared = readDurableClearedKeys(facts.bronSpecifiek);
+  if (
+    durableClearedIntersects(bronCleared, [
+      "startdatum",
+      "start_datum",
+      "startDatum",
+    ])
+  ) {
+    return false;
+  }
+  const bronFacts = readBronFacts(parseBronSpecifiek(facts.bronSpecifiek));
+  if (isClearedText(bronFacts.startDatum)) {
+    return false;
+  }
+  return isMissingText(bronFacts.startDatum);
+};
+
+/** `eind_datum` is read from the curated column only. */
+const isEinddatumIncomplete = (facts: IncompleteAanvraagFacts): boolean => {
+  if (isClearedText(facts.eindDatum)) {
+    return false;
+  }
+  const bronCleared = readDurableClearedKeys(facts.bronSpecifiek);
+  if (
+    durableClearedIntersects(bronCleared, [
+      "einddatum",
+      "eind_datum",
+      "eindDatum",
+    ])
+  ) {
+    return false;
+  }
+  return isFillableGap(facts.eindDatum);
+};
+
+/** `sluitingsdatum` is read from the curated timestamp column only. */
+const isSluitingsdatumIncomplete = (
+  facts: IncompleteAanvraagFacts
+): boolean => {
+  if (isClearedText(facts.sluitingsdatum)) {
+    return false;
+  }
+  const bronCleared = readDurableClearedKeys(facts.bronSpecifiek);
+  if (
+    durableClearedIntersects(bronCleared, [
+      "sluitingsdatum",
+      "sluitings_datum",
+      "valid_through",
+    ])
+  ) {
+    return false;
+  }
+  return isFillableGap(facts.sluitingsdatum);
+};
+
+/** `opdrachtgever_naam` reads column first, then the bron fact fallback. */
+const isOrganisatieIncomplete = (facts: IncompleteAanvraagFacts): boolean => {
+  if (
+    isClearedText(facts.opdrachtgeverNaam) ||
+    !isMissingText(facts.opdrachtgeverNaam)
+  ) {
+    return false;
+  }
+  const bronCleared = readDurableClearedKeys(facts.bronSpecifiek);
+  if (
+    durableClearedIntersects(bronCleared, [
+      "organisatie",
+      "opdrachtgever",
+      "opdrachtgever_naam",
+      "opdrachtgeverNaam",
+    ])
+  ) {
+    return false;
+  }
+  const bronFacts = readBronFacts(parseBronSpecifiek(facts.bronSpecifiek));
+  if (isClearedText(bronFacts.opdrachtgeverNaam)) {
+    return false;
+  }
+  return isMissingText(bronFacts.opdrachtgeverNaam);
+};
+
 const fieldIncomplete = {
   beschrijving: isBeschrijvingIncomplete,
   contract: isContractIncomplete,
+  einddatum: isEinddatumIncomplete,
   locatie: isLocatieIncomplete,
+  opleiding: isOpleidingIncomplete,
+  organisatie: isOrganisatieIncomplete,
   publicatiedatum: isPublicatiedatumIncomplete,
   remote: isRemoteIncomplete,
+  sluitingsdatum: isSluitingsdatumIncomplete,
+  startdatum: isStartdatumIncomplete,
   tarief: isTariefIncomplete,
+  uren: isUrenIncomplete,
 } satisfies Record<
   EnrichmentField,
   (facts: IncompleteAanvraagFacts) => boolean

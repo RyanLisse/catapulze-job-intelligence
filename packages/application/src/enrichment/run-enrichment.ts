@@ -18,11 +18,17 @@ export const runEnrichment = async (
     beschrijving: input.beschrijving,
     bronSpecifiek: input.bronSpecifiek,
     contracttype: input.contracttype ?? null,
+    eindDatum: input.eindDatum ?? null,
     locatieTekst: input.locatieTekst ?? null,
+    opdrachtgeverNaam: input.opdrachtgeverNaam ?? null,
+    publicatiedatum: input.publicatiedatum ?? null,
+    sluitingsdatum: input.sluitingsdatum ?? null,
+    startDatum: input.startDatum ?? null,
     tariefEenheid: input.tariefEenheid ?? null,
     tariefMax: input.tariefMax ?? null,
     tariefMin: input.tariefMin ?? null,
     titleFallbackParts: input.titleFallbackParts,
+    urenPerWeek: input.urenPerWeek ?? null,
     werkvorm: input.werkvorm ?? null,
   });
 

@@ -1,18 +1,26 @@
 import { UNKNOWN } from "@ji/domain";
 
+import { parseWeeklyHoursRange } from "../normalise/hours";
+import { closingMomentInstant } from "../normalise/types";
 import { isTitleFallbackDescription } from "../title-fallback-description";
 import type { TitleFallbackDescriptionParts } from "../title-fallback-description";
 import { isClearedText, isFillableGap, isMissingText } from "./gap-predicates";
 import type {
   EnrichmentBeschrijvingValue,
   EnrichmentContractValue,
+  EnrichmentEinddatumValue,
   EnrichmentField,
   EnrichmentFieldValue,
   EnrichmentLocatieValue,
+  EnrichmentOpleidingValue,
+  EnrichmentOrganisatieValue,
   EnrichmentPublicatiedatumValue,
   EnrichmentRemoteValue,
+  EnrichmentSluitingsdatumValue,
   EnrichmentSource,
+  EnrichmentStartdatumValue,
   EnrichmentTariefValue,
+  EnrichmentUrenValue,
 } from "./types";
 import { AANGEVULD_MIN_CONFIDENCE } from "./types";
 
@@ -32,12 +40,18 @@ export interface EnrichedFieldMeta {
 export interface AanvraagEnrichmentFacts {
   beschrijving?: string;
   contracttype?: string | null;
+  eindDatum?: string | null;
   locatie?: string | null;
+  opdrachtgeverNaam?: string | null;
+  opleidingsniveau?: string | null;
   publicatiedatum?: string | null;
+  sluitingsdatum?: Date | null;
+  startDatum?: string | null;
   tariefEenheid?: string | null;
   tariefMax?: number | null;
   tariefMin?: number | null;
   tariefValuta?: string | null;
+  urenPerWeek?: string | null;
   werkvorm?: string | null;
   titleFallbackParts?: TitleFallbackDescriptionParts | null;
 }
@@ -45,9 +59,13 @@ export interface AanvraagEnrichmentFacts {
 export interface SearchEnrichmentFacts {
   contracttype: string | null;
   locatie?: string | null;
+  opdrachtgeverNaam?: string | null;
+  sluitingsdatum?: Date | null;
   tariefEenheid?: string | null;
   tariefMax: number | null;
   tariefMin: number | null;
+  urenPerWeekMax?: number | null;
+  urenPerWeekMin?: number | null;
   werkvorm?: string | null;
 }
 
@@ -102,6 +120,31 @@ const asPublicatiedatum = (
 ): EnrichmentPublicatiedatumValue | null =>
   "publicatiedatum" in value && !("locatieTekst" in value) ? value : null;
 
+const asUren = (value: EnrichmentFieldValue): EnrichmentUrenValue | null =>
+  "urenPerWeek" in value ? value : null;
+
+const asOpleiding = (
+  value: EnrichmentFieldValue
+): EnrichmentOpleidingValue | null =>
+  "opleidingsniveau" in value ? value : null;
+
+const asStartdatum = (
+  value: EnrichmentFieldValue
+): EnrichmentStartdatumValue | null => ("startdatum" in value ? value : null);
+
+const asEinddatum = (
+  value: EnrichmentFieldValue
+): EnrichmentEinddatumValue | null => ("einddatum" in value ? value : null);
+
+const asSluitingsdatum = (
+  value: EnrichmentFieldValue
+): EnrichmentSluitingsdatumValue | null =>
+  "sluitingsdatum" in value ? value : null;
+
+const asOrganisatie = (
+  value: EnrichmentFieldValue
+): EnrichmentOrganisatieValue | null => ("organisatie" in value ? value : null);
+
 const parseTariefNumber = (raw: string): number | null => {
   if (raw.trim() === "" || raw.trim() === UNKNOWN) {
     return null;
@@ -136,13 +179,19 @@ export const applyEnrichmentOverlayToAanvraagFacts = (
   const next: AanvraagEnrichmentFacts = {
     beschrijving: facts.beschrijving,
     contracttype: facts.contracttype,
+    eindDatum: facts.eindDatum,
     locatie: facts.locatie,
+    opdrachtgeverNaam: facts.opdrachtgeverNaam,
+    opleidingsniveau: facts.opleidingsniveau,
     publicatiedatum: facts.publicatiedatum,
+    sluitingsdatum: facts.sluitingsdatum,
+    startDatum: facts.startDatum,
     tariefEenheid: facts.tariefEenheid,
     tariefMax: facts.tariefMax,
     tariefMin: facts.tariefMin,
     tariefValuta: facts.tariefValuta,
     titleFallbackParts: facts.titleFallbackParts,
+    urenPerWeek: facts.urenPerWeek,
     werkvorm: facts.werkvorm,
   };
 
@@ -208,6 +257,54 @@ export const applyEnrichmentOverlayToAanvraagFacts = (
       if (value && !isMissingText(value.publicatiedatum)) {
         next.publicatiedatum = value.publicatiedatum;
       }
+      continue;
+    }
+    if (row.field === "uren" && isFillableGap(next.urenPerWeek)) {
+      const value = asUren(row.value);
+      if (value && !isMissingText(value.urenPerWeek)) {
+        next.urenPerWeek = value.urenPerWeek;
+      }
+      continue;
+    }
+    if (row.field === "opleiding" && isFillableGap(next.opleidingsniveau)) {
+      const value = asOpleiding(row.value);
+      if (value && !isMissingText(value.opleidingsniveau)) {
+        next.opleidingsniveau = value.opleidingsniveau;
+      }
+      continue;
+    }
+    if (row.field === "startdatum" && isFillableGap(next.startDatum)) {
+      const value = asStartdatum(row.value);
+      if (value && !isMissingText(value.startdatum)) {
+        next.startDatum = value.startdatum;
+      }
+      continue;
+    }
+    if (row.field === "einddatum" && isFillableGap(next.eindDatum)) {
+      const value = asEinddatum(row.value);
+      if (value && !isMissingText(value.einddatum)) {
+        next.eindDatum = value.einddatum;
+      }
+      continue;
+    }
+    if (
+      row.field === "sluitingsdatum" &&
+      (next.sluitingsdatum === null || next.sluitingsdatum === undefined)
+    ) {
+      const value = asSluitingsdatum(row.value);
+      const instant = value
+        ? closingMomentInstant(value.sluitingsdatum)
+        : undefined;
+      if (value && instant) {
+        next.sluitingsdatum = instant;
+      }
+      continue;
+    }
+    if (row.field === "organisatie" && isFillableGap(next.opdrachtgeverNaam)) {
+      const value = asOrganisatie(row.value);
+      if (value && !isMissingText(value.organisatie)) {
+        next.opdrachtgeverNaam = value.organisatie;
+      }
     }
   }
 
@@ -227,9 +324,13 @@ export const applyEnrichmentOverlayToSearchFacts = (
   const next: SearchEnrichmentFacts = {
     contracttype: facts.contracttype,
     locatie: facts.locatie,
+    opdrachtgeverNaam: facts.opdrachtgeverNaam,
+    sluitingsdatum: facts.sluitingsdatum,
     tariefEenheid: facts.tariefEenheid ?? null,
     tariefMax: facts.tariefMax,
     tariefMin: facts.tariefMin,
+    urenPerWeekMax: facts.urenPerWeekMax,
+    urenPerWeekMin: facts.urenPerWeekMin,
     werkvorm: facts.werkvorm ?? null,
   };
 
@@ -268,6 +369,43 @@ export const applyEnrichmentOverlayToSearchFacts = (
       const value = asRemote(row.value);
       if (value && !isMissingText(value.werkvorm)) {
         next.werkvorm = value.werkvorm;
+      }
+      continue;
+    }
+    if (
+      row.field === "uren" &&
+      (next.urenPerWeekMin === null || next.urenPerWeekMin === undefined) &&
+      (next.urenPerWeekMax === null || next.urenPerWeekMax === undefined)
+    ) {
+      const value = asUren(row.value);
+      if (!value || isMissingText(value.urenPerWeek)) {
+        continue;
+      }
+      const hours = parseWeeklyHoursRange(value.urenPerWeek);
+      if (hours.min === null && hours.max === null) {
+        continue;
+      }
+      next.urenPerWeekMin = hours.min;
+      next.urenPerWeekMax = hours.max;
+      continue;
+    }
+    if (row.field === "organisatie" && isFillableGap(next.opdrachtgeverNaam)) {
+      const value = asOrganisatie(row.value);
+      if (value && !isMissingText(value.organisatie)) {
+        next.opdrachtgeverNaam = value.organisatie;
+      }
+      continue;
+    }
+    if (
+      row.field === "sluitingsdatum" &&
+      (next.sluitingsdatum === null || next.sluitingsdatum === undefined)
+    ) {
+      const value = asSluitingsdatum(row.value);
+      const instant = value
+        ? closingMomentInstant(value.sluitingsdatum)
+        : undefined;
+      if (value && instant) {
+        next.sluitingsdatum = instant;
       }
     }
   }
