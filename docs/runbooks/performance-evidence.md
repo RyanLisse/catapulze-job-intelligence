@@ -80,7 +80,7 @@ CRABBOX_EXE_DEV_CONTROL_HOST=exe.dev crabbox job run --dry-run performance-exe-d
 
 Een dry-run is de standaard stopconditie voor configuratievalidatie. Hij geeft geen toestemming voor kosten en is geen bewijs van een werkende provider-lane. Een plain `crabbox config show` zonder expliciete control-host approval geldt in deze repository niet als verwacht-groene validatie.
 
-De exe.dev-shadow-launcher maakt in de gematerialiseerde workspace een tijdelijke Git-repository aan, omdat Crabbox v0.46.0 met `sync.gitSeed: true` Git-gebaseerd synchroniseert. Die throwaway-commit is uitsluitend voor Crabbox-sync; de evidencefingerprint gebruikt de expliciet overgedragen bronidentiteit.
+De exe.dev-shadow-launcher maakt in de gematerialiseerde workspace een tijdelijke Git-repository aan, omdat Crabbox v0.62.0 met `sync.gitSeed: true` Git-gebaseerd synchroniseert. Voor de eerste `exe-dev-shadow` provideractie controleert de launcher ook de naast de lokale binary opgeslagen provenance met de pinned archive-digest en de gereviewde macOS arm64 binary-digest; ontbrekende of afwijkende provenance stopt die shadow-run. De aparte `performance-exe-dev` job gebruikt direct de remote workspace en heeft daarom geen lokale launcher-provenancecheck; behandel hem als shadow-only totdat de geautoriseerde performance acceptance is uitgevoerd. Die throwaway-commit is uitsluitend voor Crabbox-sync; de evidencefingerprint gebruikt de expliciet overgedragen bronidentiteit.
 
 Op macOS kan een door `uv` beheerde `python3`-shim in sommige sandboxed shells met SIGKILL eindigen wanneer de launcher vanuit een getrapt Bash-script `monotonic_ms` meet. Eindigt de launcher direct met status 137, start hem dan met `PATH=/usr/bin:$PATH` zodat de systeem-Python wordt gebruikt.
 
@@ -101,7 +101,7 @@ Een gewone opt-in job mag na deze gates alleen als shadow-run worden gestart:
 crabbox job run performance-exe-dev
 ```
 
-De huidige job voert twee geordende gate/build-paren uit met `run-kind=unknown` en `sequence-position=1|2`. Daarmee meten we herhaling zonder een onbewezen cachetoestand als cold of warm te labelen. Hij hoort `.artifacts/performance/remote/report.md` plus twee afzonderlijke JUnit-bestanden terug te leveren. Dit zijn onze applicatie-eigen timings en testresultaten. Crabbox v0.46.0 geeft bij `crabbox job run` geen operationele timing-JSON, accepteert daar geen `--timing-json` of `--timing-record` en heeft geen job-schema-pass-through voor die flags. Behandel ontbrekende verplichte artifacts als een mislukte run, niet als ontbrekende performance-data.
+De huidige job voert twee geordende gate/build-paren uit met `run-kind=unknown` en `sequence-position=1|2`. Daarmee meten we herhaling zonder een onbewezen cachetoestand als cold of warm te labelen. Hij hoort `.artifacts/performance/remote/report.md` plus twee afzonderlijke JUnit-bestanden terug te leveren. Dit zijn onze applicatie-eigen timings en testresultaten. Crabbox v0.62.0 geeft bij `crabbox job run` geen operationele timing-JSON, accepteert daar geen `--timing-json` of `--timing-record` en heeft geen job-schema-pass-through voor die flags. Behandel ontbrekende verplichte artifacts als een mislukte run, niet als ontbrekende performance-data.
 
 De cohortdimensies gebruiken schema versie 2. Ook bij een expliciet machinelabel blijven de geobserveerde CPU-count, geheugencapaciteit en OS-release onderdeel van de fingerprint, zodat hardware- of imagewijzigingen niet stil in hetzelfde cohort belanden.
 
@@ -165,5 +165,5 @@ Verwijder daarna `BENCH_ALLOW_FAIL: "1"` uit de `env:`-blok van de `Run search b
 
 Officiële referenties:
 
-- [Crabbox run/timing, gepinde release](https://github.com/openclaw/crabbox/blob/8ba71f913bbe57285ae29af45ef0d8ec6712477d/docs/commands/run.md)
-- [Crabbox exe.dev-provider](https://github.com/openclaw/crabbox/blob/8ba71f913bbe57285ae29af45ef0d8ec6712477d/docs/providers/exe-dev.md)
+- [Crabbox run/timing, gepinde release](https://github.com/openclaw/crabbox/blob/v0.62.0/docs/commands/run.md)
+- [Crabbox exe.dev-provider](https://github.com/openclaw/crabbox/blob/v0.62.0/docs/providers/exe-dev.md)

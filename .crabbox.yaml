@@ -1,5 +1,5 @@
 ---
-# Validated against Crabbox v0.46.0.
+# Validated against Crabbox v0.62.0.
 # Credentials, account policy and purchase authority belong in operator config,
 # never in this repository file. GitHub CI remains the required merge gate.
 provider: exe-dev
@@ -13,9 +13,10 @@ lease:
 
 exeDev:
   controlHost: exe.dev
-  # exe.dev exposes region as operator account state, not as a Crabbox v0.46
-  # repo field. The skill fixes and reads back FRA before a paid run, while
-  # EXE_DEV_REGION=FRA makes that cohort boundary explicit in run evidence.
+  # exe.dev exposes region as operator account state, not as a Crabbox repo
+  # field. The skill reads back FRA before a paid run; it does not mutate the
+  # operator region during preflight. EXE_DEV_REGION=FRA makes the cohort
+  # boundary explicit in run evidence.
   # Multi-arch exeuntu image resolved on 2026-08-28. It includes Docker,
   # Compose, Git, rsync, curl, and the exe.dev SSH bootstrap.
   image: ghcr.io/boldsoftware/exeuntu@sha256:a85bf5d50de2d3dbe079b0a4c5ee5ef03f5c806e88d36eaeb432dddbaca2017f
@@ -39,7 +40,7 @@ sync:
     - .artifacts
     - .crabbox
     # Keep direct `crabbox job run exe-dev-shadow` calls from uploading local
-    # dotenv values. Crabbox v0.46 applies the rules in order (last match wins),
+    # dotenv values. Crabbox applies the rules in order (last match wins),
     # so only the three tracked placeholder templates are re-included.
     - ".env*"
     - "!.env.example"
