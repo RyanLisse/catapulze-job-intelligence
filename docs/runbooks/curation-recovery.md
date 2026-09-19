@@ -47,9 +47,12 @@ the task with the observation ID so the task retry retains diagnostics.
 An `unchanged` observation is superseded only when it is provably a no-op
 refresh: the canonical record is already `active` on the same `content_hash`,
 and a strictly later succeeded run holds an observation of the same source
-record with that hash whose status will still apply or already did (active,
-ordering-blocked, or applied) and whose payload passes the same full
-observation-contract check candidate selection applies. Rows that could
+record with that hash whose payload passes the same full
+observation-contract check candidate selection applies and which either
+already applied or still will apply because its raw object is readable
+(applied, or active/ordering-blocked with a present raw object). A sibling
+whose raw is missing would only defer to `deferred_missing_raw`, so it can
+never stand in for the earlier row's refresh. Rows that could
 still write a lifecycle transition — the canonical
 record is `stale` or `closed`, or the hash differs — are never dominated,
 and neither are rows whose only later siblings sit on `curation_failed`, a

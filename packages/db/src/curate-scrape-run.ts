@@ -103,6 +103,15 @@ const DOMINATING_STATUSES = [
   "unchanged",
 ] as const;
 
+/**
+ * Distinct dominator raw objects one pass may read while proving a
+ * will-apply sibling can stand in for the earlier row. An applied dominator
+ * needs no read -- its raw was already consumed -- so the cap only bounds
+ * siblings that have not processed yet; rows whose dominators go unchecked
+ * simply stay recoverable and qualify on a later pass.
+ */
+const DOMINATED_RAW_CHECK_LIMIT = 500;
+
 /** Enough of the chain to name the failing statement without flooding stderr. */
 const MAX_LOGGED_CAUSE_LENGTH = 500;
 
@@ -520,10 +529,11 @@ export const candidateSourceRecordIds = async (
  * row could still be the one that reactivates a `stale` or `closed` record;
  * superseding it would move the lifecycle transition to the later sibling's
  * pointer and lose the SCD2 interval the earlier row would have written.
- * Without a dominator restricted to statuses that will apply or already did,
- * the earlier row could be superseded behind a sibling that turns out to be
- * unprocessable and leaves nothing able to refresh the record. With both, a
- * dominated row can only ever repeat the refresh the sibling performs --
+ * Without a dominator restricted to statuses that will apply or already did
+ * and proven to have its raw object still readable, the earlier row could
+ * be superseded behind a sibling that turns out to be unprocessable and
+ * leaves nothing able to refresh the record. With both, a dominated row can
+ * only ever repeat the refresh the sibling performs --
  * canonical content and status are already correct, so at worst a
  * `laatstGezienOp` update waits for the later observation, which reports the
  * truth more accurately anyway.
@@ -539,6 +549,126 @@ export const candidateSourceRecordIds = async (
  * itself. The row stays in the table with an honest terminal status, so
  * history is preserved.
  */
+/** Redacted and length-capped, ready to go on a log line. */
+const loggableCauseChain = (input: ThrownValue): string =>
+  redactConnectionUrls(describeCauseChain(input)).slice(
+    0,
+    MAX_LOGGED_CAUSE_LENGTH
+  );
+
+/**
+ * Reads the raw object, keeping "no such object" and "the store would not
+ * answer" apart.
+ *
+ * `null` means absent, which the caller defers to `deferred_missing_raw`. A
+ * throw means the store is unreachable, which says nothing about this row and
+ * must not consume a review status, so it is retagged as `RawReadError`
+ * and aborts the pass: the next poll then retries the whole backlog with every
+ * row still in an active status.
+ */
+const readStoredRaw = async (
+  objectStore: ObjectStore,
+  rawPayloadRef: string
+): Promise<StoredObject | null> => {
+  try {
+    return await objectStore.get(rawPayloadRef);
+  } catch (error) {
+    process.stderr.write(
+      `${JSON.stringify({
+        causeChain: loggableCauseChain({ error }),
+        errorName: errorNameOf({ error }),
+        event: "curation_raw_read_failed",
+        rawPayloadRef,
+      })}\n`
+    );
+    throw rawReadError(rawPayloadRef, error);
+  }
+};
+
+/**
+ * A dominated `unchanged` row paired with one candidate dominator. Both the
+ * runtime sweep and the operator repair tool produce this shape so the
+ * standing-dominator proof below is applied identically in each.
+ */
+export interface DominatedPair {
+  dominatorBronId: string;
+  dominatorBronReferentie: string;
+  dominatorContentHash: string;
+  dominatorPayload: unknown;
+  dominatorRunBronId: string;
+  dominatorScrapeRunId: string;
+  dominatorSourceRecordBronId: string;
+  dominatorSourceRecordId: string;
+  dominatorStatus: string;
+  id: string;
+}
+
+/**
+ * The dominated ids that have at least one standing dominator.
+ *
+ * A dominator stands when it is provably able to perform the refresh the
+ * earlier row would have: its payload passes the full contract check
+ * candidate selection applies, and it either already applied (its raw was
+ * consumed) or still will apply because its raw object is present. A
+ * will-apply sibling whose raw is missing would defer to
+ * `deferred_missing_raw` the first time it is attempted, so superseding the
+ * earlier row behind it would lose the `laatstGezienOp` refresh entirely --
+ * exactly the lifecycle history this sweep exists to preserve. Raw reads
+ * dedupe per `rawPayloadRef` and are capped by DOMINATED_RAW_CHECK_LIMIT;
+ * an unreachable store aborts the pass rather than silently disqualifying,
+ * matching candidate semantics.
+ */
+export const resolveDominatedObservationIds = async (input: {
+  objectStore: ObjectStore;
+  pairs: readonly DominatedPair[];
+}): Promise<Set<string>> => {
+  const dominatedIds = new Set<string>();
+  const rawAvailability = new Map<string, boolean>();
+  let rawChecks = 0;
+  for (const pair of input.pairs) {
+    if (
+      dominatedIds.has(pair.id) ||
+      !isValidCandidatePayload({
+        bronId: pair.dominatorBronId,
+        bronReferentie: pair.dominatorBronReferentie,
+        contentHash: pair.dominatorContentHash,
+        payload: pair.dominatorPayload,
+        runBronId: pair.dominatorRunBronId,
+        scrapeRunId: pair.dominatorScrapeRunId,
+        sourceRecordBronId: pair.dominatorSourceRecordBronId,
+        sourceRecordId: pair.dominatorSourceRecordId,
+      })
+    ) {
+      continue;
+    }
+    if (APPLIED_STATUSES.has(pair.dominatorStatus)) {
+      dominatedIds.add(pair.id);
+      continue;
+    }
+    // SAFETY: isValidCandidatePayload validated every field consumed here.
+    const { rawPayloadRef } = pair.dominatorPayload as ConnectorObservation;
+    let available = rawAvailability.get(rawPayloadRef);
+    if (available === false) {
+      continue;
+    }
+    if (available === undefined) {
+      if (rawChecks >= DOMINATED_RAW_CHECK_LIMIT) {
+        continue;
+      }
+      rawChecks += 1;
+      available =
+        // oxlint-disable-next-line no-await-in-loop -- deduped reads bound the pass
+        (await readStoredRaw(input.objectStore, rawPayloadRef)) !== null;
+      rawAvailability.set(rawPayloadRef, available);
+      if (!available) {
+        continue;
+      }
+    }
+    dominatedIds.add(pair.id);
+  }
+  return dominatedIds;
+};
+
 const markDominatedUnchangedObservations = async (
   input: CurateScrapeRunInput
 ): Promise<number> => {
@@ -557,6 +687,7 @@ const markDominatedUnchangedObservations = async (
       dominatorScrapeRunId: dominatingObservation.scrapeRunId,
       dominatorSourceRecordBronId: sourceRecord.bronId,
       dominatorSourceRecordId: dominatingObservation.sourceRecordId,
+      dominatorStatus: dominatingObservation.status,
       id: aanvraagObservation.id,
     })
     .from(aanvraagObservation)
@@ -608,26 +739,10 @@ const markDominatedUnchangedObservations = async (
       )
     )
     .limit(DOMINATED_SWEEP_LIMIT);
-  // A dominator must be provably processable, so it is held to the same full
-  // contract check candidate selection applies -- a sibling that would fail
-  // parsing cannot stand in for the earlier row.
-  const dominatedIds = new Set<string>();
-  for (const pair of dominatedPairs) {
-    if (
-      isValidCandidatePayload({
-        bronId: pair.dominatorBronId,
-        bronReferentie: pair.dominatorBronReferentie,
-        contentHash: pair.dominatorContentHash,
-        payload: pair.dominatorPayload,
-        runBronId: pair.dominatorRunBronId,
-        scrapeRunId: pair.dominatorScrapeRunId,
-        sourceRecordBronId: pair.dominatorSourceRecordBronId,
-        sourceRecordId: pair.dominatorSourceRecordId,
-      })
-    ) {
-      dominatedIds.add(pair.id);
-    }
-  }
+  const dominatedIds = await resolveDominatedObservationIds({
+    objectStore: input.objectStore,
+    pairs: dominatedPairs,
+  });
   if (dominatedIds.size === 0) {
     return 0;
   }
@@ -1053,42 +1168,6 @@ const markObservation = async (
     )
     .returning({ id: aanvraagObservation.id });
   return rows.length > 0;
-};
-
-/** Redacted and length-capped, ready to go on a log line. */
-const loggableCauseChain = (input: ThrownValue): string =>
-  redactConnectionUrls(describeCauseChain(input)).slice(
-    0,
-    MAX_LOGGED_CAUSE_LENGTH
-  );
-
-/**
- * Reads the raw object, keeping "no such object" and "the store would not
- * answer" apart.
- *
- * `null` means absent, which the caller defers to `deferred_missing_raw`. A
- * throw means the store is unreachable, which says nothing about this row and
- * must not consume a review status, so it is retagged as `RawReadError`
- * and aborts the pass: the next poll then retries the whole backlog with every
- * row still in an active status.
- */
-const readStoredRaw = async (
-  objectStore: ObjectStore,
-  rawPayloadRef: string
-): Promise<StoredObject | null> => {
-  try {
-    return await objectStore.get(rawPayloadRef);
-  } catch (error) {
-    process.stderr.write(
-      `${JSON.stringify({
-        causeChain: loggableCauseChain({ error }),
-        errorName: errorNameOf({ error }),
-        event: "curation_raw_read_failed",
-        rawPayloadRef,
-      })}\n`
-    );
-    throw rawReadError(rawPayloadRef, error);
-  }
 };
 
 const processCandidate = async (

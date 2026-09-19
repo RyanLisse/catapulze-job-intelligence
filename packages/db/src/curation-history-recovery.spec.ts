@@ -2733,4 +2733,81 @@ describe("historical curation recovery (RJC-433)", () => {
     expect(statusById.get(dominatedId)).toBe("unchanged");
     expect(statusById.get(dominatorId)).toBe("blocked_ordering");
   });
+
+  it("does not supersede an unchanged row behind a dominator whose raw is missing", async () => {
+    if (!available || !database) {
+      expect(available).toBe(false);
+      return;
+    }
+    const objectStore = new InMemoryObjectStore();
+    const firstRunId = await seedRun(database, 0);
+    const secondRunId = await seedRun(database, 10);
+    const bronReferentie = `rjc-621-rawless-dominator-${crypto.randomUUID()}`;
+    const sourceRecordId = await seedSourceRecord(
+      database,
+      bronReferentie,
+      firstRunId
+    );
+    await seedCommitted({
+      bronReferentie,
+      contentHash: "rawless-dominator-hash",
+      database,
+      minute: 0,
+      scrapeRunId: firstRunId,
+      title: "Rawless dominator",
+    });
+    const dominatedId = await seedObservation({
+      bronReferentie,
+      contentHash: "rawless-dominator-hash",
+      database,
+      minute: 1,
+      objectStore,
+      outcome: "unchanged",
+      scrapeRunId: firstRunId,
+      sourceRecordId,
+      title: "Rawless dominator",
+    });
+    // The dominator is metadata-valid and still awaiting, but its raw object
+    // was never captured under a distinct (non-content-addressed) ref:
+    // superseding the earlier row behind it would lose the refresh when the
+    // dominator defers to deferred_missing_raw.
+    const dominatorId = await seedObservation({
+      bronReferentie,
+      contentHash: "rawless-dominator-hash",
+      database,
+      minute: 11,
+      outcome: "unchanged",
+      rawPayloadRef: `raw/opdrachtoverheid/rjc-621/never-captured-${crypto.randomUUID()}.json`,
+      scrapeRunId: secondRunId,
+      sourceRecordId,
+      title: "Rawless dominator",
+    });
+
+    const result = await curateScrapeRun({
+      bronId: BRON_ID,
+      bronSlug: BRON_SLUG,
+      database,
+      objectStore,
+      scrapeRunId: secondRunId,
+    });
+    expect(result).toMatchObject({
+      pending: 1,
+      remaining: 1,
+      superseded: 0,
+      unchanged: 1,
+    });
+
+    const statuses = await database
+      .select({
+        id: aanvraagObservation.id,
+        status: aanvraagObservation.status,
+      })
+      .from(aanvraagObservation)
+      .where(inArray(aanvraagObservation.id, [dominatedId, dominatorId]));
+    const statusById = new Map(
+      statuses.map((row) => [row.id, row.status] as const)
+    );
+    expect(statusById.get(dominatedId)).toBe("unchanged");
+    expect(statusById.get(dominatorId)).toBe("deferred_missing_raw");
+  });
 });

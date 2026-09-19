@@ -13,9 +13,11 @@
  * An `unchanged` row is dominated only when it is provably a no-op refresh:
  * the canonical record is already `active` on the same `content_hash`, and a
  * later succeeded run holds an observation of the same source record with
- * that hash whose status will apply or already did and whose payload passes
- * the same full contract check candidate selection applies. Rows that could
- * still write a lifecycle
+ * that hash whose payload passes the same full contract check candidate
+ * selection applies and which either already applied or still will apply
+ * because its raw object is readable. Raw availability uses the same
+ * `RAW_S3_*`/`RAW_OBJECT_STORE_PATH` environment the worker resolves through
+ * `createRawObjectStore`. Rows that could still write a lifecycle
  * transition, and rows dominated only by a failed, deferred, quarantined, or
  * already-superseded sibling, are never touched. The dominated row is marked
  * `superseded` and kept in the table for history. Nothing else is mutated:
@@ -27,7 +29,10 @@
  * attach to the release record.
  */
 import { CONNECTOR_OBSERVATION_CONTRACT_VERSION } from "@ji/connectors";
-import { isValidCandidatePayload } from "@ji/db/curate-scrape-run";
+import type { ObjectStore } from "@ji/connectors";
+import { createRawObjectStore } from "@ji/connectors/s3-object-client";
+import { resolveDominatedObservationIds } from "@ji/db/curate-scrape-run";
+import type { DominatedPair } from "@ji/db/curate-scrape-run";
 import postgres from "postgres";
 
 const STATEMENT_TIMEOUT_MS = 15_000;
@@ -146,30 +151,19 @@ interface ApplyReceipt {
   readonly remainingDominated: number;
 }
 
-interface DominatedPairRow {
-  dominatorBronId: string;
-  dominatorBronReferentie: string;
-  dominatorContentHash: string;
-  dominatorPayload: unknown;
-  dominatorRunBronId: string;
-  dominatorScrapeRunId: string;
-  dominatorSourceRecordBronId: string;
-  dominatorSourceRecordId: string;
-  id: string;
-}
-
 /**
  * Recoverable `unchanged` rows with at least one candidate dominator, paired
- * with that dominator's row so its payload can be held to the same contract
- * check candidate selection applies. A dominated id qualifies when any pair
- * carries a dominator that would itself be processable.
+ * with that dominator's row so the shared standing-dominator proof in
+ * `resolveDominatedObservationIds` -- full contract check plus applied
+ * status or a readable raw object -- can qualify each dominated id.
  */
 const findDominatedObservationIds = async (
   sql: postgres.Sql | postgres.TransactionSql,
+  objectStore: ObjectStore,
   bronId: string,
   limit: number
 ): Promise<string[]> => {
-  const pairs = await sql<DominatedPairRow[]>`
+  const pairs = await sql<DominatedPair[]>`
     SELECT o.id::text AS id,
            dom.bron_id::text AS "dominatorBronId",
            sr.bron_referentie AS "dominatorBronReferentie",
@@ -178,7 +172,8 @@ const findDominatedObservationIds = async (
            dr.bron_id::text AS "dominatorRunBronId",
            dom.scrape_run_id::text AS "dominatorScrapeRunId",
            sr.bron_id::text AS "dominatorSourceRecordBronId",
-           dom.source_record_id::text AS "dominatorSourceRecordId"
+           dom.source_record_id::text AS "dominatorSourceRecordId",
+           dom.status AS "dominatorStatus"
     FROM staging.aanvraag_observation o
     JOIN curated.scrape_run r ON r.id = o.scrape_run_id
     JOIN staging.source_record sr ON sr.id = o.source_record_id
@@ -202,39 +197,43 @@ const findDominatedObservationIds = async (
       AND o.status = ANY(${[...RECOVERABLE_STATUSES]})
     LIMIT ${limit}
   `;
-  const dominatedIds = new Set<string>();
-  for (const pair of pairs) {
-    if (
-      isValidCandidatePayload({
-        bronId: pair.dominatorBronId,
-        bronReferentie: pair.dominatorBronReferentie,
-        contentHash: pair.dominatorContentHash,
-        payload: pair.dominatorPayload,
-        runBronId: pair.dominatorRunBronId,
-        scrapeRunId: pair.dominatorScrapeRunId,
-        sourceRecordBronId: pair.dominatorSourceRecordBronId,
-        sourceRecordId: pair.dominatorSourceRecordId,
-      })
-    ) {
-      dominatedIds.add(pair.id);
-    }
-  }
+  const dominatedIds = await resolveDominatedObservationIds({
+    objectStore,
+    pairs,
+  });
   return [...dominatedIds];
 };
 
 const dominatedCount = async (
   sql: postgres.Sql | postgres.TransactionSql,
+  objectStore: ObjectStore,
   bronId: string
 ): Promise<number> => {
-  const ids = await findDominatedObservationIds(sql, bronId, REPORT_SCAN_LIMIT);
+  const ids = await findDominatedObservationIds(
+    sql,
+    objectStore,
+    bronId,
+    REPORT_SCAN_LIMIT
+  );
   return ids.length;
 };
+
+const rawObjectStoreEnv = () =>
+  createRawObjectStore({
+    RAW_OBJECT_STORE_PATH: process.env.RAW_OBJECT_STORE_PATH,
+    RAW_S3_ACCESS_KEY_ID: process.env.RAW_S3_ACCESS_KEY_ID,
+    RAW_S3_BUCKET: process.env.RAW_S3_BUCKET,
+    RAW_S3_ENDPOINT: process.env.RAW_S3_ENDPOINT,
+    RAW_S3_REGION: process.env.RAW_S3_REGION,
+    RAW_S3_SECRET_ACCESS_KEY: process.env.RAW_S3_SECRET_ACCESS_KEY,
+  }).store;
 
 const runReport = async (bronId: string): Promise<RepairReport> => {
   const databaseUrl = process.env.DATABASE_URL?.trim();
   if (!databaseUrl) {
     throw new Error("DATABASE_URL is required");
   }
+  const objectStore = rawObjectStoreEnv();
   const sql = postgres(databaseUrl, {
     connect_timeout: 10,
     connection: {
@@ -271,7 +270,7 @@ const runReport = async (bronId: string): Promise<RepairReport> => {
             ${CONNECTOR_OBSERVATION_CONTRACT_VERSION}
         )
     `;
-    const dominated = await dominatedCount(sql, bronId);
+    const dominated = await dominatedCount(sql, objectStore, bronId);
 
     const byStatus = new Map(
       statusRows.map((row) => [row.status, Number(row.count)] as const)
@@ -324,6 +323,7 @@ const runApply = async (input: {
   if (!databaseUrl) {
     throw new Error("DATABASE_URL is required");
   }
+  const objectStore = rawObjectStoreEnv();
   const sql = postgres(databaseUrl, {
     connect_timeout: 10,
     connection: {
@@ -339,6 +339,7 @@ const runApply = async (input: {
     await sql.begin(async (tx) => {
       const ids = await findDominatedObservationIds(
         tx,
+        objectStore,
         input.bronId,
         input.limit
       );
@@ -356,7 +357,11 @@ const runApply = async (input: {
       `;
       applied = marked.length;
     });
-    const remainingDominated = await dominatedCount(sql, input.bronId);
+    const remainingDominated = await dominatedCount(
+      sql,
+      objectStore,
+      input.bronId
+    );
     return {
       applied,
       bronId: input.bronId,
