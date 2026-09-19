@@ -1,3 +1,4 @@
+import { resolveEgressFetch } from "../egress";
 import { loadConnectorFixture } from "../fixtures/load";
 import { resolveHttpTimeoutMs, withHttpTimeout } from "../http-timeout";
 import {
@@ -53,7 +54,7 @@ export const createJsonLdClient = (
   options: JsonLdClientOptions
 ): JsonLdClient => {
   const { config } = options;
-  const fetchImpl = options.fetchImpl ?? fetch;
+  const fetchImpl = options.fetchImpl ?? resolveEgressFetch(config.slug);
   const timeoutMs = resolveHttpTimeoutMs(options.timeoutMs);
   const liveEnabled =
     options.liveEnabled ??

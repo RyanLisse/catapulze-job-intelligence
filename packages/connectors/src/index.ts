@@ -21,6 +21,16 @@ export {
   createFixtureEnvelope,
 } from "./fixtures/load";
 export { boundBronReferentie } from "./bron-referentie";
+export {
+  describeEgressConfig,
+  EGRESS_PROXY_SOURCES_ENV,
+  EGRESS_PROXY_URL_ENV,
+  EgressConfigError,
+  resolveEgressFetch,
+  resolveEgressRoute,
+  type EgressRoute,
+  type EgressSummary,
+} from "./egress";
 export { InMemoryKnownHashStore, type KnownHashStore } from "./known-hash";
 export {
   type CheckpointKey,

@@ -4,6 +4,7 @@ import { createEnv } from "@t3-oss/env-core";
 import { directDatabaseUrlEffectSchema } from "./projector-database-url";
 import {
   Effect,
+  HttpUrlString,
   NonEmptyString,
   onEnvValidationError,
   Schema,
@@ -73,6 +74,26 @@ export const pollerEnvEffectSchemas = {
     )
   ),
   DATABASE_URL: TrimmedNonEmptyString,
+  /**
+   * Which sources route through EGRESS_PROXY_URL: "*" or a comma-separated
+   * list of source slugs (the `SOURCES` registry keys). Setting sources
+   * without the URL fails closed at startup — see `describeEgressConfig` in
+   * `@ji/connectors` (runbook: docs/runbooks/nl-egress.md).
+   */
+  EGRESS_PROXY_SOURCES: Schema.optional(
+    Schema.String.check(
+      Schema.isPattern(/^\s*(?:\*|[a-z0-9-]+(?:\s*,\s*[a-z0-9-]+)*)\s*$/u, {
+        message:
+          'EGRESS_PROXY_SOURCES must be "*" or a comma-separated list of source slugs',
+      })
+    )
+  ),
+  /**
+   * CTP-602: optional http(s) forward-proxy endpoint for sources that block
+   * non-Dutch egress IPs. Unset means every source fetches directly (today's
+   * behaviour). Never logged — it may carry proxy credentials.
+   */
+  EGRESS_PROXY_URL: Schema.optional(HttpUrlString),
   /** Unused while SEARCH_PROJECTOR is onbox; the projector owns every drain. */
   MANTICORE_URL: Schema.optional(UrlString),
   /**
@@ -154,6 +175,10 @@ const createPollerEnv = () =>
     server: {
       APP_RELEASE_SHA: toEnvSchema(pollerEnvEffectSchemas.APP_RELEASE_SHA),
       DATABASE_URL: toEnvSchema(pollerEnvEffectSchemas.DATABASE_URL),
+      EGRESS_PROXY_SOURCES: toEnvSchema(
+        pollerEnvEffectSchemas.EGRESS_PROXY_SOURCES
+      ),
+      EGRESS_PROXY_URL: toEnvSchema(pollerEnvEffectSchemas.EGRESS_PROXY_URL),
       MANTICORE_URL: toEnvSchema(pollerEnvEffectSchemas.MANTICORE_URL),
       POLLER_ABANDON_RUN_AFTER_MS: toEnvSchema(
         pollerEnvEffectSchemas.POLLER_ABANDON_RUN_AFTER_MS

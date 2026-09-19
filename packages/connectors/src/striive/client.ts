@@ -1,3 +1,4 @@
+import { resolveEgressFetch } from "../egress";
 import { loadConnectorFixture } from "../fixtures/load";
 import { resolveHttpTimeoutMs, withHttpTimeout } from "../http-timeout";
 import { STRIIVE_JOBS_PATH } from "./types";
@@ -30,7 +31,7 @@ const readJson = async <Payload>(response: Response): Promise<Payload> => {
 export const createStriiveClient = (
   options: StriiveClientOptions = {}
 ): StriiveClient => {
-  const fetchImpl = options.fetchImpl ?? fetch;
+  const fetchImpl = options.fetchImpl ?? resolveEgressFetch("striive");
   const timeoutMs = resolveHttpTimeoutMs(options.timeoutMs);
   const liveEnabled = options.liveEnabled ?? process.env.STRIIVE_LIVE === "1";
   const listingFixturePath =

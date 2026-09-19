@@ -71,6 +71,7 @@ export const fetchListingEffect = (
 
   return httpRequest({
     fetchImpl: options.fetchImpl,
+    sourceSlug: "tenderned",
     url: buildTenderNedListingUrl(page, filters, TENDER_NED_MAX_PAGE_SIZE),
   }).pipe(
     Effect.flatMap((response) => readJsonBody<TenderNedListingPage>(response)),
@@ -108,6 +109,7 @@ export const fetchDetailEffect = (
   const baseUrl = options.baseUrl ?? LISTING_BASE;
   return httpRequest({
     fetchImpl: options.fetchImpl,
+    sourceSlug: "tenderned",
     url: `${baseUrl}/${publicatieId}`,
   }).pipe(
     Effect.flatMap((response) => readJsonBody<TenderNedDetail>(response)),

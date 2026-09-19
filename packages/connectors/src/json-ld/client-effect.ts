@@ -110,6 +110,7 @@ const fetchLiveTextEffect = (
     fetchImpl: options.fetchImpl,
     init: liveRequestInit(options),
     mapHttpErrors: false,
+    sourceSlug: options.config.slug,
     url,
   }).pipe(
     Effect.flatMap((response) => readLiveBodyEffect(options, url, response))
