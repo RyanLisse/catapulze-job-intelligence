@@ -181,6 +181,11 @@ const listingSpecifiekOf = (
   opleidingsniveau: keep(listing?.studyLevel),
   stageplaats: listing?.stageplaats ?? false,
   werklocatie_type: keep(listing?.workLocationType),
+  // `workLocationType` is the source's own work-arrangement label ("Vaste
+  // werklocatie"/"Wisselende werklocatie") — canonical `werkvorm` takes it
+  // verbatim. The numeric `proposition.workLocation.type` stays raw in
+  // `werklocatie_type_code`; no verified codelijst maps it to a label.
+  werkvorm: keep(listing?.workLocationType),
 });
 
 const bronSpecifiekOf = (
