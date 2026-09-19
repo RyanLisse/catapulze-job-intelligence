@@ -1,7 +1,7 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 
-import { chromium } from "@playwright/test";
+import { chromium, expect } from "@playwright/test";
 import type { Page } from "@playwright/test";
 import { z } from "zod";
 
@@ -465,18 +465,11 @@ const runBrowserFlow = async (
       .getByText(`Welcome ${auth.recruiter.name}`, { exact: true })
       .waitFor();
     await inspectApiSearch(loginPage, config, seed.canary.query);
-    const recruiterDashboardStatus = await loginPage.evaluate(
-      async (apiUrl) => {
-        const response = await fetch(
-          new URL("/v1/dashboard?window=7d", apiUrl),
-          {
-            credentials: "include",
-          }
-        );
-        return response.status;
-      },
-      config.apiUrl
+    const recruiterDashboardResponse = await loginPage.request.get(
+      new URL("/v1/dashboard?window=7d", config.apiUrl).href,
+      { failOnStatusCode: false }
     );
+    const recruiterDashboardStatus = recruiterDashboardResponse.status();
     if (recruiterDashboardStatus !== 403) {
       throw new Error("Recruiter dashboard API access was not denied.");
     }
@@ -595,9 +588,7 @@ const runBrowserFlow = async (
     const seededSource = page
       .getByText(seededSourceName, { exact: true })
       .filter({ visible: true });
-    if ((await seededSource.count()) !== 1) {
-      throw new Error("Operator /bronnen did not show the seeded source card.");
-    }
+    await expect(seededSource).toHaveCount(1, { timeout: 15_000 });
     checkState.browser.seededSourceVisible = true;
     const expectedKpis = [
       ["bronnen-kpi-runs", "1"],
@@ -607,20 +598,13 @@ const runBrowserFlow = async (
       ["bronnen-kpi-ongewijzigd", "0"],
       ["bronnen-kpi-rejected", "0"],
     ] as const;
-    const observedKpis = await Promise.all(
-      expectedKpis.map(async ([testId, expected]) => ({
-        expected,
-        testId,
-        value: await visibleKpi(testId).locator("p").nth(1).textContent(),
-      }))
+    await Promise.all(
+      expectedKpis.map(([testId, expected]) =>
+        expect(visibleKpi(testId).locator("p").nth(1)).toHaveText(expected, {
+          timeout: 15_000,
+        })
+      )
     );
-    for (const { expected, testId, value } of observedKpis) {
-      if (value?.trim() !== expected) {
-        throw new Error(
-          `Operator /bronnen KPI ${testId} did not show the seeded value.`
-        );
-      }
-    }
     checkState.browser.seededKpisMatch = true;
     const visibleTextParts = await page.locator(":visible").allTextContents();
     const visibleText = visibleTextParts.join(" ").toLowerCase();
