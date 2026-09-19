@@ -3,6 +3,7 @@ import { asml } from "./asml";
 import { bam } from "./bam";
 import { bijOranje } from "./bij-oranje";
 import { bluetrail } from "./bluetrail";
+import { circle8 } from "./circle8";
 import { ctm } from "./ctm";
 import { datajobs } from "./datajobs";
 import type { SourceDefinition } from "./definition";
@@ -17,9 +18,12 @@ import { harveynash } from "./harveynash";
 import { hays } from "./hays";
 import { heijmans } from "./heijmans";
 import { hero } from "./hero";
+import { indeed } from "./indeed";
 import { inhuurdesk } from "./inhuurdesk";
 import { intermediair } from "./intermediair";
 import { jobbird } from "./jobbird";
+import { linkedin } from "./linkedin";
+import { mercell } from "./mercell";
 import { needstaffing } from "./needstaffing";
 import { ns } from "./ns";
 import { onefellow } from "./onefellow";
@@ -58,6 +62,7 @@ export const SOURCES = {
   bam,
   "bij-oranje": bijOranje,
   bluetrail,
+  circle8,
   ctm,
   datajobs,
   eneco,
@@ -71,9 +76,12 @@ export const SOURCES = {
   hays,
   heijmans,
   hero,
+  indeed,
   inhuurdesk,
   intermediair,
   jobbird,
+  linkedin,
+  mercell,
   needstaffing,
   ns,
   onefellow,

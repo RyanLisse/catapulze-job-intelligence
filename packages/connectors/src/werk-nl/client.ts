@@ -1,3 +1,4 @@
+import { resolveEgressFetch } from "../egress";
 import { loadConnectorFixture } from "../fixtures/load";
 import { resolveHttpTimeoutMs, withHttpTimeout } from "../http-timeout";
 import { HttpStatusError } from "../json-ld/live-fetch";
@@ -273,7 +274,7 @@ const projectWerkNlSearchItem = (item: WerkNlSearchItem): WerkNlSearchItem => ({
 export const createWerkNlClient = (
   options: WerkNlClientOptions = {}
 ): WerkNlClient => {
-  const fetchImpl = options.fetchImpl ?? fetch;
+  const fetchImpl = options.fetchImpl ?? resolveEgressFetch("werk-nl");
   const liveEnabled = options.liveEnabled ?? process.env.WERK_NL_LIVE === "1";
   const listingFixturePath =
     options.listingFixturePath ?? "werk-nl/listing-page-0.json";

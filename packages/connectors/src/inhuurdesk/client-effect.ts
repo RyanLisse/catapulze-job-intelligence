@@ -50,6 +50,7 @@ export const fetchListingEffect = (
 
   return httpRequest({
     fetchImpl: options.fetchImpl,
+    sourceSlug: "inhuurdesk",
     url: `${baseUrl}${INHUURDESK_SEARCH_PATH}?page=${page}`,
   }).pipe(
     Effect.flatMap((response) => readJsonBody<InhuurdeskListingPage>(response))

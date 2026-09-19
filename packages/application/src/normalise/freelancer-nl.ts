@@ -4,6 +4,7 @@ import { UNKNOWN } from "@ji/domain";
 import { resolveLifecycleStatus } from "@ji/domain/lifecycle";
 
 import { normaliseSkills } from "./skills";
+import { parseTariefFromText } from "./tarief";
 import { field, isValidCalendarDate, stripHtml } from "./types";
 import type { NormalisedAanvraagDraft, NormalisedTarief } from "./types";
 
@@ -45,6 +46,28 @@ const unknownTarief: NormalisedTarief = {
   valuta: "EUR",
 };
 
+/** The `.budget` block carries either a priced range with an explicit unit
+ * ("€30 — €40 Per Uur") or a qualitative/fixed-price label ("In overleg",
+ * "€1000 — €2000 Vaste Prijs"). Only the explicit-unit form is a tarief:
+ * parseTariefFromText labels every bare-euro range "uur" by default, which
+ * would mislabel a fixed project price — so a budget without a per-unit
+ * marker stays UNKNOWN. `soort_budget` keeps the source's own type label
+ * ("Vaste Prijs"/"Per Uur"/"In overleg") as provenance. */
+const EXPLICIT_RATE_UNIT = /\bper\s+(?:uur|dag|maand)\b|\bp\/u\b/iu;
+
+/** Typographic dashes/minus the shared range patterns do not read; the site
+ * typesets "€30 — €40" with an em dash (U+2014). Normalising to "-" is
+ * typography, not inference — the published range itself is unchanged. */
+const TYPOGRAPHIC_DASH = /[‐-―−]/gu;
+
+const tariefOf = (budget?: string): NormalisedTarief => {
+  const text = budget?.trim() ?? "";
+  if (!EXPLICIT_RATE_UNIT.test(text)) {
+    return unknownTarief;
+  }
+  return parseTariefFromText(text.replace(TYPOGRAPHIC_DASH, "-"));
+};
+
 const detailStatusIsClosed = (status?: string): boolean => {
   const normalised = status?.trim().toLowerCase();
   return normalised === "closed" || normalised === "gesloten";
@@ -83,6 +106,7 @@ export const parseFreelancerNlPayload = (
     bronSpecifiek: field(
       {
         categorie: detail.categorie ?? null,
+        duur: detail.verwachteDuur ?? null,
         geplaatst: detail.geplaatst ?? null,
         publicatiedatum: publicatiedatumOf(detail.geplaatst),
         reacties: detail.reacties ?? listing.reacties ?? null,
@@ -118,7 +142,7 @@ export const parseFreelancerNlPayload = (
       "detail.start"
     ),
     status: lifecycle,
-    tarief: unknownTarief,
+    tarief: tariefOf(listing.budget),
     titel: field(titel, parserVersion, "detail.titel"),
   };
 };

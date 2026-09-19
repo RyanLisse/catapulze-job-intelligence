@@ -1,4 +1,7 @@
-import { RunAlreadyInProgressError } from "@ji/connectors";
+import {
+  describeEgressConfig,
+  RunAlreadyInProgressError,
+} from "@ji/connectors";
 import { abandonStaleRuns } from "@ji/db/abandon-stale-runs";
 import { abortableSleep } from "@ji/db/abortable-sleep";
 import { curateScrapeRun } from "@ji/db/curate-scrape-run";
@@ -47,6 +50,11 @@ const ADVISORY_LOCK_KEY = 613_204_877;
 
 const PROCESS_STARTED_AT = new Date();
 const pollerEnv = getPollerEnv();
+// CTP-602: resolves the operator's per-source egress routing up front so a
+// source listed in EGRESS_PROXY_SOURCES without EGRESS_PROXY_URL fails the
+// process here instead of silently polling direct mid-cycle. The summary
+// only ever names slugs — the proxy URL may carry credentials.
+const egress = describeEgressConfig(process.env);
 
 interface LogStream {
   write: (chunk: string) => boolean;
@@ -254,6 +262,8 @@ const main = async (): Promise<void> => {
     abandonRunAfterMs,
     concurrency,
     curateBudgetMs,
+    egressProxiedSources: egress.proxiedSources,
+    egressProxyConfigured: egress.proxyConfigured,
     releaseSha: pollerEnv.APP_RELEASE_SHA ?? null,
     runBudgetMs,
     startedAt: PROCESS_STARTED_AT.toISOString(),

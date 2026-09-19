@@ -16,7 +16,7 @@ import { CLEARED, UNKNOWN } from "@ji/domain";
  * Usage: bun run scripts/field-coverage.ts [--bron <slug>] [--json]
  */
 
-const FIELDS = [
+export const FIELDS = [
   "organisatie",
   "locatie",
   "tarief",
@@ -30,7 +30,7 @@ const FIELDS = [
   "einddatum",
 ] as const;
 
-type FieldName = (typeof FIELDS)[number];
+export type FieldName = (typeof FIELDS)[number];
 
 /* oxlint-disable anti-slop/no-unknown-parameters, anti-slop/no-runtime-typeof -- these guards are the script's own I/O boundary: bronSpecifiek is a free-form JsonValue map whose shape is established here before any field evaluation reads it. */
 const isRecord = (value: unknown): value is Record<string, JsonValue> =>
@@ -113,7 +113,7 @@ const bronKeysPresent = (draft: NormalisedAanvraagDraft): string[] => {
     .toSorted();
 };
 
-interface SourceReport {
+export interface SourceReport {
   bronId: string;
   errors: string[];
   fields: Record<FieldName, number>;
@@ -262,35 +262,51 @@ const printDetails = (reports: readonly SourceReport[]): void => {
   }
 };
 
-const args = process.argv.slice(2);
-const bronArg = args.includes("--bron")
-  ? args[args.indexOf("--bron") + 1]
-  : undefined;
-const asJson = args.includes("--json");
+/**
+ * Replay the committed fixtures of the given bron slugs (default: every
+ * supported bron) and return one report per source. Throws on an unknown
+ * slug; a source whose audit itself fails is reported on stderr and skipped,
+ * matching the CLI's historical behaviour.
+ */
+export const replaySources = async (
+  slugs: readonly string[] = SUPPORTED_BRON_SLUGS
+): Promise<SourceReport[]> => {
+  const reports: SourceReport[] = [];
+  for (const slug of slugs) {
+    // SAFETY: SOURCES is keyed by bron slug; the guard below rejects unknown slugs.
+    const source = (SOURCES as Record<string, SourceDefinition>)[slug];
+    if (!source) {
+      throw new Error(`unknown bron slug: ${slug}`);
+    }
+    try {
+      // oxlint-disable-next-line no-await-in-loop -- sources audit sequentially so report order matches the slug order.
+      reports.push(await auditSource(source));
+    } catch (error) {
+      console.error(
+        `== ${slug}: audit failed: ${error instanceof Error ? error.message : String(error)}`
+      );
+    }
+  }
+  return reports;
+};
 
-const slugs = bronArg ? ([bronArg] as const) : SUPPORTED_BRON_SLUGS;
+if (import.meta.main) {
+  const args = process.argv.slice(2);
+  const bronArg = args.includes("--bron")
+    ? args[args.indexOf("--bron") + 1]
+    : undefined;
+  const asJson = args.includes("--json");
 
-const reports: SourceReport[] = [];
-for (const slug of slugs) {
-  // SAFETY: SOURCES is keyed by bron slug; the guard below rejects unknown slugs.
-  const source = (SOURCES as Record<string, SourceDefinition>)[slug];
-  if (!source) {
-    console.error(`unknown bron slug: ${slug}`);
+  try {
+    const reports = await replaySources(bronArg ? [bronArg] : undefined);
+    if (asJson) {
+      console.log(JSON.stringify(reports, null, 2));
+    } else {
+      printTable(reports);
+      printDetails(reports);
+    }
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : String(error));
     process.exit(1);
   }
-  try {
-    // oxlint-disable-next-line no-await-in-loop -- sources audit sequentially so report order matches the slug order.
-    reports.push(await auditSource(source));
-  } catch (error) {
-    console.error(
-      `== ${slug}: audit failed: ${error instanceof Error ? error.message : String(error)}`
-    );
-  }
-}
-
-if (asJson) {
-  console.log(JSON.stringify(reports, null, 2));
-} else {
-  printTable(reports);
-  printDetails(reports);
 }

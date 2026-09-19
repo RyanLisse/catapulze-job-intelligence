@@ -1,6 +1,18 @@
 import { describe, expect, it } from "bun:test";
 
-import { bluetrailConfig, createJsonLdClient } from "@ji/connectors/json-ld";
+import {
+  bamConfig,
+  bluetrailConfig,
+  createJsonLdClient,
+  datajobsConfig,
+  enecoConfig,
+  intermediairConfig,
+  nsConfig,
+  prorailConfig,
+  randstadConfig,
+  stedinConfig,
+  zzpOpdrachtenConfig,
+} from "@ji/connectors/json-ld";
 import type { JsonLdFetchedPayload, JsonLdNode } from "@ji/connectors/json-ld";
 import { UNKNOWN } from "@ji/domain";
 
@@ -1430,4 +1442,196 @@ describe("parseJsonLdPayload -- CTP-611 published-field coverage", () => {
       employment_type: "OTHER",
     });
   });
+});
+
+describe("CTP-611 published-field coverage through recorded fixtures", () => {
+  const captures = [
+    [
+      "prorail woordvoerder",
+      prorailConfig,
+      "https://www.werkenbijprorail.nl/vacatures/functie/woordvoerder",
+      {
+        educationRequirements: "hbo/wo",
+        employmentType: "Full-time",
+        workHours: "32-36",
+      },
+      {
+        contract_type: "Full-time",
+        contracttype: null,
+        employment_type: null,
+        opleidingsniveau: "hbo/wo",
+        uren_per_week: "32–36",
+      },
+    ],
+    [
+      "eneco ervaren-accountsupporter",
+      enecoConfig,
+      "https://www.werkenbijeneco.nl/vacatures/ervaren-accountsupporter-3145",
+      {
+        educationRequirements: ["MBO", "HBO"],
+        employmentType: [],
+        workHours: "32 - 40 uur",
+      },
+      {
+        contract_type: null,
+        contracttype: null,
+        employment_type: null,
+        opleidingsniveau: "MBO/HBO",
+        uren_per_week: "32–40",
+      },
+    ],
+    [
+      "intermediair klantmanager-werk-en-inkomen",
+      intermediairConfig,
+      "https://www.intermediair.nl/vacature/7fd25dd1-894d-4844-acf7-b5b672a10afc/klantmanager-werk-en-inkomen",
+      {
+        educationRequirements: {
+          "@type": "EducationalOccupationalCredential",
+          credentialCategory: "bachelor degree",
+        },
+        employmentType: "TEMPORARY",
+        workHours: "1 - 40 uur per week",
+      },
+      {
+        contract_type: "TEMPORARY",
+        contracttype: "interim",
+        opleidingsniveau: "bachelor degree",
+        uren_per_week: "1–40",
+      },
+    ],
+    [
+      "intermediair asfaltuitvoerder",
+      intermediairConfig,
+      "https://www.intermediair.nl/vacature/0cad6431-f0e1-4d5a-9872-d4cba5ef0225/asfaltuitvoerder",
+      {
+        educationRequirements: {
+          "@type": "EducationalOccupationalCredential",
+          credentialCategory: "associate degree",
+        },
+        employmentType: ["FULL_TIME", "PART_TIME"],
+      },
+      {
+        contracttype: null,
+        employment_type: "FULL_TIME, PART_TIME",
+        opleidingsniveau: "associate degree",
+      },
+    ],
+    [
+      "stedin monteur-gas",
+      stedinConfig,
+      "https://werkenbij.stedin.net/banen/amstelveen/monteur-gas/3297/35532249792",
+      {
+        educationRequirements: "MBO - Techniek Overig",
+        workHours: "40",
+      },
+      {
+        contract_type: null,
+        contracttype: null,
+        opleidingsniveau: "MBO - Techniek Overig",
+        uren_per_week: "40",
+      },
+    ],
+    [
+      "bam tendermanager",
+      bamConfig,
+      "https://www.bamcareers.com/nl/nl/job/26832/Tendermanager-Bouw",
+      {
+        employmentType: ["OTHER"],
+        workHours: "40 hours per week",
+      },
+      {
+        contracttype: null,
+        employment_type: "OTHER",
+        opleidingsniveau: null,
+        uren_per_week: "40",
+      },
+    ],
+    [
+      "datajobs data-engineer-bij-verpact",
+      datajobsConfig,
+      "https://www.datajobs.nl/vacatures/data-engineer-bij-verpact",
+      {
+        employmentType: "FULL_TIME",
+        workHours: "Full time uur per week",
+      },
+      {
+        contract_type: "FULL_TIME",
+        contracttype: null,
+        opleidingsniveau: null,
+        uren_per_week: null,
+      },
+    ],
+    [
+      "randstad operator",
+      randstadConfig,
+      "https://www.randstad.nl/vacatures/749250/operator",
+      {
+        educationRequirements: "VMBO/MAVO",
+        employmentType: ["TEMPORARY", "FULL_TIME"],
+        workHours: "37 - 38 uur per week",
+      },
+      {
+        contracttype: "interim",
+        employment_type: "TEMPORARY, FULL_TIME",
+        opleidingsniveau: "VMBO/MAVO",
+        uren_per_week: "37–38",
+      },
+    ],
+    [
+      "ns conducteur-zwolle",
+      nsConfig,
+      "https://www.werkenbijns.nl/vacatures/conducteur-zwolle-zwolle-1331708",
+      {
+        educationRequirements: ["MBO"],
+        employmentType: ["FULL_TIME"],
+        workHours: "24 - 36 uur",
+      },
+      {
+        contracttype: null,
+        employment_type: "FULL_TIME",
+        opleidingsniveau: "MBO",
+        uren_per_week: "24–36",
+      },
+    ],
+    [
+      "zzp-opdrachten bouwprojectmanager",
+      zzpOpdrachtenConfig,
+      "https://www.zzp-opdrachten.nl/vacatures/vacature-bouwprojectmanager-708001/",
+      {
+        employmentType: ["TEMPORARY"],
+      },
+      {
+        contracttype: "interim",
+        employment_type: "TEMPORARY",
+        opleidingsniveau: null,
+        uren_per_week: null,
+      },
+    ],
+  ] as const;
+
+  it.each(captures)(
+    "normalises the recorded %s detail",
+    async (name, config, url, published, expected) => {
+      const client = createJsonLdClient({ config, liveEnabled: false });
+      const detail = await client.fetchDetail(url);
+      expect(detail.jobPosting).toMatchObject(published);
+      if (!detail.jobPosting) {
+        throw new Error(
+          `expected a JobPosting in the recorded ${name} capture`
+        );
+      }
+      const payload: JsonLdFetchedPayload = {
+        jobPosting: detail.jobPosting,
+        labelBlock: detail.labelBlock,
+        parserVersion: config.parserVersion,
+        slug: config.slug,
+        url,
+      };
+      if (detail.contactpersonen && detail.contactpersonen.length > 0) {
+        payload.contactpersonen = detail.contactpersonen;
+      }
+      const draft = parseJsonLdPayload(payload, HASH);
+      expect(draft.bronSpecifiek.value).toMatchObject(expected);
+    }
+  );
 });

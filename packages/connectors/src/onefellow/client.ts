@@ -1,3 +1,4 @@
+import { resolveEgressFetch } from "../egress";
 import { loadConnectorFixture } from "../fixtures/load";
 import { ONEFELLOW_LISTING_URL } from "./types";
 import type { OnefellowJob, OnefellowListingResponse } from "./types";
@@ -18,7 +19,7 @@ export interface OnefellowClientOptions {
 export const createOnefellowClient = (
   options: OnefellowClientOptions = {}
 ): OnefellowClient => {
-  const fetchImpl = options.fetchImpl ?? fetch;
+  const fetchImpl = options.fetchImpl ?? resolveEgressFetch("onefellow");
   const liveEnabled = options.liveEnabled ?? process.env.ONEFELLOW_LIVE === "1";
   const listingFixturePath =
     options.listingFixturePath ?? "onefellow/listing-page-0.json";

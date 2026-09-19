@@ -296,6 +296,11 @@ services:
       RAW_S3_REGION: ${RAW_S3_REGION:-}
       RAW_S3_ACCESS_KEY_ID: ${RAW_S3_ACCESS_KEY_ID:-}
       RAW_S3_SECRET_ACCESS_KEY: ${RAW_S3_SECRET_ACCESS_KEY:-}
+      # CTP-602 per-source egress routing (docs/runbooks/nl-egress.md). Both
+      # unset is direct egress for every source; sources without a URL fails
+      # the poller at startup rather than polling direct silently.
+      EGRESS_PROXY_URL: ${EGRESS_PROXY_URL:-}
+      EGRESS_PROXY_SOURCES: ${EGRESS_PROXY_SOURCES:-}
       # Per-bron live flags (packages/application/src/sources/*.ts `liveEnv`).
       # Unset means the connector reads a repo fixture; with NODE_ENV=production
       # the poller skips those sources rather than committing fixture data.

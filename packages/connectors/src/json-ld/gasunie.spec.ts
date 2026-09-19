@@ -44,4 +44,15 @@ describe("Gasunie JSON-LD connector", () => {
       title: "Production Lead",
     });
   });
+
+  it("reads the vacancy-location label block the JSON-LD leaves empty", async () => {
+    const technician = await client.fetchDetail(
+      "https://www.werkenbijgasunie.nl/vacature/318/technicus-e-i-warmte-rotterdam-den-haag"
+    );
+    expect(technician.labelBlock).toMatchObject({ locatie: "Barendrecht" });
+    const production = await client.fetchDetail(
+      "https://www.werkenbijgasunie.nl/vacature/341/production-lead"
+    );
+    expect(production.labelBlock).toMatchObject({ locatie: "Rotterdam" });
+  });
 });

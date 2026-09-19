@@ -52,6 +52,17 @@ Absent data stays absent: when a source genuinely does not publish a tarief, sta
 
 Autoreview and the end-of-deliverable review catch different classes of problem: a bronId collision once passed two independent autoreviews at 0.98 and was caught only by the final review reading against the stated goal. Run both, and treat any fix made after a review as voiding it — get a fresh one.
 
+### Production release lane
+
+The architecture and the failure mode that cost a full session to rediscover (2026-09-18).
+
+- `Deploy production` (`.github/workflows/deploy-production.yml`) triggers on every green CI on main and is **fail-closed**: `scripts/production/release-gate.ts` must pass before any Coolify credential exists.
+- **The release ledger lives in GitHub Deployments.** A record counts only when its `payload` parses with a 40-char `candidate_sha` matching `deployment.sha` plus a non-empty `workflow` or `source` (`isReleaseLedgerEntry`). Jobs that declare `environment: production` also get an auto-created deployment with empty payload — those are NOT ledger entries.
+- **The recurring red state.** The gate requires the newest ledger entry's latest status to be `success`. GitHub auto-inactivates older deployments when a new one is created in the same environment, so a manual release written in a payload format the predicate does not recognize leaves the newest _recognized_ entry `inactive` — the gate blocks before the lease step and every later run fails the same way. Fix per the runbook "Seeding the baseline": create a deployment whose `ref` is the actually-running SHA with payload `{workflow:"Deploy production", workflow_run_id:"manual", run_attempt:"1", job:"seed", candidate_sha:<sha>}`, post `success`, and point `PRODUCTION_LAST_DEPLOYED_RELEASE_JSON`'s `releaseId` at it.
+- **Manual-lane paths never autodeploy.** `blockedReleasePath` marks `packages/connectors/`, `apps/worker/`, `packages/db/src/migrations|schema`, `packages/env`, `packages/search/src/schema`, backfill/migration scripts, and `apps/server/src/{index,readiness,release}.ts`. A release touching them needs the operator path, and Deploy production _stays red by design_ until an operator ships it. That red is the gate working, not a bug.
+- **Operator access.** Production is on-box Postgres on Hetzner (`ssh catapulze-hetzner`, user `devin`, NOPASSWD sudo; Coolify on box port 8000). Neon is read-only import source only (ADR-0011) — never run prod migrations against Neon. Runbook order: `docs/runbooks/hetzner-deploy.md` → `automatic-production-deploy.md` → `neon-migration-catchup.md` (migration gate).
+- Local env note: after pulling main, stale `.next` route types and missing new deps break `check-types`; run `bun install` and `bun x next typegen` in `apps/web` before assuming a code error.
+
 ---
 
 # Ultracite Code Standards

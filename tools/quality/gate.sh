@@ -170,4 +170,10 @@ run_phase production-compose-guard bun run check:production-compose-guard
 echo "gate: check-postgres-compose"
 run_phase postgres-compose bun run check:postgres-compose
 
+# CTP-611: fixture-only replay (no DB) diffed against the committed baseline
+# in fixtures/field-coverage/baseline.json — sub-second, so it belongs in the
+# gate rather than as a manual check.
+echo "gate: check-field-coverage"
+run_phase field-coverage bun run check:field-coverage
+
 echo "gate: passed"

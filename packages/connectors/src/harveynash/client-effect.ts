@@ -65,6 +65,7 @@ export const fetchListingEffect = (
       headers: { "content-type": "application/json" },
       method: "POST",
     },
+    sourceSlug: "harveynash",
     url: `${baseUrl}${HARVEYNASH_SEARCH_PATH}`,
   }).pipe(
     Effect.flatMap((response) =>
@@ -115,6 +116,7 @@ export const fetchDetailEffect = (
 
   return httpRequest({
     fetchImpl: options.fetchImpl,
+    sourceSlug: "harveynash",
     url: detailUrl,
   }).pipe(
     Effect.flatMap(readTextBody),
