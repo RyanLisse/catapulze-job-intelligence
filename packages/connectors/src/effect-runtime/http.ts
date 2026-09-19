@@ -1,5 +1,6 @@
 import { Effect } from "effect";
 
+import { resolveEgressFetch } from "../egress";
 import {
   mapHttpStatusToFault,
   mapUnknownToReadIoFault,
@@ -18,6 +19,8 @@ export interface EffectHttpRequest {
   init?: RequestInit;
   /** When true, non-2xx responses become typed faults (default true). */
   mapHttpErrors?: boolean;
+  /** Source slug used for per-source egress routing when no fetchImpl is given (CTP-602). */
+  sourceSlug?: string;
   url: string;
 }
 
@@ -49,7 +52,8 @@ export const httpRequestOnce = (
   Effect.tryPromise({
     catch: mapUnknownToReadIoFault,
     try: async (signal) => {
-      const fetchImpl = request.fetchImpl ?? fetch;
+      const fetchImpl =
+        request.fetchImpl ?? resolveEgressFetch(request.sourceSlug);
       const merged = mergeSignals(request.init?.signal ?? undefined, signal);
       if (merged.aborted) {
         throw new DOMException("Aborted", "AbortError");

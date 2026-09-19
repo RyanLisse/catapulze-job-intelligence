@@ -54,6 +54,7 @@ export const fetchListingEffect = (
 
   return httpRequest({
     fetchImpl: options.fetchImpl,
+    sourceSlug: "striive",
     url: `${baseUrl}${STRIIVE_JOBS_PATH}?open=true&page=${page}`,
   }).pipe(
     Effect.flatMap((response) => readJsonBody<StriiveListingResponse>(response))

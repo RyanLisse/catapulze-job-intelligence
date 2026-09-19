@@ -68,6 +68,7 @@ export const fetchListingEffect = (
   });
   return httpRequest({
     fetchImpl: options.fetchImpl,
+    sourceSlug: "needstaffing",
     url: `${baseUrl}${NEEDSTAFFING_OPDRACHTEN_PATH}?${params.toString()}`,
   }).pipe(
     Effect.flatMap(readTextBody),
@@ -112,6 +113,7 @@ export const fetchDetailHtmlEffect = (
 
   return httpRequest({
     fetchImpl: options.fetchImpl,
+    sourceSlug: "needstaffing",
     url: `${baseUrl}${NEEDSTAFFING_OPDRACHTEN_PATH}/${id}`,
   }).pipe(Effect.flatMap(readTextBody));
 };

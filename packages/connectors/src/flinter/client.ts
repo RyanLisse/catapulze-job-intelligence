@@ -1,3 +1,4 @@
+import { resolveEgressFetch } from "../egress";
 import { loadConnectorFixture } from "../fixtures/load";
 import { decodeHtmlEntities } from "../html-entities";
 import type { FlinterDetail, FlinterListingItem } from "./types";
@@ -239,7 +240,7 @@ const parseDetailHtml = (html: string, slug: string): FlinterDetail => {
 export const createFlinterClient = (
   options: FlinterClientOptions = {}
 ): FlinterClient => {
-  const fetchImpl = options.fetchImpl ?? fetch;
+  const fetchImpl = options.fetchImpl ?? resolveEgressFetch("flinter");
   const liveEnabled = options.liveEnabled ?? process.env.FLINTER_LIVE === "1";
   const listingFixturePath =
     options.listingFixturePath ?? "flinter/listing-page-0.json";

@@ -217,13 +217,29 @@ const PLACEHOLDER_BASE_SALARY_SLUGS: ReadonlySet<string> = new Set([
   "bluetrail",
 ]);
 
+/** Sources whose JobPosting.baseSalary carries real per-listing amounts under
+ * a mislabeled unitText: Gasunie publishes a monthly salary band
+ * (3912–5327 / 5903–8070 EUR on the 2026-09 fixtures) as unitText "HOUR".
+ * Reading it as an hourly tarief fabricates a rate the source never offered,
+ * and re-labeling it "maand" would be a guess the source did not publish, so
+ * the canonical tarief stays UNKNOWN. The raw node is still kept verbatim in
+ * `bronSpecifiek.base_salary` as provenance. */
+const MISLABELED_BASE_SALARY_UNIT_SLUGS: ReadonlySet<string> = new Set([
+  "gasunie",
+]);
+
 /**
  * Trust JobPosting.baseSalary only when unitText is an explicit period.
- * Sources in `PLACEHOLDER_BASE_SALARY_SLUGS` never reach this function.
+ * Sources in `PLACEHOLDER_BASE_SALARY_SLUGS` never reach this function;
+ * sources in `MISLABELED_BASE_SALARY_UNIT_SLUGS` reach it and are refused here.
  */
 const tariefFromBaseSalary = (
-  jobPosting: JsonLdFetchedPayload["jobPosting"]
+  jobPosting: JsonLdFetchedPayload["jobPosting"],
+  slug: string
 ): ReturnType<typeof parseTariefFromText> | null => {
+  if (MISLABELED_BASE_SALARY_UNIT_SLUGS.has(slug)) {
+    return null;
+  }
   const baseSalary = asNode(jobPosting.baseSalary);
   if (!baseSalary) {
     return null;
@@ -258,6 +274,15 @@ const tariefFromBaseSalary = (
 const HOURS_TEXT_PATTERN =
   /(?<min>\d+(?:[.,]\d+)?)\s*(?:[-–]\s*(?<max>\d+(?:[.,]\d+)?))?\s*(?:u(?:ur)?|hours?|hrs?)\b/iu;
 
+/** Dutch weekly-hours bands joined by "en"/"tot" ("Je werkt tussen de 32 en
+ * 40 uur per week", Circle8): two hour counts with the connector directly
+ * between them are a range, so the band must land as "32–40" — never as its
+ * upper bound alone, which the dash pattern would otherwise return. Tried
+ * first; inputs without this shape fall through to the existing patterns
+ * unchanged. */
+const HOURS_NL_RANGE_PATTERN =
+  /(?<min>\d+(?:[.,]\d+)?)\s*(?:en|tot|t\/m)\s*(?<max>\d+(?:[.,]\d+)?)\s*(?:u(?:ur)?|hours?|hrs?)\b/iu;
+
 /** A whole-field bare number or numeric range: "40" (Stedin), "32-36"
  * (ProRail). Anchored to the whole string so a schedule like "9am-5pm" never
  * reads as weekly hours. */
@@ -276,7 +301,9 @@ const hoursTextToPerWeek = (text: string | null | undefined): string | null => {
     return null;
   }
   const match =
-    HOURS_TEXT_PATTERN.exec(text) ?? BARE_HOURS_PATTERN.exec(text.trim());
+    HOURS_NL_RANGE_PATTERN.exec(text) ??
+    HOURS_TEXT_PATTERN.exec(text) ??
+    BARE_HOURS_PATTERN.exec(text.trim());
   if (!match?.groups?.min) {
     return null;
   }
@@ -478,6 +505,7 @@ const jsonLdBronSpecifiekOf = (input: JsonLdBronSpecifiekInput) => {
     url,
   } = input;
   return {
+    base_salary: jobPosting.baseSalary ?? null,
     contract_type:
       typeof jobPosting.employmentType === "string"
         ? asTextOrNull(jobPosting.employmentType)
@@ -528,7 +556,7 @@ export const parseJsonLdPayload = (
   const startDatum = parseDutchDate(labelBlock.startDatum);
   const tarief = PLACEHOLDER_BASE_SALARY_SLUGS.has(payload.slug)
     ? parseTariefFromText(labelBlock.tarief ?? "")
-    : (tariefFromBaseSalary(jobPosting) ??
+    : (tariefFromBaseSalary(jobPosting, payload.slug) ??
       parseTariefFromText(labelBlock.tarief ?? descriptionText));
   // Only BlueTrail's label block ever carries `sluitingsDatum` (its
   // "Sluitingsdatum" sidebar field, Dutch text like "2 september 2026" --

@@ -44,6 +44,7 @@ describe("normaliseFreelancerNlObservation", () => {
     expect(draft.beschrijving.value).toContain("Archicad");
     expect(draft.bronSpecifiek.value).toMatchObject({
       categorie: "Design & Creative",
+      duur: "In Overleg",
       geplaatst: "Geplaatst 15-09-2026",
       publicatiedatum: "2026-09-15",
       skills: ["archicad", "designer", "architect"],
@@ -53,6 +54,33 @@ describe("normaliseFreelancerNlObservation", () => {
     });
     expect(draft.lifecycle).toBe("active");
     expect(draft.tarief.min).toBe(UNKNOWN);
+  });
+
+  it("parses a priced 'Per Uur' budget block into tarief (CTP-611)", () => {
+    const draft = parseFreelancerNlPayload(
+      {
+        ...payload,
+        listing: { ...payload.listing, budget: "€30 — €40 Per Uur" },
+      },
+      "hash-freelancer-nl-tarief"
+    );
+    expect(draft.tarief.min).toBe("30");
+    expect(draft.tarief.max).toBe("40");
+    expect(draft.tarief.eenheid).toBe("uur");
+    expect(draft.tarief.valuta).toBe("EUR");
+  });
+
+  it("keeps tarief UNKNOWN for a fixed-price budget — never mislabels it 'uur'", () => {
+    const draft = parseFreelancerNlPayload(
+      {
+        ...payload,
+        listing: { ...payload.listing, budget: "€1000 — €2000 Vaste Prijs" },
+      },
+      "hash-freelancer-nl-vaste-prijs"
+    );
+    expect(draft.tarief.min).toBe(UNKNOWN);
+    expect(draft.tarief.max).toBe(UNKNOWN);
+    expect(draft.tarief.eenheid).toBe(UNKNOWN);
   });
 
   it("never promotes a relative 'Geplaatst X geleden' to publicatiedatum", () => {

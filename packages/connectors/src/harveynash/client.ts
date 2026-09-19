@@ -1,4 +1,5 @@
 /* oxlint-disable anti-slop/no-runtime-typeof, anti-slop/no-unknown-parameters, anti-slop/require-safety-comment-for-type-assertion -- This is the Harvey Nash SSR detail-page I/O boundary: the JobPosting JSON-LD block is arbitrary external JSON with no declared shape, so a runtime typeof check is how the field contract gets established here (mirrors packages/connectors/src/tenderned/ids.ts). */
+import { resolveEgressFetch } from "../egress";
 import { loadConnectorFixture } from "../fixtures/load";
 import { extractJobPosting } from "../json-ld/extract";
 import type {
@@ -160,7 +161,7 @@ const readOk = (response: Response, label: string): Response => {
 export const createHarveyNashClient = (
   options: HarveyNashClientOptions = {}
 ): HarveyNashClient => {
-  const fetchImpl = options.fetchImpl ?? fetch;
+  const fetchImpl = options.fetchImpl ?? resolveEgressFetch("harveynash");
   const liveEnabled =
     options.liveEnabled ?? process.env.HARVEYNASH_LIVE === "1";
   const listingFixturePath =

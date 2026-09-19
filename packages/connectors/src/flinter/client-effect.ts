@@ -57,6 +57,7 @@ export const fetchListingEffect = (
 
   return httpRequest({
     fetchImpl: options.fetchImpl,
+    sourceSlug: "flinter",
     url: `${baseUrl}${FLINTER_OPDRACHTEN_PATH}`,
   }).pipe(
     Effect.flatMap(readTextBody),
@@ -105,6 +106,7 @@ export const fetchDetailHtmlEffect = (
 
   return httpRequest({
     fetchImpl: options.fetchImpl,
+    sourceSlug: "flinter",
     url: `${baseUrl}${FLINTER_OPDRACHTEN_PATH}/${slug}`,
   }).pipe(Effect.flatMap(readTextBody));
 };

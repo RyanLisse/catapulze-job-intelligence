@@ -43,6 +43,7 @@ export const fetchListingEffect = (
 
   return httpRequest({
     fetchImpl: options.fetchImpl,
+    sourceSlug: "onefellow",
     url: ONEFELLOW_LISTING_URL,
   }).pipe(
     Effect.flatMap((response) =>

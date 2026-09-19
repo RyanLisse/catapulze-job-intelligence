@@ -1,3 +1,4 @@
+import { resolveEgressFetch } from "../egress";
 import { loadConnectorFixture } from "../fixtures/load";
 import { coerceTenderNedIds } from "./ids";
 import type {
@@ -68,7 +69,7 @@ const readJson = async <Payload>(response: Response): Promise<Payload> => {
 export const createTenderNedClient = (
   options: TenderNedClientOptions = {}
 ): TenderNedClient => {
-  const fetchImpl = options.fetchImpl ?? fetch;
+  const fetchImpl = options.fetchImpl ?? resolveEgressFetch("tenderned");
   const liveEnabled =
     options.liveEnabled ?? process.env.TENDER_NED_LIVE === "1";
   const listingFixturePath =
