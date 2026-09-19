@@ -42,6 +42,14 @@ interface EffectE2eCheckArtifact {
     readonly database: "disposable";
     readonly seedRead: true;
   };
+  readonly browser: {
+    readonly operatorBronnen: boolean;
+    readonly recruiterBronnenDenied: boolean;
+    readonly recruiterDashboardDenied: boolean;
+    readonly recruiterSearchResult: boolean;
+    readonly seededKpisMatch: boolean;
+    readonly seededSourceVisible: boolean;
+  };
   readonly evidence: {
     readonly browserErrors: readonly string[];
     readonly checkPath: string;
@@ -56,7 +64,7 @@ interface EffectE2eCheckArtifact {
     readonly releaseSha: string;
     readonly videoInspectionRequired: true;
   };
-  readonly rows: {
+  readonly seedRows: {
     readonly booleanJobs: 1;
     readonly bronnen: 1;
   };
@@ -75,12 +83,20 @@ interface EffectE2eFailureArtifact {
     readonly database: "disposable";
     readonly seedRead: boolean;
   };
+  readonly browser: {
+    readonly operatorBronnen: boolean;
+    readonly recruiterBronnenDenied: boolean;
+    readonly recruiterDashboardDenied: boolean;
+    readonly recruiterSearchResult: boolean;
+    readonly seededKpisMatch: boolean;
+    readonly seededSourceVisible: boolean;
+  };
   readonly evidence: {
     readonly browserErrors: readonly string[];
     readonly checkPath: string;
     readonly failure: string;
   };
-  readonly rows: {
+  readonly seedRows: {
     readonly booleanJobs: number;
     readonly bronnen: number;
   };
@@ -90,6 +106,14 @@ interface EffectE2eFailureArtifact {
 
 interface EffectE2eCheckState {
   auth?: EffectE2eAuthBundle;
+  readonly browser: {
+    operatorBronnen: boolean;
+    recruiterBronnenDenied: boolean;
+    recruiterDashboardDenied: boolean;
+    recruiterSearchResult: boolean;
+    seededKpisMatch: boolean;
+    seededSourceVisible: boolean;
+  };
   readonly browserErrors: string[];
   seed?: z.infer<typeof seedArtifactSchema>;
 }
@@ -294,6 +318,17 @@ const attachBrowserErrorListeners = (page: Page, errors: string[]): void => {
   page.on("pageerror", (error) => {
     errors.push(`pageerror:${error.message.slice(0, 160)}`);
   });
+  page.on("console", (message) => {
+    const messageText = message.text();
+    const isHydrationWarning =
+      message.type() === "warning" &&
+      /hydration|server-rendered HTML|did not match|React error #418/iu.test(
+        messageText
+      );
+    if (message.type() === "error" || isHydrationWarning) {
+      errors.push(`console:${message.type()}:${messageText.slice(0, 160)}`);
+    }
+  });
   page.on("requestfailed", (request) => {
     const failure = request.failure()?.errorText ?? "unknown";
     if (failure === "net::ERR_ABORTED" && request.isNavigationRequest()) {
@@ -373,9 +408,27 @@ const inspectApiSearch = async (
       "Authenticated search API diagnostic did not return HTTP 200."
     );
   }
+  if (
+    diagnostic.hitCount !== 1 ||
+    diagnostic.total !== 1 ||
+    diagnostic.ids.length !== 1 ||
+    diagnostic.ids[0] !== config.canaryId
+  ) {
+    throw new Error(
+      "Authenticated search API diagnostic did not return exactly the seeded canary."
+    );
+  }
 };
 
 const checkState: EffectE2eCheckState = {
+  browser: {
+    operatorBronnen: false,
+    recruiterBronnenDenied: false,
+    recruiterDashboardDenied: false,
+    recruiterSearchResult: false,
+    seededKpisMatch: false,
+    seededSourceVisible: false,
+  },
   browserErrors: [],
 };
 
@@ -384,6 +437,7 @@ const runBrowserFlow = async (
   auth: EffectE2eAuthBundle,
   seed: Awaited<ReturnType<typeof readSeed>>
 ): Promise<{
+  readonly browser: EffectE2eCheckState["browser"];
   readonly browserErrors: readonly string[];
   readonly video: {
     readonly frames: readonly string[];
@@ -411,6 +465,50 @@ const runBrowserFlow = async (
       .getByText(`Welcome ${auth.recruiter.name}`, { exact: true })
       .waitFor();
     await inspectApiSearch(loginPage, config, seed.canary.query);
+    const recruiterDashboardStatus = await loginPage.evaluate(
+      async (apiUrl) => {
+        const response = await fetch(
+          new URL("/v1/dashboard?window=7d", apiUrl),
+          {
+            credentials: "include",
+          }
+        );
+        return response.status;
+      },
+      config.apiUrl
+    );
+    if (recruiterDashboardStatus !== 403) {
+      throw new Error("Recruiter dashboard API access was not denied.");
+    }
+    checkState.browser.recruiterDashboardDenied = true;
+    await loginPage.goto(new URL("/bronnen?window=7d", config.baseUrl).href, {
+      waitUntil: "domcontentloaded",
+    });
+    const recruiterRedirect = new URL(loginPage.url());
+    if (
+      recruiterRedirect.pathname !== "/" ||
+      recruiterRedirect.searchParams.get("toast") !== "forbidden"
+    ) {
+      throw new Error(
+        "Recruiter /bronnen access was not redirected as forbidden."
+      );
+    }
+    checkState.browser.recruiterBronnenDenied = true;
+    await writeFile(
+      path.join(config.artifactDir, "authorization.json"),
+      `${JSON.stringify(
+        {
+          recruiterBronnenRedirect: {
+            pathname: recruiterRedirect.pathname,
+            toast: recruiterRedirect.searchParams.get("toast"),
+          },
+          recruiterDashboardStatus,
+        },
+        null,
+        2
+      )}\n`,
+      { encoding: "utf-8", mode: 0o644 }
+    );
 
     const storageStatePath = path.join(config.privateDir, "storage-state.json");
     await loginContext.storageState({ path: storageStatePath });
@@ -452,6 +550,7 @@ const runBrowserFlow = async (
     if ((await exactTitle.count()) !== 1) {
       throw new Error("Boolean search did not return exactly one seeded row.");
     }
+    checkState.browser.recruiterSearchResult = true;
     const searchFramePath = path.join(
       config.artifactDir,
       "browser-flow-search.png"
@@ -474,6 +573,7 @@ const runBrowserFlow = async (
     await page
       .getByRole("heading", { exact: true, name: "Bronnen" })
       .waitFor({ state: "visible", timeout: 15_000 });
+    checkState.browser.operatorBronnen = true;
     const visibleKpi = (testId: string) =>
       page.locator(`[data-testid="${testId}"]:visible`);
     await visibleKpi("bronnen-kpi-runs").waitFor({
@@ -491,6 +591,37 @@ const runBrowserFlow = async (
         visibleKpi(testId).waitFor({ state: "visible", timeout: 15_000 })
       )
     );
+    const seededSourceName = `Effect E2E Source ${seed.canary.id.slice(0, 8)}`;
+    const seededSource = page
+      .getByText(seededSourceName, { exact: true })
+      .filter({ visible: true });
+    if ((await seededSource.count()) !== 1) {
+      throw new Error("Operator /bronnen did not show the seeded source card.");
+    }
+    checkState.browser.seededSourceVisible = true;
+    const expectedKpis = [
+      ["bronnen-kpi-runs", "1"],
+      ["bronnen-kpi-success", "100%"],
+      ["bronnen-kpi-nieuw", "1"],
+      ["bronnen-kpi-gewijzigd", "0"],
+      ["bronnen-kpi-ongewijzigd", "0"],
+      ["bronnen-kpi-rejected", "0"],
+    ] as const;
+    const observedKpis = await Promise.all(
+      expectedKpis.map(async ([testId, expected]) => ({
+        expected,
+        testId,
+        value: await visibleKpi(testId).locator("p").nth(1).textContent(),
+      }))
+    );
+    for (const { expected, testId, value } of observedKpis) {
+      if (value?.trim() !== expected) {
+        throw new Error(
+          `Operator /bronnen KPI ${testId} did not show the seeded value.`
+        );
+      }
+    }
+    checkState.browser.seededKpisMatch = true;
     const visibleTextParts = await page.locator(":visible").allTextContents();
     const visibleText = visibleTextParts.join(" ").toLowerCase();
     if (
@@ -510,6 +641,7 @@ const runBrowserFlow = async (
   const webmPath = await video.path();
   const evidenceVideo = await transcodeAndExtractFrames(config, webmPath);
   return {
+    browser: checkState.browser,
     browserErrors,
     video: {
       ...evidenceVideo,
@@ -550,8 +682,12 @@ const main = async (config: EffectE2eConfig): Promise<void> => {
   if (browser.browserErrors.length > 0) {
     throw new Error("Browser flow observed bounded runtime errors.");
   }
+  if (Object.values(browser.browser).some((observed) => !observed)) {
+    throw new Error("Browser flow did not complete every evidence assertion.");
+  }
   const artifact: EffectE2eCheckArtifact = {
     auth: seed.auth,
+    browser: browser.browser,
     canary: {
       digest: seed.canary.digest,
       id: seed.canary.id,
@@ -568,8 +704,8 @@ const main = async (config: EffectE2eConfig): Promise<void> => {
       releaseSha,
       videoInspectionRequired: true,
     },
-    rows: seed.rows,
     schemaVersion: EFFECT_E2E_SCHEMA_VERSION,
+    seedRows: seed.rows,
     status: "passed",
   };
   await writeCheckArtifact(config, artifact);
@@ -597,6 +733,7 @@ const writeFailureArtifact = async (
           operator: { role: "operator", subjectId: "unavailable" },
           recruiter: { role: "recruiter", subjectId: "unavailable" },
         },
+    browser: checkState.browser,
     canary: {
       digest: seed?.canary.digest ?? config.canaryDigest,
       id: seed?.canary.id ?? config.canaryId,
@@ -608,8 +745,8 @@ const writeFailureArtifact = async (
       checkPath: path.join(config.artifactDir, "check.json"),
       failure: safeError(error),
     },
-    rows: seed?.rows ?? { booleanJobs: 0, bronnen: 0 },
     schemaVersion: EFFECT_E2E_SCHEMA_VERSION,
+    seedRows: seed?.rows ?? { booleanJobs: 0, bronnen: 0 },
     status: "failed",
   };
   await writeCheckArtifact(config, artifact);

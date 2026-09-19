@@ -14,8 +14,13 @@ bun run e2e:effect:local
 De runner bouwt de bestaande server-, web-, projector- en worker-images, start
 Postgres, Redis en Manticore, voert migraties uit met een expliciete
 `MIGRATION_DATABASE_URL`, maakt een synthetische recruiter én operator aan en
-start daarna projector, API en web. De recruiter bewijst de zoekroute; de
-operator bewijst de afgeschermde `/bronnen`-monitor. Alle vijf flags staan
+start daarna API en web. De seed schrijft direct één synthetische canonieke
+aanvraag, bron, scrape-run en outbox-event in de disposable database; dit is
+geen connector-ingestieclaim. Daarna voert de runner de bounded worker-probe
+uit vóór de projector start. De recruiter bewijst de zoekroute én wordt
+aantoonbaar geweigerd voor `/bronnen` en `GET /v1/dashboard`; de operator
+bewijst de afgeschermde `/bronnen`-monitor met de eigen seeded bronkaart en
+KPI-tellingen. Alle vijf flags staan
 exact op `1` in de processen die ze gebruiken:
 
 De API draait in `NODE_ENV=test` met een server-local filesystem raw store. Dat
@@ -49,8 +54,9 @@ moet de lane opnieuw bouwen.
 `seed.ts` en `check.ts` vormen de helpergrens. De seed weigert een niet-
 disposable database, een verkeerde database-identiteit of fixturemodus. De
 checker gebruikt de echte API en browserflow voor readiness, release identity,
-authenticatie, de recruiter-zoekroute, de operator-rolgrens en de
-`/bronnen`-monitor. Auth credentials en browser storage state staan alleen
+authenticatie, exacte canary readback, de recruiter-zoekroute, de negatieve
+recruiter-rolgrens en de inhoud van de operator-`/bronnen`-monitor. Auth
+credentials en browser storage state staan alleen
 tijdelijk buiten de repository en komen niet in evidence.
 
 Bewijs komt onder `.artifacts/effect-e2e/<run-id>/`. De runner bewaart alleen
