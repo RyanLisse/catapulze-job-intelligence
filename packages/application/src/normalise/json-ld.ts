@@ -217,13 +217,29 @@ const PLACEHOLDER_BASE_SALARY_SLUGS: ReadonlySet<string> = new Set([
   "bluetrail",
 ]);
 
+/** Sources whose JobPosting.baseSalary carries real per-listing amounts under
+ * a mislabeled unitText: Gasunie publishes a monthly salary band
+ * (3912–5327 / 5903–8070 EUR on the 2026-09 fixtures) as unitText "HOUR".
+ * Reading it as an hourly tarief fabricates a rate the source never offered,
+ * and re-labeling it "maand" would be a guess the source did not publish, so
+ * the canonical tarief stays UNKNOWN. The raw node is still kept verbatim in
+ * `bronSpecifiek.base_salary` as provenance. */
+const MISLABELED_BASE_SALARY_UNIT_SLUGS: ReadonlySet<string> = new Set([
+  "gasunie",
+]);
+
 /**
  * Trust JobPosting.baseSalary only when unitText is an explicit period.
- * Sources in `PLACEHOLDER_BASE_SALARY_SLUGS` never reach this function.
+ * Sources in `PLACEHOLDER_BASE_SALARY_SLUGS` never reach this function;
+ * sources in `MISLABELED_BASE_SALARY_UNIT_SLUGS` reach it and are refused here.
  */
 const tariefFromBaseSalary = (
-  jobPosting: JsonLdFetchedPayload["jobPosting"]
+  jobPosting: JsonLdFetchedPayload["jobPosting"],
+  slug: string
 ): ReturnType<typeof parseTariefFromText> | null => {
+  if (MISLABELED_BASE_SALARY_UNIT_SLUGS.has(slug)) {
+    return null;
+  }
   const baseSalary = asNode(jobPosting.baseSalary);
   if (!baseSalary) {
     return null;
@@ -478,6 +494,7 @@ const jsonLdBronSpecifiekOf = (input: JsonLdBronSpecifiekInput) => {
     url,
   } = input;
   return {
+    base_salary: jobPosting.baseSalary ?? null,
     contract_type:
       typeof jobPosting.employmentType === "string"
         ? asTextOrNull(jobPosting.employmentType)
@@ -528,7 +545,7 @@ export const parseJsonLdPayload = (
   const startDatum = parseDutchDate(labelBlock.startDatum);
   const tarief = PLACEHOLDER_BASE_SALARY_SLUGS.has(payload.slug)
     ? parseTariefFromText(labelBlock.tarief ?? "")
-    : (tariefFromBaseSalary(jobPosting) ??
+    : (tariefFromBaseSalary(jobPosting, payload.slug) ??
       parseTariefFromText(labelBlock.tarief ?? descriptionText));
   // Only BlueTrail's label block ever carries `sluitingsDatum` (its
   // "Sluitingsdatum" sidebar field, Dutch text like "2 september 2026" --

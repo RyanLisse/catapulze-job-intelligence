@@ -14,6 +14,16 @@ export const gasunieConfig: JsonLdConnectorConfig = {
   excludePatterns: [
     /^(?!https:\/\/www\.werkenbijgasunie\.nl\/vacature\/\d+\/[^/?#]+$).+$/u,
   ],
+  labelBlock: {
+    // The location name is rendered only in the "vacancy-options" HTML list
+    // (fa-map-marker icon → "Barendrecht"/"Rotterdam"). The JSON-LD
+    // PostalAddress ships an empty addressLocality with a bare postalCode --
+    // a postcode is not a place name, so only this label-block text feeds
+    // `locatie`.
+    locatie: {
+      pattern: /<li class="vacancy-location">[\s\S]*?<\/i>\s*(?<value>[^<]+)/u,
+    },
+  },
   listingFixturePath: "gasunie/listing-page-0.json",
   liveEnvVar: "GASUNIE_LIVE",
   parserVersion: "gasunie/v2",
