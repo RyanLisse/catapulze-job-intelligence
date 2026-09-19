@@ -242,36 +242,37 @@ export const fetchPlanetInterimListingPages = async (
       requestBaseHeaders.Cookie = cookie;
     }
     const headers = toLiveFetchHeadersInit(requestBaseHeaders);
-    return await withHttpTimeout(async (timeoutSignal) => {
-      const signal = options.signal
-        ? AbortSignal.any([timeoutSignal, options.signal])
-        : timeoutSignal;
-      const requestHeaders = new Headers(headers);
-      if (init.headers) {
-        const additionalHeaders = new Headers(init.headers);
-        for (const [key, value] of additionalHeaders.entries()) {
-          requestHeaders.set(key, value);
+    return await withHttpTimeout(
+      async (signal) => {
+        const requestHeaders = new Headers(headers);
+        if (init.headers) {
+          const additionalHeaders = new Headers(init.headers);
+          for (const [key, value] of additionalHeaders.entries()) {
+            requestHeaders.set(key, value);
+          }
         }
-      }
-      const response = await fetchImpl(url, {
-        ...init,
-        headers: requestHeaders,
-        signal,
-      });
-      updateCookies(cookies, response);
-      const body = await readLiveHtmlOrThrow({
-        cookieEnvVar,
-        response,
-        slug: "planet-interim",
-        url,
-      });
-      if (isBlockPage(body)) {
-        throw new PlanetInterimPaginationError(
-          `listing response is a block page at ${url}`
-        );
-      }
-      return body;
-    }, timeoutMs);
+        const response = await fetchImpl(url, {
+          ...init,
+          headers: requestHeaders,
+          signal,
+        });
+        updateCookies(cookies, response);
+        const body = await readLiveHtmlOrThrow({
+          cookieEnvVar,
+          response,
+          slug: "planet-interim",
+          url,
+        });
+        if (isBlockPage(body)) {
+          throw new PlanetInterimPaginationError(
+            `listing response is a block page at ${url}`
+          );
+        }
+        return body;
+      },
+      timeoutMs,
+      options.signal
+    );
   };
 
   let current = await fetchPage(listingUrl);

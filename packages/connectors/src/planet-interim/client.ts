@@ -33,8 +33,11 @@ export const createPlanetInterimClient = (
   };
   return {
     fetchDetail: baseClient.fetchDetail,
-    fetchListing: async () => {
-      const pages = await fetchPlanetInterimListingPages(pagination);
+    fetchListing: async (signal) => {
+      const pages = await fetchPlanetInterimListingPages({
+        ...pagination,
+        signal,
+      });
       const seen = new Set<string>();
       return pages.flatMap((page) =>
         extractListingLinks(

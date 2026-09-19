@@ -177,6 +177,36 @@ describe("Planet Interim WebForms pagination", () => {
     ]);
   });
 
+  it("aborts an in-flight client listing request with the caller signal", async () => {
+    const controller = new AbortController();
+    let receivedSignal: AbortSignal | undefined;
+    const fetchImpl: typeof fetch = Object.assign(
+      (_input: string | URL | Request, init?: RequestInit) => {
+        receivedSignal = init?.signal ?? undefined;
+        // oxlint-disable-next-line promise/avoid-new -- keeps the request pending until the caller aborts it.
+        return new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener(
+            "abort",
+            () => reject(init.signal?.reason),
+            { once: true }
+          );
+        });
+      },
+      { preconnect: () => {} }
+    );
+    const client = createPlanetInterimClient({
+      config: planetInterimConfig,
+      fetchImpl,
+      liveEnabled: true,
+      timeoutMs: 1000,
+    });
+    const pending = client.fetchListing(controller.signal);
+    controller.abort(new Error("cancelled in-flight listing"));
+
+    await expect(pending).rejects.toThrow("cancelled in-flight listing");
+    expect(receivedSignal?.aborted).toBe(true);
+  });
+
   it("replays the real first, next, and last page controls", async () => {
     const pages = await Promise.all([
       recordedPage("pagination-first"),
