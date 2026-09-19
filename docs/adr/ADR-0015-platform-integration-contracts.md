@@ -243,13 +243,15 @@ generiek inbox-protocol.
 Een Effect-fiber is uitsluitend een begrensde in-process uitvoering. Hij kan
 geannuleerd of onderbroken worden en draagt geen durable checkpoint, replay of
 exactly-once garantie. Volgens CTP-617/A0 is Trigger.dev geen doel-eigenaar
-meer voor nieuwe duurzame jobs. Bestaande Trigger-taken blijven tijdelijk als
-interop-pad bestaan; nieuwe first-party job-I/O gebruikt Effect Services/Layers
-en een expliciet gekozen durable record of Effect-runtime. Een gewone job kiest
-de eenvoudigste bewezen persistente queue. Workflow/DurableQueue is geen
-standaardkeuze en vereist werkelijk workflow- en crash/replay-bewijs. MCP is
-alleen transport: iedere `tools/call` doorloopt de server-authz- en scopegrens
-uit ADR-0012 en kan nooit op zichzelf een provider-commit autoriseren.
+meer voor nieuwe duurzame jobs. Polling en curatie draaien al in de on-box
+poller; `enrich-incomplete`, `schedule-enrich-incomplete`, `drain-outbox` en
+`backfill-neon-v1` blijven tijdelijk als retained interop-pad bestaan. Nieuwe
+first-party job-I/O gebruikt Effect Services/Layers en een expliciet gekozen
+durable record of Effect-runtime. Een gewone job kiest de eenvoudigste bewezen
+persistente queue. Workflow/DurableQueue is geen standaardkeuze en vereist
+werkelijk workflow- en crash/replay-bewijs. MCP is alleen transport: iedere
+`tools/call` doorloopt de server-authz- en scopegrens uit ADR-0012 en kan nooit
+op zichzelf een provider-commit autoriseren.
 
 #### Concrete crash- en replayscenario's
 

@@ -25,7 +25,7 @@ afhankelijkheid introduceren.
 
 | Eerdere richting | Status na A0 | Traceerbare grens |
 | --- | --- | --- |
-| Trigger.dev als doel-eigenaar van duurzame task execution | **Superseded als doelarchitectuur** | Effect-owned Services/Layers en een nog per flow te kiezen duurzame Effect-runtime; de bestaande Trigger-adapter blijft alleen tijdens de migratie actief. T6 (CTP-635) mag pas na Z5 en eigen crash/replay-bewijs uitschakelen. |
+| Trigger.dev als doel-eigenaar van duurzame task execution | **Superseded als doelarchitectuur** | Effect-owned Services/Layers en een nog per flow te kiezen duurzame Effect-runtime; de bestaande Trigger-adapter blijft alleen voor retained flows actief. T6 (CTP-635) mag pas na Z5 en eigen crash/replay-bewijs uitschakelen. |
 | Python FastAPI + Pydantic als JI-runtime | **Superseded voor JI** | De historische doelplaat wordt vervangen door Bun/TypeScript/Effect/Drizzle. De intentie rond capabilities, provenance en system of record blijft behouden. |
 | Python/LangGraph als first-party agentruntime | **Niet aangenomen en superseded voor JI** | Agents gebruiken dezelfde server-geautoriseerde capability- en actioncontracten. Er komt geen parallel first-party LangGraph-runtime in deze migratielijn. |
 | Temporal of een andere algemene orchestrator | **Niet gekozen** | Alleen heropenen na gemeten noodzaak, een expliciet ADR en passend crash/replay-bewijs. |
@@ -33,6 +33,23 @@ afhankelijkheid introduceren.
 Deze tabel wijzigt geen productie- of providerrechten. De historische bronnen
 blijven leesbaar als onderzoekscontext; hun uitvoeringskeuze is niet langer een
 startvoorwaarde voor nieuwe JI-slices.
+
+### Geordende waves en actuele executor
+
+De geordende uitvoeringscrosswalk staat in de [migratiekaart](../effectts/migration-map.md#bestaande-wave-crosswalk-en-t6z5-definitie)
+en volgt het [CTP-613-programma](https://linear.app/rcjt-studio/issue/CTP-613/effect-platformwaves-ji-afronden-trigger-verlaten-en-candidate)
+en het [uitvoeringscontract](https://linear.app/rcjt-studio/document/effect-platformwaves-uitvoeringsplan-en-crabbox-contract-04922c890b87).
+De actuele regel is één actieve executor per flow: polling en curatie zijn al
+on-box; `enrich-incomplete`, `schedule-enrich-incomplete`, `drain-outbox` en
+`backfill-neon-v1` zijn retained Trigger-paden. De `drain-outbox`-wrapper
+deferreert wanneer de on-box projector actief is.
+
+`Z5` betekent CTP-633: volledige Effect-coverage voor actieve JI-flows en
+bronnen, inclusief CTP-626 enrichment, providercohorten, search/chat,
+feedback, correctie en restore. `T6` betekent CTP-635: Trigger uitschakelen
+pas na Z5, CTP-626, CTP-612 en A0, met per flow één actieve executor,
+crash/replay-bewijs en rollbackpad. Dit zijn bestaande programmastappen, geen
+nieuwe issues of automatische activatie.
 
 ## Relatie tot eerdere ontwerpkeuzes (bevestiging / beperking / supersession)
 
@@ -51,7 +68,7 @@ startvoorwaarde voor nieuwe JI-slices.
 
 - **Eigen TypeScript** (domain, application, connectors, search, performance, API/server handlers, worker-task *logica*, gedeelde libs): Effect als primaire runtime voor nieuwe code en voor gemigreerde slices.
 - **Framework-/SDK-/wiregrenzen**: Effect stopt waar een framework of SDK de lifecycle of serialisatie al bezit. Duurzame uitvoering is een expliciete first-party Effect-grens; tijdelijke interop-adapters mogen blijven totdat de flow is gemigreerd. Zie de inventaris hieronder.
-- **Trigger.dev** is alleen een tijdelijke interop-adapter voor bestaande taken. De doelarchitectuur legt first-party backend-I/O en joblogica achter Effect Services/Layers en een per flow gekozen duurzame Effect-runtime. Een gewone duurzame job gebruikt de eenvoudigste bewezen persistente queue; Workflow/DurableQueue is alleen toegestaan wanneer de werkelijke workflow dat nodig maakt. De bestaande Trigger-retry- en schedulegrenzen blijven onveranderd totdat T6 ze aantoonbaar vervangt. Request-retry blijft adapter-eigenaar per ADR-0013.
+- **Trigger.dev** is alleen een tijdelijke interop-adapter voor retained taken. Polling en curatie zijn al naar de on-box poller verplaatst; `enrich-incomplete`, `schedule-enrich-incomplete`, `drain-outbox` en `backfill-neon-v1` blijven expliciet benoemde Trigger-paden totdat hun eigen cutoverbewijs bestaat. Nieuwe first-party backend-I/O en joblogica lopen via Effect Services/Layers en een per flow gekozen duurzame Effect-runtime. Een gewone duurzame job gebruikt de eenvoudigste bewezen persistente queue; Workflow/DurableQueue is alleen toegestaan wanneer de werkelijke workflow dat nodig maakt. Request-retry blijft adapter-eigenaar per ADR-0013.
 - **Geen** herbouw van autorisatie, database-SoR, outbox/leases, provider-idempotentie of export-commitpaden in dezelfde refactor als een Effect-I/O-slice.
 - **Geen automatische productieactivatie** door afronden van ADR, baseline of eerste adapters. Productie-aan zet alleen via een aparte gecontroleerde implementatie/release met eigen bewijs.
 
@@ -70,7 +87,7 @@ startvoorwaarde voor nieuwe JI-slices.
 | `packages/api` | tRPC routers | **Interop**: procedures roepen application Effects aan; tRPC input/output via afgeleide schemas indien nodig | Geen parallel handmatig Zod-model |
 | `packages/ui` / `packages/config` | UI-primitives, TS-config | **Gemotiveerd behoud** (pure/config) | Geen Effect-runtime in UI-primitives tenzij gedeelde schema-types |
 | `apps/server` | Hono + REST/MCP/tRPC transports | **Interop**: transport blijft Hono/Better Auth; handlers `runPromise`/`Runtime` aan boundary | Authz/origin/MCP-session per ADR-0012 ongemoeid in I/O-slices |
-| `apps/worker` | Huidige Trigger tasks en toekomstige Effect jobs | **Interop tijdens migratie**: task entrypoint mag Trigger blijven; first-party job-I/O en nieuwe durability lopen via Effect Services/Layers | Geen nieuwe Trigger-only flow; T6 vereist één actieve uitvoerder, crash/replay-bewijs en rollbackpad |
+| `apps/worker` | On-box poller voor polling/curatie; retained Trigger tasks voor enrichment, drain en backfill | **Interop tijdens migratie**: de actuele executor wordt per flow benoemd; first-party job-I/O en nieuwe durability lopen via Effect Services/Layers | Geen nieuwe Trigger-only flow; T6 vereist één actieve uitvoerder, crash/replay-bewijs en rollbackpad |
 | `apps/web` | Next.js UI | **Beperkt toepassen**: serialiseerbare DTO/types uit SoT; geen Effect-runtime in RSC tenzij expliciete slice | Geen UI→DB; data via server/API |
 | `apps/api` (indien aanwezig/legacy pad) | HTTP+MCP volgens KTD1 | Zelfde als server-boundary | Align met capability registry |
 
@@ -115,6 +132,8 @@ Fasering is gemotiveerd door: (1) twee representatieve adapters hergebruik bewij
 
 - Onafhankelijke ADR-review tegen ADR-0013-baseline en (na CTP-455) beide implementaties.
 - Controle dat migratiekaart alle packages/apps dekt met ownership, deps, AC, testbewijs en rollback.
+- Controle dat de actuele on-box poller, retained Trigger-paden, provider-/broncohorten (waaronder Mercell, Indeed, LinkedIn Jobs en Werk.nl) en enrichment/backfill afzonderlijk zijn geregistreerd en niet als Effect-PASS worden gelezen.
+- Controle dat Z5/CTP-633 en T6/CTP-635 via de bestaande wave-crosswalk zijn gedefinieerd met één actieve executor, replay- en rollbackbewijs.
 - Controle dat de flowregistratie ingest, search, chat, export, feedback, herstel en toekomstige providers dekt en per flow runtime, owner, flag, status en bewijs noemt.
 - Controle dat 15 minuten discovery-freshness en 5 minuten p95 zichtbaarheid als voorgestelde acceptance targets zijn gelabeld en dat bronreconciliatie plus RPO/RTO niet als bestaande garanties worden gepresenteerd.
 - Geen productieactivatie in deze PR; geen CTP-455-runtimecode in deze PR.
