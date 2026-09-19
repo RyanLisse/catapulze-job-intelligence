@@ -5,6 +5,7 @@ import {
   permissionsForRole,
 } from "@ji/application/registry";
 import type { SliceAStores } from "@ji/application/registry";
+import { PostgresSourceHealthReader } from "@ji/db/source-health-reader";
 
 // `@ji/db`'s barrel module eagerly builds a postgres-js client from
 // `@ji/env/database` at import time, which requires DATABASE_URL to be set
@@ -29,6 +30,20 @@ const baseInput = {
 };
 
 describe("createProductionSliceADeps", () => {
+  it("wires the bulk source health reader", async () => {
+    const deps = await createProductionSliceADeps({
+      ...baseInput,
+      nodeEnv: "test",
+    });
+    try {
+      expect(deps.sourceHealthReader).toBeInstanceOf(
+        PostgresSourceHealthReader
+      );
+    } finally {
+      await deps.close();
+    }
+  });
+
   it("keeps production export disabled before any store access without an explicit client", async () => {
     const deps = await createProductionSliceADeps({
       databaseUrl: "postgres://unused:unused@127.0.0.1:1/unused",

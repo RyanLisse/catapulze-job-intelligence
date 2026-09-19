@@ -27,17 +27,28 @@ export const resolveHttpTimeoutMs = (timeoutMs?: number): number => {
  */
 export const withHttpTimeout = async <Payload>(
   operation: (signal: AbortSignal) => Promise<Payload>,
-  timeoutMs: number
+  timeoutMs: number,
+  parentSignal?: AbortSignal
 ): Promise<Payload> => {
   const resolvedTimeoutMs = resolveHttpTimeoutMs(timeoutMs);
   const controller = new AbortController();
-  const timer = setTimeout(() => {
-    controller.abort(new HttpTimeoutError(resolvedTimeoutMs));
-  }, resolvedTimeoutMs);
+  const onParentAbort = (): void => {
+    controller.abort(parentSignal?.reason);
+  };
+  if (parentSignal?.aborted) {
+    onParentAbort();
+  } else {
+    parentSignal?.addEventListener("abort", onParentAbort, { once: true });
+  }
+  const timer = setTimeout(
+    () => controller.abort(new HttpTimeoutError(resolvedTimeoutMs)),
+    resolvedTimeoutMs
+  );
 
   try {
     return await operation(controller.signal);
   } finally {
     clearTimeout(timer);
+    parentSignal?.removeEventListener("abort", onParentAbort);
   }
 };

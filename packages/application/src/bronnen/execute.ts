@@ -1,7 +1,13 @@
-import { CrawlDelayLimiter, fullJitter, runConnector } from "@ji/connectors";
+import {
+  awaitWithSignal,
+  CrawlDelayLimiter,
+  fullJitter,
+  runConnector,
+} from "@ji/connectors";
 import type {
   Connector,
   ConnectorRunResult,
+  ConnectorRunInput,
   ObjectStore,
   ObservationRecorder,
   RequestLimiter,
@@ -21,6 +27,7 @@ import { isPollableBron } from "./register";
 import type { BronPersistence } from "./register";
 
 export interface ExecuteBronRunInput {
+  onProgress?: ConnectorRunInput["onProgress"];
   bronId: BronId;
   bronSlug: string;
   scrapeRunId: ScrapeRunId;
@@ -71,10 +78,13 @@ const transitionLimiterPolicy = (
 ): RequestLimiter => {
   let previousWindow: Promise<void> | undefined;
   return {
-    acquire: async (bronId) => {
+    acquire: async (bronId, signal) => {
+      // The shared reservation must outlive an individual caller. Waiting on
+      // it is cancellable, but the first caller's signal must not poison the
+      // promise cached for later runs.
       previousWindow ??= previous.acquire(bronId);
-      await previousWindow;
-      await next.acquire(bronId);
+      await awaitWithSignal(previousWindow, signal);
+      await next.acquire(bronId, signal);
     },
   };
 };
@@ -186,6 +196,7 @@ export const executeBronRun = async (
       limiter: activeLimiter.limiter,
       objectStore: input.objectStore,
       observationRecorder: input.observationRecorder,
+      onProgress: input.onProgress,
       rawRetentionDays: record.retentionDays,
       retryPolicy,
       runKind,

@@ -11,12 +11,11 @@ import {
 export const DEFAULT_HEARTBEAT_FILE = "/tmp/poller-heartbeat";
 
 /**
- * The poller refreshes the heartbeat before every source and between every
- * curation pass, so the gap the HEALTHCHECK must tolerate is one source's
- * longest single step: a poll run (121 s on average under the old Trigger
- * task) plus one `curateScrapeRun` pass. 300 s covers that with headroom and
- * still turns the container unhealthy within one tick of a genuinely stuck
- * process. The projector keeps the 60 s default; its cycles are seconds long.
+ * The poller's scoped liveness fiber refreshes the heartbeat independently of
+ * source progress, so the file remains fresh while a connector or curation
+ * pass is busy. 300 s leaves room for a stalled process to become unhealthy
+ * while the separate lock probe and run-owned cancellation stop new work. The
+ * projector keeps the 60 s default; its cycles are seconds long.
  */
 export const MAX_POLLER_HEARTBEAT_AGE_MS = 300_000;
 

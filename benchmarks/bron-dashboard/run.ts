@@ -1,3 +1,9 @@
+import { mkdir, writeFile } from "node:fs/promises";
+import path from "node:path";
+
+import { drizzle } from "drizzle-orm/postgres-js";
+import postgres from "postgres";
+
 /* oxlint-disable no-await-in-loop -- latency samples must be measured one
    at a time, and the seed inserts are chunked deliberately to bound memory
    against a single pooled connection. */
@@ -12,12 +18,7 @@
  * Usage: bun benchmarks/bron-dashboard/run.ts
  * Or:    bun run perf:measure --label bron-dashboard --run-kind warm -- bun run bench:bron-dashboard
  */
-import { mkdir, writeFile } from "node:fs/promises";
-import path from "node:path";
-
-import { drizzle } from "drizzle-orm/postgres-js";
-import postgres from "postgres";
-
+import { createGetDashboardOverviewHandler } from "../../packages/application/src/registry/handlers/dashboard";
 import {
   PostgresAlertStore,
   PostgresBronHealthStore,
@@ -25,6 +26,7 @@ import {
 import { PostgresBronRunStatsReader } from "../../packages/db/src/bron-run-stats";
 import * as schema from "../../packages/db/src/schema";
 import { bron } from "../../packages/db/src/schema";
+import { PostgresSourceHealthReader } from "../../packages/db/src/source-health-reader";
 
 const DATABASE_URL =
   process.env.DATABASE_TEST_URL ??
@@ -229,11 +231,27 @@ const captureExplain = async (
 };
 
 const main = async (): Promise<void> => {
-  const sql = postgres(DATABASE_URL, { max: 2 });
+  let queryCount = 0;
+  const sql = postgres(DATABASE_URL, {
+    debug: () => {
+      queryCount += 1;
+    },
+    max: 2,
+  });
   const database = drizzle(sql, { schema });
   const reader = new PostgresBronRunStatsReader(database);
   const healthStore = new PostgresBronHealthStore(database);
   const alertStore = new PostgresAlertStore(database);
+  const sourceHealthReader = new PostgresSourceHealthReader(
+    database,
+    () => NOW
+  );
+  const dashboard = createGetDashboardOverviewHandler({
+    bronRunStatsReader: reader,
+    sourceHealthReader,
+    stores: { alerts: alertStore, bronHealth: healthStore },
+  });
+  const overviewQueryCounts: number[] = [];
   const bronIds = Array.from({ length: BRON_COUNT }, () => crypto.randomUUID());
 
   try {
@@ -266,6 +284,15 @@ const main = async (): Promise<void> => {
       );
     }
     results.push(
+      await measure("sourceHealthSignals(batch)", async () => {
+        const before = queryCount;
+        const signals = await sourceHealthReader.listByBronIds(bronIds);
+        if (signals.length !== BRON_COUNT || queryCount - before !== 1) {
+          throw new Error(
+            "Source health must load all fixture sources in one query"
+          );
+        }
+      }),
       await measure("bronRunStats(30d, runKind=all)", async () => {
         await reader.bronRunStats({
           bronIds,
@@ -275,10 +302,21 @@ const main = async (): Promise<void> => {
         });
       }),
       await measure("get_dashboard_overview(30d)", async () => {
-        await reader.bronRunStats({ bronIds, now: NOW, window: "30d" });
-        await reader.bronRunTimeseries({ bronIds, now: NOW, window: "30d" });
-        await healthStore.list();
-        await alertStore.listOpen();
+        const before = queryCount;
+        const result = await dashboard({ window: "30d" });
+        overviewQueryCounts.push(queryCount - before);
+        if (
+          result.value.bronnen.length !== BRON_COUNT ||
+          result.value.bronnen.some(
+            (row) =>
+              row.health?.healthSignals === null ||
+              row.health?.healthSignals === undefined
+          )
+        ) {
+          throw new Error(
+            "Dashboard fixture did not return every source's health signals"
+          );
+        }
       })
     );
 
@@ -337,7 +375,7 @@ const main = async (): Promise<void> => {
           withinBudget: r.p95 < budget,
         };
       }),
-      postgresQueriesPerOverview: 4,
+      postgresQueriesPerOverview: overviewQueryCounts,
       unit: "RJC-415",
     };
 

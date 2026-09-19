@@ -95,9 +95,13 @@ export interface Connector {
    */
   readonly fetchUsesNetwork?: boolean;
   discover: (
-    checkpoint: ConnectorCheckpoint | null
+    checkpoint: ConnectorCheckpoint | null,
+    signal?: AbortSignal
   ) => Promise<ConnectorDiscoverResult>;
-  fetch: (item: DiscoverItem) => Promise<ConnectorFetchResult | null>;
+  fetch: (
+    item: DiscoverItem,
+    signal?: AbortSignal
+  ) => Promise<ConnectorFetchResult | null>;
 }
 
 export const emptyRunMetrics = (): ConnectorRunMetrics => ({

@@ -77,6 +77,7 @@ export {
   type RunIncompleteReason,
 } from "./run";
 export {
+  awaitWithSignal,
   fullJitter,
   sleep,
   withRetry,

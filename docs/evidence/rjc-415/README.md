@@ -1,6 +1,38 @@
 # RJC-415 / D9 — Bron dashboard performance evidence
 
-Measured on `catapulze.exe.xyz` against isolated `ji_test`.
+The results below are the historical 2026-09-06 run on `catapulze.exe.xyz`.
+Its overview benchmark composed reader calls and reported a fixed query count;
+it did not instrument the complete handler. The four-query claim below is therefore
+not evidence for the current dashboard.
+
+## CTP-618 measurement, 2026-09-19
+
+The benchmark now invokes `createGetDashboardOverviewHandler`, including source
+health signals and serialization, and counts actual PostgreSQL statements. On a
+local isolated PostgreSQL fixture with 50 sources, 50,000 runs and 50,000
+observations, ten measured iterations after one cold call returned:
+
+- Complete overview p95: **103.4 ms** (existing budget: 1000 ms).
+- Bulk source health p95: **1.8 ms**, with exactly one query for all 50 sources.
+- Complete overview: **6 queries** on every invocation.
+
+These are local database/handler measurements, not production latency or HTTP/auth
+measurements. Runtime telemetry was absent in this fixture, so health serialization
+exercised honest unknown signals. No claim about live poller throughput follows.
+The current JSON report records every overview query count instead of a fixed four.
+
+A same-host trunk comparison used revision
+`79459a00092325898d69b6923676ebf0ddbc9753`, the same 50-source/50,000-run
+fixture shape, ten measured iterations and an isolated database. A temporary
+instrumented runner invoked trunk's real handler with its real PostgreSQL readers.
+It measured **90.0 ms p95** and **5 queries** per overview. The telemetry version
+based on `ec3d355626ce7f4a41f6bf86fc5daad2ef158d4d` measured **103.4 ms** and
+**6 queries**. These sequential local samples show one additional bulk query and
+both versions within the existing budget; they are not a statistical regression
+estimate. The temporary runners and JSON output are local ignored artifacts.
+
+The older remote measurements follow for historical comparison; different hosts
+and fixtures mean they do not establish a speedup.
 
 ## Budgets
 

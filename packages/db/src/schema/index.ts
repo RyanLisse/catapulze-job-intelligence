@@ -28,6 +28,7 @@ export {
   bronHealth,
   bronHealthRelations,
   bronRelations,
+  pollerRuntime,
   dedupGroep,
   dedupGroepRelations,
   outboxEvent,

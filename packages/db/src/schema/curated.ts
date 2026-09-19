@@ -664,12 +664,22 @@ export const agentContext = curatedSchema.table(
 export const bronHealth = curatedSchema.table(
   "bron_health",
   {
+    activeRunId: uuid("active_run_id").references(() => scrapeRun.id, {
+      onDelete: "set null",
+    }),
     bronId: uuid("bron_id")
       .primaryKey()
       .references(() => bron.id, { onDelete: "cascade" }),
     circuitStatus: text("circuit_status").default("closed").notNull(),
+    lastCompletionOutcome: text("last_completion_outcome"),
+    lastFullySuccessfulAt: timestamp("last_fully_successful_at", {
+      withTimezone: true,
+    }),
     lastRunAt: timestamp("last_run_at", { withTimezone: true }),
     lastRunStatus: text("last_run_status"),
+    phaseStartedAt: timestamp("phase_started_at", { withTimezone: true }),
+    progressAt: timestamp("progress_at", { withTimezone: true }),
+    progressPhase: text("progress_phase"),
     silenceAlertOpen: boolean("silence_alert_open").default(false).notNull(),
     updatedAt: timestamp("updated_at", { withTimezone: true })
       .defaultNow()
@@ -680,6 +690,76 @@ export const bronHealth = curatedSchema.table(
     check(
       "bron_health_circuit_status_check",
       sql`length(trim(${table.circuitStatus})) > 0`
+    ),
+    check(
+      "bron_health_progress_phase_check",
+      sql`${table.progressPhase} IS NULL OR ${table.progressPhase} IN ('fetch', 'persist', 'curation')`
+    ),
+    check(
+      "bron_health_completion_outcome_check",
+      sql`${table.lastCompletionOutcome} IS NULL OR ${table.lastCompletionOutcome} IN ('complete', 'incomplete', 'backlogged', 'parked', 'failed', 'quarantined', 'unknown')`
+    ),
+  ]
+);
+
+/**
+ * Singleton identity for the process that currently owns the poller
+ * advisory lock. Claiming this row is deliberately separate from acquiring
+ * that lock: the worker may call `claim` only after the lock handle says it
+ * acquired the session lock.
+ */
+export const pollerRuntime = curatedSchema.table(
+  "poller_runtime",
+  {
+    advisoryLockMaxAgeMs: bigint("advisory_lock_max_age_ms", {
+      mode: "number",
+    }),
+    component: text("component").primaryKey().default("poller"),
+    curationBudgetMs: bigint("curation_budget_ms", { mode: "number" }),
+    fenceToken: bigint("fence_token", { mode: "number" }).notNull(),
+    heartbeatAt: timestamp("heartbeat_at", { withTimezone: true }).notNull(),
+    heartbeatMaxAgeMs: bigint("heartbeat_max_age_ms", { mode: "number" }),
+    instanceId: text("instance_id").notNull(),
+    lastLockCheckAt: timestamp("last_lock_check_at", {
+      withTimezone: true,
+    }).notNull(),
+    ownerToken: uuid("owner_token").notNull(),
+    releaseSha: text("release_sha"),
+    runBudgetMs: bigint("run_budget_ms", { mode: "number" }),
+    startedAt: timestamp("started_at", { withTimezone: true }).notNull(),
+    status: text("status").notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull(),
+  },
+  (table) => [
+    check(
+      "poller_runtime_advisory_lock_max_age_ms_check",
+      sql`${table.advisoryLockMaxAgeMs} IS NULL OR (${table.advisoryLockMaxAgeMs} > 0 AND ${table.advisoryLockMaxAgeMs} <= 9007199254740991)`
+    ),
+    check(
+      "poller_runtime_curation_budget_ms_check",
+      sql`${table.curationBudgetMs} IS NULL OR (${table.curationBudgetMs} > 0 AND ${table.curationBudgetMs} <= 9007199254740991)`
+    ),
+    check(
+      "poller_runtime_heartbeat_max_age_ms_check",
+      sql`${table.heartbeatMaxAgeMs} IS NULL OR (${table.heartbeatMaxAgeMs} > 0 AND ${table.heartbeatMaxAgeMs} <= 9007199254740991)`
+    ),
+    check(
+      "poller_runtime_run_budget_ms_check",
+      sql`${table.runBudgetMs} IS NULL OR (${table.runBudgetMs} > 0 AND ${table.runBudgetMs} <= 9007199254740991)`
+    ),
+
+    check("poller_runtime_component_check", sql`${table.component} = 'poller'`),
+    check(
+      "poller_runtime_fence_token_check",
+      sql`${table.fenceToken} > 0 AND ${table.fenceToken} <= 9007199254740991`
+    ),
+    check(
+      "poller_runtime_status_check",
+      sql`${table.status} IN ('running', 'lock_lost', 'stopped')`
+    ),
+    check(
+      "poller_runtime_instance_id_check",
+      sql`length(trim(${table.instanceId})) > 0`
     ),
   ]
 );

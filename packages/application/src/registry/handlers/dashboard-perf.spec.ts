@@ -2,8 +2,6 @@ import { describe, expect, it } from "bun:test";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 
-import type { SearchAdapter } from "@ji/search";
-
 import { createMemorySliceAStores } from "../stores/memory";
 import type { BronRunStatsReader, BronRunStatsRow } from "../stores/types";
 import { createGetDashboardOverviewHandler } from "./dashboard";
@@ -127,13 +125,6 @@ describe("get_dashboard_overview request-path discipline (RJC-415)", () => {
 
     const handler = createGetDashboardOverviewHandler({
       bronRunStatsReader: reader,
-      bronnen: {
-        getById: () => Promise.resolve(null),
-        list: () => Promise.resolve([]),
-      },
-      scopeId: "test-scope",
-      // SAFETY: searchAdapter is unused by get_dashboard_overview; empty stub is enough.
-      searchAdapter: {} as SearchAdapter,
       stores,
     });
 

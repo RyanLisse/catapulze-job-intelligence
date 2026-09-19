@@ -4,12 +4,17 @@ import type { SilenceAlertWriter } from "./silence";
 export const createSilenceAlertWriter = (stores: {
   alerts: AlertStore;
   bronHealth: BronHealthStore;
+  upsertBronHealth?: SilenceAlertWriter["upsertBronHealth"];
 }): SilenceAlertWriter => ({
   findOpenByDedupeKey: async (dedupeKey) => {
     const alert = await stores.alerts.findOpenByDedupeKey(dedupeKey);
     return alert ? { id: alert.id } : null;
   },
   upsertBronHealth: async (input) => {
+    if (stores.upsertBronHealth) {
+      await stores.upsertBronHealth(input);
+      return;
+    }
     const existing = await stores.bronHealth.getByBronId(input.bronId);
     await stores.bronHealth.upsert({
       bronId: input.bronId,

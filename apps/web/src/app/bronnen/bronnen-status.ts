@@ -1,13 +1,17 @@
+import type { SourceHealthSignalsView } from "@ji/application/registry";
+
 export interface DashboardStats {
+  readonly actief?: boolean | null;
   readonly lastRunAt: string | null;
   readonly lastRunStatus: string | null;
   readonly runs: number;
 }
 
 export interface DashboardHealth {
-  readonly circuitStatus: string;
+  readonly healthSignals?: SourceHealthSignalsView | null;
+  readonly circuitStatus: string | null;
   readonly lastRunAt: string | null;
-  readonly silenceAlertOpen: boolean;
+  readonly silenceAlertOpen: boolean | null;
 }
 
 export interface DashboardBron {
@@ -16,7 +20,14 @@ export interface DashboardBron {
 }
 
 export interface BronCardStatus {
-  readonly label: "Aandacht" | "Gezond" | "Nieuw";
+  readonly label:
+    | "Aandacht"
+    | "Gezond"
+    | "Inactief"
+    | "Nieuw"
+    | "Onbekend"
+    | "Bezig"
+    | "Geblokkeerd";
   readonly variant: "destructive" | "outline" | "secondary";
 }
 
@@ -47,12 +58,41 @@ export const attentionReasons = (
   return reasons;
 };
 
+const aggregateStatuses = {
+  blocked: { label: "Geblokkeerd", variant: "destructive" },
+  green: { label: "Gezond", variant: "secondary" },
+  inactive: { label: "Inactief", variant: "outline" },
+  progressing: { label: "Bezig", variant: "secondary" },
+  red: { label: "Aandacht", variant: "destructive" },
+  unknown: { label: "Onbekend", variant: "outline" },
+} satisfies Record<
+  SourceHealthSignalsView["aggregate"]["state"],
+  BronCardStatus
+>;
+
 export const statusFor = (bron: DashboardBron): BronCardStatus => {
+  if (bron.stats.actief === false) {
+    return { label: "Inactief", variant: "outline" };
+  }
+  if (bron.stats.actief !== true) {
+    return { label: "Onbekend", variant: "outline" };
+  }
+  const aggregate = bron.health?.healthSignals?.aggregate;
+  if (aggregate) {
+    if (
+      aggregate.state === "green" &&
+      (bron.health?.circuitStatus === "open" ||
+        bron.health?.silenceAlertOpen === true)
+    ) {
+      return { label: "Aandacht", variant: "destructive" };
+    }
+    return aggregateStatuses[aggregate.state];
+  }
   if (attentionReasons(bron).length > 0) {
     return { label: "Aandacht", variant: "destructive" };
   }
   if (bron.stats.runs === 0) {
     return { label: "Nieuw", variant: "outline" };
   }
-  return { label: "Gezond", variant: "secondary" };
+  return { label: "Onbekend", variant: "outline" };
 };

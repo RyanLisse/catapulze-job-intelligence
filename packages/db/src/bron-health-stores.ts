@@ -8,13 +8,22 @@ import type {
   BronHealthStore,
 } from "@ji/application/registry";
 import { and, desc, eq, gte, isNull, lt, ne } from "drizzle-orm";
-import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
+import type { ExtractTablesWithRelations } from "drizzle-orm";
+import type {
+  PostgresJsDatabase,
+  PostgresJsTransaction,
+} from "drizzle-orm/postgres-js";
 
 import type * as schema from "./schema";
 import { alert, bronHealth, scrapeRun } from "./schema";
 
-export type BronHealthDatabase = PostgresJsDatabase<typeof schema>;
-export type AlertDatabase = PostgresJsDatabase<typeof schema>;
+export type BronHealthDatabase =
+  | PostgresJsDatabase<typeof schema>
+  | PostgresJsTransaction<
+      typeof schema,
+      ExtractTablesWithRelations<typeof schema>
+    >;
+export type AlertDatabase = BronHealthDatabase;
 
 const toBronHealthRecord = (
   row: typeof bronHealth.$inferSelect
@@ -80,6 +89,49 @@ export class PostgresBronHealthStore implements BronHealthStore {
     }
 
     return toBronHealthRecord(row);
+  }
+
+  upsertForRun({
+    bronId,
+    fenceToken,
+    record,
+    runId,
+  }: Parameters<
+    NonNullable<BronHealthStore["upsertForRun"]>
+  >[0]): Promise<BronHealthRecord | null> {
+    return this.database.transaction(async (transaction) => {
+      // Match run-start lock order and retain this fence through the outer
+      // health/alert transaction, including a takeover that resumes this run.
+      const [ownedRun] = await transaction
+        .select({ id: scrapeRun.id })
+        .from(scrapeRun)
+        .where(
+          and(
+            eq(scrapeRun.id, runId),
+            eq(scrapeRun.bronId, bronId),
+            eq(scrapeRun.fenceToken, fenceToken)
+          )
+        )
+        .for("update");
+      if (!ownedRun) {
+        return null;
+      }
+      const [row] = await transaction
+        .update(bronHealth)
+        .set({
+          circuitStatus: record.circuitStatus,
+          lastRunAt: record.lastRunAt,
+          lastRunStatus: record.lastRunStatus,
+          silenceAlertOpen: record.silenceAlertOpen,
+          updatedAt: new Date(),
+        })
+        .where(
+          and(eq(bronHealth.bronId, bronId), eq(bronHealth.activeRunId, runId))
+        )
+        .returning();
+
+      return row ? toBronHealthRecord(row) : null;
+    });
   }
 }
 

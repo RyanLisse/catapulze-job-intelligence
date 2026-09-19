@@ -33,6 +33,7 @@ import {
   createPostgresMartsReader,
 } from "@ji/db";
 import { PostgresCurateStore } from "@ji/db/postgres-curate-store";
+import { PostgresSourceHealthReader } from "@ji/db/source-health-reader";
 import type { ResultCacheBackend } from "@ji/search";
 import {
   createResultCache,
@@ -206,6 +207,7 @@ export const createProductionSliceADeps = async (
       );
     })(),
     searchAdapter,
+    sourceHealthReader: new PostgresSourceHealthReader(runtime.database),
     stores,
   };
 };

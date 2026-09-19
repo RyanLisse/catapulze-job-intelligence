@@ -1,3 +1,4 @@
+import type { SourceHealthSignalsView } from "@ji/application/registry";
 import { getInternalServerUrl } from "@ji/env/web";
 import { Badge } from "@ji/ui/components/badge";
 import {
@@ -18,6 +19,11 @@ import {
   BronnenSparklineHost,
   BronnenTrendPanel,
 } from "@/app/bronnen/bronnen-charts";
+import {
+  healthReasonLabels,
+  healthSignalRows,
+  formatSilenceAlert,
+} from "@/app/bronnen/bronnen-health-signals";
 import {
   BronnenOverlapSection,
   BronnenOverlapSkeleton,
@@ -48,6 +54,7 @@ export const metadata: Metadata = {
 };
 
 interface DashboardStats {
+  readonly actief: boolean | null;
   readonly bronId: string | null;
   readonly gewijzigd: number;
   readonly lastRunAt: string | null;
@@ -61,9 +68,10 @@ interface DashboardStats {
 }
 
 interface DashboardHealth {
-  readonly circuitStatus: string;
+  readonly healthSignals?: SourceHealthSignalsView | null;
+  readonly circuitStatus: string | null;
   readonly lastRunAt: string | null;
-  readonly silenceAlertOpen: boolean;
+  readonly silenceAlertOpen: boolean | null;
 }
 
 interface DashboardBron {
@@ -215,9 +223,13 @@ const DashboardData = async ({
           <ul className="space-y-2">
             {attentionSources.map((bron) => {
               const { stats } = bron;
-              const reasons = attentionReasons(bron).map(
-                (reason) => attentionReasonLabels[reason]
-              );
+              const signals = bron.health?.healthSignals;
+              const reasons =
+                signals && signals.aggregate.state !== "green"
+                  ? [healthReasonLabels[signals.aggregate.reason]]
+                  : attentionReasons(bron).map(
+                      (reason) => attentionReasonLabels[reason]
+                    );
               return (
                 <li
                   className="rounded-md border border-destructive/30 p-3 text-sm"
@@ -307,7 +319,9 @@ const DashboardData = async ({
                         <div className="flex justify-between gap-3">
                           <dt className="text-muted-foreground">Stilte</dt>
                           <dd>
-                            {bron.health?.silenceAlertOpen ? "Open" : "Nee"}
+                            {formatSilenceAlert(
+                              bron.health?.silenceAlertOpen ?? null
+                            )}
                           </dd>
                         </div>
                         <div className="flex justify-between gap-3">
@@ -319,6 +333,32 @@ const DashboardData = async ({
                           </dd>
                         </div>
                       </dl>
+                      <details className="border-t border-border pt-3">
+                        <summary className="cursor-pointer font-medium focus-visible:outline-2 focus-visible:outline-offset-4">
+                          Gezondheidssignalen
+                        </summary>
+                        <dl className="mt-3 space-y-3">
+                          {healthSignalRows(
+                            bron.health?.healthSignals ?? null
+                          ).map((signal) => (
+                            <div key={signal.label}>
+                              <dt className="font-medium">{signal.label}</dt>
+                              <dd>
+                                <p>{signal.reason}</p>
+                                <p className="text-muted-foreground">
+                                  Leeftijd meting: {signal.age}
+                                </p>
+                                {signal.waitingAge ? (
+                                  <p className="text-muted-foreground">
+                                    Wacht op eerste voortgang:{" "}
+                                    {signal.waitingAge}
+                                  </p>
+                                ) : null}
+                              </dd>
+                            </div>
+                          ))}
+                        </dl>
+                      </details>
                       {stats.runs === 0 ? (
                         <p className="text-muted-foreground">Nog geen runs</p>
                       ) : null}
@@ -351,9 +391,9 @@ const DashboardData = async ({
             aandacht-item.
           </p>
           <p>
-            Een bron krijgt aandacht bij een open circuit, een mislukte laatste
-            run of een stiltesignaal — het Motian PlatformHealthCard-patroon
-            voor operatorgezondheid.
+            De bronstatus volgt de afzonderlijke gezondheidssignalen. Een
+            lopende verwerking kan voortgang maken terwijl de laatste volledige
+            verwerking ouder is. Zonder metingen blijft de gezondheid onbekend.
           </p>
         </CardContent>
       </Card>

@@ -160,6 +160,7 @@ describe("abandonStaleRuns", () => {
     expect(stale?.failureCode).toBe("UNEXPECTED_FAILURE");
     expect(stale?.failureMessage).toBe("Connector run failed");
     expect(stale?.geindigd?.toISOString()).toBe(NOW.toISOString());
+    expect(stale?.fenceToken).toBe(1);
   });
 
   it("leaves a run that is still inside the threshold running", async () => {

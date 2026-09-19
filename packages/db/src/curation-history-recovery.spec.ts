@@ -984,17 +984,23 @@ describe("historical curation recovery (RJC-433)", () => {
       sourceRecordId: readySourceId,
       title: "Ready after missing",
     });
+    let progressCalls = 0;
     const input = {
       attemptLimit: 2,
       bronId: BRON_ID,
       bronSlug: BRON_SLUG,
       database,
       objectStore,
+      onProgress: () => {
+        progressCalls += 1;
+        return Promise.resolve();
+      },
       scrapeRunId: runId,
     };
 
     const first = await curateScrapeRun(input);
     expect(first).toMatchObject({ curated: 0, pending: 2, remaining: 4 });
+    expect(progressCalls).toBe(0);
     expect(first.attemptedObservationIds).toEqual(
       missingObservationIds.slice(0, 2)
     );
@@ -1020,6 +1026,7 @@ describe("historical curation recovery (RJC-433)", () => {
 
     const second = await curateScrapeRun(input);
     expect(second).toMatchObject({ curated: 1, pending: 3, remaining: 3 });
+    expect(progressCalls).toBe(1);
     expect(second.attemptedObservationIds).toEqual([
       freshTwoId,
       readyObservationId,
@@ -1041,6 +1048,7 @@ describe("historical curation recovery (RJC-433)", () => {
     }
     const dormant = await curateScrapeRun(input);
     expect(dormant).toMatchObject({ curated: 0, pending: 3, remaining: 3 });
+    expect(progressCalls).toBe(1);
     expect(dormant.attemptedObservationIds).toEqual([]);
     await requeueMissingRaw(database, [freshOneId, freshTwoId], [legacyId]);
     const requeuedStatuses = await database
@@ -1063,6 +1071,7 @@ describe("historical curation recovery (RJC-433)", () => {
     expect(third).toMatchObject({ curated: 2, pending: 0, remaining: 1 });
     expect(fourth).toMatchObject({ curated: 1, pending: 0, remaining: 0 });
     expect(replay).toMatchObject({ curated: 0, pending: 0, remaining: 0 });
+    expect(progressCalls).toBe(4);
 
     const observations = await database
       .select({ status: aanvraagObservation.status })
@@ -1563,5 +1572,272 @@ describe("historical curation recovery (RJC-433)", () => {
     expect(history.versions).toHaveLength(1);
     expect(history.events).toHaveLength(1);
     expectMonotoneHistory(history.versions);
+  });
+
+  it("does not report progress when another curator already completed the selected row", async () => {
+    if (!available || !database) {
+      expect(available).toBe(false);
+      return;
+    }
+    const currentDatabase = database;
+    const objectStore = new InMemoryObjectStore();
+    const runId = await seedRun(currentDatabase, 0);
+    const bronReferentie = `ctp-618-progress-race-${crypto.randomUUID()}`;
+    const sourceRecordId = await seedSourceRecord(
+      currentDatabase,
+      bronReferentie,
+      runId
+    );
+    const observationId = await seedObservation({
+      bronReferentie,
+      contentHash: "progress-race-hash",
+      database: currentDatabase,
+      minute: 10,
+      objectStore,
+      scrapeRunId: runId,
+      sourceRecordId,
+      title: "Concurrent terminal transition",
+    });
+    const racingObjectStore: ObjectStore = {
+      deleteExpired: (before: Date) => objectStore.deleteExpired(before),
+      get: async (objectPath: string) => {
+        const stored = await objectStore.get(objectPath);
+        // Candidate selection has happened, but its transaction has not locked it yet.
+        await currentDatabase
+          .update(aanvraagObservation)
+          .set({ status: "curated" })
+          .where(eq(aanvraagObservation.id, observationId));
+        return stored;
+      },
+      put: (object) => objectStore.put(object),
+    };
+    let calls = 0;
+    const result = await curateScrapeRun({
+      bronId: BRON_ID,
+      bronSlug: BRON_SLUG,
+      database: currentDatabase,
+      objectStore: racingObjectStore,
+      onProgress: () => {
+        calls += 1;
+        return Promise.resolve();
+      },
+      scrapeRunId: runId,
+    });
+    expect(result.alreadyCommitted).toBe(1);
+    expect(result.remaining).toBe(0);
+    expect(calls).toBe(0);
+  });
+
+  it("reports committed progress without parking data when telemetry fails", async () => {
+    if (!available || !database) {
+      expect(available).toBe(false);
+      return;
+    }
+    const currentDatabase = database;
+    const objectStore = new InMemoryObjectStore();
+    const runId = await seedRun(currentDatabase, 0);
+    const bronReferentie = `ctp-618-progress-${crypto.randomUUID()}`;
+    const sourceRecordId = await seedSourceRecord(
+      currentDatabase,
+      bronReferentie,
+      runId
+    );
+    const observationId = await seedObservation({
+      bronReferentie,
+      contentHash: "progress-hash",
+      database: currentDatabase,
+      minute: 10,
+      objectStore,
+      scrapeRunId: runId,
+      sourceRecordId,
+      title: "Committed progress",
+    });
+    const telemetryError = new Error("telemetry unavailable");
+    let calls = 0;
+    await expect(
+      curateScrapeRun({
+        bronId: BRON_ID,
+        bronSlug: BRON_SLUG,
+        database: currentDatabase,
+        objectStore,
+        onProgress: async () => {
+          calls += 1;
+          const [row] = await currentDatabase
+            .select({ status: aanvraagObservation.status })
+            .from(aanvraagObservation)
+            .where(eq(aanvraagObservation.id, observationId));
+          expect(row?.status).toBe("curated");
+          throw telemetryError;
+        },
+        scrapeRunId: runId,
+      })
+    ).rejects.toBe(telemetryError);
+    expect(calls).toBe(1);
+    const [row] = await currentDatabase
+      .select({ status: aanvraagObservation.status })
+      .from(aanvraagObservation)
+      .where(eq(aanvraagObservation.id, observationId));
+    expect(row?.status).toBe("curated");
+    const replay = await curateScrapeRun({
+      bronId: BRON_ID,
+      bronSlug: BRON_SLUG,
+      database: currentDatabase,
+      objectStore,
+      onProgress: () => {
+        calls += 1;
+        return Promise.resolve();
+      },
+      scrapeRunId: runId,
+    });
+    expect(replay.remaining).toBe(0);
+    expect(calls).toBe(1);
+  });
+
+  it("rolls back the final observation update when cancellation arrives before return", async () => {
+    if (!available || !database) {
+      expect(available).toBe(false);
+      return;
+    }
+    const objectStore = new InMemoryObjectStore();
+    const runId = await seedRun(database, 0);
+    const bronReferentie = `rjc-618-db-abort-${crypto.randomUUID()}`;
+    const sourceRecordId = await seedSourceRecord(
+      database,
+      bronReferentie,
+      runId
+    );
+    const observationId = await seedObservation({
+      bronReferentie,
+      contentHash: "abort-hash",
+      database,
+      minute: 10,
+      objectStore,
+      scrapeRunId: runId,
+      sourceRecordId,
+      title: "Abort after update",
+    });
+    const abortController = new AbortController();
+    const abortReason = new Error("poller lock lost");
+    let finalObservationUpdateExecuted = false;
+    const beforeOutbox = await database
+      .select({ id: outboxEvent.id })
+      .from(outboxEvent);
+    /* oxlint-disable promise/prefer-await-to-callbacks, unicorn/prefer-type-error, anti-slop/no-known-value-widening, anti-slop/no-object-parameters, anti-slop/no-reflect-get, anti-slop/no-runtime-typeof, anti-slop/no-unknown-parameters, anti-slop/no-unknown-returns, anti-slop/no-reflect-apply, anti-slop/require-safety-comment-for-type-assertion -- This test-only Proxy sits at the Drizzle transaction boundary to place a real AbortController barrier on the final observation UPDATE. */
+    const wrapObservationQuery = (query: object): object =>
+      new Proxy(query, {
+        get(target, property, receiver) {
+          const value = Reflect.get(target, property, receiver);
+          if (property === "then" && typeof value === "function") {
+            return (
+              onFulfilled?: (result: unknown) => unknown,
+              onRejected?: (error: unknown) => unknown
+            ) =>
+              Reflect.apply(value, target, [
+                (result: unknown) => {
+                  finalObservationUpdateExecuted = true;
+                  abortController.abort(abortReason);
+                  return onFulfilled?.(result);
+                },
+                onRejected,
+              ]);
+          }
+          if (typeof value !== "function") {
+            return value;
+          }
+          return (...args: unknown[]) => {
+            const next = Reflect.apply(value, target, args);
+            if (
+              next !== null &&
+              (typeof next === "object" || typeof next === "function")
+            ) {
+              return wrapObservationQuery(next);
+            }
+            return next;
+          };
+        },
+      });
+    const wrapTransaction = (transaction: object): object =>
+      new Proxy(transaction, {
+        get(target, property, receiver) {
+          const value = Reflect.get(target, property, receiver);
+          if (property !== "update" || typeof value !== "function") {
+            return value;
+          }
+          return (table: unknown, ...args: unknown[]) => {
+            const query = Reflect.apply(value, target, [table, ...args]);
+            if (table !== aanvraagObservation) {
+              return query;
+            }
+            if (
+              query === null ||
+              (typeof query !== "object" && typeof query !== "function")
+            ) {
+              throw new Error("Expected observation update query builder");
+            }
+            return wrapObservationQuery(query);
+          };
+        },
+      });
+    const databaseWithAbortBarrier = new Proxy(database, {
+      get(target, property, receiver) {
+        const value = Reflect.get(target, property, receiver);
+        if (property !== "transaction" || typeof value !== "function") {
+          return value;
+        }
+        return (callback: unknown, ...args: unknown[]) => {
+          if (typeof callback !== "function") {
+            throw new Error("Expected transaction callback");
+          }
+          return Reflect.apply(value, target, [
+            (transaction: object, ...callbackArgs: unknown[]) =>
+              Reflect.apply(callback, undefined, [
+                wrapTransaction(transaction),
+                ...callbackArgs,
+              ]),
+            ...args,
+          ]);
+        };
+      },
+    });
+    /* oxlint-enable promise/prefer-await-to-callbacks, unicorn/prefer-type-error, anti-slop/no-known-value-widening, anti-slop/no-object-parameters, anti-slop/no-reflect-get, anti-slop/no-runtime-typeof, anti-slop/no-unknown-parameters, anti-slop/no-unknown-returns, anti-slop/no-reflect-apply, anti-slop/require-safety-comment-for-type-assertion */
+
+    let progressCalls = 0;
+    await expect(
+      curateScrapeRun({
+        bronId: BRON_ID,
+        bronSlug: BRON_SLUG,
+        database: databaseWithAbortBarrier,
+        objectStore,
+        onProgress: () => {
+          progressCalls += 1;
+          return Promise.resolve();
+        },
+        scrapeRunId: runId,
+        signal: abortController.signal,
+      })
+    ).rejects.toThrow(abortReason);
+
+    expect(finalObservationUpdateExecuted).toBe(true);
+    expect(progressCalls).toBe(0);
+
+    const [observation] = await database
+      .select({ status: aanvraagObservation.status })
+      .from(aanvraagObservation)
+      .where(eq(aanvraagObservation.id, observationId));
+    expect(observation?.status).toBe("awaiting_curation");
+    const history = await database
+      .select({ id: aanvraag.id })
+      .from(aanvraag)
+      .where(
+        and(
+          eq(aanvraag.bronId, BRON_ID),
+          eq(aanvraag.bronReferentie, bronReferentie)
+        )
+      );
+    expect(history).toHaveLength(0);
+    const afterOutbox = await database
+      .select({ id: outboxEvent.id })
+      .from(outboxEvent);
+    expect(afterOutbox).toEqual(beforeOutbox);
   });
 });

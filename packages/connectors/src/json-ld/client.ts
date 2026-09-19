@@ -31,8 +31,11 @@ export {
 } from "./discovery";
 
 export interface JsonLdClient {
-  fetchDetail: (url: string) => Promise<JsonLdDetailPayload>;
-  fetchListing: () => Promise<JsonLdDiscoveryUrl[]>;
+  fetchDetail: (
+    url: string,
+    signal?: AbortSignal
+  ) => Promise<JsonLdDetailPayload>;
+  fetchListing: (signal?: AbortSignal) => Promise<JsonLdDiscoveryUrl[]>;
 }
 
 export interface JsonLdClientOptions {
@@ -72,19 +75,26 @@ export const createJsonLdClient = (
       liveEnvVar: config.liveEnvVar,
     });
 
-  const fetchLiveText = async (url: string): Promise<string> =>
-    await withHttpTimeout(async (signal) => {
-      const response = await fetchImpl(url, {
-        headers: toLiveFetchHeadersInit(liveHeaders()),
-        signal,
-      });
-      return await readLiveHtmlOrThrow({
-        cookieEnvVar,
-        response,
-        slug: config.slug,
-        url,
-      });
-    }, timeoutMs);
+  const fetchLiveText = async (
+    url: string,
+    parentSignal?: AbortSignal
+  ): Promise<string> =>
+    await withHttpTimeout(
+      async (signal) => {
+        const response = await fetchImpl(url, {
+          headers: toLiveFetchHeadersInit(liveHeaders()),
+          signal,
+        });
+        return await readLiveHtmlOrThrow({
+          cookieEnvVar,
+          response,
+          slug: config.slug,
+          url,
+        });
+      },
+      timeoutMs,
+      parentSignal
+    );
 
   const fetchJsonListingPages = async (
     firstRaw: string,
@@ -119,7 +129,7 @@ export const createJsonLdClient = (
   };
 
   return {
-    fetchDetail: async (url) => {
+    fetchDetail: async (url, signal) => {
       if (!liveEnabled) {
         const relativePath = detailFixtures[url];
         if (!relativePath) {
@@ -132,14 +142,17 @@ export const createJsonLdClient = (
           detailFixtureBody(fixture.payload)
         );
       }
-      const html = await fetchLiveText(resolveDetailFetchUrl(config, url));
+      const html = await fetchLiveText(
+        resolveDetailFetchUrl(config, url),
+        signal
+      );
       return buildDetailPayload(config, url, html);
     },
-    fetchListing: async () => {
+    fetchListing: async (signal) => {
       if (config.discovery.kind === "sitemap-index") {
         let index: string;
         if (liveEnabled) {
-          index = await fetchLiveText(config.discovery.url);
+          index = await fetchLiveText(config.discovery.url, signal);
         } else {
           const fixture =
             await loadConnectorFixture<string>(listingFixturePath);
@@ -155,7 +168,7 @@ export const createJsonLdClient = (
           let raw: string;
           if (liveEnabled) {
             // oxlint-disable-next-line no-await-in-loop -- child requests stay sequential
-            raw = await fetchLiveText(childUrl);
+            raw = await fetchLiveText(childUrl, signal);
           } else {
             const fixturePath = sitemapFixtures[childUrl];
             if (!fixturePath) {
@@ -187,7 +200,7 @@ export const createJsonLdClient = (
         const fixture = await loadConnectorFixture<string>(listingFixturePath);
         return parseListingSource(config, fixture.payload);
       }
-      const raw = await fetchLiveText(config.discovery.url);
+      const raw = await fetchLiveText(config.discovery.url, signal);
       return await fetchJsonListingPages(raw, async (page, pageSize) => {
         const nextUrl = new URL(config.discovery.url);
         if (config.discovery.kind !== "json-listing") {
@@ -199,7 +212,7 @@ export const createJsonLdClient = (
           pagination?.pageSizeParam ?? "pageSize",
           String(pageSize)
         );
-        return await fetchLiveText(nextUrl.toString());
+        return await fetchLiveText(nextUrl.toString(), signal);
       });
     },
   };
