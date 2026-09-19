@@ -9,7 +9,7 @@ import type { LanguageModel } from "ai";
  * without OPENROUTER_API_KEY so the server still boots when chat is not
  * configured; the first real turn then fails closed with a clear error.
  */
-const DEFAULT_CHAT_MODEL = "openai/gpt-oss-120b:free";
+const DEFAULT_CHAT_MODEL = "openai/gpt-oss-120b";
 
 let model: LanguageModel | undefined;
 
