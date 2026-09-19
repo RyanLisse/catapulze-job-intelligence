@@ -226,6 +226,35 @@ const OBSERVATION_SCHEMA = z.object({
   sourceRecordId: z.string(),
 });
 
+/**
+ * The full contract check `loadCandidates` applies to a scanned row, exported
+ * so the dominated-unchanged sweep and the operator repair tool can hold a
+ * would-be dominator to the same standard: a sibling that could not itself be
+ * processed must not stand in for the earlier row.
+ */
+export const isValidCandidatePayload = (row: {
+  bronId: string;
+  bronReferentie: string;
+  contentHash: string;
+  payload: unknown;
+  runBronId: string;
+  scrapeRunId: string;
+  sourceRecordBronId: string;
+  sourceRecordId: string;
+}): boolean => {
+  const parsed = OBSERVATION_SCHEMA.safeParse(row.payload);
+  return (
+    parsed.success &&
+    parsed.data.bronId === row.bronId &&
+    parsed.data.bronReferentie === row.bronReferentie &&
+    parsed.data.contentHash === row.contentHash &&
+    parsed.data.scrapeRunId === row.scrapeRunId &&
+    parsed.data.sourceRecordId === row.sourceRecordId &&
+    row.runBronId === row.bronId &&
+    row.sourceRecordBronId === row.bronId
+  );
+};
+
 type RecoveryDisposition =
   | "already_committed"
   | "blocked_ordering"
@@ -350,21 +379,23 @@ export const classifyRecoveryCandidate = (input: {
 };
 
 /**
- * The observation timestamp as a timestamptz ordering key. `compareSourcePointerOrder`
- * is the contract for which row is an identity's head, so the per-identity
- * bound must order by the same tuple or the bound can cut the head itself: a
- * backfilled row has a late `created_at` but an early pointer, and a
- * `created_at`-ordered slice would load only its successors, which then block
- * on the unloaded head every pass. The guard keeps malformed payloads from
- * aborting the pass through a failed cast.
+ * The observation timestamp ordering key, compared as text rather than cast
+ * to timestamptz. `compareSourcePointerOrder` is the contract for which row
+ * is an identity's head, so the per-identity bound must order by the same
+ * tuple or the bound can cut the head itself: a backfilled row has a late
+ * `created_at` but an early pointer, and a `created_at`-ordered slice would
+ * load only its successors, which then block on the unloaded head every
+ * pass. Text ordering matches the comparator for the ISO-8601 values
+ * connectors write, and -- unlike a cast -- a malformed `observedAt` can
+ * never abort the candidate query and stall the whole source's recovery.
  */
-const observedAtOrder = sql`CASE WHEN ${aanvraagObservation.payload}->>'observedAt' ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}T' THEN (${aanvraagObservation.payload}->>'observedAt')::timestamptz END`;
+const observedAtOrder = sql`${aanvraagObservation.payload}->>'observedAt'`;
 
 const queryCandidates = (
   input: CurateScrapeRunInput,
   statuses: readonly string[],
   limit: number,
-  sourceRecordIds: readonly string[]
+  sourceRecordId: string
 ) =>
   input.database
     .select({
@@ -392,7 +423,7 @@ const queryCandidates = (
         eq(aanvraagObservation.bronId, input.bronId),
         eq(scrapeRun.status, "succeeded"),
         inArray(aanvraagObservation.status, [...statuses]),
-        inArray(aanvraagObservation.sourceRecordId, [...sourceRecordIds])
+        eq(aanvraagObservation.sourceRecordId, sourceRecordId)
       )
     )
     .orderBy(
@@ -406,6 +437,13 @@ const queryCandidates = (
     .limit(limit);
 
 /**
+ * How many per-identity candidate queries may run at once. Selection can
+ * choose up to `2 * attemptLimit` identities, so one query each must still be
+ * fanned out in bounded batches rather than all at once.
+ */
+const QUERY_BATCH_SIZE = 25;
+
+/**
  * Picks which identities this pass works on, before any rows are loaded.
  *
  * CTP-621: the old scan took the first `scanLimit` rows by `created_at` and
@@ -415,10 +453,13 @@ const queryCandidates = (
  * while its freshly injected current-run row became the de-facto head and was
  * parked `blocked_ordering`. Ranking identities by their earliest recoverable
  * `created_at` instead means a pass always sees each selected identity's true
- * head; identities observed in the current run are still added, so a brand-new
- * identity with no backlog is not left to the next poll.
+ * head; up to `attemptLimit` identities observed in the current run are added
+ * on top, so a brand-new identity with no backlog is not left to the next
+ * poll. Both lists are capped: the pass attempts at most `attemptLimit`
+ * candidates anyway, and an unbounded union would fan out one query per
+ * current-run identity on every large scrape.
  */
-const candidateSourceRecordIds = async (
+export const candidateSourceRecordIds = async (
   input: CurateScrapeRunInput,
   attemptLimit: number
 ): Promise<string[]> => {
@@ -441,7 +482,8 @@ const candidateSourceRecordIds = async (
       .orderBy(asc(min(aanvraagObservation.createdAt)))
       .limit(attemptLimit),
     input.database
-      .selectDistinct({
+      .select({
+        firstCreatedAt: min(aanvraagObservation.createdAt),
         sourceRecordId: aanvraagObservation.sourceRecordId,
       })
       .from(aanvraagObservation)
@@ -453,7 +495,10 @@ const candidateSourceRecordIds = async (
           eq(aanvraagObservation.scrapeRunId, input.scrapeRunId),
           inArray(aanvraagObservation.status, [...ACTIVE_STATUSES])
         )
-      ),
+      )
+      .groupBy(aanvraagObservation.sourceRecordId)
+      .orderBy(asc(min(aanvraagObservation.createdAt)))
+      .limit(attemptLimit),
   ]);
   const sourceRecordIds = ranked.map((row) => row.sourceRecordId);
   const seen = new Set(sourceRecordIds);
@@ -502,8 +547,18 @@ const markDominatedUnchangedObservations = async (
     "dominating_observation"
   );
   const dominatingRun = alias(scrapeRun, "dominating_run");
-  const dominated = await input.database
-    .selectDistinct({ id: aanvraagObservation.id })
+  const dominatedPairs = await input.database
+    .select({
+      dominatorBronId: dominatingObservation.bronId,
+      dominatorBronReferentie: sourceRecord.bronReferentie,
+      dominatorContentHash: dominatingObservation.contentHash,
+      dominatorPayload: dominatingObservation.payload,
+      dominatorRunBronId: dominatingRun.bronId,
+      dominatorScrapeRunId: dominatingObservation.scrapeRunId,
+      dominatorSourceRecordBronId: sourceRecord.bronId,
+      dominatorSourceRecordId: dominatingObservation.sourceRecordId,
+      id: aanvraagObservation.id,
+    })
     .from(aanvraagObservation)
     .innerJoin(
       scrapeRun,
@@ -528,16 +583,13 @@ const markDominatedUnchangedObservations = async (
     .innerJoin(
       dominatingObservation,
       and(
+        eq(dominatingObservation.bronId, aanvraagObservation.bronId),
         eq(
           dominatingObservation.sourceRecordId,
           aanvraagObservation.sourceRecordId
         ),
         eq(dominatingObservation.contentHash, aanvraagObservation.contentHash),
-        inArray(dominatingObservation.status, [...DOMINATING_STATUSES]),
-        eq(
-          sql`${dominatingObservation.payload}->>'contractVersion'`,
-          CONNECTOR_OBSERVATION_CONTRACT_VERSION
-        )
+        inArray(dominatingObservation.status, [...DOMINATING_STATUSES])
       )
     )
     .innerJoin(
@@ -556,7 +608,27 @@ const markDominatedUnchangedObservations = async (
       )
     )
     .limit(DOMINATED_SWEEP_LIMIT);
-  if (dominated.length === 0) {
+  // A dominator must be provably processable, so it is held to the same full
+  // contract check candidate selection applies -- a sibling that would fail
+  // parsing cannot stand in for the earlier row.
+  const dominatedIds = new Set<string>();
+  for (const pair of dominatedPairs) {
+    if (
+      isValidCandidatePayload({
+        bronId: pair.dominatorBronId,
+        bronReferentie: pair.dominatorBronReferentie,
+        contentHash: pair.dominatorContentHash,
+        payload: pair.dominatorPayload,
+        runBronId: pair.dominatorRunBronId,
+        scrapeRunId: pair.dominatorScrapeRunId,
+        sourceRecordBronId: pair.dominatorSourceRecordBronId,
+        sourceRecordId: pair.dominatorSourceRecordId,
+      })
+    ) {
+      dominatedIds.add(pair.id);
+    }
+  }
+  if (dominatedIds.size === 0) {
     return 0;
   }
   const marked = await input.database
@@ -564,10 +636,7 @@ const markDominatedUnchangedObservations = async (
     .set({ status: "superseded" })
     .where(
       and(
-        inArray(
-          aanvraagObservation.id,
-          dominated.map((row) => row.id)
-        ),
+        inArray(aanvraagObservation.id, [...dominatedIds]),
         inArray(aanvraagObservation.status, [...RECOVERABLE_STATUSES])
       )
     )
@@ -588,14 +657,29 @@ const loadCandidates = async (
   // own the oldest rows, which is the starvation this selection strategy is
   // meant to remove. Every selected identity contributes its head plus up to
   // SCAN_MULTIPLIER successors; longer tails reload on a later pass once the
-  // head has applied.
-  const chainRows = await Promise.all(
-    sourceRecordIds.map((sourceRecordId) =>
-      queryCandidates(input, CANDIDATE_STATUSES, SCAN_MULTIPLIER, [
-        sourceRecordId,
-      ])
-    )
-  );
+  // head has applied. Batches cap the fan-out at QUERY_BATCH_SIZE concurrent
+  // queries.
+  const chainRows: Awaited<ReturnType<typeof queryCandidates>>[] = [];
+  for (
+    let index = 0;
+    index < sourceRecordIds.length;
+    index += QUERY_BATCH_SIZE
+  ) {
+    // oxlint-disable-next-line no-await-in-loop -- bounded batches cap query fan-out per pass
+    const batch = await Promise.all(
+      sourceRecordIds
+        .slice(index, index + QUERY_BATCH_SIZE)
+        .map((sourceRecordId) =>
+          queryCandidates(
+            input,
+            CANDIDATE_STATUSES,
+            SCAN_MULTIPLIER,
+            sourceRecordId
+          )
+        )
+    );
+    chainRows.push(...batch);
+  }
   const rows = chainRows.flat();
 
   const candidates: RecoveryCandidate[] = [];
@@ -606,17 +690,7 @@ const loadCandidates = async (
       continue;
     }
     seen.add(row.id);
-    const parsed = OBSERVATION_SCHEMA.safeParse(row.payload);
-    if (
-      !parsed.success ||
-      parsed.data.bronId !== row.bronId ||
-      parsed.data.bronReferentie !== row.bronReferentie ||
-      parsed.data.contentHash !== row.contentHash ||
-      parsed.data.scrapeRunId !== row.scrapeRunId ||
-      parsed.data.sourceRecordId !== row.sourceRecordId ||
-      row.runBronId !== input.bronId ||
-      row.sourceRecordBronId !== input.bronId
-    ) {
+    if (!isValidCandidatePayload(row)) {
       invalidRows.push({ id: row.id, status: row.status });
       continue;
     }

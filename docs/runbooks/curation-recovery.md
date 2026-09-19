@@ -48,8 +48,9 @@ An `unchanged` observation is superseded only when it is provably a no-op
 refresh: the canonical record is already `active` on the same `content_hash`,
 and a strictly later succeeded run holds an observation of the same source
 record with that hash whose status will still apply or already did (active,
-ordering-blocked, or applied) and whose payload carries the current contract
-version. Rows that could still write a lifecycle transition — the canonical
+ordering-blocked, or applied) and whose payload passes the same full
+observation-contract check candidate selection applies. Rows that could
+still write a lifecycle transition — the canonical
 record is `stale` or `closed`, or the hash differs — are never dominated,
 and neither are rows whose only later siblings sit on `curation_failed`, a
 missing-raw deferral, `quarantined`, or `superseded`, because those siblings
@@ -65,10 +66,13 @@ pending, quarantined, already committed, superseded, and ordering-blocked rows.
 Every identity is processed oldest-first. The source-record lock, curated/SCD2 and
 outbox writes, and observation terminal marker commit in one transaction.
 Identities are ranked by their earliest recoverable `created_at` — up to the
-attempt limit plus every identity observed in the current run — and each
-selected identity contributes its oldest candidate rows first, so a deep
-backlog cannot push one identity's head outside the scan window while its
-current-run rows are attempted out of order.
+attempt limit, plus up to the attempt limit more observed in the current
+run — and each selected identity contributes its chain in pointer order (run
+start, `observedAt`, run id, hash, raw ref), so a deep backlog cannot push
+one identity's head outside the scan window while its current-run rows are
+attempted out of order. `observedAt` is ordered as stored text rather than
+cast, so a malformed timestamp reaches the blocking classification path
+instead of aborting candidate selection.
 
 ## Retry and reconcile
 

@@ -17,14 +17,18 @@ import {
   CONNECTOR_OBSERVATION_CONTRACT_VERSION,
   InMemoryObjectStore,
 } from "@ji/connectors";
-import type { ConnectorRunKind, ObjectStore } from "@ji/connectors";
+import type {
+  ConnectorObservation,
+  ConnectorRunKind,
+  ObjectStore,
+} from "@ji/connectors";
 import type { BronId, ScrapeRunId } from "@ji/domain";
 import { and, asc, eq, inArray } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/postgres-js";
 import { migrate } from "drizzle-orm/postgres-js/migrator";
 import postgres from "postgres";
 
-import { curateScrapeRun } from "./curate-scrape-run";
+import { candidateSourceRecordIds, curateScrapeRun } from "./curate-scrape-run";
 import { PostgresCurateStore } from "./postgres-curate-store";
 import * as schema from "./schema";
 import {
@@ -151,6 +155,7 @@ interface SeedObservationInput {
   minute: number;
   objectStore?: InMemoryObjectStore;
   outcome?: "changed" | "new" | "unchanged";
+  payloadOverrides?: Partial<ConnectorObservation>;
   rawPayloadRef?: string;
   scrapeRunId: ScrapeRunId;
   sourceRecordId: string;
@@ -187,6 +192,7 @@ const seedObservation = async (
       rawPayloadRef: objectRef,
       scrapeRunId: input.scrapeRunId,
       sourceRecordId: input.sourceRecordId,
+      ...input.payloadOverrides,
     },
     scrapeRunId: input.scrapeRunId,
     sourceRecordId: input.sourceRecordId,
@@ -2507,5 +2513,224 @@ describe("historical curation recovery (RJC-433)", () => {
       scrapeRunId: successorRunId,
     });
     expect(second).toMatchObject({ curated: 1, remaining: 0 });
+  });
+
+  it("bounds current-run identity inclusion by the attempt budget", async () => {
+    if (!available || !database) {
+      expect(available).toBe(false);
+      return;
+    }
+    const objectStore = new InMemoryObjectStore();
+    const backlogRunId = await seedRun(database, 0);
+    const currentRunId = await seedRun(database, 100);
+    const backlogSourceRecordIds: string[] = [];
+    for (let identity = 0; identity < 5; identity += 1) {
+      const bronReferentie = `rjc-621-cap-backlog-${identity}-${crypto.randomUUID()}`;
+      // oxlint-disable-next-line no-await-in-loop -- deterministic fixture order
+      const sourceRecordId = await seedSourceRecord(
+        database,
+        bronReferentie,
+        backlogRunId
+      );
+      backlogSourceRecordIds.push(sourceRecordId);
+      // oxlint-disable-next-line no-await-in-loop -- deterministic fixture order
+      await seedObservation({
+        bronReferentie,
+        contentHash: `cap-backlog-${identity}`,
+        database,
+        minute: identity,
+        objectStore,
+        scrapeRunId: backlogRunId,
+        sourceRecordId,
+        title: `Cap backlog ${identity}`,
+      });
+    }
+    const currentSourceRecordIds = new Set<string>();
+    for (let identity = 0; identity < 30; identity += 1) {
+      const bronReferentie = `rjc-621-cap-current-${identity}-${crypto.randomUUID()}`;
+      // oxlint-disable-next-line no-await-in-loop -- deterministic fixture order
+      const sourceRecordId = await seedSourceRecord(
+        database,
+        bronReferentie,
+        currentRunId
+      );
+      currentSourceRecordIds.add(sourceRecordId);
+      // oxlint-disable-next-line no-await-in-loop -- deterministic fixture order
+      await seedObservation({
+        bronReferentie,
+        contentHash: `cap-current-${identity}`,
+        database,
+        minute: 100 + identity,
+        objectStore,
+        scrapeRunId: currentRunId,
+        sourceRecordId,
+        title: `Cap current ${identity}`,
+      });
+    }
+
+    const attemptLimit = 10;
+    const selected = await candidateSourceRecordIds(
+      {
+        bronId: BRON_ID,
+        bronSlug: BRON_SLUG,
+        database,
+        objectStore,
+        scrapeRunId: currentRunId,
+      },
+      attemptLimit
+    );
+    // Ranked backlog takes up to attemptLimit identities and the current run
+    // adds up to attemptLimit more; an unbounded union would have returned
+    // all 35 and fanned out one chain query per identity.
+    expect(selected).toHaveLength(15);
+    for (const sourceRecordId of backlogSourceRecordIds) {
+      expect(selected).toContain(sourceRecordId);
+    }
+    expect(
+      selected.filter((id) => currentSourceRecordIds.has(id))
+    ).toHaveLength(attemptLimit);
+  });
+
+  it("classifies a malformed observation timestamp without aborting selection", async () => {
+    if (!available || !database) {
+      expect(available).toBe(false);
+      return;
+    }
+    const objectStore = new InMemoryObjectStore();
+    const runId = await seedRun(database, 0);
+    const malformedRef = `rjc-621-bad-ts-${crypto.randomUUID()}`;
+    const malformedSourceId = await seedSourceRecord(
+      database,
+      malformedRef,
+      runId
+    );
+    // Prefix-shaped but invalid: a timestamptz cast aborts the whole
+    // candidate query on this value, while text ordering leaves the row
+    // loadable so the schema check can park it.
+    const malformedId = await seedObservation({
+      bronReferentie: malformedRef,
+      contentHash: "bad-ts-hash",
+      database,
+      minute: 0,
+      objectStore,
+      payloadOverrides: { observedAt: "2026-99-99T00:00:00Z" },
+      scrapeRunId: runId,
+      sourceRecordId: malformedSourceId,
+      title: "Malformed timestamp",
+    });
+    const validRef = `rjc-621-good-ts-${crypto.randomUUID()}`;
+    const validSourceId = await seedSourceRecord(database, validRef, runId);
+    const validId = await seedObservation({
+      bronReferentie: validRef,
+      contentHash: "good-ts-hash",
+      database,
+      minute: 1,
+      objectStore,
+      scrapeRunId: runId,
+      sourceRecordId: validSourceId,
+      title: "Valid timestamp",
+    });
+
+    const result = await curateScrapeRun({
+      bronId: BRON_ID,
+      bronSlug: BRON_SLUG,
+      database,
+      objectStore,
+      scrapeRunId: runId,
+    });
+    expect(result).toMatchObject({
+      blockedOrdering: 1,
+      curated: 1,
+      remaining: 1,
+    });
+
+    const statuses = await database
+      .select({
+        id: aanvraagObservation.id,
+        status: aanvraagObservation.status,
+      })
+      .from(aanvraagObservation)
+      .where(inArray(aanvraagObservation.id, [malformedId, validId]));
+    const statusById = new Map(
+      statuses.map((row) => [row.id, row.status] as const)
+    );
+    expect(statusById.get(malformedId)).toBe("blocked_ordering");
+    expect(statusById.get(validId)).toBe("curated");
+  });
+
+  it("does not supersede an unchanged row behind a dominator with a malformed payload", async () => {
+    if (!available || !database) {
+      expect(available).toBe(false);
+      return;
+    }
+    const objectStore = new InMemoryObjectStore();
+    const firstRunId = await seedRun(database, 0);
+    const secondRunId = await seedRun(database, 10);
+    const bronReferentie = `rjc-621-bad-dominator-${crypto.randomUUID()}`;
+    const sourceRecordId = await seedSourceRecord(
+      database,
+      bronReferentie,
+      firstRunId
+    );
+    await seedCommitted({
+      bronReferentie,
+      contentHash: "bad-dominator-hash",
+      database,
+      minute: 0,
+      scrapeRunId: firstRunId,
+      title: "Dominator malformed",
+    });
+    const dominatedId = await seedObservation({
+      bronReferentie,
+      contentHash: "bad-dominator-hash",
+      database,
+      minute: 1,
+      objectStore,
+      outcome: "unchanged",
+      scrapeRunId: firstRunId,
+      sourceRecordId,
+      title: "Dominator malformed",
+    });
+    // The dominator carries the right contractVersion but an unusable
+    // observedAt, so it could never process; a contractVersion-only check
+    // would still have superseded the earlier row behind it.
+    const dominatorId = await seedObservation({
+      bronReferentie,
+      contentHash: "bad-dominator-hash",
+      database,
+      minute: 11,
+      outcome: "unchanged",
+      payloadOverrides: { observedAt: "2026-99-99T00:00:00Z" },
+      scrapeRunId: secondRunId,
+      sourceRecordId,
+      title: "Dominator malformed",
+    });
+
+    const result = await curateScrapeRun({
+      bronId: BRON_ID,
+      bronSlug: BRON_SLUG,
+      database,
+      objectStore,
+      scrapeRunId: secondRunId,
+    });
+    expect(result).toMatchObject({
+      blockedOrdering: 1,
+      remaining: 1,
+      superseded: 0,
+      unchanged: 1,
+    });
+
+    const statuses = await database
+      .select({
+        id: aanvraagObservation.id,
+        status: aanvraagObservation.status,
+      })
+      .from(aanvraagObservation)
+      .where(inArray(aanvraagObservation.id, [dominatedId, dominatorId]));
+    const statusById = new Map(
+      statuses.map((row) => [row.id, row.status] as const)
+    );
+    expect(statusById.get(dominatedId)).toBe("unchanged");
+    expect(statusById.get(dominatorId)).toBe("blocked_ordering");
   });
 });

@@ -13,8 +13,9 @@
  * An `unchanged` row is dominated only when it is provably a no-op refresh:
  * the canonical record is already `active` on the same `content_hash`, and a
  * later succeeded run holds an observation of the same source record with
- * that hash whose status will apply or already did and whose payload carries
- * the current contract version. Rows that could still write a lifecycle
+ * that hash whose status will apply or already did and whose payload passes
+ * the same full contract check candidate selection applies. Rows that could
+ * still write a lifecycle
  * transition, and rows dominated only by a failed, deferred, quarantined, or
  * already-superseded sibling, are never touched. The dominated row is marked
  * `superseded` and kept in the table for history. Nothing else is mutated:
@@ -26,11 +27,15 @@
  * attach to the release record.
  */
 import { CONNECTOR_OBSERVATION_CONTRACT_VERSION } from "@ji/connectors";
+import { isValidCandidatePayload } from "@ji/db/curate-scrape-run";
 import postgres from "postgres";
 
 const STATEMENT_TIMEOUT_MS = 15_000;
 const LOCK_TIMEOUT_MS = 2000;
 const MAX_APPLY_LIMIT = 10_000;
+// Report mode scans enough pairs to size the category; the runtime sweeps in
+// bounded passes, so a count beyond this is reported as at least this much.
+const REPORT_SCAN_LIMIT = 100_000;
 
 const RECOVERABLE_STATUSES = [
   "awaiting_curation",
@@ -141,12 +146,39 @@ interface ApplyReceipt {
   readonly remainingDominated: number;
 }
 
-const dominatedCount = async (
+interface DominatedPairRow {
+  dominatorBronId: string;
+  dominatorBronReferentie: string;
+  dominatorContentHash: string;
+  dominatorPayload: unknown;
+  dominatorRunBronId: string;
+  dominatorScrapeRunId: string;
+  dominatorSourceRecordBronId: string;
+  dominatorSourceRecordId: string;
+  id: string;
+}
+
+/**
+ * Recoverable `unchanged` rows with at least one candidate dominator, paired
+ * with that dominator's row so its payload can be held to the same contract
+ * check candidate selection applies. A dominated id qualifies when any pair
+ * carries a dominator that would itself be processable.
+ */
+const findDominatedObservationIds = async (
   sql: postgres.Sql | postgres.TransactionSql,
-  bronId: string
-): Promise<number> => {
-  const [row] = await sql<{ count: string }[]>`
-    SELECT count(*)::text AS count
+  bronId: string,
+  limit: number
+): Promise<string[]> => {
+  const pairs = await sql<DominatedPairRow[]>`
+    SELECT o.id::text AS id,
+           dom.bron_id::text AS "dominatorBronId",
+           sr.bron_referentie AS "dominatorBronReferentie",
+           dom.content_hash AS "dominatorContentHash",
+           dom.payload AS "dominatorPayload",
+           dr.bron_id::text AS "dominatorRunBronId",
+           dom.scrape_run_id::text AS "dominatorScrapeRunId",
+           sr.bron_id::text AS "dominatorSourceRecordBronId",
+           dom.source_record_id::text AS "dominatorSourceRecordId"
     FROM staging.aanvraag_observation o
     JOIN curated.scrape_run r ON r.id = o.scrape_run_id
     JOIN staging.source_record sr ON sr.id = o.source_record_id
@@ -155,25 +187,47 @@ const dominatedCount = async (
       AND a.bron_referentie = sr.bron_referentie
       AND a.content_hash = o.content_hash
       AND a.status = 'active'
+    JOIN staging.aanvraag_observation dom
+      ON dom.bron_id = o.bron_id
+      AND dom.source_record_id = o.source_record_id
+      AND dom.content_hash = o.content_hash
+      AND dom.status = ANY(${[...DOMINATING_STATUSES]})
+    JOIN curated.scrape_run dr
+      ON dr.id = dom.scrape_run_id
+      AND dr.status = 'succeeded'
+      AND dr.gestart > r.gestart
     WHERE o.bron_id = ${bronId}
       AND r.status = 'succeeded'
       AND o.outcome = 'unchanged'
       AND o.status = ANY(${[...RECOVERABLE_STATUSES]})
-      AND EXISTS (
-        SELECT 1
-        FROM staging.aanvraag_observation dominating
-        JOIN curated.scrape_run dominating_run
-          ON dominating_run.id = dominating.scrape_run_id
-        WHERE dominating.source_record_id = o.source_record_id
-          AND dominating.content_hash = o.content_hash
-          AND dominating_run.status = 'succeeded'
-          AND dominating_run.gestart > r.gestart
-          AND dominating.status = ANY(${[...DOMINATING_STATUSES]})
-          AND dominating.payload->>'contractVersion' =
-            ${CONNECTOR_OBSERVATION_CONTRACT_VERSION}
-      )
+    LIMIT ${limit}
   `;
-  return Number(row?.count ?? 0);
+  const dominatedIds = new Set<string>();
+  for (const pair of pairs) {
+    if (
+      isValidCandidatePayload({
+        bronId: pair.dominatorBronId,
+        bronReferentie: pair.dominatorBronReferentie,
+        contentHash: pair.dominatorContentHash,
+        payload: pair.dominatorPayload,
+        runBronId: pair.dominatorRunBronId,
+        scrapeRunId: pair.dominatorScrapeRunId,
+        sourceRecordBronId: pair.dominatorSourceRecordBronId,
+        sourceRecordId: pair.dominatorSourceRecordId,
+      })
+    ) {
+      dominatedIds.add(pair.id);
+    }
+  }
+  return [...dominatedIds];
+};
+
+const dominatedCount = async (
+  sql: postgres.Sql | postgres.TransactionSql,
+  bronId: string
+): Promise<number> => {
+  const ids = await findDominatedObservationIds(sql, bronId, REPORT_SCAN_LIMIT);
+  return ids.length;
 };
 
 const runReport = async (bronId: string): Promise<RepairReport> => {
@@ -283,40 +337,22 @@ const runApply = async (input: {
   try {
     let applied = 0;
     await sql.begin(async (tx) => {
+      const ids = await findDominatedObservationIds(
+        tx,
+        input.bronId,
+        input.limit
+      );
+      if (ids.length === 0) {
+        return;
+      }
+      // Status stays in the UPDATE guard so a row already picked up by a
+      // concurrent curator pass is never re-marked.
       const marked = await tx<{ id: string }[]>`
-        UPDATE staging.aanvraag_observation o
+        UPDATE staging.aanvraag_observation
         SET status = 'superseded'
-        WHERE o.id IN (
-          SELECT o.id
-          FROM staging.aanvraag_observation o
-          JOIN curated.scrape_run r ON r.id = o.scrape_run_id
-          JOIN staging.source_record sr ON sr.id = o.source_record_id
-          JOIN curated.aanvraag a
-            ON a.bron_id = o.bron_id
-            AND a.bron_referentie = sr.bron_referentie
-            AND a.content_hash = o.content_hash
-            AND a.status = 'active'
-          WHERE o.bron_id = ${input.bronId}
-            AND r.status = 'succeeded'
-            AND o.outcome = 'unchanged'
-            AND o.status = ANY(${[...RECOVERABLE_STATUSES]})
-            AND EXISTS (
-              SELECT 1
-              FROM staging.aanvraag_observation dominating
-              JOIN curated.scrape_run dominating_run
-                ON dominating_run.id = dominating.scrape_run_id
-              WHERE dominating.source_record_id = o.source_record_id
-                AND dominating.content_hash = o.content_hash
-                AND dominating_run.status = 'succeeded'
-                AND dominating_run.gestart > r.gestart
-                AND dominating.status = ANY(${[...DOMINATING_STATUSES]})
-                AND dominating.payload->>'contractVersion' =
-                  ${CONNECTOR_OBSERVATION_CONTRACT_VERSION}
-            )
-          LIMIT ${input.limit}
-        )
-          AND o.status = ANY(${[...RECOVERABLE_STATUSES]})
-        RETURNING o.id
+        WHERE id = ANY(${ids}::uuid[])
+          AND status = ANY(${[...RECOVERABLE_STATUSES]})
+        RETURNING id::text AS id
       `;
       applied = marked.length;
     });
