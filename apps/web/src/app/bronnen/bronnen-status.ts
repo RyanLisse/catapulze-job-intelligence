@@ -1,4 +1,5 @@
 export interface DashboardStats {
+  readonly actief?: boolean | null;
   readonly lastRunAt: string | null;
   readonly lastRunStatus: string | null;
   readonly runs: number;
@@ -16,7 +17,7 @@ export interface DashboardBron {
 }
 
 export interface BronCardStatus {
-  readonly label: "Aandacht" | "Gezond" | "Nieuw";
+  readonly label: "Aandacht" | "Gezond" | "Inactief" | "Nieuw" | "Onbekend";
   readonly variant: "destructive" | "outline" | "secondary";
 }
 
@@ -48,6 +49,12 @@ export const attentionReasons = (
 };
 
 export const statusFor = (bron: DashboardBron): BronCardStatus => {
+  if (bron.stats.actief === false) {
+    return { label: "Inactief", variant: "outline" };
+  }
+  if (bron.stats.actief !== true) {
+    return { label: "Onbekend", variant: "outline" };
+  }
   if (attentionReasons(bron).length > 0) {
     return { label: "Aandacht", variant: "destructive" };
   }

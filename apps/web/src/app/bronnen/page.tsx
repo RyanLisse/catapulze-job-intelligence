@@ -48,6 +48,7 @@ export const metadata: Metadata = {
 };
 
 interface DashboardStats {
+  readonly actief: boolean | null;
   readonly bronId: string | null;
   readonly gewijzigd: number;
   readonly lastRunAt: string | null;
