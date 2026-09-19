@@ -1,25 +1,26 @@
 import {
-  createJsonLdClient,
   createJsonLdConnector,
   planetInterimConfig,
 } from "@ji/connectors/json-ld";
+import { createPlanetInterimClient } from "@ji/connectors/planet-interim";
 
 import { normaliseJsonLdObservation } from "../normalise/json-ld";
 import type { SourceDefinition } from "./definition";
 
 export const planetInterim = {
   bronId: "00000000-0000-4000-8000-000000000038",
-  // Listing page exposes only detail URLs; JobPosting lives on each detail page.
+  // Listing pages expose detail URLs; Planet's client replays WebForms pagination
+  // while JobPosting lives on each detail page.
   createConnector: ({ bronId, listingFixturePath }) =>
     createJsonLdConnector({
       bronId,
       client: listingFixturePath
-        ? createJsonLdClient({
+        ? createPlanetInterimClient({
             config: planetInterimConfig,
             listingFixturePath,
             liveEnabled: false,
           })
-        : undefined,
+        : createPlanetInterimClient({ config: planetInterimConfig }),
       config: planetInterimConfig,
     }),
   listingHashCoversDetail: false,

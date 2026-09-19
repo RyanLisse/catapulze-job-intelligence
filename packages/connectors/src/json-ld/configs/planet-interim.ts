@@ -1,7 +1,7 @@
 import type { JsonLdConnectorConfig } from "../types";
 
-/** Planet Interim lists interim assignments on /opdrachten; pagination is an
- * ASP.NET postback (not crawlable), so discovery covers the newest page only. */
+/** Planet Interim lists interim assignments on /opdrachten; its pagination is
+ * replayed by the Planet-specific client before JSON-LD detail fetches. */
 export const planetInterimConfig: JsonLdConnectorConfig = {
   detailBaseUrl: "https://planetinterim.nl",
   detailFixtures: {
