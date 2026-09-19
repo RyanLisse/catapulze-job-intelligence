@@ -2349,30 +2349,15 @@ describe("historical curation recovery (RJC-433)", () => {
       objectStore,
       scrapeRunId: latestRunId,
     });
-    // The dominated rows only yield to their dominator: the changed rows
-    // still see them as earlier recoverable work, so they wait one pass
-    // while the dominators apply and the post-pass sweep marks the dups.
+    // Suppressed duplicates are invisible to ordering checks: the dominator
+    // applies, the changed rows follow, and the post-pass sweep marks the
+    // dups once their dominator proved the refresh redundant.
     expect(result).toMatchObject({
-      blockedOrdering: 10,
-      curated: 0,
-      remaining: 10,
-      superseded: 20,
-      unchanged: 10,
-    });
-
-    const second = await curateScrapeRun({
-      bronId: BRON_ID,
-      bronSlug: BRON_SLUG,
-      database,
-      objectStore,
-      scrapeRunId: latestRunId,
-    });
-    expect(second).toMatchObject({
       blockedOrdering: 0,
       curated: 10,
       remaining: 0,
-      superseded: 0,
-      unchanged: 0,
+      superseded: 20,
+      unchanged: 10,
     });
   });
 
@@ -2924,5 +2909,159 @@ describe("historical curation recovery (RJC-433)", () => {
       .from(aanvraagObservation)
       .where(eq(aanvraagObservation.id, dominatedId));
     expect(dominated?.status).toBe("unchanged");
+  });
+
+  it("does not deadlock a different-content sibling between a suppressed row and its dominator", async () => {
+    if (!available || !database) {
+      expect(available).toBe(false);
+      return;
+    }
+    const objectStore = new InMemoryObjectStore();
+    const committedRunId = await seedRun(database, 0);
+    const dupRunId = await seedRun(database, 10);
+    const changeRunId = await seedRun(database, 20);
+    const dominatorRunId = await seedRun(database, 30);
+    const bronReferentie = `rjc-621-order-cycle-${crypto.randomUUID()}`;
+    const sourceRecordId = await seedSourceRecord(
+      database,
+      bronReferentie,
+      committedRunId
+    );
+    await seedCommitted({
+      bronReferentie,
+      contentHash: "cycle-hash",
+      database,
+      minute: 0,
+      scrapeRunId: committedRunId,
+      title: "Cycle dominator",
+    });
+    // A suppressed duplicate, a real change on a different hash, then the
+    // dominator: if the suppressed row blocked every candidate but its
+    // dominator, B would wait on A while C waited on B and nothing applied.
+    const suppressedId = await seedObservation({
+      bronReferentie,
+      contentHash: "cycle-hash",
+      database,
+      minute: 11,
+      outcome: "unchanged",
+      scrapeRunId: dupRunId,
+      sourceRecordId,
+      title: "Cycle dominator",
+    });
+    await seedObservation({
+      bronReferentie,
+      contentHash: "cycle-changed-hash",
+      database,
+      minute: 21,
+      objectStore,
+      scrapeRunId: changeRunId,
+      sourceRecordId,
+      title: "Cycle changed",
+    });
+    await seedObservation({
+      bronReferentie,
+      contentHash: "cycle-hash",
+      database,
+      minute: 31,
+      objectStore,
+      outcome: "unchanged",
+      scrapeRunId: dominatorRunId,
+      sourceRecordId,
+      title: "Cycle dominator",
+    });
+
+    const result = await curateScrapeRun({
+      bronId: BRON_ID,
+      bronSlug: BRON_SLUG,
+      database,
+      objectStore,
+      scrapeRunId: dominatorRunId,
+    });
+    expect(result).toMatchObject({
+      blockedOrdering: 0,
+      curated: 2,
+      remaining: 0,
+      superseded: 1,
+    });
+    const [suppressed] = await database
+      .select({ status: aanvraagObservation.status })
+      .from(aanvraagObservation)
+      .where(eq(aanvraagObservation.id, suppressedId));
+    expect(suppressed?.status).toBe("superseded");
+  });
+
+  it("does not let suppressed rows crowd a dominator out of the per-identity slice", async () => {
+    if (!available || !database) {
+      expect(available).toBe(false);
+      return;
+    }
+    const objectStore = new InMemoryObjectStore();
+    const committedRunId = await seedRun(database, 0);
+    const bronReferentie = `rjc-621-slice-starve-${crypto.randomUUID()}`;
+    const sourceRecordId = await seedSourceRecord(
+      database,
+      bronReferentie,
+      committedRunId
+    );
+    await seedCommitted({
+      bronReferentie,
+      contentHash: "slice-hash",
+      database,
+      minute: 0,
+      scrapeRunId: committedRunId,
+      title: "Slice dominator",
+    });
+    // Exactly SCAN_MULTIPLIER suppressed duplicates precede the dominator:
+    // if suppression filtered after the bounded per-identity slice instead
+    // of in SQL, the slice would hold only suppressed rows, the dominator
+    // would never load, and the same slice would repeat every pass.
+    const suppressedIds: string[] = [];
+    for (let index = 1; index <= 10; index += 1) {
+      // oxlint-disable-next-line no-await-in-loop -- deterministic fixture order
+      const runId = await seedRun(database, index * 10);
+      suppressedIds.push(
+        // oxlint-disable-next-line no-await-in-loop -- deterministic fixture order
+        await seedObservation({
+          bronReferentie,
+          contentHash: "slice-hash",
+          database,
+          minute: index * 10 + 1,
+          outcome: "unchanged",
+          scrapeRunId: runId,
+          sourceRecordId,
+          title: "Slice dominator",
+        })
+      );
+    }
+    const dominatorRunId = await seedRun(database, 110);
+    await seedObservation({
+      bronReferentie,
+      contentHash: "slice-hash",
+      database,
+      minute: 111,
+      objectStore,
+      outcome: "unchanged",
+      scrapeRunId: dominatorRunId,
+      sourceRecordId,
+      title: "Slice dominator",
+    });
+
+    const result = await curateScrapeRun({
+      bronId: BRON_ID,
+      bronSlug: BRON_SLUG,
+      database,
+      objectStore,
+      scrapeRunId: dominatorRunId,
+    });
+    expect(result).toMatchObject({
+      remaining: 0,
+      superseded: 10,
+      unchanged: 1,
+    });
+    const statuses = await database
+      .select({ status: aanvraagObservation.status })
+      .from(aanvraagObservation)
+      .where(inArray(aanvraagObservation.id, suppressedIds));
+    expect(statuses.every((row) => row.status === "superseded")).toBe(true);
   });
 });
