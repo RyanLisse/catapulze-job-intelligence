@@ -1,6 +1,6 @@
 {
-  "generatedAt": "2026-09-18T21:16:14.963Z",
-  "sourceSha": "d11d6376e8eab59553ac1048910b644e6a809d47",
+  "generatedAt": "2026-09-19T08:09:41.222Z",
+  "sourceSha": "a19fce1de9f964a8dca44e4fffffcb44282d7000",
   "sources": {
     "alliander": {
       "fields": {
@@ -81,6 +81,22 @@
         "werkvorm": 0
       },
       "records": 3
+    },
+    "circle8": {
+      "fields": {
+        "contract": 2,
+        "einddatum": 0,
+        "gepubliceerd": 2,
+        "locatie": 2,
+        "opleiding": 0,
+        "organisatie": 2,
+        "sluit": 0,
+        "startdatum": 0,
+        "tarief": 2,
+        "uren": 2,
+        "werkvorm": 0
+      },
+      "records": 2
     },
     "ctm": {
       "fields": {
@@ -199,12 +215,12 @@
         "contract": 0,
         "einddatum": 0,
         "gepubliceerd": 2,
-        "locatie": 0,
+        "locatie": 2,
         "opleiding": 0,
         "organisatie": 2,
         "sluit": 2,
         "startdatum": 0,
-        "tarief": 2,
+        "tarief": 0,
         "uren": 0,
         "werkvorm": 0
       },
@@ -290,6 +306,22 @@
       },
       "records": 2
     },
+    "indeed": {
+      "fields": {
+        "contract": 0,
+        "einddatum": 0,
+        "gepubliceerd": 1,
+        "locatie": 1,
+        "opleiding": 0,
+        "organisatie": 1,
+        "sluit": 0,
+        "startdatum": 0,
+        "tarief": 1,
+        "uren": 0,
+        "werkvorm": 0
+      },
+      "records": 1
+    },
     "inhuurdesk": {
       "fields": {
         "contract": 0,
@@ -337,6 +369,38 @@
         "werkvorm": 0
       },
       "records": 3
+    },
+    "linkedin": {
+      "fields": {
+        "contract": 3,
+        "einddatum": 0,
+        "gepubliceerd": 1,
+        "locatie": 3,
+        "opleiding": 0,
+        "organisatie": 3,
+        "sluit": 1,
+        "startdatum": 0,
+        "tarief": 1,
+        "uren": 0,
+        "werkvorm": 0
+      },
+      "records": 3
+    },
+    "mercell": {
+      "fields": {
+        "contract": 0,
+        "einddatum": 0,
+        "gepubliceerd": 0,
+        "locatie": 0,
+        "opleiding": 0,
+        "organisatie": 5,
+        "sluit": 5,
+        "startdatum": 0,
+        "tarief": 0,
+        "uren": 0,
+        "werkvorm": 0
+      },
+      "records": 5
     },
     "needstaffing": {
       "fields": {
@@ -686,7 +750,7 @@
         "startdatum": 2,
         "tarief": 1,
         "uren": 2,
-        "werkvorm": 0
+        "werkvorm": 2
       },
       "records": 2
     },
