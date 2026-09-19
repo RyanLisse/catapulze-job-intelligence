@@ -76,6 +76,9 @@ run_phase qlty bash tools/quality/run-qlty.sh check --all --jobs "$QLTY_JOBS" --
 echo "gate: check-types"
 run_phase typecheck bun run check-types
 
+echo "gate: Effect E2E scripts typecheck"
+run_phase effect-e2e-typecheck bun run check-types:effect-e2e
+
 echo "gate: backfill tools typecheck"
 run_phase backfill-typecheck bun run check-types:backfill
 
