@@ -3,6 +3,7 @@ import { Input } from "@ji/ui/components/input";
 import { Label } from "@ji/ui/components/label";
 import { useForm } from "@tanstack/react-form";
 import { useRouter } from "next/navigation";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { z } from "zod";
 
@@ -13,6 +14,8 @@ import Loader from "./loader";
 export default function SignInForm() {
   const router = useRouter();
   const { isPending } = authClient.useSession();
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
 
   const form = useForm({
     defaultValues: {
@@ -44,7 +47,7 @@ export default function SignInForm() {
     },
   });
 
-  if (isPending) {
+  if (!mounted || isPending) {
     return <Loader />;
   }
 

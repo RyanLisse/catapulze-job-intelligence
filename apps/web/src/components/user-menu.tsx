@@ -1,3 +1,5 @@
+"use client";
+
 import { Button } from "@ji/ui/components/button";
 import {
   DropdownMenu,
@@ -11,14 +13,17 @@ import {
 import { Skeleton } from "@ji/ui/components/skeleton";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { useEffect, useState } from "react";
 
 import { authClient } from "@/lib/auth-client";
 
 export default function UserMenu() {
   const router = useRouter();
   const { data: session, isPending } = authClient.useSession();
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
 
-  if (isPending) {
+  if (!mounted || isPending) {
     return <Skeleton className="h-11 w-20" />;
   }
 

@@ -73,9 +73,12 @@ const axis = {
   tickLine: false,
 } as const;
 
+const DASHBOARD_TIME_ZONE = "Europe/Amsterdam";
+
 const weekLabelFormatter = new Intl.DateTimeFormat("nl-NL", {
   day: "2-digit",
   month: "short",
+  timeZone: DASHBOARD_TIME_ZONE,
 });
 
 export interface WeekPoint {
@@ -283,6 +286,7 @@ const SPARKLINE_HEIGHT = 36;
 const dayLabelFormatter = new Intl.DateTimeFormat("nl-NL", {
   day: "2-digit",
   month: "short",
+  timeZone: DASHBOARD_TIME_ZONE,
 });
 
 export interface BronTrendPoint {

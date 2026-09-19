@@ -4,7 +4,7 @@ import { useChat } from "@ai-sdk/react";
 import { env } from "@ji/env/web";
 import { DefaultChatTransport } from "ai";
 import { usePathname } from "next/navigation";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 
 import { authClient } from "@/lib/auth-client";
@@ -52,12 +52,16 @@ export const MarktvragenChatProvider = ({
   const [screenOverride, setScreenOverride] =
     useState<MarktvragenScreen | null>(null);
 
-  // Lazy state init mints the id once per mount — randomUUID() inside useMemo
-  // is impure, which blocks the React Compiler from memoizing this component.
-  const [chatIdSuffix] = useState(() => crypto.randomUUID());
-  const chatId = session?.user?.id
-    ? `${session.user.id}~${chatIdSuffix}`
-    : null;
+  // Mint the client-only suffix after hydration. Generating it during the
+  // initial render makes the app shell differ between server and browser.
+  const [chatIdSuffix, setChatIdSuffix] = useState<string | null>(null);
+  useEffect(() => {
+    setChatIdSuffix(crypto.randomUUID());
+  }, []);
+  const chatId =
+    session?.user?.id && chatIdSuffix
+      ? `${session.user.id}~${chatIdSuffix}`
+      : null;
 
   const screen = screenOverride ?? screenForPath(pathname);
 

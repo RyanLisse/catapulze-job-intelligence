@@ -1,13 +1,104 @@
 # EffectTS — uitvoerbare projectbrede migratiekaart
 
-- Status: uitvoerbaar plan (CTP-456); migratie zelf **niet** voltooid
-- Peildatum: 2026-09-07 — base `origin/main` @ `117bfe81` (incl. CTP-454 #190+#191)
+- Status: uitvoerbaar plan plus A0-flowregister (CTP-617); migratie en Trigger-exit zelf **niet** voltooid
+- Peildatum: 2026-09-19 — huidige docs-basis `79459a0` (A0 wijzigt geen runtimecode)
 - Besluit: [ADR-0014](../adr/ADR-0014-effectts-project-wide-adoption.md)
+- Platformcontract: [ADR-0015](../adr/ADR-0015-platform-integration-contracts.md)
 - Baseline: [ADR-0013](../adr/ADR-0013-effectts-platform-baseline.md) + [`docs/evidence/ctp-454/`](../evidence/ctp-454/)
 - Wire-contract eerste adapters: [json-ld-spott-wire-contract.md](json-ld-spott-wire-contract.md)
 - Productie: **OFF** tot aparte gecontroleerde release per slice
 
 Uitstel van een latere slice wijzigt de projectbrede Effect-richting niet.
+
+## CTP-617/A0 — doelgrens, beslisstatus en bewijsregister
+
+JI en Candidate Intelligence zijn zelfstandig toegankelijke apps/modules. Een
+Candidate-only gebruiker hoeft JI niet te openen. Een platform-shell mag beide
+tonen en gedeelde auth/UI-contracten gebruiken, maar deze kaart beslist niet dat
+ze één deployment, tenantmodel of database delen. CI blijft readiness onder
+CTP-345/CI0; er wordt in deze kaart geen CI-code gebouwd.
+
+Nieuwe first-party backend-I/O loopt doelmatig via Effect Services/Layers en
+Effect Schema als canonieke contractbron. React, Better Auth, Drizzle en
+provider-SDK's blijven smalle adapters. Trigger.dev is alleen tijdelijke interop
+voor bestaande taken. De oude Trigger-durabilityrichting, Python/FastAPI/
+Pydantic-runtime en Python/LangGraph-runtime zijn als doelrichting superseded of
+niet aangenomen; zie de traceerbare tabel in [ADR-0014](../adr/ADR-0014-effectts-project-wide-adoption.md).
+
+De actuele uitvoerder is niet overal dezelfde als de historische adapter: de
+on-box poller bezit nu polling en curatie; Trigger blijft alleen voor de vier
+retained jobs die in de [on-box poller runbook](../runbooks/onbox-poller.md)
+staan. Een cutover per flow mag pas één actieve uitvoerder, replay en rollback
+bewijzen.
+
+### Flowregister
+
+Een status `opt-in` beschrijft bestaand canary- of adapterwerk. Het is geen
+claim dat de volledige flow op Effect draait. Flags zijn bestaande flags waar ze
+al bestaan; een nog niet bestaande flag blijft `TBD` en mag niet door deze docs
+worden geïnterpreteerd als implementatieopdracht.
+
+| Flow | Write- en operationele eigenaar | Runtime/doelgrens | Contract/version | Flag | Status op A0 | Bewijs of open gate |
+| --- | --- | --- | --- | --- | --- | --- |
+| Ingest | `@ji/application` bezit JI-mutaties; `@ji/connectors` bezit provider-wire; worker bezit job-invocatie | Effect Services/Layers voor provider-I/O en joblogica; `@ji/db` blijft persistence-owner | Bestaande source/application-contracten; A0-doel `v1` | `JI_EFFECT_WORKER`; connector/application cutover `TBD` | **opt-in gedeeltelijk**; bestaande Trigger-entrypoints nog actief | Connector/application slices en CTP-614/622/633 moeten parity, recovery en brongebonden reconciliation bewijzen |
+| Search | `@ji/search` bezit index/readmodel; JI Postgres blijft SoR | Effect HTTP service rond `SearchAdapter`; outbox/checkpoint/fencing blijven expliciete persistencegrenzen | Search-adapter- en outboxcontracten; bestaande payloads versioned | `JI_EFFECT_SEARCH` | **opt-in adapter**; productie OFF | CTP-472/479, ADR-0007/0009, E0 zichtbaar resultaat en stale-writer-gate |
+| Chat | `@ji/application` bezit capability/toolsemantiek; server bezit transport en authz | Effect-scoped chatturn achter de serverboundary; `streamText` blijft frameworkadapter | Capability/action-contract `v1`; transportversion via CTP-612 | `JI_EFFECT_SERVER`; chatflow-specifieke flag `TBD` | **readiness/partial**; CTP-612 behoudt chattransportmigratie | CTP-628 + bestaande chat-eigenaar; geen claim van volledige Effect-chat zonder e2e bewijs |
+| Export | `@ji/application/export` bezit approval/action/receipt; `@ji/db` bezit ledger/crosswalk | Effect Services/Layers voor nieuwe I/O; provider-SDK achter connector; commit blijft approval-bound | `ji.aanvraag.export.commit.v1`; bestaande crosswalk/receipt-contracten | `JI_EFFECT_SERVER`/`JI_EFFECT_DB` alleen voor aanwezige boundary-canaries | **contract vastgelegd, cutover open** | CTP-458/459, Spott sandbox/tenantrechten, unknown-response reconcile en operatorbewijs |
+| Feedback | De flow-owner van Company OS/actioncontract bezit feedbacksemantiek; JI bewaart alleen eigen receipts | Effect application service met versioned actioncontext; geen directe module-write vanuit UI/agent | Company OS action/evaluation-contract `v1` TBD | `TBD` | **proposed, niet gebouwd** | CTP-460 en menselijke/evaluatiebesluiten; geen fictieve runtime-PASS |
+| Herstel | JI data owner + `@ji/db` bezitten SoR/backups; worker/operator bezit replay | Effect job/runtime orkestreert herstel; raw, receipts, outbox/inbox en DB blijven afzonderlijke bewijsgrenzen | Source-specifiek replay/restore-contract TBD | `JI_EFFECT_WORKER`; recovery-cutover `TBD` | **open gate** | CTP-625/632 en restorebewijs; RPO/RTO nog niet numeriek geaccepteerd |
+| Toekomstige providers | Benoemde provider- en capability-owner; geen generieke platformwriter | Provideradapter via `@ji/connectors` en application port; read-only eerst | Per provider version TBD; nog geen contract vóór readiness | Per provider `TBD` | **discovery/readiness** | Integratie-inventaris, providercontract, tenantconsent, minimale velden, TTL en delete/correctie vóór code |
+
+### Actuele uitvoerder en volledige coverage
+
+Deze tabel voorkomt dat een bestaande Promise-client, een retained Trigger-task
+of een bron die nog niet in een rolloutcohort zit als Effect-PASS wordt gelezen.
+De bronregistry en de actuele runbooks zijn leidend; `CTP-633/Z5` sluit de
+coverage pas wanneer actieve flows en bronnen afzonderlijk bewijs hebben of
+formeel uit de geaccepteerde scope zijn gehaald.
+
+| Pad | Actuele eigenaar/uitvoerder | A0-status | Gate en bewijs |
+| --- | --- | --- | --- |
+| Polling + curatie voor geregistreerde JI-bronnen | `apps/worker/src/poller/main.ts` on-box; `@ji/application`/`@ji/connectors` blijven flow-eigenaar | **Actuele executor**; vervangt de verwijderde Trigger `schedule-slice-a-polls`/`poll-bron`-route | CTP-614/E0, CTP-618/619, CTP-622/623/624 en CTP-633; geen claim dat alle cohorts al Effect-acceptatie hebben |
+| Mercell, Indeed, LinkedIn Jobs en Werk.nl | `packages/application/src/sources/{mercell,indeed,linkedin,werk-nl}.ts` bezit sourceconfig/normalisatie; `packages/connectors/src/{mercell,indeed,linkedin,werk-nl}/` bezit connector en Promise-client; de poller bezit alleen jobinvocatie | **Provider/readiness open**; deze vier zijn niet als aparte L3a–L3f-rolloutcohort benoemd en mogen niet stilzwijgend groen worden verklaard | CTP-633 actieve-broncoverage plus bronvoorwaarden: Mercell POC/voorwaarden, Indeed challenge/account, LinkedIn productrechten en Werk.nl voorwaarden; bestaande connector is geen runtimebewijs |
+| Incomplete-field enrichment | `apps/worker/src/tasks/enrich-incomplete.ts` en retained `schedule-enrich-incomplete` op Trigger | **Retained Trigger path**; target is een eigen Effect-job per CTP-626/N2 | CTP-622 → CTP-626 → CTP-633; dry-run, actor/scope, idempotency en rollback/replay vóór live writes |
+| Recovery/backfill | `backfill-neon-v1` blijft een one-shot Trigger/operatorpad; herstel via DB/ops en flow-owner | **Manual/retained path**, geen gewone pollingflow | CTP-625/R2 en CTP-632/O4; restorebewijs, RPO/RTO en geen resurrectie |
+| Search outbox drain | On-box projector in productie; retained `drain-outbox`-task deferreert bij `SEARCH_PROJECTOR=onbox` | **On-box actuele executor**; Trigger-wrapper blijft interop voor andere modus | CTP-627/U3, stale-writer/replay-bewijs en CTP-633; geen dubbele actieve drain |
+
+### Bestaande wave-crosswalk en T6/Z5-definitie
+
+De uitvoeringsvolgorde volgt het bestaande [CTP-613-programma](https://linear.app/rcjt-studio/issue/CTP-613/effect-platformwaves-ji-afronden-trigger-verlaten-en-candidate)
+en het [uitvoeringscontract](https://linear.app/rcjt-studio/document/effect-platformwaves-uitvoeringsplan-en-crabbox-contract-04922c890b87):
+
+| Wave | Geordende slices | Betekenis voor deze kaart |
+| --- | --- | --- |
+| 0 | E0, X0, T0, A0, CI0 | bewijs, toolchain, platformgrens en Candidate-readiness |
+| 1 | H1, S1, P1, B1 | eerlijke pollerhealth, fairness en bronblokkades |
+| 2 | Q2, F2, G2, R2, N2 | duurzame ingest, herstel en enrichment; N2 is CTP-626 |
+| 3 | U3, C3, M3, J3, L3a–L3f | search/chat en expliciete broncohorts |
+| 4 | CTP-458, D4, O4 | actor/scope, correctie, verwijdering en disaster recovery |
+| 5 | CTP-459, K5 | exportvertical en capaciteitsoordeel |
+| 6 | CTP-460, Z5, T6 | feedback/replay, volledige JI-coverage en gecontroleerde Trigger-exit |
+
+`Z5` is **CTP-633**: sluit de Effect-dekking voor alle actieve JI-flows en
+bronnen, inclusief enrichment (CTP-626), search/chat, providercohorten,
+feedback, correctie en restore. `T6` is **CTP-635**: schakel Trigger pas uit
+na Z5, CTP-626, CTP-612 en A0, met per flow één actieve uitvoerder,
+crash/replay-bewijs en een werkend rollbackpad. Deze crosswalk dupliceert geen
+issues en activeert geen wave.
+
+### Freshness, reconciliation en RPO/RTO
+
+| Maatstaf | A0-besluit | Bewijsstatus |
+| --- | --- | --- |
+| Discovery-freshness | **Voorgestelde target: 15 minuten** voor een geaccepteerde JI-broncohort. Geen bestaande productgarantie en niet automatisch geldig voor CI. | Niet gemeten in A0; bronritme, blokkades en workload moeten per cohort worden vastgesteld. |
+| Zichtbaarheid | **Voorgestelde target: p95 5 minuten** van gecommitteerde canonieke mutatie tot leesbaar searchresultaat. Geen claim over huidige latency. | E0/K5 en latere homogene cohorts nodig; p95 met onvoldoende n blijft indicatief. |
+| Reconciliation | Verplicht per bron/provider. De bron bepaalt sleutel, ordering, cadence, minimale payload en terminale onbekende-uitkomstprocedure. | Contractueel voorgesteld; concrete provider- en bronflows blijven open tot hun slices bewijs leveren. |
+| RPO | Geen numerieke waarde aangenomen. Minimumbeleid is dat canonieke mutaties alleen als hersteld gelden wanneer raw/receipt/DB-bewijs de laatste geaccepteerde grens ondersteunt. | Product- en operations-owner moeten een waarde en meetprocedure accepteren. |
+| RTO | Geen numerieke waarde aangenomen. Minimumbeleid is herstel van één complete JI-verticale keten tot zichtbaar resultaat zonder stille duplicatie of resurrectie. | CTP-632/633 leveren restore- en replaybewijs; lokale gates zijn hiervoor onvoldoende. |
+
+Deze waarden zijn besluit- en readiness-input, geen gemeten SLO's. Productie- of
+Candidate-acceptatie mag ze pas als garantie publiceren nadat de bevoegde owners
+de cohort, meetmethode, reconciliation en restore-evidence hebben geaccepteerd.
 
 ## Linear-slice index
 
@@ -187,7 +278,7 @@ Slices zijn strikt geordend op leerrendement en dependency-richting. Elke slice 
 | AC | poll/drain/backfill sandbox parity; geen retry-plafond↑ |
 | Testbewijs | worker specs |
 | Rollback | task body revert; Trigger config untouched |
-| Status (CTP-476) | Opt-in worker Effect task-body boundary landed (`apps/worker/src/effect`); native `runPollBron` / `runDrainOutbox` remain default Trigger `schemaTask` runs; Trigger `maxAttempts` / queue concurrency unchanged; Motian backfill untouched; prod Effect runtime OFF |
+| Status (CTP-476) | Opt-in worker Effect task-body boundary landed (`apps/worker/src/effect`). Polling en curatie draaien nu via de on-box poller; Trigger `schemaTask` blijft alleen voor `enrich-incomplete`, `schedule-enrich-incomplete`, `drain-outbox` en `backfill-neon-v1`, waarbij `drain-outbox` in `SEARCH_PROJECTOR=onbox` deferreert. Dit is geen target durability-owner voor nieuwe flows. Trigger retry/queue-config blijft ongewijzigd tot per retained flow of cutover eigen Effect-owned crash/replay- en rollbackbewijs bestaat; prod Effect runtime OFF. |
 
 ### Slice 11 — Web DTO / client types
 
@@ -274,7 +365,8 @@ CTP-454 (baseline) ──► CTP-456 (dit ADR + kaart) ──► CTP-455 (runtim
 | api | 9 | |
 | ui / config | — | behoud; types via SoT indien nodig |
 | server | 9 | |
-| worker | 10 | Trigger durability |
+| worker | 10, H1/S1, Q2/N2/R2, CTP-626/633/635 | On-box poller is actuele polling/curation-executor; vier benoemde Trigger-jobs blijven retained interop |
+| source registry/connectors | 1–2, J3/L3a–L3f, CTP-633 | Iedere broncohort en provider/readiness-pad vereist eigen bewijs; bestaande Promise-clients zijn geen Effect-PASS |
 | web | 11 | serialisable only |
 
 ## Wat deze kaart niet doet

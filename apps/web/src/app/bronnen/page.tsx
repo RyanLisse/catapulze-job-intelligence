@@ -95,6 +95,7 @@ const windowOptions: readonly {
 ];
 
 const numberFormatter = new Intl.NumberFormat("nl-NL");
+const DASHBOARD_TIME_ZONE = "Europe/Amsterdam";
 
 const getOverview = async (
   window: BronnenWindow
@@ -118,6 +119,7 @@ const formatDate = (value: string | null): string =>
     ? new Intl.DateTimeFormat("nl-NL", {
         dateStyle: "medium",
         timeStyle: "short",
+        timeZone: DASHBOARD_TIME_ZONE,
       }).format(new Date(value))
     : "Nog geen runs";
 
