@@ -14,6 +14,10 @@ import type {
   SliceADomainFailure,
   SliceADomainFailureDetails,
 } from "../schemas";
+import {
+  serializeSourceHealthSignals,
+  sourceHealthSignalsViewSchema,
+} from "../source-health";
 import type {
   BronRunStatsRow,
   BronRunTimeseriesPoint,
@@ -104,6 +108,15 @@ const healthView = Schema.Struct({
   silenceAlertOpen: Schema.Boolean,
 });
 
+const dashboardHealthView = Schema.Struct({
+  bronId: Schema.String,
+  circuitStatus: Schema.NullOr(Schema.String),
+  healthSignals: Schema.NullOr(sourceHealthSignalsViewSchema),
+  lastRunAt: Schema.NullOr(Schema.String),
+  lastRunStatus: Schema.NullOr(Schema.String),
+  silenceAlertOpen: Schema.NullOr(Schema.Boolean),
+});
+
 const alertView = Schema.Struct({
   ackedAt: Schema.NullOr(Schema.String),
   bronId: Schema.String,
@@ -182,11 +195,11 @@ export const getDashboardOverviewOutputSchema = toCapabilitySchema(
     alerts: Schema.Array(alertView),
     bronnen: Schema.Array(
       Schema.Struct({
-        health: Schema.NullOr(healthView),
+        health: Schema.NullOr(dashboardHealthView),
         stats: statsView,
       })
     ),
-    health: Schema.Array(healthView),
+    health: Schema.Array(dashboardHealthView),
     timeseries: Schema.Array(pointView),
     total: statsView,
     window: dashboardWindowValues,
@@ -208,24 +221,37 @@ export const createGetDashboardOverviewHandler =
     const sourceRows = stats.bronnen.filter(
       (row): row is typeof row & { bronId: string } => row.bronId !== null
     );
-    // One list() instead of N getByBronId — keeps overview ≤4 Postgres round-trips
-    // (stats + timeseries + health list + alerts.listOpen).
+    // Load legacy health in one batch. Runtime signals below also use one
+    // batch, so adding sources does not add per-source database calls.
     const healthRecords = await deps.stores.bronHealth.list();
     const healthByBronId = new Map(
       healthRecords.map((record) => [record.bronId, record] as const)
     );
+    const sourceHealthRecords = deps.sourceHealthReader
+      ? await deps.sourceHealthReader.listByBronIds(
+          sourceRows.map((row) => row.bronId)
+        )
+      : [];
+    const sourceHealthByBronId = new Map(
+      sourceHealthRecords.map((record) => [record.bronId, record] as const)
+    );
     const bronnen = sourceRows.map((row) => {
       const record = healthByBronId.get(row.bronId) ?? null;
+      const sourceHealth = sourceHealthByBronId.get(row.bronId) ?? null;
       return {
-        health: record
-          ? {
-              bronId: record.bronId,
-              circuitStatus: record.circuitStatus,
-              lastRunAt: record.lastRunAt?.toISOString() ?? null,
-              lastRunStatus: record.lastRunStatus,
-              silenceAlertOpen: record.silenceAlertOpen,
-            }
-          : null,
+        health:
+          record || sourceHealth
+            ? {
+                bronId: record?.bronId ?? row.bronId,
+                circuitStatus: record?.circuitStatus ?? null,
+                healthSignals: sourceHealth
+                  ? serializeSourceHealthSignals(sourceHealth.signals)
+                  : null,
+                lastRunAt: record?.lastRunAt?.toISOString() ?? null,
+                lastRunStatus: record?.lastRunStatus ?? null,
+                silenceAlertOpen: record?.silenceAlertOpen ?? null,
+              }
+            : null,
         stats: serializeStatsRow(row),
       };
     });

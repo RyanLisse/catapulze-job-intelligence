@@ -44,6 +44,10 @@ import type {
   SliceADomainFailure,
   SliceADomainFailureDetails,
 } from "../schemas";
+import {
+  serializeSourceHealthSignals,
+  sourceHealthSignalsViewSchema,
+} from "../source-health";
 import type {
   AanvraagRecord,
   AlertRecord,
@@ -1197,18 +1201,27 @@ export const getBronHealthInputSchema = toCapabilitySchema(
 export const getBronHealthOutputSchema = toCapabilitySchema(
   Schema.Struct({
     bronId: Schema.String,
-    circuitStatus: Schema.String,
+    circuitStatus: Schema.NullOr(Schema.String),
+    healthSignals: Schema.NullOr(sourceHealthSignalsViewSchema),
     lastRunAt: Schema.NullOr(Schema.String),
     lastRunStatus: Schema.NullOr(Schema.String),
-    silenceAlertOpen: Schema.Boolean,
+    silenceAlertOpen: Schema.NullOr(Schema.Boolean),
   })
 );
 
 export const createGetBronHealthHandler =
   (deps: SliceAHandlerDeps) =>
   async (input: SchemaType<typeof getBronHealthInputSchema>) => {
-    const health = await deps.stores.bronHealth.getByBronId(input.bronId);
-    if (!health) {
+    const sourceHealth = deps.sourceHealthReader
+      ? await deps.sourceHealthReader.getByBronId(input.bronId)
+      : null;
+    // An unavailable telemetry read cannot establish worker death. Avoid a
+    // second read against the same unavailable database just to fetch legacy fields.
+    const health =
+      sourceHealth?.signals.database.reason === "database_unavailable"
+        ? null
+        : await deps.stores.bronHealth.getByBronId(input.bronId);
+    if (!health && !sourceHealth) {
       return domainFailure("NOT_FOUND", "Bron health not found", {
         bronId: input.bronId,
       });
@@ -1216,11 +1229,14 @@ export const createGetBronHealthHandler =
     return {
       ok: true as const,
       value: {
-        bronId: health.bronId,
-        circuitStatus: health.circuitStatus,
-        lastRunAt: health.lastRunAt?.toISOString() ?? null,
-        lastRunStatus: health.lastRunStatus,
-        silenceAlertOpen: health.silenceAlertOpen,
+        bronId: health?.bronId ?? input.bronId,
+        circuitStatus: health?.circuitStatus ?? null,
+        healthSignals: sourceHealth
+          ? serializeSourceHealthSignals(sourceHealth.signals)
+          : null,
+        lastRunAt: health?.lastRunAt?.toISOString() ?? null,
+        lastRunStatus: health?.lastRunStatus ?? null,
+        silenceAlertOpen: health?.silenceAlertOpen ?? null,
       },
     };
   };

@@ -2,6 +2,7 @@ import type { SearchAdapter } from "@ji/search";
 
 import type { PublicBronView } from "../../bronnen";
 import type { SpottWriteClient } from "../../export/spott/client";
+import type { SourceHealthReader } from "../source-health";
 import type {
   BronOverlapReader,
   BronRunStatsReader,
@@ -41,6 +42,8 @@ export interface SliceAHandlerDeps {
    */
   readonly martsReader?: MartsReader;
   readonly scrapeRunReader?: ScrapeRunReader;
+  /** Optional bulk source telemetry; absent means health signals are null. */
+  readonly sourceHealthReader?: SourceHealthReader;
   readonly bronnen: {
     getById: (bronId: string) => Promise<PublicBronView | null>;
     list: () => Promise<readonly PublicBronView[]>;

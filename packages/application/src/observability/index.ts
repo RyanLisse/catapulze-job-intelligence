@@ -67,4 +67,30 @@ export {
   runParseCronExpression,
 } from "./observability-effect";
 
+export {
+  type AdvisoryLockHealthSignal,
+  type AdvisoryLockObservation,
+  type AdvisoryLockSignalReason,
+  type CurrentRunFreshness,
+  type DatabaseHealthSignal,
+  type DatabaseSignalReason,
+  type FreshnessHealthSignal,
+  type FreshnessSignalReason,
+  type ProcessHealthSignal,
+  type ProcessSignalReason,
+  type ProgressHealthSignal,
+  type ProgressPhase,
+  type ProgressSignalReason,
+  type SourceHealthAggregate,
+  type SourceHealthAggregateReason,
+  type SourceHealthAggregateState,
+  type SourceHealthSignal,
+  type SourceHealthSignalState,
+  type SourceHealthSignals,
+  type SourceHealthSignalsInput,
+  type SourceHealthSignalThresholds,
+  type SourceHealthSourceState,
+  deriveSourceHealthSignals,
+} from "./source-health-signals";
+
 export { nextCronRun, parseCronExpression } from "./cron";

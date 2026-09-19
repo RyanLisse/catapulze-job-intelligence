@@ -35,6 +35,8 @@ import { and, desc, eq, gte, sql } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import { z } from "zod";
 
+import { PostgresPollerHealthTelemetryStore } from "./poller-health-telemetry-store";
+import type { PollerHealthTelemetryTransaction } from "./poller-health-telemetry-store";
 import { runStalenessCutoff } from "./run-staleness";
 import type * as schema from "./schema";
 import { aanvraagObservation, bron, scrapeRun, sourceRecord } from "./schema";
@@ -498,6 +500,30 @@ export class PostgresRunStore implements RunLifecycleStore {
     requireOwnership(rows);
   }
 
+  private async claimPollHealth(
+    tx: PollerHealthTelemetryTransaction,
+    input: RunStartInput,
+    result: RunStartResult
+  ): Promise<RunStartResult> {
+    if (input.runKind === "poll") {
+      // Claim while the launch transaction holds the per-source lock. A late
+      // milestone must never replace the ownership of a newer poll.
+      const claimed = await new PostgresPollerHealthTelemetryStore(
+        tx
+      ).claimSourceOwnership({
+        bronId: input.key.bronId,
+        fenceToken: result.fenceToken,
+        phase: "fetch",
+        phaseStartedAt: this.now(),
+        runId: input.key.scrapeRunId,
+      });
+      if (!claimed) {
+        throw new RunOwnershipLostError();
+      }
+    }
+    return result;
+  }
+
   private startWithKind(input: RunStartInput): Promise<RunStartResult> {
     return this.database.transaction(async (tx) => {
       if (input.runKind === "poll") {
@@ -564,11 +590,11 @@ export class PostgresRunStore implements RunLifecycleStore {
           .onConflictDoNothing({ target: scrapeRun.id })
           .returning({ id: scrapeRun.id });
         if (inserted.length > 0) {
-          return {
+          return this.claimPollHealth(tx, input, {
             fenceToken: 1,
             progress: structuredClone(input.progress),
             startedAt: input.startedAt,
-          };
+          });
         }
         [existing] = await tx
           .select({
@@ -604,12 +630,12 @@ export class PostgresRunStore implements RunLifecycleStore {
           .set({ fenceToken: sql`${scrapeRun.fenceToken} + 1` })
           .where(eq(scrapeRun.id, input.key.scrapeRunId))
           .returning({ fenceToken: scrapeRun.fenceToken });
-        return {
+        return this.claimPollHealth(tx, input, {
           fenceToken: requireMutation(owned, "acquire scrape-run ownership")
             .fenceToken,
           progress: toRunProgress(existing),
           startedAt: existing.startedAt,
-        };
+        });
       }
 
       const [persistedObservation] = await tx
@@ -632,12 +658,12 @@ export class PostgresRunStore implements RunLifecycleStore {
         })
         .where(eq(scrapeRun.id, input.key.scrapeRunId))
         .returning({ fenceToken: scrapeRun.fenceToken });
-      return {
+      return this.claimPollHealth(tx, input, {
         fenceToken: requireMutation(owned, "reset scrape-run ownership")
           .fenceToken,
         progress: structuredClone(input.progress),
         startedAt: input.startedAt,
-      };
+      });
     });
   }
 }

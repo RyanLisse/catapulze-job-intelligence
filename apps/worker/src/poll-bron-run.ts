@@ -1,6 +1,7 @@
 import { executeBronRun } from "@ji/application/bronnen";
 import type {
   BronPersistence,
+  ExecuteBronRunInput,
   ExecuteBronRunResult,
 } from "@ji/application/bronnen";
 import type { LifecycleReconcilePorts } from "@ji/application/lifecycle";
@@ -58,6 +59,7 @@ import { and, eq } from "drizzle-orm";
 
 import { readSearchProjectorMode, requireManticoreUrl } from "./poll-bron-env";
 import { redactErrorMessage } from "./poller/source-log";
+import { reportTelemetryCallback } from "./poller/telemetry-callback";
 import type { SliceABronSlug } from "./slice-a-bronnen";
 import type { PollBronPayload } from "./tasks/poll-bron-schema";
 
@@ -210,6 +212,12 @@ const summarizeLifecycle = (
 export interface PollBronRunOptions {
   /** CTP-490: bounds the connector run; see `ConnectorRunInput.signal`. */
   signal?: AbortSignal;
+  /** Optional connector milestone observer; telemetry failures are isolated. */
+  onProgress?: ExecuteBronRunInput["onProgress"];
+  /** Called immediately before the first curation pass for this run. */
+  onCurationStarted?: (pollResult: PollBronRunResult) => Promise<void> | void;
+  /** Called after committed terminal curation work; failures are isolated. */
+  onCurationProgress?: (pollResult: PollBronRunResult) => Promise<void> | void;
 }
 
 export const runPollBron = async (
@@ -236,6 +244,20 @@ export const runPollBron = async (
     lifecycle: runtime.lifecycle,
     objectStore: runtime.objectStore,
     observationRecorder: runtime.observationRecorder,
+    onProgress: options.onProgress
+      ? (milestone) =>
+          reportTelemetryCallback(
+            options.onProgress,
+            milestone,
+            {
+              bronId,
+              bronSlug: payload.bronSlug,
+              scrapeRunId,
+              telemetryPhase: "connector_progress",
+            },
+            options.signal
+          )
+      : undefined,
     retryPolicy: {
       initialDelayMs: 250,
       jitter: fullJitter,
@@ -689,11 +711,36 @@ export const runBronIngestPipeline = async (
     runtime,
     runKind
   );
+  await reportTelemetryCallback(
+    options.onCurationStarted,
+    pollResult,
+    {
+      bronId: pollResult.bronId,
+      bronSlug: pollResult.bronSlug,
+      scrapeRunId: pollResult.scrapeRunId,
+      telemetryPhase: "curation_started",
+    },
+    options.signal
+  );
   const curateResult = await curateScrapeRun({
     bronId: pollResult.bronId,
     bronSlug: pollResult.bronSlug,
     database: runtime.database,
     objectStore: runtime.objectStore,
+    onProgress: options.onCurationProgress
+      ? () =>
+          reportTelemetryCallback(
+            options.onCurationProgress,
+            pollResult,
+            {
+              bronId: pollResult.bronId,
+              bronSlug: pollResult.bronSlug,
+              scrapeRunId: pollResult.scrapeRunId,
+              telemetryPhase: "curation_progress",
+            },
+            options.signal
+          )
+      : undefined,
     scrapeRunId: pollResult.scrapeRunId,
     signal: options.signal,
   });

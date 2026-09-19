@@ -235,6 +235,8 @@ export interface CurateScrapeRunInput {
   bronSlug: SupportedBronSlug;
   database: BronRuntimeDatabase;
   objectStore: ObjectStore;
+  /** Runs after committed terminal work; telemetry errors must not park data. */
+  onProgress?: () => Promise<void>;
   scrapeRunId: ScrapeRunId;
   signal?: AbortSignal;
 }
@@ -788,7 +790,7 @@ const readStoredRaw = async (
 const processCandidate = async (
   input: CurateScrapeRunInput,
   candidate: RecoveryCandidate
-): Promise<CandidateDisposition> => {
+): Promise<{ disposition: CandidateDisposition; madeProgress: boolean }> => {
   throwIfAborted(input.signal);
   const preliminaryCommitted =
     isLegacyStatus(candidate.status) &&
@@ -830,10 +832,11 @@ const processCandidate = async (
       missingRawStatus(candidate.status)
     );
     throwIfAborted(input.signal);
-    return "pending";
+    return { disposition: "pending", madeProgress: false };
   }
 
-  return input.database.transaction(async (tx) => {
+  let madeProgress = false;
+  const finalDisposition = await input.database.transaction(async (tx) => {
     throwIfAborted(input.signal);
     const [lockedRun] = await tx
       .select({
@@ -932,6 +935,7 @@ const processCandidate = async (
           : disposition
       );
       throwIfAborted(input.signal);
+      madeProgress = disposition !== "blocked_ordering";
       return disposition;
     }
 
@@ -956,8 +960,10 @@ const processCandidate = async (
       .set({ status: processed.status })
       .where(eq(aanvraagObservation.id, candidate.id));
     throwIfAborted(input.signal);
+    madeProgress = true;
     return processed.status;
   });
+  return { disposition: finalDisposition, madeProgress };
 };
 
 const recordDisposition = (
@@ -1098,10 +1104,17 @@ export const curateScrapeRun = async (
       continue;
     }
     result.attemptedObservationIds.push(candidate.id);
+    let madeProgress = false;
     try {
       // oxlint-disable-next-line no-await-in-loop -- recovery is ordered per identity
-      const disposition = await processCandidate(input, candidate);
-      recordDisposition(result, blockedIdentities, candidate, disposition);
+      const processed = await processCandidate(input, candidate);
+      recordDisposition(
+        result,
+        blockedIdentities,
+        candidate,
+        processed.disposition
+      );
+      ({ madeProgress } = processed);
     } catch (error) {
       // CTP-499: rethrowing every error here aborted the whole pass, so one
       // candidate that Postgres refused blocked every other identity of the
@@ -1132,12 +1145,17 @@ export const curateScrapeRun = async (
         candidate,
         "curation_failed"
       );
+      madeProgress = true;
       if (result.failed >= MAX_PARKED_PER_PASS) {
         throw namedError(
           TOO_MANY_PARKED_ERROR_NAME,
           `Parked ${result.failed} observations in one pass; stopping in case the failure is systemic`
         );
       }
+    }
+    if (madeProgress) {
+      // oxlint-disable-next-line no-await-in-loop -- observe committed progress before advancing to the next candidate
+      await input.onProgress?.();
     }
   }
   const [backlogRows, missingRawRows] = await Promise.all([

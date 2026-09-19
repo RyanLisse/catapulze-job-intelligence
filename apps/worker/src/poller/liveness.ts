@@ -8,6 +8,9 @@ interface PollerLivenessOptions {
   lockKey: number;
   lockReassert: (options?: { timeoutMs?: number }) => Promise<boolean>;
   onLockLoss: (error: Error) => void;
+  onLockVerified?: () => void;
+  recordTelemetry?: () => Promise<void>;
+  onTelemetryError?: (error: Error) => void;
   signal: AbortSignal;
 }
 
@@ -18,6 +21,7 @@ const swallowOperationError = (_error: Error): Promise<void> =>
 
 interface LivenessState {
   readonly inFlightProbes: Set<Promise<boolean>>;
+  readonly inFlightTelemetry: Set<Promise<void>>;
 }
 
 const heartbeatLoop = (
@@ -63,6 +67,7 @@ const lockLoop = (
       if (!held) {
         throw new LockLostError(options.lockKey);
       }
+      options.onLockVerified?.();
     },
   }).pipe(
     Effect.andThen(
@@ -76,6 +81,27 @@ const livenessProgram = (
 ): Effect.Effect<never, Error, Scope> =>
   Effect.gen(function* livenessGenerator() {
     yield* Effect.forkScoped(heartbeatLoop(options).pipe(Effect.forever));
+    if (options.recordTelemetry) {
+      const { recordTelemetry } = options;
+      yield* Effect.forkScoped(
+        heartbeatLoop({
+          ...options,
+          heartbeat: async () => {
+            const write = recordTelemetry();
+            state.inFlightTelemetry.add(write);
+            try {
+              await write;
+            } catch (error) {
+              options.onTelemetryError?.(
+                error instanceof Error ? error : new Error(String(error))
+              );
+            } finally {
+              state.inFlightTelemetry.delete(write);
+            }
+          },
+        }).pipe(Effect.forever)
+      );
+    }
     return yield* lockLoop(options, state).pipe(Effect.forever);
   });
 
@@ -92,7 +118,10 @@ export const runWithPollerLiveness = async <A>(
   const program = Effect.scoped(
     Effect.acquireUseRelease(
       Effect.sync(() => {
-        const state: LivenessState = { inFlightProbes: new Set() };
+        const state: LivenessState = {
+          inFlightProbes: new Set(),
+          inFlightTelemetry: new Set(),
+        };
         const fiber = Effect.runFork(
           Effect.scoped(
             livenessProgram(
@@ -125,7 +154,12 @@ export const runWithPollerLiveness = async <A>(
       ({ fiber, state }) =>
         Effect.gen(function* stopLiveness() {
           yield* Fiber.interrupt(fiber);
-          yield* Effect.promise(() => Promise.allSettled(state.inFlightProbes));
+          yield* Effect.promise(() =>
+            Promise.allSettled([
+              ...state.inFlightProbes,
+              ...state.inFlightTelemetry,
+            ])
+          );
         })
     )
   );

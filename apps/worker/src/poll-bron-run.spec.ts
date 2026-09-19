@@ -313,6 +313,7 @@ describe("runPollBron missed-poll lifecycle wiring (RJC-397)", () => {
       InMemoryObjectStore,
       InMemoryObservationRecorder,
       InMemoryRunLifecycleStore,
+      RunOwnershipLostError,
     } = await import("@ji/connectors");
     const { SOURCES } = await import("@ji/application/sources");
 
@@ -372,6 +373,7 @@ describe("runPollBron missed-poll lifecycle wiring (RJC-397)", () => {
       runLifecycleStore: new InMemoryRunLifecycleStore(),
     };
 
+    let progressCallbacks = 0;
     const result = await runPollBron(
       {
         bronId,
@@ -379,9 +381,17 @@ describe("runPollBron missed-poll lifecycle wiring (RJC-397)", () => {
         scrapeRunId: "00000000-0000-4000-8000-00000000a397",
       },
       runtime,
-      "poll"
+      "poll",
+      {
+        onProgress: () => {
+          progressCallbacks += 1;
+          throw new Error("telemetry observer unavailable");
+        },
+      }
     );
 
+    expect(progressCallbacks).toBeGreaterThan(0);
+    expect(result.status).toBe("succeeded");
     // Task output must be JSON-safe scalars (Trigger.dev run payload).
     expect(JSON.stringify(result.lifecycle)).toBe(
       '{"incremented":1,"reopened":0,"reset":1,"skippedIncrementReason":null,"staled":0}'
@@ -389,6 +399,52 @@ describe("runPollBron missed-poll lifecycle wiring (RJC-397)", () => {
     expect(missedPolls.read(bronId, "gone-since-last-run")?.missedPolls).toBe(
       1
     );
+
+    await expect(
+      runPollBron(
+        {
+          bronId,
+          bronSlug: "hero",
+          scrapeRunId: "00000000-0000-4000-8000-00000000a398",
+        },
+        runtime,
+        "poll",
+        {
+          onProgress: () => {
+            throw new RunOwnershipLostError();
+          },
+        }
+      )
+    ).rejects.toBeInstanceOf(RunOwnershipLostError);
+
+    const abortController = new AbortController();
+    const abortReason = new Error("operator cancelled telemetry");
+    let abortedError: unknown;
+    try {
+      await runPollBron(
+        {
+          bronId,
+          bronSlug: "hero",
+          scrapeRunId: "00000000-0000-4000-8000-00000000a399",
+        },
+        runtime,
+        "poll",
+        {
+          onProgress: () => {
+            abortController.abort(abortReason);
+            throw new Error("observer failed after cancellation");
+          },
+          signal: abortController.signal,
+        }
+      );
+    } catch (error) {
+      abortedError = error;
+    }
+    expect(abortedError).toBeInstanceOf(Error);
+    if (!(abortedError instanceof Error)) {
+      throw new Error("Expected aborted telemetry run to reject");
+    }
+    expect(abortedError.cause).toBe(abortReason);
   });
 });
 

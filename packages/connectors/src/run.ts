@@ -11,7 +11,7 @@ import {
 } from "@ji/performance";
 
 import { boundBronReferentie } from "./bron-referentie";
-import type { ConnectorRunProgress } from "./checkpoint";
+import type { CheckpointKey, ConnectorRunProgress } from "./checkpoint";
 import {
   CONNECTOR_OBSERVATION_CONTRACT_VERSION,
   emptyRunMetrics,
@@ -114,6 +114,12 @@ const withFailureEnvelope = async <Result>(
 };
 
 export interface ConnectorRunInput {
+  onProgress?: (milestone: {
+    key: CheckpointKey;
+    fenceToken: number;
+    phase: "fetch" | "persist";
+    observedAt: Date;
+  }) => Promise<void>;
   bronId: BronId;
   bronSlug: string;
   checkpoint?: ConnectorCheckpoint | null;
@@ -321,6 +327,14 @@ const runConnectorInner = async (
   let truncated = false;
   let aborted = false;
 
+  const reportProgress = (phase: "fetch" | "persist"): Promise<void> =>
+    input.onProgress?.({
+      fenceToken: canonicalRun.fenceToken,
+      key: checkpointKey,
+      observedAt: writeNow(),
+      phase,
+    }) ?? Promise.resolve();
+
   const completeAbortedRun = async (): Promise<ConnectorRunResult> => {
     aborted = true;
     progress.checkpoint = checkpoint;
@@ -378,6 +392,7 @@ const runConnectorInner = async (
         ),
       FAILURE_ENVELOPES.fetch
     );
+    await reportProgress("fetch");
     if (fetched === null) {
       return;
     }
@@ -467,6 +482,7 @@ const runConnectorInner = async (
     } else if (sourceRecord.outcome === "unchanged") {
       metrics.unchanged += 1;
     }
+    await reportProgress("persist");
   };
 
   /** Persists items in order; returns true when the signal cut the page short. */
@@ -504,6 +520,8 @@ const runConnectorInner = async (
           ),
         FAILURE_ENVELOPES.discover
       );
+      // oxlint-disable-next-line no-await-in-loop -- report an actual completed discovery before fetching the page
+      await reportProgress("fetch");
       metrics.found += discovery.items.length;
       truncated ||= discovery.truncated === true;
 

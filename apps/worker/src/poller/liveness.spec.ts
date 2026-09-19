@@ -169,4 +169,84 @@ describe("poller liveness", () => {
     await completion;
     expect(completed).toBe(true);
   });
+  it("keeps heartbeat and lock checks independent of a pending telemetry write", async () => {
+    const telemetry = Promise.withResolvers<null>();
+    const telemetryStarted = Promise.withResolvers<null>();
+    const checksReady = Promise.withResolvers<null>();
+    const heartbeatReady = Promise.withResolvers<null>();
+    const sourceFinished = Promise.withResolvers<null>();
+    let checks = 0;
+    let beats = 0;
+    let writes = 0;
+    const running = runWithPollerLiveness(
+      options({
+        heartbeat: () => {
+          beats += 1;
+          if (beats >= 2) {
+            heartbeatReady.resolve(null);
+          }
+          return Promise.resolve();
+        },
+        onLockVerified: () => {
+          checks += 1;
+          if (checks >= 2) {
+            checksReady.resolve(null);
+          }
+        },
+        recordTelemetry: async () => {
+          writes += 1;
+          telemetryStarted.resolve(null);
+          await telemetry.promise;
+        },
+      }),
+      async () => {
+        await telemetryStarted.promise;
+        await checksReady.promise;
+        await heartbeatReady.promise;
+        sourceFinished.resolve(null);
+        return "done";
+      }
+    );
+    await sourceFinished.promise;
+    expect(checks).toBeGreaterThanOrEqual(2);
+    expect(beats).toBeGreaterThanOrEqual(2);
+    expect(writes).toBe(1);
+    let completed = false;
+    const completion = running.then((value) => {
+      completed = true;
+      return value;
+    });
+    await Bun.sleep(0);
+    expect(completed).toBe(false);
+    telemetry.resolve(null);
+    await expect(completion).resolves.toBe("done");
+  });
+  it("resumes telemetry after an ordinary write rejection", async () => {
+    let writes = 0;
+    const recovered = Promise.withResolvers<null>();
+    const errors: unknown[] = [];
+    const failure = new Error("database temporarily unavailable");
+    const result = await runWithPollerLiveness(
+      options({
+        onTelemetryError: (error) => {
+          errors.push(error);
+        },
+        recordTelemetry: () => {
+          writes += 1;
+          if (writes === 1) {
+            return Promise.reject(failure);
+          }
+          recovered.resolve(null);
+          return Promise.resolve();
+        },
+      }),
+      async () => {
+        await recovered.promise;
+        return "done";
+      }
+    );
+    expect(result).toBe("done");
+    expect(writes).toBeGreaterThanOrEqual(2);
+    expect(errors).toEqual([failure]);
+  });
 });

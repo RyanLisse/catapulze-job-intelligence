@@ -628,6 +628,55 @@ describe("InMemoryRunLifecycleStore", () => {
 });
 
 describe("runConnector", () => {
+  it("retains committed item metrics when reporting progress fails", async () => {
+    const dependencies = runDependencies("run-progress-failure");
+    const telemetryError = new Error("progress write unavailable");
+    await expect(
+      runConnector({
+        ...dependencies,
+        bronId: "bron-progress-failure",
+        bronSlug: "tenderned",
+        connector: createFakeConnector("bron-progress-failure"),
+        onProgress: (milestone) =>
+          milestone.phase === "persist"
+            ? Promise.reject(telemetryError)
+            : Promise.resolve(),
+      })
+    ).rejects.toMatchObject({ cause: telemetryError });
+    expect(dependencies.observationRecorder.observations).toHaveLength(1);
+    const progress = await dependencies.runLifecycleStore.load({
+      bronId: "bron-progress-failure",
+      scrapeRunId: "run-progress-failure",
+    });
+    expect(progress?.metrics).toMatchObject({ error: 1, found: 1, new: 1 });
+  });
+
+  it("reports per-item progress only after the corresponding work completes", async () => {
+    const dependencies = runDependencies("run-progress");
+    const milestones: string[] = [];
+    const observedAt = new Date("2026-09-19T12:00:00Z");
+    await runConnector({
+      ...dependencies,
+      bronId: "bron-progress",
+      bronSlug: "tenderned",
+      connector: createFakeConnector("bron-progress"),
+      onProgress: (milestone) => {
+        expect(milestone.key).toEqual({
+          bronId: "bron-progress",
+          scrapeRunId: "run-progress",
+        });
+        expect(milestone.fenceToken).toBe(1);
+        expect(milestone.observedAt).toEqual(observedAt);
+        milestones.push(
+          `${milestone.phase}:${dependencies.observationRecorder.observations.length}`
+        );
+        return Promise.resolve();
+      },
+      writeNow: () => observedAt,
+    });
+    expect(milestones).toEqual(["fetch:0", "fetch:0", "persist:1"]);
+  });
+
   it("passes the run AbortSignal through discover and fetch", async () => {
     const controller = new AbortController();
     const signals: AbortSignal[] = [];

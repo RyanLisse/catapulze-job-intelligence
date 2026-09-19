@@ -8,7 +8,7 @@ import postgres from "postgres";
 
 import { PostgresRunStore } from "./bron-runtime";
 import * as schema from "./schema";
-import { bron, scrapeRun } from "./schema";
+import { bron, bronHealth, scrapeRun } from "./schema";
 
 const testDatabaseUrl =
   process.env.DATABASE_TEST_URL ??
@@ -124,6 +124,21 @@ describe("Postgres poll-run launch fencing", () => {
         )
       );
     expect(persisted?.value).toBe(1);
+    const [health] = await database
+      .select()
+      .from(bronHealth)
+      .where(eq(bronHealth.bronId, bronId));
+    const [running] = await database
+      .select({ id: scrapeRun.id })
+      .from(scrapeRun)
+      .where(
+        and(eq(scrapeRun.bronId, bronId), eq(scrapeRun.status, "running"))
+      );
+    expect(health?.activeRunId).toBe(running?.id);
+    expect(health?.progressAt).toBeNull();
+    expect(health?.phaseStartedAt).toEqual(NOW);
+    expect(health?.progressPhase).toBe("fetch");
+    expect(health?.lastFullySuccessfulAt).toBeNull();
   });
 
   it("allows a fresh start when the only running poll is stale", async () => {
@@ -153,5 +168,53 @@ describe("Postgres poll-run launch fencing", () => {
         startedAt: NOW,
       })
     ).resolves.toMatchObject({ fenceToken: 1 });
+  });
+  it("replaces a failed active run when the next distinct run also starts at fence one", async () => {
+    if (!available || !database) {
+      expect(available).toBe(false);
+      return;
+    }
+    const bronId = await seedBron();
+    const store = new PostgresRunStore(database, {
+      now: () => NOW,
+      pollRunStaleAfterMs: STALE_AFTER_MS,
+    });
+    const oldRunId = crypto.randomUUID();
+    const first = await store.start({
+      key: { bronId, scrapeRunId: oldRunId },
+      mode: "reset",
+      progress,
+      runKind: "poll",
+      startedAt: NOW,
+    });
+    await store.fail({
+      failure: {
+        class: "internal",
+        code: "UNEXPECTED_FAILURE",
+        message: "Connector run failed",
+        phase: "unknown",
+      },
+      fenceToken: first.fenceToken,
+      finishedAt: NOW,
+      key: { bronId, scrapeRunId: oldRunId },
+      progress,
+    });
+    const newRunId = crypto.randomUUID();
+    const second = await store.start({
+      key: { bronId, scrapeRunId: newRunId },
+      mode: "reset",
+      progress,
+      runKind: "poll",
+      startedAt: NOW,
+    });
+    expect(first.fenceToken).toBe(1);
+    expect(second.fenceToken).toBe(1);
+    const [health] = await database
+      .select()
+      .from(bronHealth)
+      .where(eq(bronHealth.bronId, bronId));
+    expect(health?.activeRunId).toBe(newRunId);
+    expect(health?.progressAt).toBeNull();
+    expect(health?.lastFullySuccessfulAt).toBeNull();
   });
 });

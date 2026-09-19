@@ -57,9 +57,9 @@ describe("bronnen status", () => {
     expect(statusFor(value).label).toBe("Nieuw");
     expect(attentionReasons(value)).toEqual([]);
   });
-  it("detects healthy sources", () => {
+  it("does not infer health from historical runs without telemetry", () => {
     const value = bron();
-    expect(statusFor(value).label).toBe("Gezond");
+    expect(statusFor(value).label).toBe("Onbekend");
     expect(attentionReasons(value)).toEqual([]);
   });
   it("returns simultaneous reasons", () => {

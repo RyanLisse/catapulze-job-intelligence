@@ -7,6 +7,7 @@ import {
 import type {
   Connector,
   ConnectorRunResult,
+  ConnectorRunInput,
   ObjectStore,
   ObservationRecorder,
   RequestLimiter,
@@ -26,6 +27,7 @@ import { isPollableBron } from "./register";
 import type { BronPersistence } from "./register";
 
 export interface ExecuteBronRunInput {
+  onProgress?: ConnectorRunInput["onProgress"];
   bronId: BronId;
   bronSlug: string;
   scrapeRunId: ScrapeRunId;
@@ -194,6 +196,7 @@ export const executeBronRun = async (
       limiter: activeLimiter.limiter,
       objectStore: input.objectStore,
       observationRecorder: input.observationRecorder,
+      onProgress: input.onProgress,
       rawRetentionDays: record.retentionDays,
       retryPolicy,
       runKind,
