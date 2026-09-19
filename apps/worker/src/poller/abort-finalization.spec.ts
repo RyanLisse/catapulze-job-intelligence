@@ -25,7 +25,7 @@ it("finalizes cancellation raised during work before propagating its reason", as
 });
 
 it.each([new Error("storage unavailable"), new RunOwnershipLostError()])(
-  "preserves a concurrent non-cancellation failure: %s",
+  "finalizes a concurrent failure racing an abort and preserves its error: %s",
   async (failure) => {
     const controller = new AbortController();
     let finalized = false;
@@ -42,9 +42,29 @@ it.each([new Error("storage unavailable"), new RunOwnershipLostError()])(
         }
       )
     ).rejects.toBe(failure);
-    expect(finalized).toBe(false);
+    expect(finalized).toBe(true);
   }
 );
+
+it("finalizes when the abort surfaces as a fresh AbortError instead of the reason", async () => {
+  const controller = new AbortController();
+  let finalized = false;
+  const freshAbortError = new DOMException("Aborted", "AbortError");
+  await expect(
+    withAbortFinalization(
+      controller.signal,
+      () => {
+        finalized = true;
+        return Promise.resolve();
+      },
+      () => {
+        controller.abort();
+        return Promise.reject(freshAbortError);
+      }
+    )
+  ).rejects.toBe(freshAbortError);
+  expect(finalized).toBe(true);
+});
 
 it("does not hide a rejected fenced finalization behind the abort reason", async () => {
   const controller = new AbortController();

@@ -1,4 +1,4 @@
-/** Preserve the original failure unless it is this operation's own cancellation. */
+/** On abort, run the fenced finalizer for whatever error ended the operation. */
 export const withAbortFinalization = async <A>(
   signal: AbortSignal | undefined,
   finalize: () => Promise<void>,
@@ -10,7 +10,7 @@ export const withAbortFinalization = async <A>(
     signal?.throwIfAborted();
     return result;
   } catch (error) {
-    if (signal?.aborted && error === signal.reason) {
+    if (signal?.aborted) {
       await finalize();
     }
     throw error;
