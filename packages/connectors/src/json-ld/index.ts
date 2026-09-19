@@ -15,6 +15,7 @@ export {
 export { bluetrailConfig } from "./configs/bluetrail";
 export { asmlConfig } from "./configs/asml";
 export { bijOranjeConfig } from "./configs/bij-oranje";
+export { circle8Config } from "./configs/circle8";
 export { heroConfig } from "./configs/hero";
 export { proActConfig } from "./configs/pro-act";
 export { rabobankConfig } from "./configs/rabobank";
@@ -52,6 +53,7 @@ export {
   extractJsonLdNodes,
   extractLabelBlock,
   pickJobPosting,
+  synthesizeContactsFromCircle8Page,
   synthesizeContactsFromHaysPage,
   synthesizeContactsFromProrailPage,
   synthesizeContactsFromRandstadPage,

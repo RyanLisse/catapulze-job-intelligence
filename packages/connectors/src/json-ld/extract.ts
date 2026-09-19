@@ -833,6 +833,48 @@ export const synthesizeContactsFromVolkerwesselsPage = (
   return null;
 };
 
+const CIRCLE8_CONTACT_CARD_PATTERN =
+  />\s*Contact\s*<\/span>\s*<a[^>]*href="\/people\/\d+-[^"]+"[^>]*>(?<naam>[^<]{1,120})<\/a>\s*<span[^>]*>(?<rol>[^<]{0,160})<\/span>/giu;
+
+/**
+ * werkenbij.circle8.nl (Teamtailor) detail pages publish a JobPosting JSON-LD
+ * node plus a "Contact" card: the card's `/people/<id>-<slug>` anchor carries
+ * the contact's naam and the trailing span their functietitel ("Corporate
+ * Recruiter – HR"). The vacancy's own closing line ("neem dan contact op met
+ * <naam> <titel> <telefoon>") carries the same person's direct number; it is
+ * read only when anchored on the card's naam — the digit-free gap before the
+ * number keeps it fail-closed, never free-mined. Returns contact-only
+ * synthesis; the explicit JobPosting stays the vacancy source.
+ */
+export const synthesizeContactsFromCircle8Page = (
+  html: string
+): DetailSynthesis | null => {
+  const contactpersonen: SourceContact[] = [];
+  CIRCLE8_CONTACT_CARD_PATTERN.lastIndex = 0;
+  let card = CIRCLE8_CONTACT_CARD_PATTERN.exec(html);
+  while (card) {
+    const naam = collapseWhitespace(
+      decodeHtmlEntities(card.groups?.naam ?? "")
+    );
+    const rol = collapseWhitespace(decodeHtmlEntities(card.groups?.rol ?? ""));
+    const telefoon = naam
+      ? new RegExp(
+          `contact op met\\s+${escapeRegExp(naam)}[^0-9+]{0,200}?(?<telefoon>\\+?\\d[\\d\\s()-]{7,20}\\d)`,
+          "iu"
+        ).exec(html)?.groups?.telefoon
+      : undefined;
+    mergeContact(contactpersonen, {
+      naam,
+      rol,
+      telefoon: telefoon?.trim() ?? null,
+    });
+    card = CIRCLE8_CONTACT_CARD_PATTERN.exec(html);
+  }
+  return contactpersonen.length > 0
+    ? { contactpersonen, jobPosting: null, labelBlock: {} }
+    : null;
+};
+
 /** Depth-counted slice of the inner HTML of every `<div>` whose opening tag
  * starts with `marker`. Mirrors needstaffing's `extractBalancedDiv` — kept
  * local because the json-ld family shares this file, not that client. */

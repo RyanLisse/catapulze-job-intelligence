@@ -274,6 +274,15 @@ const tariefFromBaseSalary = (
 const HOURS_TEXT_PATTERN =
   /(?<min>\d+(?:[.,]\d+)?)\s*(?:[-–]\s*(?<max>\d+(?:[.,]\d+)?))?\s*(?:u(?:ur)?|hours?|hrs?)\b/iu;
 
+/** Dutch weekly-hours bands joined by "en"/"tot" ("Je werkt tussen de 32 en
+ * 40 uur per week", Circle8): two hour counts with the connector directly
+ * between them are a range, so the band must land as "32–40" — never as its
+ * upper bound alone, which the dash pattern would otherwise return. Tried
+ * first; inputs without this shape fall through to the existing patterns
+ * unchanged. */
+const HOURS_NL_RANGE_PATTERN =
+  /(?<min>\d+(?:[.,]\d+)?)\s*(?:en|tot|t\/m)\s*(?<max>\d+(?:[.,]\d+)?)\s*(?:u(?:ur)?|hours?|hrs?)\b/iu;
+
 /** A whole-field bare number or numeric range: "40" (Stedin), "32-36"
  * (ProRail). Anchored to the whole string so a schedule like "9am-5pm" never
  * reads as weekly hours. */
@@ -292,7 +301,9 @@ const hoursTextToPerWeek = (text: string | null | undefined): string | null => {
     return null;
   }
   const match =
-    HOURS_TEXT_PATTERN.exec(text) ?? BARE_HOURS_PATTERN.exec(text.trim());
+    HOURS_NL_RANGE_PATTERN.exec(text) ??
+    HOURS_TEXT_PATTERN.exec(text) ??
+    BARE_HOURS_PATTERN.exec(text.trim());
   if (!match?.groups?.min) {
     return null;
   }
