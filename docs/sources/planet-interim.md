@@ -33,10 +33,11 @@ bleef 200). Productie-ingest blijft daarom geblokkeerd tot provider-toegang,
 allowlisting of een aantoonbaar werkende geautoriseerde egress/feed beschikbaar
 is; geen `PLANET_INTERIM_LIVE=1` activeren vóór die egress-gate.
 
-De bestaande `JsonLdClient.fetchListing()`-interface geeft geen
-`AbortSignal` door. De losse pager ondersteunt cancellation voor directe
-aanroepen en test dit, maar een connector-run kan een lopende Planet-paginareeks
-niet extern annuleren zonder een aparte interface-uitbreiding.
+`JsonLdClient.fetchListing(signal)` geeft het abortsignaal van de connector-run
+door aan de pager. Het signaal begrenst zowel de lopende HTTP-aanvraag en het
+lezen van de responsebody als het wachten tussen pagina's. De regressietests
+dekken annulering vóór de aanvraag, tijdens een lopende listing-fetch en
+tijdens de wachttijd; de gedeelde HTTP-timeout begrenst ook een vastlopende body.
 
 Er is geen sitemap (`/sitemap.xml`, `/sitemap_index.xml` en `/sitemap` → 404)
 en de gecontroleerde Atom/feed-routes (`/opdrachten/atom.xml`, `/atom.xml`,
