@@ -37,6 +37,15 @@ export type JsonLdDiscoveryConfig =
     }
   | {
       kind: "sitemap-index";
+      /**
+       * CTP-624: bound on discovery items per `discover()` page, so the run
+       * loop's per-page checkpoint holds real progress and an abort or
+       * durable retry resumes mid-corpus instead of re-enumerating it.
+       * Absent means the whole selected corpus is emitted in one page
+       * (`hasMore: false`), the pre-CTP-624 behaviour every other source
+       * keeps.
+       */
+      batchSize?: number;
       /** Matches child `<sitemap><loc>` URLs to follow; must expose a named `chunk` group with the numeric chunk suffix. */
       childPattern: RegExp;
       /** Keep only the N children with the highest numeric `chunk` (depth 1, no recursion). */

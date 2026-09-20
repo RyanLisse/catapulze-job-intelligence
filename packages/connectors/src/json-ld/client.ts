@@ -36,6 +36,23 @@ export interface JsonLdClient {
     signal?: AbortSignal
   ) => Promise<JsonLdDetailPayload>;
   fetchListing: (signal?: AbortSignal) => Promise<JsonLdDiscoveryUrl[]>;
+  /**
+   * CTP-624: `sitemap-index` sources only — the index document's selected
+   * child sitemap URLs in walk order (highest `chunk` first). Optional so
+   * wrapper clients that only override `fetchListing` stay valid; a config
+   * that sets `discovery.batchSize` requires it (the connector throws at
+   * construction when it is missing).
+   */
+  fetchSitemapIndex?: (signal?: AbortSignal) => Promise<string[]>;
+  /**
+   * CTP-624: `sitemap-index` sources only — one child sitemap's `<url>`
+   * entries in document order, before cross-child dedupe/excludes (the
+   * connector owns corpus shape so cursor offsets stay well-defined).
+   */
+  fetchSitemapChild?: (
+    url: string,
+    signal?: AbortSignal
+  ) => Promise<JsonLdDiscoveryUrl[]>;
 }
 
 export interface JsonLdClientOptions {
@@ -128,6 +145,51 @@ export const createJsonLdClient = (
     });
   };
 
+  /** `sitemap-index` only: narrows the discovery config or throws. */
+  const sitemapIndexDiscovery = () => {
+    const { discovery } = config;
+    if (discovery.kind !== "sitemap-index") {
+      throw new Error(`${config.slug} is not a sitemap-index source`);
+    }
+    return discovery;
+  };
+
+  /** The index document's selected child sitemap URLs in walk order. */
+  const fetchSitemapIndexChildren = async (
+    signal?: AbortSignal
+  ): Promise<string[]> => {
+    const discovery = sitemapIndexDiscovery();
+    let index: string;
+    if (liveEnabled) {
+      index = await fetchLiveText(discovery.url, signal);
+    } else {
+      const fixture = await loadConnectorFixture<string>(listingFixturePath);
+      index = fixture.payload;
+    }
+    return selectSitemapIndexChildren(
+      index,
+      discovery.childPattern,
+      discovery.newest
+    );
+  };
+
+  /** One child sitemap's `<url>` entries in document order. */
+  const fetchSitemapChildUrls = async (
+    childUrl: string,
+    signal?: AbortSignal
+  ): Promise<JsonLdDiscoveryUrl[]> => {
+    sitemapIndexDiscovery();
+    if (liveEnabled) {
+      return extractSitemapUrls(await fetchLiveText(childUrl, signal));
+    }
+    const fixturePath = sitemapFixtures[childUrl];
+    if (!fixturePath) {
+      throw new Error(`Missing ${config.slug} sitemap fixture for ${childUrl}`);
+    }
+    const fixture = await loadConnectorFixture<string>(fixturePath);
+    return extractSitemapUrls(fixture.payload);
+  };
+
   return {
     fetchDetail: async (url, signal) => {
       if (!liveEnabled) {
@@ -150,37 +212,10 @@ export const createJsonLdClient = (
     },
     fetchListing: async (signal) => {
       if (config.discovery.kind === "sitemap-index") {
-        let index: string;
-        if (liveEnabled) {
-          index = await fetchLiveText(config.discovery.url, signal);
-        } else {
-          const fixture =
-            await loadConnectorFixture<string>(listingFixturePath);
-          index = fixture.payload;
-        }
-        const childUrls = selectSitemapIndexChildren(
-          index,
-          config.discovery.childPattern,
-          config.discovery.newest
-        );
         const discovered: JsonLdDiscoveryUrl[] = [];
-        for (const childUrl of childUrls) {
-          let raw: string;
-          if (liveEnabled) {
-            // oxlint-disable-next-line no-await-in-loop -- child requests stay sequential
-            raw = await fetchLiveText(childUrl, signal);
-          } else {
-            const fixturePath = sitemapFixtures[childUrl];
-            if (!fixturePath) {
-              throw new Error(
-                `Missing ${config.slug} sitemap fixture for ${childUrl}`
-              );
-            }
-            // oxlint-disable-next-line no-await-in-loop -- preserve child order
-            const fixture = await loadConnectorFixture<string>(fixturePath);
-            raw = fixture.payload;
-          }
-          discovered.push(...extractSitemapUrls(raw));
+        for (const childUrl of await fetchSitemapIndexChildren(signal)) {
+          // oxlint-disable-next-line no-await-in-loop -- child requests stay sequential
+          discovered.push(...(await fetchSitemapChildUrls(childUrl, signal)));
         }
         return applyExcludes(dedupeUrls(discovered), config.excludePatterns);
       }
@@ -215,5 +250,7 @@ export const createJsonLdClient = (
         return await fetchLiveText(nextUrl.toString(), signal);
       });
     },
+    fetchSitemapChild: fetchSitemapChildUrls,
+    fetchSitemapIndex: fetchSitemapIndexChildren,
   };
 };
