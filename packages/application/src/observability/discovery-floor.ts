@@ -16,14 +16,24 @@ import type { RunBaselineSample } from "./silence";
  * drop to exactly zero against a non-zero prior is the shape a broken selector,
  * a rolled sitemap chunk or an unhandled `<sitemapindex>` produces.
  *
- * Known limitation, deliberately accepted. A bron whose last vacancy genuinely
- * expires reads identically here and will trip the guard, so absent data does
- * NOT stay absent in this one case — it surfaces as a failed run an operator
- * has to judge. `guardEmptyListing` in `bronnen/execute.ts` already took the
- * same position for the same reason: zero items is far more often a regression
- * than an emptied bron, and nothing available at this layer separates them.
- * Erring toward a false alarm is the cheaper mistake; a silently hollow source
- * is the one nobody notices.
+ * Two gates keep a single zero from failing a production poll. A slice-A bron
+ * polls every 15 minutes, so a rule that armed on one in-window non-zero prior
+ * turned one empty page into roughly 96 failed runs a day until that prior aged
+ * out of the window, and the alert it raised needed a manual ack even after the
+ * bron recovered on the next tick.
+ *
+ * - `DISCOVERY_FLOOR_ZERO_RUN_COUNT` makes the collapse prove it persists.
+ * - `DISCOVERY_FLOOR_MIN_PEAK_FOUND` makes the bron prove it carried volume
+ *   worth alerting on in the first place.
+ *
+ * Known limitation, deliberately accepted. A bron whose last vacancies genuinely
+ * expire and stay expired still trips the guard once the zero run is long
+ * enough, so absent data does NOT stay absent in this one case — it surfaces as
+ * a failed run an operator has to judge. `guardEmptyListing` in
+ * `bronnen/execute.ts` already took the same position for the same reason: zero
+ * items is far more often a regression than an emptied bron, and nothing
+ * available at this layer separates them. Erring toward a false alarm is the
+ * cheaper mistake; a silently hollow source is the one nobody notices.
  */
 
 export const DISCOVERY_FLOOR_WINDOW_DAYS = 7;
@@ -37,6 +47,53 @@ export const DISCOVERY_FLOOR_ALERT_KIND = "bron.discovery_floor" as const;
  * a connector that actually threw. This code can.
  */
 export const DISCOVERY_FLOOR_BREACH_CODE = "DISCOVERY_FLOOR_BREACHED" as const;
+
+/**
+ * Zero-found polls in a row, counting the run under evaluation, before the
+ * floor fails a run.
+ *
+ * Three, matching `ZERO_ACTIVITY_RUN_COUNT` in `bron-health-thresholds.ts`,
+ * which already answers the same question ("how many trailing runs before a
+ * quiet source counts as broken?") for the brondashboard. Keeping one number
+ * for one judgment stops the dashboard badge and the poller disagreeing about
+ * when a source went dark.
+ *
+ * At the 15-minute slice-A cadence three polls span roughly half an hour, which
+ * is the point of the number rather than a side effect. A rate-limited source
+ * answering HTTP 200 with an empty list recovers on the next tick and never
+ * reaches three, while a broken selector never recovers and is still caught
+ * inside the hour. One is a false page, the other costs 30 minutes of
+ * detection latency, and the false page is the more expensive mistake because
+ * only a human can clear it.
+ *
+ * Counting stays possible without new persistence because a run below the
+ * threshold is left `succeeded`, so `querySilenceBaselineSamples` — which
+ * selects only succeeded polls — keeps returning it. Runs at or past the
+ * threshold are flipped to `failed` and drop out, which is why a bron that
+ * stays collapsed keeps seeing exactly `DISCOVERY_FLOOR_ZERO_RUN_COUNT - 1`
+ * zero priors and keeps breaching.
+ */
+export const DISCOVERY_FLOOR_ZERO_RUN_COUNT = 3;
+
+/**
+ * Peak in-window `found` a bron must have reached before the floor can arm.
+ *
+ * The registry carries single-employer boards and interim brokers that list a
+ * handful of assignments at a time. For those, zero is an ordinary Friday, not
+ * a regression, and the guard has no way to tell the two apart. Five is the
+ * smallest peak at which a drop to zero means several listings vanished at
+ * once rather than one contract closing.
+ *
+ * The peak, not the mean or median, because the zero-run gate now admits the
+ * leading zeros themselves into the baseline. A statistic those zeros drag
+ * down would make the guard progressively harder to arm the longer a genuine
+ * outage lasted, which is backwards.
+ *
+ * A bron below this peak is uncovered by design. Erring toward silence is the
+ * right trade only here, where the signal genuinely cannot separate a closed
+ * assignment from a broken selector.
+ */
+export const DISCOVERY_FLOOR_MIN_PEAK_FOUND = 5;
 
 /**
  * Reuses the existing `DISCOVER_FAILED` envelope rather than minting a new
@@ -56,6 +113,7 @@ export const DISCOVERY_FLOOR_FAILURE = {
 export interface DiscoveryFloorEvidence {
   readonly baselineSamples: number;
   readonly baselineWindowDays: number;
+  readonly consecutiveZeroRuns: number;
   readonly found: number;
   readonly lastNonZeroAt: string;
   readonly lastNonZeroFound: number;
@@ -82,19 +140,29 @@ const withinWindow = (
   return detectedAt.getTime() - sample.at.getTime() <= windowMs;
 };
 
-const newestNonZero = (
+const newestFirst = (
   samples: readonly RunBaselineSample[]
-): RunBaselineSample | null => {
-  let newest: RunBaselineSample | null = null;
+): RunBaselineSample[] =>
+  samples.toSorted((left, right) => right.at.getTime() - left.at.getTime());
+
+/** Zero-found polls at the head of a newest-first baseline. */
+const leadingZeroRuns = (samples: readonly RunBaselineSample[]): number => {
+  let count = 0;
   for (const sample of samples) {
-    const isNonZero = sample.found > 0;
-    const isNewer =
-      newest === null || sample.at.getTime() > newest.at.getTime();
-    if (isNonZero && isNewer) {
-      newest = sample;
+    if (sample.found > 0) {
+      return count;
     }
+    count += 1;
   }
-  return newest;
+  return count;
+};
+
+const peakFound = (samples: readonly RunBaselineSample[]): number => {
+  let peak = 0;
+  for (const sample of samples) {
+    peak = Math.max(peak, sample.found);
+  }
+  return peak;
 };
 
 export const evaluateDiscoveryFloor = (
@@ -105,10 +173,12 @@ export const evaluateDiscoveryFloor = (
   }
 
   const windowDays = input.baselineWindowDays ?? DISCOVERY_FLOOR_WINDOW_DAYS;
-  const samples = input.baseline.filter((sample) =>
-    withinWindow(sample, input.detectedAt, windowDays)
+  const samples = newestFirst(
+    input.baseline.filter((sample) =>
+      withinWindow(sample, input.detectedAt, windowDays)
+    )
   );
-  const lastNonZero = newestNonZero(samples);
+  const lastNonZero = samples.find((sample) => sample.found > 0) ?? null;
 
   // A bron that has never found anything in-window has no floor to breach:
   // a brand-new "Nieuw" bron and a genuinely empty source read the same here.
@@ -116,10 +186,20 @@ export const evaluateDiscoveryFloor = (
     return { outcome: "no-history" };
   }
 
+  if (peakFound(samples) < DISCOVERY_FLOOR_MIN_PEAK_FOUND) {
+    return { outcome: "ok" };
+  }
+
+  const consecutiveZeroRuns = leadingZeroRuns(samples) + 1;
+  if (consecutiveZeroRuns < DISCOVERY_FLOOR_ZERO_RUN_COUNT) {
+    return { outcome: "ok" };
+  }
+
   return {
     evidence: {
       baselineSamples: samples.length,
       baselineWindowDays: windowDays,
+      consecutiveZeroRuns,
       found: input.metrics.found,
       lastNonZeroAt: lastNonZero.at.toISOString(),
       lastNonZeroFound: lastNonZero.found,
@@ -135,4 +215,4 @@ export const buildDiscoveryFloorMessage = (
   bronNaam: string,
   evidence: DiscoveryFloorEvidence
 ): string =>
-  `Bron ${bronNaam} vond 0 records terwijl de laatste succesvolle poll op ${evidence.lastNonZeroAt} er ${evidence.lastNonZeroFound} vond; discovery is stil gevallen zonder foutmelding.`;
+  `Bron ${bronNaam} vond 0 records in ${evidence.consecutiveZeroRuns} opeenvolgende polls terwijl de laatste succesvolle poll op ${evidence.lastNonZeroAt} er ${evidence.lastNonZeroFound} vond; discovery is stil gevallen zonder foutmelding.`;

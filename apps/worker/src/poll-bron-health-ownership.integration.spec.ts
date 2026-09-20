@@ -14,8 +14,11 @@ const testDatabaseUrl =
   process.env.DATABASE_TEST_URL ??
   "postgresql://ji_migrator:ji_migrator_local@127.0.0.1:5432/ji_test";
 process.env.DATABASE_URL ??= testDatabaseUrl;
-const { createPollBronRuntime, enforceDiscoveryFloor, handleSilenceAndHealth } =
-  await import("./poll-bron-run");
+const {
+  createPollBronRuntime,
+  handleSilenceAndHealth,
+  recordDiscoveryFloorBreach,
+} = await import("./poll-bron-run");
 const migrationsFolder = path.join(
   import.meta.dir,
   "../../../packages/db/src/migrations"
@@ -115,14 +118,23 @@ describe
 
       runtime = createPollBronRuntime(testDatabaseUrl);
       runtime.loadBaseline = () =>
-        Promise.resolve(
-          Array.from({ length: 7 }, (_, index) => ({
+        Promise.resolve([
+          // Two zero polls at the head: the floor only arms on a third
+          // consecutive zero, so a healthy baseline alone would return before
+          // reaching the ownership gate this spec exists to exercise.
+          ...Array.from({ length: 2 }, (_, index) => ({
+            at: new Date(Date.now() - (index + 1) * 15 * 60_000),
+            changed: 0,
+            found: 0,
+            new: 0,
+          })),
+          ...Array.from({ length: 5 }, (_, index) => ({
             at: new Date(Date.now() - (index + 1) * 86_400_000),
             changed: 4,
             found: 40,
             new: 8,
-          }))
-        );
+          })),
+        ]);
     });
 
     afterAll(async () => {
@@ -174,7 +186,7 @@ describe
         handleSilenceAndHealth(staleRun, runtime, "poll")
       ).rejects.toBeInstanceOf(RunOwnershipLostError);
       await expect(
-        enforceDiscoveryFloor(
+        recordDiscoveryFloorBreach(
           { ...staleRun, metrics: { ...staleRun.metrics, found: 0 } },
           runtime,
           "poll"
@@ -192,7 +204,7 @@ describe
       // S2 owns the source but is still running: the terminal-state guard must
       // roll back its preceding health update when it cannot mark this run failed.
       await expect(
-        enforceDiscoveryFloor(
+        recordDiscoveryFloorBreach(
           {
             ...staleRun,
             fenceToken: 2,
