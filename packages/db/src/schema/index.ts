@@ -31,6 +31,7 @@ export {
   pollerRuntime,
   dedupGroep,
   dedupGroepRelations,
+  durableJob,
   outboxEvent,
   exportEffect,
   exportAttempt,

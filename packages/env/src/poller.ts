@@ -120,6 +120,20 @@ export const pollerEnvEffectSchemas = {
   ),
   POLLER_DATABASE_URL: directDatabaseUrlEffectSchema("POLLER_DATABASE_URL"),
   /**
+   * CTP-622: comma-separated source slugs dispatched through
+   * `curated.durable_job` (the PersistedQueue path) instead of the inline
+   * poll run. Unset/empty = everything inline (rollback). The worker
+   * validates slugs against the source registry and fails closed on a typo.
+   */
+  POLLER_DURABLE_BRONNEN: Schema.optional(
+    Schema.String.check(
+      Schema.isPattern(/^\s*[a-z0-9-]+(?:\s*,\s*[a-z0-9-]+)*\s*$/u, {
+        message:
+          "POLLER_DURABLE_BRONNEN must be a comma-separated list of source slugs",
+      })
+    )
+  ),
+  /**
    * Rows deleted per cycle at most, so a prune never holds the outbox write
    * lock long enough to stall the drain's own inserts (CTP-404).
    */
@@ -191,6 +205,9 @@ const createPollerEnv = () =>
       ),
       POLLER_DATABASE_URL: toEnvSchema(
         pollerEnvEffectSchemas.POLLER_DATABASE_URL
+      ),
+      POLLER_DURABLE_BRONNEN: toEnvSchema(
+        pollerEnvEffectSchemas.POLLER_DURABLE_BRONNEN
       ),
       POLLER_OUTBOX_PRUNE_BATCH: toEnvSchema(
         pollerEnvEffectSchemas.POLLER_OUTBOX_PRUNE_BATCH

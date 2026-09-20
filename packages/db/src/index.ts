@@ -289,3 +289,9 @@ export {
   type AdvisoryLockHandle,
   type WaitForAdvisoryLockOptions,
 } from "./process-lock";
+export {
+  layerPostgresPersistedQueueStore,
+  makePostgresPersistedQueueStore,
+  type PersistedQueueStorePostgres,
+  type PersistedQueueStorePostgresOptions,
+} from "./persisted-queue-store";
