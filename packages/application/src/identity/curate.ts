@@ -18,7 +18,10 @@ import {
 } from "../normalise";
 import { classifyContractAndWork } from "../normalise/classify-contract-work";
 import { mergeContactpersoonPipelineVelden } from "../normalise/contactpersonen";
-import { resolveCanonicalContractType } from "../normalise/contract-type";
+import {
+  resolveCanonicalContractType,
+  toCanonicalContractType,
+} from "../normalise/contract-type";
 import type {
   AanvraagSnapshot,
   BronSpecifiekJson,
@@ -290,14 +293,20 @@ const commercialBronSpecifiek = (
     draft.titel.value,
     draft.beschrijving.value
   );
+  const directContractType = readExistingText(
+    base,
+    "contracttype",
+    "contract_type"
+  );
+  const employmentType = readExistingText(base, "employment_type");
+  const hasEmploymentContractType =
+    employmentType
+      ?.split(",")
+      .some((token) => toCanonicalContractType(token) !== null) ?? false;
   if (
     classified.contracttype &&
-    readExistingText(
-      base,
-      "contracttype",
-      "contract_type",
-      "employment_type"
-    ) === null
+    directContractType === null &&
+    !hasEmploymentContractType
   ) {
     base.contracttype = classified.contracttype;
   }

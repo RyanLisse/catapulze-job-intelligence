@@ -320,6 +320,44 @@ describe("curateObservation commercial columns and coalesce tombstones", () => {
     expect(bronSpecifiek.contract_type).toBe("FULL_TIME");
   });
 
+  it("falls back to prose classification when employment_type only describes hours", async () => {
+    const store = new InMemoryCurateStore();
+    const base = observation("COL-CONTRACT-HOURS", "hash-contract-hours");
+    await curateObservation(store, {
+      ...base,
+      draft: {
+        ...base.draft,
+        bronSpecifiek: { provenance, value: { employment_type: "FULL_TIME" } },
+        titel: { provenance, value: "Freelance Java developer" },
+      },
+    });
+    const [aanvraag] = store.aanvragen;
+    expect(aanvraag?.contracttype).toBe("freelance");
+    expect(aanvraag?.bronSpecifiek).toMatchObject({
+      contracttype: "freelance",
+      employment_type: "FULL_TIME",
+    });
+  });
+
+  it("does not replace conflicting explicit employment contract forms with prose classification", async () => {
+    const store = new InMemoryCurateStore();
+    const base = observation("COL-CONTRACT-CONFLICT", "hash-contract-conflict");
+    await curateObservation(store, {
+      ...base,
+      draft: {
+        ...base.draft,
+        bronSpecifiek: {
+          provenance,
+          value: { employment_type: "TEMPORARY, CONTRACTOR" },
+        },
+        titel: { provenance, value: "Freelance Java developer" },
+      },
+    });
+    const [aanvraag] = store.aanvragen;
+    expect(aanvraag?.contracttype).toBeNull();
+    expect(aanvraag?.bronSpecifiek).not.toHaveProperty("contracttype");
+  });
+
   it("preserves commercial fields when a sparse re-scrape sends UNKNOWN", async () => {
     const store = new InMemoryCurateStore();
     const rich = observation("COL-2", "hash-rich");
