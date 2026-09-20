@@ -47,13 +47,23 @@ const ENTITY_REPLACEMENTS: readonly (readonly [RegExp, string])[] = [
   [/&hellip;/giu, "…"],
 ];
 
+const REPLACEMENT_CHARACTER = "�";
+
+/** Numeric entities in sloppy live markup can name a code point outside
+ * Unicode ("&#99999999;", "&#x110000;"); `fromCodePoint` throws there, so
+ * out-of-range values decay to U+FFFD instead of crashing extraction. */
+const codePointOrReplacement = (codePoint: number): string =>
+  codePoint >= 0 && codePoint <= 1_114_111
+    ? String.fromCodePoint(codePoint)
+    : REPLACEMENT_CHARACTER;
+
 const decodeEntities = (text: string): string => {
   let value = text
     .replaceAll(/&#x(?<code>[0-9a-f]+);/giu, (_match, code: string) =>
-      String.fromCodePoint(Number.parseInt(code, 16))
+      codePointOrReplacement(Number.parseInt(code, 16))
     )
     .replaceAll(/&#(?<code>\d+);/gu, (_match, code: string) =>
-      String.fromCodePoint(Number(code))
+      codePointOrReplacement(Number(code))
     );
   for (const [pattern, replacement] of ENTITY_REPLACEMENTS) {
     value = value.replaceAll(pattern, replacement);

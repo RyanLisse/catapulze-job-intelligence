@@ -124,12 +124,14 @@ type FetchImpl = (url: string) => Promise<{
   text: () => Promise<string>;
 }>;
 
-const defaultFetch: FetchImpl = (url) =>
-  fetch(url, {
-    headers: { "User-Agent": PROBE_USER_AGENT },
-    redirect: "follow",
-    signal: AbortSignal.timeout(DEFAULT_TIMEOUT_MS),
-  });
+const defaultFetch =
+  (timeoutMs: number): FetchImpl =>
+  (url) =>
+    fetch(url, {
+      headers: { "User-Agent": PROBE_USER_AGENT },
+      redirect: "follow",
+      signal: AbortSignal.timeout(timeoutMs),
+    });
 
 const probeUrl = async (
   url: string,
@@ -147,6 +149,64 @@ const probeUrl = async (
   } catch {
     return { body: null, probe: { finalUrl: null, status: null } };
   }
+};
+
+/** Probes one planned entry within the shared `probedSoFar` budget and
+ * reports how many probes it spent, so the caller keeps the running count. */
+const probeVerificationEntry = async (input: {
+  readonly delayMs: number;
+  readonly entry: StarappleBronVerificationEntry;
+  readonly fetchImpl: FetchImpl;
+  readonly maxProbes: number;
+  readonly pages?: boolean;
+  readonly probe?: boolean;
+  readonly probedSoFar: number;
+  readonly sleepImpl: (ms: number) => Promise<void>;
+}): Promise<{
+  readonly probesUsed: number;
+  readonly result: StarappleBronVerificationResult;
+}> => {
+  const { entry } = input;
+  if (!input.probe) {
+    return { probesUsed: 0, result: { ...entry } };
+  }
+  let probesUsed = 0;
+  const budgetLeft = (): boolean =>
+    input.probedSoFar + probesUsed < input.maxProbes;
+  let previousProbe: StarappleBronProbeResult | undefined;
+  let bronProbe: StarappleBronProbeResult | undefined;
+  let pageFacts: StarapplePageFacts | undefined;
+  if (
+    entry.previousUrl.startsWith("http") &&
+    entry.previousUrl !== entry.bronUrl &&
+    budgetLeft()
+  ) {
+    probesUsed += 1;
+    const probedPrevious = await probeUrl(entry.previousUrl, input.fetchImpl);
+    previousProbe = probedPrevious.probe;
+    await input.sleepImpl(input.delayMs);
+  }
+  if (entry.bronUrl && budgetLeft()) {
+    probesUsed += 1;
+    const probedBron = await probeUrl(entry.bronUrl, input.fetchImpl);
+    bronProbe = probedBron.probe;
+    if (input.pages && probedBron.body !== null) {
+      pageFacts = extractStarapplePageFacts(probedBron.body);
+    }
+    await input.sleepImpl(input.delayMs);
+  }
+  const result = { ...entry };
+  const withPreviousProbe =
+    previousProbe === undefined ? result : { ...result, previousProbe };
+  const withBronProbe =
+    bronProbe === undefined
+      ? withPreviousProbe
+      : { ...withPreviousProbe, bronProbe };
+  return {
+    probesUsed,
+    result:
+      pageFacts === undefined ? withBronProbe : { ...withBronProbe, pageFacts },
+  };
 };
 
 /**
@@ -167,12 +227,14 @@ export const verifyStarappleBronUrls = async (input: {
   readonly sitemapSource?: "file" | "live";
   readonly sitemapUrl?: string;
   readonly sleepImpl?: (ms: number) => Promise<void>;
+  readonly timeoutMs?: number;
 }): Promise<StarappleBronVerificationReceipt> => {
   const plan = planStarappleBronVerification({
     jobs: input.jobs,
     liveIndex: input.liveIndex,
   });
-  const fetchImpl = input.fetchImpl ?? defaultFetch;
+  const fetchImpl =
+    input.fetchImpl ?? defaultFetch(input.timeoutMs ?? DEFAULT_TIMEOUT_MS);
   const sleepImpl = input.sleepImpl ?? sleep;
   const maxProbes = input.maxProbes ?? DEFAULT_MAX_PROBES;
   const delayMs = input.delayMs ?? DEFAULT_DELAY_MS;
@@ -180,43 +242,19 @@ export const verifyStarappleBronUrls = async (input: {
   let probed = 0;
   const results: StarappleBronVerificationResult[] = [];
   for (const entry of plan) {
-    let previousProbe: StarappleBronProbeResult | undefined;
-    let bronProbe: StarappleBronProbeResult | undefined;
-    let pageFacts: StarapplePageFacts | undefined;
-    if (
-      input.probe &&
-      entry.previousUrl.startsWith("http") &&
-      entry.previousUrl !== entry.bronUrl &&
-      probed < maxProbes
-    ) {
-      probed += 1;
-      // oxlint-disable-next-line no-await-in-loop -- polite sequential probing is the contract
-      const probedPrevious = await probeUrl(entry.previousUrl, fetchImpl);
-      previousProbe = probedPrevious.probe;
-      // oxlint-disable-next-line no-await-in-loop -- bounded delay between sequential requests
-      await sleepImpl(delayMs);
-    }
-    if (input.probe && entry.bronUrl && probed < maxProbes) {
-      probed += 1;
-      // oxlint-disable-next-line no-await-in-loop -- polite sequential probing is the contract
-      const probedBron = await probeUrl(entry.bronUrl, fetchImpl);
-      bronProbe = probedBron.probe;
-      if (input.pages && probedBron.body !== null) {
-        pageFacts = extractStarapplePageFacts(probedBron.body);
-      }
-      // oxlint-disable-next-line no-await-in-loop -- bounded delay between sequential requests
-      await sleepImpl(delayMs);
-    }
-    const result = { ...entry };
-    const withPreviousProbe =
-      previousProbe === undefined ? result : { ...result, previousProbe };
-    const withBronProbe =
-      bronProbe === undefined
-        ? withPreviousProbe
-        : { ...withPreviousProbe, bronProbe };
-    results.push(
-      pageFacts === undefined ? withBronProbe : { ...withBronProbe, pageFacts }
-    );
+    // oxlint-disable-next-line no-await-in-loop -- polite sequential probing is the contract
+    const { probesUsed, result } = await probeVerificationEntry({
+      delayMs,
+      entry,
+      fetchImpl,
+      maxProbes,
+      pages: input.pages,
+      probe: input.probe,
+      probedSoFar: probed,
+      sleepImpl,
+    });
+    probed += probesUsed;
+    results.push(result);
   }
 
   return {
@@ -309,10 +347,17 @@ if (import.meta.main) {
       pages: { type: "boolean" },
       probe: { type: "boolean" },
       sitemap: { type: "string" },
+      "timeout-ms": { type: "string" },
     },
   });
   if (!values.jobs) {
     throw new Error("--jobs <file.json> is required");
+  }
+  const timeoutMs = values["timeout-ms"]
+    ? Number(values["timeout-ms"])
+    : DEFAULT_TIMEOUT_MS;
+  if (!(Number.isFinite(timeoutMs) && timeoutMs > 0)) {
+    throw new Error("--timeout-ms must be a positive number");
   }
   const jobs = parseJobsFile(await readFile(values.jobs, "utf-8"));
 
@@ -327,7 +372,7 @@ if (import.meta.main) {
     sitemapUrl = STARAPPLE_VACANCY_SITEMAP_URL;
     const response = await fetch(sitemapUrl, {
       headers: { "User-Agent": PROBE_USER_AGENT },
-      signal: AbortSignal.timeout(DEFAULT_TIMEOUT_MS),
+      signal: AbortSignal.timeout(timeoutMs),
     });
     if (!response.ok) {
       throw new Error(`${sitemapUrl} answered HTTP ${response.status}`);
@@ -345,6 +390,7 @@ if (import.meta.main) {
     probe: values.probe,
     sitemapSource,
     sitemapUrl,
+    timeoutMs,
   });
   const json = `${JSON.stringify(receipt, null, 2)}\n`;
   if (values.out) {

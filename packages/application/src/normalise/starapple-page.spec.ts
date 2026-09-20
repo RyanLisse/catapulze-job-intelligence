@@ -122,6 +122,16 @@ describe("extractStarapplePageFacts edge cases", () => {
     expect(facts.tarief?.eenheid).toBe(UNKNOWN);
   });
 
+  it("decays out-of-range numeric entities instead of throwing", () => {
+    // Sloppy live markup can name code points outside Unicode; the decoder
+    // must not let `String.fromCodePoint`'s RangeError kill extraction.
+    const facts = extractStarapplePageFacts(
+      '<div class="vacancy-meta"><span>40 uur</span></div><p>Salaris &#99999999; en &#x110000; marktconform.</p>'
+    );
+    expect(facts.urenPerWeek).toBe("40");
+    expect(facts.tarief).toBeNull();
+  });
+
   it("returns nulls on markup without the vacancy blocks", () => {
     const facts = extractStarapplePageFacts("<html><body>leeg</body></html>");
     expect(facts).toEqual({
