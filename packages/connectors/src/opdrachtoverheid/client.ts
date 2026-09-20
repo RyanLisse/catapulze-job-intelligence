@@ -291,6 +291,9 @@ export const createOpdrachtoverheidClient = (
       }
       return await withHttpTimeout(async (signal) => {
         const response = await fetchImpl(detailUrl, { signal });
+        if (response.status === 404 || response.status === 410) {
+          return { jobPosting: null, tender: null };
+        }
         const html = await readBoundedText(response, "detail");
         return parseOpdrachtoverheidDetailPage(html, detailUrl);
       }, timeoutMs);

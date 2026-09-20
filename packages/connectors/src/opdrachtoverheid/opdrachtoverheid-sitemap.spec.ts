@@ -391,6 +391,24 @@ describe("Opdrachtoverheid sitemap live client", () => {
     }
   });
 
+  it("treats hard-gone detail pages as delisted in both clients", async () => {
+    for (const status of [404, 410]) {
+      const fetchImpl = Object.assign(
+        async () => new Response("gone", { status }),
+        { preconnect: () => {} }
+      );
+      for (const client of [
+        createOpdrachtoverheidClient({ fetchImpl, liveEnabled: true }),
+        createOpdrachtoverheidEffectClient({ fetchImpl, liveEnabled: true }),
+      ]) {
+        expect(await client.fetchDetail(entry("gone", "GONE"))).toEqual({
+          jobPosting: null,
+          tender: null,
+        });
+      }
+    }
+  });
+
   it("rejects a non-OK sitemap response so the connector can fall back", async () => {
     const fetchImpl = Object.assign(
       async () => new Response("nope", { status: 503 }),
