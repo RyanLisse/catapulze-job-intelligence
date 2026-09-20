@@ -87,6 +87,7 @@ describe("keyCategory", () => {
       "eind_datum",
       "eindDatum",
       "employment_type",
+      "werkvorm",
     ]) {
       expect(keyCategory(key)).toBe("displayed");
     }

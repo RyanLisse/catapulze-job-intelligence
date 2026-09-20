@@ -570,6 +570,11 @@ const mergeBronSpecifiek = (
   return merged as BronSpecifiekJson;
 };
 
+/**
+ * bronSpecifiek keys `toStoredFields` reads into curated columns, per column,
+ * in precedence order. `scripts/source-to-ui-gap.ts` derives its "displayed"
+ * set from this constant; keep it the single source of truth for that seam.
+ */
 export const CURATED_COLUMN_BRON_KEYS = {
   contracttype: ["contracttype", "contract_type", "employment_type"],
   eindDatum: ["eind_datum", "eindDatum"],
@@ -580,6 +585,7 @@ export const CURATED_COLUMN_BRON_KEYS = {
     "json_ld_date_posted",
   ],
   urenPerWeek: ["uren_per_week", "uren_per_week_raw"],
+  werkvorm: ["werkvorm"],
 } as const satisfies Record<string, readonly string[]>;
 
 const toStoredFields = (
@@ -632,7 +638,7 @@ const toStoredFields = (
       ...CURATED_COLUMN_BRON_KEYS.urenPerWeek
     ),
     versie: 1,
-    werkvorm: readBronText(bronRecord, "werkvorm"),
+    werkvorm: readBronText(bronRecord, ...CURATED_COLUMN_BRON_KEYS.werkvorm),
   };
 };
 
