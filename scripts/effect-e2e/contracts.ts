@@ -110,7 +110,6 @@ const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
 const REQUIRED_EFFECT_FLAGS = [
   "JI_EFFECT_DB",
-  "JI_EFFECT_SEARCH",
   "JI_EFFECT_SERVER",
   "JI_EFFECT_WORKER",
   "PERF_EFFECT_SPANS",

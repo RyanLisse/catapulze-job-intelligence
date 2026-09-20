@@ -15,7 +15,6 @@ prior/native path.
 
 | Surface | Env key | What flips ON | Native path when OFF |
 | --- | --- | --- | --- |
-| search | `JI_EFFECT_SEARCH` | `ManticoreSearchEngine.fromUrl` → `FetchManticoreEffectClient` | `FetchManticoreClient` |
 | db | `JI_EFFECT_DB` | Slice-8 store wrappers via `applyDbStoreEffectCanary` | Native `Postgres*Store` / readers |
 | server | `JI_EFFECT_SERVER` | REST/MCP invokers → Effect transport boundary | Native Promise invokers |
 | worker | `JI_EFFECT_WORKER` | `drain-outbox` task body → Effect boundary | Native `runDrainOutbox` |
@@ -24,9 +23,13 @@ The `poll-bron` half of this row is gone: polling moved to the on-box poller
 ([onbox-poller.md](./onbox-poller.md)), which has no Effect boundary.
 | perf | `PERF_EFFECT_SPANS` (alias `JI_EFFECT_PERF`) | `@ji/performance/effect` spans | Native critical-path sessions only |
 
+Search has no row: since CTP-627 `ManticoreSearchEngine.fromUrl` always uses
+`FetchManticoreEffectClient`, there is no flag and no native fallback. Readiness
+reports `searchTransport: "effect"` as the runtime receipt.
+
 Shared SoT: `@ji/env/effect-flags` (`isEffectSurfaceEnabled`, `readEffectSurfaceFlags`).
 
-Server schema also accepts `JI_EFFECT_SEARCH|DB|SERVER` and `PERF_EFFECT_SPANS` as
+Server schema also accepts `JI_EFFECT_DB|SERVER` and `PERF_EFFECT_SPANS` as
 optional `0|1` (default `0`) via `@ji/env/server`.
 
 ## Canary order (recommended)
@@ -34,10 +37,9 @@ optional `0|1` (default `0`) via `@ji/env/server`.
 Enable **one** Coolify env at a time; redeploy; evidence; only then consider the next.
 
 1. `PERF_EFFECT_SPANS=1` — observability only (lowest blast radius)
-2. `JI_EFFECT_SEARCH=1` — Manticore HTTP client
-3. `JI_EFFECT_DB=1` — store Promise boundaries on Slice-8 surfaces
-4. `JI_EFFECT_SERVER=1` — REST/MCP transport boundary
-5. `JI_EFFECT_WORKER=1` — Trigger task-body boundary (keep Trigger `maxAttempts`)
+2. `JI_EFFECT_DB=1` — store Promise boundaries on Slice-8 surfaces
+3. `JI_EFFECT_SERVER=1` — REST/MCP transport boundary
+4. `JI_EFFECT_WORKER=1` — Trigger task-body boundary (keep Trigger `maxAttempts`)
 
 Do **not** flip multiple surfaces in one deploy during the first canary window.
 

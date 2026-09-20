@@ -6,10 +6,10 @@ import {
   buildManticoreCountRequest,
   buildManticoreSearchRequest,
   buildManticoreSort,
-  FetchManticoreClient,
   parseManticoreSearchResponse,
 } from "./client";
 import type { ManticoreHttpClient } from "./client";
+import { FetchManticoreEffectClient } from "./client-effect";
 import {
   ManticoreSearchEngine,
   projectionHash,
@@ -375,7 +375,7 @@ describe("parseManticoreSearchResponse", () => {
   });
 });
 
-describe("FetchManticoreClient error responses", () => {
+describe("FetchManticoreEffectClient error responses", () => {
   const requestBody = buildManticoreSearchRequest(
     SEARCH_INDEX_NAME,
     null,
@@ -396,7 +396,7 @@ describe("FetchManticoreClient error responses", () => {
     );
 
     await expect(
-      new FetchManticoreClient("http://manticore.test").request(
+      new FetchManticoreEffectClient("http://manticore.test").request(
         "/search",
         requestBody
       )
@@ -413,7 +413,7 @@ describe("FetchManticoreClient error responses", () => {
     );
 
     await expect(
-      new FetchManticoreClient("http://manticore.test").request(
+      new FetchManticoreEffectClient("http://manticore.test").request(
         "/search",
         requestBody
       )

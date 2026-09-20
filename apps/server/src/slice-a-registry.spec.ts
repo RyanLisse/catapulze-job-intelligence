@@ -2,6 +2,7 @@ import { describe, expect, it } from "bun:test";
 
 import {
   createSliceARegistry,
+  MemorySavedSearchStore,
   permissionsForRole,
 } from "@ji/application/registry";
 import type { SliceAStores } from "@ji/application/registry";
@@ -21,7 +22,6 @@ const {
   PostgresBronHealthStore,
   PostgresExternalReceiptStore,
   PostgresMarkeringStore,
-  PostgresSavedSearchStore,
 } = await import("@ji/db");
 
 const baseInput = {
@@ -118,9 +118,18 @@ describe("createProductionSliceADeps", () => {
     try {
       expect(deps.stores.audit).toBeInstanceOf(PostgresAuditStore);
       expect(deps.stores.markeringen).toBeInstanceOf(PostgresMarkeringStore);
-      expect(deps.stores.savedSearches).toBeInstanceOf(
-        PostgresSavedSearchStore
+      // CTP-627: saved searches are the Postgres store behind the Effect
+      // boundary, so the value is a wrapper object, never the memory store.
+      expect(deps.stores.savedSearches).not.toBeInstanceOf(
+        MemorySavedSearchStore
       );
+      expect(Object.keys(deps.stores.savedSearches).toSorted()).toEqual([
+        "createWithAudit",
+        "getById",
+        "list",
+        "removeWithAudit",
+        "updateWithAudit",
+      ]);
     } finally {
       await deps.close();
     }

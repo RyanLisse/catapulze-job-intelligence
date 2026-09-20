@@ -1,20 +1,17 @@
 /**
  * Per-surface EffectTS production enablement flags (CTP-479 / Slice 14).
  *
- * All surfaces default OFF. Catapulze enables **one surface at a time** via Coolify
+ * All surfaces default OFF. Search has no flag since CTP-627: the Effect
+ * Manticore client is its only transport.
+ *
+ * Remaining surfaces default OFF. Catapulze enables **one surface at a time** via Coolify
  * env (`=1`). Rollback = unset / any value other than exact `"1"` → prior/native path.
  *
  * These helpers read `process.env` directly (no createEnv boot) so search/db/worker
  * composition sites can share the same names without importing the full server schema.
  */
 
-export const EFFECT_SURFACES = [
-  "search",
-  "db",
-  "server",
-  "worker",
-  "perf",
-] as const;
+export const EFFECT_SURFACES = ["db", "server", "worker", "perf"] as const;
 
 export type EffectSurface = (typeof EFFECT_SURFACES)[number];
 
@@ -22,7 +19,6 @@ export type EffectSurface = (typeof EFFECT_SURFACES)[number];
 export const EFFECT_SURFACE_ENV_KEYS = {
   db: "JI_EFFECT_DB",
   perf: "PERF_EFFECT_SPANS",
-  search: "JI_EFFECT_SEARCH",
   server: "JI_EFFECT_SERVER",
   worker: "JI_EFFECT_WORKER",
 } as const satisfies Record<EffectSurface, string>;
@@ -49,7 +45,6 @@ export const readEffectSurfaceFlags = () =>
   ({
     db: isEffectSurfaceEnabled("db"),
     perf: isEffectSurfaceEnabled("perf"),
-    search: isEffectSurfaceEnabled("search"),
     server: isEffectSurfaceEnabled("server"),
     worker: isEffectSurfaceEnabled("worker"),
   }) satisfies Record<EffectSurface, boolean>;

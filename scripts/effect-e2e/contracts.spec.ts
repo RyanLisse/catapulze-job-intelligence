@@ -17,7 +17,6 @@ const validEnvironment = {
   EFFECT_E2E_PRIVATE_DIR: "/tmp/effect-e2e-private/run-abc",
   EFFECT_E2E_SYNTHETIC: "1",
   JI_EFFECT_DB: "1",
-  JI_EFFECT_SEARCH: "1",
   JI_EFFECT_SERVER: "1",
   JI_EFFECT_WORKER: "1",
   PERF_EFFECT_SPANS: "1",

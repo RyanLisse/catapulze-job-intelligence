@@ -10,7 +10,6 @@ import {
 const clearFlagEnv = (): void => {
   delete process.env.JI_EFFECT_DB;
   delete process.env.JI_EFFECT_PERF;
-  delete process.env.JI_EFFECT_SEARCH;
   delete process.env.JI_EFFECT_SERVER;
   delete process.env.JI_EFFECT_WORKER;
   delete process.env.PERF_EFFECT_SPANS;
@@ -26,7 +25,6 @@ describe("effect-flags (CTP-479)", () => {
     expect(readEffectSurfaceFlags()).toEqual({
       db: false,
       perf: false,
-      search: false,
       server: false,
       worker: false,
     });
@@ -35,10 +33,10 @@ describe("effect-flags (CTP-479)", () => {
 
   it("enables only the flipped surface (canary)", () => {
     clearFlagEnv();
-    process.env.JI_EFFECT_SEARCH = "1";
-    expect(isEffectSurfaceEnabled("search")).toBe(true);
-    expect(isEffectSurfaceEnabled("db")).toBe(false);
-    expect(listEnabledEffectSurfaces()).toEqual(["search"]);
+    process.env.JI_EFFECT_DB = "1";
+    expect(isEffectSurfaceEnabled("db")).toBe(true);
+    expect(isEffectSurfaceEnabled("server")).toBe(false);
+    expect(listEnabledEffectSurfaces()).toEqual(["db"]);
   });
 
   it("treats non-1 values as OFF (rollback-safe)", () => {

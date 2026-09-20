@@ -19,7 +19,6 @@ export {
   buildManticoreSort,
   bulkManticore,
   describeManticoreTable,
-  FetchManticoreClient,
   ManticoreTimeoutError,
   parseManticoreSearchResponse,
   replaceManticoreDocument,
@@ -64,5 +63,3 @@ export type {
   FetchImpl as ManticoreEffectFetchImpl,
   FetchManticoreEffectClientOptions,
 } from "./client-effect";
-
-export { isEffectSearchEnabled } from "./effect-flag";

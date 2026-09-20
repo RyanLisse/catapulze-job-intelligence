@@ -2,7 +2,6 @@ import { publicatiedatumTotExclusiveUtc } from "../filter-match";
 import type { SearchFilters, SearchMode, SearchSort } from "../types";
 import { emptySearchFacets, SEARCH_WINDOW_LIMIT } from "../types";
 import { hashDocumentId } from "./id-hash";
-import { parseManticoreBulkPayload, parseManticoreSearchPayload } from "./json";
 import type {
   ManticoreBulkPayload,
   ManticoreDeleteBody,
@@ -74,18 +73,6 @@ const DEFAULT_MAX_MATCHES = SEARCH_WINDOW_LIMIT;
 const DEFAULT_MAX_QUERY_TIME_MS = 5000;
 
 /**
- * Transport-level timeout for the fetch call itself (RJC-380) — a backstop
- * for Manticore never responding at all (hung process, network partition),
- * which max_query_time above cannot protect against since it only bounds
- * query execution *inside* a request Manticore is actually processing. Set
- * comfortably above DEFAULT_MAX_QUERY_TIME_MS so a healthy server has room
- * to hit its own query-time budget and reply with a partial result before
- * the transport gives up; the ~3s gap covers network latency and parsing a
- * near-max_matches response body.
- */
-const DEFAULT_FETCH_TIMEOUT_MS = 8000;
-
-/**
  * Budget for the RJC-383 archive count that accompanies an active-scope
  * search. The count is decoration next to the search, so it gets a smaller
  * query budget and a smaller transport budget than the search itself, and
@@ -94,101 +81,6 @@ const DEFAULT_FETCH_TIMEOUT_MS = 8000;
  */
 export const ARCHIVE_COUNT_MAX_QUERY_TIME_MS = 1500;
 export const ARCHIVE_COUNT_TIMEOUT_MS = 2000;
-
-export class FetchManticoreClient implements ManticoreHttpClient {
-  private readonly baseUrl: string;
-  private readonly timeoutMs: number;
-
-  constructor(baseUrl: string, timeoutMs: number = DEFAULT_FETCH_TIMEOUT_MS) {
-    this.baseUrl = baseUrl;
-    this.timeoutMs = timeoutMs;
-  }
-
-  async bulk(lines: readonly string[]): Promise<ManticoreBulkPayload> {
-    const response = await this.post(
-      "/bulk",
-      `${lines.join("\n")}\n`,
-      "application/x-ndjson"
-    );
-    const raw = await response.text();
-    // A failed bulk is HTTP 500 (or 400 for a malformed line) with the
-    // regular bulk JSON body — that body is the outcome, not a transport
-    // error, so it is returned for the engine to interpret. Only a body
-    // that is not bulk JSON at all (proxy error page) is thrown.
-    try {
-      return parseManticoreBulkPayload(raw);
-    } catch (error) {
-      if (response.ok) {
-        throw error;
-      }
-      throw new Error(
-        `Manticore bulk request failed (${response.status}): ${response.statusText}`,
-        { cause: error }
-      );
-    }
-  }
-
-  async request(
-    path: string,
-    body:
-      | ManticoreDeleteBody
-      | ManticoreReplaceBody
-      | ManticoreSearchRequestBody,
-    options: ManticoreRequestOptions = {}
-  ): Promise<ManticoreSearchPayload> {
-    const response = await this.post(
-      path,
-      JSON.stringify(body),
-      "application/json",
-      options.timeoutMs ?? this.timeoutMs
-    );
-
-    const raw = await response.text();
-    if (!response.ok) {
-      // The error body isn't guaranteed to be Manticore's JSON shape (e.g. a
-      // proxy's HTML error page) — fall back to statusText rather than
-      // letting a JSON.parse/Zod failure mask the real HTTP status error.
-      let message = response.statusText;
-      try {
-        message = parseManticoreSearchPayload(raw).error ?? message;
-      } catch {
-        // non-JSON error body — statusText already set above
-      }
-      throw new Error(
-        `Manticore request failed (${response.status}): ${message}`
-      );
-    }
-
-    return parseManticoreSearchPayload(raw);
-  }
-
-  private async post(
-    path: string,
-    body: string,
-    contentType: string,
-    timeoutMs: number = this.timeoutMs
-  ): Promise<Response> {
-    const url = `${this.baseUrl}${path}`;
-    try {
-      return await fetch(url, {
-        body,
-        headers: { "Content-Type": contentType },
-        method: "POST",
-        signal: AbortSignal.timeout(timeoutMs),
-      });
-    } catch (error) {
-      // catch bindings are always `unknown` by language rule (not a
-      // decodable I/O boundary) — narrow with an instanceof check rather
-      // than delegating to a function typed to accept `unknown`.
-      const isAbortTimeout =
-        error instanceof DOMException && error.name === "TimeoutError";
-      if (isAbortTimeout) {
-        throw new ManticoreTimeoutError(url, timeoutMs);
-      }
-      throw error;
-    }
-  }
-}
 
 const bucketValue = (
   key: string | number | readonly (string | number)[] | null | undefined

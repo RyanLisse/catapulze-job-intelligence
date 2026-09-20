@@ -4,7 +4,6 @@ import { runDrainOutboxEffect } from "../../apps/worker/src/effect/task-bodies";
 
 const requiredFlags = [
   "JI_EFFECT_DB",
-  "JI_EFFECT_SEARCH",
   "JI_EFFECT_SERVER",
   "JI_EFFECT_WORKER",
   "PERF_EFFECT_SPANS",

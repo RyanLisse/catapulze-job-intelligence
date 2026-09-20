@@ -29,7 +29,6 @@ export {
   buildKnnQueryText,
   buildQueryString,
   emitMatch,
-  FetchManticoreClient,
   FetchManticoreEffectClient,
   MANTICORE_BULK_ISOLATION_RESENDS_PER_CHUNK,
   MANTICORE_BULK_MAX_BYTES,

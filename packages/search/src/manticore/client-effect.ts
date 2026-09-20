@@ -17,6 +17,16 @@ import type {
 import { tableExistsInShowTables } from "./show-tables";
 import { ManticoreTimeoutError } from "./timeout-error";
 
+/**
+ * Transport-level timeout for the fetch call itself (RJC-380) — a backstop
+ * for Manticore never responding at all (hung process, network partition),
+ * which max_query_time (client.ts) cannot protect against since it only
+ * bounds query execution *inside* a request Manticore is actually
+ * processing. Set comfortably above DEFAULT_MAX_QUERY_TIME_MS so a healthy
+ * server has room to hit its own query-time budget and reply with a partial
+ * result before the transport gives up; the ~3s gap covers network latency
+ * and parsing a near-max_matches response body.
+ */
 const DEFAULT_FETCH_TIMEOUT_MS = 8000;
 const DEFAULT_DESCRIBE_TABLE_TIMEOUT_MS = 1500;
 
@@ -39,17 +49,23 @@ const mergeSignals = (
   if (!outer) {
     return effectSignal;
   }
-  if (outer.aborted || effectSignal.aborted) {
-    const controller = new AbortController();
-    controller.abort();
-    return controller.signal;
+  // Forward the originating reason: a real fetch rejects with `signal.reason`,
+  // and mapPostError needs the DOMException "TimeoutError" name to classify a
+  // hung request as ManticoreTimeoutError instead of a generic abort.
+  if (outer.aborted) {
+    return outer;
+  }
+  if (effectSignal.aborted) {
+    return effectSignal;
   }
   const controller = new AbortController();
-  const onAbort = (): void => {
-    controller.abort();
+  const forwardAbort = (source: AbortSignal) => (): void => {
+    controller.abort(source.reason);
   };
-  outer.addEventListener("abort", onAbort, { once: true });
-  effectSignal.addEventListener("abort", onAbort, { once: true });
+  outer.addEventListener("abort", forwardAbort(outer), { once: true });
+  effectSignal.addEventListener("abort", forwardAbort(effectSignal), {
+    once: true,
+  });
   return controller.signal;
 };
 
@@ -257,9 +273,9 @@ export const describeManticoreTableEffect = (input: {
 };
 
 /**
- * Effect-backed Manticore HTTP client implementing the same Promise SDK
- * surface as {@link FetchManticoreClient}. Production default remains native
- * (`ManticoreSearchEngine.fromUrl` → FetchManticoreClient); Effect is opt-in.
+ * Effect-backed Manticore HTTP client behind the {@link ManticoreHttpClient}
+ * Promise SDK surface. The only search transport since CTP-627:
+ * `ManticoreSearchEngine.fromUrl` always constructs it.
  */
 export class FetchManticoreEffectClient implements ManticoreHttpClient {
   private readonly baseUrl: string;
