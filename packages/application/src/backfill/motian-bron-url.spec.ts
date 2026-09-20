@@ -126,8 +126,9 @@ const liveIndexFromSlugs = (slugs: readonly string[]): StarappleLiveIndex => ({
   slugs: new Set(slugs),
 });
 
-// fixtures/connectors/starapple/vacancy-sitemap.json — a mechanical
-// selection of 52 real slugs from the live vacancy-sitemap.xml (CTP-527).
+// fixtures/connectors/starapple/vacancy-sitemap.json — the complete live
+// vacancy-sitemap.xml recording (CTP-527): kept whole so a slug family's
+// real siblings decide ambiguity, never a trimmed subset.
 const loadLiveIndex = async (): Promise<StarappleLiveIndex> => {
   const fixture = await loadConnectorFixture<string>(
     "starapple/vacancy-sitemap.json"
@@ -138,7 +139,7 @@ const loadLiveIndex = async (): Promise<StarappleLiveIndex> => {
 describe("resolveStarappleBronTarget against the recorded vacancy sitemap", () => {
   it("parses only /vacatures/ locs out of the real sitemap", async () => {
     const index = await loadLiveIndex();
-    expect(index.slugs.size).toBe(52);
+    expect(index.slugs.size).toBe(381);
     expect(index.slugs.has("devops-platform-engineer")).toBe(true);
     expect(index.slugs.has("next-gen-engineers")).toBe(false);
   });
@@ -231,8 +232,8 @@ describe("resolveStarappleBronTarget against the recorded vacancy sitemap", () =
       fromSlug: "open-sollicitatie",
       kind: "live",
       match: "rematch",
-      slug: "open-sollicitatie-3629",
-      url: "https://www.starapple.nl/vacatures/open-sollicitatie-3629/",
+      slug: "open-sollicitatie-3643",
+      url: "https://www.starapple.nl/vacatures/open-sollicitatie-3643/",
     });
   });
 
@@ -316,6 +317,72 @@ describe("resolveStarappleBronTarget edge cases on synthetic indices", () => {
       match: "rematch",
       slug: "devops-engineer-2",
     });
+  });
+
+  it("never strips a semantic numeric suffix onto an unrelated sibling", () => {
+    // `office-365` is the role name, not a repost index; the folded title
+    // does not land on the `office` family, so the lone `office-2` live
+    // slug must NOT be claimed.
+    const index = liveIndexFromSlugs(["office-2"]);
+    expect(
+      resolveStarappleBronTarget(
+        starappleJob({
+          external_id: "office-365",
+          title: "Office 365 specialist",
+        }),
+        index
+      )
+    ).toMatchObject({ kind: "archive", reason: "unresolvable" });
+  });
+
+  it("refuses a de-numbered rematch the title does not corroborate", () => {
+    const index = liveIndexFromSlugs(["devops-engineer-linux"]);
+    expect(
+      resolveStarappleBronTarget(
+        starappleJob({
+          external_id: "devops-engineer-linux-44",
+          title: "Senior Consultant",
+        }),
+        index
+      )
+    ).toMatchObject({ kind: "archive", reason: "unresolvable" });
+  });
+
+  it("never rematches a stale row by title alone", () => {
+    // The recorded slug belongs to a different family than the one live
+    // `java-developer-8`; a generic title sharing its words is not evidence
+    // the vacancies are the same.
+    const index = liveIndexFromSlugs(["java-developer-8"]);
+    expect(
+      resolveStarappleBronTarget(
+        starappleJob({
+          external_id: "legacy-customer-role",
+          title: "Java Developer",
+        }),
+        index
+      )
+    ).toMatchObject({ kind: "archive", reason: "unresolvable" });
+  });
+});
+
+describe("buildStarappleLiveIndex", () => {
+  it("rejects a document that is not a complete urlset", () => {
+    expect(() => buildStarappleLiveIndex("<html>challenge</html>")).toThrow(
+      "urlset"
+    );
+    expect(() =>
+      buildStarappleLiveIndex(
+        '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"><url><loc>https://www.starapple.nl/vacatures/a/</loc>'
+      )
+    ).toThrow("urlset");
+  });
+
+  it("rejects a urlset with no vacancy entries", () => {
+    expect(() =>
+      buildStarappleLiveIndex(
+        '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"></urlset>'
+      )
+    ).toThrow("no /vacatures/ entries");
   });
 });
 

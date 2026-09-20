@@ -151,6 +151,18 @@ const probeUrl = async (
   }
 };
 
+/** The normalized `/vacatures/<slug>` path a URL points at — used to prove
+ * a redirect still landed on the vacancy the plan resolved. */
+const vacancyPathname = (url: string): string | null => {
+  try {
+    const { pathname } = new URL(url);
+    const normalized = pathname.replaceAll(/\/+$/gu, "");
+    return normalized.startsWith("/vacatures/") ? normalized : null;
+  } catch {
+    return null;
+  }
+};
+
 /** Probes one planned entry within the shared `probedSoFar` budget and
  * reports how many probes it spent, so the caller keeps the running count. */
 const probeVerificationEntry = async (input: {
@@ -167,7 +179,10 @@ const probeVerificationEntry = async (input: {
   readonly result: StarappleBronVerificationResult;
 }> => {
   const { entry } = input;
-  if (!input.probe) {
+  // `unknown` resolutions carry no URL worth a request: bronUrl is "" and
+  // previousUrl is the domain sentinel, so probing them would only burn
+  // the bounded probe budget.
+  if (!input.probe || entry.resolution.kind === "unknown") {
     return { probesUsed: 0, result: { ...entry } };
   }
   let probesUsed = 0;
@@ -190,7 +205,20 @@ const probeVerificationEntry = async (input: {
     probesUsed += 1;
     const probedBron = await probeUrl(entry.bronUrl, input.fetchImpl);
     bronProbe = probedBron.probe;
-    if (input.pages && probedBron.body !== null) {
+    // Page facts are live-vacancy evidence: archive resolutions can return
+    // a Wayback toolbar or snapshot interstitial, and a redirect landing on
+    // the homepage, a challenge page or a DIFFERENT vacancy must not have
+    // its markup attributed to this row.
+    const landedOnPlannedVacancy =
+      probedBron.probe.finalUrl === null ||
+      vacancyPathname(probedBron.probe.finalUrl) ===
+        vacancyPathname(entry.bronUrl);
+    if (
+      input.pages &&
+      probedBron.body !== null &&
+      entry.resolution.kind === "live" &&
+      landedOnPlannedVacancy
+    ) {
       pageFacts = extractStarapplePageFacts(probedBron.body);
     }
     await input.sleepImpl(input.delayMs);
@@ -353,11 +381,28 @@ if (import.meta.main) {
   if (!values.jobs) {
     throw new Error("--jobs <file.json> is required");
   }
+  if (values.pages && !values.probe) {
+    throw new Error(
+      "--pages extracts facts from probed bodies and requires --probe"
+    );
+  }
   const timeoutMs = values["timeout-ms"]
     ? Number(values["timeout-ms"])
     : DEFAULT_TIMEOUT_MS;
   if (!(Number.isFinite(timeoutMs) && timeoutMs > 0)) {
     throw new Error("--timeout-ms must be a positive number");
+  }
+  const maxProbes = values["max-probes"]
+    ? Number(values["max-probes"])
+    : DEFAULT_MAX_PROBES;
+  if (!(Number.isInteger(maxProbes) && maxProbes >= 1)) {
+    throw new Error("--max-probes must be a positive integer");
+  }
+  const delayMs = values["delay-ms"]
+    ? Number(values["delay-ms"])
+    : DEFAULT_DELAY_MS;
+  if (!(Number.isFinite(delayMs) && delayMs >= 0)) {
+    throw new Error("--delay-ms must be a non-negative number");
   }
   const jobs = parseJobsFile(await readFile(values.jobs, "utf-8"));
 
@@ -382,10 +427,10 @@ if (import.meta.main) {
   }
 
   const receipt = await verifyStarappleBronUrls({
-    delayMs: values["delay-ms"] ? Number(values["delay-ms"]) : undefined,
+    delayMs,
     jobs,
     liveIndex,
-    maxProbes: values["max-probes"] ? Number(values["max-probes"]) : undefined,
+    maxProbes,
     pages: values.pages,
     probe: values.probe,
     sitemapSource,

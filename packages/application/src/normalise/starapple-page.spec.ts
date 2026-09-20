@@ -103,13 +103,82 @@ describe("extractStarapplePageFacts edge cases", () => {
     });
   });
 
-  it("keeps eenheid UNKNOWN when €-clauses carry conflicting cues", () => {
-    // An hourly band quoted next to a monthly equivalent cannot be told
-    // apart — UNKNOWN is honest, picking one order of keywords is not.
+  it("keeps eenheid UNKNOWN when the band's own amounts carry conflicting cues", () => {
+    // The same 75–95 figures quoted once per uur and once per maand
+    // genuinely cannot be told apart — UNKNOWN is honest, picking one
+    // order of keywords is not.
+    const facts = extractStarapplePageFacts(
+      '<div class="vacancy-meta"><span>&euro; 75 - 95 per uur</span></div><p>Omgerekend een bruto maandsalaris van &euro; 75 - 95 per maand.</p>'
+    );
+    expect(facts.tarief?.eenheid).toBe(UNKNOWN);
+  });
+
+  it("lets an unrelated €-amount clause neither claim nor conflict the band", () => {
+    // A monthly-equivalent figure is a different amount, not the band's
+    // own: the meta "per uur" cue stands alone and resolves cleanly.
     const facts = extractStarapplePageFacts(
       '<div class="vacancy-meta"><span>&euro; 75 - 95 per uur</span></div><p>Omgerekend een bruto maandsalaris van &euro; 13.000.</p>'
     );
-    expect(facts.tarief?.eenheid).toBe(UNKNOWN);
+    expect(facts.tarief?.eenheid).toBe("uur");
+  });
+
+  it("parses Dutch decimal amounts instead of truncating at the comma", () => {
+    const facts = extractStarapplePageFacts(
+      '<div class="vacancy-meta"><span>&euro; 75,50 - 95,50 per uur</span></div>'
+    );
+    expect(facts.tarief).toEqual({
+      eenheid: "uur",
+      max: "95.50",
+      min: "75.50",
+      valuta: "EUR",
+    });
+  });
+
+  it("reads an hour range written with an ndash entity", () => {
+    const facts = extractStarapplePageFacts(
+      '<div class="vacancy-meta"><span>32&ndash;40 uur</span></div>'
+    );
+    expect(facts.urenPerWeek).toBe("32–40");
+  });
+
+  it("bounds a labeled eindklant to its own element", () => {
+    const facts = extractStarapplePageFacts(
+      "<h1>Rol</h1><div>Stad</div><p>Eindklant: Gemeente Voorbeeld</p><h2>Functie</h2><p>Meer tekst</p>"
+    );
+    expect(facts.eindklant).toBe("Gemeente Voorbeeld");
+  });
+
+  it("reads a label split from its colon by an element boundary", () => {
+    const facts = extractStarapplePageFacts(
+      "<p><strong>Eindklant</strong>: Gemeente Voorbeeld</p>"
+    );
+    expect(facts.eindklant).toBe("Gemeente Voorbeeld");
+  });
+
+  it("does not report site-chrome contact links as vacancy contact", () => {
+    const facts = extractStarapplePageFacts(
+      '<header><a href="mailto:info@example.nl">Mail</a></header><h1>Rol</h1><div>Stad</div><p>Geen contactblok.</p><footer><a href="tel:+311234">Bel</a></footer>'
+    );
+    expect(facts.contactPublished).toBe(false);
+  });
+
+  it("does not treat the vacancy-meta block as the location", () => {
+    // Without the pin block the first div after the h1 IS .vacancy-meta;
+    // "40 uur" must not leak in as locatieTekst.
+    const facts = extractStarapplePageFacts(
+      '<h1>Rol</h1><div class="vacancy-meta"><span>40 uur</span></div>'
+    );
+    expect(facts.locatieTekst).toBeNull();
+    expect(facts.urenPerWeek).toBe("40");
+  });
+
+  it("stops meta parsing at the vacancy-meta closing tag", () => {
+    // A benefit figure beyond the meta element is not the vacancy tariff.
+    const facts = extractStarapplePageFacts(
+      '<h1>Rol</h1><div>Stad</div><div class="vacancy-meta"><span>40 uur</span></div><div class="prose"><p>Opleidingsbudget &euro; 500 per maand</p></div>'
+    );
+    expect(facts.tarief).toBeNull();
+    expect(facts.urenPerWeek).toBe("40");
   });
 
   it("does not let a bare unit word in €-less prose claim the band", () => {

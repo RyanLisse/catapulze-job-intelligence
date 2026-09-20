@@ -117,10 +117,23 @@ export interface StarappleLiveIndex {
   readonly slugs: ReadonlySet<string>;
 }
 
-/** Parses every `/vacatures/<slug>/` loc out of a recorded or live sitemap. */
+/**
+ * Parses every `/vacatures/<slug>/` loc out of a recorded or live sitemap.
+ *
+ * Throws on a document that cannot be a usable index — a 200 challenge or
+ * error page, a sitemapindex, or truncated XML. An empty index is worse than
+ * no index: every open Starapple row would resolve `archive/unresolvable`
+ * and rewrite otherwise valid live URLs to Wayback on one transiently bad
+ * response.
+ */
 export const buildStarappleLiveIndex = (
   sitemapXml: string
 ): StarappleLiveIndex => {
+  if (!/<urlset[\s>]/iu.test(sitemapXml) || !/<\/urlset>/iu.test(sitemapXml)) {
+    throw new Error(
+      "Starapple vacancy sitemap is not a complete <urlset> document"
+    );
+  }
   const slugs = new Set<string>();
   for (const match of sitemapXml.matchAll(SITEMAP_LOC_PATTERN)) {
     const loc = match.groups?.loc?.trim();
@@ -146,6 +159,11 @@ export const buildStarappleLiveIndex = (
       slugs.add(normalized);
     }
   }
+  if (slugs.size === 0) {
+    throw new Error(
+      "Starapple vacancy sitemap contains no /vacatures/ entries"
+    );
+  }
   return { slugs };
 };
 
@@ -158,40 +176,17 @@ const slugWithoutTrailingIndex = (slug: string): string =>
   slug.replace(TRAILING_INDEX_PATTERN, "");
 
 /**
- * Ordered rematch candidates for a stale derived slug: the slug itself (to
- * cover its own numeric repost expansion, e.g. `open-sollicitatie` →
- * `open-sollicitatie-3629`), then its de-numbered base, then the vacancy
- * title folded to a slug. A candidate's match set is every live slug equal
- * to it OR carrying it plus the site's numeric repost suffix. Only a match
- * set of exactly ONE slug is usable: two or more live slugs for the same
- * base means sibling reposts of the same title, and the sitemap cannot tell
- * them apart — that candidate is ambiguous and resolution moves on rather
- * than guessing. Zero hits falls through the same way. Anything looser
+ * A candidate's match set is every live slug equal to it OR carrying it
+ * plus the site's numeric repost suffix. Only a match set of exactly ONE
+ * slug is usable: two or more live slugs for the same base means sibling
+ * reposts of the same title, and the sitemap cannot tell them apart —
+ * that candidate is ambiguous and resolution moves on rather than
+ * guessing. Zero hits falls through the same way. Anything looser
  * (token overlap, fuzzy renames like `next-gen-engineers` →
  * `next-generation-software-engineers-gezocht-5`) would fabricate a link to
  * a vacature the source never named — a wrong-vacancy link is worse than an
- * archive redirect. The derived slug's own exact hit is already handled
- * before candidates run, so it can never match itself here.
+ * archive redirect.
  */
-const rematchCandidates = (
-  job: MotianBronUrlJob,
-  derived: string
-): string[] => {
-  const seen = new Set<string>();
-  const candidates: string[] = [];
-  const push = (value: string | null | undefined): void => {
-    const normalized = value ? normalizeStarappleSlug(value) : "";
-    if (normalized && !seen.has(normalized)) {
-      seen.add(normalized);
-      candidates.push(normalized);
-    }
-  };
-  push(derived);
-  push(slugWithoutTrailingIndex(derived));
-  push(job.title);
-  return candidates;
-};
-
 const rematchLiveSlug = (
   liveIndex: StarappleLiveIndex,
   candidate: string
@@ -203,6 +198,47 @@ const rematchLiveSlug = (
         NUMERIC_SUFFIX_PATTERN.test(liveSlug.slice(candidate.length)))
   );
   return matches.length === 1 ? (matches[0] ?? null) : null;
+};
+
+/**
+ * The one live slug a stale derived slug may rematch to, or null.
+ *
+ * Only slug evidence the source itself recorded is trusted:
+ *
+ * - the derived slug's own repost family (`open-sollicitatie` →
+ *   `open-sollicitatie-3643`): the live slug literally extends the URL
+ *   Motian recorded for this vacancy, so no second signal is needed;
+ * - its de-numbered base (`devops-engineer-linux-44` →
+ *   `devops-engineer-linux`), but only when the vacancy title folds back
+ *   into the same family — that second identity signal is what proves the
+ *   trailing digits were a site sequence number. Without it `office-365`
+ *   would collapse onto an unrelated `office-2`, and a generic title
+ *   alone must never link a stale row to a vacancy that merely shares
+ *   its words.
+ */
+const resolveRematchSlug = (
+  job: MotianBronUrlJob,
+  liveIndex: StarappleLiveIndex,
+  derived: string
+): string | null => {
+  const ownFamily = rematchLiveSlug(liveIndex, derived);
+  if (ownFamily !== null) {
+    return ownFamily;
+  }
+  const base = slugWithoutTrailingIndex(derived);
+  if (base === derived) {
+    return null;
+  }
+  const baseMatch = rematchLiveSlug(liveIndex, base);
+  if (baseMatch === null) {
+    return null;
+  }
+  const foldedTitle = job.title ? normalizeStarappleSlug(job.title) : "";
+  const titleAgrees =
+    foldedTitle.length > 0 &&
+    (foldedTitle === base ||
+      rematchLiveSlug(liveIndex, foldedTitle) === baseMatch);
+  return titleAgrees ? baseMatch : null;
 };
 
 export type StarappleBronResolution =
@@ -260,17 +296,15 @@ export const resolveStarappleBronTarget = (
       url: liveUrlForSlug(derived),
     };
   }
-  for (const candidate of rematchCandidates(job, derived)) {
-    const slug = rematchLiveSlug(liveIndex, candidate);
-    if (slug !== null) {
-      return {
-        fromSlug: derived,
-        kind: "live",
-        match: "rematch",
-        slug,
-        url: liveUrlForSlug(slug),
-      };
-    }
+  const rematched = resolveRematchSlug(job, liveIndex, derived);
+  if (rematched !== null) {
+    return {
+      fromSlug: derived,
+      kind: "live",
+      match: "rematch",
+      slug: rematched,
+      url: liveUrlForSlug(rematched),
+    };
   }
   return {
     fromSlug: derived,
