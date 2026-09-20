@@ -88,6 +88,40 @@ describe("extractStarapplePageFacts edge cases", () => {
     expect(facts.tarief?.eenheid).toBe(UNKNOWN);
   });
 
+  it("reads eenheid uur from the €-band clause even with salaris prose elsewhere", () => {
+    // The hourly case the previous full-text scan got wrong: "per uur"
+    // describes the € band while "salaris" sits in a €-less benefits clause
+    // — the cue must come from the clause carrying the amount.
+    const facts = extractStarapplePageFacts(
+      '<h1>Rol</h1><div>Stad</div><div class="vacancy-meta"><span>40 uur</span><span>&euro; 75 - 95 per uur</span></div><p>Het salaris en de secundaire voorwaarden stem je af met de opdrachtgever.</p>'
+    );
+    expect(facts.tarief).toEqual({
+      eenheid: "uur",
+      max: "95",
+      min: "75",
+      valuta: "EUR",
+    });
+  });
+
+  it("keeps eenheid UNKNOWN when €-clauses carry conflicting cues", () => {
+    // An hourly band quoted next to a monthly equivalent cannot be told
+    // apart — UNKNOWN is honest, picking one order of keywords is not.
+    const facts = extractStarapplePageFacts(
+      '<div class="vacancy-meta"><span>&euro; 75 - 95 per uur</span></div><p>Omgerekend een bruto maandsalaris van &euro; 13.000.</p>'
+    );
+    expect(facts.tarief?.eenheid).toBe(UNKNOWN);
+  });
+
+  it("does not let a bare unit word in €-less prose claim the band", () => {
+    // The mirror of the audited page: the meta band carries no cue and the
+    // only "salaris" sits in a clause without any amount — UNKNOWN, not
+    // "maand".
+    const facts = extractStarapplePageFacts(
+      '<div class="vacancy-meta"><span>&euro; 3.000 - 4.000</span></div><p>Een aantrekkelijk aanbod. Het salaris is marktconform.</p>'
+    );
+    expect(facts.tarief?.eenheid).toBe(UNKNOWN);
+  });
+
   it("returns nulls on markup without the vacancy blocks", () => {
     const facts = extractStarapplePageFacts("<html><body>leeg</body></html>");
     expect(facts).toEqual({

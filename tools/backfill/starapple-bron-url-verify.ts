@@ -185,7 +185,7 @@ export const verifyStarappleBronUrls = async (input: {
     let pageFacts: StarapplePageFacts | undefined;
     if (
       input.probe &&
-      entry.previousUrl &&
+      entry.previousUrl.startsWith("http") &&
       entry.previousUrl !== entry.bronUrl &&
       probed < maxProbes
     ) {
@@ -265,7 +265,15 @@ const jobsFileSchema = z.union([
 ]);
 
 const parseJobsFile = (raw: string): MotianBronUrlJob[] => {
-  const parsed = jobsFileSchema.safeParse(JSON.parse(raw));
+  let data: unknown;
+  try {
+    data = JSON.parse(raw);
+  } catch {
+    throw new Error(
+      "--jobs file must be a JSON array or {jobs:[...]} of Motian rows"
+    );
+  }
+  const parsed = jobsFileSchema.safeParse(data);
   if (!parsed.success) {
     throw new Error(
       "--jobs file must be a JSON array or {jobs:[...]} of Motian rows"

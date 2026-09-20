@@ -10,7 +10,7 @@ const WAYBACK_URL_PREFIX = "https://web.archive.org/web/";
 
 /**
  * The site's own vacancy sitemap. One bounded GET yields the complete set of
- * slugs the live site currently advertises (381 entries on 2026-09-20), which
+ * slugs the live site currently advertises (382 entries on 2026-09-20), which
  * is the only rematch source this module trusts: a slug listed there resolves
  * to a live vacature, and no amount of slug arithmetic can prove the same for
  * a slug that is absent.

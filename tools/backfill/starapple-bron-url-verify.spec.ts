@@ -132,6 +132,25 @@ describe("verifyStarappleBronUrls", () => {
     expect(result?.pageFacts?.urenPerWeek).toBe("40");
   });
 
+  it("never spends probe budget on a non-URL previous value", async () => {
+    // A row without a derivable slug resolves `unknown` and stored
+    // `unknown` — neither is a URL, so nothing may be fetched.
+    const fetched: string[] = [];
+    const receipt = await verifyStarappleBronUrls({
+      fetchImpl: (url) => {
+        fetched.push(url);
+        return Promise.resolve(okResponse(url));
+      },
+      jobs: [job({ external_id: " ", external_url: null })],
+      liveIndex: liveIndex(["devops-platform-engineer"]),
+      probe: true,
+      sleepImpl: () => Promise.resolve(),
+    });
+    expect(fetched).toEqual([]);
+    expect(receipt.counts.probed).toBe(0);
+    expect(receipt.counts.unknown).toBe(1);
+  });
+
   it("respects the max-probes bound across rows", async () => {
     let fetched = 0;
     const receipt = await verifyStarappleBronUrls({

@@ -16,8 +16,10 @@ import { stripHtml } from "./types";
  *   under the vacancy `<h1>` (e.g. "Utrecht" on devops-platform-engineer).
  * - F08 `urenPerWeek`: the "N uur" meta item inside `.vacancy-meta`.
  * - `tarief`: the `€ min-max` meta item in the same `.vacancy-meta` block;
- *   `eenheid` is only "maand"/"uur" when the page's own copy says so
- *   ("bruto maandsalaris", "per uur"), never a bare-€ guess.
+ *   `eenheid` is only "maand"/"uur" when a cue is attached to a `€` amount
+ *   ("bruto maandsalaris tussen € …", "€ … per uur") — a unit word in
+ *   unrelated prose never claims the band, and conflicting cues stay
+ *   UNKNOWN rather than guessing.
  * - F02 `eindklant`: only an explicitly labeled `Eindklant:`/`Opdrachtgever:`
  *   value. Starapple pages name the end client in vacancy PROSE ("binnen de
  *   politie", "Digitaal Politie Contact (DPC)"), which is prose mining —
@@ -107,19 +109,51 @@ const dutchAmount = (raw: string): string | null => {
   return /^\d+$/u.test(normalized) ? normalized : null;
 };
 
+const EURO_AMOUNT_PATTERN =
+  /€\s*\d{1,3}(?:\.\d{3})*(?:,\d+)?(?:\s*[-–—]\s*\d{1,3}(?:\.\d{3})*(?:,\d+)?)?/gu;
+const EENHEID_CLAUSE_BOUNDARY = /(?<=[.!?;|•·])\s+/u;
+const EENHEID_LEADIN_CHARS = 45;
+const EENHEID_TAIL_CHARS = 40;
+const MAAND_LEADIN_PATTERN =
+  /\bmaandsalaris\b|\bper maand\b|\bbruto per maand\b|\bsalaris\b/iu;
+const MAAND_UNIT_PATTERN = /\bmaandsalaris\b|\bper maand\b/iu;
+const UUR_EENHEID_PATTERN = /\bper uur\b|\buurtarief\b|\/\s*uur\b/iu;
+
+/** The eenheid cue must be attached to a `€` amount, not merely present on
+ * the page: a lead-in phrase inside the same clause shortly BEFORE the
+ * amount ("bruto maandsalaris tussen € 3.661,-", "uurtarief van € 75,-")
+ * counts, and an explicit unit directly AFTER it ("€ 75 - 95 per uur",
+ * "€ 4.000,- per maand") counts. A bare "salaris" following an amount is
+ * prose, not a unit ("€ 75 - 95 per uur. Het salaris …"), so the tail only
+ * accepts explicit unit phrases. Every `€` amount on the page is checked;
+ * exactly ONE cue kind across all of them resolves to it, while conflicting
+ * cues (e.g. an hourly band next to a monthly equivalent) stay UNKNOWN
+ * rather than letting one order of keywords win. */
 const tariefEenheid = (text: string): NormalisedTarief["eenheid"] => {
-  const lower = text.toLowerCase();
-  if (
-    /\bmaandsalaris\b|\bper maand\b|\bbruto per maand\b|\bsalaris\b/iu.test(
-      lower
-    )
-  ) {
-    return "maand";
+  const cues = new Set<"maand" | "uur">();
+  for (const amount of text.matchAll(EURO_AMOUNT_PATTERN)) {
+    const { index } = amount;
+    const leadIn =
+      text
+        .slice(Math.max(0, index - EENHEID_LEADIN_CHARS), index)
+        .split(EENHEID_CLAUSE_BOUNDARY)
+        .pop() ?? "";
+    const tail =
+      text
+        .slice(
+          index + amount[0].length,
+          index + amount[0].length + EENHEID_TAIL_CHARS
+        )
+        .split(EENHEID_CLAUSE_BOUNDARY)[0] ?? "";
+    if (MAAND_LEADIN_PATTERN.test(leadIn) || MAAND_UNIT_PATTERN.test(tail)) {
+      cues.add("maand");
+    }
+    if (UUR_EENHEID_PATTERN.test(leadIn) || UUR_EENHEID_PATTERN.test(tail)) {
+      cues.add("uur");
+    }
   }
-  if (/\bper uur\b|\buurtarief\b|\/\s*uur\b/iu.test(lower)) {
-    return "uur";
-  }
-  return UNKNOWN;
+  const [only] = cues;
+  return cues.size === 1 && only ? only : UNKNOWN;
 };
 
 const tariefFromMeta = (
