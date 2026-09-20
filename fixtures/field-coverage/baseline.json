@@ -1,6 +1,6 @@
 {
-  "generatedAt": "2026-09-20T12:44:07.948Z",
-  "sourceSha": "4e1c629da2f53d14324ea6015d2f3888ef54c2cd",
+  "generatedAt": "2026-09-20T13:06:19.738Z",
+  "sourceSha": "dc31c44f15a4504eca8e2fcd10874f7c2db6d694",
   "sources": {
     "alliander": {
       "fields": {
@@ -159,7 +159,7 @@
         "contract": 0,
         "duur": 0,
         "einddatum": 0,
-        "gepubliceerd": 3,
+        "gepubliceerd": 0,
         "locatie": 3,
         "opleiding": 3,
         "organisatie": 3,
@@ -197,7 +197,7 @@
         "contract": 0,
         "duur": 0,
         "einddatum": 0,
-        "gepubliceerd": 5,
+        "gepubliceerd": 0,
         "locatie": 5,
         "opleiding": 0,
         "organisatie": 5,
@@ -330,7 +330,7 @@
         "contract": 0,
         "duur": 0,
         "einddatum": 0,
-        "gepubliceerd": 3,
+        "gepubliceerd": 0,
         "locatie": 3,
         "opleiding": 0,
         "organisatie": 3,
@@ -501,7 +501,7 @@
         "contract": 0,
         "duur": 0,
         "einddatum": 0,
-        "gepubliceerd": 3,
+        "gepubliceerd": 0,
         "locatie": 3,
         "opleiding": 3,
         "organisatie": 3,
@@ -691,7 +691,7 @@
         "contract": 0,
         "duur": 0,
         "einddatum": 0,
-        "gepubliceerd": 2,
+        "gepubliceerd": 0,
         "locatie": 2,
         "opleiding": 2,
         "organisatie": 2,
