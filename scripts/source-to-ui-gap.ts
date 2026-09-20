@@ -1,19 +1,27 @@
+import { CURATED_COLUMN_BRON_KEYS } from "@ji/application/identity";
 import { AANVRAAG_BRON_FACT_KEYS } from "@ji/db/aanvraag-read-mapping";
 
-import { FIELD_KEY_ALIASES, FIELDS, replaySources } from "./field-coverage";
+import {
+  FIELD_KEY_ALIASES,
+  FIELDS,
+  parseArgs,
+  replaySources,
+} from "./field-coverage";
 import type { FieldName, SourceReport } from "./field-coverage";
 
-/**
- * bronSpecifiek keys that are wired into a structured UI field. This set is
- * derived from the actual read path (`readAanvraagBronFacts`) and from the
- * field-coverage aliases used by `evaluateDraft`, so it stays in sync with
- * the code that builds the detail/listing fields in
- * apps/web/src/features/job-intelligence.
- */
-const DISPLAY_DERIVED_KEYS = new Set([
+/** bronSpecifiek keys consumed by either the direct read fallback or the
+ * curation path that lifts source values into columns returned to the UI. */
+const DISPLAY_DERIVED_KEYS = new Set<string>([
   ...AANVRAAG_BRON_FACT_KEYS,
-  ...Object.values(FIELD_KEY_ALIASES).flat(),
+  ...Object.values(CURATED_COLUMN_BRON_KEYS).flat(),
 ]);
+
+/** Field aliases that neither display seam consumes. */
+const LANDED_NOT_READ_KEYS = new Set<string>(
+  Object.values(FIELD_KEY_ALIASES)
+    .flat()
+    .filter((key) => !DISPLAY_DERIVED_KEYS.has(key))
+);
 
 const IDENTITY_KEYS = new Set([
   "aanvraagnummer",
@@ -55,11 +63,20 @@ const PROCEDURE_KEYS = new Set([
   "valuta",
 ]);
 
-type Category = "displayed" | "identity" | "status" | "procedure" | "unused";
+type Category =
+  | "displayed"
+  | "gap"
+  | "identity"
+  | "status"
+  | "procedure"
+  | "unused";
 
 export const keyCategory = (key: string): Category => {
   if (DISPLAY_DERIVED_KEYS.has(key)) {
     return "displayed";
+  }
+  if (LANDED_NOT_READ_KEYS.has(key)) {
+    return "gap";
   }
   if (IDENTITY_KEYS.has(key)) {
     return "identity";
@@ -87,6 +104,9 @@ export const missingDisplayFields = (report: SourceReport): FieldName[] => {
     // For fields driven by bronSpecifiek aliases, only report them as missing
     // when the source actually published data for at least one alias.
     // Top-level fields (empty alias list) keep the historical behavior.
+    // Fields with both a top-level driver and aliases (organisatie,
+    // startdatum) follow the alias rule: a source that lands neither is a
+    // field-coverage concern, not a UI-mapping gap, so it is not listed here.
     const aliases = FIELD_KEY_ALIASES[field];
     return aliases.length === 0 || fieldHasSourceData(report, field);
   });
@@ -94,6 +114,7 @@ export const missingDisplayFields = (report: SourceReport): FieldName[] => {
 
 interface KeyBuckets {
   displayed: string[];
+  gap: string[];
   identity: string[];
   procedure: string[];
   status: string[];
@@ -101,6 +122,7 @@ interface KeyBuckets {
 }
 const emptyBuckets = (): KeyBuckets => ({
   displayed: [],
+  gap: [],
   identity: [],
   procedure: [],
   status: [],
@@ -115,46 +137,16 @@ const countKeys = (
   predicate: (key: string) => boolean
 ): number => Object.keys(report.keys).filter(predicate).length;
 
-interface CliArgs {
-  asJson: boolean;
-  bron?: string;
-}
-
-export const parseArgs = (args: readonly string[]): CliArgs => {
-  let bron: string | undefined;
-  let asJson = false;
-  for (let index = 0; index < args.length; index += 1) {
-    const arg = args[index];
-    if (arg === "--json") {
-      asJson = true;
-      continue;
-    }
-    if (arg === "--bron") {
-      const value = args[index + 1];
-      if (!value || value.startsWith("--")) {
-        throw new Error("--bron requires a source slug");
-      }
-      if (bron !== undefined) {
-        throw new Error("--bron may only be provided once");
-      }
-      bron = value;
-      index += 1;
-      continue;
-    }
-    throw new Error(`unknown argument: ${arg}`);
-  }
-  return { asJson, bron };
-};
-
 export const formatReport = (reports: SourceReport[]): string => {
-  const header = `${pad("bron", 24)} ${pad("n", 4)} ${pad("miss", 5)} ${pad("disp", 5)} ${pad("id", 4)} ${pad("proc", 5)} ${pad("stat", 5)} ${pad("unclass", 7)} ${pad("errs", 5)}`;
-  const lines: string[] = [header, "-".repeat(70)];
+  const header = `${pad("bron", 24)} ${pad("n", 4)} ${pad("miss", 5)} ${pad("disp", 5)} ${pad("gap", 5)} ${pad("id", 4)} ${pad("proc", 5)} ${pad("stat", 5)} ${pad("unclass", 7)} ${pad("errs", 5)}`;
+  const lines: string[] = [header, "-".repeat(header.length)];
   for (const report of reports) {
     const missing = missingDisplayFields(report).length;
     const displayed = countKeys(
       report,
       (key) => keyCategory(key) === "displayed"
     );
+    const gap = countKeys(report, (key) => keyCategory(key) === "gap");
     const identity = countKeys(
       report,
       (key) => keyCategory(key) === "identity"
@@ -166,7 +158,7 @@ export const formatReport = (reports: SourceReport[]): string => {
     const status = countKeys(report, (key) => keyCategory(key) === "status");
     const unused = countKeys(report, (key) => keyCategory(key) === "unused");
     lines.push(
-      `${pad(report.slug, 24)} ${pad(String(report.records), 4)} ${pad(String(missing), 5)} ${pad(String(displayed), 5)} ${pad(String(identity), 4)} ${pad(String(procedure), 5)} ${pad(String(status), 5)} ${pad(String(unused), 7)} ${pad(String(report.errors.length), 5)}`
+      `${pad(report.slug, 24)} ${pad(String(report.records), 4)} ${pad(String(missing), 5)} ${pad(String(displayed), 5)} ${pad(String(gap), 5)} ${pad(String(identity), 4)} ${pad(String(procedure), 5)} ${pad(String(status), 5)} ${pad(String(unused), 7)} ${pad(String(report.errors.length), 5)}`
     );
   }
 
@@ -179,6 +171,7 @@ export const formatReport = (reports: SourceReport[]): string => {
     }
     if (
       missing.length === 0 &&
+      byCategory.gap.length === 0 &&
       byCategory.unused.length === 0 &&
       report.errors.length === 0
     ) {
@@ -191,6 +184,11 @@ export const formatReport = (reports: SourceReport[]): string => {
     if (byCategory.displayed.length > 0) {
       detailLines.push(
         `  displayed derived keys: ${byCategory.displayed.join(", ")}`
+      );
+    }
+    if (byCategory.gap.length > 0) {
+      detailLines.push(
+        `  landed but not read by UI (GAP_MAP): ${byCategory.gap.join(", ")}`
       );
     }
     if (byCategory.identity.length > 0) {

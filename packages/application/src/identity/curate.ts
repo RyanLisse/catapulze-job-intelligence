@@ -570,6 +570,18 @@ const mergeBronSpecifiek = (
   return merged as BronSpecifiekJson;
 };
 
+export const CURATED_COLUMN_BRON_KEYS = {
+  contracttype: ["contracttype", "contract_type", "employment_type"],
+  eindDatum: ["eind_datum", "eindDatum"],
+  publicatiedatum: [
+    "publicatiedatum",
+    "gepubliceerd_op",
+    "publicatie_datum",
+    "json_ld_date_posted",
+  ],
+  urenPerWeek: ["uren_per_week", "uren_per_week_raw"],
+} as const satisfies Record<string, readonly string[]>;
+
 const toStoredFields = (
   input: CurateObservationInput
 ): Omit<StoredAanvraag, "aanvraagId"> => {
@@ -589,16 +601,11 @@ const toStoredFields = (
     contactpersonen: draft.contactpersonen?.value ?? [],
     contentHash: draft.contentHash,
     contracttype: toCanonicalContractType(
-      readBronText(
-        bronRecord,
-        "contracttype",
-        "contract_type",
-        "employment_type"
-      )
+      readBronText(bronRecord, ...CURATED_COLUMN_BRON_KEYS.contracttype)
     ),
     dedupGroepId: null,
     eersteGezienOp: input.observedAt,
-    eindDatum: readBronText(bronRecord, "eind_datum", "eindDatum"),
+    eindDatum: readBronText(bronRecord, ...CURATED_COLUMN_BRON_KEYS.eindDatum),
     extractieMethode: draft.extractieMethode,
     laatstGezienOp: input.observedAt,
     locatieLand: draft.locatieLand.value,
@@ -608,10 +615,7 @@ const toStoredFields = (
     provenance: buildProvenanceMap(draft),
     publicatiedatum: readBronText(
       bronRecord,
-      "publicatiedatum",
-      "gepubliceerd_op",
-      "publicatie_datum",
-      "json_ld_date_posted"
+      ...CURATED_COLUMN_BRON_KEYS.publicatiedatum
     ),
     rawPayloadRef: input.rawPayloadRef,
     scrapeRunId: input.scrapeRunId,
@@ -625,8 +629,7 @@ const toStoredFields = (
     titel: draft.titel.value,
     urenPerWeek: readUrenBronText(
       bronRecord,
-      "uren_per_week",
-      "uren_per_week_raw"
+      ...CURATED_COLUMN_BRON_KEYS.urenPerWeek
     ),
     versie: 1,
     werkvorm: readBronText(bronRecord, "werkvorm"),

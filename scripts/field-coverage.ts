@@ -10,6 +10,7 @@ import type {
 } from "@ji/application/normalise";
 import { SOURCES, SUPPORTED_BRON_SLUGS } from "@ji/application/sources";
 import type { SourceDefinition } from "@ji/application/sources";
+import { readAanvraagBronFacts } from "@ji/db/aanvraag-read-mapping";
 import { CLEARED, UNKNOWN } from "@ji/domain";
 
 /**
@@ -92,11 +93,6 @@ const draftText = (value: string): boolean =>
 const tariefBound = (v: string): boolean =>
   v !== UNKNOWN && v !== CLEARED && v.trim() !== "";
 
-const liveSkills = (bron: Record<string, JsonValue>): boolean => {
-  const value = bron.skills;
-  return Array.isArray(value) && value.length > 0;
-};
-
 /** A non-blank, non-sentinel bronSpecifiek scalar value. */
 const bronString = (
   record: Record<string, JsonValue>,
@@ -148,6 +144,31 @@ export const evaluateContractCoverage = (
   return false;
 };
 
+/**
+ * The publication-date field only reaches the UI when the value parses as a
+ * valid date. Mirrors the validation used by `readAanvraagBronFacts`.
+ */
+export const evaluatePublicationDateCoverage = (
+  bron: Record<string, JsonValue>
+): boolean => readAanvraagBronFacts(bron).publicatiedatum !== null;
+
+/**
+ * The province field only reaches the UI when the value is one of the twelve
+ * canonical Dutch province names. Mirrors the validation used by
+ * `readAanvraagBronFacts`.
+ */
+export const evaluateProvinceCoverage = (
+  bron: Record<string, JsonValue>
+): boolean => readAanvraagBronFacts(bron).provincie !== null;
+
+/**
+ * The skills field only reaches the UI when normalisation yields at least one
+ * valid skill. Mirrors the shaping done by `readAanvraagBronFacts`.
+ */
+export const evaluateSkillsCoverage = (
+  bron: Record<string, JsonValue>
+): boolean => readAanvraagBronFacts(bron).skills.length > 0;
+
 const evaluateDraft = (draft: NormalisedAanvraagDraft) => {
   const bronValue = draft.bronSpecifiek.value;
   const bron: Record<string, JsonValue> = isRecord(bronValue) ? bronValue : {};
@@ -155,14 +176,14 @@ const evaluateDraft = (draft: NormalisedAanvraagDraft) => {
     contract: evaluateContractCoverage(bron),
     duur: liveText(bron, FIELD_KEY_ALIASES.duur),
     einddatum: liveText(bron, FIELD_KEY_ALIASES.einddatum),
-    gepubliceerd: liveText(bron, FIELD_KEY_ALIASES.gepubliceerd),
+    gepubliceerd: evaluatePublicationDateCoverage(bron),
     locatie: draftText(draft.locatieTekst.value),
     opleiding: liveText(bron, FIELD_KEY_ALIASES.opleiding),
     organisatie:
       draftText(draft.opdrachtgeverNaam.value) ||
       liveText(bron, FIELD_KEY_ALIASES.organisatie),
-    provincie: liveText(bron, FIELD_KEY_ALIASES.provincie),
-    skills: liveSkills(bron),
+    provincie: evaluateProvinceCoverage(bron),
+    skills: evaluateSkillsCoverage(bron),
     sluit: draft.sluitingsdatum !== undefined,
     startdatum:
       draftText(draft.startDatum.value) ||
@@ -346,6 +367,42 @@ const printDetails = (reports: readonly SourceReport[]): void => {
   }
 };
 
+export interface CliArgs {
+  asJson: boolean;
+  bron?: string;
+}
+
+/**
+ * Strict CLI parser shared by the field-coverage and source-to-ui-gap
+ * scripts: `--json`, `--bron <slug>` at most once, anything else throws so a
+ * typo never silently audits every source.
+ */
+export const parseArgs = (args: readonly string[]): CliArgs => {
+  let bron: string | undefined;
+  let asJson = false;
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index];
+    if (arg === "--json") {
+      asJson = true;
+      continue;
+    }
+    if (arg === "--bron") {
+      const value = args[index + 1];
+      if (!value || value.startsWith("--")) {
+        throw new Error("--bron requires a source slug");
+      }
+      if (bron !== undefined) {
+        throw new Error("--bron may only be provided once");
+      }
+      bron = value;
+      index += 1;
+      continue;
+    }
+    throw new Error(`unknown argument: ${arg}`);
+  }
+  return { asJson, bron };
+};
+
 /**
  * Replay the committed fixtures of the given bron slugs (default: every
  * supported bron) and return one report per source. Throws on an unknown
@@ -375,14 +432,9 @@ export const replaySources = async (
 };
 
 if (import.meta.main) {
-  const args = process.argv.slice(2);
-  const bronArg = args.includes("--bron")
-    ? args[args.indexOf("--bron") + 1]
-    : undefined;
-  const asJson = args.includes("--json");
-
   try {
-    const reports = await replaySources(bronArg ? [bronArg] : undefined);
+    const { asJson, bron } = parseArgs(process.argv.slice(2));
+    const reports = await replaySources(bron ? [bron] : undefined);
     if (asJson) {
       console.log(JSON.stringify(reports, null, 2));
     } else {

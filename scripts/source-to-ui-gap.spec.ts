@@ -1,11 +1,11 @@
 import { describe, expect, it } from "bun:test";
 
+import { parseArgs } from "./field-coverage";
 import type { SourceReport } from "./field-coverage";
 import {
   formatReport,
   keyCategory,
   missingDisplayFields,
-  parseArgs,
 } from "./source-to-ui-gap";
 
 const reportOf = (
@@ -73,13 +73,23 @@ describe("parseArgs", () => {
 });
 
 describe("keyCategory", () => {
-  it("classifies keys wired to a UI field as displayed", () => {
-    expect(keyCategory("contracttype")).toBe("displayed");
-    expect(keyCategory("opleidingsniveau")).toBe("displayed");
-    expect(keyCategory("publicatiedatum")).toBe("displayed");
-    expect(keyCategory("skills")).toBe("displayed");
-    expect(keyCategory("provincie")).toBe("displayed");
-    expect(keyCategory("uren_per_week")).toBe("displayed");
+  it("classifies keys consumed by either UI display seam as displayed", () => {
+    for (const key of [
+      "contracttype",
+      "opleidingsniveau",
+      "publicatiedatum",
+      "skills",
+      "provincie",
+      "start_datum",
+      "looptijd_tekst",
+      "uren_per_week",
+      "uren_per_week_raw",
+      "eind_datum",
+      "eindDatum",
+      "employment_type",
+    ]) {
+      expect(keyCategory(key)).toBe("displayed");
+    }
   });
 
   it("classifies identity and reference keys as identity", () => {
@@ -197,6 +207,7 @@ describe("formatReport", () => {
     expect(output).toContain("3");
     expect(output).toContain("miss");
     expect(output).toContain("disp");
+    expect(output).toContain("gap");
     expect(output).toContain("unclass");
     expect(output).toContain("errs");
   });

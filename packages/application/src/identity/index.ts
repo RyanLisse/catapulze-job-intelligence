@@ -2,6 +2,7 @@ export {
   AANVRAAG_GEWIJZIGD_EVENT,
   AANVRAAG_STATUS_GEWIJZIGD_EVENT,
   curateObservation,
+  CURATED_COLUMN_BRON_KEYS,
   splitDedupGroep,
   type CurateObservationInput,
   type CurateObservationResult,

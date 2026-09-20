@@ -2,7 +2,12 @@ import { describe, expect, it } from "bun:test";
 
 import type { JsonValue } from "@ji/application/normalise";
 
-import { evaluateContractCoverage } from "./field-coverage";
+import {
+  evaluateContractCoverage,
+  evaluateProvinceCoverage,
+  evaluatePublicationDateCoverage,
+  evaluateSkillsCoverage,
+} from "./field-coverage";
 
 const bron = (value: Record<string, JsonValue>): Record<string, JsonValue> =>
   value;
@@ -78,5 +83,85 @@ describe("evaluateContractCoverage", () => {
   it("returns false when no contract keys are present", () => {
     expect(evaluateContractCoverage(bron({}))).toBe(false);
     expect(evaluateContractCoverage(bron({ tarief: "40" }))).toBe(false);
+  });
+});
+
+describe("evaluatePublicationDateCoverage", () => {
+  it("counts valid ISO dates across all aliases", () => {
+    expect(
+      evaluatePublicationDateCoverage(bron({ publicatiedatum: "2024-06-12" }))
+    ).toBe(true);
+    expect(
+      evaluatePublicationDateCoverage(
+        bron({ gepubliceerd_op: "2024-06-12T08:30:00Z" })
+      )
+    ).toBe(true);
+    expect(
+      evaluatePublicationDateCoverage(bron({ publicatie_datum: "2024-06-12" }))
+    ).toBe(true);
+    expect(
+      evaluatePublicationDateCoverage(
+        bron({ json_ld_date_posted: "2024-06-12T08:30:00+02:00" })
+      )
+    ).toBe(true);
+  });
+
+  it("rejects malformed or non-date values", () => {
+    expect(
+      evaluatePublicationDateCoverage(bron({ publicatiedatum: "asap" }))
+    ).toBe(false);
+    expect(
+      evaluatePublicationDateCoverage(bron({ publicatiedatum: "2024-13-01" }))
+    ).toBe(false);
+    expect(
+      evaluatePublicationDateCoverage(bron({ publicatiedatum: "unknown" }))
+    ).toBe(false);
+    expect(evaluatePublicationDateCoverage(bron({ publicatiedatum: "" }))).toBe(
+      false
+    );
+  });
+});
+
+describe("evaluateProvinceCoverage", () => {
+  it("counts canonical Dutch province names", () => {
+    expect(evaluateProvinceCoverage(bron({ provincie: "Noord-Holland" }))).toBe(
+      true
+    );
+    expect(evaluateProvinceCoverage(bron({ provincie: "Utrecht" }))).toBe(true);
+  });
+
+  it("rejects non-canonical province values", () => {
+    expect(evaluateProvinceCoverage(bron({ provincie: "Amsterdam" }))).toBe(
+      false
+    );
+    expect(evaluateProvinceCoverage(bron({ provincie: "Noord Holland" }))).toBe(
+      false
+    );
+    expect(evaluateProvinceCoverage(bron({ provincie: "unknown" }))).toBe(
+      false
+    );
+    expect(evaluateProvinceCoverage(bron({ provincie: "" }))).toBe(false);
+  });
+});
+
+describe("evaluateSkillsCoverage", () => {
+  it("counts non-empty normalised skill arrays", () => {
+    expect(
+      evaluateSkillsCoverage(bron({ skills: ["Java", "Kubernetes"] }))
+    ).toBe(true);
+  });
+
+  it("rejects arrays that normalise to empty", () => {
+    expect(evaluateSkillsCoverage(bron({ skills: [] }))).toBe(false);
+    expect(evaluateSkillsCoverage(bron({ skills: ["", "  ", 42, {}] }))).toBe(
+      false
+    );
+  });
+
+  it("rejects non-array values", () => {
+    expect(evaluateSkillsCoverage(bron({ skills: "Java, Kubernetes" }))).toBe(
+      false
+    );
+    expect(evaluateSkillsCoverage(bron({ skills: { 0: "Java" } }))).toBe(false);
   });
 });
