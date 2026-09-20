@@ -21,6 +21,11 @@ if [[ ! -f "$compose_env_file" ]]; then
   exit 1
 fi
 raw_storage_enabled="${SMOKE_RAW_STORAGE:-0}"
+compose_parallel_limit="${COMPOSE_PARALLEL_LIMIT:-2}"
+if [[ ! "$compose_parallel_limit" =~ ^[12]$ ]]; then
+  echo "docker-compose smoke: COMPOSE_PARALLEL_LIMIT must be 1 or 2" >&2
+  exit 1
+fi
 # Exported ambient variables win Compose interpolation over --env-file and
 # silently override the chosen env file's contract (the Crabbox shadow lane
 # proved this: its exported shadow credentials made postgres initialize
@@ -31,6 +36,30 @@ compose_command=(
   env -i
   "HOME=$HOME"
   "PATH=$PATH"
+  "COMPOSE_PARALLEL_LIMIT=$compose_parallel_limit"
+)
+# Docker client transport selection is the caller's daemon choice, not
+# Compose interpolation: keep it so every invocation targets the same
+# daemon as the raw `docker volume` calls in ensure-volume.sh.
+for docker_var in DOCKER_HOST DOCKER_CONTEXT DOCKER_CONFIG DOCKER_TLS_VERIFY DOCKER_CERT_PATH; do
+  if [[ -n "${!docker_var:-}" ]]; then
+    compose_command+=("$docker_var=${!docker_var}")
+  fi
+done
+# The 1Password lane (env-file entries like `NAME=op://vault/item/field`)
+# resolves secrets through `op run`, which injects them via the process
+# environment — the one ambient source Compose must still see. Forward
+# exactly the names the env file marks as op:// references; every other
+# name keeps the env file authoritative.
+while IFS='=' read -r env_name env_value; do
+  if [[ ! "$env_name" =~ ^[A-Za-z_][A-Za-z0-9_]*$ || "$env_value" != *op://* ]]; then
+    continue
+  fi
+  if [[ -n "${!env_name:-}" ]]; then
+    compose_command+=("$env_name=${!env_name}")
+  fi
+done < "$compose_env_file"
+compose_command+=(
   docker compose --env-file "$compose_env_file"
 )
 compose_profiles=(--profile projector)

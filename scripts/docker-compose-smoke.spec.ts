@@ -157,7 +157,8 @@ const runSmokeWithMocks = async (
   cleanupExit = 0,
   rawStorage = false,
   storageInitExit = 0,
-  extraEnv: Record<string, string> = {}
+  extraEnv: Record<string, string> = {},
+  composeEnv?: { contents: string; name: string }
 ): Promise<SmokeRun> => {
   const workspace = await mkdtemp(
     path.join(tmpdir(), "ji-docker-compose-smoke-")
@@ -173,6 +174,12 @@ const runSmokeWithMocks = async (
       path.join(workspace, ".env"),
       "COMPOSE_PROJECT_NAME=smoke\n"
     );
+    if (composeEnv) {
+      await writeFile(
+        path.join(workspace, composeEnv.name),
+        composeEnv.contents
+      );
+    }
     await writeFile(path.join(workspace, "apps/server/.env"), "TEST=1\n");
     await writeFile(logPath, "");
     await copyFile(
@@ -316,6 +323,56 @@ describe("docker-compose smoke orchestration", () => {
     expect(result.dockerEnv).toContain("PATH=");
     expect(result.dockerEnv).not.toContain("ji_poisoned_db");
     expect(result.dockerEnv).not.toContain("poisoned-password");
+  }, 20_000);
+
+  it("forwards COMPOSE_PARALLEL_LIMIT and Docker daemon selection through the scrub", async () => {
+    const result = await runSmokeWithMocks(0, 0, false, 0, {
+      COMPOSE_PARALLEL_LIMIT: "2",
+      DOCKER_HOST: "ssh://builder@example.invalid",
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(result.dockerEnv).toContain("COMPOSE_PARALLEL_LIMIT=2");
+    expect(result.dockerEnv).toContain(
+      "DOCKER_HOST=ssh://builder@example.invalid"
+    );
+  }, 20_000);
+
+  it("rejects an out-of-range COMPOSE_PARALLEL_LIMIT", async () => {
+    const result = await runSmokeWithMocks(0, 0, false, 0, {
+      COMPOSE_PARALLEL_LIMIT: "9",
+    });
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain("COMPOSE_PARALLEL_LIMIT must be 1 or 2");
+  }, 20_000);
+
+  it("forwards op://-resolved secrets while ambient overrides stay scrubbed", async () => {
+    const result = await runSmokeWithMocks(
+      0,
+      0,
+      false,
+      0,
+      {
+        BETTER_AUTH_SECRET: "resolved-secret-value",
+        COMPOSE_ENV_FILE: "op.env",
+        POSTGRES_DB: "ji_poisoned_db",
+      },
+      {
+        contents:
+          "BETTER_AUTH_SECRET=op://ji/local/better-auth-secret\nPOSTGRES_DB=ji_smoke\n",
+        name: "op.env",
+      }
+    );
+
+    expect(result.exitCode).toBe(0);
+    // The op://-marked name is the one channel resolved secrets arrive on.
+    expect(result.dockerEnv).toContain(
+      "BETTER_AUTH_SECRET=resolved-secret-value"
+    );
+    // A literal (non-op://) entry stays file-authoritative: the ambient
+    // poisoned POSTGRES_DB must not reach Compose.
+    expect(result.dockerEnv).not.toContain("ji_poisoned_db");
   }, 20_000);
 
   it("starts MinIO and completes bucket bootstrap before server readiness", async () => {
