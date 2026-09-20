@@ -8,6 +8,8 @@ import { screenContextSchema, buildSystemPrompt } from "./prompt";
 import type { TurnRateLimiter } from "./rate-limit";
 import type { MarktvragenRegistry } from "./tools";
 import { createMarktvragenTools } from "./tools";
+import type { TurnEndReason } from "./turn-scope";
+import { openChatTurnScope } from "./turn-scope";
 
 /**
  * On-box Marktvragen chat (JI-DSH-07) — the agent-native replacement for the
@@ -15,21 +17,34 @@ import { createMarktvragenTools } from "./tools";
  * this process: no cloud runs, no per-turn cost, tools execute through the
  * same Slice A registry invokers every other surface uses.
  *
- * Authorization is unchanged: the better-auth session resolves to an
- * InvocationPrincipal (role lookup per request) and every tool call goes
- * through capability-level authorization. The optional `screen` body field is
+ * Authorization: the better-auth session resolves to an InvocationPrincipal
+ * for the 401/429 gate, and every tool call re-resolves it (CTP-628) so a
+ * revoked session stops the next action. The optional `screen` body field is
  * framing context only, never authority.
+ *
+ * Lifecycle: one Effect scope per turn (turn-scope.ts) owns the abort signal,
+ * the turn timer and the disconnect listener. Provider stream and tools share
+ * that signal; the scope closes on finish, abort, error, timeout or revocation.
  */
 const requestSchema = z.object({
   messages: z.array(z.unknown()).min(1),
   screen: screenContextSchema.optional(),
 });
 
+/** Whole-turn wall-clock budget, provider stream and tool calls included. */
+export const DEFAULT_TURN_TIMEOUT_MS = 120_000;
+
 export interface MarktvragenChatDeps {
   readonly model: () => LanguageModel;
   readonly rateLimiter: TurnRateLimiter;
   readonly registry: MarktvragenRegistry;
   readonly resolvePrincipal: PrincipalResolver;
+  readonly turnTimeoutMs?: number;
+  /** Observability hook: fires once per turn with the reason it ended. */
+  readonly onTurnEnd?: (event: {
+    readonly reason: TurnEndReason;
+    readonly requestId: string;
+  }) => void;
 }
 
 const jsonError = (
@@ -99,15 +114,40 @@ export const createMarktvragenChatHandler =
       );
     }
 
+    const { headers } = c.req.raw;
+    const scope = await openChatTurnScope({
+      onClose: (reason) => deps.onTurnEnd?.({ reason, requestId }),
+      requestSignal: c.req.raw.signal,
+      timeoutMs: deps.turnTimeoutMs ?? DEFAULT_TURN_TIMEOUT_MS,
+    });
+
     const result = streamText({
-      abortSignal: c.req.raw.signal,
+      abortSignal: scope.signal,
       messages: modelMessages,
       model,
+      onAbort: () => {
+        // The scope already knows why (disconnect, timeout, revocation); this
+        // only covers an abort the SDK raised on its own.
+        void scope.close("error");
+      },
+      onError: () => {
+        void scope.close("error");
+      },
+      onFinish: () => {
+        void scope.close("finished");
+      },
       stopWhen: stepCountIs(10),
       system: buildSystemPrompt(parsed.data.screen),
       tools: createMarktvragenTools(deps.registry, {
-        principal: resolved.principal,
+        onRevoked: () => {
+          void scope.close("revoked");
+        },
         requestIdPrefix: `chat:${requestId}`,
+        resolvePrincipal: async () => {
+          const fresh = await deps.resolvePrincipal(headers, requestId);
+          return fresh.ok ? fresh.principal : null;
+        },
+        signal: scope.signal,
       }),
     });
 
