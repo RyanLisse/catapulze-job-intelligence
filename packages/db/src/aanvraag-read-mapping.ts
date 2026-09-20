@@ -1,4 +1,8 @@
-import { NL_PROVINCIES, normaliseSkills } from "@ji/application/normalise";
+import {
+  NL_PROVINCIES,
+  normaliseSkills,
+  toValidPublicationDate,
+} from "@ji/application/normalise";
 import { z } from "zod";
 
 export interface AanvraagBronFacts {
@@ -14,9 +18,6 @@ export interface AanvraagBronFacts {
   readonly startDatum: string | null;
   readonly werkvorm: string | null;
 }
-
-const PUBLICATION_DATE_PATTERN =
-  /^\d{4}-\d{2}-\d{2}(?:T\d{2}:\d{2}(?::\d{2}(?:\.\d{1,3})?)?(?:Z|[+-]\d{2}:\d{2})?)?$/u;
 
 const sourceTextSchema = z
   .string()
@@ -62,6 +63,13 @@ const bronFactsInputSchema = z.object({
   werkvorm: sourceTextSchema,
 });
 
+/** bronSpecifiek keys the read path consumes into AanvraagBronFacts.
+ * Keep this in sync with bronFactsInputSchema.shape above. */
+export const AANVRAAG_BRON_FACT_KEYS: readonly string[] = Object.keys(
+  // oxlint-disable-next-line anti-slop/no-shape-in-symbol-names -- `shape` is the Zod schema property that owns the field keys we export here.
+  bronFactsInputSchema.shape
+);
+
 const firstSourceText = (
   ...values: readonly (null | string | undefined)[]
 ): string | null =>
@@ -69,31 +77,15 @@ const firstSourceText = (
 
 const publicationDate = (
   values: z.output<typeof bronFactsInputSchema>
-): string | null => {
-  const value = firstSourceText(
-    values.publicatiedatum,
-    values.gepubliceerd_op,
-    values.publicatie_datum,
-    values.json_ld_date_posted
+): string | null =>
+  toValidPublicationDate(
+    firstSourceText(
+      values.publicatiedatum,
+      values.gepubliceerd_op,
+      values.publicatie_datum,
+      values.json_ld_date_posted
+    )
   );
-  if (value === null) {
-    return null;
-  }
-  if (
-    !PUBLICATION_DATE_PATTERN.test(value) ||
-    Number.isNaN(Date.parse(value))
-  ) {
-    return null;
-  }
-  const year = Number(value.slice(0, 4));
-  const month = Number(value.slice(5, 7));
-  const day = Number(value.slice(8, 10));
-  const daysInMonth = new Date(Date.UTC(year, month, 0)).getUTCDate();
-  if (month < 1 || month > 12 || day < 1 || day > daysInMonth) {
-    return null;
-  }
-  return value;
-};
 
 export const readAanvraagBronFacts = (
   // oxlint-disable-next-line anti-slop/no-unknown-parameters -- curated JSON I/O boundary is parsed by bronFactsInputSchema before field access

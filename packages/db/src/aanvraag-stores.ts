@@ -5,7 +5,10 @@ import {
   applyEnrichmentOverlayToSearchFacts,
 } from "@ji/application/enrichment";
 import type { TitleFallbackDescriptionParts } from "@ji/application/enrichment";
-import { parseWeeklyHoursRange } from "@ji/application/normalise";
+import {
+  parseWeeklyHoursRange,
+  toValidPublicationDate,
+} from "@ji/application/normalise";
 import type {
   AanvraagRecord,
   AanvraagStore,
@@ -78,7 +81,8 @@ const resolveCuratedFields = (
   // No curated province column; never derive from locatieTekst — only a
   // canonical name the source itself published.
   provincie: bronFacts.provincie,
-  publicatiedatum: row.publicatiedatum ?? bronFacts.publicatiedatum,
+  publicatiedatum:
+    toValidPublicationDate(row.publicatiedatum) ?? bronFacts.publicatiedatum,
   skills: bronFacts.skills,
   startDatum: row.startDatum ?? bronFacts.startDatum,
   tariefMax: row.tariefMax === null ? null : Number(row.tariefMax),

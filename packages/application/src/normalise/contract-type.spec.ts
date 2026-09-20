@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  resolveCanonicalContractType,
   toCanonicalContractType,
   toCanonicalEmploymentTypes,
 } from "./contract-type";
@@ -44,6 +45,26 @@ describe("toCanonicalContractType", () => {
     expect(toCanonicalContractType("")).toBeNull();
     expect(toCanonicalContractType(null)).toBeNull();
     expect(toCanonicalContractType()).toBeNull();
+  });
+});
+
+describe("resolveCanonicalContractType", () => {
+  test("uses the first populated direct alias", () => {
+    expect(
+      resolveCanonicalContractType("FULL_TIME", "CONTRACTOR", "TEMPORARY")
+    ).toBeNull();
+    expect(resolveCanonicalContractType("", "CONTRACTOR", "TEMPORARY")).toBe(
+      "freelance"
+    );
+  });
+
+  test("canonicalizes comma-separated employment types", () => {
+    expect(
+      resolveCanonicalContractType(null, null, "TEMPORARY, FULL_TIME")
+    ).toBe("interim");
+    expect(
+      resolveCanonicalContractType(null, null, "TEMPORARY, CONTRACTOR")
+    ).toBeNull();
   });
 });
 

@@ -1,17 +1,19 @@
 import path from "node:path";
 
+import { resolveCanonicalContractType } from "@ji/application/normalise";
 import type {
   JsonValue,
   NormalisedAanvraagDraft,
 } from "@ji/application/normalise";
 import { SOURCES, SUPPORTED_BRON_SLUGS } from "@ji/application/sources";
 import type { SourceDefinition } from "@ji/application/sources";
+import { readAanvraagBronFacts } from "@ji/db/aanvraag-read-mapping";
 import { CLEARED, UNKNOWN } from "@ji/domain";
 
 /**
  * Field-coverage audit: replays every source's committed fixtures through its
- * real connector + normaliser and reports which of the 11 detail-page fields
- * land per bron. Read-only; writes nothing.
+ * real connector + normaliser and reports which detail-page fields land per
+ * bron. Read-only; writes nothing.
  *
  * Usage: bun run scripts/field-coverage.ts [--bron <slug>] [--json]
  */
@@ -28,9 +30,37 @@ export const FIELDS = [
   "opleiding",
   "startdatum",
   "einddatum",
+  "duur",
+  "provincie",
+  "skills",
 ] as const;
 
 export type FieldName = (typeof FIELDS)[number];
+
+/** Mapping from canonical detail-page field to the bronSpecifiek keys that
+ * can land it. Empty arrays mean the field is driven by top-level
+ * NormalisedAanvraagDraft fields only. */
+export const FIELD_KEY_ALIASES = {
+  contract: ["contracttype", "contract_type", "employment_type"],
+  duur: ["duration", "duur", "looptijd_tekst", "periode", "verwachte_duur"],
+  einddatum: ["eind_datum", "eindDatum"],
+  gepubliceerd: [
+    "publicatiedatum",
+    "gepubliceerd_op",
+    "publicatie_datum",
+    "json_ld_date_posted",
+  ],
+  locatie: [],
+  opleiding: ["opleidingsniveau", "education_level"],
+  organisatie: ["opdrachtgever_naam", "opdrachtgeverNaam"],
+  provincie: ["provincie"],
+  skills: ["skills"],
+  sluit: [],
+  startdatum: ["start_datum", "startDatum"],
+  tarief: [],
+  uren: ["uren_per_week", "uren_per_week_raw"],
+  werkvorm: ["werkvorm"],
+} as const satisfies Record<FieldName, readonly string[]>;
 
 /* oxlint-disable anti-slop/no-unknown-parameters, anti-slop/no-runtime-typeof -- these guards are the script's own I/O boundary: bronSpecifiek is a free-form JsonValue map whose shape is established here before any field evaluation reads it. */
 const isRecord = (value: unknown): value is Record<string, JsonValue> =>
@@ -49,8 +79,10 @@ const isLiveValue = (value: unknown): value is number | string =>
 const isBlankText = (value: unknown): value is string =>
   typeof value === "string" && (value.trim() === "" || value === UNKNOWN);
 
-const liveText = (record: Record<string, JsonValue>, keys: string[]): boolean =>
-  keys.some((key) => isLiveValue(record[key]));
+const liveText = (
+  record: Record<string, JsonValue>,
+  keys: readonly string[]
+): boolean => keys.some((key) => isLiveValue(record[key]));
 
 const draftText = (value: string): boolean =>
   value.trim() !== "" && value !== UNKNOWN && value !== CLEARED;
@@ -58,37 +90,77 @@ const draftText = (value: string): boolean =>
 const tariefBound = (v: string): boolean =>
   v !== UNKNOWN && v !== CLEARED && v.trim() !== "";
 
+/**
+ * The contract field only reaches the UI when the source value maps to one
+ * of the canonical contract forms. Mirrors the canonicalisation used by
+ * curation/read path so coverage counts reflect actual displayed values.
+ */
+export const evaluateContractCoverage = (
+  bron: Record<string, JsonValue>
+): boolean => {
+  const text = (key: string): string | null => {
+    const value = bron[key];
+    return typeof value === "string" && value.trim() !== "" ? value : null;
+  };
+  return (
+    resolveCanonicalContractType(
+      text("contracttype"),
+      text("contract_type"),
+      text("employment_type")
+    ) !== null
+  );
+};
+
+/**
+ * The publication-date field only reaches the UI when the value parses as a
+ * valid date. Mirrors the validation used by `readAanvraagBronFacts`.
+ */
+export const evaluatePublicationDateCoverage = (
+  bron: Record<string, JsonValue>
+): boolean => readAanvraagBronFacts(bron).publicatiedatum !== null;
+
+/**
+ * The province field only reaches the UI when the value is one of the twelve
+ * canonical Dutch province names. Mirrors the validation used by
+ * `readAanvraagBronFacts`.
+ */
+export const evaluateProvinceCoverage = (
+  bron: Record<string, JsonValue>
+): boolean => readAanvraagBronFacts(bron).provincie !== null;
+
+/**
+ * The skills field only reaches the UI when normalisation yields at least one
+ * valid skill. Mirrors the shaping done by `readAanvraagBronFacts`.
+ */
+export const evaluateSkillsCoverage = (
+  bron: Record<string, JsonValue>
+): boolean => readAanvraagBronFacts(bron).skills.length > 0;
+
 const evaluateDraft = (draft: NormalisedAanvraagDraft) => {
   const bronValue = draft.bronSpecifiek.value;
   const bron: Record<string, JsonValue> = isRecord(bronValue) ? bronValue : {};
   return {
-    contract: liveText(bron, [
-      "contracttype",
-      "contract_type",
-      "employment_type",
-    ]),
-    einddatum: liveText(bron, ["eind_datum", "eindDatum"]),
-    gepubliceerd: liveText(bron, [
-      "publicatiedatum",
-      "gepubliceerd_op",
-      "publicatie_datum",
-      "json_ld_date_posted",
-    ]),
+    contract: evaluateContractCoverage(bron),
+    duur: liveText(bron, FIELD_KEY_ALIASES.duur),
+    einddatum: liveText(bron, FIELD_KEY_ALIASES.einddatum),
+    gepubliceerd: evaluatePublicationDateCoverage(bron),
     locatie: draftText(draft.locatieTekst.value),
-    opleiding: liveText(bron, ["opleidingsniveau", "education_level"]),
+    opleiding: liveText(bron, FIELD_KEY_ALIASES.opleiding),
     organisatie:
       draftText(draft.opdrachtgeverNaam.value) ||
-      liveText(bron, ["opdrachtgever_naam", "opdrachtgeverNaam"]),
+      liveText(bron, FIELD_KEY_ALIASES.organisatie),
+    provincie: evaluateProvinceCoverage(bron),
+    skills: evaluateSkillsCoverage(bron),
     sluit: draft.sluitingsdatum !== undefined,
     startdatum:
       draftText(draft.startDatum.value) ||
-      liveText(bron, ["start_datum", "startDatum"]),
+      liveText(bron, FIELD_KEY_ALIASES.startdatum),
     tarief:
       tariefBound(draft.tarief.min) ||
       tariefBound(draft.tarief.max) ||
       tariefBound(draft.tarief.eenheid),
-    uren: liveText(bron, ["uren_per_week", "uren_per_week_raw"]),
-    werkvorm: liveText(bron, ["werkvorm"]),
+    uren: liveText(bron, FIELD_KEY_ALIASES.uren),
+    werkvorm: liveText(bron, FIELD_KEY_ALIASES.werkvorm),
   };
 };
 
@@ -262,6 +334,42 @@ const printDetails = (reports: readonly SourceReport[]): void => {
   }
 };
 
+export interface CliArgs {
+  asJson: boolean;
+  bron?: string;
+}
+
+/**
+ * Strict CLI parser shared by the field-coverage and source-to-ui-gap
+ * scripts: `--json`, `--bron <slug>` at most once, anything else throws so a
+ * typo never silently audits every source.
+ */
+export const parseArgs = (args: readonly string[]): CliArgs => {
+  let bron: string | undefined;
+  let asJson = false;
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index];
+    if (arg === "--json") {
+      asJson = true;
+      continue;
+    }
+    if (arg === "--bron") {
+      const value = args[index + 1];
+      if (!value || value.startsWith("--")) {
+        throw new Error("--bron requires a source slug");
+      }
+      if (bron !== undefined) {
+        throw new Error("--bron may only be provided once");
+      }
+      bron = value;
+      index += 1;
+      continue;
+    }
+    throw new Error(`unknown argument: ${arg}`);
+  }
+  return { asJson, bron };
+};
+
 /**
  * Replay the committed fixtures of the given bron slugs (default: every
  * supported bron) and return one report per source. Throws on an unknown
@@ -291,14 +399,9 @@ export const replaySources = async (
 };
 
 if (import.meta.main) {
-  const args = process.argv.slice(2);
-  const bronArg = args.includes("--bron")
-    ? args[args.indexOf("--bron") + 1]
-    : undefined;
-  const asJson = args.includes("--json");
-
   try {
-    const reports = await replaySources(bronArg ? [bronArg] : undefined);
+    const { asJson, bron } = parseArgs(process.argv.slice(2));
+    const reports = await replaySources(bron ? [bron] : undefined);
     if (asJson) {
       console.log(JSON.stringify(reports, null, 2));
     } else {

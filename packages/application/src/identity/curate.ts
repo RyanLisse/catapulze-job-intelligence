@@ -11,10 +11,14 @@ import { timeCriticalPathPhase } from "@ji/performance";
 import { z } from "zod";
 
 import type { NormalisedAanvraagDraft } from "../normalise";
-import { buildDedupKey, buildProvenanceMap } from "../normalise";
+import {
+  buildDedupKey,
+  buildProvenanceMap,
+  toValidPublicationDate,
+} from "../normalise";
 import { classifyContractAndWork } from "../normalise/classify-contract-work";
 import { mergeContactpersoonPipelineVelden } from "../normalise/contactpersonen";
-import { toCanonicalContractType } from "../normalise/contract-type";
+import { resolveCanonicalContractType } from "../normalise/contract-type";
 import type {
   AanvraagSnapshot,
   BronSpecifiekJson,
@@ -288,7 +292,12 @@ const commercialBronSpecifiek = (
   );
   if (
     classified.contracttype &&
-    readExistingText(base, "contracttype", "contract_type") === null
+    readExistingText(
+      base,
+      "contracttype",
+      "contract_type",
+      "employment_type"
+    ) === null
   ) {
     base.contracttype = classified.contracttype;
   }
@@ -364,6 +373,13 @@ const explicitBronText = (
   ...keys: readonly string[]
 ): string | null =>
   readBronText(asBronSpecifiekRecord(draft.bronSpecifiek.value), ...keys);
+
+const resolveBronContractType = (record: BronSpecifiekRecord) =>
+  resolveCanonicalContractType(
+    readExistingText(record, "contracttype"),
+    readExistingText(record, "contract_type"),
+    readExistingText(record, "employment_type")
+  );
 
 /** Hours text "0" is absent for fill/overwrite (CTP-599 / CTP-526 residual). */
 const isAbsentUrenText = (value: string | null): boolean =>
@@ -570,6 +586,24 @@ const mergeBronSpecifiek = (
   return merged as BronSpecifiekJson;
 };
 
+/**
+ * bronSpecifiek keys `toStoredFields` reads into curated columns, per column,
+ * in precedence order. `scripts/source-to-ui-gap.ts` derives its "displayed"
+ * set from this constant; keep it the single source of truth for that seam.
+ */
+export const CURATED_COLUMN_BRON_KEYS = {
+  contracttype: ["contracttype", "contract_type", "employment_type"],
+  eindDatum: ["eind_datum", "eindDatum"],
+  publicatiedatum: [
+    "publicatiedatum",
+    "gepubliceerd_op",
+    "publicatie_datum",
+    "json_ld_date_posted",
+  ],
+  urenPerWeek: ["uren_per_week", "uren_per_week_raw"],
+  werkvorm: ["werkvorm"],
+} as const satisfies Record<string, readonly string[]>;
+
 const toStoredFields = (
   input: CurateObservationInput
 ): Omit<StoredAanvraag, "aanvraagId"> => {
@@ -588,17 +622,10 @@ const toStoredFields = (
     bronUrl: draftTextColumn(draft.bronUrl.value),
     contactpersonen: draft.contactpersonen?.value ?? [],
     contentHash: draft.contentHash,
-    contracttype: toCanonicalContractType(
-      readBronText(
-        bronRecord,
-        "contracttype",
-        "contract_type",
-        "employment_type"
-      )
-    ),
+    contracttype: resolveBronContractType(bronRecord),
     dedupGroepId: null,
     eersteGezienOp: input.observedAt,
-    eindDatum: readBronText(bronRecord, "eind_datum", "eindDatum"),
+    eindDatum: readBronText(bronRecord, ...CURATED_COLUMN_BRON_KEYS.eindDatum),
     extractieMethode: draft.extractieMethode,
     laatstGezienOp: input.observedAt,
     locatieLand: draft.locatieLand.value,
@@ -606,12 +633,8 @@ const toStoredFields = (
     opdrachtgeverNaam: draftTextColumn(draft.opdrachtgeverNaam.value),
     parserVersion: draft.parserVersion,
     provenance: buildProvenanceMap(draft),
-    publicatiedatum: readBronText(
-      bronRecord,
-      "publicatiedatum",
-      "gepubliceerd_op",
-      "publicatie_datum",
-      "json_ld_date_posted"
+    publicatiedatum: toValidPublicationDate(
+      readBronText(bronRecord, ...CURATED_COLUMN_BRON_KEYS.publicatiedatum)
     ),
     rawPayloadRef: input.rawPayloadRef,
     scrapeRunId: input.scrapeRunId,
@@ -625,11 +648,10 @@ const toStoredFields = (
     titel: draft.titel.value,
     urenPerWeek: readUrenBronText(
       bronRecord,
-      "uren_per_week",
-      "uren_per_week_raw"
+      ...CURATED_COLUMN_BRON_KEYS.urenPerWeek
     ),
     versie: 1,
-    werkvorm: readBronText(bronRecord, "werkvorm"),
+    werkvorm: readBronText(bronRecord, ...CURATED_COLUMN_BRON_KEYS.werkvorm),
   };
 };
 
@@ -775,20 +797,19 @@ const buildUnchangedContentPatch = (
     patch.startDatum = startDatum;
   }
   if (existing.publicatiedatum === null) {
-    const value = readBronText(
-      asBronSpecifiekRecord(draft.bronSpecifiek.value),
-      "publicatiedatum",
-      "gepubliceerd_op",
-      "publicatie_datum",
-      "json_ld_date_posted"
+    const value = toValidPublicationDate(
+      readBronText(
+        asBronSpecifiekRecord(draft.bronSpecifiek.value),
+        ...CURATED_COLUMN_BRON_KEYS.publicatiedatum
+      )
     );
     if (value !== null) {
       patch.publicatiedatum = value;
     }
   }
   if (existing.contracttype === null) {
-    const value = toCanonicalContractType(
-      explicitBronText(draft, "contracttype", "contract_type")
+    const value = resolveBronContractType(
+      asBronSpecifiekRecord(draft.bronSpecifiek.value)
     );
     if (value !== null) {
       patch.contracttype = value;
@@ -1018,8 +1039,8 @@ export const curateObservation = async (
         next.contactpersonen
       ),
       contracttype: coalesceNullable(
-        toCanonicalContractType(
-          explicitBronText(draft, "contracttype", "contract_type")
+        resolveBronContractType(
+          asBronSpecifiekRecord(draft.bronSpecifiek.value)
         ),
         existing.contracttype
       ),

@@ -163,6 +163,37 @@ describe("curateObservation commercial columns and coalesce tombstones", () => {
     expect(aanvraag?.contracttype).toBeTruthy();
   });
 
+  it("stores only publication dates the UI can format", async () => {
+    const store = new InMemoryCurateStore();
+    const valid = observation("COL-DATE-VALID", "hash-date-valid");
+    const invalid = observation("COL-DATE-INVALID", "hash-date-invalid");
+
+    await curateObservation(store, {
+      ...valid,
+      draft: {
+        ...valid.draft,
+        bronSpecifiek: {
+          provenance,
+          value: { publicatiedatum: "2026-09-20T08:30:00+02:00" },
+        },
+      },
+    });
+    await curateObservation(store, {
+      ...invalid,
+      draft: {
+        ...invalid.draft,
+        bronSpecifiek: {
+          provenance,
+          value: { publicatiedatum: "20 september 2026" },
+        },
+      },
+    });
+
+    expect(store.aanvragen.map((aanvraag) => aanvraag.publicatiedatum)).toEqual(
+      ["2026-09-20T08:30:00+02:00", null]
+    );
+  });
+
   it("canonicalizes a raw 'temporary' contract_type token to interim (CTP-514/CTP-526)", async () => {
     const store = new InMemoryCurateStore();
     const base = observation("COL-CONTRACT-1", "hash-contract-1");
@@ -209,6 +240,67 @@ describe("curateObservation commercial columns and coalesce tombstones", () => {
     });
     const [aanvraag] = store.aanvragen;
     expect(aanvraag?.contracttype).toBe("freelance");
+  });
+
+  it("canonicalizes a comma-separated employment_type list", async () => {
+    const store = new InMemoryCurateStore();
+    const base = observation("COL-CONTRACT-EMP-LIST", "hash-contract-emp-list");
+    await curateObservation(store, {
+      ...base,
+      draft: {
+        ...base.draft,
+        bronSpecifiek: {
+          provenance,
+          value: { employment_type: "TEMPORARY, FULL_TIME" },
+        },
+      },
+    });
+    expect(store.aanvragen[0]?.contracttype).toBe("interim");
+  });
+
+  it("uses first-live contract alias precedence", async () => {
+    const store = new InMemoryCurateStore();
+    const base = observation("COL-CONTRACT-PRECEDENCE", "hash-precedence");
+    await curateObservation(store, {
+      ...base,
+      draft: {
+        ...base.draft,
+        bronSpecifiek: {
+          provenance,
+          value: { contract_type: "CONTRACTOR", contracttype: "FULL_TIME" },
+        },
+      },
+    });
+    expect(store.aanvragen[0]?.contracttype).toBeNull();
+  });
+
+  it("backfills contracttype from employment_type on a later observation", async () => {
+    const store = new InMemoryCurateStore();
+    const initial = observation("COL-CONTRACT-BACKFILL", "hash-initial");
+    await curateObservation(store, initial);
+    const updated = observation("COL-CONTRACT-BACKFILL", "hash-updated");
+    await curateObservation(store, {
+      ...updated,
+      draft: {
+        ...updated.draft,
+        bronSpecifiek: { provenance, value: { employment_type: "CONTRACTOR" } },
+      },
+    });
+    expect(store.aanvragen[0]?.contracttype).toBe("freelance");
+  });
+
+  it("backfills contracttype from employment_type when content is unchanged", async () => {
+    const store = new InMemoryCurateStore();
+    const initial = observation("COL-CONTRACT-SAME-HASH", "hash-same");
+    await curateObservation(store, initial);
+    await curateObservation(store, {
+      ...initial,
+      draft: {
+        ...initial.draft,
+        bronSpecifiek: { provenance, value: { employment_type: "CONTRACTOR" } },
+      },
+    });
+    expect(store.aanvragen[0]?.contracttype).toBe("freelance");
   });
 
   it("leaves the column null for an hours/employment token like 'FULL_TIME' that isn't a contract form (CTP-514/CTP-526)", async () => {

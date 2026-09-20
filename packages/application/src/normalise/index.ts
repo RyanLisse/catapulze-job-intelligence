@@ -39,6 +39,7 @@ export {
   normalizeDedupText,
   provenanceFor,
   stripHtml,
+  toValidPublicationDate,
   validateNormalisedDraft,
   type AanvraagProvenanceMap,
   type FieldProvenanceSource,
@@ -85,4 +86,8 @@ export {
 } from "./starapple-page";
 export { NL_PROVINCIES, type Provincie } from "./provincie";
 export { normaliseSkills } from "./skills";
-export { toCanonicalContractType } from "./contract-type";
+export {
+  resolveCanonicalContractType,
+  toCanonicalContractType,
+  toCanonicalEmploymentTypes,
+} from "./contract-type";

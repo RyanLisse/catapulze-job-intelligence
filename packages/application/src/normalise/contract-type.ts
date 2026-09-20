@@ -65,3 +65,22 @@ export const toCanonicalEmploymentTypes = (
   const [single] = canonical;
   return canonical.size === 1 ? (single ?? null) : null;
 };
+
+export const resolveCanonicalContractType = (
+  contracttype?: string | null,
+  contractType?: string | null,
+  employmentType?: string | null
+): ClassifiedContractType | null => {
+  const direct = [contracttype, contractType].find(
+    (value) => value !== null && value !== undefined && value.trim() !== ""
+  );
+  if (direct !== undefined) {
+    return toCanonicalContractType(direct);
+  }
+  if (!employmentType?.trim()) {
+    return null;
+  }
+  return toCanonicalEmploymentTypes(
+    employmentType.split(",").map((token) => token.trim())
+  );
+};

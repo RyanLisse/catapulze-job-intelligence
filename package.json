@@ -85,6 +85,7 @@
     "check-secrets": "PATH=\"./node_modules/.bin:$PATH\" bun scripts/check-secrets-scan.ts",
     "check:capability-coverage": "PATH=\"./node_modules/.bin:$PATH\" bun scripts/check-capability-coverage.ts",
     "check:capability-registry": "PATH=\"./node_modules/.bin:$PATH\" bun scripts/check-capability-registry.ts",
+    "source-to-ui-gap": "PATH=\"./node_modules/.bin:$PATH\" bun scripts/source-to-ui-gap.ts",
     "check:field-coverage": "PATH=\"./node_modules/.bin:$PATH\" bun scripts/check-field-coverage.ts",
     "check:postgres-compose": "PATH=\"./node_modules/.bin:$PATH\" bun scripts/check-postgres-compose.ts",
     "check:production-compose-guard": "PATH=\"./node_modules/.bin:$PATH\" bun scripts/check-production-compose-guard.ts",
