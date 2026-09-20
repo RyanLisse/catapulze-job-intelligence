@@ -33,14 +33,30 @@ involved — the job is a plain durable queue item.
 3. The consumer takes one job at a time (single executor per bron) and calls
    `runBronIngestPipeline` with the job's `scrapeRunId`. The pipeline's
    existing behaviour does the exactly-once work: a fresh `scrapeRunId`
-   starts a `reset` run; a replayed job finds the same row `running` and
-   resumes under a bumped fence token, or finds it `succeeded` and replays
-   without a second domain mutation. The domain commit and the outbox intent
-   stay in the pipeline's single transaction — the queue ack only happens
-   after that commit succeeds.
-4. On success the row flips `completed = true`. On a thrown error the store's
-   scope finalizer spends one attempt (`attempts + 1`, `last_failure`
-   recorded, claim released) and the row becomes claimable again.
+   starts a `reset` run; a replayed job finds the same row `running` or
+   `failed` and resumes it under a bumped fence token from its stored
+   checkpoint, or finds it `succeeded` and replays without a second domain
+   mutation. The domain commit and the outbox intent stay in the pipeline's
+   single transaction — the queue ack only happens after that commit
+   succeeds.
+4. On success the row flips `completed = true` and `last_failure` is cleared.
+   On a thrown error the store's scope finalizer spends one attempt
+   (`attempts + 1`, `last_failure` recorded, claim released) and the row
+   becomes claimable again — until the attempt that reaches `maxAttempts`,
+   which closes the row instead.
+
+## Retry semantics (CTP-643)
+
+Attempt N fails → the connector has already recorded `scrape_run.status =
+'failed'` with its last checkpoint → the queue releases the row with
+`attempts + 1` → the retake resumes the **same** `scrapeRunId`: `store.start`
+reopens the failed row (`running`, failure columns cleared, `fence_token + 1`,
+checkpoint kept, `gestart` moved to this attempt so `abandonStaleRuns` does not
+immediately re-fail it) and the connector refetches only from that checkpoint.
+A page-2 failure therefore costs one page, not a crawl. At `maxAttempts` the
+row closes (`completed = true`, `last_failure` kept): the bron is free for the
+scheduler's next due evaluation, and the closed row is never re-run
+automatically. A `succeeded` run is never reopened.
 
 ## The restart matrix
 
@@ -48,9 +64,10 @@ involved — the job is a plain durable queue item.
 |---|---|
 | Kill before the domain commit | The claim lease expires (`acquired_at` older than `lockExpiration`, 2 min default). A successor claims the same job; the pipeline resumes the same `scrape_run` under a new fence. |
 | Kill after the commit, before the queue ack | The replayed take finds `scrape_run.status = 'succeeded'` and returns immediately — the ack lands with no second mutation. |
-| Database outage during claim | The claim loop logs a warning and keeps polling; a `take` never settles as a failure, so no job is stranded or dead-lettered by a transient outage. |
+| Connector failure recorded as `failed` | The failing take spends one attempt. The retake's `store.start(resume)` reopens the failed row under a new fence and resumes from its checkpoint, so only the failed page is refetched and exactly one domain result lands. A `running` row that `abandonStaleRuns` flipped to `failed` is reopened the same way. |
+| Database outage during claim | The claim loop logs a warning and keeps polling; a `take` never settles as a failure, so no job is stranded or dead-lettered by a transient outage. A shutdown interrupt is the one cause the loop does not swallow — it ends the take so the worker can stop. |
 | Lease expiry / fencing | `acquired_by` is a per-worker UUID refreshed by a background fiber; a claim older than `lockExpiration` is reclaimable. Domain-side, the successor's `store.start` bumps `fence_token`, so the stale worker can never commit again. |
-| Exhausted attempts | At `attempts >= DURABLE_JOB_MAX_ATTEMPTS` (5) the claim predicate stops matching. The row stays `completed = false` with `last_failure` — an inspectable dead letter, never silently dropped. |
+| Exhausted attempts | The attempt that reaches `DURABLE_JOB_MAX_ATTEMPTS` (5) closes the row: `completed = true` with `last_failure` kept. It is an inspectable dead letter, never silently dropped, and because it is closed `durable_job_open_bron_uidx` lets the scheduler offer a fresh job for the bron. |
 
 State is inspectable from SQL:
 
@@ -58,6 +75,17 @@ State is inspectable from SQL:
 SELECT id, completed, attempts, last_failure, acquired_by, acquired_at
 FROM curated.durable_job
 WHERE queue_name = 'bron-ingest'
+ORDER BY sequence;
+```
+
+Dead letters are the closed rows that still carry a failure:
+
+```sql
+SELECT id, attempts, last_failure, updated_at
+FROM curated.durable_job
+WHERE queue_name = 'bron-ingest'
+  AND completed
+  AND last_failure IS NOT NULL
 ORDER BY sequence;
 ```
 

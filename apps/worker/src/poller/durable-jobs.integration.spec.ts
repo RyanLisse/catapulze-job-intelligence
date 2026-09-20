@@ -1,6 +1,7 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "bun:test";
 
 import { emptyRunMetrics } from "@ji/connectors";
+import { abandonStaleRuns } from "@ji/db/abandon-stale-runs";
 import { PostgresRunStore } from "@ji/db/bron-runtime";
 import { bron, bronHealth, scrapeRun } from "@ji/db/schema/curated";
 import * as schema from "@ji/db/schema/index";
@@ -174,14 +175,18 @@ describe.serial("durable bron job consumer", () => {
   };
 
   /**
-   * Pipeline-shaped processJob: replay a finished run, resume a live one,
-   * start a new one. `crashAfterCommit` throws once after the domain commit
-   * to simulate kill-after-commit-before-ack.
+   * Pipeline-shaped processJob: replay a finished run, resume a live or
+   * failed one (the store reopens a `failed` row on resume, CTP-643), start
+   * a new one. `crashAfterCommit` throws once after the domain commit to
+   * simulate kill-after-commit-before-ack; `failConnectorOnce` records the
+   * run as `failed` through `store.fail` — what a real connector failure
+   * does — then throws so the attempt counts.
    */
   const pipelineLikeJob =
     (behaviour: {
       readonly crashAfterCommit?: { current: boolean };
       readonly crashBeforeCommit?: { current: boolean };
+      readonly failConnectorOnce?: { current: boolean };
       readonly alwaysFail?: boolean;
     }): ((job: BronIngestJob) => Promise<void>) =>
     async (job) => {
@@ -211,6 +216,22 @@ describe.serial("durable bron job consumer", () => {
       if (behaviour.crashBeforeCommit?.current) {
         behaviour.crashBeforeCommit.current = false;
         throw new Error("worker killed mid-run before the domain commit");
+      }
+      if (behaviour.failConnectorOnce?.current) {
+        behaviour.failConnectorOnce.current = false;
+        await store.fail({
+          failure: {
+            class: "internal",
+            code: "UNEXPECTED_FAILURE",
+            message: "Connector run failed",
+            phase: "unknown",
+          },
+          fenceToken: started.fenceToken,
+          finishedAt: new Date(),
+          key: { bronId: job.bronId, scrapeRunId: job.scrapeRunId },
+          progress,
+        });
+        throw new Error("connector exploded mid-run");
       }
       await store.complete({
         fenceToken: started.fenceToken,
@@ -336,7 +357,7 @@ describe.serial("durable bron job consumer", () => {
     expect(row?.attempts).toBe(2);
   });
 
-  it("exhausted attempts leave an inspectable dead letter and stop claiming", async () => {
+  it("exhausted attempts close the dead letter and free the bron for a fresh job", async () => {
     if (!available || !database) {
       expect(available).toBe(false);
       return;
@@ -356,7 +377,9 @@ describe.serial("durable bron job consumer", () => {
     await consumer.abort();
 
     const [row] = await rows();
-    expect(row?.completed).toBe(false);
+    // CTP-643: the exhausting attempt closes the row, so the open-bron index
+    // no longer pins the bron to a job that will never run again.
+    expect(row?.completed).toBe(true);
     expect(row?.attempts).toBe(2);
     expect(row?.last_failure).toContain("permanent connector failure");
     expect(row?.acquired_by).toBeNull();
@@ -368,6 +391,23 @@ describe.serial("durable bron job consumer", () => {
     // A permanently failing job commits no domain row at all — the dead
     // letter and the absent scrape_run are both inspectable after restart.
     expect(run).toBeUndefined();
+
+    // Before the fix this offer was swallowed by durable_job_open_bron_uidx.
+    const fresh = makeJob();
+    const freshConsumer = runConsumer({ behaviour: {}, job: fresh });
+    try {
+      await waitFor(async () => {
+        const all = await rows();
+        return all.length === 2 && all.every((entry) => entry.completed);
+      });
+    } finally {
+      await freshConsumer.abort();
+    }
+    const afterFreshJob = await rows();
+    expect(afterFreshJob.map((entry) => entry.id)).toEqual([
+      job.scrapeRunId,
+      fresh.scrapeRunId,
+    ]);
   });
 
   it("a stale claim from a dead worker is fenced out and re-claimed after lease expiry", async () => {
@@ -424,5 +464,77 @@ describe.serial("durable bron job consumer", () => {
         progress,
       })
     ).rejects.toThrow();
+  });
+
+  it("a recorded connector failure is resumed on retake: same scrapeRunId, one succeeded run", async () => {
+    if (!available || !database) {
+      expect(available).toBe(false);
+      return;
+    }
+    const job = makeJob();
+    const consumer = runConsumer({
+      behaviour: { failConnectorOnce: { current: true } },
+      job,
+    });
+    await waitFor(async () => {
+      const [row] = await rows();
+      return row?.completed === true;
+    });
+    await consumer.abort();
+
+    const [row] = await rows();
+    expect(row?.completed).toBe(true);
+    // One failing take that recorded the `failed` run, one retake that
+    // reopened it under a new fence and completed it.
+    expect(row?.attempts).toBe(2);
+    expect(row?.last_failure).toBeNull();
+    // Before CTP-643 `store.start` refused the failed row on every retake
+    // ("Cannot resume mismatched or completed scrape run") and the job
+    // burned all attempts; now the same run resumes and commits once.
+    const runs = await database
+      .select({ fenceToken: scrapeRun.fenceToken, status: scrapeRun.status })
+      .from(scrapeRun)
+      .where(eq(scrapeRun.id, job.scrapeRunId));
+    expect(runs).toEqual([{ fenceToken: 2, status: "succeeded" }]);
+  });
+
+  it("a run abandoned as stale is resumed on retake, not refused", async () => {
+    if (!available || !database || !store) {
+      expect(available).toBe(false);
+      return;
+    }
+    const job = makeJob();
+    // The shape a crashed worker leaves: a `running` row that
+    // abandonStaleRuns flips to `failed` on the next maintenance tick.
+    await store.start({
+      key: { bronId: job.bronId, scrapeRunId: job.scrapeRunId },
+      mode: "reset",
+      progress,
+      runKind: "poll",
+      startedAt: new Date(),
+    });
+    const olderThanMs = 60_000;
+    const abandoned = await abandonStaleRuns(database, {
+      now: new Date(Date.now() + olderThanMs + 1),
+      olderThanMs,
+    });
+    expect(abandoned).toContain(job.scrapeRunId);
+
+    const consumer = runConsumer({ behaviour: {}, job });
+    await waitFor(async () => {
+      const [row] = await rows();
+      return row?.completed === true;
+    });
+    await consumer.abort();
+
+    const [row] = await rows();
+    expect(row?.completed).toBe(true);
+    expect(row?.attempts).toBe(1);
+    const [run] = await database
+      .select({ fenceToken: scrapeRun.fenceToken, status: scrapeRun.status })
+      .from(scrapeRun)
+      .where(eq(scrapeRun.id, job.scrapeRunId));
+    // reset → 1, abandonStaleRuns → 2, reopen on resume → 3.
+    expect(run).toEqual({ fenceToken: 3, status: "succeeded" });
   });
 });

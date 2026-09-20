@@ -5,6 +5,7 @@ import { createBron, listPublicBronnen } from "@ji/application/bronnen";
 import {
   CONNECTOR_OBSERVATION_CONTRACT_VERSION,
   InMemoryObjectStore,
+  RunAlreadyInProgressError,
   emptyRunMetrics,
   runConnector,
 } from "@ji/connectors";
@@ -14,6 +15,7 @@ import { drizzle } from "drizzle-orm/postgres-js";
 import { migrate } from "drizzle-orm/postgres-js/migrator";
 import postgres from "postgres";
 
+import { abandonStaleRuns } from "./abandon-stale-runs";
 import {
   PostgresBronPersistence,
   PostgresObservationRecorder,
@@ -610,6 +612,282 @@ describe("durable bron runtime adapters", () => {
     } finally {
       await finalDb.delete(bron).where(eq(bron.id, bronId));
       await finalClient.end({ timeout: 5 });
+    }
+  });
+
+  it("reopens a failed run on resume and refetches only the failed page (CTP-643)", async () => {
+    if (!available) {
+      expect(available).toBe(false);
+      return;
+    }
+    const client = postgres(applicationUrl, { max: 2 });
+    const database = drizzle(client, { schema });
+    const bronId = crypto.randomUUID();
+    const scrapeRunId = crypto.randomUUID();
+    const key = { bronId, scrapeRunId };
+    const store = new PostgresRunStore(database);
+    const limiter = { acquire: () => Promise.resolve() };
+    const retryPolicy = {
+      initialDelayMs: 0,
+      maxAttempts: 1,
+      maxDelayMs: 0,
+      multiplier: 1,
+    };
+    const objectStore = new InMemoryObjectStore();
+    let failPageTwoFetch = true;
+    const discoveredPages: number[] = [];
+    // Three pages; the page-2 fetch fails once, the way a rate-limited or
+    // flaky detail request does on a real bron.
+    const connector = {
+      bronId,
+      discover: (checkpoint: { page?: number } | null) => {
+        const page = (checkpoint?.page ?? 0) + 1;
+        discoveredPages.push(page);
+        return Promise.resolve({
+          checkpoint: { page },
+          hasMore: page < 3,
+          items: [
+            {
+              bronReferentie: `retry-${page}`,
+              contentHash: String(page).padStart(64, "0"),
+            },
+          ],
+        });
+      },
+      fetch: (item: { bronReferentie: string; contentHash: string }) => {
+        if (item.bronReferentie === "retry-2" && failPageTwoFetch) {
+          failPageTwoFetch = false;
+          return Promise.reject(new Error("page 2 detail request failed"));
+        }
+        return Promise.resolve({
+          body: new TextEncoder().encode(item.bronReferentie),
+          bronReferentie: item.bronReferentie,
+          contentHash: item.contentHash,
+          contentType: "json" as const,
+          status: "fetched" as const,
+        });
+      },
+    };
+    const attempt = (startedAt: Date) =>
+      runConnector({
+        bronId,
+        bronSlug: "durable-retry",
+        connector,
+        limiter,
+        objectStore,
+        observationRecorder: new PostgresObservationRecorder(database),
+        rawRetentionDays: 30,
+        retryPolicy,
+        runKind: "poll",
+        runLifecycleStore: store,
+        scrapeRunId,
+        startedAt,
+      });
+    const loadRun = async () => {
+      const [row] = await database
+        .select()
+        .from(scrapeRun)
+        .where(eq(scrapeRun.id, scrapeRunId));
+      return row;
+    };
+
+    try {
+      await database.insert(bron).values({
+        actief: true,
+        categorie: "runtime-test",
+        id: bronId,
+        naam: `Durable retry ${bronId}`,
+        status: "ready",
+        voorwaardenStatus: "toegestaan",
+      });
+
+      await expect(attempt(new Date("2026-08-29T10:00:00Z"))).rejects.toThrow();
+      expect(await loadRun()).toMatchObject({
+        checkpoint: { page: 1 },
+        failureCode: "FETCH_FAILED",
+        fenceToken: 1,
+        status: "failed",
+      });
+      expect(discoveredPages).toEqual([1, 2]);
+
+      discoveredPages.length = 0;
+      const resumedAt = new Date("2026-08-29T10:05:00Z");
+      const result = await attempt(resumedAt);
+      // Page 1 was never asked for again: the retake started from the
+      // checkpoint the failed attempt left behind.
+      expect(discoveredPages).toEqual([2, 3]);
+      expect(result.completeness).toEqual({
+        complete: false,
+        reason: "resumed",
+      });
+      // Metrics carry over from the failed attempt, which had already counted
+      // page 2 as found and recorded its error before `fail()` persisted them;
+      // the retake counts page 2 once more. Observations do not double: the
+      // recorder dedupes on the run's identity.
+      expect(result.metrics).toEqual({
+        ...emptyRunMetrics(),
+        error: 1,
+        found: 4,
+        new: 3,
+      });
+      const observations = await database
+        .select({ id: aanvraagObservation.id })
+        .from(aanvraagObservation)
+        .where(eq(aanvraagObservation.scrapeRunId, scrapeRunId));
+      expect(observations).toHaveLength(3);
+      const runs = await database
+        .select()
+        .from(scrapeRun)
+        .where(eq(scrapeRun.bronId, bronId));
+      expect(runs).toHaveLength(1);
+      expect(runs[0]).toMatchObject({
+        aantalGevonden: 4,
+        failureClass: null,
+        failureCode: null,
+        failureMessage: null,
+        failurePhase: null,
+        fenceToken: 2,
+        gestart: resumedAt,
+        nieuw: 3,
+        status: "succeeded",
+      });
+      expect(runs[0]?.geindigd).not.toBeNull();
+
+      await expect(
+        store.start({
+          key,
+          mode: "resume",
+          progress: { checkpoint: null, metrics: emptyRunMetrics() },
+          runKind: "poll",
+          startedAt: new Date("2026-08-29T11:00:00Z"),
+        })
+      ).rejects.toThrow("Cannot resume mismatched or completed scrape run");
+    } finally {
+      await database
+        .delete(aanvraagObservation)
+        .where(eq(aanvraagObservation.scrapeRunId, scrapeRunId));
+      await database
+        .delete(sourceRecord)
+        .where(eq(sourceRecord.bronId, bronId));
+      await database.delete(scrapeRun).where(eq(scrapeRun.id, scrapeRunId));
+      await database.delete(bron).where(eq(bron.id, bronId));
+      await client.end({ timeout: 5 });
+    }
+  });
+
+  it("reopens a run abandonStaleRuns failed, refuses reset and a bron with a live poll (CTP-643)", async () => {
+    if (!available) {
+      expect(available).toBe(false);
+      return;
+    }
+    const client = postgres(applicationUrl, { max: 2 });
+    const database = drizzle(client, { schema });
+    const bronId = crypto.randomUUID();
+    const scrapeRunId = crypto.randomUUID();
+    const liveRunId = crypto.randomUUID();
+    const key = { bronId, scrapeRunId };
+    const store = new PostgresRunStore(database);
+    const progress = {
+      checkpoint: { page: 4 },
+      metrics: { ...emptyRunMetrics(), found: 4, new: 4 },
+    };
+    const olderThanMs = 60_000;
+
+    try {
+      await database.insert(bron).values({
+        actief: true,
+        categorie: "runtime-test",
+        id: bronId,
+        naam: `Abandoned resume ${bronId}`,
+        status: "ready",
+        voorwaardenStatus: "toegestaan",
+      });
+      const started = await store.start({
+        key,
+        mode: "reset",
+        progress,
+        runKind: "poll",
+        startedAt: new Date("2026-08-29T10:00:00Z"),
+      });
+      await store.checkpoint(key, progress, started.fenceToken);
+      const abandoned = await abandonStaleRuns(database, {
+        now: new Date(Date.parse("2026-08-29T10:00:00Z") + olderThanMs + 1),
+        olderThanMs,
+      });
+      expect(abandoned).toContain(scrapeRunId);
+
+      await expect(
+        store.start({
+          key,
+          mode: "reset",
+          progress,
+          runKind: "poll",
+          startedAt: new Date("2026-08-29T10:10:00Z"),
+        })
+      ).rejects.toThrow("Cannot resume mismatched or completed scrape run");
+
+      const reopenedAt = new Date("2026-08-29T10:10:00Z");
+      const reopened = await store.start({
+        key,
+        mode: "resume",
+        progress: { checkpoint: null, metrics: emptyRunMetrics() },
+        runKind: "poll",
+        startedAt: reopenedAt,
+      });
+      // abandonStaleRuns bumped the fence once; the reopen bumps it again.
+      expect(reopened.fenceToken).toBe(3);
+      expect(reopened.progress).toEqual(progress);
+      const [row] = await database
+        .select()
+        .from(scrapeRun)
+        .where(eq(scrapeRun.id, scrapeRunId));
+      expect(row).toMatchObject({
+        failureClass: null,
+        failureCode: null,
+        failureMessage: null,
+        failurePhase: null,
+        fenceToken: 3,
+        geindigd: null,
+        gestart: reopenedAt,
+        status: "running",
+      });
+
+      // Fail it again, then start a second live poll for the same bron: the
+      // failed row must not be reopened over another executor's run.
+      await store.fail({
+        failure: {
+          class: "internal",
+          code: "UNEXPECTED_FAILURE",
+          message: "Connector run failed",
+          phase: "unknown",
+        },
+        fenceToken: reopened.fenceToken,
+        finishedAt: new Date("2026-08-29T10:11:00Z"),
+        key,
+        progress,
+      });
+      await store.start({
+        key: { bronId, scrapeRunId: liveRunId },
+        mode: "reset",
+        progress: { checkpoint: null, metrics: emptyRunMetrics() },
+        runKind: "poll",
+        startedAt: new Date(),
+      });
+      await expect(
+        store.start({
+          key,
+          mode: "resume",
+          progress: { checkpoint: null, metrics: emptyRunMetrics() },
+          runKind: "poll",
+          startedAt: new Date(),
+        })
+      ).rejects.toBeInstanceOf(RunAlreadyInProgressError);
+    } finally {
+      await database
+        .delete(scrapeRun)
+        .where(inArray(scrapeRun.id, [scrapeRunId, liveRunId]));
+      await database.delete(bron).where(eq(bron.id, bronId));
+      await client.end({ timeout: 5 });
     }
   });
 

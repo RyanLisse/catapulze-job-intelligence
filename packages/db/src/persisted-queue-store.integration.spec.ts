@@ -1,6 +1,6 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "bun:test";
 
-import { Effect, Exit, Schema, Scope } from "effect";
+import { Cause, Effect, Exit, Schema, Scope } from "effect";
 import {
   layer as persistedQueueLayer,
   make as makePersistedQueue,
@@ -194,6 +194,9 @@ describe.serial("postgres persisted queue store", () => {
     const [done] = await rows();
     expect(done?.completed).toBe(true);
     expect(done?.attempts).toBe(2);
+    // Success clears the failure, so `completed AND last_failure IS NOT NULL`
+    // is exactly the dead-letter set.
+    expect(done?.last_failure).toBeNull();
   });
 
   it("releases an interrupted take without spending an attempt", async () => {
@@ -264,7 +267,7 @@ describe.serial("postgres persisted queue store", () => {
     expect(row?.completed).toBe(true);
   });
 
-  it("leaves an inspectable dead letter after exhausted attempts", async () => {
+  it("closes an exhausted job as a dead letter and frees its bron", async () => {
     if (!available || !queue) {
       expect(available).toBe(false);
       return;
@@ -281,11 +284,14 @@ describe.serial("postgres persisted queue store", () => {
       );
     }
     const [row] = await rows();
-    expect(row?.completed).toBe(false);
+    // CTP-643: the attempt that reaches maxAttempts closes the row. It stays
+    // inspectable through `last_failure`, and because it is no longer open
+    // the partial unique index lets the bron be offered again.
+    expect(row?.completed).toBe(true);
     expect(row?.attempts).toBe(2);
     expect(row?.last_failure).toContain("permanent failure");
 
-    // The exhausted row is never claimed again — a pending take only sees silence.
+    // The dead letter is never claimed again — a pending take only sees silence.
     const controller = new AbortController();
     const orphan = Effect.runPromiseExit(
       queue.take(() => Effect.void, { maxAttempts: 2 }),
@@ -298,8 +304,14 @@ describe.serial("postgres persisted queue store", () => {
     controller.abort();
     await orphan;
     expect(winner).toBe("waiting");
-    const deadLetter = await rows();
-    expect(deadLetter[0]?.completed).toBe(false);
+
+    const fresh = makeJob({ bronId: job.bronId });
+    await Effect.runPromise(queue.offer(fresh, { id: fresh.scrapeRunId }));
+    const afterFreshOffer = await rows();
+    expect(afterFreshOffer.map((entry) => entry.id)).toEqual([
+      job.scrapeRunId,
+      fresh.scrapeRunId,
+    ]);
   });
 
   it("never hands one row to two takers", async () => {
@@ -365,4 +377,43 @@ describe.serial("postgres persisted queue store", () => {
     }
     // sql.end's 5 s drain wait on a dead pool is what this timeout covers.
   }, 15_000);
+
+  it("an interrupt during the claim ends the take instead of repolling", async () => {
+    if (!available) {
+      expect(available).toBe(false);
+      return;
+    }
+    // A long poll interval parks the take in the claim loop: the interrupt
+    // must end it, not be consumed by the claim-failure recovery.
+    const slowScope = await Effect.runPromise(Scope.make());
+    const slowStore = await Effect.runPromise(
+      makePostgresPersistedQueueStore(appUrl, {
+        lockExpiration: "1 seconds",
+        lockRefreshInterval: "50 millis",
+        pollInterval: "10 seconds",
+      }).pipe(Effect.provideService(Scope.Scope, slowScope))
+    );
+    try {
+      const controller = new AbortController();
+      const take = Effect.runPromiseExit(
+        Effect.scoped(slowStore.take({ maxAttempts: 1, name: QUEUE })),
+        { signal: controller.signal }
+      );
+      await sleep(50);
+      controller.abort();
+      const winner = await Promise.race([
+        take.then((exit) => ({ exit }) as const),
+        sleep(2000).then(() => "hung" as const),
+      ]);
+      if (winner === "hung") {
+        throw new Error("interrupted take did not settle within 2 s");
+      }
+      expect(Exit.isFailure(winner.exit)).toBe(true);
+      if (Exit.isFailure(winner.exit)) {
+        expect(Cause.hasInterruptsOnly(winner.exit.cause)).toBe(true);
+      }
+    } finally {
+      await Effect.runPromise(Scope.close(slowScope, Exit.void));
+    }
+  });
 });
