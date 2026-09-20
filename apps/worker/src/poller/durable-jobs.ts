@@ -176,8 +176,13 @@ export interface DurableBronJobConsumerOptions {
  *   `succeeded` and the pipeline replays instead of re-running.
  * - DB outage at ack: the finalizer's bounded retry then the lease expiry
  *   both route the row back to a live worker.
- * - exhausted attempts: the row stays uncompleted at maxAttempts, skipped by
- *   the claim predicate — inspectable, never silently dropped.
+ * - connector failure recorded as `failed`: the retake resumes the same
+ *   scrapeRunId from its checkpoint (`store.start` reopens a failed row,
+ *   CTP-643) so only the failed page is refetched; a run `abandonStaleRuns`
+ *   failed resumes the same way.
+ * - exhausted attempts: the row closes (`completed = true`, `last_failure`
+ *   kept) so the open-bron index frees the bron for the next due evaluation;
+ *   `completed AND last_failure IS NOT NULL` is the dead letter.
  */
 export const runDurableBronJobConsumer = async (
   options: DurableBronJobConsumerOptions

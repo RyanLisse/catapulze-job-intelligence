@@ -500,6 +500,37 @@ export class PostgresRunStore implements RunLifecycleStore {
     requireOwnership(rows);
   }
 
+  /**
+   * One live poll per bron: a second `running` poll row newer than the
+   * staleness cutoff means another executor owns this bron right now. Called
+   * under the per-bron advisory lock, before a new row is inserted and before
+   * a `failed` row is reopened for a durable retry.
+   */
+  private async assertNoLivePoll(
+    tx: BronRuntimeTransaction,
+    input: RunStartInput
+  ): Promise<void> {
+    if (input.runKind !== "poll") {
+      return;
+    }
+    const cutoff = runStalenessCutoff(this.now(), this.pollRunStaleAfterMs);
+    const [running] = await tx
+      .select({ id: scrapeRun.id })
+      .from(scrapeRun)
+      .where(
+        and(
+          eq(scrapeRun.bronId, input.key.bronId),
+          eq(scrapeRun.runKind, "poll"),
+          eq(scrapeRun.status, "running"),
+          gte(scrapeRun.gestart, cutoff)
+        )
+      )
+      .limit(1);
+    if (running) {
+      throw new RunAlreadyInProgressError(input.key.bronId);
+    }
+  }
+
   private async claimPollHealth(
     tx: PollerHealthTelemetryTransaction,
     input: RunStartInput,
@@ -554,27 +585,7 @@ export class PostgresRunStore implements RunLifecycleStore {
         .limit(1)
         .for("update");
       if (!existing) {
-        if (input.runKind === "poll") {
-          const cutoff = runStalenessCutoff(
-            this.now(),
-            this.pollRunStaleAfterMs
-          );
-          const [running] = await tx
-            .select({ id: scrapeRun.id })
-            .from(scrapeRun)
-            .where(
-              and(
-                eq(scrapeRun.bronId, input.key.bronId),
-                eq(scrapeRun.runKind, "poll"),
-                eq(scrapeRun.status, "running"),
-                gte(scrapeRun.gestart, cutoff)
-              )
-            )
-            .limit(1);
-          if (running) {
-            throw new RunAlreadyInProgressError(input.key.bronId);
-          }
-        }
+        await this.assertNoLivePoll(tx, input);
 
         const inserted = await tx
           .insert(scrapeRun)
@@ -619,22 +630,47 @@ export class PostgresRunStore implements RunLifecycleStore {
       if (
         !existing ||
         existing.bronId !== input.key.bronId ||
-        existing.runKind !== input.runKind ||
-        existing.status !== "running"
+        existing.runKind !== input.runKind
       ) {
         throw new Error("Cannot resume mismatched or completed scrape run");
       }
+      // CTP-643: a durable retry replays the same scrapeRunId, and the attempt
+      // that failed has already recorded the row as `failed`. Reopening it
+      // under a new fence keeps the checkpoint, so the retake refetches only
+      // the page that failed. `gestart` moves to this attempt: it is the
+      // liveness clock `abandonStaleRuns` reads, and a run that was abandoned
+      // for being old would otherwise be abandoned again on the next tick. A
+      // `succeeded` run stays closed: replaying one is the pipeline's job (it
+      // reads the committed result), never a re-run.
+      const reopenFailed =
+        input.mode === "resume" && existing.status === "failed";
+      if (existing.status !== "running" && !reopenFailed) {
+        throw new Error("Cannot resume mismatched or completed scrape run");
+      }
       if (input.mode === "resume") {
+        const startedAt = reopenFailed ? input.startedAt : existing.startedAt;
+        if (reopenFailed) {
+          await this.assertNoLivePoll(tx, input);
+        }
         const owned = await tx
           .update(scrapeRun)
-          .set({ fenceToken: sql`${scrapeRun.fenceToken} + 1` })
+          .set({
+            failureClass: null,
+            failureCode: null,
+            failureMessage: null,
+            failurePhase: null,
+            fenceToken: sql`${scrapeRun.fenceToken} + 1`,
+            geindigd: null,
+            gestart: startedAt,
+            status: "running",
+          })
           .where(eq(scrapeRun.id, input.key.scrapeRunId))
           .returning({ fenceToken: scrapeRun.fenceToken });
         return this.claimPollHealth(tx, input, {
           fenceToken: requireMutation(owned, "acquire scrape-run ownership")
             .fenceToken,
           progress: toRunProgress(existing),
-          startedAt: existing.startedAt,
+          startedAt,
         });
       }
 
