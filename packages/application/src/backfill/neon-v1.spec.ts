@@ -1805,3 +1805,68 @@ describe("Motian legacy field mapping (CTP-515/527/528/529/530)", () => {
     expect(draft.sluitingsdatum).toBeUndefined();
   });
 });
+
+describe("Starapple broker self-name collapse (CTP-527 F02)", () => {
+  it("does not store the broker's own brand as opdrachtgever", () => {
+    // The CTP-514 audit recorded F02 WRONG on exactly this shape: the
+    // reachable page names politie as eindklant while Motian carried the
+    // intermediary's name. A broker board never publishes itself as client,
+    // so the deterministic value is UNKNOWN, not "Starapple".
+    for (const company of [
+      "Starapple",
+      "starapple",
+      "Starapple.nl",
+      "Starapple BV",
+    ]) {
+      const draft = mapV1JobToDraft({
+        ...sampleJob(),
+        company,
+        end_client: null,
+        platform: "starapple-nl",
+      });
+      expect(draft.opdrachtgeverNaam.value).toBe(UNKNOWN);
+    }
+  });
+
+  it("keeps a recorded end client over the broker name", () => {
+    const draft = mapV1JobToDraft({
+      ...sampleJob(),
+      company: "Starapple",
+      end_client: "politie",
+      platform: "starapple",
+    });
+    expect(draft.opdrachtgeverNaam.value).toBe("politie");
+  });
+
+  it("collapses a self-name recorded in end_client instead of falling back to company", () => {
+    // end_client wins over company — but when the winning value IS the
+    // broker's own name the row is wrong data, so it becomes UNKNOWN rather
+    // than silently promoting the (also unverified) company field.
+    const draft = mapV1JobToDraft({
+      ...sampleJob(),
+      company: "Gemeente Voorbeeld",
+      end_client: "Starapple",
+      platform: "starapple-nl",
+    });
+    expect(draft.opdrachtgeverNaam.value).toBe(UNKNOWN);
+  });
+
+  it("leaves the same brand untouched on non-Starapple platforms", () => {
+    const draft = mapV1JobToDraft({
+      ...sampleJob(),
+      company: "Starapple",
+      platform: "nationalevacaturebank",
+    });
+    expect(draft.opdrachtgeverNaam.value).toBe("Starapple");
+  });
+
+  it("keeps raw company/end_client in bronSpecifiek regardless of collapse", () => {
+    const value = bron({
+      ...sampleJob(),
+      company: "Starapple",
+      end_client: null,
+      platform: "starapple-nl",
+    });
+    expect(value.company).toBe("Starapple");
+  });
+});
