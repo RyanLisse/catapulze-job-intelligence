@@ -309,6 +309,10 @@ write_compose_env() {
   # The remote integration smoke opts into a disposable MinIO target. The
   # endpoint is the Compose network address used by the server container;
   # these values never target production or a real bucket.
+  # POSTGRES_DATA_VOLUME deliberately differs from the default
+  # catapulze-postgres-p0: docker:smoke and mcp-edge reuse that volume with
+  # their own fixture credentials, and an initialized volume never re-reads
+  # the Postgres bootstrap env.
   printf '%s\n' \
     'POSTGRES_ADMIN_USER=ji_admin' \
     'POSTGRES_ADMIN_PASSWORD=ji_admin_local' \
@@ -318,7 +322,7 @@ write_compose_env() {
     'POSTGRES_APP_USER=ji_app' \
     'POSTGRES_APP_PASSWORD=ji_app_local' \
     'POSTGRES_HOST_PORT=5432' \
-    'POSTGRES_DATA_VOLUME=catapulze-postgres-p0' \
+    'POSTGRES_DATA_VOLUME=catapulze-postgres-shadow' \
     'CATAPULZE_DATABASE_URL=postgresql://ji_app:ji_app_local@postgres:5432/ji_test' \
     'BETTER_AUTH_SECRET=replace-with-at-least-32-characters' \
     'BETTER_AUTH_URL=http://localhost:3000' \
@@ -347,6 +351,36 @@ prepare_database_integration() {
   # The phase itself runs in an errexit subshell. Record cleanup ownership in
   # the parent only after proving there is no caller-owned stack to preserve.
   COMPOSE_DATABASE_STARTED="true"
+}
+
+resolve_smoke_migration_url() {
+  # docker:smoke owns a separate committed contract (scripts/fixtures/
+  # docker-smoke.env) with different credentials and database name. Its
+  # host-side `bun run db:migrate` needs that contract's migrator URL, not
+  # the database-integration exports.
+  (
+    set -a
+    # shellcheck disable=SC1091
+    source scripts/fixtures/docker-smoke.env
+    set +a
+    printf 'postgresql://%s:%s@127.0.0.1:%s/%s' \
+      "$POSTGRES_MIGRATOR_USER" \
+      "$POSTGRES_MIGRATOR_PASSWORD" \
+      "${POSTGRES_HOST_PORT:-5432}" \
+      "$POSTGRES_DB"
+  )
+}
+
+run_integration_smoke() {
+  # Scope the database-integration exports away: its data volume name and
+  # test URLs would otherwise poison the smoke lane's default volume and
+  # host-side migrate step.
+  env \
+    -u DATABASE_APP_TEST_URL \
+    -u DATABASE_TEST_URL \
+    -u POSTGRES_DATA_VOLUME \
+    MIGRATION_DATABASE_URL="$(resolve_smoke_migration_url)" \
+    bun run docker:smoke
 }
 
 run_database_integration() {
@@ -513,7 +547,7 @@ main() {
   prepare_database_integration
   run_phase "database-integration" "REQUIRE_DATABASE_TESTS=1 bun test packages/db/src/core.spec.ts packages/db/src/user-write-stores.spec.ts --reporter=junit" run_database_integration
   cleanup_database
-  run_phase "integration" "bun run docker:smoke" bun run docker:smoke
+  run_phase "integration" "bun run docker:smoke" run_integration_smoke
   run_phase "mcp-edge" "bun run docker:mcp-edge-smoke" run_mcp_edge_smoke
   run_phase "build" "bun run build -- --concurrency=2" bun run build -- --concurrency=2
 
