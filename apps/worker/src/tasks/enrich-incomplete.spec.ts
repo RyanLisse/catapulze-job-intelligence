@@ -22,4 +22,12 @@ describe("enrich-incomplete schema", () => {
   it("bounds batch size", () => {
     expect(() => enrichIncompletePayload.parse({ batchSize: 501 })).toThrow();
   });
+
+  it("accepts the durable flag without changing the defaults (CTP-626)", () => {
+    expect(enrichIncompletePayload.parse({ durable: true })).toEqual({
+      durable: true,
+    });
+    expect(() => enrichIncompletePayload.parse({ durable: "1" })).toThrow();
+    expect("durable" in enrichIncompleteDefaults).toBe(false);
+  });
 });
