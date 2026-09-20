@@ -62,6 +62,13 @@ const bronFactsInputSchema = z.object({
   werkvorm: sourceTextSchema,
 });
 
+/** bronSpecifiek keys the read path consumes into AanvraagBronFacts.
+ * Keep this in sync with bronFactsInputSchema.shape above. */
+export const AANVRAAG_BRON_FACT_KEYS: readonly string[] = Object.keys(
+  // oxlint-disable-next-line anti-slop/no-shape-in-symbol-names -- `shape` is the Zod schema property that owns the field keys we export here.
+  bronFactsInputSchema.shape
+);
+
 const firstSourceText = (
   ...values: readonly (null | string | undefined)[]
 ): string | null =>

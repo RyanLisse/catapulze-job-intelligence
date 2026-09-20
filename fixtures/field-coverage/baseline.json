@@ -1,15 +1,18 @@
 {
-  "generatedAt": "2026-09-19T08:09:41.222Z",
-  "sourceSha": "a19fce1de9f964a8dca44e4fffffcb44282d7000",
+  "generatedAt": "2026-09-20T12:38:07.126Z",
+  "sourceSha": "ea1589b1e81538606fea4abe947016db9b35a29e",
   "sources": {
     "alliander": {
       "fields": {
         "contract": 3,
+        "duur": 0,
         "einddatum": 0,
         "gepubliceerd": 3,
         "locatie": 3,
         "opleiding": 0,
         "organisatie": 3,
+        "provincie": 0,
+        "skills": 0,
         "sluit": 3,
         "startdatum": 0,
         "tarief": 3,
@@ -21,11 +24,14 @@
     "asml": {
       "fields": {
         "contract": 1,
+        "duur": 0,
         "einddatum": 0,
         "gepubliceerd": 1,
         "locatie": 1,
         "opleiding": 0,
         "organisatie": 1,
+        "provincie": 0,
+        "skills": 0,
         "sluit": 0,
         "startdatum": 0,
         "tarief": 0,
@@ -37,11 +43,14 @@
     "bam": {
       "fields": {
         "contract": 3,
+        "duur": 0,
         "einddatum": 0,
         "gepubliceerd": 3,
         "locatie": 3,
         "opleiding": 0,
         "organisatie": 3,
+        "provincie": 0,
+        "skills": 0,
         "sluit": 0,
         "startdatum": 0,
         "tarief": 3,
@@ -53,11 +62,14 @@
     "bij-oranje": {
       "fields": {
         "contract": 1,
+        "duur": 0,
         "einddatum": 0,
         "gepubliceerd": 1,
         "locatie": 0,
         "opleiding": 0,
         "organisatie": 1,
+        "provincie": 1,
+        "skills": 0,
         "sluit": 1,
         "startdatum": 0,
         "tarief": 0,
@@ -69,11 +81,14 @@
     "bluetrail": {
       "fields": {
         "contract": 3,
+        "duur": 0,
         "einddatum": 3,
         "gepubliceerd": 3,
         "locatie": 3,
         "opleiding": 0,
         "organisatie": 3,
+        "provincie": 3,
+        "skills": 1,
         "sluit": 3,
         "startdatum": 3,
         "tarief": 0,
@@ -85,11 +100,14 @@
     "circle8": {
       "fields": {
         "contract": 2,
+        "duur": 0,
         "einddatum": 0,
         "gepubliceerd": 2,
         "locatie": 2,
         "opleiding": 0,
         "organisatie": 2,
+        "provincie": 0,
+        "skills": 0,
         "sluit": 0,
         "startdatum": 0,
         "tarief": 2,
@@ -101,11 +119,14 @@
     "ctm": {
       "fields": {
         "contract": 0,
+        "duur": 0,
         "einddatum": 0,
         "gepubliceerd": 5,
         "locatie": 0,
         "opleiding": 0,
         "organisatie": 5,
+        "provincie": 0,
+        "skills": 0,
         "sluit": 5,
         "startdatum": 0,
         "tarief": 0,
@@ -117,11 +138,14 @@
     "datajobs": {
       "fields": {
         "contract": 3,
+        "duur": 0,
         "einddatum": 0,
         "gepubliceerd": 3,
         "locatie": 3,
         "opleiding": 0,
         "organisatie": 3,
+        "provincie": 0,
+        "skills": 0,
         "sluit": 0,
         "startdatum": 0,
         "tarief": 2,
@@ -133,11 +157,14 @@
     "eneco": {
       "fields": {
         "contract": 0,
+        "duur": 0,
         "einddatum": 0,
         "gepubliceerd": 3,
         "locatie": 3,
         "opleiding": 3,
         "organisatie": 3,
+        "provincie": 0,
+        "skills": 0,
         "sluit": 0,
         "startdatum": 0,
         "tarief": 3,
@@ -149,11 +176,14 @@
     "enexis": {
       "fields": {
         "contract": 0,
+        "duur": 0,
         "einddatum": 0,
         "gepubliceerd": 3,
         "locatie": 3,
         "opleiding": 0,
         "organisatie": 3,
+        "provincie": 0,
+        "skills": 0,
         "sluit": 0,
         "startdatum": 0,
         "tarief": 3,
@@ -165,11 +195,14 @@
     "essent": {
       "fields": {
         "contract": 0,
+        "duur": 0,
         "einddatum": 0,
         "gepubliceerd": 5,
         "locatie": 5,
         "opleiding": 0,
         "organisatie": 5,
+        "provincie": 0,
+        "skills": 0,
         "sluit": 0,
         "startdatum": 0,
         "tarief": 1,
@@ -181,11 +214,14 @@
     "flinter": {
       "fields": {
         "contract": 0,
+        "duur": 1,
         "einddatum": 0,
         "gepubliceerd": 0,
         "locatie": 1,
         "opleiding": 0,
         "organisatie": 1,
+        "provincie": 0,
+        "skills": 0,
         "sluit": 0,
         "startdatum": 0,
         "tarief": 0,
@@ -197,11 +233,14 @@
     "freelancer-nl": {
       "fields": {
         "contract": 0,
+        "duur": 1,
         "einddatum": 0,
         "gepubliceerd": 1,
         "locatie": 1,
         "opleiding": 0,
         "organisatie": 0,
+        "provincie": 0,
+        "skills": 1,
         "sluit": 0,
         "startdatum": 1,
         "tarief": 0,
@@ -213,11 +252,14 @@
     "gasunie": {
       "fields": {
         "contract": 0,
+        "duur": 0,
         "einddatum": 0,
         "gepubliceerd": 2,
         "locatie": 2,
         "opleiding": 0,
         "organisatie": 2,
+        "provincie": 0,
+        "skills": 0,
         "sluit": 2,
         "startdatum": 0,
         "tarief": 0,
@@ -229,11 +271,14 @@
     "haert": {
       "fields": {
         "contract": 3,
+        "duur": 0,
         "einddatum": 0,
         "gepubliceerd": 3,
         "locatie": 3,
         "opleiding": 0,
         "organisatie": 3,
+        "provincie": 0,
+        "skills": 0,
         "sluit": 3,
         "startdatum": 0,
         "tarief": 3,
@@ -245,11 +290,14 @@
     "harveynash": {
       "fields": {
         "contract": 0,
+        "duur": 1,
         "einddatum": 0,
         "gepubliceerd": 1,
         "locatie": 1,
         "opleiding": 0,
         "organisatie": 1,
+        "provincie": 1,
+        "skills": 0,
         "sluit": 1,
         "startdatum": 1,
         "tarief": 1,
@@ -261,11 +309,14 @@
     "hays": {
       "fields": {
         "contract": 3,
+        "duur": 0,
         "einddatum": 0,
         "gepubliceerd": 3,
         "locatie": 3,
         "opleiding": 0,
         "organisatie": 3,
+        "provincie": 1,
+        "skills": 0,
         "sluit": 3,
         "startdatum": 0,
         "tarief": 1,
@@ -277,11 +328,14 @@
     "heijmans": {
       "fields": {
         "contract": 3,
+        "duur": 0,
         "einddatum": 0,
         "gepubliceerd": 3,
         "locatie": 3,
         "opleiding": 0,
         "organisatie": 3,
+        "provincie": 0,
+        "skills": 0,
         "sluit": 0,
         "startdatum": 0,
         "tarief": 3,
@@ -293,11 +347,14 @@
     "hero": {
       "fields": {
         "contract": 2,
+        "duur": 0,
         "einddatum": 0,
         "gepubliceerd": 2,
         "locatie": 2,
         "opleiding": 0,
         "organisatie": 2,
+        "provincie": 0,
+        "skills": 0,
         "sluit": 0,
         "startdatum": 0,
         "tarief": 0,
@@ -309,11 +366,14 @@
     "indeed": {
       "fields": {
         "contract": 0,
+        "duur": 0,
         "einddatum": 0,
         "gepubliceerd": 1,
         "locatie": 1,
         "opleiding": 0,
         "organisatie": 1,
+        "provincie": 1,
+        "skills": 0,
         "sluit": 0,
         "startdatum": 0,
         "tarief": 1,
@@ -325,11 +385,14 @@
     "inhuurdesk": {
       "fields": {
         "contract": 0,
+        "duur": 0,
         "einddatum": 4,
         "gepubliceerd": 4,
         "locatie": 4,
         "opleiding": 0,
         "organisatie": 4,
+        "provincie": 0,
+        "skills": 0,
         "sluit": 4,
         "startdatum": 4,
         "tarief": 3,
@@ -341,11 +404,14 @@
     "intermediair": {
       "fields": {
         "contract": 3,
+        "duur": 0,
         "einddatum": 0,
         "gepubliceerd": 3,
         "locatie": 3,
         "opleiding": 3,
         "organisatie": 3,
+        "provincie": 3,
+        "skills": 0,
         "sluit": 3,
         "startdatum": 0,
         "tarief": 1,
@@ -357,11 +423,14 @@
     "jobbird": {
       "fields": {
         "contract": 3,
+        "duur": 0,
         "einddatum": 0,
         "gepubliceerd": 3,
         "locatie": 3,
         "opleiding": 0,
         "organisatie": 3,
+        "provincie": 0,
+        "skills": 0,
         "sluit": 0,
         "startdatum": 0,
         "tarief": 0,
@@ -373,11 +442,14 @@
     "linkedin": {
       "fields": {
         "contract": 3,
+        "duur": 0,
         "einddatum": 0,
         "gepubliceerd": 1,
         "locatie": 3,
         "opleiding": 0,
         "organisatie": 3,
+        "provincie": 0,
+        "skills": 0,
         "sluit": 1,
         "startdatum": 0,
         "tarief": 1,
@@ -389,11 +461,14 @@
     "mercell": {
       "fields": {
         "contract": 0,
+        "duur": 0,
         "einddatum": 0,
         "gepubliceerd": 0,
         "locatie": 0,
         "opleiding": 0,
         "organisatie": 5,
+        "provincie": 0,
+        "skills": 0,
         "sluit": 5,
         "startdatum": 0,
         "tarief": 0,
@@ -405,11 +480,14 @@
     "needstaffing": {
       "fields": {
         "contract": 0,
+        "duur": 1,
         "einddatum": 0,
         "gepubliceerd": 0,
         "locatie": 1,
         "opleiding": 0,
         "organisatie": 1,
+        "provincie": 0,
+        "skills": 0,
         "sluit": 1,
         "startdatum": 1,
         "tarief": 1,
@@ -421,11 +499,14 @@
     "ns": {
       "fields": {
         "contract": 3,
+        "duur": 0,
         "einddatum": 0,
         "gepubliceerd": 3,
         "locatie": 3,
         "opleiding": 3,
         "organisatie": 3,
+        "provincie": 0,
+        "skills": 0,
         "sluit": 2,
         "startdatum": 0,
         "tarief": 3,
@@ -437,11 +518,14 @@
     "onefellow": {
       "fields": {
         "contract": 0,
+        "duur": 6,
         "einddatum": 1,
         "gepubliceerd": 6,
         "locatie": 6,
         "opleiding": 0,
         "organisatie": 6,
+        "provincie": 0,
+        "skills": 0,
         "sluit": 6,
         "startdatum": 6,
         "tarief": 3,
@@ -453,11 +537,14 @@
     "opdrachtoverheid": {
       "fields": {
         "contract": 0,
+        "duur": 0,
         "einddatum": 0,
         "gepubliceerd": 0,
         "locatie": 5,
         "opleiding": 0,
         "organisatie": 5,
+        "provincie": 5,
+        "skills": 0,
         "sluit": 5,
         "startdatum": 5,
         "tarief": 5,
@@ -469,11 +556,14 @@
     "planet-interim": {
       "fields": {
         "contract": 3,
+        "duur": 0,
         "einddatum": 0,
         "gepubliceerd": 3,
         "locatie": 3,
         "opleiding": 0,
         "organisatie": 3,
+        "provincie": 0,
+        "skills": 0,
         "sluit": 3,
         "startdatum": 0,
         "tarief": 0,
@@ -485,11 +575,14 @@
     "pro-act": {
       "fields": {
         "contract": 2,
+        "duur": 0,
         "einddatum": 2,
         "gepubliceerd": 2,
         "locatie": 2,
         "opleiding": 0,
         "organisatie": 2,
+        "provincie": 0,
+        "skills": 0,
         "sluit": 2,
         "startdatum": 2,
         "tarief": 0,
@@ -501,11 +594,14 @@
     "prorail": {
       "fields": {
         "contract": 2,
+        "duur": 0,
         "einddatum": 0,
         "gepubliceerd": 2,
         "locatie": 2,
         "opleiding": 2,
         "organisatie": 2,
+        "provincie": 0,
+        "skills": 0,
         "sluit": 2,
         "startdatum": 0,
         "tarief": 1,
@@ -517,11 +613,14 @@
     "prounity": {
       "fields": {
         "contract": 0,
+        "duur": 2,
         "einddatum": 2,
         "gepubliceerd": 0,
         "locatie": 2,
         "opleiding": 0,
         "organisatie": 0,
+        "provincie": 0,
+        "skills": 2,
         "sluit": 2,
         "startdatum": 2,
         "tarief": 0,
@@ -533,11 +632,14 @@
     "rabobank": {
       "fields": {
         "contract": 1,
+        "duur": 0,
         "einddatum": 0,
         "gepubliceerd": 1,
         "locatie": 1,
         "opleiding": 0,
         "organisatie": 1,
+        "provincie": 0,
+        "skills": 0,
         "sluit": 0,
         "startdatum": 0,
         "tarief": 0,
@@ -549,11 +651,14 @@
     "randstad": {
       "fields": {
         "contract": 2,
+        "duur": 0,
         "einddatum": 0,
         "gepubliceerd": 2,
         "locatie": 2,
         "opleiding": 2,
         "organisatie": 2,
+        "provincie": 1,
+        "skills": 0,
         "sluit": 2,
         "startdatum": 0,
         "tarief": 2,
@@ -565,11 +670,14 @@
     "rijkswaterstaat": {
       "fields": {
         "contract": 0,
+        "duur": 0,
         "einddatum": 0,
         "gepubliceerd": 3,
         "locatie": 3,
         "opleiding": 0,
         "organisatie": 3,
+        "provincie": 0,
+        "skills": 0,
         "sluit": 0,
         "startdatum": 0,
         "tarief": 3,
@@ -581,11 +689,14 @@
     "stedin": {
       "fields": {
         "contract": 0,
+        "duur": 0,
         "einddatum": 0,
         "gepubliceerd": 2,
         "locatie": 2,
         "opleiding": 2,
         "organisatie": 2,
+        "provincie": 0,
+        "skills": 0,
         "sluit": 0,
         "startdatum": 0,
         "tarief": 2,
@@ -597,11 +708,14 @@
     "striive": {
       "fields": {
         "contract": 0,
+        "duur": 0,
         "einddatum": 5,
         "gepubliceerd": 0,
         "locatie": 5,
         "opleiding": 0,
         "organisatie": 5,
+        "provincie": 5,
+        "skills": 0,
         "sluit": 5,
         "startdatum": 5,
         "tarief": 0,
@@ -613,11 +727,14 @@
     "tbi": {
       "fields": {
         "contract": 1,
+        "duur": 0,
         "einddatum": 0,
         "gepubliceerd": 1,
         "locatie": 1,
         "opleiding": 1,
         "organisatie": 1,
+        "provincie": 0,
+        "skills": 0,
         "sluit": 0,
         "startdatum": 0,
         "tarief": 0,
@@ -629,11 +746,14 @@
     "techniekwerkt": {
       "fields": {
         "contract": 0,
+        "duur": 0,
         "einddatum": 0,
         "gepubliceerd": 0,
         "locatie": 3,
         "opleiding": 0,
         "organisatie": 3,
+        "provincie": 0,
+        "skills": 0,
         "sluit": 0,
         "startdatum": 0,
         "tarief": 3,
@@ -645,11 +765,14 @@
     "tenderned": {
       "fields": {
         "contract": 0,
+        "duur": 0,
         "einddatum": 0,
         "gepubliceerd": 1,
         "locatie": 1,
         "opleiding": 0,
         "organisatie": 1,
+        "provincie": 1,
+        "skills": 0,
         "sluit": 0,
         "startdatum": 0,
         "tarief": 0,
@@ -661,11 +784,14 @@
     "tenmonks": {
       "fields": {
         "contract": 1,
+        "duur": 0,
         "einddatum": 0,
         "gepubliceerd": 1,
         "locatie": 1,
         "opleiding": 0,
         "organisatie": 1,
+        "provincie": 0,
+        "skills": 0,
         "sluit": 1,
         "startdatum": 0,
         "tarief": 1,
@@ -677,11 +803,14 @@
     "tennet": {
       "fields": {
         "contract": 0,
+        "duur": 0,
         "einddatum": 0,
         "gepubliceerd": 0,
         "locatie": 0,
         "opleiding": 0,
         "organisatie": 3,
+        "provincie": 0,
+        "skills": 0,
         "sluit": 0,
         "startdatum": 0,
         "tarief": 3,
@@ -693,11 +822,14 @@
     "unica": {
       "fields": {
         "contract": 3,
+        "duur": 0,
         "einddatum": 0,
         "gepubliceerd": 3,
         "locatie": 3,
         "opleiding": 0,
         "organisatie": 3,
+        "provincie": 1,
+        "skills": 0,
         "sluit": 3,
         "startdatum": 0,
         "tarief": 3,
@@ -709,11 +841,14 @@
     "vattenfall": {
       "fields": {
         "contract": 3,
+        "duur": 0,
         "einddatum": 0,
         "gepubliceerd": 3,
         "locatie": 3,
         "opleiding": 0,
         "organisatie": 3,
+        "provincie": 0,
+        "skills": 0,
         "sluit": 3,
         "startdatum": 0,
         "tarief": 1,
@@ -725,11 +860,14 @@
     "volkerwessels": {
       "fields": {
         "contract": 0,
+        "duur": 0,
         "einddatum": 0,
         "gepubliceerd": 3,
         "locatie": 3,
         "opleiding": 0,
         "organisatie": 3,
+        "provincie": 3,
+        "skills": 0,
         "sluit": 0,
         "startdatum": 0,
         "tarief": 0,
@@ -741,11 +879,14 @@
     "werk-nl": {
       "fields": {
         "contract": 2,
+        "duur": 0,
         "einddatum": 1,
         "gepubliceerd": 2,
         "locatie": 2,
         "opleiding": 2,
         "organisatie": 2,
+        "provincie": 0,
+        "skills": 0,
         "sluit": 2,
         "startdatum": 2,
         "tarief": 1,
@@ -757,11 +898,14 @@
     "werken-voor-nederland": {
       "fields": {
         "contract": 1,
+        "duur": 0,
         "einddatum": 0,
         "gepubliceerd": 1,
         "locatie": 1,
         "opleiding": 0,
         "organisatie": 1,
+        "provincie": 0,
+        "skills": 0,
         "sluit": 1,
         "startdatum": 0,
         "tarief": 1,
@@ -773,11 +917,14 @@
     "zzp-opdrachten": {
       "fields": {
         "contract": 3,
+        "duur": 0,
         "einddatum": 0,
         "gepubliceerd": 3,
         "locatie": 3,
         "opleiding": 0,
         "organisatie": 3,
+        "provincie": 2,
+        "skills": 0,
         "sluit": 3,
         "startdatum": 0,
         "tarief": 3,

@@ -28,9 +28,37 @@ export const FIELDS = [
   "opleiding",
   "startdatum",
   "einddatum",
+  "duur",
+  "provincie",
+  "skills",
 ] as const;
 
 export type FieldName = (typeof FIELDS)[number];
+
+/** Mapping from canonical detail-page field to the bronSpecifiek keys that
+ * can land it. Empty arrays mean the field is driven by top-level
+ * NormalisedAanvraagDraft fields only. */
+export const FIELD_KEY_ALIASES = {
+  contract: ["contracttype", "contract_type", "employment_type"],
+  duur: ["duration", "duur", "looptijd_tekst", "periode", "verwachte_duur"],
+  einddatum: ["eind_datum", "eindDatum"],
+  gepubliceerd: [
+    "publicatiedatum",
+    "gepubliceerd_op",
+    "publicatie_datum",
+    "json_ld_date_posted",
+  ],
+  locatie: [],
+  opleiding: ["opleidingsniveau", "education_level"],
+  organisatie: ["opdrachtgever_naam", "opdrachtgeverNaam"],
+  provincie: ["provincie"],
+  skills: ["skills"],
+  sluit: [],
+  startdatum: ["start_datum", "startDatum"],
+  tarief: [],
+  uren: ["uren_per_week", "uren_per_week_raw"],
+  werkvorm: ["werkvorm"],
+} as const satisfies Record<FieldName, readonly string[]>;
 
 /* oxlint-disable anti-slop/no-unknown-parameters, anti-slop/no-runtime-typeof -- these guards are the script's own I/O boundary: bronSpecifiek is a free-form JsonValue map whose shape is established here before any field evaluation reads it. */
 const isRecord = (value: unknown): value is Record<string, JsonValue> =>
@@ -49,8 +77,10 @@ const isLiveValue = (value: unknown): value is number | string =>
 const isBlankText = (value: unknown): value is string =>
   typeof value === "string" && (value.trim() === "" || value === UNKNOWN);
 
-const liveText = (record: Record<string, JsonValue>, keys: string[]): boolean =>
-  keys.some((key) => isLiveValue(record[key]));
+const liveText = (
+  record: Record<string, JsonValue>,
+  keys: readonly string[]
+): boolean => keys.some((key) => isLiveValue(record[key]));
 
 const draftText = (value: string): boolean =>
   value.trim() !== "" && value !== UNKNOWN && value !== CLEARED;
@@ -58,37 +88,36 @@ const draftText = (value: string): boolean =>
 const tariefBound = (v: string): boolean =>
   v !== UNKNOWN && v !== CLEARED && v.trim() !== "";
 
+const liveSkills = (bron: Record<string, JsonValue>): boolean => {
+  const value = bron.skills;
+  return Array.isArray(value) && value.length > 0;
+};
+
 const evaluateDraft = (draft: NormalisedAanvraagDraft) => {
   const bronValue = draft.bronSpecifiek.value;
   const bron: Record<string, JsonValue> = isRecord(bronValue) ? bronValue : {};
   return {
-    contract: liveText(bron, [
-      "contracttype",
-      "contract_type",
-      "employment_type",
-    ]),
-    einddatum: liveText(bron, ["eind_datum", "eindDatum"]),
-    gepubliceerd: liveText(bron, [
-      "publicatiedatum",
-      "gepubliceerd_op",
-      "publicatie_datum",
-      "json_ld_date_posted",
-    ]),
+    contract: liveText(bron, FIELD_KEY_ALIASES.contract),
+    duur: liveText(bron, FIELD_KEY_ALIASES.duur),
+    einddatum: liveText(bron, FIELD_KEY_ALIASES.einddatum),
+    gepubliceerd: liveText(bron, FIELD_KEY_ALIASES.gepubliceerd),
     locatie: draftText(draft.locatieTekst.value),
-    opleiding: liveText(bron, ["opleidingsniveau", "education_level"]),
+    opleiding: liveText(bron, FIELD_KEY_ALIASES.opleiding),
     organisatie:
       draftText(draft.opdrachtgeverNaam.value) ||
-      liveText(bron, ["opdrachtgever_naam", "opdrachtgeverNaam"]),
+      liveText(bron, FIELD_KEY_ALIASES.organisatie),
+    provincie: liveText(bron, FIELD_KEY_ALIASES.provincie),
+    skills: liveSkills(bron),
     sluit: draft.sluitingsdatum !== undefined,
     startdatum:
       draftText(draft.startDatum.value) ||
-      liveText(bron, ["start_datum", "startDatum"]),
+      liveText(bron, FIELD_KEY_ALIASES.startdatum),
     tarief:
       tariefBound(draft.tarief.min) ||
       tariefBound(draft.tarief.max) ||
       tariefBound(draft.tarief.eenheid),
-    uren: liveText(bron, ["uren_per_week", "uren_per_week_raw"]),
-    werkvorm: liveText(bron, ["werkvorm"]),
+    uren: liveText(bron, FIELD_KEY_ALIASES.uren),
+    werkvorm: liveText(bron, FIELD_KEY_ALIASES.werkvorm),
   };
 };
 
