@@ -48,7 +48,7 @@ const BLOCKED_STATUSES = [
   "blocked_ordering",
   "blocked_ordering_legacy",
 ] as const;
-const RECOVERABLE_STATUSES = [
+export const RECOVERABLE_STATUSES = [
   ...ACTIVE_STATUSES,
   ...MISSING_RAW_STATUSES,
   ...BLOCKED_STATUSES,
@@ -316,14 +316,39 @@ interface RecoveryCandidate {
 
 type RecoveryDatabase = BronRuntimeDatabase | PostgresCurateTransaction;
 
+/**
+ * Run statuses whose observations a pass may recover. The poll path only ever
+ * curates `succeeded` runs; the operator recovery tool
+ * (`tools/backfill/recover-failed-run-observations.ts`, CTP-625) widens the
+ * set to `failed`/`cancelled` so a run that died after recording still yields
+ * its usable observations.
+ */
+export type EligibleRunStatus = "cancelled" | "failed" | "succeeded";
+
+const DEFAULT_ELIGIBLE_RUN_STATUSES: readonly EligibleRunStatus[] = [
+  "succeeded",
+];
+
+const eligibleRunStatuses = (input: CurateScrapeRunInput): string[] => [
+  ...(input.eligibleRunStatuses ?? DEFAULT_ELIGIBLE_RUN_STATUSES),
+];
+
 export interface CurateScrapeRunInput {
   attemptLimit?: number;
   bronId: BronId;
   bronSlug: SupportedBronSlug;
   database: BronRuntimeDatabase;
+  eligibleRunStatuses?: readonly EligibleRunStatus[];
   objectStore: ObjectStore;
   /** Runs after committed terminal work; telemetry errors must not park data. */
   onProgress?: () => Promise<void>;
+  /**
+   * Restrict the pass to observations recorded by `scrapeRunId` itself
+   * (scoped recovery of one failed/cancelled run). The default pass scans
+   * the bron's whole backlog. Ordering checks against committed history are
+   * unchanged either way.
+   */
+  scopeToRun?: boolean;
   scrapeRunId: ScrapeRunId;
   signal?: AbortSignal;
 }
@@ -444,9 +469,12 @@ const queryCandidates = (
     .where(
       and(
         eq(aanvraagObservation.bronId, input.bronId),
-        eq(scrapeRun.status, "succeeded"),
+        inArray(scrapeRun.status, eligibleRunStatuses(input)),
         inArray(aanvraagObservation.status, [...statuses]),
         eq(aanvraagObservation.sourceRecordId, sourceRecordId),
+        input.scopeToRun
+          ? eq(aanvraagObservation.scrapeRunId, input.scrapeRunId)
+          : undefined,
         excludedIds.length > 0
           ? notInArray(aanvraagObservation.id, [...excludedIds])
           : undefined
@@ -500,8 +528,11 @@ export const candidateSourceRecordIds = async (
       .where(
         and(
           eq(aanvraagObservation.bronId, input.bronId),
-          eq(scrapeRun.status, "succeeded"),
-          inArray(aanvraagObservation.status, [...CANDIDATE_STATUSES])
+          inArray(scrapeRun.status, eligibleRunStatuses(input)),
+          inArray(aanvraagObservation.status, [...CANDIDATE_STATUSES]),
+          input.scopeToRun
+            ? eq(aanvraagObservation.scrapeRunId, input.scrapeRunId)
+            : undefined
         )
       )
       .groupBy(aanvraagObservation.sourceRecordId)
@@ -517,7 +548,7 @@ export const candidateSourceRecordIds = async (
       .where(
         and(
           eq(aanvraagObservation.bronId, input.bronId),
-          eq(scrapeRun.status, "succeeded"),
+          inArray(scrapeRun.status, eligibleRunStatuses(input)),
           eq(aanvraagObservation.scrapeRunId, input.scrapeRunId),
           inArray(aanvraagObservation.status, [...ACTIVE_STATUSES])
         )
@@ -745,7 +776,7 @@ const markDominatedUnchangedObservations = async (
       scrapeRun,
       and(
         eq(scrapeRun.id, aanvraagObservation.scrapeRunId),
-        eq(scrapeRun.status, "succeeded")
+        inArray(scrapeRun.status, eligibleRunStatuses(input))
       )
     )
     .innerJoin(
@@ -785,7 +816,10 @@ const markDominatedUnchangedObservations = async (
       and(
         eq(aanvraagObservation.bronId, input.bronId),
         eq(aanvraagObservation.outcome, "unchanged"),
-        inArray(aanvraagObservation.status, [...RECOVERABLE_STATUSES])
+        inArray(aanvraagObservation.status, [...RECOVERABLE_STATUSES]),
+        input.scopeToRun
+          ? eq(aanvraagObservation.scrapeRunId, input.scrapeRunId)
+          : undefined
       )
     )
     .limit(DOMINATED_SWEEP_LIMIT);
@@ -1220,7 +1254,8 @@ const appliedHighWater = async (
 const hasEarlierRecoverable = async (
   database: RecoveryDatabase,
   candidate: RecoveryCandidate,
-  suppressed: ReadonlySet<string>
+  suppressed: ReadonlySet<string>,
+  runStatuses: readonly string[]
 ): Promise<boolean> => {
   const rows = await database
     .select({
@@ -1233,7 +1268,7 @@ const hasEarlierRecoverable = async (
     .where(
       and(
         eq(aanvraagObservation.sourceRecordId, candidate.sourceRecordId),
-        eq(scrapeRun.status, "succeeded"),
+        inArray(scrapeRun.status, [...runStatuses]),
         inArray(aanvraagObservation.status, [...RECOVERABLE_STATUSES])
       )
     );
@@ -1353,7 +1388,7 @@ const processCandidate = async (
     if (
       !lockedRun ||
       lockedRun.bronId !== input.bronId ||
-      lockedRun.status !== "succeeded"
+      !eligibleRunStatuses(input).includes(lockedRun.status)
     ) {
       return "blocked_ordering" as const;
     }
@@ -1403,7 +1438,12 @@ const processCandidate = async (
       throwIfAborted(input.signal);
       return "blocked_ordering" as const;
     }
-    const hasEarlier = await hasEarlierRecoverable(tx, candidate, suppressed);
+    const hasEarlier = await hasEarlierRecoverable(
+      tx,
+      candidate,
+      suppressed,
+      eligibleRunStatuses(input)
+    );
     throwIfAborted(input.signal);
     if (hasEarlier) {
       await markObservation(tx, candidate.id, blockedStatus(locked.status));
@@ -1565,6 +1605,9 @@ export const curateScrapeRun = async (
   ) {
     throw new RangeError("attemptLimit must be an integer between 1 and 500");
   }
+  if (input.eligibleRunStatuses && input.eligibleRunStatuses.length === 0) {
+    throw new RangeError("eligibleRunStatuses must not be empty");
+  }
   // Runs before candidate selection so dominated rows can neither rank their
   // identity nor consume an attempt slot this pass. Rows dominated only by a
   // will-apply sibling are suppressed, not marked: they resume as ordinary
@@ -1681,8 +1724,11 @@ export const curateScrapeRun = async (
       .where(
         and(
           eq(aanvraagObservation.bronId, input.bronId),
-          eq(scrapeRun.status, "succeeded"),
-          inArray(aanvraagObservation.status, [...RECOVERABLE_STATUSES])
+          inArray(scrapeRun.status, eligibleRunStatuses(input)),
+          inArray(aanvraagObservation.status, [...RECOVERABLE_STATUSES]),
+          input.scopeToRun
+            ? eq(aanvraagObservation.scrapeRunId, input.scrapeRunId)
+            : undefined
         )
       ),
     input.database
@@ -1692,8 +1738,11 @@ export const curateScrapeRun = async (
       .where(
         and(
           eq(aanvraagObservation.bronId, input.bronId),
-          eq(scrapeRun.status, "succeeded"),
-          inArray(aanvraagObservation.status, [...MISSING_RAW_STATUSES])
+          inArray(scrapeRun.status, eligibleRunStatuses(input)),
+          inArray(aanvraagObservation.status, [...MISSING_RAW_STATUSES]),
+          input.scopeToRun
+            ? eq(aanvraagObservation.scrapeRunId, input.scrapeRunId)
+            : undefined
         )
       ),
   ]);
