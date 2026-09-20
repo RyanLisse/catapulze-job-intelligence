@@ -55,7 +55,7 @@ auto-reject of automatische kandidaatstatuswrite.
 CTP-636 levert het toetsbare modulecontract en de CI0-startgate in
 [ADR-0016](adr/ADR-0016-candidate-intelligence-module-contract.md). Ieder
 startgate-item staat op `pending-owner-acceptance`: de bevoegde
-product/privacy owner accepteert of verwerpt; dit readinesspakket is geen
+per item benoemde approver(s) accepteren of verwerpen; dit readinesspakket is geen
 approver en autoriseert geen build-issue of verwerking.
 
 ## Bewijslabels
