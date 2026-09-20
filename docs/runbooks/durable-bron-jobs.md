@@ -105,6 +105,36 @@ active executor per bron: the open-bron index admits one open job per bron,
 and the scrape-run fence plus the per-bron advisory lock inside
 `PostgresRunStore.start` reject any second executor that somehow did run.
 
+## Enrichment queue (CTP-626)
+
+The same `curated.durable_job` table carries a second queue,
+`aanvraag-enrichment`, used by the `enrich-incomplete` task when
+`ENRICHMENT_DURABLE=1` is set (or the payload passes `durable: true`) and
+`dryRun` is false. A dry run never touches the queue.
+
+- Job element: `{ aanvraagId, expectedUpdatedAt }`, where `expectedUpdatedAt`
+  is `aanvraag.updated_at` with its full microsecond precision (UTC text) as
+  read when the candidate was selected — a millisecond `Date` cannot tell two
+  writes inside one millisecond apart. Job id is
+  `${aanvraagId}:${expectedUpdatedAt}`, so the same candidate state re-offered
+  is a no-op and a newer row state is a new job. The element has no `bronId`,
+  so the bron-ingest open-job index does not apply.
+- Apply: `PostgresEnrichmentStore.applyEnrichmentAtomically` re-reads the row
+  `FOR UPDATE`, compares `updated_at` with the token and re-plans the patch
+  against the current facts. Outcomes: `applied` (proposals, curated patch and
+  one `aanvraag.enriched` outbox event in a single transaction), `stale` (the
+  row changed since selection: a user edit, a curation write, or an earlier
+  attempt that committed before its ack) and `nothing_to_fill` (a manual
+  `CLEARED` or a value filled meanwhile). `stale` and `nothing_to_fill` write
+  nothing and are successful job completions.
+- Drain: the task offers one job per candidate and then drains up to
+  `batchSize` jobs (`ENRICHMENT_JOB_MAX_ATTEMPTS = 3`), stopping when the
+  queue has nothing claimable. Jobs left by a run that died mid-way are
+  drained by the next flagged run.
+- Rollback: unset `ENRICHMENT_DURABLE`; the inline path resumes and queued
+  rows wait until a flagged run drains them. The Trigger.dev schedule for
+  `enrich-incomplete` remains the owner of when a run happens until T6.
+
 ## Release gate
 
 `apps/worker`, `packages/db/src/schema` and `packages/db/src/migrations` are
