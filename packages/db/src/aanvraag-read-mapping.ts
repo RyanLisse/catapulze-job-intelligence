@@ -1,4 +1,8 @@
-import { NL_PROVINCIES, normaliseSkills } from "@ji/application/normalise";
+import {
+  NL_PROVINCIES,
+  normaliseSkills,
+  toValidPublicationDate,
+} from "@ji/application/normalise";
 import { z } from "zod";
 
 export interface AanvraagBronFacts {
@@ -14,9 +18,6 @@ export interface AanvraagBronFacts {
   readonly startDatum: string | null;
   readonly werkvorm: string | null;
 }
-
-const PUBLICATION_DATE_PATTERN =
-  /^\d{4}-\d{2}-\d{2}(?:T\d{2}:\d{2}(?::\d{2}(?:\.\d{1,3})?)?(?:Z|[+-]\d{2}:\d{2})?)?$/u;
 
 const sourceTextSchema = z
   .string()
@@ -76,31 +77,15 @@ const firstSourceText = (
 
 const publicationDate = (
   values: z.output<typeof bronFactsInputSchema>
-): string | null => {
-  const value = firstSourceText(
-    values.publicatiedatum,
-    values.gepubliceerd_op,
-    values.publicatie_datum,
-    values.json_ld_date_posted
+): string | null =>
+  toValidPublicationDate(
+    firstSourceText(
+      values.publicatiedatum,
+      values.gepubliceerd_op,
+      values.publicatie_datum,
+      values.json_ld_date_posted
+    )
   );
-  if (value === null) {
-    return null;
-  }
-  if (
-    !PUBLICATION_DATE_PATTERN.test(value) ||
-    Number.isNaN(Date.parse(value))
-  ) {
-    return null;
-  }
-  const year = Number(value.slice(0, 4));
-  const month = Number(value.slice(5, 7));
-  const day = Number(value.slice(8, 10));
-  const daysInMonth = new Date(Date.UTC(year, month, 0)).getUTCDate();
-  if (month < 1 || month > 12 || day < 1 || day > daysInMonth) {
-    return null;
-  }
-  return value;
-};
 
 export const readAanvraagBronFacts = (
   // oxlint-disable-next-line anti-slop/no-unknown-parameters -- curated JSON I/O boundary is parsed by bronFactsInputSchema before field access

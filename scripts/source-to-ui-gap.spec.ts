@@ -3,6 +3,7 @@ import { describe, expect, it } from "bun:test";
 import { parseArgs } from "./field-coverage";
 import type { SourceReport } from "./field-coverage";
 import {
+  analyseReport,
   formatReport,
   keyCategory,
   missingDisplayFields,
@@ -186,6 +187,67 @@ describe("missingDisplayFields", () => {
       "provincie",
       "skills",
     ]);
+  });
+});
+
+describe("analyseReport", () => {
+  it("returns the complete machine-readable gap analysis", () => {
+    const analysis = analyseReport(
+      reportOf("bron-a", {
+        errors: ["fetch failed"],
+        fields: { organisatie: 2 },
+        keys: {
+          contracttype: 2,
+          duration: 2,
+          identifier: 2,
+          procedure_type: 2,
+          source: 2,
+          unknown_custom_key: 2,
+        },
+        records: 2,
+      })
+    );
+
+    expect(analysis).toEqual({
+      bronId: "id-bron-a",
+      errors: ["fetch failed"],
+      fields: {
+        contract: 0,
+        duur: 0,
+        einddatum: 0,
+        gepubliceerd: 0,
+        locatie: 0,
+        opleiding: 0,
+        organisatie: 2,
+        provincie: 0,
+        skills: 0,
+        sluit: 0,
+        startdatum: 0,
+        tarief: 0,
+        uren: 0,
+        werkvorm: 0,
+      },
+      keyCategories: {
+        displayed: ["contracttype", "duration"],
+        gap: [],
+        identity: ["identifier"],
+        procedure: ["procedure_type"],
+        status: ["source"],
+        unused: ["unknown_custom_key"],
+      },
+      keys: {
+        contracttype: 2,
+        duration: 2,
+        identifier: 2,
+        procedure_type: 2,
+        source: 2,
+        unknown_custom_key: 2,
+      },
+      missingDisplayFields: ["locatie", "tarief", "contract", "sluit", "duur"],
+      records: 2,
+      rejected: 0,
+      slug: "bron-a",
+    });
   });
 });
 

@@ -186,6 +186,8 @@ const zonedWallClockToUtc = (wallClock: string, timeZone: string): Date => {
 const OFFSET_PATTERN = /(?:Z|[+-]\d{2}:?\d{2})$/u;
 const ISO_DATE_PREFIX_PATTERN =
   /^(?<year>\d{4})-(?<month>\d{2})-(?<day>\d{2})/u;
+const PUBLICATION_DATE_PATTERN =
+  /^\d{4}-\d{2}-\d{2}(?:T\d{2}:\d{2}(?::\d{2}(?:\.\d{1,3})?)?(?:Z|[+-]\d{2}:\d{2})?)?$/u;
 
 /** Round-trips year/month/day (1-indexed month) through `Date.UTC` and
  * compares the fields back out, so an impossible calendar date (`2026-02-30`,
@@ -206,6 +208,22 @@ export const isValidCalendarDate = (
     date.getUTCMonth() === month1to12 - 1 &&
     date.getUTCDate() === day
   );
+};
+
+export const toValidPublicationDate = (
+  value: string | null | undefined
+): string | null => {
+  if (
+    !value ||
+    !PUBLICATION_DATE_PATTERN.test(value) ||
+    Number.isNaN(Date.parse(value))
+  ) {
+    return null;
+  }
+  const year = Number(value.slice(0, 4));
+  const month = Number(value.slice(5, 7));
+  const day = Number(value.slice(8, 10));
+  return isValidCalendarDate(year, month, day) ? value : null;
 };
 
 /**

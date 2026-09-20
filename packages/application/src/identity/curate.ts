@@ -11,7 +11,11 @@ import { timeCriticalPathPhase } from "@ji/performance";
 import { z } from "zod";
 
 import type { NormalisedAanvraagDraft } from "../normalise";
-import { buildDedupKey, buildProvenanceMap } from "../normalise";
+import {
+  buildDedupKey,
+  buildProvenanceMap,
+  toValidPublicationDate,
+} from "../normalise";
 import { classifyContractAndWork } from "../normalise/classify-contract-work";
 import { mergeContactpersoonPipelineVelden } from "../normalise/contactpersonen";
 import { toCanonicalContractType } from "../normalise/contract-type";
@@ -619,9 +623,8 @@ const toStoredFields = (
     opdrachtgeverNaam: draftTextColumn(draft.opdrachtgeverNaam.value),
     parserVersion: draft.parserVersion,
     provenance: buildProvenanceMap(draft),
-    publicatiedatum: readBronText(
-      bronRecord,
-      ...CURATED_COLUMN_BRON_KEYS.publicatiedatum
+    publicatiedatum: toValidPublicationDate(
+      readBronText(bronRecord, ...CURATED_COLUMN_BRON_KEYS.publicatiedatum)
     ),
     rawPayloadRef: input.rawPayloadRef,
     scrapeRunId: input.scrapeRunId,
@@ -784,12 +787,11 @@ const buildUnchangedContentPatch = (
     patch.startDatum = startDatum;
   }
   if (existing.publicatiedatum === null) {
-    const value = readBronText(
-      asBronSpecifiekRecord(draft.bronSpecifiek.value),
-      "publicatiedatum",
-      "gepubliceerd_op",
-      "publicatie_datum",
-      "json_ld_date_posted"
+    const value = toValidPublicationDate(
+      readBronText(
+        asBronSpecifiekRecord(draft.bronSpecifiek.value),
+        ...CURATED_COLUMN_BRON_KEYS.publicatiedatum
+      )
     );
     if (value !== null) {
       patch.publicatiedatum = value;

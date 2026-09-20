@@ -163,6 +163,37 @@ describe("curateObservation commercial columns and coalesce tombstones", () => {
     expect(aanvraag?.contracttype).toBeTruthy();
   });
 
+  it("stores only publication dates the UI can format", async () => {
+    const store = new InMemoryCurateStore();
+    const valid = observation("COL-DATE-VALID", "hash-date-valid");
+    const invalid = observation("COL-DATE-INVALID", "hash-date-invalid");
+
+    await curateObservation(store, {
+      ...valid,
+      draft: {
+        ...valid.draft,
+        bronSpecifiek: {
+          provenance,
+          value: { publicatiedatum: "2026-09-20T08:30:00+02:00" },
+        },
+      },
+    });
+    await curateObservation(store, {
+      ...invalid,
+      draft: {
+        ...invalid.draft,
+        bronSpecifiek: {
+          provenance,
+          value: { publicatiedatum: "20 september 2026" },
+        },
+      },
+    });
+
+    expect(store.aanvragen.map((aanvraag) => aanvraag.publicatiedatum)).toEqual(
+      ["2026-09-20T08:30:00+02:00", null]
+    );
+  });
+
   it("canonicalizes a raw 'temporary' contract_type token to interim (CTP-514/CTP-526)", async () => {
     const store = new InMemoryCurateStore();
     const base = observation("COL-CONTRACT-1", "hash-contract-1");

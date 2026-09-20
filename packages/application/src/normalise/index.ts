@@ -39,6 +39,7 @@ export {
   normalizeDedupText,
   provenanceFor,
   stripHtml,
+  toValidPublicationDate,
   validateNormalisedDraft,
   type AanvraagProvenanceMap,
   type FieldProvenanceSource,
