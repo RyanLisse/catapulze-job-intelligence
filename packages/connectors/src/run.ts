@@ -148,11 +148,9 @@ export interface ConnectorRunInput {
 
 /**
  * RJC-397: whether this run saw the source's WHOLE listing. Only a complete
- * run may count unseen records as missed. A legacy or caller-supplied resume
- * is incomplete because this run cannot prove which earlier identities were
- * seen. Durable retries of the same scrapeRunId persist that cumulative set
- * with the checkpoint and can therefore complete reconciliation. A run is
- * also incomplete when a connector reported a page cap
+ * run may count unseen records as missed. A run is incomplete when it
+ * resumed from a persisted checkpoint (earlier pages were seen by another
+ * attempt, not this one) or when a connector reported a page cap
  * (`ConnectorDiscoverResult.truncated`), or when the caller's `signal`
  * aborted it before the last page (`aborted`). A failed run never returns a
  * result at all, so failure is covered by the throw, not by this flag.
@@ -302,9 +300,6 @@ const runConnectorInner = async (
     checkpoint: input.checkpoint ?? null,
     metrics: emptyRunMetrics(),
   };
-  if (input.checkpoint === undefined) {
-    requestedProgress.observedBronReferenties = [];
-  }
   const queueStartedMs = monotonicNowMs();
   const canonicalRun = await runLifecycleStore.start({
     key: checkpointKey,
@@ -327,11 +322,8 @@ const runConnectorInner = async (
   let writtenRecords = metrics.new + metrics.changed;
   let hasMore = true;
   const countedObservations = new Set<string>();
-  const canReconcileAcrossResume =
-    input.checkpoint === undefined &&
-    progress.observedBronReferenties !== undefined;
-  const observedBronReferenties = new Set(progress.observedBronReferenties);
-  const resumed = checkpoint !== null && !canReconcileAcrossResume;
+  const observedBronReferenties = new Set<string>();
+  const resumed = checkpoint !== null;
   let truncated = false;
   let aborted = false;
 
@@ -346,7 +338,6 @@ const runConnectorInner = async (
   const completeAbortedRun = async (): Promise<ConnectorRunResult> => {
     aborted = true;
     progress.checkpoint = checkpoint;
-    progress.observedBronReferenties = [...observedBronReferenties];
     await withFailureEnvelope(
       () =>
         runLifecycleStore.checkpoint(
@@ -539,7 +530,6 @@ const runConnectorInner = async (
       const page = settlePage(discovery, pageAborted, checkpoint, signal);
       ({ aborted, checkpoint } = page);
       progress.checkpoint = checkpoint;
-      progress.observedBronReferenties = [...observedBronReferenties];
       // oxlint-disable-next-line no-await-in-loop -- checkpoint and cumulative metrics persist atomically
       await withFailureEnvelope(
         () =>
@@ -575,7 +565,6 @@ const runConnectorInner = async (
         : new ConnectorRunFailure(FAILURE_ENVELOPES.unknown, error);
     metrics.error += 1;
     progress.checkpoint = checkpoint;
-    progress.observedBronReferenties = [...observedBronReferenties];
     try {
       await runLifecycleStore.fail({
         failure: runError.envelope,

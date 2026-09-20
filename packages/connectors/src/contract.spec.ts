@@ -2,7 +2,6 @@ import { describe, expect, it } from "bun:test";
 
 import type { BronId, ScrapeRunId } from "@ji/domain";
 
-import { emptyRunMetrics } from "./contract";
 import type { Connector } from "./contract";
 import { CancelFault } from "./effect-runtime/faults";
 import { CrawlDelayLimiter } from "./limiter";
@@ -1171,7 +1170,6 @@ describe("runConnector", () => {
         rejected: 0,
         unchanged: 0,
       },
-      observedBronReferenties: [],
     });
     expect(
       await dependencies.runLifecycleStore.load({
@@ -1364,53 +1362,6 @@ describe("runConnector", () => {
       complete: false,
       reason: "resumed",
     });
-  });
-
-  it("reconciles the cumulative listing after a durable retry reaches the final page", async () => {
-    const dependencies = runDependencies("run-durable-resume");
-    const key = {
-      bronId: "bron-durable-resume",
-      scrapeRunId: dependencies.scrapeRunId,
-    };
-    const started = await dependencies.runLifecycleStore.start({
-      key,
-      mode: "reset",
-      progress: {
-        checkpoint: null,
-        metrics: emptyRunMetrics(),
-        observedBronReferenties: [],
-      },
-      runKind: "poll",
-      startedAt: new Date("2026-09-20T10:00:00.000Z"),
-    });
-    await dependencies.runLifecycleStore.checkpoint(
-      key,
-      {
-        checkpoint: { page: 1 },
-        metrics: { ...emptyRunMetrics(), found: 2 },
-        observedBronReferenties: ["A", "B"],
-      },
-      started.fenceToken
-    );
-
-    const result = await runConnector({
-      ...dependencies,
-      bronId: key.bronId,
-      bronSlug: "opdrachtoverheid",
-      connector: {
-        bronId: key.bronId,
-        discover: () =>
-          Promise.resolve({
-            checkpoint: { page: 2 },
-            hasMore: false,
-            items: [{ bronReferentie: "C", contentHash: "listing-c" }],
-          }),
-        fetch: () => Promise.resolve(null),
-      },
-    });
-
-    expect(result.completeness).toEqual({ complete: true });
-    expect(result.observedBronReferenties).toEqual(["A", "B", "C"]);
   });
 
   it("reports a run whose connector hit a page cap as incomplete", async () => {
@@ -1913,7 +1864,6 @@ describe("runConnector", () => {
         rejected: 0,
         unchanged: 0,
       },
-      observedBronReferenties: ["broken"],
     });
   });
 

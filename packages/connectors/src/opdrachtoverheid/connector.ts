@@ -188,9 +188,11 @@ export const createOpdrachtoverheidConnector = (
 
   /** One durable page job. Detail reads happen here, under the run loop's
    * shared host limiter, and their full payload becomes the item's hash and
-   * body. A failed or structurally empty detail fails the page: the persisted
-   * checkpoint therefore remains at this offset and a retry refetches this
-   * bounded page instead of silently advancing past a missing record. */
+   * body. A transport failure fails the page: the persisted checkpoint stays
+   * at this offset and the durable retry refetches this bounded page. A page
+   * that resolves but carries no tender (delisted between sitemap read and
+   * detail fetch) is not retryable, so it is skipped and the scan is flagged
+   * `truncated`: incomplete, hence never a tombstone decision. */
   const discoverSitemapBatch = async (
     entries: readonly OpdrachtoverheidSitemapEntry[],
     offset: number
@@ -200,23 +202,19 @@ export const createOpdrachtoverheidConnector = (
       batch.map(async (entry) => {
         const page = await client.fetchDetail(entry);
         const { tender } = page;
-        if (!tender) {
-          throw new Error(
-            `Opdrachtoverheid detail ${entry.webKey} contains no tender`
-          );
-        }
-        return { jobPosting: page.jobPosting, tender };
+        return tender ? { jobPosting: page.jobPosting, tender } : null;
       })
     );
+    const resolved = pages.filter((page) => page !== null);
     const items = await Promise.all(
-      pages.map((page) => toDiscoverItem(page.tender, page.jobPosting, true))
+      resolved.map((page) => toDiscoverItem(page.tender, page.jobPosting, true))
     );
     const nextOffset = offset + batch.length;
     return {
       checkpoint: sitemapCheckpoint(nextOffset),
       hasMore: nextOffset < entries.length,
       items,
-      truncated: false,
+      truncated: resolved.length !== batch.length,
     };
   };
 

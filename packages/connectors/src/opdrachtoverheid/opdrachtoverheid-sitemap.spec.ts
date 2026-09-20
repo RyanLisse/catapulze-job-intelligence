@@ -278,19 +278,30 @@ describe("Opdrachtoverheid market-wide discovery", () => {
     expect(fetched).toEqual(["OK", "BROKEN", "OK", "BROKEN"]);
   });
 
-  it("treats a structurally empty detail as a retryable page failure", async () => {
+  it("skips a structurally empty detail and flags the scan incomplete instead of retrying it", async () => {
+    const fetched: string[] = [];
     const connector = createOpdrachtoverheidConnector({
       bronId: "bron-opdrachtoverheid-empty-detail",
       client: {
-        fetchDetail: async () => ({ jobPosting: null, tender: null }),
+        fetchDetail: async ({ webKey }) => {
+          fetched.push(webKey);
+          return webKey === "EMPTY"
+            ? { jobPosting: null, tender: null }
+            : { jobPosting: null, tender: ssrTender(webKey, "Org") };
+        },
         fetchListing: () => Promise.reject(new Error("must not be called")),
-        fetchSitemap: async () => [entry("org", "EMPTY")],
+        fetchSitemap: async () => [entry("org", "OK"), entry("org", "EMPTY")],
       },
+      sitemapBatchSize: 2,
     });
 
-    await expect(connector.discover(null)).rejects.toThrow(
-      "detail EMPTY contains no tender"
-    );
+    const result = await connector.discover(null);
+
+    expect(result.items.map((item) => item.bronReferentie)).toEqual(["OK"]);
+    expect(result.truncated).toBe(true);
+    expect(result.checkpoint).toEqual({ cursor: "sitemap:2" });
+    expect(result.hasMore).toBe(false);
+    expect(fetched).toEqual(["OK", "EMPTY"]);
   });
 
   it("falls back to the private listing API when the sitemap fails or is empty", async () => {
