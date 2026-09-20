@@ -24,8 +24,9 @@ The `poll-bron` half of this row is gone: polling moved to the on-box poller
 | perf | `PERF_EFFECT_SPANS` (alias `JI_EFFECT_PERF`) | `@ji/performance/effect` spans | Native critical-path sessions only |
 
 Search has no row: since CTP-627 `ManticoreSearchEngine.fromUrl` always uses
-`FetchManticoreEffectClient`, there is no flag and no native fallback. Readiness
-reports `searchTransport: "effect"` as the runtime receipt.
+`FetchManticoreEffectClient`, there is no flag and no native fallback. The
+runtime receipt is the stderr line `createProductionSliceADeps` writes once at
+composition: `{"event":"slice_a_composition","savedSearches":"effect","search":"effect"}`.
 
 Shared SoT: `@ji/env/effect-flags` (`isEffectSurfaceEnabled`, `readEffectSurfaceFlags`).
 
