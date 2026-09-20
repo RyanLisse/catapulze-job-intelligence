@@ -764,6 +764,56 @@ export const pollerRuntime = curatedSchema.table(
   ]
 );
 
+/**
+ * Durable bron-ingest jobs (CTP-622): the SQL backing table for the worker's
+ * `PersistedQueue`. `id` is the stable job identity (the run's scrapeRunId);
+ * `completed` is the ack. A claimed row keeps `acquired_by`/`acquired_at` as
+ * its lease — a crashed worker's claim goes stale and is re-claimed, while
+ * `durable_job_open_bron_uidx` keeps a second offer of the same bron from
+ * ever becoming a second domain run.
+ */
+export const durableJob = curatedSchema.table(
+  "durable_job",
+  {
+    acquiredAt: timestamp("acquired_at", { withTimezone: true }),
+    acquiredBy: uuid("acquired_by"),
+    attempts: integer("attempts").default(0).notNull(),
+    completed: boolean("completed").default(false).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    element: jsonb("element").notNull(),
+    id: text("id").notNull(),
+    lastFailure: text("last_failure"),
+    queueName: text("queue_name").notNull(),
+    sequence: bigint("sequence", { mode: "number" })
+      .primaryKey()
+      .generatedAlwaysAsIdentity(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    uniqueIndex("durable_job_id_queue_uidx").on(table.id, table.queueName),
+    index("durable_job_take_idx").on(
+      table.queueName,
+      table.completed,
+      table.attempts,
+      table.acquiredAt
+    ),
+    uniqueIndex("durable_job_open_bron_uidx")
+      .on(table.queueName, sql`("element" ->> 'bronId')`)
+      .where(sql`${table.completed} = false`),
+    index("durable_job_acquired_idx").on(table.acquiredBy, table.acquiredAt),
+    check("durable_job_attempts_check", sql`${table.attempts} >= 0`),
+    check("durable_job_id_nonempty_check", sql`length(btrim(${table.id})) > 0`),
+    check(
+      "durable_job_queue_name_nonempty_check",
+      sql`length(btrim(${table.queueName})) > 0`
+    ),
+  ]
+);
+
 export const alert = curatedSchema.table(
   "alert",
   {

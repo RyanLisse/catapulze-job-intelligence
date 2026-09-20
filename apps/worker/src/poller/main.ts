@@ -9,6 +9,7 @@ import { curateScrapeRun } from "@ji/db/curate-scrape-run";
 import { writeHeartbeat } from "@ji/db/process-heartbeat";
 import { waitForAdvisoryLock } from "@ji/db/process-lock";
 import { pruneProcessedOutboxEvents } from "@ji/db/prune-outbox-events";
+import type { BronId, ScrapeRunId } from "@ji/domain";
 /**
  * On-box poll and curate process (runbook: docs/runbooks/onbox-poller.md).
  *
@@ -25,8 +26,19 @@ import { getPollerEnv } from "@ji/env/poller";
 
 import { createPollBronRuntime, runBronIngestPipeline } from "../poll-bron-run";
 import type { PollBronRuntime } from "../poll-bron-run";
+import type { SliceABronSlug } from "../slice-a-bronnen";
 import { withAbortFinalization } from "./abort-finalization";
 import { drainBacklog } from "./drain-backlog";
+import {
+  BRON_INGEST_QUEUE,
+  createBronIngestQueue,
+  DURABLE_JOB_MAX_ATTEMPTS,
+  durableJobTablePresent,
+  findOpenBronJob,
+  offerBronIngestJob,
+  resolveDurableBronnen,
+  runDurableBronJobConsumer,
+} from "./durable-jobs";
 import { heartbeatFilePath, MAX_POLLER_HEARTBEAT_AGE_MS } from "./heartbeat";
 import { runWithPollerLiveness } from "./liveness";
 import { runContinuously } from "./pool";
@@ -94,6 +106,22 @@ interface PollSourceOptions {
   signal: AbortSignal;
 }
 
+interface PollSourceAttemptOptions {
+  bronId: BronId;
+  bronSlug: SliceABronSlug;
+  curateBudgetMs: number;
+  runBudgetMs: number;
+  runtime: PollBronRuntime;
+  /**
+   * Stable run identity. The inline path leaves this undefined and takes a
+   * fresh UUID; a durable job carries the queue row's identity so a replay
+   * resumes the same scrape_run instead of starting a second one (CTP-622).
+   */
+  scrapeRunId?: ScrapeRunId;
+  telemetryLayer: PollerRuntimeHealth["layer"];
+  signal: AbortSignal;
+}
+
 /**
  * CTP-490: one signal for the connector run that fires on shutdown or when
  * the run budget elapses, so a stalled poll closes its own row instead of
@@ -102,80 +130,102 @@ interface PollSourceOptions {
 const runAbortSignal = (shutdown: AbortSignal, budgetMs: number): AbortSignal =>
   AbortSignal.any([shutdown, AbortSignal.timeout(budgetMs)]);
 
+/**
+ * One full source run that THROWS on failure — the durable consumer needs
+ * the error to reach the queue take so the attempt counts and the job is
+ * retried; `pollSource` wraps this for the inline path's log contract.
+ */
+const runPollSourceAttempt = async (
+  options: PollSourceAttemptOptions
+): Promise<PollerSourceLog> => {
+  const { bronId, bronSlug, curateBudgetMs, runBudgetMs, runtime, signal } =
+    options;
+  const startedAt = Date.now();
+  const scrapeRunId = options.scrapeRunId ?? crypto.randomUUID();
+  const health = createSourceHealthCallbacks(options.telemetryLayer);
+  const result = await runBronIngestPipeline(
+    {
+      bronId,
+      bronSlug,
+      scrapeRunId,
+    },
+    runtime,
+    "poll",
+    { ...health.callbacks, signal: runAbortSignal(signal, runBudgetMs) }
+  );
+  if (result.completeness && !result.completeness.complete) {
+    logLine(process.stdout, "poller_source_incomplete", {
+      bronSlug,
+      reason: result.completeness.reason,
+    });
+  }
+  // The budget is for draining, so it starts when the poll ends: a poll that
+  // outlasts it must still get its curation passes.
+  const drained = await withAbortFinalization(
+    signal,
+    async () => {
+      await health.callbacks.onAborted?.(result);
+    },
+    () =>
+      drainBacklog(
+        {
+          deadlineMs: Date.now() + curateBudgetMs,
+          input: {
+            bronId: result.bronId,
+            bronSlug: result.bronSlug,
+            database: runtime.database,
+            objectStore: runtime.objectStore,
+            onProgress: () =>
+              reportTelemetryCallback(
+                health.callbacks.onCurationProgress,
+                result,
+                {
+                  bronId: result.bronId,
+                  bronSlug: result.bronSlug,
+                  scrapeRunId: result.scrapeRunId,
+                  telemetryPhase: "curation_progress",
+                },
+                signal
+              ),
+            scrapeRunId: result.scrapeRunId,
+            signal,
+          },
+          signal,
+          start: {
+            curated: result.curated,
+            failed: result.failed,
+            quarantined: result.quarantined,
+            remaining: result.remaining,
+          },
+        },
+        curateScrapeRun
+      )
+  );
+  await health.finish(result, drained);
+  return {
+    bronSlug,
+    curated: drained.curated,
+    durationMs: Date.now() - startedAt,
+    found: result.metrics.found,
+    remaining: drained.remaining,
+  };
+};
+
 const pollSource = async (
   options: PollSourceOptions
 ): Promise<PollerSourceLog> => {
-  const { candidate, curateBudgetMs, runBudgetMs, runtime, signal } = options;
+  const { candidate } = options;
   const startedAt = Date.now();
-  const scrapeRunId = crypto.randomUUID();
-  const health = createSourceHealthCallbacks(options.telemetryLayer);
   try {
-    const result = await runBronIngestPipeline(
-      {
-        bronId: candidate.bronId,
-        bronSlug: candidate.bronSlug,
-        scrapeRunId,
-      },
-      runtime,
-      "poll",
-      { ...health.callbacks, signal: runAbortSignal(signal, runBudgetMs) }
-    );
-    if (result.completeness && !result.completeness.complete) {
-      logLine(process.stdout, "poller_source_incomplete", {
-        bronSlug: candidate.bronSlug,
-        reason: result.completeness.reason,
-      });
-    }
-    // The budget is for draining, so it starts when the poll ends: a poll that
-    // outlasts it must still get its curation passes.
-    const drained = await withAbortFinalization(
-      signal,
-      async () => {
-        await health.callbacks.onAborted?.(result);
-      },
-      () =>
-        drainBacklog(
-          {
-            deadlineMs: Date.now() + curateBudgetMs,
-            input: {
-              bronId: result.bronId,
-              bronSlug: result.bronSlug,
-              database: runtime.database,
-              objectStore: runtime.objectStore,
-              onProgress: () =>
-                reportTelemetryCallback(
-                  health.callbacks.onCurationProgress,
-                  result,
-                  {
-                    bronId: result.bronId,
-                    bronSlug: result.bronSlug,
-                    scrapeRunId: result.scrapeRunId,
-                    telemetryPhase: "curation_progress",
-                  },
-                  signal
-                ),
-              scrapeRunId: result.scrapeRunId,
-              signal,
-            },
-            signal,
-            start: {
-              curated: result.curated,
-              failed: result.failed,
-              quarantined: result.quarantined,
-              remaining: result.remaining,
-            },
-          },
-          curateScrapeRun
-        )
-    );
-    await health.finish(result, drained);
-    return {
+    return await runPollSourceAttempt({
+      bronId: candidate.bronId,
       bronSlug: candidate.bronSlug,
-      curated: drained.curated,
-      durationMs: Date.now() - startedAt,
-      found: result.metrics.found,
-      remaining: drained.remaining,
-    };
+      curateBudgetMs: options.curateBudgetMs,
+      runBudgetMs: options.runBudgetMs,
+      runtime: options.runtime,
+      signal: options.signal,
+      telemetryLayer: options.telemetryLayer,
+    });
   } catch (error) {
     if (error instanceof RunAlreadyInProgressError) {
       return alreadyRunningSourceLog({
@@ -337,113 +387,207 @@ const main = async (): Promise<void> => {
         // Due-ness stays derived (interval + newest run), never queued, so
         // ticks missed during a run or a restart coalesce into exactly one
         // follow-up run per bron.
+        const durableBronnen = resolveDurableBronnen(
+          pollerEnv.POLLER_DURABLE_BRONNEN
+        );
+        const queueTablePresent = await durableJobTablePresent(
+          activeRuntime.database
+        );
+        if (!queueTablePresent && durableBronnen.size > 0) {
+          // Operator-lane ordering: the worker must never create the table
+          // itself and must never silently fall back to the inline path.
+          throw new Error(
+            "POLLER_DURABLE_BRONNEN is enabled but curated.durable_job does not exist; apply migration 0029_durable_job_queue through the operator lane first"
+          );
+        }
+        // The consumer runs whenever the table exists — also with no durable
+        // bronnen configured — so jobs queued before a rollback still finish
+        // instead of stranding as open rows.
+        const ingestQueue = queueTablePresent
+          ? await createBronIngestQueue(pollerEnv.DATABASE_URL)
+          : undefined;
         let lastMaintenanceAt = 0;
         let lastEvaluatedAt = Date.now();
-        await runContinuously({
-          concurrency,
-          dueItems: async ({ inFlight }) => {
-            const evaluatedAt = Date.now();
-            const candidates = await loadPollCandidates(activeRuntime, {
-              now: new Date(),
-              olderThanMs: abandonRunAfterMs,
-            });
-            const { live, notLive } = partitionByLiveFlag(
-              dueCandidates(candidates, new Date()),
-              process.env
-            );
-            for (const candidate of notLive) {
-              logLine(process.stdout, "poller_source_skipped", {
-                bronSlug: candidate.bronSlug,
-                reason: "not_live",
-              });
-            }
-            const due = live.toSorted(byLongestWaiting);
-            logLine(process.stdout, "poller_cycle", {
-              due: due.length,
-              durationMs: evaluatedAt - lastEvaluatedAt,
-              inFlight,
-              pollable: candidates.length,
-              skipped: notLive.length,
-            });
-            lastEvaluatedAt = evaluatedAt;
-            return due;
-          },
-          keyOf: (candidate) => candidate.bronId,
-          onRunError: (error, candidate) => {
-            // `pollSource` turns its own failures into a `poller_source`
-            // line; reaching here means the runner itself defected, so the
-            // failure is reported like a failed source rather than ending
-            // the scheduler.
-            logLine(
-              process.stdout,
-              "poller_source",
-              failedSourceLog({
-                bronSlug: candidate.bronSlug,
-                durationMs: 0,
-                error,
-              })
-            );
-          },
-          onTick: async () => {
-            // Stale-run repair and outbox pruning keep their per-tick
-            // cadence: evaluations can run more often than `tickMs` when
-            // runs finish, and these must not get chatty with them.
-            const nowMs = Date.now();
-            if (nowMs - lastMaintenanceAt < tickMs) {
-              return;
-            }
-            lastMaintenanceAt = nowMs;
+        try {
+          await Promise.all([
+            runContinuously({
+              concurrency,
+              dueItems: async ({ inFlight }) => {
+                const evaluatedAt = Date.now();
+                const candidates = await loadPollCandidates(activeRuntime, {
+                  now: new Date(),
+                  olderThanMs: abandonRunAfterMs,
+                });
+                const { live, notLive } = partitionByLiveFlag(
+                  dueCandidates(candidates, new Date()),
+                  process.env
+                );
+                for (const candidate of notLive) {
+                  logLine(process.stdout, "poller_source_skipped", {
+                    bronSlug: candidate.bronSlug,
+                    reason: "not_live",
+                  });
+                }
+                const due = live.toSorted(byLongestWaiting);
+                logLine(process.stdout, "poller_cycle", {
+                  due: due.length,
+                  durationMs: evaluatedAt - lastEvaluatedAt,
+                  inFlight,
+                  pollable: candidates.length,
+                  skipped: notLive.length,
+                });
+                lastEvaluatedAt = evaluatedAt;
+                return due;
+              },
+              keyOf: (candidate) => candidate.bronId,
+              onRunError: (error, candidate) => {
+                // `pollSource` turns its own failures into a `poller_source`
+                // line; reaching here means the runner itself defected, so the
+                // failure is reported like a failed source rather than ending
+                // the scheduler.
+                logLine(
+                  process.stdout,
+                  "poller_source",
+                  failedSourceLog({
+                    bronSlug: candidate.bronSlug,
+                    durationMs: 0,
+                    error,
+                  })
+                );
+              },
+              onTick: async () => {
+                // Stale-run repair and outbox pruning keep their per-tick
+                // cadence: evaluations can run more often than `tickMs` when
+                // runs finish, and these must not get chatty with them.
+                const nowMs = Date.now();
+                if (nowMs - lastMaintenanceAt < tickMs) {
+                  return;
+                }
+                lastMaintenanceAt = nowMs;
 
-            // Before the candidates, so a run this process abandons is
-            // already closed when `loadPollCandidates` reads the newest run
-            // per source.
-            const abandoned = await abandonStaleRuns(activeRuntime.database, {
-              now: new Date(),
-              olderThanMs: abandonRunAfterMs,
-            });
-            if (abandoned.length > 0) {
-              logLine(process.stdout, "poller_runs_abandoned", {
-                count: abandoned.length,
-              });
-            }
+                // Before the candidates, so a run this process abandons is
+                // already closed when `loadPollCandidates` reads the newest run
+                // per source.
+                const abandoned = await abandonStaleRuns(
+                  activeRuntime.database,
+                  {
+                    now: new Date(),
+                    olderThanMs: abandonRunAfterMs,
+                  }
+                );
+                if (abandoned.length > 0) {
+                  logLine(process.stdout, "poller_runs_abandoned", {
+                    count: abandoned.length,
+                  });
+                }
 
-            // CTP-404: bound processed outbox growth; unprocessed and
-            // dead-lettered rows are never pruned. One bounded batch per
-            // cycle drains a backlog gradually instead of one giant DELETE.
-            const prunedOutbox = await pruneProcessedOutboxEvents(
-              activeRuntime.database,
-              {
-                batchSize: Number(pollerEnv.POLLER_OUTBOX_PRUNE_BATCH),
-                now: new Date(),
-                retentionDays: Number(pollerEnv.POLLER_OUTBOX_RETENTION_DAYS),
-              }
-            );
-            if (prunedOutbox > 0) {
-              logLine(process.stdout, "poller_outbox_pruned", {
-                count: prunedOutbox,
-              });
-            }
-          },
-          // At most POLLER_CONCURRENCY sources in flight. Each source still
-          // runs one at a time and keeps its own `crawl_delay_ms` pacing, so
-          // this buys cycle wall clock without touching politeness per host.
-          // Each in-flight source can hold one `curateScrapeRun` drain, so
-          // the concurrency is also the ceiling on concurrent drains against
-          // Postgres.
-          run: async (candidate) => {
-            const log = await pollSource({
-              candidate,
-              curateBudgetMs,
-              runBudgetMs,
-              runtime: activeRuntime,
+                // CTP-404: bound processed outbox growth; unprocessed and
+                // dead-lettered rows are never pruned. One bounded batch per
+                // cycle drains a backlog gradually instead of one giant DELETE.
+                const prunedOutbox = await pruneProcessedOutboxEvents(
+                  activeRuntime.database,
+                  {
+                    batchSize: Number(pollerEnv.POLLER_OUTBOX_PRUNE_BATCH),
+                    now: new Date(),
+                    retentionDays: Number(
+                      pollerEnv.POLLER_OUTBOX_RETENTION_DAYS
+                    ),
+                  }
+                );
+                if (prunedOutbox > 0) {
+                  logLine(process.stdout, "poller_outbox_pruned", {
+                    count: prunedOutbox,
+                  });
+                }
+              },
+              // At most POLLER_CONCURRENCY sources in flight. Each source still
+              // runs one at a time and keeps its own `crawl_delay_ms` pacing, so
+              // this buys cycle wall clock without touching politeness per host.
+              // Each in-flight source can hold one `curateScrapeRun` drain, so
+              // the concurrency is also the ceiling on concurrent drains against
+              // Postgres.
+              run: async (candidate) => {
+                // CTP-622: bronnen listed in POLLER_DURABLE_BRONNEN are handed to
+                // the durable queue instead of run inline. The job's scrapeRunId
+                // is its queue identity, so re-offers dedupe and the consumer's
+                // replay converges on the same scrape_run — exactly one domain
+                // result per job, whatever side of a crash the worker died on.
+                // The open-job index is the correctness fence; the read here is
+                // only for an honest log line.
+                if (durableBronnen.has(candidate.bronSlug) && ingestQueue) {
+                  const open = await findOpenBronJob(
+                    activeRuntime.database,
+                    candidate.bronId
+                  );
+                  if (open === null) {
+                    const scrapeRunId = crypto.randomUUID();
+                    await offerBronIngestJob(ingestQueue.queue, {
+                      bronId: candidate.bronId,
+                      bronSlug: candidate.bronSlug,
+                      scrapeRunId,
+                    });
+                    logLine(process.stdout, "poller_source_queued", {
+                      bronSlug: candidate.bronSlug,
+                      deduped: false,
+                      jobId: scrapeRunId,
+                      queue: BRON_INGEST_QUEUE,
+                    });
+                  } else {
+                    logLine(process.stdout, "poller_source_queued", {
+                      bronSlug: candidate.bronSlug,
+                      deduped: true,
+                      jobId: open.id,
+                      queue: BRON_INGEST_QUEUE,
+                    });
+                  }
+                  return;
+                }
+                const log = await pollSource({
+                  candidate,
+                  curateBudgetMs,
+                  runBudgetMs,
+                  runtime: activeRuntime,
+                  signal: controller.signal,
+                  telemetryLayer: activeRuntimeHealth.layer,
+                });
+                logLine(process.stdout, "poller_source", log);
+              },
               signal: controller.signal,
-              telemetryLayer: activeRuntimeHealth.layer,
-            });
-            logLine(process.stdout, "poller_source", log);
-          },
-          signal: controller.signal,
-          tickMs,
-        });
+              tickMs,
+            }),
+            ingestQueue === undefined
+              ? Promise.resolve()
+              : runDurableBronJobConsumer({
+                  maxAttempts: DURABLE_JOB_MAX_ATTEMPTS,
+                  onJobError: (error) => {
+                    logLine(process.stdout, "durable_job_failed", {
+                      message: redactErrorMessage(error.message),
+                      queue: BRON_INGEST_QUEUE,
+                    });
+                  },
+                  processJob: async (job) => {
+                    // SAFETY: the queue payload schema validates UUID shape on
+                    // take, and the pipeline re-validates slug↔bronId pairing
+                    // fail-closed.
+                    const log = await runPollSourceAttempt({
+                      bronId: job.bronId as BronId,
+                      bronSlug: job.bronSlug as SliceABronSlug,
+                      curateBudgetMs,
+                      runBudgetMs,
+                      runtime: activeRuntime,
+                      scrapeRunId: job.scrapeRunId as ScrapeRunId,
+                      signal: controller.signal,
+                      telemetryLayer: activeRuntimeHealth.layer,
+                    });
+                    logLine(process.stdout, "poller_source", log);
+                  },
+                  queue: ingestQueue.queue,
+                  signal: controller.signal,
+                }),
+          ]);
+        } finally {
+          await ingestQueue?.close();
+        }
       }
     );
     if (telemetryFatalError) {
