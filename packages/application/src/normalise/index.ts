@@ -87,6 +87,7 @@ export {
 export { NL_PROVINCIES, type Provincie } from "./provincie";
 export { normaliseSkills } from "./skills";
 export {
+  resolveCanonicalContractType,
   toCanonicalContractType,
   toCanonicalEmploymentTypes,
 } from "./contract-type";

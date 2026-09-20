@@ -90,26 +90,11 @@ export const keyCategory = (key: string): Category => {
   return "unused";
 };
 
-const fieldHasSourceData = (report: SourceReport, field: FieldName): boolean =>
-  FIELD_KEY_ALIASES[field].some((key) => (report.keys[key] ?? 0) > 0);
-
 export const missingDisplayFields = (report: SourceReport): FieldName[] => {
   if (report.records === 0) {
     return [];
   }
-  return FIELDS.filter((field) => {
-    if (report.fields[field] > 0) {
-      return false;
-    }
-    // For fields driven by bronSpecifiek aliases, only report them as missing
-    // when the source actually published data for at least one alias.
-    // Top-level fields (empty alias list) keep the historical behavior.
-    // Fields with both a top-level driver and aliases (organisatie,
-    // startdatum) follow the alias rule: a source that lands neither is a
-    // field-coverage concern, not a UI-mapping gap, so it is not listed here.
-    const aliases = FIELD_KEY_ALIASES[field];
-    return aliases.length === 0 || fieldHasSourceData(report, field);
-  });
+  return FIELDS.filter((field) => report.fields[field] === 0);
 };
 
 interface KeyBuckets {

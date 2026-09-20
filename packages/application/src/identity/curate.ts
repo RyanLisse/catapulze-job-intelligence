@@ -18,7 +18,7 @@ import {
 } from "../normalise";
 import { classifyContractAndWork } from "../normalise/classify-contract-work";
 import { mergeContactpersoonPipelineVelden } from "../normalise/contactpersonen";
-import { toCanonicalContractType } from "../normalise/contract-type";
+import { resolveCanonicalContractType } from "../normalise/contract-type";
 import type {
   AanvraagSnapshot,
   BronSpecifiekJson,
@@ -292,7 +292,12 @@ const commercialBronSpecifiek = (
   );
   if (
     classified.contracttype &&
-    readExistingText(base, "contracttype", "contract_type") === null
+    readExistingText(
+      base,
+      "contracttype",
+      "contract_type",
+      "employment_type"
+    ) === null
   ) {
     base.contracttype = classified.contracttype;
   }
@@ -368,6 +373,13 @@ const explicitBronText = (
   ...keys: readonly string[]
 ): string | null =>
   readBronText(asBronSpecifiekRecord(draft.bronSpecifiek.value), ...keys);
+
+const resolveBronContractType = (record: BronSpecifiekRecord) =>
+  resolveCanonicalContractType(
+    readExistingText(record, "contracttype"),
+    readExistingText(record, "contract_type"),
+    readExistingText(record, "employment_type")
+  );
 
 /** Hours text "0" is absent for fill/overwrite (CTP-599 / CTP-526 residual). */
 const isAbsentUrenText = (value: string | null): boolean =>
@@ -610,9 +622,7 @@ const toStoredFields = (
     bronUrl: draftTextColumn(draft.bronUrl.value),
     contactpersonen: draft.contactpersonen?.value ?? [],
     contentHash: draft.contentHash,
-    contracttype: toCanonicalContractType(
-      readBronText(bronRecord, ...CURATED_COLUMN_BRON_KEYS.contracttype)
-    ),
+    contracttype: resolveBronContractType(bronRecord),
     dedupGroepId: null,
     eersteGezienOp: input.observedAt,
     eindDatum: readBronText(bronRecord, ...CURATED_COLUMN_BRON_KEYS.eindDatum),
@@ -798,8 +808,8 @@ const buildUnchangedContentPatch = (
     }
   }
   if (existing.contracttype === null) {
-    const value = toCanonicalContractType(
-      explicitBronText(draft, "contracttype", "contract_type")
+    const value = resolveBronContractType(
+      asBronSpecifiekRecord(draft.bronSpecifiek.value)
     );
     if (value !== null) {
       patch.contracttype = value;
@@ -1029,8 +1039,8 @@ export const curateObservation = async (
         next.contactpersonen
       ),
       contracttype: coalesceNullable(
-        toCanonicalContractType(
-          explicitBronText(draft, "contracttype", "contract_type")
+        resolveBronContractType(
+          asBronSpecifiekRecord(draft.bronSpecifiek.value)
         ),
         existing.contracttype
       ),

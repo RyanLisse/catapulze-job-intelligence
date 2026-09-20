@@ -116,13 +116,26 @@ describe("keyCategory", () => {
 });
 
 describe("missingDisplayFields", () => {
-  it("returns top-level fields with zero coverage and bronSpecifiek-driven fields whose source data did not land", () => {
+  it("returns every zero-coverage field so normalization losses stay visible", () => {
     const report = reportOf("bron-a", {
       fields: { tarief: 2, werkvorm: 1 },
       records: 2,
     });
 
-    expect(missingDisplayFields(report)).toEqual(["locatie", "sluit"]);
+    expect(missingDisplayFields(report)).toEqual([
+      "organisatie",
+      "locatie",
+      "contract",
+      "gepubliceerd",
+      "sluit",
+      "uren",
+      "opleiding",
+      "startdatum",
+      "einddatum",
+      "duur",
+      "provincie",
+      "skills",
+    ]);
   });
 
   it("returns no missing fields when no records were replayed", () => {
@@ -131,7 +144,7 @@ describe("missingDisplayFields", () => {
     expect(missingDisplayFields(report)).toEqual([]);
   });
 
-  it("does not flag bronSpecifiek-driven fields when the source published no data for them", () => {
+  it("flags zero-coverage fields even when no normalized alias survived", () => {
     const report = reportOf("bron-a", {
       fields: {
         contract: 2,
@@ -153,7 +166,11 @@ describe("missingDisplayFields", () => {
       records: 2,
     });
 
-    expect(missingDisplayFields(report)).toEqual([]);
+    expect(missingDisplayFields(report)).toEqual([
+      "opleiding",
+      "provincie",
+      "skills",
+    ]);
   });
 
   it("flags bronSpecifiek-driven fields with source data but zero coverage", () => {
@@ -243,7 +260,21 @@ describe("analyseReport", () => {
         source: 2,
         unknown_custom_key: 2,
       },
-      missingDisplayFields: ["locatie", "tarief", "contract", "sluit", "duur"],
+      missingDisplayFields: [
+        "locatie",
+        "tarief",
+        "contract",
+        "werkvorm",
+        "gepubliceerd",
+        "sluit",
+        "uren",
+        "opleiding",
+        "startdatum",
+        "einddatum",
+        "duur",
+        "provincie",
+        "skills",
+      ],
       records: 2,
       rejected: 0,
       slug: "bron-a",

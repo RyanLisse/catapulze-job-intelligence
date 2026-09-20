@@ -1,9 +1,6 @@
 import path from "node:path";
 
-import {
-  toCanonicalContractType,
-  toCanonicalEmploymentTypes,
-} from "@ji/application/normalise";
+import { resolveCanonicalContractType } from "@ji/application/normalise";
 import type {
   JsonValue,
   NormalisedAanvraagDraft,
@@ -93,22 +90,6 @@ const draftText = (value: string): boolean =>
 const tariefBound = (v: string): boolean =>
   v !== UNKNOWN && v !== CLEARED && v.trim() !== "";
 
-/** A non-blank, non-sentinel bronSpecifiek scalar value. */
-const bronString = (
-  record: Record<string, JsonValue>,
-  key: string
-): string | null => {
-  const value = record[key];
-  if (typeof value !== "string") {
-    return null;
-  }
-  const trimmed = value.trim();
-  if (trimmed === "" || trimmed === UNKNOWN || trimmed === CLEARED) {
-    return null;
-  }
-  return trimmed;
-};
-
 /**
  * The contract field only reaches the UI when the source value maps to one
  * of the canonical contract forms. Mirrors the canonicalisation used by
@@ -117,31 +98,17 @@ const bronString = (
 export const evaluateContractCoverage = (
   bron: Record<string, JsonValue>
 ): boolean => {
-  const contracttype = bronString(bron, "contracttype");
-  if (contracttype !== null && toCanonicalContractType(contracttype) !== null) {
-    return true;
-  }
-
-  const contract_type = bronString(bron, "contract_type");
-  if (
-    contract_type !== null &&
-    toCanonicalContractType(contract_type) !== null
-  ) {
-    return true;
-  }
-
-  const employment_type = bronString(bron, "employment_type");
-  if (employment_type !== null) {
-    const tokens = employment_type
-      .split(",")
-      .map((token) => token.trim())
-      .filter((token) => token !== "");
-    if (toCanonicalEmploymentTypes(tokens) !== null) {
-      return true;
-    }
-  }
-
-  return false;
+  const text = (key: string): string | null => {
+    const value = bron[key];
+    return typeof value === "string" && value.trim() !== "" ? value : null;
+  };
+  return (
+    resolveCanonicalContractType(
+      text("contracttype"),
+      text("contract_type"),
+      text("employment_type")
+    ) !== null
+  );
 };
 
 /**

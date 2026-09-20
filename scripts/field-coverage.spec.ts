@@ -67,17 +67,30 @@ describe("evaluateContractCoverage", () => {
     ).toBe(false);
   });
 
+  it("uses the same first-live-alias precedence as curation", () => {
+    expect(
+      evaluateContractCoverage(
+        bron({ contract_type: "CONTRACTOR", contracttype: "FULL_TIME" })
+      )
+    ).toBe(false);
+    expect(
+      evaluateContractCoverage(
+        bron({ contract_type: "CONTRACTOR", contracttype: "cleared" })
+      )
+    ).toBe(false);
+    expect(
+      evaluateContractCoverage(
+        bron({ contract_type: "CONTRACTOR", contracttype: "" })
+      )
+    ).toBe(true);
+  });
+
   it("ignores sentinel and blank values", () => {
     expect(evaluateContractCoverage(bron({ contracttype: "unknown" }))).toBe(
       false
     );
     expect(evaluateContractCoverage(bron({ contracttype: "" }))).toBe(false);
     expect(evaluateContractCoverage(bron({ contracttype: "   " }))).toBe(false);
-    expect(
-      evaluateContractCoverage(
-        bron({ contract_type: "vast", contracttype: "cleared" })
-      )
-    ).toBe(true);
   });
 
   it("returns false when no contract keys are present", () => {
