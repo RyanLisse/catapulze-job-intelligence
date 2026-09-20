@@ -469,8 +469,9 @@ describe("Opdrachtoverheid connector", () => {
     // SAFETY: this test constructed listingPayload from rawTender above, so
     // reading it back as the same bloated shape only re-confirms what
     // discover() did (or did not) project through.
-    const projected =
-      discoveredItem.listingPayload as Partial<RawTenderWithBloat>;
+    const projected = (
+      discoveredItem.listingPayload as OpdrachtoverheidFetchedPayload
+    ).tender as Partial<RawTenderWithBloat>;
     expect(projected.Dynamics_id).toBeUndefined();
     expect(projected.similarity_score).toBeUndefined();
     // SAFETY: same rationale as `projected` above.
@@ -517,7 +518,9 @@ describe("Opdrachtoverheid connector", () => {
     }
     // SAFETY: discover() projects the listing row this test supplied; reading
     // it back as the declared tender shape re-confirms what survived.
-    const projected = discoveredItem.listingPayload as OpdrachtoverheidTender;
+    const projected = (
+      discoveredItem.listingPayload as OpdrachtoverheidFetchedPayload
+    ).tender;
     expect(projected.education_level_obj?.education_level_label).toBe("MBO");
     expect(projected.tender_competences).toContain("Nauwkeurig");
     expect(projected.tender_hybrid_working).toBe(true);

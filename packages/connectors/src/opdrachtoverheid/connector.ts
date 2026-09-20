@@ -35,9 +35,10 @@ export interface OpdrachtoverheidConnectorOptions {
   sitemapBatchSize?: number;
 }
 
-/** Live 2026-09-17: ~440 tender URLs in the sitemap. 25 per call keeps one
- * discover() under the request timeout while a full walk stays < 20 calls. */
-export const OPDRACHTOVERHEID_SITEMAP_BATCH_SIZE = 25;
+/** One detail per discover call keeps every source request behind the run
+ * loop's shared host limiter and makes the durable checkpoint the exact unit
+ * retried after a late failure. */
+export const OPDRACHTOVERHEID_SITEMAP_BATCH_SIZE = 1;
 
 /** Sitemap walks checkpoint as `cursor: "sitemap:<offset>"`; any other
  * checkpoint (including the private API's `{ page: 1 }`) starts a fresh
@@ -143,13 +144,29 @@ export const createOpdrachtoverheidConnector = (
   let sitemapSnapshot: OpdrachtoverheidSitemapEntry[] | null = null;
 
   const toDiscoverItem = async (
-    rawTender: OpdrachtoverheidTender
+    rawTender: OpdrachtoverheidTender,
+    jobPosting: JsonLdNode | null = null,
+    detailResolved = false
   ): Promise<DiscoverItem> => {
     const tender = projectOpdrachtoverheidTender(rawTender);
+    const payload = {
+      detailResolved,
+      jobPosting,
+      tender,
+    } satisfies OpdrachtoverheidFetchedPayload & { detailResolved: boolean };
+    const body = new TextEncoder().encode(
+      JSON.stringify({
+        jobPosting,
+        tender,
+      } satisfies OpdrachtoverheidFetchedPayload)
+    );
     return {
       bronReferentie: opdrachtoverheidBronReferentie(tender),
-      contentHash: await hashOpdrachtoverheidListingItem(tender),
-      listingPayload: tender,
+      contentHash:
+        jobPosting === null
+          ? await hashOpdrachtoverheidListingItem(tender)
+          : await hashOpdrachtoverheidPayload(body),
+      listingPayload: payload,
     };
   };
 
@@ -158,7 +175,9 @@ export const createOpdrachtoverheidConnector = (
    * snapshot per discovery avoids omissions and duplicate observations. */
   const discoverViaPrivateApi = async (): Promise<ConnectorDiscoverResult> => {
     const listing = await client.fetchListing(0);
-    const items = await Promise.all(listing.items.map(toDiscoverItem));
+    const items = await Promise.all(
+      listing.items.map((tender) => toDiscoverItem(tender))
+    );
     return {
       checkpoint: { page: 1 },
       hasMore: false,
@@ -167,10 +186,13 @@ export const createOpdrachtoverheidConnector = (
     };
   };
 
-  /** One batch of sitemap entries, each resolved to its SSR tender record so
-   * the item carries the same identity (`tender_id`) and hash as a record
-   * discovered through the private API. A page that fails or carries no
-   * tender is skipped and flagged as truncation, never a run failure. */
+  /** One durable page job. Detail reads happen here, under the run loop's
+   * shared host limiter, and their full payload becomes the item's hash and
+   * body. A transport failure fails the page: the persisted checkpoint stays
+   * at this offset and the durable retry refetches this bounded page. A page
+   * that resolves but carries no tender (delisted between sitemap read and
+   * detail fetch) is not retryable, so it is skipped and the scan is flagged
+   * `truncated`: incomplete, hence never a tombstone decision. */
   const discoverSitemapBatch = async (
     entries: readonly OpdrachtoverheidSitemapEntry[],
     offset: number
@@ -178,24 +200,21 @@ export const createOpdrachtoverheidConnector = (
     const batch = entries.slice(offset, offset + sitemapBatchSize);
     const pages = await Promise.all(
       batch.map(async (entry) => {
-        try {
-          const page = await client.fetchDetail(entry);
-          return page.tender;
-        } catch {
-          return null;
-        }
+        const page = await client.fetchDetail(entry);
+        const { tender } = page;
+        return tender ? { jobPosting: page.jobPosting, tender } : null;
       })
     );
-    const tenders = pages.filter(
-      (tender): tender is OpdrachtoverheidTender => tender !== null
+    const resolved = pages.filter((page) => page !== null);
+    const items = await Promise.all(
+      resolved.map((page) => toDiscoverItem(page.tender, page.jobPosting, true))
     );
-    const items = await Promise.all(tenders.map(toDiscoverItem));
     const nextOffset = offset + batch.length;
     return {
       checkpoint: sitemapCheckpoint(nextOffset),
       hasMore: nextOffset < entries.length,
       items,
-      truncated: tenders.length !== batch.length,
+      truncated: resolved.length !== batch.length,
     };
   };
 
@@ -220,10 +239,11 @@ export const createOpdrachtoverheidConnector = (
       return await discoverSitemapBatch(sitemapSnapshot, offset);
     },
     fetch: async (item) => {
-      // SAFETY: discover() attaches Opdrachtoverheid listing rows as listingPayload.
-      const tender = item.listingPayload as
-        | OpdrachtoverheidFetchedPayload["tender"]
+      // SAFETY: discover() attaches the minimised Opdrachtoverheid payload.
+      const discovered = item.listingPayload as
+        | (OpdrachtoverheidFetchedPayload & { detailResolved?: boolean })
         | undefined;
+      const tender = discovered?.tender;
       if (!tender?.tender_id) {
         return {
           bronReferentie: item.bronReferentie,
@@ -243,21 +263,22 @@ export const createOpdrachtoverheidConnector = (
         return null;
       }
 
-      // Enrich with the JobPosting JSON-LD from the SSR detail page (a no-op
-      // in fixture/replay runs without a registered detail fixture — see
-      // client.fetchDetail). A fetch failure here must not fail the whole
-      // record: the listing payload alone is a valid, fetchable observation.
-      let jobPosting: JsonLdNode | null = null;
-      const detailUrl = resolveDetailUrl(tender);
-      if (detailUrl) {
-        try {
-          const page = await client.fetchDetail({
-            detailUrl,
-            webKey: tender.web_key,
-          });
-          ({ jobPosting } = page);
-        } catch {
-          jobPosting = null;
+      // Sitemap discovery already read the detail under the page checkpoint,
+      // so do not issue a second request or compare a listing-only hash. The
+      // private API fallback has no detail payload and enriches best-effort.
+      let jobPosting = discovered?.jobPosting ?? null;
+      if (discovered?.detailResolved !== true) {
+        const detailUrl = resolveDetailUrl(tender);
+        if (detailUrl) {
+          try {
+            const page = await client.fetchDetail({
+              detailUrl,
+              webKey: tender.web_key,
+            });
+            ({ jobPosting } = page);
+          } catch {
+            jobPosting = null;
+          }
         }
       }
 

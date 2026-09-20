@@ -3,6 +3,7 @@ import { Effect } from "effect";
 import type { FetchImpl, ReadIoFault } from "../effect-runtime";
 import {
   httpRequest,
+  mapHttpStatusToFault,
   readTextBody,
   runReadIoPromise,
   ValidationFault,
@@ -203,11 +204,29 @@ export const fetchDetailEffect = (
   }
   return httpRequest({
     fetchImpl: options.fetchImpl,
+    mapHttpErrors: false,
     sourceSlug: "opdrachtoverheid",
     url: entry.detailUrl,
   }).pipe(
-    Effect.flatMap((response) => readBoundedPageEffect(response, "detail")),
-    Effect.map((html) => parseOpdrachtoverheidDetailPage(html, entry.detailUrl))
+    Effect.flatMap((response) => {
+      if (response.status === 404 || response.status === 410) {
+        return Effect.succeed({ jobPosting: null, tender: null });
+      }
+      if (!response.ok) {
+        return Effect.fail(
+          mapHttpStatusToFault({
+            message: `HTTP ${response.status} for ${entry.detailUrl}`,
+            retryAfterHeader: response.headers.get("Retry-After"),
+            status: response.status,
+          })
+        );
+      }
+      return readBoundedPageEffect(response, "detail").pipe(
+        Effect.map((html) =>
+          parseOpdrachtoverheidDetailPage(html, entry.detailUrl)
+        )
+      );
+    })
   );
 };
 

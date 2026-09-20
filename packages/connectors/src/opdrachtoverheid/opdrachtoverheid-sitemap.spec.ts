@@ -148,6 +148,7 @@ describe("Opdrachtoverheid market-wide discovery", () => {
     const connector = createOpdrachtoverheidConnector({
       bronId: "bron-opdrachtoverheid-sitemap",
       client: createOpdrachtoverheidClient(fixtureClientOptions),
+      sitemapBatchSize: 3,
     });
 
     const discovered = await connector.discover(null);
@@ -155,7 +156,7 @@ describe("Opdrachtoverheid market-wide discovery", () => {
     expect(discovered.truncated).toBe(false);
     expect(discovered.checkpoint).toEqual({ cursor: "sitemap:3" });
     const tenders = discovered.items.map(
-      (item) => item.listingPayload as OpdrachtoverheidTender
+      (item) => (item.listingPayload as OpdrachtoverheidFetchedPayload).tender
     );
     expect(tenders.map((tender) => tender.tender_buying_organization)).toEqual([
       "Alliander",
@@ -228,6 +229,12 @@ describe("Opdrachtoverheid market-wide discovery", () => {
 
     expect(sitemapFetches).toBe(1);
     expect(detailFetches).toEqual(["A", "B", "C"]);
+    const [firstItem] = first.items;
+    if (!firstItem) {
+      throw new Error("expected first sitemap item");
+    }
+    await connector.fetch(firstItem);
+    expect(detailFetches).toEqual(["A", "B", "C"]);
 
     // A stale private-API checkpoint starts a fresh sitemap snapshot.
     const restarted = await connector.discover({ page: 9 });
@@ -235,14 +242,14 @@ describe("Opdrachtoverheid market-wide discovery", () => {
     expect(sitemapFetches).toBe(2);
   });
 
-  it("flags truncation when a detail page fails or carries no tender, without failing the run", async () => {
+  it("fails a detail page job without advancing its durable checkpoint", async () => {
+    let fail = true;
+    const fetched: string[] = [];
     const client: OpdrachtoverheidClient = {
       fetchDetail: async ({ webKey }) => {
-        if (webKey === "BROKEN") {
+        fetched.push(webKey);
+        if (webKey === "BROKEN" && fail) {
           throw new Error("HTTP 500");
-        }
-        if (webKey === "EMPTY") {
-          return { jobPosting: null, tender: null };
         }
         return { jobPosting: null, tender: ssrTender(webKey, "Org") };
       },
@@ -250,17 +257,51 @@ describe("Opdrachtoverheid market-wide discovery", () => {
       fetchSitemap: async () => [
         entry("org", "OK"),
         entry("org", "BROKEN"),
-        entry("org", "EMPTY"),
+        entry("org", "AFTER"),
       ],
     };
-    const result = await createOpdrachtoverheidConnector({
+    const connector = createOpdrachtoverheidConnector({
       bronId: "bron-opdrachtoverheid-partial",
       client,
-    }).discover(null);
+      sitemapBatchSize: 2,
+    });
+
+    await expect(connector.discover(null)).rejects.toThrow("HTTP 500");
+    fail = false;
+    const retried = await connector.discover(null);
+    expect(retried.items.map((item) => item.bronReferentie)).toEqual([
+      "OK",
+      "BROKEN",
+    ]);
+    expect(retried.checkpoint).toEqual({ cursor: "sitemap:2" });
+    expect(retried.hasMore).toBe(true);
+    expect(fetched).toEqual(["OK", "BROKEN", "OK", "BROKEN"]);
+  });
+
+  it("skips a structurally empty detail and flags the scan incomplete instead of retrying it", async () => {
+    const fetched: string[] = [];
+    const connector = createOpdrachtoverheidConnector({
+      bronId: "bron-opdrachtoverheid-empty-detail",
+      client: {
+        fetchDetail: async ({ webKey }) => {
+          fetched.push(webKey);
+          return webKey === "EMPTY"
+            ? { jobPosting: null, tender: null }
+            : { jobPosting: null, tender: ssrTender(webKey, "Org") };
+        },
+        fetchListing: () => Promise.reject(new Error("must not be called")),
+        fetchSitemap: async () => [entry("org", "OK"), entry("org", "EMPTY")],
+      },
+      sitemapBatchSize: 2,
+    });
+
+    const result = await connector.discover(null);
 
     expect(result.items.map((item) => item.bronReferentie)).toEqual(["OK"]);
     expect(result.truncated).toBe(true);
+    expect(result.checkpoint).toEqual({ cursor: "sitemap:2" });
     expect(result.hasMore).toBe(false);
+    expect(fetched).toEqual(["OK", "EMPTY"]);
   });
 
   it("falls back to the private listing API when the sitemap fails or is empty", async () => {
@@ -347,6 +388,24 @@ describe("Opdrachtoverheid sitemap live client", () => {
       expect(requested[1]).toBe(alliander.detailUrl);
       expect(page.tender?.tender_buying_organization).toBe("Alliander");
       expect(page.jobPosting).toMatchObject({ title: "Planner C" });
+    }
+  });
+
+  it("treats hard-gone detail pages as delisted in both clients", async () => {
+    for (const status of [404, 410]) {
+      const fetchImpl = Object.assign(
+        async () => new Response("gone", { status }),
+        { preconnect: () => {} }
+      );
+      for (const client of [
+        createOpdrachtoverheidClient({ fetchImpl, liveEnabled: true }),
+        createOpdrachtoverheidEffectClient({ fetchImpl, liveEnabled: true }),
+      ]) {
+        expect(await client.fetchDetail(entry("gone", "GONE"))).toEqual({
+          jobPosting: null,
+          tender: null,
+        });
+      }
     }
   });
 
