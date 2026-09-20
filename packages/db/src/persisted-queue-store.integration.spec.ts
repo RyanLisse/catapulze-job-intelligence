@@ -194,6 +194,7 @@ describe.serial("postgres persisted queue store", () => {
     const [done] = await rows();
     expect(done?.completed).toBe(true);
     expect(done?.attempts).toBe(2);
+    expect(done?.last_failure).toBeNull();
   });
 
   it("releases an interrupted take without spending an attempt", async () => {
@@ -264,7 +265,7 @@ describe.serial("postgres persisted queue store", () => {
     expect(row?.completed).toBe(true);
   });
 
-  it("leaves an inspectable dead letter after exhausted attempts", async () => {
+  it("closes an exhausted job as an inspectable dead letter and frees the bron", async () => {
     if (!available || !queue) {
       expect(available).toBe(false);
       return;
@@ -281,11 +282,11 @@ describe.serial("postgres persisted queue store", () => {
       );
     }
     const [row] = await rows();
-    expect(row?.completed).toBe(false);
+    expect(row?.completed).toBe(true);
     expect(row?.attempts).toBe(2);
     expect(row?.last_failure).toContain("permanent failure");
 
-    // The exhausted row is never claimed again — a pending take only sees silence.
+    // The dead letter is never claimed again: a pending take only sees silence.
     const controller = new AbortController();
     const orphan = Effect.runPromiseExit(
       queue.take(() => Effect.void, { maxAttempts: 2 }),
@@ -298,8 +299,16 @@ describe.serial("postgres persisted queue store", () => {
     controller.abort();
     await orphan;
     expect(winner).toBe("waiting");
-    const deadLetter = await rows();
-    expect(deadLetter[0]?.completed).toBe(false);
+
+    // CTP-643: the closed row no longer occupies the bron's open-job slot, so
+    // the scheduler's next offer for the same bron is accepted.
+    const fresh = makeJob({ bronId: job.bronId });
+    await Effect.runPromise(queue.offer(fresh, { id: fresh.scrapeRunId }));
+    const after = await rows();
+    expect(after).toHaveLength(2);
+    expect(after[1]?.id).toBe(fresh.scrapeRunId);
+    expect(after[1]?.completed).toBe(false);
+    expect(after[1]?.attempts).toBe(0);
   });
 
   it("never hands one row to two takers", async () => {

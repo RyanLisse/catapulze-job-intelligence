@@ -619,9 +619,34 @@ export class PostgresRunStore implements RunLifecycleStore {
       if (
         !existing ||
         existing.bronId !== input.key.bronId ||
-        existing.runKind !== input.runKind ||
-        existing.status !== "running"
+        existing.runKind !== input.runKind
       ) {
+        throw new Error("Cannot resume mismatched or completed scrape run");
+      }
+      if (input.mode === "resume" && existing.status === "failed") {
+        // CTP-643: a durable retry reopens the failed run under a fresh fence
+        // and keeps its checkpoint, instead of throwing away every attempt.
+        const reopened = await tx
+          .update(scrapeRun)
+          .set({
+            failureClass: null,
+            failureCode: null,
+            failureMessage: null,
+            failurePhase: null,
+            fenceToken: sql`${scrapeRun.fenceToken} + 1`,
+            geindigd: null,
+            status: "running",
+          })
+          .where(eq(scrapeRun.id, input.key.scrapeRunId))
+          .returning({ fenceToken: scrapeRun.fenceToken });
+        return this.claimPollHealth(tx, input, {
+          fenceToken: requireMutation(reopened, "reopen failed scrape run")
+            .fenceToken,
+          progress: toRunProgress(existing),
+          startedAt: existing.startedAt,
+        });
+      }
+      if (existing.status !== "running") {
         throw new Error("Cannot resume mismatched or completed scrape run");
       }
       if (input.mode === "resume") {

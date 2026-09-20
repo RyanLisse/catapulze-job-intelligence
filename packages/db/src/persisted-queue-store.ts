@@ -23,9 +23,12 @@ import postgres from "postgres";
  *   dispatcher's retry mechanics.
  * - `take` claims a row by stamping `acquired_by`/`acquired_at` (the lease),
  *   hands it to the caller inside a scope, and acks in the scope finalizer:
- *   success → `completed`, failure → `attempts + 1` and released,
- *   interrupt-only → released without spending an attempt. A row at
- *   `attempts >= maxAttempts` is never claimed again (inspectable dead letter).
+ *   success → `completed` with `last_failure` cleared, failure →
+ *   `attempts + 1` and released, interrupt-only → released without spending
+ *   an attempt. A failure at `attempts >= maxAttempts` also sets
+ *   `completed`: the dead letter is `completed = true AND last_failure IS
+ *   NOT NULL`, never claimed again, and no longer holds the bron's open-job
+ *   slot (`durable_job_open_bron_uidx`), so the next offer starts fresh.
  * - A crashed worker leaves its claim to expire (`acquired_at` older than
  *   `lockExpiration`); the next claim picks the row up. The domain-side
  *   scrape_run fence decides what the replayed job then does.
@@ -199,7 +202,7 @@ export const makePostgresPersistedQueueStore = (
       return finalize(
         () => sql`
         UPDATE ${tableSql}
-        SET acquired_at = NULL, acquired_by = NULL, updated_at = now(), completed = true, attempts = ${attempts}
+        SET acquired_at = NULL, acquired_by = NULL, updated_at = now(), completed = true, attempts = ${attempts}, last_failure = NULL
         WHERE sequence = ${sequence}
         AND acquired_by = ${workerId}::uuid
       `
@@ -209,13 +212,14 @@ export const makePostgresPersistedQueueStore = (
     const retryAttempt = (
       sequence: number,
       attempts: number,
-      cause: Cause.Cause<unknown>
+      cause: Cause.Cause<unknown>,
+      maxAttempts: number
     ) => {
       activeSequences.delete(sequence);
       return finalize(
         () => sql`
         UPDATE ${tableSql}
-        SET acquired_at = NULL, acquired_by = NULL, updated_at = now(), attempts = ${attempts}, last_failure = ${Cause.pretty(cause)}
+        SET acquired_at = NULL, acquired_by = NULL, updated_at = now(), attempts = ${attempts}, last_failure = ${Cause.pretty(cause)}, completed = ${attempts >= maxAttempts}
         WHERE sequence = ${sequence}
         AND acquired_by = ${workerId}::uuid
       `
@@ -332,7 +336,8 @@ export const makePostgresPersistedQueueStore = (
                       : retryAttempt(
                           element.sequence,
                           element.attempts + 1,
-                          cause
+                          cause,
+                          maxAttempts
                         ),
                   onSuccess: () =>
                     complete(element.sequence, element.attempts + 1),

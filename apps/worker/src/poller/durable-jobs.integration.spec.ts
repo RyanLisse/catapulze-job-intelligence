@@ -1,6 +1,7 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "bun:test";
 
 import { emptyRunMetrics } from "@ji/connectors";
+import type { ConnectorRunProgress } from "@ji/connectors";
 import { PostgresRunStore } from "@ji/db/bron-runtime";
 import { bron, bronHealth, scrapeRun } from "@ji/db/schema/curated";
 import * as schema from "@ji/db/schema/index";
@@ -182,6 +183,15 @@ describe.serial("durable bron job consumer", () => {
     (behaviour: {
       readonly crashAfterCommit?: { current: boolean };
       readonly crashBeforeCommit?: { current: boolean };
+      /**
+       * A connector failure the way runConnector reports it: the run is
+       * marked `failed` with its page checkpoint, then the job throws.
+       * Records the progress the next attempt resumed with.
+       */
+      readonly failAfterFirstPage?: {
+        current: boolean;
+        resumedWith: ConnectorRunProgress[];
+      };
       readonly alwaysFail?: boolean;
     }): ((job: BronIngestJob) => Promise<void>) =>
     async (job) => {
@@ -201,8 +211,9 @@ describe.serial("durable bron job consumer", () => {
         return;
       }
       const mode = existing ? "resume" : "reset";
+      const key = { bronId: job.bronId, scrapeRunId: job.scrapeRunId };
       const started = await store.start({
-        key: { bronId: job.bronId, scrapeRunId: job.scrapeRunId },
+        key,
         mode,
         progress,
         runKind: "poll",
@@ -212,11 +223,35 @@ describe.serial("durable bron job consumer", () => {
         behaviour.crashBeforeCommit.current = false;
         throw new Error("worker killed mid-run before the domain commit");
       }
+      if (behaviour.failAfterFirstPage) {
+        behaviour.failAfterFirstPage.resumedWith.push(started.progress);
+        if (behaviour.failAfterFirstPage.current) {
+          behaviour.failAfterFirstPage.current = false;
+          const afterPageOne = {
+            checkpoint: { cursor: "sitemap:25" },
+            metrics: { ...emptyRunMetrics(), found: 25, new: 25 },
+          };
+          await store.checkpoint(key, afterPageOne, started.fenceToken);
+          await store.fail({
+            failure: {
+              class: "connector",
+              code: "DISCOVER_FAILED",
+              message: "Connector discovery failed",
+              phase: "discover",
+            },
+            fenceToken: started.fenceToken,
+            finishedAt: new Date(),
+            key,
+            progress: afterPageOne,
+          });
+          throw new Error("page 2 discovery failed once");
+        }
+      }
       await store.complete({
         fenceToken: started.fenceToken,
         finishedAt: new Date(),
-        key: { bronId: job.bronId, scrapeRunId: job.scrapeRunId },
-        progress,
+        key,
+        progress: started.progress,
       });
       if (behaviour.crashAfterCommit?.current) {
         behaviour.crashAfterCommit.current = false;
@@ -336,7 +371,52 @@ describe.serial("durable bron job consumer", () => {
     expect(row?.attempts).toBe(2);
   });
 
-  it("exhausted attempts leave an inspectable dead letter and stop claiming", async () => {
+  it("a failed attempt is resumed from its checkpoint by the next take (CTP-643)", async () => {
+    if (!available || !database) {
+      expect(available).toBe(false);
+      return;
+    }
+    const job = makeJob();
+    const resumedWith: ConnectorRunProgress[] = [];
+    const failAfterFirstPage = { current: true, resumedWith };
+    const consumer = runConsumer({
+      behaviour: { failAfterFirstPage },
+      job,
+    });
+    await waitFor(async () => {
+      const [row] = await rows();
+      return row?.completed === true;
+    });
+    await consumer.abort();
+
+    // Attempt 1 started fresh; attempt 2 resumed the same run at the page-1
+    // checkpoint instead of rejecting the failed row.
+    expect(failAfterFirstPage.resumedWith).toEqual([
+      { checkpoint: null, metrics: emptyRunMetrics() },
+      {
+        checkpoint: { cursor: "sitemap:25" },
+        metrics: { ...emptyRunMetrics(), found: 25, new: 25 },
+      },
+    ]);
+    const runs = await database
+      .select({
+        failureCode: scrapeRun.failureCode,
+        fenceToken: scrapeRun.fenceToken,
+        found: scrapeRun.aantalGevonden,
+        status: scrapeRun.status,
+      })
+      .from(scrapeRun)
+      .where(eq(scrapeRun.id, job.scrapeRunId));
+    expect(runs).toEqual([
+      { failureCode: null, fenceToken: 2, found: 25, status: "succeeded" },
+    ]);
+    const [row] = await rows();
+    expect(row?.completed).toBe(true);
+    expect(row?.attempts).toBe(2);
+    expect(row?.last_failure).toBeNull();
+  });
+
+  it("exhausted attempts close the job as a dead letter and free the bron", async () => {
     if (!available || !database) {
       expect(available).toBe(false);
       return;
@@ -356,7 +436,7 @@ describe.serial("durable bron job consumer", () => {
     await consumer.abort();
 
     const [row] = await rows();
-    expect(row?.completed).toBe(false);
+    expect(row?.completed).toBe(true);
     expect(row?.attempts).toBe(2);
     expect(row?.last_failure).toContain("permanent connector failure");
     expect(row?.acquired_by).toBeNull();
@@ -365,9 +445,27 @@ describe.serial("durable bron job consumer", () => {
       .select({ status: scrapeRun.status })
       .from(scrapeRun)
       .where(eq(scrapeRun.id, job.scrapeRunId));
-    // A permanently failing job commits no domain row at all — the dead
+    // A permanently failing job commits no domain row at all; the dead
     // letter and the absent scrape_run are both inspectable after restart.
     expect(run).toBeUndefined();
+
+    // CTP-643: the closed dead letter no longer holds the bron's open-job
+    // slot, so the scheduler's next offer for the same bron is accepted.
+    const queue = await createBronIngestQueue(applicationUrl, {
+      pollInterval: "20 millis",
+    });
+    try {
+      const next = makeJob();
+      await offerBronIngestJob(queue.queue, next);
+      const after = await rows();
+      expect(after.map((entry) => entry.id)).toEqual([
+        job.scrapeRunId,
+        next.scrapeRunId,
+      ]);
+      expect(after[1]?.completed).toBe(false);
+    } finally {
+      await queue.close();
+    }
   });
 
   it("a stale claim from a dead worker is fenced out and re-claimed after lease expiry", async () => {

@@ -9,11 +9,12 @@ import {
   runConnector,
 } from "@ji/connectors";
 import type { ObservationRecorder, RunLifecycleStore } from "@ji/connectors";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/postgres-js";
 import { migrate } from "drizzle-orm/postgres-js/migrator";
 import postgres from "postgres";
 
+import { ABANDONED_RUN_FAILURE } from "./abandon-stale-runs";
 import {
   PostgresBronPersistence,
   PostgresObservationRecorder,
@@ -1138,6 +1139,136 @@ describe("durable bron runtime adapters", () => {
           .execute()
       ).rejects.toThrow();
     } finally {
+      await database.delete(bron).where(eq(bron.id, bronId));
+      await client.end({ timeout: 5 });
+    }
+  });
+
+  it("reopens a failed run on resume with its checkpoint and a fresh fence (CTP-643)", async () => {
+    if (!available) {
+      expect(available).toBe(false);
+      return;
+    }
+    const client = postgres(applicationUrl, { max: 1 });
+    const database = drizzle(client, { schema });
+    const runStore = new PostgresRunStore(database);
+    const bronId = crypto.randomUUID();
+    const key = { bronId, scrapeRunId: crypto.randomUUID() };
+    const checkpointProgress = {
+      checkpoint: { cursor: "sitemap:25" },
+      metrics: { ...emptyRunMetrics(), found: 25, new: 25 },
+    };
+    const failure = {
+      class: "connector",
+      code: "DISCOVER_FAILED",
+      message: "Connector discovery failed",
+      phase: "discover",
+    } as const;
+    try {
+      await database.insert(bron).values({
+        categorie: "runtime-test",
+        id: bronId,
+        naam: `Reopen ${bronId}`,
+      });
+      const first = await runStore.start({
+        key,
+        mode: "reset",
+        progress: { checkpoint: null, metrics: emptyRunMetrics() },
+        runKind: "poll",
+        startedAt: new Date("2026-09-20T10:00:00Z"),
+      });
+      await runStore.checkpoint(key, checkpointProgress, first.fenceToken);
+      await runStore.fail({
+        failure,
+        fenceToken: first.fenceToken,
+        finishedAt: new Date("2026-09-20T10:01:00Z"),
+        key,
+        progress: checkpointProgress,
+      });
+      const [failedRow] = await database
+        .select({ status: scrapeRun.status })
+        .from(scrapeRun)
+        .where(eq(scrapeRun.id, key.scrapeRunId));
+      expect(failedRow?.status).toBe("failed");
+
+      const resumed = await runStore.start({
+        key,
+        mode: "resume",
+        progress: { checkpoint: null, metrics: emptyRunMetrics() },
+        runKind: "poll",
+        startedAt: new Date("2026-09-20T10:05:00Z"),
+      });
+      expect(resumed.fenceToken).toBe(first.fenceToken + 1);
+      expect(resumed.progress).toEqual(checkpointProgress);
+      expect(resumed.startedAt).toEqual(new Date("2026-09-20T10:00:00Z"));
+      const [reopened] = await database
+        .select({
+          failureClass: scrapeRun.failureClass,
+          failureCode: scrapeRun.failureCode,
+          failureMessage: scrapeRun.failureMessage,
+          failurePhase: scrapeRun.failurePhase,
+          geindigd: scrapeRun.geindigd,
+          status: scrapeRun.status,
+        })
+        .from(scrapeRun)
+        .where(eq(scrapeRun.id, key.scrapeRunId));
+      expect(reopened).toEqual({
+        failureClass: null,
+        failureCode: null,
+        failureMessage: null,
+        failurePhase: null,
+        geindigd: null,
+        status: "running",
+      });
+
+      // A run abandoned by the poller's staleness sweep is the same failed
+      // shape and must be resumable in the same way.
+      // The sweep is table-wide, so apply its exact statement shape to this
+      // row only; the shared test database holds other specs' live runs.
+      const [swept] = await database
+        .update(scrapeRun)
+        .set({
+          ...ABANDONED_RUN_FAILURE,
+          fenceToken: sql`${scrapeRun.fenceToken} + 1`,
+          geindigd: new Date("2026-09-20T10:10:00Z"),
+          status: "failed",
+        })
+        .where(
+          and(
+            eq(scrapeRun.id, key.scrapeRunId),
+            eq(scrapeRun.status, "running")
+          )
+        )
+        .returning({ fenceToken: scrapeRun.fenceToken });
+      expect(swept?.fenceToken).toBe(resumed.fenceToken + 1);
+      const afterAbandon = await runStore.start({
+        key,
+        mode: "resume",
+        progress: { checkpoint: null, metrics: emptyRunMetrics() },
+        runKind: "poll",
+        startedAt: new Date("2026-09-20T10:11:00Z"),
+      });
+      // The sweep bumped the fence once, the reopen once more.
+      expect(afterAbandon.fenceToken).toBe(resumed.fenceToken + 2);
+      expect(afterAbandon.progress).toEqual(checkpointProgress);
+
+      await runStore.complete({
+        fenceToken: afterAbandon.fenceToken,
+        finishedAt: new Date("2026-09-20T10:12:00Z"),
+        key,
+        progress: checkpointProgress,
+      });
+      await expect(
+        runStore.start({
+          key,
+          mode: "resume",
+          progress: { checkpoint: null, metrics: emptyRunMetrics() },
+          runKind: "poll",
+          startedAt: new Date("2026-09-20T10:13:00Z"),
+        })
+      ).rejects.toThrow("Cannot resume mismatched or completed scrape run");
+    } finally {
+      await database.delete(scrapeRun).where(eq(scrapeRun.bronId, bronId));
       await database.delete(bron).where(eq(bron.id, bronId));
       await client.end({ timeout: 5 });
     }

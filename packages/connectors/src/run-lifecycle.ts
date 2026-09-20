@@ -91,6 +91,11 @@ export class RunAlreadyInProgressError extends Error {
 
 export interface RunStartInput {
   key: CheckpointKey;
+  /**
+   * "reset" starts the run from `progress`; "resume" keeps the persisted
+   * progress of the same-key run and — CTP-643 — reopens it when a previous
+   * attempt left it `failed`, so a durable retry continues its checkpoint.
+   */
   mode: "reset" | "resume";
   progress: ConnectorRunProgress;
   runKind: ConnectorRunKind;

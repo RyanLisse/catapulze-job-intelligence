@@ -34,8 +34,9 @@ import type { SliceABronSlug } from "../slice-a-bronnen";
  * scrapeRunId, and this module's consumer takes it and drives the existing
  * `runBronIngestPipeline`. The queue gives the dispatch durability; the
  * pipeline's own scrape_run fencing gives the domain commit idempotency —
- * a replayed job resumes a `running` run or replays a `succeeded` one, so
- * a crash anywhere produces exactly one domain result per job.
+ * a replayed job resumes a `running` or `failed` run from its checkpoint or
+ * replays a `succeeded` one, so a crash or transient failure anywhere
+ * produces exactly one domain result per job (CTP-643).
  */
 
 export const BRON_INGEST_QUEUE = "bron-ingest";
@@ -176,8 +177,11 @@ export interface DurableBronJobConsumerOptions {
  *   `succeeded` and the pipeline replays instead of re-running.
  * - DB outage at ack: the finalizer's bounded retry then the lease expiry
  *   both route the row back to a live worker.
- * - exhausted attempts: the row stays uncompleted at maxAttempts, skipped by
- *   the claim predicate — inspectable, never silently dropped.
+ * - transient failure: the run row is `failed` with its checkpoint; the next
+ *   take reopens it and continues from that page, not from scratch.
+ * - exhausted attempts: the row is closed with `last_failure` kept (dead
+ *   letter, inspectable), which also frees the bron's open-job slot so the
+ *   scheduler may offer a fresh job on the next cycle.
  */
 export const runDurableBronJobConsumer = async (
   options: DurableBronJobConsumerOptions

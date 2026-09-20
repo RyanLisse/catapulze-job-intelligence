@@ -33,9 +33,9 @@ involved — the job is a plain durable queue item.
 3. The consumer takes one job at a time (single executor per bron) and calls
    `runBronIngestPipeline` with the job's `scrapeRunId`. The pipeline's
    existing behaviour does the exactly-once work: a fresh `scrapeRunId`
-   starts a `reset` run; a replayed job finds the same row `running` and
-   resumes under a bumped fence token, or finds it `succeeded` and replays
-   without a second domain mutation. The domain commit and the outbox intent
+   starts a `reset` run; a replayed job finds the same row `running` or
+   `failed` and resumes under a bumped fence token, or finds it `succeeded`
+   and replays without a second domain mutation. The domain commit and the outbox intent
    stay in the pipeline's single transaction — the queue ack only happens
    after that commit succeeds.
 4. On success the row flips `completed = true`. On a thrown error the store's
@@ -50,7 +50,8 @@ involved — the job is a plain durable queue item.
 | Kill after the commit, before the queue ack | The replayed take finds `scrape_run.status = 'succeeded'` and returns immediately — the ack lands with no second mutation. |
 | Database outage during claim | The claim loop logs a warning and keeps polling; a `take` never settles as a failure, so no job is stranded or dead-lettered by a transient outage. |
 | Lease expiry / fencing | `acquired_by` is a per-worker UUID refreshed by a background fiber; a claim older than `lockExpiration` is reclaimable. Domain-side, the successor's `store.start` bumps `fence_token`, so the stale worker can never commit again. |
-| Exhausted attempts | At `attempts >= DURABLE_JOB_MAX_ATTEMPTS` (5) the claim predicate stops matching. The row stays `completed = false` with `last_failure` — an inspectable dead letter, never silently dropped. |
+| Transient connector failure | `runConnector` marks the `scrape_run` `failed` with its last page checkpoint and the job throws; the finalizer spends one attempt. The next take reopens that same run (`status = 'running'`, failure columns cleared, `fence_token + 1`) and continues from the checkpoint. Pages already committed are not fetched again. See "Retry semantics". |
+| Exhausted attempts | The failure that reaches `attempts >= DURABLE_JOB_MAX_ATTEMPTS` (5) closes the row: `completed = true` with `last_failure` kept. It is never claimed again and it no longer occupies the bron's open-job slot. See "Dead letters". |
 
 State is inspectable from SQL:
 
@@ -60,6 +61,46 @@ FROM curated.durable_job
 WHERE queue_name = 'bron-ingest'
 ORDER BY sequence;
 ```
+
+## Retry semantics (CTP-643)
+
+A retry is a resume of the same run, whatever the previous attempt left
+behind. `PostgresRunStore.start({ mode: "resume" })` accepts a `running`
+row and, since CTP-643, a `failed` row of the same `(bronId, scrapeRunId)`:
+it sets `status = 'running'`, clears `geindigd` and the four `failure_*`
+columns, increments `fence_token` and hands back the persisted checkpoint
+and metrics. A `succeeded` row is still refused on resume; the pipeline
+replays it before it ever calls `start`. `reset` mode is unchanged.
+
+The same path covers a run that `abandonStaleRuns` failed because it ran
+past `POLLER_ABANDON_RUN_AFTER_MS`: the sweep writes `failed` and bumps the
+fence, the next take reopens it. Reading a run row, `fence_token` therefore
+counts attempts (1 for the first start, +1 per resume or sweep).
+
+Before CTP-643 a `failed` row rejected every resume, so one transient error
+consumed all five attempts within seconds and the bron went dark until an
+operator edited `curated.durable_job`.
+
+## Dead letters (CTP-643)
+
+A dead letter is a closed row that still carries a failure:
+
+```sql
+SELECT id, element->>'bronSlug' AS bron, attempts, last_failure, updated_at
+FROM curated.durable_job
+WHERE queue_name = 'bron-ingest'
+  AND completed
+  AND last_failure IS NOT NULL
+ORDER BY updated_at DESC;
+```
+
+A successful ack clears `last_failure`, so a job that failed four times and
+then succeeded does not show up here. Because the row is `completed`, the
+partial index `durable_job_open_bron_uidx` no longer blocks the bron: the
+scheduler offers a fresh job (new `scrapeRunId`) on the next due cycle. The
+dead letter stays for inspection and needs no operator action to unblock
+polling; investigate `last_failure` and the matching `scrape_run` row for
+the cause.
 
 ## Cutover, rollback, single executor
 
