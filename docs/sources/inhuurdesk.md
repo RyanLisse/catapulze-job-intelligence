@@ -44,3 +44,17 @@ De RJC-377-notitie "Inhuurdesk publiceert geen sluitingsdatum" beschreef de niet
 ## Known-hash short-circuit (RJC-357 / RJC-401)
 
 `listingHashCoversDetail: true` — de fetch her-serialiseert de listing-rij zonder tweede request, dus `hashInhuurdeskListingItem` dekt **elk** whitelist-veld. De coverage-test in `inhuurdesk.spec.ts` vergelijkt de variant-lijst met de sleutels van `projectInhuurdeskAssignment`, zodat een nieuw whitelist-veld zonder hash-dekking de test breekt.
+
+## Durable feed-cohort (CTP-629, bewezen 2026-09-20)
+
+Inhuurdesk is bewezen op het duurzame ingestpad (`curated.durable_job` + `POLLER_DURABLE_BRONNEN`). De connector zelf is ongewijzigd — de migratie is een bewijslast, geen codewijziging.
+
+**Live-probe 2026-09-20** (`/private/tmp/w8-evidence/feed-cohort/`): `?page=0` en `?page=1` geven byte-identieke responses (beiden `total: 20`, `data.length: 20`) — de 1-indexering uit 2026-09-03 is onveranderd, dus `checkpoint?.page ?? 1` blijft correct. `?page=2` → 200, `total: 20`, `data: []` — de staartpagina is leeg; met `pageSize = 20` stopt de connector al na pagina 1 (`page * pageSize < total` is onwaar).
+
+**Resume-contract** (`packages/connectors/src/inhuurdesk/durable-cohort.spec.ts`, 4 specs): het checkpoint is `{page, pageSize}` (1-geïndexeerd); een duurzame herval leest alleen pagina's ná het checkpoint en erft de `pageSize` uit de eerste run — zelfs als de bron de paginagrootte zou wijzigen. Head-insert tussen attempts → her-observatie, geabsorbeerd door de replay-dedupe. **Resterende kloof (eerlijk):** een delisting vóór de cursor wordt door de hervatte run overgeslagen; geen tombstone (hervatte run is nooit compleet), genezing via de volgende verse poll vanaf pagina 1.
+
+**Completeness/`truncated`:** geen paginalimiet; `hasMore` stopt op `data.length === 0` óf `page * pageSize >= total`. `truncated` blijft afwezig — de enige eerlijke waarde onder het RJC-397-contract.
+
+**End-to-end op de echte pipeline** (fixture-client, `ji_test_iso_*`-Postgres): offer → `runDurableBronJobConsumer` → `runBronIngestPipeline` → observaties, `source_record`s en curated `aanvraag`-rijen; gefaalde run → herval (`reopenFailed`, fence +1) → resume vanaf checkpoint; abort mid-item → run `failed` (persistence-abort is nooit "benign", CTP-490) → retake leest de staart alsnog — geen verlies, exact-één. Bewijs: `feed-cohort.integration.spec.ts` (6 specs, groen), bewaard als voorgestelde patch onder `/private/tmp/w8-evidence/feed-cohort/` omdat `apps/worker` buiten deze lane valt.
+
+**Canary en rollback:** eerst `POLLER_DURABLE_BRONNEN=tenderned`, dan `,inhuurdesk` toevoegen — één bron tegelijk. Rollback = slug uit de vlag halen; in-flight jobs lopen leeg, er ontstaat geen dubbele scheduling (`main.ts` returnt voor de inline poll). Geen dataverlies geclaimd buiten het bovenstaande bewijs.
