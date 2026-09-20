@@ -372,9 +372,9 @@ resolve_smoke_migration_url() {
 }
 
 run_integration_smoke() {
-  # Scope the database-integration exports away: its data volume name and
-  # test URLs would otherwise poison the smoke lane's default volume and
-  # host-side migrate step.
+  # docker:smoke scrubs ambient variables from its Compose invocations, so
+  # the shadow exports can no longer reach the stack; these unsets keep the
+  # database-integration test URLs out of the smoke's host-side commands.
   env \
     -u DATABASE_APP_TEST_URL \
     -u DATABASE_TEST_URL \
