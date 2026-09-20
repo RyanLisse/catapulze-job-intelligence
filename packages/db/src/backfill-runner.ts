@@ -15,6 +15,7 @@ import type {
   BackfillRunResult,
   BackfillScope,
   NeonV1Source,
+  StarappleLiveIndex,
 } from "@ji/application/backfill";
 import { FilesystemObjectStore, InMemoryObjectStore } from "@ji/connectors";
 import type { ObjectStore } from "@ji/connectors";
@@ -41,6 +42,10 @@ export interface RunMotianV1BackfillOptions {
   readonly motianDatabaseUrl?: string;
   readonly rawObjectStore?: BackfillRawObjectStore;
   readonly scope?: BackfillScope;
+  /** Optional live-sitemap index for Starapple bron-URL verification
+   * (CTP-527). Supplying one verifies open Starapple slugs against what the
+   * live site advertises; fetching the sitemap stays the caller's choice. */
+  readonly starappleLiveIndex?: StarappleLiveIndex;
 }
 
 export interface BackfillRawObjectStore {
@@ -164,6 +169,7 @@ export const runMotianV1Backfill = async (
       provenanceStore: new PostgresBackfillProvenanceStore(database),
       runStore: new PostgresBackfillRunStore(database),
       source,
+      starappleLiveIndex: options.starappleLiveIndex,
     });
   } finally {
     await sql.end({ timeout: 5 });

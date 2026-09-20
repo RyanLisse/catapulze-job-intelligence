@@ -3,10 +3,11 @@ import { z } from "zod";
 
 import type { CurateStore } from "../identity/curate";
 import type { JsonValue } from "../normalise";
+import type { StarappleLiveIndex } from "./motian-bron-url";
 
 export const NEON_V1_BACKFILL_CONTRACT_VERSION = "neon-v1-backfill/v1" as const;
 
-export const NEON_V1_PARSER_VERSION = "neon-v1/2026-09-15-legacy-fields";
+export const NEON_V1_PARSER_VERSION = "neon-v1/2026-09-20-starapple-live-index";
 
 export const NEON_V1_DEFAULT_CONCURRENCY = 16;
 
@@ -325,5 +326,11 @@ export interface RunNeonV1BackfillInput {
   readonly provenanceStore: BackfillProvenanceStore;
   readonly runStore: BackfillRunStore;
   readonly source: NeonV1Source;
+  /** Optional live-sitemap index for Starapple bron-URL verification
+   * (CTP-527). Supplying one lets open Starapple rows keep only slugs the
+   * live site still advertises — an unambiguous rematch is followed, anything
+   * else falls back to the Wayback archive redirect. Fetching the sitemap is
+   * the caller's choice; absent, resolution keeps its historical shape. */
+  readonly starappleLiveIndex?: StarappleLiveIndex;
   readonly startedAt?: Date;
 }

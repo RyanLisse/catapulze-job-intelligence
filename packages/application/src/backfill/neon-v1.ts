@@ -18,6 +18,7 @@ import { field } from "../normalise";
 import type { NormalisedAanvraagDraft } from "../normalise";
 import { titleFallbackDescription } from "../title-fallback-description";
 import { isMotianJobClosed, resolveMotianBronUrl } from "./motian-bron-url";
+import type { StarappleLiveIndex } from "./motian-bron-url";
 import {
   educationLevelForMotianJob,
   motianTariefEenheid,
@@ -504,8 +505,38 @@ const closingMoment = (value: string | null | undefined): Date | null => {
   return Number.isFinite(parsed.getTime()) ? parsed : null;
 };
 
+/**
+ * CTP-527 (F02): a broker board never publishes itself as the eindklant. On
+ * Starapple rows a `company`/`end_client` carrying the platform's own brand
+ * names the intermediary, not the opdrachtgever — the CTP-514 audit recorded
+ * exactly that as WRONG ("Starapple" where the reachable page names politie
+ * as eindklant). The eindklant a broker page states lives in vacancy prose,
+ * which is GAP_ENRICH (CTP-482), not deterministic mapping, so the honest
+ * value here is UNKNOWN. `bronSpecifiek` keeps the raw company/end_client
+ * untouched.
+ */
+const STARAPPLE_BROKER_SELF_NAMES = new Set([
+  "starapple",
+  "starapplenl",
+  "starapplebv",
+]);
+
+const collapseBrokerSelfName = (
+  job: NeonV1JobRow,
+  value: string | typeof UNKNOWN
+): string | typeof UNKNOWN => {
+  if (value === UNKNOWN || !isStarapplePlatform(job.platform)) {
+    return value;
+  }
+  const normalized = value.toLowerCase().replaceAll(/[^a-z0-9]+/gu, "");
+  return STARAPPLE_BROKER_SELF_NAMES.has(normalized) ? UNKNOWN : value;
+};
+
 const opdrachtgeverForJob = (job: NeonV1JobRow): string | typeof UNKNOWN =>
-  job.end_client?.trim() || job.company?.trim() || UNKNOWN;
+  collapseBrokerSelfName(
+    job,
+    job.end_client?.trim() || job.company?.trim() || UNKNOWN
+  );
 
 /** Motian publishes no creation timestamp. `posted_at` is the only honest
  * source for the publication/first-seen instant. When it is absent, first seen
@@ -536,7 +567,10 @@ const v1SpecificFieldsForJob = (
   v1_status: sourceStatus,
 });
 
-export const mapV1JobToDraft = (job: NeonV1JobRow): NormalisedAanvraagDraft => {
+export const mapV1JobToDraft = (
+  job: NeonV1JobRow,
+  starappleLiveIndex?: StarappleLiveIndex
+): NormalisedAanvraagDraft => {
   const parserVersion = NEON_V1_PARSER_VERSION;
   const sourceStatus = sourceStatusForJob(job);
   const lifecycle = lifecycleForJob(job, sourceStatus);
@@ -550,7 +584,11 @@ export const mapV1JobToDraft = (job: NeonV1JobRow): NormalisedAanvraagDraft => {
       parserVersion,
       "bron_specifiek"
     ),
-    bronUrl: field(resolveMotianBronUrl(job), parserVersion, "motian_bron_url"),
+    bronUrl: field(
+      resolveMotianBronUrl(job, starappleLiveIndex),
+      parserVersion,
+      "motian_bron_url"
+    ),
     contentHash: "",
     extractieMethode: "api",
     lifecycle,
@@ -1134,6 +1172,7 @@ const importNeonV1Job = async (input: {
   objectStore: ObjectStore;
   provenanceStore: RunNeonV1BackfillInput["provenanceStore"];
   scrapeRunId: string;
+  starappleLiveIndex?: StarappleLiveIndex;
   startedAt: Date;
   prepared: PreparedNeonV1Job;
 }): Promise<BackfillProvenanceRecord | null> => {
@@ -1185,7 +1224,7 @@ const importNeonV1Job = async (input: {
       provenanceStore: input.provenanceStore,
     });
 
-    const draftBase = mapV1JobToDraft(input.job);
+    const draftBase = mapV1JobToDraft(input.job, input.starappleLiveIndex);
     const draft: NormalisedAanvraagDraft = {
       ...draftBase,
       contentHash,
@@ -1287,6 +1326,7 @@ const importNeonV1Jobs = async (input: {
   objectStore: RunNeonV1BackfillInput["objectStore"];
   provenanceStore: RunNeonV1BackfillInput["provenanceStore"];
   scrapeRunId: string;
+  starappleLiveIndex?: StarappleLiveIndex;
   startedAt: Date;
 }): Promise<readonly BackfillProvenanceRecord[]> => {
   const preparedJobs = await Promise.all(
@@ -1373,6 +1413,7 @@ const importNeonV1Jobs = async (input: {
           prepared: next.prepared,
           provenanceStore: input.provenanceStore,
           scrapeRunId: input.scrapeRunId,
+          starappleLiveIndex: input.starappleLiveIndex,
           startedAt: input.startedAt,
         });
       } catch (error) {
@@ -1408,6 +1449,7 @@ const importFromSource = async (input: {
   provenanceStore: RunNeonV1BackfillInput["provenanceStore"];
   scrapeRunId: string;
   source: NeonV1Source;
+  starappleLiveIndex?: StarappleLiveIndex;
   startedAt: Date;
 }): Promise<BackfillScopeManifest> => {
   const mappingDigest = createOrderedMappingDigest();
@@ -1444,6 +1486,7 @@ const importFromSource = async (input: {
       objectStore: input.objectStore,
       provenanceStore: input.provenanceStore,
       scrapeRunId: input.scrapeRunId,
+      starappleLiveIndex: input.starappleLiveIndex,
       startedAt: input.startedAt,
     });
     for (const provenance of provenanceRecords) {
@@ -1771,6 +1814,7 @@ export const runNeonV1Backfill = async (
       provenanceStore: input.provenanceStore,
       scrapeRunId,
       source: input.source,
+      starappleLiveIndex: input.starappleLiveIndex,
       startedAt,
     });
     artifacts.targetReconciliation = await reconcileProvenance({
