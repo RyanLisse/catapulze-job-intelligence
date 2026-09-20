@@ -12,6 +12,7 @@ import postgres from "postgres";
 
 import type { PollCandidate } from "./schedule";
 import {
+  byLongestWaiting,
   dueCandidates,
   loadPollCandidates,
   partitionByLiveFlag,
@@ -104,6 +105,39 @@ describe("dueCandidates", () => {
         )
       )
     ).toEqual(["tenderned"]);
+  });
+});
+
+describe("byLongestWaiting", () => {
+  it("puts a bron that has never run ahead of one that has", () => {
+    const sorted = [
+      candidate({ bronSlug: "inhuurdesk", lastRunAt: minutesBefore(NOW, 90) }),
+      candidate({ bronSlug: "tenderned", lastRunAt: null }),
+    ].toSorted(byLongestWaiting);
+
+    expect(slugsOf(sorted)).toEqual(["tenderned", "inhuurdesk"]);
+  });
+
+  it("orders the longest-waiting bron first", () => {
+    const sorted = [
+      candidate({ bronSlug: "tenderned", lastRunAt: minutesBefore(NOW, 20) }),
+      candidate({ bronSlug: "inhuurdesk", lastRunAt: minutesBefore(NOW, 50) }),
+    ].toSorted(byLongestWaiting);
+
+    expect(slugsOf(sorted)).toEqual(["inhuurdesk", "tenderned"]);
+  });
+
+  it("re-queues a just-finished long bron behind a longer-waiting short one", () => {
+    // The long bron's run just ended: `lastRunAt` is that run's *start*
+    // (30 minutes back). The short bron has been waiting longer (50
+    // minutes), so it gets the next free slot even though the long bron is
+    // permanently due — the anti-starvation property of CTP-619.
+    const sorted = [
+      candidate({ bronSlug: "bluetrail", lastRunAt: minutesBefore(NOW, 30) }),
+      candidate({ bronSlug: "tenderned", lastRunAt: minutesBefore(NOW, 50) }),
+    ].toSorted(byLongestWaiting);
+
+    expect(slugsOf(sorted)).toEqual(["tenderned", "bluetrail"]);
   });
 });
 

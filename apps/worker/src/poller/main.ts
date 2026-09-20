@@ -5,7 +5,6 @@ import {
   RunAlreadyInProgressError,
 } from "@ji/connectors";
 import { abandonStaleRuns } from "@ji/db/abandon-stale-runs";
-import { abortableSleep } from "@ji/db/abortable-sleep";
 import { curateScrapeRun } from "@ji/db/curate-scrape-run";
 import { writeHeartbeat } from "@ji/db/process-heartbeat";
 import { waitForAdvisoryLock } from "@ji/db/process-lock";
@@ -30,7 +29,7 @@ import { withAbortFinalization } from "./abort-finalization";
 import { drainBacklog } from "./drain-backlog";
 import { heartbeatFilePath, MAX_POLLER_HEARTBEAT_AGE_MS } from "./heartbeat";
 import { runWithPollerLiveness } from "./liveness";
-import { runWithConcurrency } from "./pool";
+import { runContinuously } from "./pool";
 import {
   createPollerRuntimeHealth,
   PollerRuntimeOwnershipLostError,
@@ -38,6 +37,7 @@ import {
 import type { PollerRuntimeHealth } from "./runtime-health";
 import type { PollCandidate } from "./schedule";
 import {
+  byLongestWaiting,
   dueCandidates,
   loadPollCandidates,
   partitionByLiveFlag,
@@ -329,87 +329,121 @@ const main = async (): Promise<void> => {
         signal: controller.signal,
       },
       async () => {
-        while (!controller.signal.aborted) {
-          const cycleStartedAt = Date.now();
-
-          // Before the candidates, so a run this process abandons is already
-          // closed when `loadPollCandidates` reads the newest run per source.
-          // oxlint-disable-next-line no-await-in-loop -- one repair pass per cycle
-          const abandoned = await abandonStaleRuns(activeRuntime.database, {
-            now: new Date(),
-            olderThanMs: abandonRunAfterMs,
-          });
-          if (abandoned.length > 0) {
-            logLine(process.stdout, "poller_runs_abandoned", {
-              count: abandoned.length,
-            });
-          }
-
-          // CTP-404: bound processed outbox growth; unprocessed and
-          // dead-lettered rows are never pruned. One bounded batch per cycle
-          // drains a backlog gradually instead of one giant DELETE.
-          // oxlint-disable-next-line no-await-in-loop -- one prune pass per cycle
-          const prunedOutbox = await pruneProcessedOutboxEvents(
-            activeRuntime.database,
-            {
-              batchSize: Number(pollerEnv.POLLER_OUTBOX_PRUNE_BATCH),
+        // CTP-619: per-bron continuous scheduling. The cycle this replaces
+        // awaited its whole cohort before the next tick, so one long crawl
+        // held back every other bron's scheduled check. Now each evaluation
+        // starts the due bronnen up to `concurrency` in flight and the loop
+        // re-evaluates on the tick or the moment any run frees a slot.
+        // Due-ness stays derived (interval + newest run), never queued, so
+        // ticks missed during a run or a restart coalesce into exactly one
+        // follow-up run per bron.
+        let lastMaintenanceAt = 0;
+        let lastEvaluatedAt = Date.now();
+        await runContinuously({
+          concurrency,
+          dueItems: async ({ inFlight }) => {
+            const evaluatedAt = Date.now();
+            const candidates = await loadPollCandidates(activeRuntime, {
               now: new Date(),
-              retentionDays: Number(pollerEnv.POLLER_OUTBOX_RETENTION_DAYS),
-            }
-          );
-          if (prunedOutbox > 0) {
-            logLine(process.stdout, "poller_outbox_pruned", {
-              count: prunedOutbox,
+              olderThanMs: abandonRunAfterMs,
             });
-          }
-
-          // oxlint-disable-next-line no-await-in-loop -- candidates are loaded once per cycle
-          const candidates = await loadPollCandidates(activeRuntime, {
-            now: new Date(),
-            olderThanMs: abandonRunAfterMs,
-          });
-          const { live, notLive } = partitionByLiveFlag(
-            dueCandidates(candidates, new Date()),
-            process.env
-          );
-          for (const candidate of notLive) {
-            logLine(process.stdout, "poller_source_skipped", {
-              bronSlug: candidate.bronSlug,
-              reason: "not_live",
-            });
-          }
-          // At most POLLER_CONCURRENCY sources in flight. Each source still runs
-          // one at a time and keeps its own `crawl_delay_ms` pacing, so this buys
-          // cycle wall clock without touching politeness per host. Each in-flight
-          // source can hold one `curateScrapeRun` drain, so the concurrency is
-          // also the ceiling on concurrent drains against Postgres.
-          // oxlint-disable-next-line no-await-in-loop -- the cycle owns its sources; cycles must not overlap
-          await runWithConcurrency(
-            live,
-            concurrency,
-            async (candidate) => {
-              const log = await pollSource({
-                candidate,
-                curateBudgetMs,
-                runBudgetMs,
-                runtime: activeRuntime,
-                signal: controller.signal,
-                telemetryLayer: activeRuntimeHealth.layer,
+            const { live, notLive } = partitionByLiveFlag(
+              dueCandidates(candidates, new Date()),
+              process.env
+            );
+            for (const candidate of notLive) {
+              logLine(process.stdout, "poller_source_skipped", {
+                bronSlug: candidate.bronSlug,
+                reason: "not_live",
               });
-              logLine(process.stdout, "poller_source", log);
-            },
-            controller.signal
-          );
-          logLine(process.stdout, "poller_cycle", {
-            due: live.length,
-            durationMs: Date.now() - cycleStartedAt,
-            pollable: candidates.length,
-            skipped: notLive.length,
-          });
+            }
+            const due = live.toSorted(byLongestWaiting);
+            logLine(process.stdout, "poller_cycle", {
+              due: due.length,
+              durationMs: evaluatedAt - lastEvaluatedAt,
+              inFlight,
+              pollable: candidates.length,
+              skipped: notLive.length,
+            });
+            lastEvaluatedAt = evaluatedAt;
+            return due;
+          },
+          keyOf: (candidate) => candidate.bronId,
+          onRunError: (error, candidate) => {
+            // `pollSource` turns its own failures into a `poller_source`
+            // line; reaching here means the runner itself defected, so the
+            // failure is reported like a failed source rather than ending
+            // the scheduler.
+            logLine(
+              process.stdout,
+              "poller_source",
+              failedSourceLog({
+                bronSlug: candidate.bronSlug,
+                durationMs: 0,
+                error,
+              })
+            );
+          },
+          onTick: async () => {
+            // Stale-run repair and outbox pruning keep their per-tick
+            // cadence: evaluations can run more often than `tickMs` when
+            // runs finish, and these must not get chatty with them.
+            const nowMs = Date.now();
+            if (nowMs - lastMaintenanceAt < tickMs) {
+              return;
+            }
+            lastMaintenanceAt = nowMs;
 
-          // oxlint-disable-next-line no-await-in-loop -- the tick interval must elapse before the next cycle
-          await abortableSleep(tickMs, controller.signal);
-        }
+            // Before the candidates, so a run this process abandons is
+            // already closed when `loadPollCandidates` reads the newest run
+            // per source.
+            const abandoned = await abandonStaleRuns(activeRuntime.database, {
+              now: new Date(),
+              olderThanMs: abandonRunAfterMs,
+            });
+            if (abandoned.length > 0) {
+              logLine(process.stdout, "poller_runs_abandoned", {
+                count: abandoned.length,
+              });
+            }
+
+            // CTP-404: bound processed outbox growth; unprocessed and
+            // dead-lettered rows are never pruned. One bounded batch per
+            // cycle drains a backlog gradually instead of one giant DELETE.
+            const prunedOutbox = await pruneProcessedOutboxEvents(
+              activeRuntime.database,
+              {
+                batchSize: Number(pollerEnv.POLLER_OUTBOX_PRUNE_BATCH),
+                now: new Date(),
+                retentionDays: Number(pollerEnv.POLLER_OUTBOX_RETENTION_DAYS),
+              }
+            );
+            if (prunedOutbox > 0) {
+              logLine(process.stdout, "poller_outbox_pruned", {
+                count: prunedOutbox,
+              });
+            }
+          },
+          // At most POLLER_CONCURRENCY sources in flight. Each source still
+          // runs one at a time and keeps its own `crawl_delay_ms` pacing, so
+          // this buys cycle wall clock without touching politeness per host.
+          // Each in-flight source can hold one `curateScrapeRun` drain, so
+          // the concurrency is also the ceiling on concurrent drains against
+          // Postgres.
+          run: async (candidate) => {
+            const log = await pollSource({
+              candidate,
+              curateBudgetMs,
+              runBudgetMs,
+              runtime: activeRuntime,
+              signal: controller.signal,
+              telemetryLayer: activeRuntimeHealth.layer,
+            });
+            logLine(process.stdout, "poller_source", log);
+          },
+          signal: controller.signal,
+          tickMs,
+        });
       }
     );
     if (telemetryFatalError) {

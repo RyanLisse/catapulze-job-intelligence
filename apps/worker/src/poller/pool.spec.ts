@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 
-import { runWithConcurrency } from "./pool";
+import { runContinuously, runWithConcurrency } from "./pool";
 
 interface Tracker {
   readonly finished: string[];
@@ -225,5 +225,266 @@ describe("runWithConcurrency", () => {
 
     expect(results).toEqual([]);
     expect(tracker.started).toEqual([]);
+  });
+});
+
+/** Polls a condition at 1 ms; used where the loop's own tick drives progress. */
+const waitFor = async (condition: () => boolean): Promise<void> => {
+  while (!condition()) {
+    // oxlint-disable-next-line no-await-in-loop, promise/avoid-new -- timers have no promise API
+    await new Promise((resolve) => {
+      setTimeout(resolve, 1);
+    });
+  }
+};
+
+describe("runContinuously", () => {
+  it("starts a newly due item while a long run is still in flight", async () => {
+    const controller = new AbortController();
+    const longGate = Promise.withResolvers<null>();
+    const shortStarted = Promise.withResolvers<null>();
+    const events: string[] = [];
+    let longInFlight = false;
+    let shortSawLongInFlight = false;
+    let dueCalls = 0;
+
+    const scheduler = runContinuously<string>({
+      concurrency: 2,
+      // Tick 1 has only the long bron due; from tick 2 the short bron is
+      // due too — the point is it must not wait for the long run to end.
+      dueItems: () => {
+        dueCalls += 1;
+        return Promise.resolve(dueCalls === 1 ? ["long"] : ["short"]);
+      },
+      keyOf: (item) => item,
+      run: async (item) => {
+        events.push(`start:${item}`);
+        if (item === "long") {
+          longInFlight = true;
+          await longGate.promise;
+          longInFlight = false;
+          return;
+        }
+        shortSawLongInFlight = longInFlight;
+        shortStarted.resolve(null);
+      },
+      signal: controller.signal,
+      tickMs: 1,
+    });
+
+    await shortStarted.promise;
+    expect(events.slice(0, 2)).toEqual(["start:long", "start:short"]);
+    expect(shortSawLongInFlight).toBe(true);
+    expect(longInFlight).toBe(true);
+
+    controller.abort();
+    longGate.resolve(null);
+    await scheduler;
+  });
+
+  it("keeps one active run per key and merges missed ticks into a single follow-up", async () => {
+    const controller = new AbortController();
+    const firstGate = Promise.withResolvers<null>();
+    const secondStarted = Promise.withResolvers<null>();
+    let dueCalls = 0;
+    let runCount = 0;
+    let inFlight = false;
+    let overlap = false;
+    let secondRunStarted = false;
+
+    const scheduler = runContinuously<string>({
+      concurrency: 2,
+      // "a" stays due across every evaluation, so each tick while the first
+      // run is in flight is a missed tick that must coalesce, not enqueue.
+      dueItems: () => {
+        dueCalls += 1;
+        return Promise.resolve(secondRunStarted ? [] : ["a"]);
+      },
+      keyOf: (item) => item,
+      run: async () => {
+        runCount += 1;
+        if (inFlight) {
+          overlap = true;
+        }
+        inFlight = true;
+        if (runCount === 1) {
+          await firstGate.promise;
+          inFlight = false;
+          return;
+        }
+        secondRunStarted = true;
+        inFlight = false;
+        secondStarted.resolve(null);
+      },
+      signal: controller.signal,
+      tickMs: 1,
+    });
+
+    // Several evaluations pass while run 1 is in flight — no duplicate.
+    await waitFor(() => dueCalls >= 4 && runCount === 1);
+    expect(runCount).toBe(1);
+
+    // When run 1 ends and the bron is still due, exactly one merged
+    // follow-up starts — not one per missed tick.
+    firstGate.resolve(null);
+    await secondStarted.promise;
+    expect(runCount).toBe(2);
+    expect(overlap).toBe(false);
+
+    controller.abort();
+    await scheduler;
+    expect(runCount).toBe(2);
+  });
+
+  it("caps concurrent starts and hands a freed slot to the next due item", async () => {
+    const controller = new AbortController();
+    const started: string[] = [];
+    const done = new Set<string>();
+    const gates = new Map<string, () => void>();
+    let inFlight = 0;
+    let peak = 0;
+
+    const scheduler = runContinuously<string>({
+      concurrency: 2,
+      dueItems: () =>
+        Promise.resolve(["a", "b", "c"].filter((item) => !done.has(item))),
+      keyOf: (item) => item,
+      run: async (item) => {
+        started.push(item);
+        inFlight += 1;
+        peak = Math.max(peak, inFlight);
+        // oxlint-disable-next-line promise/avoid-new -- the gate is released by the test, not by another promise
+        await new Promise<null>((resolve) => {
+          gates.set(item, () => {
+            inFlight -= 1;
+            done.add(item);
+            resolve(null);
+          });
+        });
+      },
+      signal: controller.signal,
+      tickMs: 1,
+    });
+
+    await waitFor(() => started.length === 2);
+    expect(started).toEqual(["a", "b"]);
+    expect(peak).toBe(2);
+
+    // Freeing "a" wakes the loop early: "c" starts without waiting a tick.
+    gates.get("a")?.();
+    await waitFor(() => started.length === 3);
+    expect(started).toEqual(["a", "b", "c"]);
+    expect(peak).toBe(2);
+
+    for (const release of gates.values()) {
+      release();
+    }
+    controller.abort();
+    await scheduler;
+    expect(done.size).toBe(3);
+  });
+
+  it("stops dispatching on abort and waits for the in-flight run to settle", async () => {
+    const controller = new AbortController();
+    const gate = Promise.withResolvers<null>();
+    const started: string[] = [];
+
+    const scheduler = runContinuously<string>({
+      concurrency: 2,
+      dueItems: () => Promise.resolve(started.includes("a") ? [] : ["a", "b"]),
+      keyOf: (item) => item,
+      run: async (item) => {
+        started.push(item);
+        if (item === "a") {
+          await gate.promise;
+        }
+      },
+      signal: controller.signal,
+      tickMs: 1,
+    });
+
+    await waitFor(() => started.includes("a") && started.includes("b"));
+    controller.abort();
+
+    let drained = false;
+    const done = scheduler.then(() => {
+      drained = true;
+    });
+    await waitFor(() => started.length >= 2);
+    expect(drained).toBe(false);
+
+    gate.resolve(null);
+    await done;
+    expect(drained).toBe(true);
+  });
+
+  it("reports a rejecting run through onRunError and keeps scheduling", async () => {
+    const controller = new AbortController();
+    const goodStarted = Promise.withResolvers<null>();
+    const errors: { error: unknown; item: string }[] = [];
+    const boom = new Error("runner defected");
+
+    const scheduler = runContinuously<string>({
+      concurrency: 1,
+      dueItems: () => Promise.resolve(errors.length === 0 ? ["bad"] : ["good"]),
+      keyOf: (item) => item,
+      onRunError: (error, item) => {
+        errors.push({ error, item });
+      },
+      run: (item) => {
+        if (item === "bad") {
+          return Promise.reject(boom);
+        }
+        goodStarted.resolve(null);
+        return Promise.resolve();
+      },
+      signal: controller.signal,
+      tickMs: 1,
+    });
+
+    await goodStarted.promise;
+    expect(errors).toEqual([{ error: boom, item: "bad" }]);
+
+    controller.abort();
+    await scheduler;
+  });
+
+  it("invokes onTick before every evaluation", async () => {
+    const controller = new AbortController();
+    const order: string[] = [];
+    const ran = Promise.withResolvers<null>();
+
+    const scheduler = runContinuously<string>({
+      concurrency: 1,
+      dueItems: () => {
+        order.push("due");
+        return Promise.resolve(order.includes("run") ? [] : ["a"]);
+      },
+      keyOf: (item) => item,
+      onTick: () => {
+        order.push("tick");
+        return Promise.resolve();
+      },
+      run: () => {
+        order.push("run");
+        ran.resolve(null);
+        return Promise.resolve();
+      },
+      signal: controller.signal,
+      tickMs: 1,
+    });
+
+    await ran.promise;
+    await waitFor(() => order.length >= 4);
+    controller.abort();
+    await scheduler;
+
+    expect(order.slice(0, 3)).toEqual(["tick", "due", "run"]);
+    // Every due read is preceded by its own tick.
+    for (const [index, entry] of order.entries()) {
+      if (entry === "due") {
+        expect(order[index - 1]).toBe("tick");
+      }
+    }
   });
 });

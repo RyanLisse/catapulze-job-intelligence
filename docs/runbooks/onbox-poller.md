@@ -43,11 +43,11 @@ Read through the typed contract in `packages/env/src/poller.ts`, which mirrors
 |---|---|---|
 | `DATABASE_URL` | yes | Ordinary data queries. May use a pooled endpoint. |
 | `POLLER_DATABASE_URL` | yes | The session advisory lock only. Must be a direct endpoint; known Neon pooler hosts are rejected before the lock connection opens, because a pooler can move consecutive queries between backend sessions and silently break the singleton guarantee. |
-| `POLLER_TICK_MS` | no, default 60000 | How long the loop waits between cycles. |
-| `POLLER_CURATE_BUDGET_MS` | no, default 120000 | Per source, per cycle: how long the poller may keep curating that source's backlog after its poll run. |
-| `POLLER_CONCURRENCY` | no, default 2 | How many due sources the poller runs side by side inside a cycle. See [Sources run side by side](#sources-run-side-by-side). |
+| `POLLER_TICK_MS` | no, default 60000 | Longest gap between due-source re-evaluations; the loop wakes earlier whenever a run frees a slot. |
+| `POLLER_CURATE_BUDGET_MS` | no, default 120000 | Per source, per poll run: how long the poller may keep curating that source's backlog after its poll run. |
+| `POLLER_CONCURRENCY` | no, default 2 | How many due sources the poller runs side by side at once. See [Sources run side by side](#sources-run-side-by-side). |
 | `POLLER_RUN_BUDGET_MS` | no, default 3600000 (1 hour) | Wall clock for one source's connector run. When it elapses the run stops at the next item, keeps what it observed and closes its row as incomplete. See [Runs that never finish](#runs-that-never-finish). |
-| `POLLER_ABANDON_RUN_AFTER_MS` | no, default 21600000 (6 hours) | A `curated.scrape_run` still `running` after this is failed at the top of a cycle. See [Runs that never finish](#runs-that-never-finish). |
+| `POLLER_ABANDON_RUN_AFTER_MS` | no, default 21600000 (6 hours) | A `curated.scrape_run` still `running` after this is failed once per tick, before candidates are read. See [Runs that never finish](#runs-that-never-finish). |
 | `SEARCH_PROJECTOR` | no, pinned to `onbox` | The only accepted value. The poller polls and curates; the on-box projector owns every outbox drain. |
 | `MANTICORE_URL` | no | Unused while `SEARCH_PROJECTOR` is `onbox`. Declared so the contract is one document. |
 | `RAW_S3_BUCKET`, `RAW_S3_ENDPOINT`, `RAW_S3_REGION`, `RAW_S3_ACCESS_KEY_ID`, `RAW_S3_SECRET_ACCESS_KEY` | in production yes | Read by `createPollBronRuntime` in `apps/worker/src/poll-bron-run.ts`. With `NODE_ENV=production` the process refuses to start on the filesystem backend, because raw payloads written there would read back as null from the server (RJC-386, [raw-object-storage.md](raw-object-storage.md)). |
@@ -83,9 +83,10 @@ poller reads `curated.bron.interval`, a five field cron expression stored per
 source, and evaluates it in `Europe/Amsterdam`, the same time zone the Trigger
 schedule used.
 
-A cycle is a pure decision over three inputs: the pollable sources with their
-intervals, the most recent poll run per source, and the current time.
-`apps/worker/src/poller/schedule.ts` models that as a table and a function:
+Each evaluation is a pure decision over three inputs: the pollable sources
+with their intervals, the most recent poll run per source, and the current
+time. `apps/worker/src/poller/schedule.ts` models that as a table and a
+function:
 
 ```ts
 interface PollCandidate { bronId; bronSlug; interval; lastRunAt }
@@ -101,33 +102,44 @@ than crashing the loop.
 
 `lastRunAt` is the newest poll run of any status, not the newest successful one.
 A source that keeps failing therefore retries on its own interval instead of on
-every tick.
+every tick. Because due-ness is derived rather than queued, ticks a source
+misses while it is running — or while the poller is down — coalesce into one
+follow-up run, never one run per missed tick.
 
 `crawl_delay_ms` is unchanged and still paces individual requests inside one
 source's run.
 
 ## Sources run side by side
 
-A cycle runs up to `POLLER_CONCURRENCY` due sources at once, default 2. Each
-source still runs one at a time, and `crawl_delay_ms` still paces the requests
-inside a source, so nothing here loosens politeness towards a host.
+The poller runs up to `POLLER_CONCURRENCY` sources at once, default 2, and
+keeps scheduling while they run. There is no cohort barrier: an evaluation
+starts every due source that has a free slot, and the loop re-evaluates on the
+tick or the moment a run finishes — a long BlueTrail or Opdrachtoverheid crawl
+therefore never holds back a short source's next scheduled check (CTP-619).
+Each source still runs one at a time, and `crawl_delay_ms` still paces the
+requests inside a source, so nothing here loosens politeness towards a host.
 
-The reason is arithmetic. Sequentially a cycle costs the sum of every source's
+The reason is arithmetic. Sequentially a round costs the sum of every source's
 run, and two sources dominate that sum: BlueTrail takes around 680 seconds and
 Opdrachtoverheid around 940 seconds, both paced by their own `crawl_delay_ms`.
-A full cycle over the ten pollable sources measured 33 to 38 minutes, so a
+A full round over the ten pollable sources measured 33 to 38 minutes, so a
 source on the usual quarter-hour `curated.bron.interval` could never be polled
 on its interval, no matter what the interval said. Overlapping the long pollers
 with the short ones is what makes the configured cadence reachable.
 
-The pool itself is `runWithConcurrency` in `apps/worker/src/poller/pool.ts`, a
-pure helper with its own spec:
+The scheduler is `runContinuously` in `apps/worker/src/poller/pool.ts`, a pure
+helper with its own spec:
 
-- Sources start in the order the cycle produced them; a free slot always takes
-  the next unstarted source, never a later one.
+- Due sources start in longest-waiting order (`byLongestWaiting`): never-run
+  sources first, then the oldest `lastRunAt`. A source whose run outlasts its
+  interval re-enters the queue with a fresh, recent `lastRunAt`, so it queues
+  behind shorter sources that waited longer — a permanently-due long crawl
+  cannot starve them when slots are scarce.
 - A source that throws is captured, logged as one `poller_source` line with
   `errorName` and `errorMessage`, and does not stop the sources beside it or
-  end the cycle.
+  the scheduler.
+- One active run per source: an in-flight source is skipped until its run
+  settles, and ticks it missed while running merge into at most one follow-up.
 - The abort signal is checked before each start and is passed into connector
   discovery, fetch, limiter waits and retry backoff. SIGTERM therefore stops
   new sources and lets uncancellable persistence finish its current boundary;
@@ -151,7 +163,7 @@ process killed mid-run leaves the row on `status = 'running'` and nothing ever
 revisits it. Under Trigger, `maxDuration` kills left 148 such rows, which had to
 be repaired by hand (CTP-490).
 
-At the top of every cycle, before candidates are loaded, the poller calls
+At most once per tick, before candidates are loaded, the poller calls
 `abandonStaleRuns` (`packages/db/src/abandon-stale-runs.ts`, exported from
 `@ji/db`). Every run still `running` whose `gestart` is older than
 `POLLER_ABANDON_RUN_AFTER_MS` is marked failed with the one tuple
@@ -166,13 +178,14 @@ failure_message = 'Connector run failed'
 
 `geindigd` is set in the same statement, because `scrape_run_completion_check`
 requires it on any row that is not `running`. When the pass changes anything,
-the poller writes one `poller_runs_abandoned` line with the count; a clean cycle
+the poller writes one `poller_runs_abandoned` line with the count; a clean tick
 writes nothing.
 
 The six hour default is deliberately far above any healthy run: the longest
 source takes around 940 seconds plus one curate budget. Anything that old is a
 dead process, not slow work. It runs before the candidates are loaded so the
-repaired run is already closed when the cycle reads the newest run per source.
+repaired run is already closed when the next evaluation reads the newest run
+per source.
 
 ### Stopping a live run instead of waiting for the reaper (CTP-490)
 
@@ -210,7 +223,7 @@ the run is complete and reported as such.
 What this does **not** do, and what an operator still owns:
 
 - Rows already stuck in production before this shipped are repaired by the
-  reaper on the next cycle (or by hand, see the audit issue). The code cannot
+  reaper on the next tick (or by hand, see the audit issue). The code cannot
   tell which of the eight rows overlapped; read `gestart` / `found` per row.
 - Verify the Opdrachtoverheid counters: the `bron` search facet is computed
   from the Manticore index, not from `curated.aanvraag`. A source with active
@@ -227,14 +240,14 @@ What this does **not** do, and what an operator still owns:
 
 After a source's ingest pipeline finishes, the poller keeps calling
 `curateScrapeRun` for that same source while the result's `remaining` count is
-above zero and the cycle's `POLLER_CURATE_BUDGET_MS` has not run out. That is
-what lets an accumulated backlog shrink over successive cycles instead of being
-cut off by a task timeout.
+above zero and the run's `POLLER_CURATE_BUDGET_MS` has not run out. That is
+what lets an accumulated backlog shrink over successive poll runs instead of
+being cut off by a task timeout.
 
 `remaining` counts every recoverable observation for the source, including rows
 that nothing can advance right now (blocked ordering, missing raw payload). A
 pass that fails to shrink `remaining` ends the drain for that source in that
-cycle, so a permanently stuck row cannot spin the loop until the budget expires.
+run, so a permanently stuck row cannot spin the loop until the budget expires.
 
 ## Single instance via the advisory lock
 
@@ -301,10 +314,10 @@ the dead connection, and the replacement container sits logging
 
 ## What to watch
 
-- **`poller_source`**: one JSON line per source per cycle, carrying `bronSlug`,
+- **`poller_source`**: one JSON line per source run, carrying `bronSlug`,
   `durationMs`, `found`, `curated`, `remaining` and, on failure, `errorName`
   plus `errorMessage`. `remaining` is the number to watch while the backlog
-  drains: it should trend down cycle over cycle and settle near zero.
+  drains: it should trend down run over run and settle near zero.
   `errorMessage` is the first 300 characters of the thrown `Error.message`
   joined with every `cause` message beneath it (up to four levels, separated by
   ` <- `), with any `postgres://` or `postgresql://` connection string replaced
@@ -372,15 +385,18 @@ the dead connection, and the replacement container sits logging
   requeueing anything.
 - **`poller_source_skipped`**: a due source was not polled. Today the only
   `reason` is `not_live`: production plus an unset live flag. One line per
-  skipped source per cycle, so a source that is meant to be live and keeps
+  skipped source per evaluation, so a source that is meant to be live and keeps
   appearing here is a missing environment variable, not a broken connector.
-- **`poller_cycle`**: one line per cycle with `pollable`, `due`, `skipped` and
-  `durationMs`.
-  A cycle with `due: 0` is normal; that is what most cycles look like once every
+- **`poller_cycle`**: one line per due-source evaluation with `pollable`,
+  `due`, `skipped`, `inFlight` (runs still in flight) and `durationMs` (wall
+  clock since the previous evaluation — roughly the tick, or less when a
+  finishing run woke the loop early).
+  An evaluation with `due: 0` is normal; that is what most look like once every
   source has run inside its interval.
-- **`poller_runs_abandoned`**: the cycle closed runs left `running` by a dead
+- **`poller_runs_abandoned`**: the tick's maintenance closed runs left
+  `running` by a dead
   process, with `count`. Written only when the count is above zero. One line
-  after a crash or a hard kill is expected; a line every cycle means runs are
+  after a crash or a hard kill is expected; a line every tick means runs are
   being abandoned as fast as they are opened, which is a poller that keeps
   dying rather than a repair that keeps working.
 - **`poller_started`**: once per process, carrying the resolved tick, curate
@@ -398,14 +414,14 @@ Logs never carry raw payloads or database URLs.
 
 | Condition | What happens |
 |---|---|
-| A source throws | Logged as one `poller_source` line with `errorName` and a redacted, 300 character `errorMessage`, skipped for this cycle, retried on its own interval. The loop and the other sources in flight are unaffected. |
-| A run is left `running` by a dead process | Failed at the top of the next cycle once it is older than `POLLER_ABANDON_RUN_AFTER_MS`, with the `unknown` / `internal` / `UNEXPECTED_FAILURE` tuple and `geindigd` set. Logged as one `poller_runs_abandoned` line with the count. |
+| A source throws | Logged as one `poller_source` line with `errorName` and a redacted, 300 character `errorMessage`, skipped for this evaluation, retried on its own interval. The loop and the other sources in flight are unaffected. |
+| A run is left `running` by a dead process | Failed on the next maintenance tick once it is older than `POLLER_ABANDON_RUN_AFTER_MS`, with the `unknown` / `internal` / `UNEXPECTED_FAILURE` tuple and `geindigd` set. Logged as one `poller_runs_abandoned` line with the count. |
 | A run outlives `POLLER_RUN_BUDGET_MS`, or SIGTERM arrives mid-run | The run stops before its next item, keeps everything fetched so far, leaves the interrupted page's checkpoint where it started and closes the row as `succeeded` with `completeness.reason = "aborted"`. Missed-poll reconciliation skips staling for that run. Logged as one `poller_source_incomplete` line. |
-| Database unreachable | The cycle's candidate load throws out of the loop and the process exits 1 with `poller_fatal`. The supervisor restarts it. |
+| Database unreachable | The evaluation's candidate load throws out of the loop and the process exits 1 with `poller_fatal`. The supervisor restarts it. |
 | `POLLER_DATABASE_URL` missing or a known pooler URL | Typed env validation fails before startup and the process exits non-zero. Supply the direct endpoint for the same database and role. |
 | Second instance started | Waits for the advisory lock instead of exiting: polls every 2 s, keeps the heartbeat fresh so it stays healthy, logs `poller_lock_waiting` at most every 30 s, polls nothing. SIGINT or SIGTERM during the wait exits 0 without ever having held the lock. |
 | Lock silently dropped | Caught by the scoped periodic bounded probe. If the lock is free the same session retakes it; if another session has it, `LockLostError` exits the process 1. |
-| Backlog cannot shrink | The drain loop for that source ends as soon as a curation pass fails to reduce `remaining`, rather than burning the whole budget. The next cycle tries again. |
+| Backlog cannot shrink | The drain loop for that source ends as soon as a curation pass fails to reduce `remaining`, rather than burning the whole budget. The next poll run tries again. |
 | A due source has no live flag in production | Skipped before its connector is built, logged as `poller_source_skipped` with `reason: "not_live"`. No scrape run, no fixture data in `curated`. |
 | SIGINT / SIGTERM | Aborts the loop. The due sources not yet started are dropped; cancellable source requests and waits stop, while uncancellable persistence drains its current write boundary. Then a shutdown line, the lock release, the connection close, and exit 0 unless a process-level failure occurs. Source-level persistence or ownership failures are logged and do not necessarily change the process exit code. A repeated signal is logged as `poller_shutdown_in_progress` and otherwise ignored. This needs a stop timeout of at least 300 s on both Compose and Coolify; below that Docker escalates to SIGKILL, which nothing in userspace can catch and which can leave the advisory lock held until Postgres notices the dead connection. |
 
