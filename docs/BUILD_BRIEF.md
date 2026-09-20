@@ -222,7 +222,7 @@ Alle geaccepteerde bronnen, anomaly-detectie, alerting, parserversies, replay, k
 
 ### Later — Candidate Intelligence
 
-Eerst provider/register, DPIA/grondslag, provenance, field-level assertions, correctie/bezwaar, fairness-evals en betekenisvolle menselijke review. Daarna pas enrichment, matching en score-output.
+Eerst provider/register, DPIA/grondslag, provenance, field-level assertions, correctie/bezwaar, fairness-evals en betekenisvolle menselijke review. Daarna pas enrichment, matching en score-output. De toetsbare startgate en het modulecontract staan in [ADR-0016](adr/ADR-0016-candidate-intelligence-module-contract.md) (CTP-636/CI0): ieder item is `pending-owner-acceptance`, de eerste verticale is een read-only kandidaatbewijskaart en er start geen build-issue of verwerking vóór de geaccepteerde CTP-345-startgate.
 
 ### Later — Company OS
 
@@ -259,7 +259,7 @@ Het huidige besluit is daarmee helder, maar de uitvoering is nog open. De produc
 8. Scrapefrequentie/freshness-SLA per bron en alert-eigenaar.
 9. Kostenplafond per maand en per bron/run.
 10. Demo-, staging- en productieomgeving, inclusief eigenaar en ritme voor backup-/restore-tests.
-11. Juridische grondslag en risicoklasse vóór Candidate Intelligence.
+11. Juridische grondslag en risicoklasse vóór Candidate Intelligence; de CI0-startgate-items in ADR-0016 §7 blijven `pending-owner-acceptance` tot de per item benoemde approver(s) ze accepteren of verwerpen.
 
 ## 13. Bronbetrouwbaarheid
 

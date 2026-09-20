@@ -52,6 +52,12 @@ een build-issue. De eerste toekomstige vertical is een read-only bewijskaart.
 Deze inventaris autoriseert geen kandidaatmatching, ranking, screening,
 auto-reject of automatische kandidaatstatuswrite.
 
+CTP-636 levert het toetsbare modulecontract en de CI0-startgate in
+[ADR-0016](adr/ADR-0016-candidate-intelligence-module-contract.md). Ieder
+startgate-item staat op `pending-owner-acceptance`: de bevoegde
+per item benoemde approver(s) accepteren of verwerpen; dit readinesspakket is geen
+approver en autoriseert geen build-issue of verwerking.
+
 ## Bewijslabels
 
 | Label | Betekenis |
@@ -182,6 +188,7 @@ Deze inventaris reserveert geen ADR-nummer en claimt niet dat de migratie al is 
 | RJC-336 | Spott REST/API-spike en repo-contractbewijs | Nog een algemene Spott-spike |
 | RJC-324 | Veldbeleid, minimalisatie, retentie en verwijdering; open beleidsgate | Los algemeen privacyissue voor dezelfde velden |
 | RJC-345 | Aparte Candidate Intelligence-gate | Candidate ranking/statuswerk vanuit RJC-451 |
+| CTP-636 | CI0: toetsbaar modulecontract en startgate (ADR-0016); readiness, geen build | Candidate build-issues, verwerking of een tweede CI-gate |
 | RJC-426 | Provider-disabled guard en echte Spott-compositie | Nieuwe provider-toggle |
 | RJC-435 | Duurzame exportreservering en unknown-result reconciliation | Tweede idempotency/reservation-implementatie |
 | RJC-439 | MCP SDK/transport; de officiële transportwijziging staat via PR #161 op de huidige main | Eigen MCP-transport per provider |
@@ -205,6 +212,7 @@ RJC-451 kan naar review zodra bevoegde eigenaars de onderstaande vragen explicie
 5. Kies voor Microsoft 365 exact één eerste read-only resource en permissionmodel.
 6. Verkrijg een technisch Please-contract voordat contract-/payrollwerk wordt geraamd.
 7. Bevestig Moneybird als factuur-SoT en de grens tussen draft, create en send.
+8. Accepteer of verwerp ieder CI0-startgate-item in ADR-0016 §7 expliciet; een ontbrekend antwoord is geen aanname en er start geen Candidate build-issue of verwerking vóór acceptatie.
 
 ## Actuele repository-, ADR- en PR-status
 
