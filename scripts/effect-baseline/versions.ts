@@ -73,6 +73,7 @@ export const readToolchainPins = (
 ): EffectBaselineToolchainPins => {
   const effectDirect = directEffectDeclared();
   const effectResolved = lockPackageVersion("effect");
+  const tsgoResolved = lockPackageVersion("@typescript/native-preview");
   return {
     bunHost: hostBunVersion(bunHostVersion),
     bunPackageManager: packageManagerPin(),
@@ -80,6 +81,7 @@ export const readToolchainPins = (
       effectDirect
         ? `First-party Effect pin present (${effectDirect}; resolved ${effectResolved ?? "unknown"}) via CTP-455 shared runtime.`
         : "Effect is not a first-party dependency on peildatum main; transitive via @prisma/config only.",
+      `TS7 native compiler pin: @typescript/native-preview ${tsgoResolved ?? "not installed"} via check-types:tsgo (CTP-616); classic tsc stays on typescript ${lockPackageVersion("typescript") ?? "unknown"}.`,
       "Official Effect v4 RC: bun add effect@rc (https://effect.website/blog/effect-v4-rc-august-recap).",
       "Do not reuse unrelated historical timings as this baseline (ADR-0001/ADR-0013).",
       "Production Effect activation remains OFF until a controlled release (CTP-455/CTP-479).",
