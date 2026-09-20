@@ -1,10 +1,10 @@
 {
-  "generatedAt": "2026-09-20T12:38:07.126Z",
-  "sourceSha": "ea1589b1e81538606fea4abe947016db9b35a29e",
+  "generatedAt": "2026-09-20T12:44:07.948Z",
+  "sourceSha": "4e1c629da2f53d14324ea6015d2f3888ef54c2cd",
   "sources": {
     "alliander": {
       "fields": {
-        "contract": 3,
+        "contract": 0,
         "duur": 0,
         "einddatum": 0,
         "gepubliceerd": 3,
@@ -23,7 +23,7 @@
     },
     "asml": {
       "fields": {
-        "contract": 1,
+        "contract": 0,
         "duur": 0,
         "einddatum": 0,
         "gepubliceerd": 1,
@@ -42,7 +42,7 @@
     },
     "bam": {
       "fields": {
-        "contract": 3,
+        "contract": 0,
         "duur": 0,
         "einddatum": 0,
         "gepubliceerd": 3,
@@ -99,7 +99,7 @@
     },
     "circle8": {
       "fields": {
-        "contract": 2,
+        "contract": 0,
         "duur": 0,
         "einddatum": 0,
         "gepubliceerd": 2,
@@ -137,7 +137,7 @@
     },
     "datajobs": {
       "fields": {
-        "contract": 3,
+        "contract": 0,
         "duur": 0,
         "einddatum": 0,
         "gepubliceerd": 3,
@@ -308,7 +308,7 @@
     },
     "hays": {
       "fields": {
-        "contract": 3,
+        "contract": 2,
         "duur": 0,
         "einddatum": 0,
         "gepubliceerd": 3,
@@ -327,7 +327,7 @@
     },
     "heijmans": {
       "fields": {
-        "contract": 3,
+        "contract": 0,
         "duur": 0,
         "einddatum": 0,
         "gepubliceerd": 3,
@@ -403,7 +403,7 @@
     },
     "intermediair": {
       "fields": {
-        "contract": 3,
+        "contract": 2,
         "duur": 0,
         "einddatum": 0,
         "gepubliceerd": 3,
@@ -422,7 +422,7 @@
     },
     "jobbird": {
       "fields": {
-        "contract": 3,
+        "contract": 0,
         "duur": 0,
         "einddatum": 0,
         "gepubliceerd": 3,
@@ -441,7 +441,7 @@
     },
     "linkedin": {
       "fields": {
-        "contract": 3,
+        "contract": 1,
         "duur": 0,
         "einddatum": 0,
         "gepubliceerd": 1,
@@ -498,7 +498,7 @@
     },
     "ns": {
       "fields": {
-        "contract": 3,
+        "contract": 0,
         "duur": 0,
         "einddatum": 0,
         "gepubliceerd": 3,
@@ -574,7 +574,7 @@
     },
     "pro-act": {
       "fields": {
-        "contract": 2,
+        "contract": 0,
         "duur": 0,
         "einddatum": 2,
         "gepubliceerd": 2,
@@ -593,7 +593,7 @@
     },
     "prorail": {
       "fields": {
-        "contract": 2,
+        "contract": 0,
         "duur": 0,
         "einddatum": 0,
         "gepubliceerd": 2,
@@ -631,7 +631,7 @@
     },
     "rabobank": {
       "fields": {
-        "contract": 1,
+        "contract": 0,
         "duur": 0,
         "einddatum": 0,
         "gepubliceerd": 1,
@@ -650,7 +650,7 @@
     },
     "randstad": {
       "fields": {
-        "contract": 2,
+        "contract": 1,
         "duur": 0,
         "einddatum": 0,
         "gepubliceerd": 2,
@@ -726,7 +726,7 @@
     },
     "tbi": {
       "fields": {
-        "contract": 1,
+        "contract": 0,
         "duur": 0,
         "einddatum": 0,
         "gepubliceerd": 1,
@@ -783,7 +783,7 @@
     },
     "tenmonks": {
       "fields": {
-        "contract": 1,
+        "contract": 0,
         "duur": 0,
         "einddatum": 0,
         "gepubliceerd": 1,
@@ -821,7 +821,7 @@
     },
     "unica": {
       "fields": {
-        "contract": 3,
+        "contract": 0,
         "duur": 0,
         "einddatum": 0,
         "gepubliceerd": 3,
@@ -840,7 +840,7 @@
     },
     "vattenfall": {
       "fields": {
-        "contract": 3,
+        "contract": 0,
         "duur": 0,
         "einddatum": 0,
         "gepubliceerd": 3,
@@ -878,7 +878,7 @@
     },
     "werk-nl": {
       "fields": {
-        "contract": 2,
+        "contract": 0,
         "duur": 0,
         "einddatum": 1,
         "gepubliceerd": 2,

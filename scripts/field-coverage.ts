@@ -1,5 +1,9 @@
 import path from "node:path";
 
+import {
+  toCanonicalContractType,
+  toCanonicalEmploymentTypes,
+} from "@ji/application/normalise";
 import type {
   JsonValue,
   NormalisedAanvraagDraft,
@@ -10,8 +14,8 @@ import { CLEARED, UNKNOWN } from "@ji/domain";
 
 /**
  * Field-coverage audit: replays every source's committed fixtures through its
- * real connector + normaliser and reports which of the 11 detail-page fields
- * land per bron. Read-only; writes nothing.
+ * real connector + normaliser and reports which detail-page fields land per
+ * bron. Read-only; writes nothing.
  *
  * Usage: bun run scripts/field-coverage.ts [--bron <slug>] [--json]
  */
@@ -93,11 +97,62 @@ const liveSkills = (bron: Record<string, JsonValue>): boolean => {
   return Array.isArray(value) && value.length > 0;
 };
 
+/** A non-blank, non-sentinel bronSpecifiek scalar value. */
+const bronString = (
+  record: Record<string, JsonValue>,
+  key: string
+): string | null => {
+  const value = record[key];
+  if (typeof value !== "string") {
+    return null;
+  }
+  const trimmed = value.trim();
+  if (trimmed === "" || trimmed === UNKNOWN || trimmed === CLEARED) {
+    return null;
+  }
+  return trimmed;
+};
+
+/**
+ * The contract field only reaches the UI when the source value maps to one
+ * of the canonical contract forms. Mirrors the canonicalisation used by
+ * curation/read path so coverage counts reflect actual displayed values.
+ */
+export const evaluateContractCoverage = (
+  bron: Record<string, JsonValue>
+): boolean => {
+  const contracttype = bronString(bron, "contracttype");
+  if (contracttype !== null && toCanonicalContractType(contracttype) !== null) {
+    return true;
+  }
+
+  const contract_type = bronString(bron, "contract_type");
+  if (
+    contract_type !== null &&
+    toCanonicalContractType(contract_type) !== null
+  ) {
+    return true;
+  }
+
+  const employment_type = bronString(bron, "employment_type");
+  if (employment_type !== null) {
+    const tokens = employment_type
+      .split(",")
+      .map((token) => token.trim())
+      .filter((token) => token !== "");
+    if (toCanonicalEmploymentTypes(tokens) !== null) {
+      return true;
+    }
+  }
+
+  return false;
+};
+
 const evaluateDraft = (draft: NormalisedAanvraagDraft) => {
   const bronValue = draft.bronSpecifiek.value;
   const bron: Record<string, JsonValue> = isRecord(bronValue) ? bronValue : {};
   return {
-    contract: liveText(bron, FIELD_KEY_ALIASES.contract),
+    contract: evaluateContractCoverage(bron),
     duur: liveText(bron, FIELD_KEY_ALIASES.duur),
     einddatum: liveText(bron, FIELD_KEY_ALIASES.einddatum),
     gepubliceerd: liveText(bron, FIELD_KEY_ALIASES.gepubliceerd),
