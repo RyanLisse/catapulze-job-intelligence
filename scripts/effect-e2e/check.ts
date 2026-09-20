@@ -6,6 +6,10 @@ import type { Page } from "@playwright/test";
 import { z } from "zod";
 
 import {
+  isExpectedDenialConsoleError,
+  isSupersededAbort,
+} from "./browser-noise";
+import {
   EFFECT_E2E_SCHEMA_VERSION,
   canaryQuery,
   privateAuthPath,
@@ -314,22 +318,23 @@ const transcodeAndExtractFrames = async (
   return { frames: [firstFrame, lastFrame], mp4Path };
 };
 
-const attachBrowserErrorListeners = (page: Page, errors: string[]): void => {
+const attachBrowserErrorListeners = (
+  page: Page,
+  errors: string[],
+  expectedDenials?: { active: boolean }
+): void => {
   page.on("pageerror", (error) => {
     errors.push(`pageerror:${error.message.slice(0, 160)}`);
   });
   page.on("console", (message) => {
     const messageText = message.text();
-    const isExpectedDenialResource =
-      message.type() === "error" &&
-      messageText.startsWith(
-        "Failed to load resource: the server responded with a status of 403"
-      );
-    if (isExpectedDenialResource) {
-      // The flow deliberately asserts two denials (recruiter dashboard API
-      // 403 via a direct status check, recruiter /bronnen via redirect URL).
-      // Chromium's generic resource-load console error for those responses
-      // carries no URL and adds no signal on top of the hard assertions.
+    if (
+      isExpectedDenialConsoleError(
+        message.type(),
+        messageText,
+        expectedDenials?.active === true
+      )
+    ) {
       return;
     }
     const isHydrationWarning =
@@ -343,15 +348,18 @@ const attachBrowserErrorListeners = (page: Page, errors: string[]): void => {
   });
   page.on("requestfailed", (request) => {
     const failure = request.failure()?.errorText ?? "unknown";
-    if (failure === "net::ERR_ABORTED") {
-      // ERR_ABORTED is client-side cancellation: Chromium aborts in-flight
-      // document, prefetch and RSC requests whenever a newer navigation or
-      // context teardown supersedes them. Every observed abort in this lane
-      // is a superseded request, never a runtime failure.
-      return;
-    }
     const requestUrl = request.url();
     const requestMethod = request.method();
+    if (
+      isSupersededAbort({
+        errorText: failure,
+        isNavigation: request.isNavigationRequest(),
+        resourceType: request.resourceType(),
+        url: requestUrl,
+      })
+    ) {
+      return;
+    }
     let pathname = "unknown";
     try {
       ({ pathname } = new URL(requestUrl));
@@ -462,7 +470,11 @@ const runBrowserFlow = async (
   const { browserErrors } = checkState;
   const loginContext = await browser.newContext();
   const loginPage = await loginContext.newPage();
-  attachBrowserErrorListeners(loginPage, browserErrors);
+  // Suppression of the generic 403 resource-load console error is scoped to
+  // the recruiter denial phase below: outside this window every 403 console
+  // error on any page still lands in browserErrors.
+  const recruiterDenials = { active: false };
+  attachBrowserErrorListeners(loginPage, browserErrors, recruiterDenials);
   try {
     const loginResponse = await loginPage.goto(
       new URL("/login", config.baseUrl).href,
@@ -474,6 +486,9 @@ const runBrowserFlow = async (
     await loginPage.getByLabel("Email").fill(auth.recruiter.email);
     await loginPage.getByLabel("Password").fill(auth.recruiter.password);
     await loginPage.getByRole("button", { name: "Sign In" }).click();
+    // The dashboard landing fires the denied /v1/dashboard fetch — the
+    // denial phase the 403 console filter exists for.
+    recruiterDenials.active = true;
     await loginPage.waitForURL(/\/dashboard$/u, { timeout: 15_000 });
     await loginPage
       .getByText(`Welcome ${auth.recruiter.name}`, { exact: true })
@@ -501,6 +516,7 @@ const runBrowserFlow = async (
       );
     }
     checkState.browser.recruiterBronnenDenied = true;
+    recruiterDenials.active = false;
     await writeFile(
       path.join(config.artifactDir, "authorization.json"),
       `${JSON.stringify(
