@@ -45,29 +45,8 @@ export interface FetchManticoreEffectClientOptions {
 const mergeSignals = (
   outer: AbortSignal | undefined,
   effectSignal: AbortSignal
-): AbortSignal => {
-  if (!outer) {
-    return effectSignal;
-  }
-  // Forward the originating reason: a real fetch rejects with `signal.reason`,
-  // and mapPostError needs the DOMException "TimeoutError" name to classify a
-  // hung request as ManticoreTimeoutError instead of a generic abort.
-  if (outer.aborted) {
-    return outer;
-  }
-  if (effectSignal.aborted) {
-    return effectSignal;
-  }
-  const controller = new AbortController();
-  const forwardAbort = (source: AbortSignal) => (): void => {
-    controller.abort(source.reason);
-  };
-  outer.addEventListener("abort", forwardAbort(outer), { once: true });
-  effectSignal.addEventListener("abort", forwardAbort(effectSignal), {
-    once: true,
-  });
-  return controller.signal;
-};
+): AbortSignal =>
+  outer === undefined ? effectSignal : AbortSignal.any([outer, effectSignal]);
 
 const mapPostError = (
   url: string,
@@ -99,11 +78,14 @@ export const runManticorePromise = async <A>(
     return exit.value;
   }
   const error = Cause.squash(exit.cause);
+  if (Cause.hasInterrupts(exit.cause) || options.signal?.aborted) {
+    const reason = options.signal?.reason;
+    throw reason instanceof Error
+      ? reason
+      : new DOMException("Aborted", "AbortError");
+  }
   if (error instanceof Error) {
     throw error;
-  }
-  if (Cause.hasInterrupts(exit.cause) || options.signal?.aborted) {
-    throw new DOMException("Aborted", "AbortError");
   }
   if (Cause.hasDies(exit.cause)) {
     throw error instanceof Error

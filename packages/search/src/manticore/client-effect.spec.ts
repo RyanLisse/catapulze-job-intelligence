@@ -18,7 +18,10 @@ const okShowTablesBody = [{ data: [{ Index: "jobs_active", Type: "rt" }] }];
 // — same rationale as limits.spec.ts hangingFetch. Rejects with
 // `signal.reason` exactly like a real fetch, so a merged signal that drops
 // the TimeoutError reason fails this spec instead of passing by accident.
-const hangingFetch = (_url: string, init?: RequestInit): Promise<Response> =>
+const hangingFetch = (
+  _url: string | URL | Request,
+  init?: RequestInit
+): Promise<Response> =>
   // oxlint-disable-next-line promise/avoid-new -- bridges AbortSignal into fetch() rejection for hung Manticore
   new Promise((_resolve, reject) => {
     const signal = init?.signal;
@@ -144,6 +147,29 @@ describe("FetchManticoreEffectClient", () => {
     expect(payload.errors).toBe(true);
     expect(payload.error).toBe("duplicate id");
     expect(payload.current_line).toBe(1);
+  });
+
+  it("cancels an in-flight request through the outer AbortSignal", async () => {
+    const controller = new AbortController();
+    const client = new FetchManticoreEffectClient(
+      "http://manticore.cancel",
+      5000,
+      {
+        fetchImpl: hangingFetch,
+        signal: controller.signal,
+      }
+    );
+    const request = client.request("/search", {
+      index: "x",
+      limit: 0,
+      max_matches: 1,
+      max_query_time: 1,
+      offset: 0,
+      sort: [],
+      track_total_hits: true,
+    });
+    controller.abort(new DOMException("cancelled", "AbortError"));
+    await expect(request).rejects.toMatchObject({ name: "AbortError" });
   });
 
   it("rejects when the outer AbortSignal is already aborted", async () => {
