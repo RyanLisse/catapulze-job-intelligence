@@ -85,7 +85,9 @@ The same `curated.durable_job` table carries a second queue,
 `dryRun` is false. A dry run never touches the queue.
 
 - Job element: `{ aanvraagId, expectedUpdatedAt }`, where `expectedUpdatedAt`
-  is `aanvraag.updated_at` as read when the candidate was selected. Job id is
+  is `aanvraag.updated_at` with its full microsecond precision (UTC text) as
+  read when the candidate was selected — a millisecond `Date` cannot tell two
+  writes inside one millisecond apart. Job id is
   `${aanvraagId}:${expectedUpdatedAt}`, so the same candidate state re-offered
   is a no-op and a newer row state is a new job. The element has no `bronId`,
   so the bron-ingest open-job index does not apply.

@@ -128,7 +128,7 @@ const runDurableEnrichment = async (
       // oxlint-disable-next-line no-await-in-loop -- offers are cheap single-row inserts; order keeps the log readable
       await offerEnrichmentJob(queue.queue, {
         aanvraagId: candidate.id,
-        expectedUpdatedAt: candidate.updatedAt.toISOString(),
+        expectedUpdatedAt: candidate.updatedAtToken,
       });
     }
     const drained = await drainEnrichmentQueue({
@@ -158,7 +158,7 @@ const runDurableEnrichment = async (
         }
         const applied = await store.applyEnrichmentAtomically({
           aanvraagId: job.aanvraagId,
-          expectedUpdatedAt: new Date(job.expectedUpdatedAt),
+          expectedUpdatedAt: job.expectedUpdatedAt,
           proposals: result.proposals,
         });
         if (applied.outcome === "applied") {

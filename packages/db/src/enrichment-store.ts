@@ -50,8 +50,14 @@ export interface IncompleteAanvraagCandidate {
   readonly tariefMax: string | null;
   readonly tariefMin: string | null;
   readonly tariefValuta: string | null;
-  /** Optimistic token for `applyEnrichmentAtomically` (CTP-626). */
   readonly updatedAt: Date;
+  /**
+   * Optimistic token for `applyEnrichmentAtomically` (CTP-626): the exact
+   * `updated_at` (microseconds, UTC) as read when the candidate was selected.
+   * A JS `Date` truncates to milliseconds, so two writes inside one
+   * millisecond would look identical to it.
+   */
+  readonly updatedAtToken: string;
   readonly urenPerWeek: string | null;
   readonly werkvorm: string | null;
   readonly titleFallbackParts: TitleFallbackDescriptionParts | null;
@@ -59,8 +65,8 @@ export interface IncompleteAanvraagCandidate {
 
 export interface AtomicEnrichmentInput {
   readonly aanvraagId: string;
-  /** `aanvraag.updated_at` as read when the candidate was selected. */
-  readonly expectedUpdatedAt: Date;
+  /** `updatedAtToken` of the candidate as read when it was selected. */
+  readonly expectedUpdatedAt: string;
   readonly proposals: readonly EnrichmentProposal[];
 }
 
@@ -117,6 +123,12 @@ export interface AanvraagEnrichmentRow {
 
 const toNumericString = (value: string | null): string | null =>
   value === null ? null : value;
+
+/**
+ * `aanvraag.updated_at` rendered with its full microsecond precision in UTC,
+ * independent of the session time zone. The optimistic token for CTP-626.
+ */
+export const aanvraagUpdatedAtToken = sql<string>`to_char(${aanvraag.updatedAt} AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')`;
 
 const sourcePlatform = (bronSpecifiek: unknown): string | null => {
   if (
@@ -247,6 +259,7 @@ interface IncompleteAanvraagRow {
   readonly tariefValuta: string | null;
   readonly titel: string;
   readonly updatedAt: Date;
+  readonly updatedAtToken: string;
   readonly urenPerWeek: string | null;
   readonly werkvorm: string | null;
 }
@@ -303,6 +316,7 @@ const toIncompleteCandidates = (
         tariefValuta: row.tariefValuta,
         titleFallbackParts: titleFallbackParts(row),
         updatedAt: row.updatedAt,
+        updatedAtToken: row.updatedAtToken,
         urenPerWeek: row.urenPerWeek,
         werkvorm: row.werkvorm,
       },
@@ -490,6 +504,7 @@ export class PostgresEnrichmentStore {
         tariefValuta: aanvraag.tariefValuta,
         titel: aanvraag.titel,
         updatedAt: aanvraag.updatedAt,
+        updatedAtToken: aanvraagUpdatedAtToken,
         urenPerWeek: aanvraag.urenPerWeek,
         werkvorm: aanvraag.werkvorm,
       })
@@ -523,6 +538,7 @@ export class PostgresEnrichmentStore {
         tariefValuta: aanvraag.tariefValuta,
         titel: aanvraag.titel,
         updatedAt: aanvraag.updatedAt,
+        updatedAtToken: aanvraagUpdatedAtToken,
         urenPerWeek: aanvraag.urenPerWeek,
         werkvorm: aanvraag.werkvorm,
       })
@@ -553,11 +569,12 @@ export class PostgresEnrichmentStore {
 
   /**
    * CTP-626: one enrichment lands exactly once. The candidate row is re-read
-   * under `FOR UPDATE`, compared against the `updated_at` the caller selected
-   * it with, and re-planned against its current facts (so a CLEARED written
-   * in the meantime wins). Proposals, curated patch and the outbox event then
-   * commit in this single transaction. A replay after a commit that never
-   * acked sees a newer `updated_at` and returns `stale` without writing.
+   * under `FOR UPDATE`, compared against the exact `updated_at` token the
+   * caller selected it with, and re-planned against its current facts (so a
+   * CLEARED written in the meantime wins). Proposals, curated patch and the
+   * outbox event then commit in this single transaction. A replay after a
+   * commit that never acked sees a newer `updated_at` and returns `stale`
+   * without writing.
    */
   applyEnrichmentAtomically(
     input: AtomicEnrichmentInput
@@ -580,17 +597,14 @@ export class PostgresEnrichmentStore {
           tariefMin: aanvraag.tariefMin,
           tariefValuta: aanvraag.tariefValuta,
           titel: aanvraag.titel,
-          updatedAt: aanvraag.updatedAt,
+          updatedAtToken: aanvraagUpdatedAtToken,
           urenPerWeek: aanvraag.urenPerWeek,
           werkvorm: aanvraag.werkvorm,
         })
         .from(aanvraag)
         .where(eq(aanvraag.id, input.aanvraagId))
         .for("update");
-      if (
-        !current ||
-        current.updatedAt.getTime() !== input.expectedUpdatedAt.getTime()
-      ) {
+      if (!current || current.updatedAtToken !== input.expectedUpdatedAt) {
         return { outcome: "stale" };
       }
       const patch = planCuratedEnrichmentPatch(

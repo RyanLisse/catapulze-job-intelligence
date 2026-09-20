@@ -2,11 +2,14 @@ import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 
 import type { EnrichmentProposal } from "@ji/application/enrichment";
 import { CLEARED } from "@ji/domain";
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 
-import { PostgresEnrichmentStore } from "./enrichment-store";
+import {
+  aanvraagUpdatedAtToken,
+  PostgresEnrichmentStore,
+} from "./enrichment-store";
 import type { EnrichmentDatabase } from "./enrichment-store";
 import * as schema from "./schema";
 import {
@@ -100,7 +103,11 @@ describe("PostgresEnrichmentStore.applyEnrichmentAtomically", () => {
     await client?.end({ timeout: 5 });
   });
 
-  const seedIncomplete = async (): Promise<{ id: string; updatedAt: Date }> => {
+  const seedIncomplete = async (): Promise<{
+    id: string;
+    updatedAt: Date;
+    updatedAtToken: string;
+  }> => {
     if (!database) {
       throw new Error("Postgres fixture is unavailable");
     }
@@ -123,11 +130,14 @@ describe("PostgresEnrichmentStore.applyEnrichmentAtomically", () => {
         titel: "Interim adviseur",
         versie: 1,
       })
-      .returning({ updatedAt: aanvraag.updatedAt });
+      .returning({
+        updatedAt: aanvraag.updatedAt,
+        updatedAtToken: aanvraagUpdatedAtToken,
+      });
     if (!row) {
       throw new Error("aanvraag insert returned no row");
     }
-    return { id, updatedAt: row.updatedAt };
+    return { id, updatedAt: row.updatedAt, updatedAtToken: row.updatedAtToken };
   };
 
   const state = async (id: string) => {
@@ -167,7 +177,7 @@ describe("PostgresEnrichmentStore.applyEnrichmentAtomically", () => {
 
     const applied = await store.applyEnrichmentAtomically({
       aanvraagId: seeded.id,
-      expectedUpdatedAt: seeded.updatedAt,
+      expectedUpdatedAt: seeded.updatedAtToken,
       proposals: [locatieProposal],
     });
     expect(applied.outcome).toBe("applied");
@@ -186,7 +196,7 @@ describe("PostgresEnrichmentStore.applyEnrichmentAtomically", () => {
     // Kill after commit, before ack: the replayed job carries the old token.
     const replay = await store.applyEnrichmentAtomically({
       aanvraagId: seeded.id,
-      expectedUpdatedAt: seeded.updatedAt,
+      expectedUpdatedAt: seeded.updatedAtToken,
       proposals: [locatieProposal],
     });
     expect(replay).toEqual({ outcome: "stale" });
@@ -211,11 +221,37 @@ describe("PostgresEnrichmentStore.applyEnrichmentAtomically", () => {
 
     const outcome = await store.applyEnrichmentAtomically({
       aanvraagId: seeded.id,
-      expectedUpdatedAt: seeded.updatedAt,
+      expectedUpdatedAt: seeded.updatedAtToken,
       proposals: [locatieProposal],
     });
     expect(outcome).toEqual({ outcome: "stale" });
     const after = await state(seeded.id);
+    expect(after.row?.locatieTekst).toBe("unknown");
+    expect(after.enrichmentRows).toEqual([]);
+    expect(after.outboxRows).toEqual([]);
+  });
+
+  it("stays stale when the concurrent edit lands inside the same millisecond", async () => {
+    if (!available || !store || !database) {
+      expect(available).toBe(false);
+      return;
+    }
+    const seeded = await seedIncomplete();
+    // Same millisecond, different microsecond: a Date-based guard would still match.
+    const seededMicros = Number(seeded.updatedAtToken.slice(-4, -1));
+    const shiftedMicros = seededMicros === 1 ? 2 : 1;
+    await database.execute(
+      sql`UPDATE ${aanvraag} SET ${sql.identifier("titel")} = ${"Interim adviseur (aangepast)"}, ${sql.identifier("updated_at")} = date_trunc('milliseconds', ${aanvraag.updatedAt}) + ${shiftedMicros}::int * interval '1 microsecond' WHERE ${aanvraag.id} = ${seeded.id}`
+    );
+
+    const outcome = await store.applyEnrichmentAtomically({
+      aanvraagId: seeded.id,
+      expectedUpdatedAt: seeded.updatedAtToken,
+      proposals: [locatieProposal],
+    });
+    expect(outcome).toEqual({ outcome: "stale" });
+    const after = await state(seeded.id);
+    expect(after.row?.updatedAt.getTime()).toBe(seeded.updatedAt.getTime());
     expect(after.row?.locatieTekst).toBe("unknown");
     expect(after.enrichmentRows).toEqual([]);
     expect(after.outboxRows).toEqual([]);
@@ -231,14 +267,14 @@ describe("PostgresEnrichmentStore.applyEnrichmentAtomically", () => {
       .update(aanvraag)
       .set({ locatieTekst: CLEARED })
       .where(eq(aanvraag.id, seeded.id))
-      .returning({ updatedAt: aanvraag.updatedAt });
+      .returning({ updatedAtToken: aanvraagUpdatedAtToken });
     if (!cleared) {
       throw new Error("clear returned no row");
     }
 
     const outcome = await store.applyEnrichmentAtomically({
       aanvraagId: seeded.id,
-      expectedUpdatedAt: cleared.updatedAt,
+      expectedUpdatedAt: cleared.updatedAtToken,
       proposals: [locatieProposal],
     });
     expect(outcome).toEqual({ outcome: "nothing_to_fill" });
@@ -258,14 +294,14 @@ describe("PostgresEnrichmentStore.applyEnrichmentAtomically", () => {
       .update(aanvraag)
       .set({ locatieTekst: CLEARED })
       .where(eq(aanvraag.id, seeded.id))
-      .returning({ updatedAt: aanvraag.updatedAt });
+      .returning({ updatedAtToken: aanvraagUpdatedAtToken });
     if (!cleared) {
       throw new Error("clear returned no row");
     }
 
     const outcome = await store.applyEnrichmentAtomically({
       aanvraagId: seeded.id,
-      expectedUpdatedAt: cleared.updatedAt,
+      expectedUpdatedAt: cleared.updatedAtToken,
       proposals: [locatieProposal, urenProposal],
     });
     expect(outcome.outcome).toBe("applied");
@@ -290,6 +326,7 @@ describe("PostgresEnrichmentStore.applyEnrichmentAtomically", () => {
     const candidate = await store.listIncompleteById(seeded.id);
     expect(candidate?.id).toBe(seeded.id);
     expect(candidate?.updatedAt.getTime()).toBe(seeded.updatedAt.getTime());
+    expect(candidate?.updatedAtToken).toBe(seeded.updatedAtToken);
     expect(candidate?.missingFields).toContain("locatie");
     expect(await store.listIncompleteById(crypto.randomUUID())).toBeNull();
   });
