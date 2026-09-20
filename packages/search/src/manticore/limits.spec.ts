@@ -3,10 +3,10 @@ import { afterEach, describe, expect, it } from "bun:test";
 import { SEARCH_INDEX_NAME } from "../types";
 import {
   buildManticoreSearchRequest,
-  FetchManticoreClient,
   ManticoreTimeoutError,
   parseManticoreSearchResponse,
 } from "./client";
+import { FetchManticoreEffectClient } from "./client-effect";
 
 // Simulates a Manticore process that never responds: the returned promise
 // only settles when the caller's AbortSignal fires, exactly like a real hung
@@ -69,7 +69,10 @@ describe("Manticore query bounds (RJC-380)", () => {
     // global fetch overload set this test doesn't exercise.
     globalThis.fetch = hangingFetch as typeof fetch;
 
-    const client = new FetchManticoreClient("http://manticore.invalid", 5);
+    const client = new FetchManticoreEffectClient(
+      "http://manticore.invalid",
+      5
+    );
     const request = buildManticoreSearchRequest(
       SEARCH_INDEX_NAME,
       null,
@@ -110,7 +113,7 @@ describe("Manticore query bounds (RJC-380)", () => {
     // global fetch overload set this test doesn't exercise.
     globalThis.fetch = fastFetch as typeof fetch;
 
-    const client = new FetchManticoreClient("http://manticore.local");
+    const client = new FetchManticoreEffectClient("http://manticore.local");
     const request = buildManticoreSearchRequest(
       SEARCH_INDEX_NAME,
       null,

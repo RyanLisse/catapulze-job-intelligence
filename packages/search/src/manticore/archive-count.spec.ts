@@ -3,7 +3,8 @@ import { once } from "node:events";
 
 import { InMemorySearchVersionStore } from "../version";
 import type { ManticoreHttpClient, ManticoreRequestOptions } from "./client";
-import { ARCHIVE_COUNT_TIMEOUT_MS, FetchManticoreClient } from "./client";
+import { ARCHIVE_COUNT_TIMEOUT_MS } from "./client";
+import { FetchManticoreEffectClient } from "./client-effect";
 import { ManticoreSearchEngine } from "./engine";
 import type {
   ManticoreBulkPayload,
@@ -109,13 +110,16 @@ describe("archive count degrades, never fails the search (RJC-383)", () => {
   });
 });
 
-describe("FetchManticoreClient per-request timeout", () => {
+describe("FetchManticoreEffectClient per-request timeout", () => {
   it("aborts a hanging fetch at the request's own timeoutMs, not the client default", async () => {
     const originalFetch = globalThis.fetch;
     // SAFETY: the test only exercises the (input, init) call shape the client uses; fetch's static members are never touched.
     globalThis.fetch = hangUntilAborted as typeof fetch;
     try {
-      const client = new FetchManticoreClient("http://manticore.test", 60_000);
+      const client = new FetchManticoreEffectClient(
+        "http://manticore.test",
+        60_000
+      );
       const started = performance.now();
       await expect(
         client.request(

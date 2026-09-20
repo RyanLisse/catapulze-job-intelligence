@@ -45,7 +45,6 @@ moet de lane opnieuw bouwen.
 
 | Oppervlak | Variabele |
 | --- | --- |
-| Search | `JI_EFFECT_SEARCH=1` |
 | Database | `JI_EFFECT_DB=1` |
 | Server | `JI_EFFECT_SERVER=1` |
 | Worker | `JI_EFFECT_WORKER=1` |

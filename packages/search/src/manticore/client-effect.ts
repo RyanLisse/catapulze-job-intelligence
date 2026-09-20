@@ -17,6 +17,16 @@ import type {
 import { tableExistsInShowTables } from "./show-tables";
 import { ManticoreTimeoutError } from "./timeout-error";
 
+/**
+ * Transport-level timeout for the fetch call itself (RJC-380) — a backstop
+ * for Manticore never responding at all (hung process, network partition),
+ * which max_query_time (client.ts) cannot protect against since it only
+ * bounds query execution *inside* a request Manticore is actually
+ * processing. Set comfortably above DEFAULT_MAX_QUERY_TIME_MS so a healthy
+ * server has room to hit its own query-time budget and reply with a partial
+ * result before the transport gives up; the ~3s gap covers network latency
+ * and parsing a near-max_matches response body.
+ */
 const DEFAULT_FETCH_TIMEOUT_MS = 8000;
 const DEFAULT_DESCRIBE_TABLE_TIMEOUT_MS = 1500;
 
@@ -35,23 +45,8 @@ export interface FetchManticoreEffectClientOptions {
 const mergeSignals = (
   outer: AbortSignal | undefined,
   effectSignal: AbortSignal
-): AbortSignal => {
-  if (!outer) {
-    return effectSignal;
-  }
-  if (outer.aborted || effectSignal.aborted) {
-    const controller = new AbortController();
-    controller.abort();
-    return controller.signal;
-  }
-  const controller = new AbortController();
-  const onAbort = (): void => {
-    controller.abort();
-  };
-  outer.addEventListener("abort", onAbort, { once: true });
-  effectSignal.addEventListener("abort", onAbort, { once: true });
-  return controller.signal;
-};
+): AbortSignal =>
+  outer === undefined ? effectSignal : AbortSignal.any([outer, effectSignal]);
 
 const mapPostError = (
   url: string,
@@ -83,11 +78,14 @@ export const runManticorePromise = async <A>(
     return exit.value;
   }
   const error = Cause.squash(exit.cause);
+  if (Cause.hasInterrupts(exit.cause) || options.signal?.aborted) {
+    const reason = options.signal?.reason;
+    throw reason instanceof Error
+      ? reason
+      : new DOMException("Aborted", "AbortError");
+  }
   if (error instanceof Error) {
     throw error;
-  }
-  if (Cause.hasInterrupts(exit.cause) || options.signal?.aborted) {
-    throw new DOMException("Aborted", "AbortError");
   }
   if (Cause.hasDies(exit.cause)) {
     throw error instanceof Error
@@ -257,9 +255,9 @@ export const describeManticoreTableEffect = (input: {
 };
 
 /**
- * Effect-backed Manticore HTTP client implementing the same Promise SDK
- * surface as {@link FetchManticoreClient}. Production default remains native
- * (`ManticoreSearchEngine.fromUrl` → FetchManticoreClient); Effect is opt-in.
+ * Effect-backed Manticore HTTP client behind the {@link ManticoreHttpClient}
+ * Promise SDK surface. The only search transport since CTP-627:
+ * `ManticoreSearchEngine.fromUrl` always constructs it.
  */
 export class FetchManticoreEffectClient implements ManticoreHttpClient {
   private readonly baseUrl: string;

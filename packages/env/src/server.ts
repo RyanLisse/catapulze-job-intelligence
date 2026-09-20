@@ -28,10 +28,6 @@ export const serverEnvEffectSchemas = {
   JI_EFFECT_DB: Schema.Literals(["0", "1"]).pipe(
     Schema.withDecodingDefault(Effect.succeed("0" as const))
   ),
-  /** CTP-479 Slice 14 — per-surface Effect enablement (default OFF). */
-  JI_EFFECT_SEARCH: Schema.Literals(["0", "1"]).pipe(
-    Schema.withDecodingDefault(Effect.succeed("0" as const))
-  ),
   JI_EFFECT_SERVER: Schema.Literals(["0", "1"]).pipe(
     Schema.withDecodingDefault(Effect.succeed("0" as const))
   ),
@@ -86,7 +82,6 @@ export const env = createEnv({
     CORS_ORIGIN: toEnvSchema(serverEnvEffectSchemas.CORS_ORIGIN),
     DATABASE_URL: toEnvSchema(serverEnvEffectSchemas.DATABASE_URL),
     JI_EFFECT_DB: toEnvSchema(serverEnvEffectSchemas.JI_EFFECT_DB),
-    JI_EFFECT_SEARCH: toEnvSchema(serverEnvEffectSchemas.JI_EFFECT_SEARCH),
     JI_EFFECT_SERVER: toEnvSchema(serverEnvEffectSchemas.JI_EFFECT_SERVER),
     MANTICORE_URL: toEnvSchema(serverEnvEffectSchemas.MANTICORE_URL),
     MARKTVRAGEN_CHAT_MODEL: toEnvSchema(

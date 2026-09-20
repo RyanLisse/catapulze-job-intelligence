@@ -31,6 +31,7 @@ import {
   PostgresSearchVersionStore,
   createBronRuntimeClient,
   createPostgresMartsReader,
+  wrapSavedSearchStoreEffect,
 } from "@ji/db";
 import { PostgresCurateStore } from "@ji/db/postgres-curate-store";
 import { PostgresSourceHealthReader } from "@ji/db/source-health-reader";
@@ -130,7 +131,6 @@ export const createProductionSliceADeps = async (
     alerts: persistentStores.alerts,
     bronHealth: persistentStores.bronHealth,
     rawPayloads: persistentStores.rawPayloads,
-    savedSearches: persistentStores.savedSearches,
     snapshots: persistentStores.snapshots,
   });
   const stores: SliceAStores = {
@@ -139,7 +139,8 @@ export const createProductionSliceADeps = async (
     alerts: effectCanary.alerts ?? persistentStores.alerts,
     bronHealth: effectCanary.bronHealth ?? persistentStores.bronHealth,
     rawPayloads: effectCanary.rawPayloads ?? persistentStores.rawPayloads,
-    savedSearches: effectCanary.savedSearches ?? persistentStores.savedSearches,
+    // CTP-627: saved searches always run through the Effect store boundary.
+    savedSearches: wrapSavedSearchStoreEffect(persistentStores.savedSearches),
     snapshots: effectCanary.snapshots ?? persistentStores.snapshots,
   };
 
@@ -157,6 +158,15 @@ export const createProductionSliceADeps = async (
   const engine = ManticoreSearchEngine.fromUrl(
     input.manticoreUrl,
     new PostgresSearchVersionStore(runtime.database)
+  );
+  // Runtime receipt (CTP-627): written once per process at composition so a
+  // deployed box can prove which path serves search and saved searches.
+  process.stderr.write(
+    `${JSON.stringify({
+      event: "slice_a_composition",
+      savedSearches: "effect",
+      search: "effect",
+    })}\n`
   );
   const { backend: cacheBackend, cache: searchResultCache } =
     await createResultCache(input.redisUrl, input.nodeEnv);

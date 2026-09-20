@@ -37,13 +37,11 @@ import {
   buildManticoreSearchRequest,
   bulkManticore,
   deleteManticoreDocument,
-  FetchManticoreClient,
   replaceManticoreDocument,
   searchManticore,
 } from "./client";
 import type { ManticoreHttpClient } from "./client";
 import { FetchManticoreEffectClient } from "./client-effect";
-import { isEffectSearchEnabled } from "./effect-flag";
 import {
   buildBoolJson,
   buildKnnQueryText,
@@ -336,10 +334,8 @@ export class ManticoreSearchEngine implements SearchEngine {
     clock: () => Date = () => new Date(),
     options: ManticoreSearchEngineOptions = {}
   ): ManticoreSearchEngine {
-    // CTP-479 canary: JI_EFFECT_SEARCH=1 → Effect HTTP client; default native.
-    const client: ManticoreHttpClient = isEffectSearchEnabled()
-      ? new FetchManticoreEffectClient(baseUrl)
-      : new FetchManticoreClient(baseUrl);
+    // CTP-627: the Effect HTTP client is the only search transport.
+    const client: ManticoreHttpClient = new FetchManticoreEffectClient(baseUrl);
     return new ManticoreSearchEngine(
       client,
       versionStore,
