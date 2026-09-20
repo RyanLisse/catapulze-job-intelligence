@@ -1,3 +1,5 @@
+import { abortableSleep } from "@ji/db/abortable-sleep";
+
 /**
  * Bounded-concurrency runner for one poll cycle.
  *
@@ -61,4 +63,127 @@ export const runWithConcurrency = async <Item, Result>(
 
   await Promise.all(runners);
   return settled;
+};
+
+export interface ContinuousSchedulerOptions<Item> {
+  /**
+   * Max runs in flight at once; also the ceiling on concurrent curation
+   * drains against Postgres, exactly as the cycle concurrency was.
+   */
+  readonly concurrency: number;
+  /**
+   * Items due right now, in start-priority order. Called once per
+   * evaluation; `context.inFlight` is the number of runs already started.
+   * A rejection is fatal to the scheduler, matching how a failed candidate
+   * load ended a cycle.
+   */
+  readonly dueItems: (context: {
+    inFlight: number;
+  }) => Promise<readonly Item[]>;
+  /** Stable identity; used to keep one active run per item. */
+  readonly keyOf: (item: Item) => string;
+  /**
+   * Periodic maintenance hook (stale-run repair, outbox prune) invoked at
+   * the top of every evaluation. The caller decides the actual cadence —
+   * evaluations can happen more often than `tickMs` when runs finish.
+   */
+  readonly onTick?: () => Promise<void>;
+  /**
+   * A rejecting `run` is reported here instead of ending the scheduler —
+   * the same isolation `runWithConcurrency` gave one broken source in a
+   * cycle. Non-Error rejections are normalized to `Error` first.
+   */
+  readonly onRunError?: (error: Error, item: Item) => void;
+  /** One full source run. Must settle eventually; see the abort contract. */
+  readonly run: (item: Item) => Promise<void>;
+  readonly signal: AbortSignal;
+  /** Longest wall-clock gap between two due re-evaluations. */
+  readonly tickMs: number;
+}
+
+/**
+ * Per-bron continuous scheduler (CTP-619).
+ *
+ * The cycle this replaces awaited its whole cohort before the next tick, so
+ * one long-running sitemap/detail crawl held back every other bron's next
+ * scheduled check. Here a run never blocks the loop: each evaluation starts
+ * the currently due items — in the order `dueItems` returns — up to
+ * `concurrency` in flight, then sleeps until the earlier of `tickMs` or the
+ * next run settling. A freed slot therefore triggers an immediate
+ * re-evaluation instead of waiting out the tick.
+ *
+ * - No overlapping runs per key: `inFlightKeys` covers the window between
+ *   dispatch and the moment the run's `scrape_run` row exists; the store's
+ *   per-bron `pg_advisory_xact_lock` covers everything after that.
+ * - Missed-tick coalescing: due-ness is derived per evaluation, not queued,
+ *   so N ticks missed during a run or a restart produce exactly one
+ *   follow-up run, started once the bron is due and a slot is free.
+ * - On abort, new starts stop and in-flight runs are awaited, so shutdown
+ *   never abandons a write mid-flight — the same contract the cycle had.
+ */
+export const runContinuously = async <Item>(
+  options: ContinuousSchedulerOptions<Item>
+): Promise<void> => {
+  const {
+    concurrency,
+    dueItems,
+    keyOf,
+    onRunError,
+    onTick,
+    run,
+    signal,
+    tickMs,
+  } = options;
+  const inFlightKeys = new Set<string>();
+  const inFlightRuns = new Set<Promise<null>>();
+  const maxInFlight = Math.max(1, Math.floor(concurrency));
+
+  while (!signal.aborted) {
+    // oxlint-disable-next-line no-await-in-loop -- maintenance and candidate reads must not overlap
+    await onTick?.();
+    // oxlint-disable-next-line no-await-in-loop -- the due set is re-read every evaluation
+    const due = await dueItems({ inFlight: inFlightRuns.size });
+    for (const item of due) {
+      if (inFlightRuns.size >= maxInFlight) {
+        break;
+      }
+      const key = keyOf(item);
+      if (inFlightKeys.has(key)) {
+        continue;
+      }
+      inFlightKeys.add(key);
+      const tracked = Promise.withResolvers<null>();
+      inFlightRuns.add(tracked.promise);
+      const work = async (): Promise<void> => {
+        try {
+          await run(item);
+        } catch (error) {
+          try {
+            onRunError?.(
+              error instanceof Error ? error : new Error(String(error)),
+              item
+            );
+          } catch {
+            // A broken reporter must never reject the tracked run.
+          }
+        } finally {
+          inFlightRuns.delete(tracked.promise);
+          inFlightKeys.delete(key);
+          tracked.resolve(null);
+        }
+      };
+      // The task's promise is not awaited directly: `tracked.promise` is
+      // what `inFlightRuns` races and drains on.
+      void work();
+    }
+    // Wake on the tick or as soon as any run frees a slot — whichever comes
+    // first — so a finishing long bron never delays a due short one. An
+    // empty set races nothing, leaving the plain tick.
+    // oxlint-disable-next-line no-await-in-loop -- the evaluation interval must elapse before the next pass
+    await Promise.race([
+      abortableSleep(tickMs, signal),
+      Promise.race(inFlightRuns),
+    ]);
+  }
+  await Promise.allSettled(inFlightRuns);
 };

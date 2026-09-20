@@ -36,6 +36,30 @@ export const dueCandidates = (
   now: Date
 ): PollCandidate[] => candidates.filter((candidate) => isDue(candidate, now));
 
+/**
+ * Start-priority order for due bronnen: longest-waiting first, never-run
+ * bronnen ahead of everything.
+ *
+ * `lastRunAt` is the previous run's *start*, so a bron whose run outlasts
+ * its interval re-enters the due set with a fresh, recent `lastRunAt` —
+ * behind every bron that has been waiting longer. That is what keeps a
+ * permanently-due long crawl from starving short bronnen when slots are
+ * scarce (CTP-619): each missed-tick coalescing still yields one follow-up
+ * run, but it queues after the bronnen that waited longer for it.
+ */
+export const byLongestWaiting = (
+  a: PollCandidate,
+  b: PollCandidate
+): number => {
+  if (a.lastRunAt === null) {
+    return b.lastRunAt === null ? 0 : -1;
+  }
+  if (b.lastRunAt === null) {
+    return 1;
+  }
+  return a.lastRunAt.getTime() - b.lastRunAt.getTime();
+};
+
 export interface LiveFlagPartition {
   live: PollCandidate[];
   notLive: PollCandidate[];
