@@ -9,8 +9,14 @@
  * the alternative that keeps `capturedAt`, the vacancies and the assertions
  * intact while removing the contact details.
  *
- * It reuses `redactContacts` rather than restating the patterns, so a fixture
- * repaired here is byte-identical to one the recorder would have produced.
+ * It reuses `redactContactsInJson` rather than restating the patterns, and
+ * that function walks the parsed tree, so an HTML payload here goes through
+ * the same `redactContactText` call the recorder makes and the repaired
+ * payload is byte-identical to the one a fresh recording would produce.
+ *
+ * Running it twice is a no-op. The redactor skips what the corpus guard
+ * already accepts as redacted, so a second pass counts nothing and writes
+ * nothing, and the provenance sentence is appended exactly once.
  *
  * Usage:
  *   bun tools/fixtures/redact-committed.ts <fixture.json>...
@@ -25,6 +31,11 @@ const formatCounts = (counts: Record<string, number>): string =>
 
 const redactFixture = async (file: string): Promise<string> => {
   const fixture = JSON.parse(await Bun.file(file).text());
+  // fixtures/backfill holds database rows rather than captures, and the glob
+  // that reaches this tool is usually broader than its subject.
+  if (!Object.hasOwn(fixture, "payload")) {
+    return `${file}: skipped, no payload key`;
+  }
   const { counts, value } = redactContactsInJson(fixture.payload);
   const summary = formatCounts(counts);
   if (!summary) {
@@ -49,13 +60,31 @@ const redactFixture = async (file: string): Promise<string> => {
   return `${file}: ${summary}`;
 };
 
+const reportFixture = async (
+  file: string
+): Promise<{ readonly line: string; readonly ok: boolean }> => {
+  try {
+    return { line: await redactFixture(file), ok: true };
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    return { line: `${file}: failed, ${reason}`, ok: false };
+  }
+};
+
 if (import.meta.main) {
   const files = Bun.argv.slice(2);
   if (files.length === 0) {
     throw new Error("pass one or more fixture JSON paths");
   }
-  for (const line of await Promise.all(files.map(redactFixture))) {
+  // Every file reports its own outcome. A bare `Promise.all` over the batch
+  // rejects on the first bad file, after other writes have already landed, and
+  // prints nothing at all about which files were touched.
+  const reports = await Promise.all(files.map(reportFixture));
+  for (const { line } of reports) {
     console.log(line);
+  }
+  if (reports.some(({ ok }) => !ok)) {
+    process.exitCode = 1;
   }
 }
 

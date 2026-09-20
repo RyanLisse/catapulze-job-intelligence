@@ -50,14 +50,23 @@ describe("stripHtml", () => {
   });
 });
 
+/**
+ * Synthetic on purpose, and it must stay that way: this repository is public,
+ * so a real address in a spec is the same leak the redactor exists to stop.
+ * `.internal` is reserved by ICANN for private use and can never be delegated
+ * in the public DNS; `0999` is not an area code in the Dutch numbering plan
+ * and `06 00 ...` is not an assigned mobile number. All three still match the
+ * recorder's patterns, so they exercise the same branches a real one would.
+ */
+const SAMPLE_CONTACTS =
+  "Bel de vacaturelijn op 0999-000000, 06 12 34 56 78 of +31 6 00 00 00 00, of mail v.voorbeeld@geen-echt-domein.internal.";
+
 describe("redactContactText", () => {
   it("replaces an address and every Dutch number shape with a fixed marker", () => {
-    const { counts, value } = redactContactText(
-      "Bel Mathijs op 0183-516254, 06 12 34 56 78 of +31 6 13 05 62 67, of mail m.vuister@gemeentealtena.nl."
-    );
+    const { counts, value } = redactContactText(SAMPLE_CONTACTS);
 
     expect(value).toBe(
-      "Bel Mathijs op +31000000000, +31000000000 of +31000000000, of mail redacted@example.invalid."
+      "Bel de vacaturelijn op +31000000000, +31000000000 of +31000000000, of mail redacted@example.invalid."
     );
     expect(counts).toEqual({ "redacted:email": 1, "redacted:phone": 3 });
   });
@@ -68,6 +77,29 @@ describe("redactContactText", () => {
 
     expect(value).toBe("score 05.185353 en 01.430431");
     expect(counts).toEqual({ "redacted:email": 0, "redacted:phone": 0 });
+  });
+
+  it("leaves a reference id inside a URL alone but still redacts one in prose", () => {
+    // Connectors derive externalId from the detail URL, so rewriting a path
+    // segment shaped like 0NNN-NNNNNN surfaces later as a parser failure.
+    const { counts, value } = redactContactText(
+      "Zie https://x.nl/vacature/0123-456789/ of bel 0123-456789."
+    );
+
+    expect(value).toBe(
+      "Zie https://x.nl/vacature/0123-456789/ of bel +31000000000."
+    );
+    expect(counts).toEqual({ "redacted:email": 0, "redacted:phone": 1 });
+  });
+
+  it("converges, so a second pass over redacted text changes and counts nothing", () => {
+    // Both markers match the patterns that produced them, so without this the
+    // repair tool rewrites a fixture and re-appends its note on every run.
+    const once = redactContactText(SAMPLE_CONTACTS);
+    const twice = redactContactText(once.value);
+
+    expect(twice.value).toBe(once.value);
+    expect(twice.counts).toEqual({ "redacted:email": 0, "redacted:phone": 0 });
   });
 });
 
@@ -86,6 +118,44 @@ describe("redactContactsInJson", () => {
     });
     expect(counts).toEqual({ "redacted:email": 1, "redacted:phone": 1 });
   });
+
+  /**
+   * Both paths must agree, because the same corpus is checked by one guard.
+   * Redacting `JSON.stringify` output silently broke that next to an escape:
+   * the email local-part class swallowed the `n` of a serialized `\n` and the
+   * orphaned backslash paired with the marker's `r` into a valid `\r`, while
+   * the phone alternatives opening with `\b` saw that `n` as a word character
+   * and never matched at all.
+   */
+  it.each([
+    ["a newline before a mobile number", "Bel:\n06-12345678"],
+    ["a tab before a regional number", "Bel:\t010-1234567"],
+    ["a newline before an address", "Mail:\njan@geen-echt-domein.internal"],
+    [
+      "a \\u escape before an address",
+      "Mail:\u0007jan@geen-echt-domein.internal",
+    ],
+  ])("redacts %s exactly as the HTML path does", (_label, text) => {
+    const viaHtml = redactContactText(text);
+    const viaJson = redactContactsInJson({ body: text });
+
+    expect(viaJson.value).toEqual({ body: viaHtml.value });
+    expect(viaJson.counts).toEqual(viaHtml.counts);
+  });
+
+  it("keeps a __proto__ key as an own property instead of dropping it", () => {
+    // Assigning out["__proto__"] calls the inherited setter and the key
+    // silently disappears; JSON.parse creates it as an own property and the
+    // walk has to do the same or the payload loses a field.
+    const { value } = redactContactsInJson(
+      JSON.parse('{"__proto__":{"kept":true},"safe":"ok"}')
+    );
+
+    expect(JSON.stringify(value)).toBe(
+      '{"__proto__":{"kept":true},"safe":"ok"}'
+    );
+    expect(Object.getPrototypeOf(value)).toBe(Object.prototype);
+  });
 });
 
 describe("stripJsonKeys", () => {
@@ -96,6 +166,16 @@ describe("stripJsonKeys", () => {
     );
     expect(value).toEqual({ data: [{ id: "a" }, { id: "b" }], total: 2 });
     expect(counts).toEqual({ recruiter: 1 });
+  });
+
+  it("keeps a __proto__ key it was not asked to strip", () => {
+    const { value } = stripJsonKeys(
+      JSON.parse('{"__proto__":{"kept":true},"a":1}'),
+      ["a"]
+    );
+
+    expect(JSON.stringify(value)).toBe('{"__proto__":{"kept":true}}');
+    expect(Object.getPrototypeOf(value)).toBe(Object.prototype);
   });
 });
 
