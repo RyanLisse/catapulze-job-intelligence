@@ -7,7 +7,6 @@ import type {
 import type { LifecycleReconcilePorts } from "@ji/application/lifecycle";
 import type {
   DiscoveryFloorEvidence,
-  DiscoveryFloorVerdict,
   RunBaselineSample,
 } from "@ji/application/observability";
 import {
@@ -529,6 +528,7 @@ const writeDiscoveryFloorAlert = async (
             baseline_samples: input.evidence.baselineSamples,
             baseline_window_days: input.evidence.baselineWindowDays,
             bron: pollResult.bronId,
+            consecutive_zero_runs: input.evidence.consecutiveZeroRuns,
             current_found: input.evidence.found,
             detectietijd: input.detectedAt.toISOString(),
             last_non_zero_at: input.evidence.lastNonZeroAt,
@@ -542,13 +542,36 @@ const writeDiscoveryFloorAlert = async (
   );
 };
 
-export const enforceDiscoveryFloor = async (
+/**
+ * Records a discovery-floor breach and hands the caller the error to raise.
+ *
+ * Returns null when the run is fine. It does not throw, because
+ * `runBronIngestPipeline` has to drain the bron's curation backlog before the
+ * poll fails: `curateScrapeRun` is the only curation driver and its `remaining`
+ * covers every recoverable observation for the whole bron, so throwing here
+ * would let one broken source stall curation for every request it already
+ * staged, for as long as the breach lasts.
+ *
+ * Telling a floor breach from a connector that actually threw. Both land as
+ * `DISCOVER_FAILED`, because `scrape_run_failure_tuple_check` whitelists the
+ * tuple and a new code needs a migration. Three things separate them:
+ *
+ * - The poller logs `errorName: "DiscoveryFloorBreachedError"`. A connector
+ *   failure logs the connector's own error name. See `failedSourceLog` in
+ *   `poller/source-log.ts`.
+ * - A floor breach leaves `scrape_run.fouten` at 0. The run completed; this
+ *   guard rejected the result afterwards. A real discovery failure increments
+ *   it.
+ * - A floor breach writes a paired `bron.discovery_floor` alert. A connector
+ *   failure writes none.
+ */
+export const recordDiscoveryFloorBreach = async (
   pollResult: PollBronRunResult,
   runtime: PollBronRuntime,
   runKind: ConnectorRunKind
-): Promise<DiscoveryFloorVerdict> => {
+): Promise<DiscoveryFloorBreachedError | null> => {
   if (runKind !== "poll") {
-    return { outcome: "ok" };
+    return null;
   }
 
   const now = new Date();
@@ -562,7 +585,7 @@ export const enforceDiscoveryFloor = async (
   });
 
   if (verdict.outcome !== "breached") {
-    return verdict;
+    return null;
   }
 
   const bronNaam = await resolveBronNaam(pollResult, runtime);
@@ -615,7 +638,7 @@ export const enforceDiscoveryFloor = async (
     evidence: verdict.evidence,
   });
 
-  throw new DiscoveryFloorBreachedError(
+  return new DiscoveryFloorBreachedError(
     pollResult.bronId,
     bronNaam,
     verdict.evidence
@@ -795,12 +818,17 @@ export const runBronIngestPipeline = async (
       await options.onAborted?.(pollResult);
     },
     async () => {
-      await enforceDiscoveryFloor(pollResult, runtime, runKind);
-      const silenceAlert = await handleSilenceAndHealth(
+      const floorBreach = await recordDiscoveryFloorBreach(
         pollResult,
         runtime,
         runKind
       );
+      // A breached run is already recorded as failed with its own alert.
+      // Running the silence detector on top would overwrite that health row
+      // back to `succeeded` and raise a second alert for one event.
+      const silenceAlert = floorBreach
+        ? null
+        : await handleSilenceAndHealth(pollResult, runtime, runKind);
       await reportTelemetryCallback(
         options.onCurationStarted,
         pollResult,
@@ -836,6 +864,12 @@ export const runBronIngestPipeline = async (
       });
 
       const drainSummary = await drainOrDeferToProjector(runtime);
+
+      // After the backlog drains, not before. The breaching run staged
+      // nothing of its own, so this costs the guard no detection latency.
+      if (floorBreach) {
+        throw floorBreach;
+      }
 
       return {
         ...pollResult,

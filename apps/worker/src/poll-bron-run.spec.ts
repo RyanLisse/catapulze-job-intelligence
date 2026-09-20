@@ -1198,7 +1198,7 @@ describe("runPollBron scrape_run.gesloten and unchanged metrics (RJC-414)", () =
 });
 
 const unusedFloorProp = (name: string): never => {
-  throw new Error(`enforceDiscoveryFloor must not touch runtime.${name}`);
+  throw new Error(`recordDiscoveryFloorBreach must not touch runtime.${name}`);
 };
 
 interface DiscoveryFloorUpdate {
@@ -1223,11 +1223,11 @@ describe("discovery floor guard", () => {
   const bronNaam = "TenderNed";
   const scrapeRunId = "00000000-0000-4000-8000-000000000001";
 
-  // Anchored to the run like `baselineSamples` above: `enforceDiscoveryFloor`
-  // reads the real clock, so a fixed date would age out of the window.
+  // Anchored to the run like `baselineSamples` above: the guard reads the real
+  // clock, so a fixed date would age out of the window.
   const anchor = new Date();
   const lastNonZeroAt = new Date(anchor.getTime() - 86_400_000);
-  const collapsedMessage = `Bron ${bronNaam} vond 0 records terwijl de laatste succesvolle poll op ${lastNonZeroAt.toISOString()} er 730 vond; discovery is stil gevallen zonder foutmelding.`;
+  const collapsedMessage = `Bron ${bronNaam} vond 0 records in 3 opeenvolgende polls terwijl de laatste succesvolle poll op ${lastNonZeroAt.toISOString()} er 730 vond; discovery is stil gevallen zonder foutmelding.`;
 
   const healthyBaseline = (): RunBaselineSample[] =>
     Array.from({ length: 3 }, (_, index) => ({
@@ -1236,6 +1236,24 @@ describe("discovery floor guard", () => {
       found: 730,
       new: 0,
     }));
+
+  // Two zero polls already on the record, so the run under evaluation is the
+  // third in a row and the floor is armed.
+  const collapsedBaseline = (): RunBaselineSample[] => [
+    {
+      at: new Date(anchor.getTime() - 15 * 60_000),
+      changed: 0,
+      found: 0,
+      new: 0,
+    },
+    {
+      at: new Date(anchor.getTime() - 30 * 60_000),
+      changed: 0,
+      found: 0,
+      new: 0,
+    },
+    ...healthyBaseline(),
+  ];
 
   const bronRecord = {
     actief: true,
@@ -1281,7 +1299,7 @@ describe("discovery floor guard", () => {
     loadBaseline: () => Promise<RunBaselineSample[]>;
     ownsRun?: boolean;
   }) => {
-    // SAFETY: Test double fulfills the update subset enforceDiscoveryFloor uses.
+    // SAFETY: Test double fulfills the update subset the guard uses.
     const database = {
       update: () => ({
         set: (values: DiscoveryFloorUpdate) => ({
@@ -1337,8 +1355,8 @@ describe("discovery floor guard", () => {
     };
   };
 
-  it("fails the run, alerts and throws when a bron with history discovers nothing", async () => {
-    const { DiscoveryFloorBreachedError, enforceDiscoveryFloor } =
+  it("fails the run, alerts and returns the error when a collapse persists", async () => {
+    const { DiscoveryFloorBreachedError, recordDiscoveryFloorBreach } =
       await import("./poll-bron-run");
 
     const { alerts, bronHealth } = await createFloorStores();
@@ -1347,20 +1365,18 @@ describe("discovery floor guard", () => {
       alerts,
       bronHealth,
       captured,
-      loadBaseline: () => Promise.resolve(healthyBaseline()),
+      loadBaseline: () => Promise.resolve(collapsedBaseline()),
     });
 
-    let thrown: unknown;
-    try {
-      await enforceDiscoveryFloor(pollResultWithFound(0), runtime, "poll");
-    } catch (error) {
-      thrown = error;
-    }
+    const breach = await recordDiscoveryFloorBreach(
+      pollResultWithFound(0),
+      runtime,
+      "poll"
+    );
 
-    expect(thrown).toBeInstanceOf(DiscoveryFloorBreachedError);
-    const thrownMessage = thrown instanceof Error ? thrown.message : "";
-    expect(thrownMessage).toContain("730");
-    expect(thrownMessage).toContain(bronNaam);
+    expect(breach).toBeInstanceOf(DiscoveryFloorBreachedError);
+    expect(breach?.message).toBe(collapsedMessage);
+    expect(breach?.evidence.consecutiveZeroRuns).toBe(3);
 
     // The envelope is the pinned `DISCOVER_FAILED` tuple: anything else
     // violates `scrape_run_failure_tuple_check`.
@@ -1378,14 +1394,12 @@ describe("discovery floor guard", () => {
     expect(openAlerts).toHaveLength(1);
     expect(openAlerts[0]?.kind).toBe("bron.discovery_floor");
     expect(openAlerts[0]?.message).toBe(collapsedMessage);
-    expect(openAlerts[0]?.message).toContain("730");
-    expect(openAlerts[0]?.message).toContain(bronNaam);
     const healthAfterBreach = await bronHealth.getByBronId(bronId);
     expect(healthAfterBreach?.lastRunStatus).toBe("failed");
   });
 
-  it("raises one alert when the same collapse repeats", async () => {
-    const { enforceDiscoveryFloor } = await import("./poll-bron-run");
+  it("leaves the first zero of a collapse alone and writes nothing", async () => {
+    const { recordDiscoveryFloorBreach } = await import("./poll-bron-run");
 
     const { alerts, bronHealth } = await createFloorStores();
     const captured: DiscoveryFloorUpdate[] = [];
@@ -1396,19 +1410,48 @@ describe("discovery floor guard", () => {
       loadBaseline: () => Promise.resolve(healthyBaseline()),
     });
 
-    await expect(
-      enforceDiscoveryFloor(pollResultWithFound(0), runtime, "poll")
-    ).rejects.toThrow(collapsedMessage);
-    await expect(
-      enforceDiscoveryFloor(pollResultWithFound(0), runtime, "poll")
-    ).rejects.toThrow(collapsedMessage);
+    const breach = await recordDiscoveryFloorBreach(
+      pollResultWithFound(0),
+      runtime,
+      "poll"
+    );
 
+    expect(breach).toBeNull();
+    expect(captured).toEqual([]);
+    expect(await alerts.listOpen()).toEqual([]);
+  });
+
+  it("raises one alert when the same collapse repeats", async () => {
+    const { recordDiscoveryFloorBreach } = await import("./poll-bron-run");
+
+    const { alerts, bronHealth } = await createFloorStores();
+    const captured: DiscoveryFloorUpdate[] = [];
+    const runtime = createRuntime({
+      alerts,
+      bronHealth,
+      captured,
+      loadBaseline: () => Promise.resolve(collapsedBaseline()),
+    });
+
+    const first = await recordDiscoveryFloorBreach(
+      pollResultWithFound(0),
+      runtime,
+      "poll"
+    );
+    const second = await recordDiscoveryFloorBreach(
+      pollResultWithFound(0),
+      runtime,
+      "poll"
+    );
+
+    expect(first?.message).toBe(collapsedMessage);
+    expect(second?.message).toBe(collapsedMessage);
     expect(await alerts.listOpen()).toHaveLength(1);
   });
 
   it("stops before alerting when the fenced failure update owns no row", async () => {
     const { RunOwnershipLostError } = await import("@ji/connectors");
-    const { enforceDiscoveryFloor } = await import("./poll-bron-run");
+    const { recordDiscoveryFloorBreach } = await import("./poll-bron-run");
 
     const { alerts, bronHealth } = await createFloorStores();
     const captured: DiscoveryFloorUpdate[] = [];
@@ -1416,19 +1459,19 @@ describe("discovery floor guard", () => {
       alerts,
       bronHealth,
       captured,
-      loadBaseline: () => Promise.resolve(healthyBaseline()),
+      loadBaseline: () => Promise.resolve(collapsedBaseline()),
       ownsRun: false,
     });
 
     await expect(
-      enforceDiscoveryFloor(pollResultWithFound(0), runtime, "poll")
+      recordDiscoveryFloorBreach(pollResultWithFound(0), runtime, "poll")
     ).rejects.toBeInstanceOf(RunOwnershipLostError);
     expect(await alerts.listOpen()).toEqual([]);
     expect(await bronHealth.getByBronId(bronId)).toBeNull();
   });
 
   it("preserves the circuit and silence signals it does not own", async () => {
-    const { enforceDiscoveryFloor } = await import("./poll-bron-run");
+    const { recordDiscoveryFloorBreach } = await import("./poll-bron-run");
 
     const { alerts, bronHealth } = await createFloorStores();
     await bronHealth.upsert({
@@ -1444,13 +1487,16 @@ describe("discovery floor guard", () => {
       alerts,
       bronHealth,
       captured,
-      loadBaseline: () => Promise.resolve(healthyBaseline()),
+      loadBaseline: () => Promise.resolve(collapsedBaseline()),
     });
 
-    await expect(
-      enforceDiscoveryFloor(pollResultWithFound(0), runtime, "poll")
-    ).rejects.toThrow(collapsedMessage);
+    const breach = await recordDiscoveryFloorBreach(
+      pollResultWithFound(0),
+      runtime,
+      "poll"
+    );
 
+    expect(breach?.message).toBe(collapsedMessage);
     const health = await bronHealth.getByBronId(bronId);
     expect(health?.circuitStatus).toBe("open");
     expect(health?.silenceAlertOpen).toBe(true);
@@ -1458,7 +1504,7 @@ describe("discovery floor guard", () => {
   });
 
   it("leaves a genuine first run alone and writes nothing", async () => {
-    const { enforceDiscoveryFloor } = await import("./poll-bron-run");
+    const { recordDiscoveryFloorBreach } = await import("./poll-bron-run");
 
     const { alerts, bronHealth } = await createFloorStores();
     const captured: DiscoveryFloorUpdate[] = [];
@@ -1469,19 +1515,19 @@ describe("discovery floor guard", () => {
       loadBaseline: () => Promise.resolve([]),
     });
 
-    const verdict = await enforceDiscoveryFloor(
+    const breach = await recordDiscoveryFloorBreach(
       pollResultWithFound(0),
       runtime,
       "poll"
     );
 
-    expect(verdict).toEqual({ outcome: "no-history" });
+    expect(breach).toBeNull();
     expect(captured).toEqual([]);
     expect(await alerts.listOpen()).toEqual([]);
   });
 
   it("leaves a healthy run alone and writes nothing", async () => {
-    const { enforceDiscoveryFloor } = await import("./poll-bron-run");
+    const { recordDiscoveryFloorBreach } = await import("./poll-bron-run");
 
     const { alerts, bronHealth } = await createFloorStores();
     const captured: DiscoveryFloorUpdate[] = [];
@@ -1489,22 +1535,22 @@ describe("discovery floor guard", () => {
       alerts,
       bronHealth,
       captured,
-      loadBaseline: () => Promise.resolve(healthyBaseline()),
+      loadBaseline: () => Promise.resolve(collapsedBaseline()),
     });
 
-    const verdict = await enforceDiscoveryFloor(
+    const breach = await recordDiscoveryFloorBreach(
       pollResultWithFound(730),
       runtime,
       "poll"
     );
 
-    expect(verdict).toEqual({ outcome: "ok" });
+    expect(breach).toBeNull();
     expect(captured).toEqual([]);
     expect(await alerts.listOpen()).toEqual([]);
   });
 
   it("never touches a test-import run, not even to load the baseline", async () => {
-    const { enforceDiscoveryFloor } = await import("./poll-bron-run");
+    const { recordDiscoveryFloorBreach } = await import("./poll-bron-run");
 
     const { alerts, bronHealth } = await createFloorStores();
     const captured: DiscoveryFloorUpdate[] = [];
@@ -1514,17 +1560,17 @@ describe("discovery floor guard", () => {
       captured,
       loadBaseline: () =>
         Promise.reject(
-          new Error("enforceDiscoveryFloor must not load a baseline for test")
+          new Error("the discovery floor must not load a baseline for test")
         ),
     });
 
-    const verdict = await enforceDiscoveryFloor(
+    const breach = await recordDiscoveryFloorBreach(
       pollResultWithFound(0),
       runtime,
       "test"
     );
 
-    expect(verdict).toEqual({ outcome: "ok" });
+    expect(breach).toBeNull();
     expect(captured).toEqual([]);
     expect(await alerts.listOpen()).toEqual([]);
   });
