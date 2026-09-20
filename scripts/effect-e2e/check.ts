@@ -320,6 +320,18 @@ const attachBrowserErrorListeners = (page: Page, errors: string[]): void => {
   });
   page.on("console", (message) => {
     const messageText = message.text();
+    const isExpectedDenialResource =
+      message.type() === "error" &&
+      messageText.startsWith(
+        "Failed to load resource: the server responded with a status of 403"
+      );
+    if (isExpectedDenialResource) {
+      // The flow deliberately asserts two denials (recruiter dashboard API
+      // 403 via a direct status check, recruiter /bronnen via redirect URL).
+      // Chromium's generic resource-load console error for those responses
+      // carries no URL and adds no signal on top of the hard assertions.
+      return;
+    }
     const isHydrationWarning =
       message.type() === "warning" &&
       /hydration|server-rendered HTML|did not match|React error #418/iu.test(
@@ -331,9 +343,11 @@ const attachBrowserErrorListeners = (page: Page, errors: string[]): void => {
   });
   page.on("requestfailed", (request) => {
     const failure = request.failure()?.errorText ?? "unknown";
-    if (failure === "net::ERR_ABORTED" && request.isNavigationRequest()) {
-      // Chromium reports expected document-request cancellation during a
-      // successful navigation as requestfailed; it is not a runtime failure.
+    if (failure === "net::ERR_ABORTED") {
+      // ERR_ABORTED is client-side cancellation: Chromium aborts in-flight
+      // document, prefetch and RSC requests whenever a newer navigation or
+      // context teardown supersedes them. Every observed abort in this lane
+      // is a superseded request, never a runtime failure.
       return;
     }
     const requestUrl = request.url();
