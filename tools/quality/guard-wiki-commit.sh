@@ -3,6 +3,12 @@ set -euo pipefail
 
 # Fail when openwiki/ is staged together with non-wiki source changes.
 
+# Merge commits are atomic — their staged tree can't be split into a wiki-only
+# commit, so the rule only applies to authored (non-merge) commits.
+if git rev-parse -q --verify MERGE_HEAD >/dev/null; then
+  exit 0
+fi
+
 wiki_staged=0
 other_staged=0
 wiki_files=""
