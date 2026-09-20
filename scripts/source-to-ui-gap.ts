@@ -90,12 +90,31 @@ export const keyCategory = (key: string): Category => {
   return "unused";
 };
 
-export const missingDisplayFields = (report: SourceReport): FieldName[] => {
+const fieldHasKeyInCategory = (
+  report: SourceReport,
+  field: FieldName,
+  category: Category
+): boolean =>
+  FIELD_KEY_ALIASES[field].some(
+    (key) => (report.keys[key] ?? 0) > 0 && keyCategory(key) === category
+  );
+
+export const zeroCoverageFields = (report: SourceReport): FieldName[] => {
   if (report.records === 0) {
     return [];
   }
   return FIELDS.filter((field) => report.fields[field] === 0);
 };
+
+export const missingDisplayFields = (report: SourceReport): FieldName[] =>
+  zeroCoverageFields(report).filter((field) =>
+    fieldHasKeyInCategory(report, field, "gap")
+  );
+
+export const invalidDisplayFields = (report: SourceReport): FieldName[] =>
+  zeroCoverageFields(report).filter((field) =>
+    fieldHasKeyInCategory(report, field, "displayed")
+  );
 
 interface KeyBuckets {
   displayed: string[];
@@ -107,8 +126,10 @@ interface KeyBuckets {
 }
 
 export interface SourceGapReport extends SourceReport {
+  invalidDisplayFields: FieldName[];
   keyCategories: KeyBuckets;
   missingDisplayFields: FieldName[];
+  zeroCoverageFields: FieldName[];
 }
 
 const emptyBuckets = (): KeyBuckets => ({
@@ -127,8 +148,10 @@ export const analyseReport = (report: SourceReport): SourceGapReport => {
   }
   return {
     ...report,
+    invalidDisplayFields: invalidDisplayFields(report),
     keyCategories,
     missingDisplayFields: missingDisplayFields(report),
+    zeroCoverageFields: zeroCoverageFields(report),
   };
 };
 
@@ -137,20 +160,22 @@ const pad = (value: string, width: number): string =>
 
 export const formatReport = (reports: SourceReport[]): string => {
   const analyses = reports.map(analyseReport);
-  const header = `${pad("bron", 24)} ${pad("n", 4)} ${pad("miss", 5)} ${pad("disp", 5)} ${pad("gap", 5)} ${pad("id", 4)} ${pad("proc", 5)} ${pad("stat", 5)} ${pad("unclass", 7)} ${pad("errs", 5)}`;
+  const header = `${pad("bron", 24)} ${pad("n", 4)} ${pad("zero", 5)} ${pad("miss", 5)} ${pad("invalid", 7)} ${pad("disp", 5)} ${pad("gap", 5)} ${pad("id", 4)} ${pad("proc", 5)} ${pad("stat", 5)} ${pad("unclass", 7)} ${pad("errs", 5)}`;
   const lines: string[] = [header, "-".repeat(header.length)];
   for (const report of analyses) {
     lines.push(
-      `${pad(report.slug, 24)} ${pad(String(report.records), 4)} ${pad(String(report.missingDisplayFields.length), 5)} ${pad(String(report.keyCategories.displayed.length), 5)} ${pad(String(report.keyCategories.gap.length), 5)} ${pad(String(report.keyCategories.identity.length), 4)} ${pad(String(report.keyCategories.procedure.length), 5)} ${pad(String(report.keyCategories.status.length), 5)} ${pad(String(report.keyCategories.unused.length), 7)} ${pad(String(report.errors.length), 5)}`
+      `${pad(report.slug, 24)} ${pad(String(report.records), 4)} ${pad(String(report.zeroCoverageFields.length), 5)} ${pad(String(report.missingDisplayFields.length), 5)} ${pad(String(report.invalidDisplayFields.length), 7)} ${pad(String(report.keyCategories.displayed.length), 5)} ${pad(String(report.keyCategories.gap.length), 5)} ${pad(String(report.keyCategories.identity.length), 4)} ${pad(String(report.keyCategories.procedure.length), 5)} ${pad(String(report.keyCategories.status.length), 5)} ${pad(String(report.keyCategories.unused.length), 7)} ${pad(String(report.errors.length), 5)}`
     );
   }
 
   const detailLines: string[] = [];
   for (const report of analyses) {
+    const invalid = report.invalidDisplayFields;
     const missing = report.missingDisplayFields;
+    const zeroCoverage = report.zeroCoverageFields;
     const byCategory = report.keyCategories;
     if (
-      missing.length === 0 &&
+      zeroCoverage.length === 0 &&
       byCategory.gap.length === 0 &&
       byCategory.unused.length === 0 &&
       report.errors.length === 0
@@ -158,8 +183,16 @@ export const formatReport = (reports: SourceReport[]): string => {
       continue;
     }
     detailLines.push(`\n${report.slug} (${report.records} records)`);
+    if (zeroCoverage.length > 0) {
+      detailLines.push(`  zero coverage fields: ${zeroCoverage.join(", ")}`);
+    }
     if (missing.length > 0) {
-      detailLines.push(`  missing display fields: ${missing.join(", ")}`);
+      detailLines.push(`  source-backed mapping gaps: ${missing.join(", ")}`);
+    }
+    if (invalid.length > 0) {
+      detailLines.push(
+        `  mapped fields with rejected values: ${invalid.join(", ")}`
+      );
     }
     if (byCategory.displayed.length > 0) {
       detailLines.push(

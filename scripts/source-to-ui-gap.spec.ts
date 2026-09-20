@@ -5,8 +5,10 @@ import type { SourceReport } from "./field-coverage";
 import {
   analyseReport,
   formatReport,
+  invalidDisplayFields,
   keyCategory,
   missingDisplayFields,
+  zeroCoverageFields,
 } from "./source-to-ui-gap";
 
 const reportOf = (
@@ -115,14 +117,14 @@ describe("keyCategory", () => {
   });
 });
 
-describe("missingDisplayFields", () => {
-  it("returns every zero-coverage field so normalization losses stay visible", () => {
+describe("coverage gaps", () => {
+  it("reports every zero-coverage field separately from mapping gaps", () => {
     const report = reportOf("bron-a", {
       fields: { tarief: 2, werkvorm: 1 },
       records: 2,
     });
 
-    expect(missingDisplayFields(report)).toEqual([
+    expect(zeroCoverageFields(report)).toEqual([
       "organisatie",
       "locatie",
       "contract",
@@ -136,15 +138,17 @@ describe("missingDisplayFields", () => {
       "provincie",
       "skills",
     ]);
+    expect(missingDisplayFields(report)).toEqual([]);
   });
 
   it("returns no missing fields when no records were replayed", () => {
     const report = reportOf("bron-a", { records: 0 });
 
+    expect(zeroCoverageFields(report)).toEqual([]);
     expect(missingDisplayFields(report)).toEqual([]);
   });
 
-  it("flags zero-coverage fields even when no normalized alias survived", () => {
+  it("does not claim a mapping gap without normalized source evidence", () => {
     const report = reportOf("bron-a", {
       fields: {
         contract: 2,
@@ -166,14 +170,15 @@ describe("missingDisplayFields", () => {
       records: 2,
     });
 
-    expect(missingDisplayFields(report)).toEqual([
+    expect(zeroCoverageFields(report)).toEqual([
       "opleiding",
       "provincie",
       "skills",
     ]);
+    expect(missingDisplayFields(report)).toEqual([]);
   });
 
-  it("flags bronSpecifiek-driven fields with source data but zero coverage", () => {
+  it("classifies rejected values separately from mapping gaps", () => {
     const report = reportOf("bron-a", {
       fields: {
         contract: 2,
@@ -199,7 +204,8 @@ describe("missingDisplayFields", () => {
       records: 2,
     });
 
-    expect(missingDisplayFields(report)).toEqual([
+    expect(missingDisplayFields(report)).toEqual([]);
+    expect(invalidDisplayFields(report)).toEqual([
       "opleiding",
       "provincie",
       "skills",
@@ -244,6 +250,7 @@ describe("analyseReport", () => {
         uren: 0,
         werkvorm: 0,
       },
+      invalidDisplayFields: ["contract", "duur"],
       keyCategories: {
         displayed: ["contracttype", "duration"],
         gap: [],
@@ -260,7 +267,11 @@ describe("analyseReport", () => {
         source: 2,
         unknown_custom_key: 2,
       },
-      missingDisplayFields: [
+      missingDisplayFields: [],
+      records: 2,
+      rejected: 0,
+      slug: "bron-a",
+      zeroCoverageFields: [
         "locatie",
         "tarief",
         "contract",
@@ -275,9 +286,6 @@ describe("analyseReport", () => {
         "provincie",
         "skills",
       ],
-      records: 2,
-      rejected: 0,
-      slug: "bron-a",
     });
   });
 });
@@ -299,6 +307,7 @@ describe("formatReport", () => {
 
     expect(output).toContain("bron-a");
     expect(output).toContain("3");
+    expect(output).toContain("zero");
     expect(output).toContain("miss");
     expect(output).toContain("disp");
     expect(output).toContain("gap");
@@ -347,7 +356,9 @@ describe("formatReport", () => {
 
     const output = formatReport([report]);
 
-    expect(output).toContain("missing display fields:");
+    expect(output).toContain("zero coverage fields:");
+    expect(output).toContain("mapped fields with rejected values:");
+    expect(output).not.toContain("source-backed mapping gaps:");
     expect(output).toContain("displayed derived keys:");
     expect(output).toContain("identity/metadata keys:");
     expect(output).toContain("unclassified keys (inspect UI mapping):");

@@ -77,7 +77,8 @@ const isLiveValue = (value: unknown): value is number | string =>
 
 /** Blank or sentinel string keys do not count toward key coverage. */
 const isBlankText = (value: unknown): value is string =>
-  typeof value === "string" && (value.trim() === "" || value === UNKNOWN);
+  typeof value === "string" &&
+  (value.trim() === "" || value === UNKNOWN || value === CLEARED);
 
 const liveText = (
   record: Record<string, JsonValue>,
