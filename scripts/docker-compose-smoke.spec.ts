@@ -41,9 +41,19 @@ const expectInOrder = (...fragments: readonly string[]): void => {
   }
 };
 
-const mockDocker = `#!/usr/bin/env bash
+// The script scrubs ambient variables from every Compose invocation with
+// `env -i`, so test knobs must be baked into the mock rather than passed as
+// environment variables (mcp-edge-smoke.spec.ts uses the same pattern).
+const mockDocker = (
+  logPath: string,
+  envLogPath: string,
+  reconcileExit: number,
+  cleanupExit: number,
+  storageInitExit: number
+): string => `#!/usr/bin/env bash
 set -u
-printf 'docker %s\\n' "$*" >> "\${MOCK_LOG:?}"
+printf 'docker %s\\n' "$*" >> '${logPath}'
+env > '${envLogPath}'
 if [[ "$*" == *"config --format json"* ]]; then
   printf '%s\\n' '{"volumes":{"postgres_data":{"name":"mock-postgres-volume"}}}'
   exit 0
@@ -67,13 +77,13 @@ if [[ "$*" == *"port manticore 9308"* ]]; then
   exit 0
 fi
 if [[ "$*" == *"reconcile-projection.ts"* ]]; then
-  exit "\${MOCK_RECONCILE_EXIT:-0}"
+  exit ${reconcileExit}
 fi
 if [[ "$*" == *"run --rm --no-deps raw-storage-minio-init"* ]]; then
-  exit "\${MOCK_STORAGE_INIT_EXIT:-0}"
+  exit ${storageInitExit}
 fi
 if [[ "$*" == *"--profile projector"* && "$*" == *" down"* ]]; then
-  exit "\${MOCK_CLEANUP_EXIT:-0}"
+  exit ${cleanupExit}
 fi
 exit 0
 `;
@@ -116,6 +126,7 @@ exit 0
 
 interface SmokeRun {
   commands: string[];
+  dockerEnv: string;
   exitCode: number;
   stderr: string;
   stdout: string;
@@ -145,13 +156,15 @@ const runSmokeWithMocks = async (
   reconcileExit = 0,
   cleanupExit = 0,
   rawStorage = false,
-  storageInitExit = 0
+  storageInitExit = 0,
+  extraEnv: Record<string, string> = {}
 ): Promise<SmokeRun> => {
   const workspace = await mkdtemp(
     path.join(tmpdir(), "ji-docker-compose-smoke-")
   );
   const binDirectory = path.join(workspace, "bin");
   const logPath = path.join(workspace, "commands.log");
+  const envLogPath = path.join(workspace, "docker-env.log");
   try {
     await mkdir(path.join(workspace, "apps/server"), { recursive: true });
     await mkdir(path.join(workspace, "tools/postgres"), { recursive: true });
@@ -170,7 +183,16 @@ const runSmokeWithMocks = async (
       smokeComposeOverridePath,
       path.join(workspace, "docker-compose.smoke.yml")
     );
-    await writeExecutable(path.join(binDirectory, "docker"), mockDocker);
+    await writeExecutable(
+      path.join(binDirectory, "docker"),
+      mockDocker(
+        logPath,
+        envLogPath,
+        reconcileExit,
+        cleanupExit,
+        storageInitExit
+      )
+    );
     await writeExecutable(path.join(binDirectory, "bun"), mockBun);
     await writeExecutable(path.join(binDirectory, "curl"), mockCurl);
 
@@ -178,10 +200,8 @@ const runSmokeWithMocks = async (
       cwd: workspace,
       env: {
         ...process.env,
-        MOCK_CLEANUP_EXIT: String(cleanupExit),
+        ...extraEnv,
         MOCK_LOG: logPath,
-        MOCK_RECONCILE_EXIT: String(reconcileExit),
-        MOCK_STORAGE_INIT_EXIT: String(storageInitExit),
         PATH: `${binDirectory}:${process.env.PATH ?? "/usr/bin:/bin"}`,
         SMOKE_RAW_STORAGE: rawStorage ? "1" : "0",
       },
@@ -195,7 +215,10 @@ const runSmokeWithMocks = async (
     ]);
     const rawCommands = await Bun.file(logPath).text();
     const commands = rawCommands.trim().split("\n").filter(Boolean);
-    return { commands, exitCode, stderr, stdout };
+    const dockerEnv = await Bun.file(envLogPath)
+      .text()
+      .catch(() => "");
+    return { commands, dockerEnv, exitCode, stderr, stdout };
   } finally {
     await rm(workspace, { force: true, recursive: true });
   }
@@ -281,6 +304,19 @@ describe("docker-compose smoke orchestration", () => {
     expect(override).toContain("RAW_S3_BUCKET:");
     expect(override).toContain("RAW_S3_ENDPOINT:");
   });
+
+  it("keeps exported ambient variables out of Compose invocations", async () => {
+    const result = await runSmokeWithMocks(0, 0, false, 0, {
+      POSTGRES_DB: "ji_poisoned_db",
+      POSTGRES_MIGRATOR_PASSWORD: "poisoned-password",
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(result.dockerEnv).toContain("HOME=");
+    expect(result.dockerEnv).toContain("PATH=");
+    expect(result.dockerEnv).not.toContain("ji_poisoned_db");
+    expect(result.dockerEnv).not.toContain("poisoned-password");
+  }, 20_000);
 
   it("starts MinIO and completes bucket bootstrap before server readiness", async () => {
     const result = await runSmokeWithMocks(0, 0, true);
