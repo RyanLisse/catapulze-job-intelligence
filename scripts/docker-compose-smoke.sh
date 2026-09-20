@@ -21,7 +21,18 @@ if [[ ! -f "$compose_env_file" ]]; then
   exit 1
 fi
 raw_storage_enabled="${SMOKE_RAW_STORAGE:-0}"
-compose_command=(docker compose --env-file "$compose_env_file")
+# Exported ambient variables win Compose interpolation over --env-file and
+# silently override the chosen env file's contract (the Crabbox shadow lane
+# proved this: its exported shadow credentials made postgres initialize
+# ji_test while the host migrate targeted the fixture's ji_smoke). Scrub the
+# environment the same way mcp-edge-smoke.sh does so the env file stays
+# authoritative for every caller.
+compose_command=(
+  env -i
+  "HOME=$HOME"
+  "PATH=$PATH"
+  docker compose --env-file "$compose_env_file"
+)
 compose_profiles=(--profile projector)
 diagnostic_services=(server projector)
 if [[ "$raw_storage_enabled" == "1" ]]; then
