@@ -76,6 +76,19 @@ export interface JsonObject {
 const isJsonObject = (value: JsonValue): value is JsonObject =>
   value instanceof Object && !Array.isArray(value);
 
+/** Assigns the way `JSON.parse` does. `out["__proto__"] = value` calls the
+ * inherited setter, which either retargets the prototype or is ignored, so
+ * the key silently disappears from the payload this tool exists to preserve.
+ * `defineProperty` creates it as an ordinary own data property. */
+const setJsonEntry = (out: JsonObject, key: string, value: JsonValue): void => {
+  Object.defineProperty(out, key, {
+    configurable: true,
+    enumerable: true,
+    value,
+    writable: true,
+  });
+};
+
 export interface StripResult<T> {
   readonly counts: Record<string, number>;
   readonly value: T;
@@ -153,7 +166,9 @@ export const CONTACT_REDACTIONS = [
         // `+31 (6) 42492333`: the parenthesised digit counts toward the nine.
         `(?:\\+31|&#43;31|&#x2[Bb];31)${CONTACT_SEPARATOR}\\(\\d{1,2}\\)${CONTACT_SEPARATOR}\\d(?:${CONTACT_SEPARATOR}\\d){7}`,
         `\\b06${CONTACT_SEPARATOR}\\d(?:${CONTACT_SEPARATOR}\\d){7}\\b`,
-        String.raw`\b0\d{2,3}-\d{6,7}\b`,
+        // Not after a slash: `/vacature/0123-456789/` is a reference id in a
+        // URL, and connectors derive externalId from that path.
+        String.raw`(?<!/)\b0\d{2,3}-\d{6,7}\b`,
         String.raw`\b0\d{2,3}\s\d{3}\s?\d{2}\s?\d{2}\b`,
       ].join("|"),
       "gu"
@@ -162,16 +177,46 @@ export const CONTACT_REDACTIONS = [
   },
 ] as const;
 
-/** Replaces contact details in every string of a payload. Runs after element
- * and key stripping, so it only ever sees what would otherwise be committed. */
-/** Replaces every contact detail in one payload string with a fixed marker. */
+export type ContactLabel = (typeof CONTACT_REDACTIONS)[number]["label"];
+
+/** A host under a reserved TLD (RFC 2606/6761) and the null number cannot
+ * reach a person. The corpus guard reads them as already redacted, so the
+ * redactor leaves them alone through the same predicate: the two can never
+ * drift, and a second pass over a redacted payload is a no-op. */
+const REDACTED_EMAIL_HOST =
+  /@(?:[A-Za-z0-9.-]+\.)?(?:invalid|example|test|localhost)$/u;
+const REDACTED_PHONE = "+31000000000";
+
+/** The recorder preserves the source's own encoding of `+`: a number emitted
+ * as `&#43;31…` or `&#x2B;31…` keeps its entity prefix when the digits are
+ * zeroed, so the placeholder can appear in any of the pattern's forms. */
+const decodePhoneEntities = (match: string): string =>
+  match.replaceAll(/&#43;|&#x2[Bb];/gu, "+");
+
+export const isRedactedContact = (
+  label: ContactLabel,
+  match: string
+): boolean =>
+  label === "email"
+    ? REDACTED_EMAIL_HOST.test(match)
+    : decodePhoneEntities(match) === REDACTED_PHONE;
+
+/** Replaces every contact detail in one payload string with a fixed marker.
+ * Runs after element and key stripping, so it only ever sees what would
+ * otherwise be committed. */
 export const redactContactText = (text: string): StripResult<string> => {
   const counts: Record<string, number> = Object.fromEntries(
     CONTACT_REDACTIONS.map(({ label }) => [`redacted:${label}`, 0])
   );
   let value = text;
   for (const { label, pattern, replacement } of CONTACT_REDACTIONS) {
-    value = value.replace(pattern, () => {
+    value = value.replace(pattern, (match) => {
+      // A marker matches the pattern that produced it, so without this a
+      // second pass reports another round of removals and rewrites a fixture
+      // that was already clean. Skipping what the guard accepts converges.
+      if (isRedactedContact(label, match)) {
+        return match;
+      }
       counts[`redacted:${label}`] = (counts[`redacted:${label}`] ?? 0) + 1;
       return replacement;
     });
@@ -180,18 +225,74 @@ export const redactContactText = (text: string): StripResult<string> => {
 };
 
 /**
- * Redacts a JSON payload through its serialized form. No contact pattern
- * contains a character `JSON.stringify` escapes, so a match in the serialized
- * text is a match in the underlying string. Walking the parsed tree instead
- * would need a runtime type check on every node.
+ * True for a JSON string and for nothing else.
+ *
+ * `typeof node === "string"` is the ordinary way to write this, and
+ * `anti-slop/no-runtime-typeof` forbids it repo-wide. Rather than suppress the
+ * rule, the check eliminates every other member of `JsonValue`: `null`, both
+ * booleans, arrays and objects, and numbers via `Number.isFinite`, which tests
+ * without coercing. JSON has no NaN or Infinity, so no number survives it.
+ */
+const isJsonString = (value: JsonValue): value is string =>
+  value !== null &&
+  value !== true &&
+  value !== false &&
+  !(value instanceof Object) &&
+  !Number.isFinite(value);
+
+/**
+ * Redacts every string in a parsed JSON payload, so the JSON path and the HTML
+ * path produce the same bytes for the same text.
+ *
+ * Redacting `JSON.stringify` output instead is where two silent defects came
+ * from. In serialized text a newline is the two characters `\n`: the email
+ * local-part class swallowed that `n`, the replacement started one character
+ * late, and the orphaned backslash paired with the marker's leading `r` into a
+ * valid `\r`, corrupting the payload undetectably. The same `n` is a word
+ * character, so the three phone alternatives that open with `\b` found no
+ * boundary and never matched at all. `\t` and `\uXXXX` behaved the same way.
+ *
+ * Keys are redacted along with values, as the serialized form did, because the
+ * corpus guard reads the file as text and would flag a contact-shaped key that
+ * this tool could not repair. Two sibling keys collapsing onto one marker
+ * would silently drop a field, so that case throws instead.
  */
 export const redactContactsInJson = (
   value: JsonValue
 ): StripResult<JsonValue> => {
-  const { counts, value: text } = redactContactText(JSON.stringify(value));
-  // SAFETY: the markers substituted into JSON.stringify output contain no JSON
-  // metacharacters, so the text still parses to the same shape.
-  return { counts, value: JSON.parse(text) as JsonValue };
+  const counts: Record<string, number> = Object.fromEntries(
+    CONTACT_REDACTIONS.map(({ label }) => [`redacted:${label}`, 0])
+  );
+  const redact = (text: string): string => {
+    const redacted = redactContactText(text);
+    for (const [label, count] of Object.entries(redacted.counts)) {
+      counts[label] = (counts[label] ?? 0) + count;
+    }
+    return redacted.value;
+  };
+  const walk = (node: JsonValue): JsonValue => {
+    if (isJsonString(node)) {
+      return redact(node);
+    }
+    if (Array.isArray(node)) {
+      return node.map(walk);
+    }
+    if (!isJsonObject(node)) {
+      return node;
+    }
+    const out: JsonObject = {};
+    for (const [key, child] of Object.entries(node)) {
+      const redactedKey = redact(key);
+      if (Object.hasOwn(out, redactedKey)) {
+        throw new Error(
+          `redacting key ${JSON.stringify(key)} to ${JSON.stringify(redactedKey)} would overwrite a sibling key; drop one with --strip-key instead`
+        );
+      }
+      setJsonEntry(out, redactedKey, walk(child));
+    }
+    return out;
+  };
+  return { counts, value: walk(value) };
 };
 
 export const stripJsonKeys = (
@@ -214,7 +315,7 @@ export const stripJsonKeys = (
         counts[key] = (counts[key] ?? 0) + 1;
         continue;
       }
-      out[key] = walk(child);
+      setJsonEntry(out, key, walk(child));
     }
     return out;
   };

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import path from "node:path";
 
-import { CONTACT_REDACTIONS } from "./record";
+import { CONTACT_REDACTIONS, isRedactedContact } from "./record";
 
 /**
  * AGENTS.md, "Adding a source": "Remove PII rather than replacing it with
@@ -13,28 +13,12 @@ import { CONTACT_REDACTIONS } from "./record";
  * and `fixtures-provenance.spec.ts` only vouches for capture time, so before
  * this guard nothing enforced the rule. It had already been missed twice.
  *
- * The patterns come from the recorder itself, so a fixture recorded by
- * `tools/fixtures/record.ts` passes here by construction and the two can
- * never drift apart.
+ * Both the patterns and the rule for what counts as already redacted come
+ * from the recorder itself, so a fixture recorded by `tools/fixtures/record.ts`
+ * passes here by construction and the two can never drift apart.
  */
 
-/** Reserved TLDs (RFC 2606/6761) and the null number cannot reach a person. */
-const REDACTED_EMAIL_HOST =
-  /@(?:[A-Za-z0-9.-]+\.)?(?:invalid|example|test|localhost)$/u;
-const REDACTED_PHONE = "+31000000000";
-
 const FIXTURES_ROOT = path.resolve(import.meta.dir, "../../fixtures");
-
-/** The recorder preserves the source's own encoding of `+`: a number emitted
- * as `&#43;31…` or `&#x2B;31…` keeps its entity prefix when the digits are
- * zeroed, so the placeholder can appear in any of the pattern's forms. */
-const decodePhoneEntities = (match: string): string =>
-  match.replaceAll(/&#43;|&#x2[Bb];/gu, "+");
-
-const isRedacted = (label: string, match: string): boolean =>
-  label === "email"
-    ? REDACTED_EMAIL_HOST.test(match)
-    : decodePhoneEntities(match) === REDACTED_PHONE;
 
 const findContacts = (
   text: string
@@ -42,7 +26,7 @@ const findContacts = (
   const found: { label: string; match: string }[] = [];
   for (const { label, pattern } of CONTACT_REDACTIONS) {
     for (const [match] of text.matchAll(pattern)) {
-      if (!isRedacted(label, match)) {
+      if (!isRedactedContact(label, match)) {
         found.push({ label, match });
       }
     }
@@ -50,15 +34,27 @@ const findContacts = (
   return found;
 };
 
+/**
+ * The unredacted samples below are synthetic, and must stay synthetic. A spec
+ * in a public repository that carried a real address would publish that person
+ * a second time, which is the thing this guard exists to prevent. `.internal`
+ * is reserved by ICANN for private use and can never be delegated in the
+ * public DNS, and `0999` is not an area code in the Dutch numbering plan, so
+ * neither can reach anyone. Neither is in the allow list either, so they are
+ * flagged through exactly the same branch a real address and number take.
+ */
+const UNREDACTED_EMAIL = "v.voorbeeld@geen-echt-domein.internal";
+const UNREDACTED_PHONE = "0999-000000";
+
 describe("fixture contact redaction", () => {
-  it("flags a live address and a Dutch number, and passes the redacted forms", () => {
+  it("flags an unredacted address and Dutch number, and passes the redacted forms", () => {
     expect(
       findContacts(
-        "Bel Mathijs via 0183-516254 of m.vuister@gemeentealtena.nl."
+        `Bel de vacaturelijn via ${UNREDACTED_PHONE} of ${UNREDACTED_EMAIL}.`
       )
     ).toEqual([
-      { label: "email", match: "m.vuister@gemeentealtena.nl" },
-      { label: "phone", match: "0183-516254" },
+      { label: "email", match: UNREDACTED_EMAIL },
+      { label: "phone", match: UNREDACTED_PHONE },
     ]);
     expect(
       findContacts("Bel via +31000000000 of redacted@example.invalid.")
