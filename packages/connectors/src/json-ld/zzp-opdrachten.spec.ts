@@ -355,10 +355,12 @@ const batchedTestConfig = (batchSize: number): JsonLdConnectorConfig => ({
 
 const createSyntheticClient = (options?: {
   abortOnceOnUrl?: { controller: AbortController; url: string };
+  failOnceOnSitemapChild?: string;
   failOnceOnUrl?: string;
   onFetchDetail?: (url: string) => void;
 }): JsonLdClient => {
   let failed = false;
+  let childFailed = false;
   return {
     fetchDetail: (url) => {
       options?.onFetchDetail?.(url);
@@ -380,7 +382,13 @@ const createSyntheticClient = (options?: {
     },
     fetchListing: () =>
       Promise.reject(new Error("batched discovery never reads fetchListing")),
-    fetchSitemapChild: (url) => Promise.resolve(CHILD_ENTRIES.get(url) ?? []),
+    fetchSitemapChild: (url) => {
+      if (url === options?.failOnceOnSitemapChild && !childFailed) {
+        childFailed = true;
+        return Promise.reject(new Error("transient child sitemap failure"));
+      }
+      return Promise.resolve(CHILD_ENTRIES.get(url) ?? []);
+    },
     fetchSitemapIndex: () => Promise.resolve([CHUNK_2, CHUNK_1]),
   };
 };
@@ -480,6 +488,40 @@ class ReopeningRunLifecycleStore implements RunLifecycleStore {
 describe("ZZP-Opdrachten batched run resume (CTP-624)", () => {
   const bronId = "bron-zzp-durable";
   const config = batchedTestConfig(3);
+
+  it("re-emits a page in full when a mid-batch child read fails and the same connector retries", async () => {
+    // runConnector wraps discover() in withRetry on this same connector
+    // instance: a transient child failure after items were buffered must not
+    // leave them committed to the cross-page dedupe set — the retried page
+    // re-emits them and downstream idempotency absorbs the overlap.
+    const connector = createJsonLdConnector({
+      bronId,
+      client: createSyntheticClient({ failOnceOnSitemapChild: CHUNK_1 }),
+      config,
+    });
+
+    const first = await connector.discover(null);
+    expect(first.items.map((item) => item.bronReferentie)).toEqual([
+      "jobs/b1",
+      "jobs/b2",
+      "jobs/b3",
+    ]);
+
+    // Page 2 buffers b4, then the child-1 read throws mid-batch.
+    await expect(connector.discover(first.checkpoint)).rejects.toThrow(
+      "transient child sitemap failure"
+    );
+    const retried = await connector.discover(first.checkpoint);
+    expect(retried.items.map((item) => item.bronReferentie)).toEqual([
+      "jobs/b4",
+      "jobs/a1",
+      "jobs/a2",
+    ]);
+
+    const last = await connector.discover(retried.checkpoint);
+    expect(last.items.map((item) => item.bronReferentie)).toEqual(["jobs/a3"]);
+    expect(last.hasMore).toBe(false);
+  });
 
   const runInput = (
     connector: Connector,

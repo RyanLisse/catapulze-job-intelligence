@@ -75,29 +75,23 @@ const sitemapIndexCheckpoint = (
   cursor: `${SITEMAP_INDEX_CURSOR_PREFIX}${fingerprint}:${child}:${offset}`,
 });
 
+const SITEMAP_INDEX_CURSOR_PATTERN =
+  /^sitemap-index:(?<fingerprint>[0-9a-f]{16}):(?<child>\d+):(?<offset>\d+)$/u;
+
 const readSitemapIndexPosition = (
   checkpoint: ConnectorCheckpoint | null
 ): SitemapIndexPosition | null => {
-  const cursor = checkpoint?.cursor;
-  if (!cursor?.startsWith(SITEMAP_INDEX_CURSOR_PREFIX)) {
-    return null;
-  }
-  const [fingerprint, childRaw, offsetRaw, ...rest] = cursor
-    .slice(SITEMAP_INDEX_CURSOR_PREFIX.length)
-    .split(":");
-  const child = Number(childRaw);
-  const offset = Number(offsetRaw);
+  const match = SITEMAP_INDEX_CURSOR_PATTERN.exec(checkpoint?.cursor ?? "");
+  const child = Number(match?.groups?.child);
+  const offset = Number(match?.groups?.offset);
   if (
-    rest.length > 0 ||
-    !fingerprint ||
-    !Number.isInteger(child) ||
-    child < 0 ||
-    !Number.isInteger(offset) ||
-    offset < 0
+    !match?.groups ||
+    !Number.isSafeInteger(child) ||
+    !Number.isSafeInteger(offset)
   ) {
     return null;
   }
-  return { child, fingerprint, offset };
+  return { child, fingerprint: match.groups.fingerprint ?? "", offset };
 };
 
 /**
@@ -217,7 +211,6 @@ export const createJsonLdConnector = (
         if (entry === undefined || emittedUrls.has(entry.url)) {
           continue;
         }
-        emittedUrls.add(entry.url);
         batch.push(entry);
       }
       if (offset >= entries.length) {
@@ -226,6 +219,14 @@ export const createJsonLdConnector = (
       }
     }
     const items = await Promise.all(batch.map(toDiscoverItem));
+    // Commit only once the page is fully assembled: the run loop retries a
+    // failed discover() on this same connector instance, and a partially
+    // committed dedupe set would make the retried page silently skip the
+    // items it had already buffered — dropping them from a run that still
+    // completes `complete: true` and can tombstone live records.
+    for (const entry of batch) {
+      emittedUrls.add(entry.url);
+    }
     return {
       checkpoint: sitemapIndexCheckpoint(fingerprint, child, offset),
       hasMore: child < children.length,
