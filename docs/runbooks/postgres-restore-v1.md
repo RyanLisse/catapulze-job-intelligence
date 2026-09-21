@@ -1,6 +1,6 @@
 # PostgreSQL restore runbook v1
 
-Version: **1.1**
+Version: **1.2**
 Status: **The local/CI fixture lane is defined and guarded by CI. The production restore gate is open: current Hetzner/Coolify backup and restore evidence is not recorded here.**
 Requirements: **R21, AE9, JI-037, DEC-005**
 
@@ -86,6 +86,59 @@ wal-g backup-fetch <target-data-directory> <backup-name>
 The target directory comes first and the selected backup name comes second.
 Do not use the incomplete `wal-g backup-fetch LATEST` form.
 
+### Ingest-chain restore drill (CTP-632)
+
+The wal-g fixture above proves a marker row survives a restore; it does not
+exercise the ingest chain. The complete chain drill is:
+
+```bash
+bun tools/backfill/restore-drill.ts [--output .artifacts/restore-drill-receipt.json] [--keep]
+```
+
+It needs only the already-running local Postgres and a `pg_dump` (host PATH,
+or the Postgres container that actually publishes the credentials' port and
+authenticates the drill roles). It creates two disposable
+`ji_restore_drill_*` databases — it never touches `ji_test` or any other
+database — and runs the real ingest path against the registered
+`opdrachtoverheid` source with a deterministic in-process connector (no live
+egress, no production payloads):
+
+1. Provision and migrate the source as `ji_migrator`; seed one synthetic bron.
+2. Offer a durable `bron-ingest` job and take it through
+   `runBronIngestPipeline`: `scrape_run`, `staging.source_record`,
+   `staging.aanvraag_observation`, `curated.aanvraag`, the durable-job row
+   and an outbox event all land through the real code path.
+3. Offer a second job whose connector fails mid-crawl: the run is left
+   `failed` with a persisted checkpoint and the queue row stays open.
+4. `pg_dump` the source, then let the same job retake and succeed — the
+   commits between dump and loss are the exposure window the restore cannot
+   contain.
+5. `DROP DATABASE` the source and restore the dump into a fresh database;
+   the restored snapshot must equal the state at backup byte-for-byte at the
+   row level the drill tracks.
+6. Retake the unfinished durable job on the restored database: it resumes
+   the same `scrape_run` from its checkpoint under a new fence token. A
+   final poll rediscovers both fixture items and must produce no duplicate
+   `aanvraag` or `source_record` rows.
+
+The receipt is machine-readable JSON: git SHA, per-step status/timing/exit
+codes, dump path + SHA-256, row counts at backup / before loss / restored /
+reconstructed, the lost-writes list, the RPO exposure window (backup → loss)
+and measured RTO (loss → consistent state), verification outcomes, search
+projection status, and whether cleanup dropped both databases.
+`bun test tools/backfill/restore-drill.integration.spec.ts` reruns the drill
+inside the suite whenever the local Postgres is reachable.
+
+What this proves: a logical `pg_dump` round-trip preserves the whole ingest
+chain — durable queue rows, run checkpoints, staging records, curated rows
+and outbox — and the durable-job retake plus replay stay idempotent after a
+database loss. What it does **not** prove: production restore readiness
+(local fixture, not the Hetzner backup chain), search index state (receipt
+reports `unknown`; the projector/Manticore is not exercised — the outbox is
+the recoverable evidence), or accepted numerical RPO/RTO targets. Observed
+locally: exposure ≈ 150 ms and restore-to-consistent ≈ 0.4–0.6 s, reported
+against the `postgres-on-box.md` policy numbers as measurements only.
+
 ## Production restore drill
 
 ADR-0011 scopes Coolify backups to an off-site Cloudflare R2 bucket and keeps
@@ -168,5 +221,6 @@ operator evidence.
 
 | Version | Date | Change |
 | --- | --- | --- |
+| 1.2 | 2026-09-21 | Added the CTP-632 ingest-chain restore drill (`tools/backfill/restore-drill.ts`) and its receipt to the local lane; production gate remains open. |
 | 1.1 | 2026-09-19 | Re-scoped production to ADR-0011 on-box Postgres, corrected wal-g syntax, separated fixture marker checks from production evidence, and recorded unresolved restore gates. |
 | 1.0 | 2026-08-30 | Initial local/CI MinIO fixture drill. |
