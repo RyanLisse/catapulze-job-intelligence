@@ -3,6 +3,8 @@ import { describe, expect, it } from "bun:test";
 import type { BronId } from "@ji/domain";
 
 import {
+  buildHostDumpInvocation,
+  buildHostRestoreInvocation,
   createFixtureConnector,
   parseArguments,
   POLICY_RPO_MS,
@@ -10,6 +12,34 @@ import {
 } from "./restore-drill";
 
 const BRON_ID: BronId = "00000000-0000-4000-8000-0000000000ad";
+
+const credentials = {
+  adminPassword: "admin-secret",
+  adminUser: "ji_admin",
+  appPassword: "app-secret",
+  appUser: "ji_app",
+  hostPort: 5432,
+  migratorPassword: "migrator-secret",
+  migratorUser: "ji_migrator",
+} as const;
+
+const hostRunner = { binary: "/usr/bin/pg_dump", kind: "host" as const };
+
+describe("host dump and restore invocations", () => {
+  it("pass the admin password through the child environment", () => {
+    const dump = buildHostDumpInvocation(hostRunner, credentials, "source_db");
+    const restore = buildHostRestoreInvocation(
+      hostRunner,
+      credentials,
+      "target_db"
+    );
+
+    expect(dump.command[0]).toBe("/usr/bin/pg_dump");
+    expect(restore.command[0]).toBe("/usr/bin/psql");
+    expect(dump.env?.PGPASSWORD).toBe(credentials.adminPassword);
+    expect(restore.env?.PGPASSWORD).toBe(credentials.adminPassword);
+  });
+});
 
 describe("parseArguments", () => {
   it("defaults to the artifact receipt path and no retention", () => {

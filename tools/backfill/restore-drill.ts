@@ -378,11 +378,27 @@ export type DumpRunner =
   | { readonly kind: "host"; readonly binary: string }
   | { readonly container: string; readonly kind: "docker" };
 
+export interface CommandInvocation {
+  readonly command: readonly string[];
+  readonly env?: Record<string, string>;
+}
+
+const commandEnvironment = (adminPassword: string) =>
+  ({
+    ...Object.fromEntries(
+      Object.entries(process.env).filter(
+        (entry): entry is [string, string] => entry[1] !== undefined
+      )
+    ),
+    PGPASSWORD: adminPassword,
+  }) satisfies Record<string, string>;
+
 const runCommand = async (
   command: readonly string[],
-  options: { stdin?: Uint8Array } = {}
+  options: { env?: Record<string, string>; stdin?: Uint8Array } = {}
 ): Promise<{ exitCode: number; stderr: string; stdout: Uint8Array }> => {
   const child = Bun.spawn([...command], {
+    env: options.env,
     stderr: "pipe",
     stdin: options.stdin,
     stdout: "pipe",
@@ -484,6 +500,48 @@ export const resolveDumpRunner = async (
   return container ? { container, kind: "docker" } : null;
 };
 
+export const buildHostDumpInvocation = (
+  runner: Extract<DumpRunner, { kind: "host" }>,
+  creds: DrillCredentials,
+  databaseName: string
+): CommandInvocation => ({
+  command: [
+    runner.binary,
+    "-h",
+    "127.0.0.1",
+    "-p",
+    String(creds.hostPort),
+    "-U",
+    creds.adminUser,
+    "-d",
+    databaseName,
+    "--format=plain",
+  ],
+  env: commandEnvironment(creds.adminPassword),
+});
+
+export const buildHostRestoreInvocation = (
+  runner: Extract<DumpRunner, { kind: "host" }>,
+  creds: DrillCredentials,
+  databaseName: string
+): CommandInvocation => ({
+  command: [
+    runner.binary.replace(/pg_dump$/u, "psql"),
+    "-h",
+    "127.0.0.1",
+    "-p",
+    String(creds.hostPort),
+    "-U",
+    creds.adminUser,
+    "-d",
+    databaseName,
+    "-v",
+    "ON_ERROR_STOP=1",
+    "--single-transaction",
+  ],
+  env: commandEnvironment(creds.adminPassword),
+});
+
 interface DumpResult {
   readonly bytes: number;
   readonly exitCode: number;
@@ -514,7 +572,7 @@ const pgDump = async (
   ];
   const command =
     runner.kind === "host"
-      ? [runner.binary, ...args]
+      ? buildHostDumpInvocation(runner, creds, databaseName).command
       : [
           "docker",
           "exec",
@@ -524,7 +582,12 @@ const pgDump = async (
           "pg_dump",
           ...args,
         ];
-  const result = await runCommand(command, {});
+  const result = await runCommand(
+    command,
+    runner.kind === "host"
+      ? { env: buildHostDumpInvocation(runner, creds, databaseName).env }
+      : {}
+  );
   if (result.exitCode !== 0 || result.stdout.byteLength === 0) {
     throw new Error(
       `pg_dump failed (exit ${result.exitCode}): ${result.stderr.trim()}`
@@ -567,7 +630,7 @@ const psqlRestore = async (
   ];
   const command =
     runner.kind === "host"
-      ? [runner.binary.replace(/pg_dump$/u, "psql"), ...args]
+      ? buildHostRestoreInvocation(runner, creds, databaseName).command
       : [
           "docker",
           "exec",
@@ -578,7 +641,15 @@ const psqlRestore = async (
           "psql",
           ...args,
         ];
-  const result = await runCommand(command, { stdin: dump });
+  const result = await runCommand(
+    command,
+    runner.kind === "host"
+      ? {
+          env: buildHostRestoreInvocation(runner, creds, databaseName).env,
+          stdin: dump,
+        }
+      : { stdin: dump }
+  );
   return { exitCode: result.exitCode, stderr: result.stderr };
 };
 

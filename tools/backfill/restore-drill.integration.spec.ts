@@ -88,6 +88,15 @@ describe("restore-drill end to end (CTP-632)", () => {
       });
       const { receipt } = outcome;
 
+      if (receipt.result !== "pass") {
+        console.error(
+          JSON.stringify({
+            cleanup: receipt.cleanup,
+            result: receipt.result,
+            steps: receipt.steps,
+          })
+        );
+      }
       expect(receipt.result).toBe("pass");
       expect(receipt.gitSha).toMatch(/^[0-9a-f]{40}$/u);
       expect(receipt.backup?.sha256).toMatch(/^[0-9a-f]{64}$/u);
