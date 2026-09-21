@@ -1,12 +1,16 @@
 import type { JsonLdConnectorConfig } from "../types";
 
 /**
- * Pro-Act IT (WordPress/Yoast, SSR). Discovery via `vacancy-sitemap.xml` (17-20 entries).
- * Detail pages carry a JobPosting JSON-LD node whose own `description` embeds a
- * "Start / Eind / Inzet / Tarief / Locatie" bullet block (tarief is usually the literal
- * text "marktconform", not a number) -- so the label-block fields read from the
- * JobPosting description text rather than the surrounding HTML. Robots:
- * `Crawl-delay: 10`.
+ * Pro-Act IT (WordPress/Yoast, SSR). Discovery via `vacancy-sitemap.xml` (17-20 entries)
+ * on the canonical www-less host — `www.pro-act.nl` 301-redirects to `pro-act.nl`
+ * (live capture 2026-09-21). Detail pages carry a JobPosting JSON-LD node whose own
+ * `description` embeds a "Start / Eind / Inzet / Tarief / Locatie" bullet block (tarief
+ * is usually the literal text "marktconform", not a number) -- so the label-block
+ * fields read from the JobPosting description text rather than the surrounding HTML.
+ * Robots (https://pro-act.nl/robots.txt, 200 on 2026-09-21): `Crawl-delay: 10` inside
+ * the `User-agent: Googlebot` group — the `User-agent: *` group is empty — plus
+ * `Disallow: /wp-admin/` and the sitemap index. The `www` host serves no robots.txt
+ * at all (404), matching its redirect-only role.
  */
 export const proActConfig: JsonLdConnectorConfig = {
   detailFixtures: {
@@ -16,7 +20,7 @@ export const proActConfig: JsonLdConnectorConfig = {
   },
   discovery: {
     kind: "sitemap",
-    url: "https://www.pro-act.nl/vacancy-sitemap.xml",
+    url: "https://pro-act.nl/vacancy-sitemap.xml",
   },
   labelBlock: {
     eindDatum: { pattern: /Eind:\s*(?<value>[^<\t]+)/u, source: "description" },

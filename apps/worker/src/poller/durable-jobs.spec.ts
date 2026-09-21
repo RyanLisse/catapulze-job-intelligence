@@ -32,6 +32,12 @@ describe("resolveDurableBronnen", () => {
     );
   });
 
+  it("accepts the CTP-630 JSON-LD cohort slugs", () => {
+    expect(resolveDurableBronnen("bluetrail,hero,pro-act")).toEqual(
+      new Set(["bluetrail", "hero", "pro-act"])
+    );
+  });
+
   it("fails closed on an unknown slug instead of silently routing", () => {
     expect(() => resolveDurableBronnen("strrive")).toThrow(
       /unknown bron slug/iu

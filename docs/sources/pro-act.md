@@ -1,13 +1,13 @@
 # Pro-Act IT — ingest-recept (geverifieerd 2026-08-31)
 
-Status: **probe afgerond; connector nog niet gebouwd** — adapter-categorie `json-ld`; 17 detaillinks op de listing en 20 locaties in de vacancy-sitemap. Geen technische blocker; voorwaardenstatus nog te toetsen.
+Status: **connector gebouwd** (`packages/connectors/src/json-ld/configs/pro-act.ts`) — adapter-categorie `json-ld`; 17 detaillinks op de listing en 20 locaties in de vacancy-sitemap. Geen technische blocker; voorwaardenstatus nog te toetsen.
 
 ## Endpoints
 
 | Doel | URL | Opmerking |
 |---|---|---|
 | Listing | `GET https://pro-act.nl/vacatures/` | WordPress SSR, geen paginering. |
-| Sitemap | `GET https://pro-act.nl/vacancy-sitemap.xml` | 20 locaties, inclusief evergreen- en interne rollen. |
+| Sitemap | `GET https://pro-act.nl/vacancy-sitemap.xml` | 20 locaties, inclusief evergreen- en interne rollen. `www.pro-act.nl` 301-redirect naar de www-loze canonieke host (live 2026-09-21); de connector-config gebruikt die canonieke URL. |
 | Detail | `GET https://pro-act.nl/vacatures/<slug>-<id>/` | SSR met JobPosting JSON-LD en gelabeld detailblok. |
 
 ## Veldmapping → canoniek `aanvraag`
@@ -31,7 +31,7 @@ Status: **probe afgerond; connector nog niet gebouwd** — adapter-categorie `js
 
 ## Licentie en voorwaarden
 
-- `robots.txt` sluit `/wp-admin/` uit, schrijft `Crawl-delay: 10` voor en verwijst naar de sitemapindex.
+- `robots.txt` (live capture 2026-09-21, `/tmp/w9-jsonld-evidence/`): `https://pro-act.nl/robots.txt` → 200; de `User-agent: *`-groep is leeg en `Crawl-delay: 10` + `Disallow: /wp-admin/` staan in de `User-agent: Googlebot`-groep, met een sitemapverwijzing naar `sitemap_index.xml`. De geadministreerde `crawlDelayMs: 10_000` blijft daarom de conservative keuze. `https://www.pro-act.nl/robots.txt` → 404 — de www-host dient alleen als redirect naar de canonieke www-loze host.
 - Een gebruikslicentie of bruikbare ToS-uitkomst staat niet in de probe. Houd `voorwaarden_status: te_toetsen` vóór activatie.
 
 ## Risico's
@@ -47,3 +47,17 @@ Pro-Act IT heeft geen `sluitingsDatum` in zijn label-blok, maar publiceert wel e
 ## Known-hash short-circuit (RJC-357 / RJC-401)
 
 `listingHashCoversDetail: false` — de listing-hash (`hashJsonLdListingItem`) ziet alleen `url` + `lastmod` uit de sitemap, terwijl de complete JobPosting (incl. sluitings-/deadline-velden, RJC-401) op de detailpagina leeft. Een deadline-only wijziging zonder betrouwbare `lastmod`-bump zou bij een skip een verouderde `sluitingsdatum` bevriezen; `lastmod` is niet bewezen betrouwbaar genoeg om daarop te vertrouwen. Geen `knownHashes`-store doorgegeven (afgedwongen in `sources.spec.ts`).
+
+## Durable JSON-LD-cohort (CTP-630, bewezen 2026-09-21)
+
+Pro-Act IT is bewezen op het duurzame ingestpad (`curated.durable_job` + `POLLER_DURABLE_BRONNEN`). De migratie is een bewijslast — de enige codewijziging is de canonieke www-loze sitemap-URL in de config (live capture wint van de doc; fixture-pad en detail-URL's ongewijzigd).
+
+**Live-probe 2026-09-21** (`/tmp/w9-jsonld-evidence/`): `https://www.pro-act.nl/vacancy-sitemap.xml` → 301 → `https://pro-act.nl/vacancy-sitemap.xml` → 200, ~3 KB urlset met www-loze detail-URL's; `https://pro-act.nl/robots.txt` → 200 (zie Licentie en voorwaarden); `https://www.pro-act.nl/robots.txt` → 404.
+
+**Resume-contract** (`packages/connectors/src/json-ld/durable-cohort.spec.ts`, 6 specs per bron): discovery is één enkele sitemap-pass — `discover()` geeft het hele corpus terug met `hasMore: false` en een inerte `checkpoint: {}`. Er is dus géén pagina-cursor zoals bij de feed-cohort (CTP-629): een duurzame herval op hetzelfde `scrapeRunId` leest de sitemap én elke detailpagina opnieuw, en de observatie-replay-sleutel (`scrapeRunId + bronReferentie + contentHash`) absorbeert al-persisteerde items — exact-één, geen verlies. Een head-insert tussen attempts wordt al door de herval zelf gezien (er is geen "al gelezen pagina's"-blind spot). Een delisting valt gewoon uit de enumeratie; omdat zo'n herval een volledige enumeratie is (`complete: true`), telt de missed-poll-reconcile de verdwenen record meteen mee. **Resterende kloof (eerlijk):** alleen een kill in het smalle venster tussen de checkpoint-write (`{}`) en `complete()` laat een `running`-rij mét checkpoint achter; die herval rapporteert `completeness: "resumed"` — de reconcile wordt dan voor die run overgeslagen hoewel alles opnieuw gelezen is, en een in dat venster verdwenen record wacht op de volgende verse poll voor `missed_polls`. Zelfherstellend, nooit stil verouderd.
+
+**Completeness/`truncated`:** geen paginalimiet en geen cursor; `truncated` blijft altijd afwezig — de enige eerlijke waarde onder het RJC-397-contract.
+
+**End-to-end op de echte pipeline** (fixture-client, `ji_test_iso_*`-Postgres): offer → `runDurableBronJobConsumer` → `runBronIngestPipeline` → observaties, `source_record`s en curated `aanvraag`-rijen; gefaalde listing-read → run `failed` (`DISCOVER_FAILED`, geobserveerd aan het begin van de retake) → herval op hetzelfde `scrapeRunId` (`reopenFailed`, fence +1) → volledige her-enumeratie; abort mid-item → run `failed` (`RAW_STORE_WRITE_FAILED` — een persistence-abort is nooit "benign", CTP-490) → retake her-leest het hele corpus en de replay-dedupe houdt het exact-één. Bewijs: `apps/worker/src/poller/json-ld-cohort.integration.spec.ts` (9 specs, groen).
+
+**Canary en rollback:** eerst `POLLER_DURABLE_BRONNEN=bluetrail`, dan `hero`, dan `pro-act` — één bron tegelijk toevoegen. Rollback = slug uit de vlag halen; in-flight jobs lopen leeg, er ontstaat geen dubbele scheduling (`main.ts` returnt voor de inline poll). Geen dataverlies geclaimd buiten het bovenstaande bewijs.
