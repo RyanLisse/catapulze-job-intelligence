@@ -89,6 +89,23 @@ WHERE queue_name = 'bron-ingest'
 ORDER BY sequence;
 ```
 
+## Backup/restore interplay (CTP-632)
+
+Open `curated.durable_job` rows are plain table data: a `pg_dump` restore
+carries them — including `attempts` and `last_failure` — into the target, so
+an unfinished job at backup time comes back claimable, not lost. The
+post-restore retake goes through the normal resume path: `store.start`
+reopens the restored `failed` `scrape_run` under a bumped `fence_token` and
+the connector refetches only from its persisted checkpoint.
+
+`tools/backfill/restore-drill.ts` exercises exactly this end to end on
+disposable databases: backup taken with a failed run and an open job,
+commits between backup and loss are gone from the restore (the receipt lists
+them as lost writes), and the retaken job completes the same `scrape_run`
+with no duplicate `aanvraag` or `source_record` rows. See
+[postgres-restore-v1.md](postgres-restore-v1.md#ingest-chain-restore-drill-ctp-632)
+for how to run it and what its receipt records.
+
 ## Cutover, rollback, single executor
 
 `POLLER_DURABLE_BRONNEN` is a comma-separated slug list; unset or empty means
