@@ -393,6 +393,10 @@ const commandEnvironment = (adminPassword: string) =>
     PGPASSWORD: adminPassword,
   }) satisfies Record<string, string>;
 
+/** Bun 1.3.x may yield a bare ArrayBuffer from Response/File `.bytes()`. */
+export const asCommandBytes = (bytes: ArrayBuffer | Uint8Array): Uint8Array =>
+  bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
+
 const runCommand = async (
   command: readonly string[],
   options: { env?: Record<string, string>; stdin?: Uint8Array } = {}
@@ -403,12 +407,12 @@ const runCommand = async (
     stdin: options.stdin,
     stdout: "pipe",
   });
-  const [stdout, stderr, exitCode] = await Promise.all([
+  const [stdoutRaw, stderr, exitCode] = await Promise.all([
     new Response(child.stdout).bytes(),
     new Response(child.stderr).text(),
     child.exited,
   ]);
-  return { exitCode, stderr, stdout };
+  return { exitCode, stderr, stdout: asCommandBytes(stdoutRaw) };
 };
 
 const publishesHostPort = (
@@ -613,7 +617,7 @@ const psqlRestore = async (
   databaseName: string,
   dumpPath: string
 ): Promise<{ exitCode: number; stderr: string }> => {
-  const dump = await Bun.file(dumpPath).bytes();
+  const dump = asCommandBytes(await Bun.file(dumpPath).bytes());
   const port = runner.kind === "docker" ? "5432" : String(creds.hostPort);
   const args = [
     "-h",

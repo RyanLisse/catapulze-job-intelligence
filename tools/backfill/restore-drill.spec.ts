@@ -3,6 +3,7 @@ import { describe, expect, it } from "bun:test";
 import type { BronId } from "@ji/domain";
 
 import {
+  asCommandBytes,
   buildHostDumpInvocation,
   buildHostRestoreInvocation,
   createFixtureConnector,
@@ -24,6 +25,27 @@ const credentials = {
 } as const;
 
 const hostRunner = { binary: "/usr/bin/pg_dump", kind: "host" as const };
+
+describe("asCommandBytes (Bun 1.3 ArrayBuffer boundary)", () => {
+  it("wraps a bare ArrayBuffer so createHash accepts it", async () => {
+    const { createHash } = await import("node:crypto");
+    const source = new TextEncoder().encode("ctp-632-arraybuffer");
+    const ab = source.buffer.slice(
+      source.byteOffset,
+      source.byteOffset + source.byteLength
+    );
+    expect(ab).toBeInstanceOf(ArrayBuffer);
+    const wrapped = asCommandBytes(ab);
+    expect(wrapped).toBeInstanceOf(Uint8Array);
+    const digest = createHash("sha256").update(wrapped).digest("hex");
+    expect(digest).toMatch(/^[0-9a-f]{64}$/u);
+  });
+
+  it("returns an existing Uint8Array unchanged", () => {
+    const input = new Uint8Array([1, 2, 3]);
+    expect(asCommandBytes(input)).toBe(input);
+  });
+});
 
 describe("host dump and restore invocations", () => {
   it("pass the admin password through the child environment", () => {
