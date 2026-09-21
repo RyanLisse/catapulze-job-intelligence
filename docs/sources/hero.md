@@ -1,6 +1,6 @@
 # Hero.eu — ingest-recept (geverifieerd 2026-08-31)
 
-Status: **probe afgerond; connector nog niet gebouwd** — adapter-categorie `json-ld` met HTML/sitemap-discovery; 49 actuele interim-opdrachten. Geen technische blocker; velden zijn dun en voorwaardenstatus is nog te toetsen.
+Status: **connector gebouwd** (`packages/connectors/src/json-ld/configs/hero.ts`) — adapter-categorie `json-ld` met HTML/sitemap-discovery; 49 actuele interim-opdrachten. Geen technische blocker; velden zijn dun en voorwaardenstatus is nog te toetsen.
 
 ## Endpoints
 
@@ -46,3 +46,17 @@ Hero.eu publiceert geen enkel sluitingssignaal: geen label-blok (er is geen `lab
 ## Known-hash short-circuit (RJC-357 / RJC-401)
 
 `listingHashCoversDetail: false` — de listing-hash (`hashJsonLdListingItem`) ziet alleen `url` + `lastmod` uit de sitemap, terwijl de complete JobPosting (incl. sluitings-/deadline-velden, RJC-401) op de detailpagina leeft. Een deadline-only wijziging zonder betrouwbare `lastmod`-bump zou bij een skip een verouderde `sluitingsdatum` bevriezen; `lastmod` is niet bewezen betrouwbaar genoeg om daarop te vertrouwen. Geen `knownHashes`-store doorgegeven (afgedwongen in `sources.spec.ts`).
+
+## Durable JSON-LD-cohort (CTP-630, bewezen 2026-09-21)
+
+Hero.eu is bewezen op het duurzame ingestpad (`curated.durable_job` + `POLLER_DURABLE_BRONNEN`). De connector zelf is ongewijzigd — de migratie is een bewijslast, geen codewijziging.
+
+**Live-probe 2026-09-21** (`/tmp/w9-jsonld-evidence/`): `https://hero.eu/interim-opdrachten` → 200, ~172 KB HTML met de detaillinks in de SSR-listing; `robots.txt` → 200, staat GPTBot/ClaudeBot c.s. expliciet toe en sluit `/api/` uit — ongewijzigd t.o.v. de oorspronkelijke probe.
+
+**Resume-contract** (`packages/connectors/src/json-ld/durable-cohort.spec.ts`, 6 specs per bron): discovery is één enkele listing-pass (`discovery.kind: "listing"` — de detaillinks worden uit de SSR-HTML gehaald) — `discover()` geeft het hele corpus terug met `hasMore: false` en een inerte `checkpoint: {}`. Er is dus géén pagina-cursor zoals bij de feed-cohort (CTP-629): een duurzame herval op hetzelfde `scrapeRunId` leest de listing én elke detailpagina opnieuw, en de observatie-replay-sleutel (`scrapeRunId + bronReferentie + contentHash`) absorbeert al-persisteerde items — exact-één, geen verlies. Een head-insert tussen attempts wordt al door de herval zelf gezien (er is geen "al gelezen pagina's"-blind spot). Een delisting valt gewoon uit de enumeratie; omdat zo'n herval een volledige enumeratie is (`complete: true`), telt de missed-poll-reconcile de verdwenen record meteen mee. **Resterende kloof (eerlijk):** alleen een kill in het smalle venster tussen de checkpoint-write (`{}`) en `complete()` laat een `running`-rij mét checkpoint achter; die herval rapporteert `completeness: "resumed"` — de reconcile wordt dan voor die run overgeslagen hoewel alles opnieuw gelezen is, en een in dat venster verdwenen record wacht op de volgende verse poll voor `missed_polls`. Zelfherstellend, nooit stil verouderd.
+
+**Completeness/`truncated`:** geen paginalimiet en geen cursor; `truncated` blijft altijd afwezig — de enige eerlijke waarde onder het RJC-397-contract.
+
+**End-to-end op de echte pipeline** (fixture-client, `ji_test_iso_*`-Postgres): offer → `runDurableBronJobConsumer` → `runBronIngestPipeline` → observaties, `source_record`s en curated `aanvraag`-rijen; gefaalde listing-read → run `failed` (`DISCOVER_FAILED`, geobserveerd aan het begin van de retake) → herval op hetzelfde `scrapeRunId` (`reopenFailed`, fence +1) → volledige her-enumeratie; abort mid-item → run `failed` (`RAW_STORE_WRITE_FAILED` — een persistence-abort is nooit "benign", CTP-490) → retake her-leest het hele corpus en de replay-dedupe houdt het exact-één. Bewijs: `apps/worker/src/poller/json-ld-cohort.integration.spec.ts` (9 specs, groen).
+
+**Canary en rollback:** eerst `POLLER_DURABLE_BRONNEN=bluetrail`; voeg `hero` daarna als eigen stap toe — één bron tegelijk. Rollback = slug uit de vlag halen; in-flight jobs lopen leeg, er ontstaat geen dubbele scheduling (`main.ts` returnt voor de inline poll). Geen dataverlies geclaimd buiten het bovenstaande bewijs.
