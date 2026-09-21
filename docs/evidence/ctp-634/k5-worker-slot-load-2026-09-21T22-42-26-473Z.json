@@ -1,0 +1,362 @@
+{
+  "config": {
+    "crawlDelayMs": 5,
+    "levelDeadlineMs": 600000,
+    "maxJobAttempts": 3,
+    "queuePollIntervalMs": 50,
+    "rateLimitPerMinute": 600,
+    "runtimePoolMax": 10
+  },
+  "corpus": {
+    "bronnen": [
+      {
+        "bronId": "00000000-0000-4000-8000-00000000000f",
+        "bronSlug": "asml",
+        "fixtureDetailUrls": 1
+      },
+      {
+        "bronId": "00000000-0000-4000-8000-000000000015",
+        "bronSlug": "bam",
+        "fixtureDetailUrls": 3
+      },
+      {
+        "bronId": "00000000-0000-4000-8000-000000000006",
+        "bronSlug": "bluetrail",
+        "fixtureDetailUrls": 7
+      },
+      {
+        "bronId": "00000000-0000-4000-8000-000000000018",
+        "bronSlug": "datajobs",
+        "fixtureDetailUrls": 3
+      },
+      {
+        "bronId": "00000000-0000-4000-8000-00000000001e",
+        "bronSlug": "eneco",
+        "fixtureDetailUrls": 3
+      },
+      {
+        "bronId": "00000000-0000-4000-8000-000000000016",
+        "bronSlug": "heijmans",
+        "fixtureDetailUrls": 4
+      },
+      {
+        "bronId": "00000000-0000-4000-8000-000000000004",
+        "bronSlug": "hero",
+        "fixtureDetailUrls": 2
+      },
+      {
+        "bronId": "00000000-0000-4000-8000-000000000021",
+        "bronSlug": "ns",
+        "fixtureDetailUrls": 3
+      },
+      {
+        "bronId": "00000000-0000-4000-8000-000000000005",
+        "bronSlug": "pro-act",
+        "fixtureDetailUrls": 2
+      },
+      {
+        "bronId": "00000000-0000-4000-8000-00000000001f",
+        "bronSlug": "unica",
+        "fixtureDetailUrls": 3
+      },
+      {
+        "bronId": "00000000-0000-4000-8000-00000000001d",
+        "bronSlug": "vattenfall",
+        "fixtureDetailUrls": 3
+      },
+      {
+        "bronId": "00000000-0000-4000-8000-000000000014",
+        "bronSlug": "volkerwessels",
+        "fixtureDetailUrls": 3
+      },
+      {
+        "bronId": "00000000-0000-4000-8000-00000000000e",
+        "bronSlug": "werken-voor-nederland",
+        "fixtureDetailUrls": 1
+      }
+    ],
+    "digest": "sha256:b7dac3f1f7977254b75f4f8bf604d7292ab4ebf0e25ce5faf627928a650bfcfc",
+    "itemsPerBron": 40,
+    "totalItems": 520
+  },
+  "generatedAt": "2026-09-21T22:42:26.462Z",
+  "git": {
+    "sha": "5f7d05da77264291d2e41efba8e9377c8968fdce"
+  },
+  "hardware": {
+    "arch": "arm64",
+    "cpuCount": 18,
+    "cpuModel": "Apple M5 Pro",
+    "memoryBytes": 68719476736,
+    "os": "darwin",
+    "osRelease": "27.0.0",
+    "postgresVersion": "16.14"
+  },
+  "levels": [
+    {
+      "attempts": 13,
+      "completedJobs": 13,
+      "database": "ji_k5_l2_280c45b9",
+      "deadlineHit": false,
+      "eventLoop": {
+        "maxMs": 5,
+        "meanMs": 1,
+        "p95Ms": 2,
+        "p99Ms": 2
+      },
+      "failedJobs": 0,
+      "jobErrors": 0,
+      "jobs": {
+        "duration": {
+          "count": 13,
+          "max": 4567,
+          "mean": 4444.615,
+          "p50": 4413,
+          "p95": 4567
+        },
+        "freshness": {
+          "count": 13,
+          "max": 31097,
+          "mean": 16837.154,
+          "p50": 17892,
+          "p95": 31097
+        },
+        "itemsWritten": 510
+      },
+      "pgCountersDelta": {
+        "deadlocks": 0,
+        "numbackends": 15,
+        "tupInserted": 4080,
+        "tupReturned": 217575,
+        "xactCommit": 4867
+      },
+      "poolWait": {
+        "count": 1210,
+        "max": 7,
+        "mean": 0.024,
+        "p50": 0,
+        "p95": 0
+      },
+      "resources": {
+        "cpuSystemMicroseconds": 1604676,
+        "cpuUserMicroseconds": 3025542,
+        "cpuUtilisation": 0.149,
+        "lastRssBytes": 232833024,
+        "peakRssBytes": 232833024,
+        "rssSamples": 310
+      },
+      "sentinel": {
+        "backendPeak": 17,
+        "latency": {
+          "count": 597,
+          "max": 8,
+          "mean": 0.916,
+          "p50": 1,
+          "p95": 2
+        }
+      },
+      "slots": 2,
+      "startedAt": "2026-09-21T22:41:13.236Z",
+      "wallMs": 31151
+    },
+    {
+      "attempts": 13,
+      "completedJobs": 13,
+      "database": "ji_k5_l4_46d4a00d",
+      "deadlineHit": false,
+      "eventLoop": {
+        "maxMs": 5,
+        "meanMs": 1,
+        "p95Ms": 2,
+        "p99Ms": 2
+      },
+      "failedJobs": 0,
+      "jobErrors": 0,
+      "jobs": {
+        "duration": {
+          "count": 13,
+          "max": 4572,
+          "mean": 4520,
+          "p50": 4552,
+          "p95": 4572
+        },
+        "freshness": {
+          "count": 13,
+          "max": 17907,
+          "mean": 9793.385,
+          "p50": 9152,
+          "p95": 17907
+        },
+        "itemsWritten": 510
+      },
+      "pgCountersDelta": {
+        "deadlocks": 0,
+        "numbackends": 18,
+        "tupInserted": 4065,
+        "tupReturned": 172194,
+        "xactCommit": 4387
+      },
+      "poolWait": {
+        "count": 698,
+        "max": 10,
+        "mean": 0.039,
+        "p50": 0,
+        "p95": 0
+      },
+      "resources": {
+        "cpuSystemMicroseconds": 1292135,
+        "cpuUserMicroseconds": 2142476,
+        "cpuUtilisation": 0.192,
+        "lastRssBytes": 249987072,
+        "peakRssBytes": 249987072,
+        "rssSamples": 178
+      },
+      "sentinel": {
+        "backendPeak": 18,
+        "latency": {
+          "count": 344,
+          "max": 15,
+          "mean": 0.907,
+          "p50": 1,
+          "p95": 2
+        }
+      },
+      "slots": 4,
+      "startedAt": "2026-09-21T22:41:44.814Z",
+      "wallMs": 17909
+    },
+    {
+      "attempts": 13,
+      "completedJobs": 13,
+      "database": "ji_k5_l6_2a3606ee",
+      "deadlineHit": false,
+      "eventLoop": {
+        "maxMs": 4,
+        "meanMs": 1,
+        "p95Ms": 2,
+        "p99Ms": 2
+      },
+      "failedJobs": 0,
+      "jobErrors": 0,
+      "jobs": {
+        "duration": {
+          "count": 13,
+          "max": 4653,
+          "mean": 4603.308,
+          "p50": 4630,
+          "p95": 4653
+        },
+        "freshness": {
+          "count": 13,
+          "max": 13510,
+          "mean": 7464.769,
+          "p50": 9161,
+          "p95": 13510
+        },
+        "itemsWritten": 510
+      },
+      "pgCountersDelta": {
+        "deadlocks": 0,
+        "numbackends": 20,
+        "tupInserted": 4070,
+        "tupReturned": 231304,
+        "xactCommit": 4325
+      },
+      "poolWait": {
+        "count": 527,
+        "max": 9,
+        "mean": 0.051,
+        "p50": 0,
+        "p95": 0
+      },
+      "resources": {
+        "cpuSystemMicroseconds": 1237391,
+        "cpuUserMicroseconds": 1793063,
+        "cpuUtilisation": 0.224,
+        "lastRssBytes": 255295488,
+        "peakRssBytes": 255295488,
+        "rssSamples": 135
+      },
+      "sentinel": {
+        "backendPeak": 21,
+        "latency": {
+          "count": 261,
+          "max": 12,
+          "mean": 0.831,
+          "p50": 1,
+          "p95": 1
+        }
+      },
+      "slots": 6,
+      "startedAt": "2026-09-21T22:42:03.057Z",
+      "wallMs": 13558
+    },
+    {
+      "attempts": 13,
+      "completedJobs": 13,
+      "database": "ji_k5_l8_4ccd0ee2",
+      "deadlineHit": false,
+      "eventLoop": {
+        "maxMs": 4,
+        "meanMs": 1,
+        "p95Ms": 2,
+        "p99Ms": 2
+      },
+      "failedJobs": 0,
+      "jobErrors": 0,
+      "jobs": {
+        "duration": {
+          "count": 13,
+          "max": 4808,
+          "mean": 4693.462,
+          "p50": 4778,
+          "p95": 4808
+        },
+        "freshness": {
+          "count": 13,
+          "max": 9379,
+          "mean": 6551.231,
+          "p50": 4834,
+          "p95": 9379
+        },
+        "itemsWritten": 510
+      },
+      "pgCountersDelta": {
+        "deadlocks": 0,
+        "numbackends": 22,
+        "tupInserted": 3145,
+        "tupReturned": 213201,
+        "xactCommit": 3334
+      },
+      "poolWait": {
+        "count": 366,
+        "max": 16,
+        "mean": 0.085,
+        "p50": 0,
+        "p95": 0
+      },
+      "resources": {
+        "cpuSystemMicroseconds": 1188991,
+        "cpuUserMicroseconds": 1639721,
+        "cpuUtilisation": 0.3,
+        "lastRssBytes": 268976128,
+        "peakRssBytes": 268976128,
+        "rssSamples": 94
+      },
+      "sentinel": {
+        "backendPeak": 22,
+        "latency": {
+          "count": 182,
+          "max": 9,
+          "mean": 0.736,
+          "p50": 1,
+          "p95": 1
+        }
+      },
+      "slots": 8,
+      "startedAt": "2026-09-21T22:42:16.978Z",
+      "wallMs": 9416
+    }
+  ],
+  "schemaVersion": 1
+}
