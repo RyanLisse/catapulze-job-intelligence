@@ -70,10 +70,10 @@ describe("probe corpus", () => {
     expect(resolveMintedDetailUrl("")).toBeNull();
   });
 
-  it("corpus digest is stable for identical inputs and sensitive to size", () => {
-    expect(corpusDigest(20)).toBe(corpusDigest(20));
-    expect(corpusDigest(20)).toMatch(/^sha256:[a-f0-9]{64}$/u);
-    expect(corpusDigest(20)).not.toBe(corpusDigest(21));
+  it("corpus digest is stable for identical inputs and sensitive to size", async () => {
+    expect(await corpusDigest(20)).toBe(await corpusDigest(20));
+    expect(await corpusDigest(20)).toMatch(/^sha256:[a-f0-9]{64}$/u);
+    expect(await corpusDigest(20)).not.toBe(await corpusDigest(21));
   });
 });
 
@@ -123,6 +123,7 @@ describe("buildLevelJobRollup", () => {
         bronSlug: "bam",
         durationMs: 100,
         freshnessMs: 300,
+        rejectedRecords: 2,
         scrapeRunId: "a",
         writtenRecords: 20,
       },
@@ -130,12 +131,14 @@ describe("buildLevelJobRollup", () => {
         bronSlug: "ns",
         durationMs: 200,
         freshnessMs: 500,
+        rejectedRecords: 0,
         scrapeRunId: "b",
         writtenRecords: 30,
       },
     ];
     const rollup = buildLevelJobRollup(timings);
     expect(rollup.itemsWritten).toBe(50);
+    expect(rollup.itemsRejected).toBe(2);
     expect(rollup.duration?.p50).toBe(100);
     expect(rollup.duration?.max).toBe(200);
     expect(rollup.freshness?.p50).toBe(300);
@@ -144,6 +147,7 @@ describe("buildLevelJobRollup", () => {
   it("returns null summaries for a level with no completed jobs", () => {
     const rollup = buildLevelJobRollup([]);
     expect(rollup.itemsWritten).toBe(0);
+    expect(rollup.itemsRejected).toBe(0);
     expect(rollup.duration).toBeNull();
     expect(rollup.freshness).toBeNull();
   });

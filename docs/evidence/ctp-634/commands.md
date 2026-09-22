@@ -20,8 +20,10 @@ bun run check-types:benchmarks
 PATH="./node_modules/.bin:$PATH" ultracite fix benchmarks/worker-slots/
 
 # Final evidence run: 13 bronnen x 40 minted items = 520-item corpus,
-# levels 2/4/6/8, ~75 s of measured wall time + provisioning overhead
-K5_ITEMS_PER_BRON=40 bun run bench:worker-slots
+# levels 1/2/4/6/8 (1 = production-shaped single-consumer baseline),
+# ~2.2 min of measured wall time + provisioning overhead
+K5_LEVELS="1,2,4,6,8" K5_ITEMS_PER_BRON=40 K5_OUTPUT_DIR=docs/evidence/ctp-634 \
+  bun run bench:worker-slots
 ```
 
 Optional knobs (defaults shown):
@@ -42,6 +44,8 @@ locals (`ji_admin` / `ji_migrator` / `ji_app`); override via
 `POSTGRES_HOST`, `POSTGRES_HOST_PORT` if the box differs.
 
 Safety posture of the run: no live-source flags set, fixture connectors
-only, `SEARCH_PROJECTOR=onbox`, every database the script touches matches
-`ji_k5_*` and is dropped afterwards, no shared/dev database is queried or
-mutated. No lease, no order, no provisioning.
+only, `SEARCH_PROJECTOR=onbox`, `RAW_S3_*` scrubbed per level so the raw
+store is always the disposable filesystem dir, every database the script
+touches matches `ji_k5_*` and is dropped afterwards (including on
+provisioning failure), no shared/dev database is queried or mutated. No
+lease, no order, no provisioning.

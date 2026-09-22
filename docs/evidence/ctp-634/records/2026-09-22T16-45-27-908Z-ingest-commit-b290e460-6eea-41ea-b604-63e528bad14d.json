@@ -5,10 +5,10 @@
     "bun": "1.4.2",
     "cacheState": null,
     "commandFingerprint": "47bf52b1780ff2ff0f2a969a5d4d681445990c84088cc98a8a667addde97441a",
-    "concurrency": 2,
+    "concurrency": 8,
     "cpuCount": 18,
     "cpuModel": "Apple M5 Pro",
-    "datasetDigest": "sha256:b7dac3f1f7977254b75f4f8bf604d7292ab4ebf0e25ce5faf627928a650bfcfc",
+    "datasetDigest": "sha256:99132f84ce8b79ba92876e23695faad259ebb2d15b344b3cc69715474e5507a3",
     "executor": "k5-worker-slots-probe",
     "indexState": null,
     "itemCount": 520,
@@ -34,7 +34,7 @@
     "workloadProfile": null,
     "workloadVersion": null
   },
-  "cohortFingerprint": "f363a67276f467b94101b547c55d7ecb4dce1b5ca715c3ace30d9fd203f24f8b",
+  "cohortFingerprint": "710d0f0b8b8d51a9a5907b3da9cfa05cae87531924a0d7dbb08a2cd9b788ba76",
   "command": [
     "@ji/critical-path",
     "ingest-commit"
@@ -42,14 +42,14 @@
   "commandExitCode": 0,
   "commandFingerprint": "47bf52b1780ff2ff0f2a969a5d4d681445990c84088cc98a8a667addde97441a",
   "commandStatus": "passed",
-  "durationMs": 31151,
-  "endedAt": "2026-09-21T22:41:44.432Z",
+  "durationMs": 10019,
+  "endedAt": "2026-09-22T16:45:38.035Z",
   "executor": "k5-worker-slots-probe",
   "git": {
     "dirty": true,
-    "sha": "5f7d05da77264291d2e41efba8e9377c8968fdce"
+    "sha": "a4383496c18e5a4571a533089af7aef1f7a27b06"
   },
-  "id": "04f885a1-fa1c-4fa6-8d0a-33203fd2d020",
+  "id": "b290e460-6eea-41ea-b604-63e528bad14d",
   "label": "ingest-commit",
   "measurement": {
     "boundary": "ingest-commit",
@@ -58,14 +58,14 @@
   },
   "measurementError": null,
   "metadata": {
-    "concurrency": "2",
+    "concurrency": "8",
     "dataset": "k5-worker-slot-corpus",
-    "dataset-digest": "sha256:b7dac3f1f7977254b75f4f8bf604d7292ab4ebf0e25ce5faf627928a650bfcfc",
+    "dataset-digest": "sha256:99132f84ce8b79ba92876e23695faad259ebb2d15b344b3cc69715474e5507a3",
     "item-count": "520",
     "job": "bron-ingest",
     "machine": "k5-probe-box",
     "postgres-version": "16.14",
-    "records-per-second": "16"
+    "records-per-second": "51"
   },
   "resources": {
     "cpuSystemMicroseconds": null,
@@ -85,6 +85,6 @@
     "osRelease": "27.0.0"
   },
   "schemaVersion": 1,
-  "startedAt": "2026-09-21T22:41:13.236Z",
+  "startedAt": "2026-09-22T16:45:27.908Z",
   "wrapperStatus": "complete"
 }

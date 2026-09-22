@@ -126,6 +126,10 @@ export const createResourceProbe = (): ResourceProbe => {
   };
 };
 
+interface AbortListenerHolder {
+  onAbort?: () => void;
+}
+
 /** Interval sleep that also resolves early on abort. */
 export const sleepUntil = (
   intervalMs: number,
@@ -133,19 +137,22 @@ export const sleepUntil = (
 ): Promise<void> =>
   // oxlint-disable-next-line promise/avoid-new -- timers have no promise API
   new Promise((resolve) => {
+    // The listener must be the same function object at add/remove time —
+    // removing a different closure leaks a listener per probe tick (~2400
+    // per level) and contaminates the RSS measurement.
+    const listener: AbortListenerHolder = {};
     const finish = (): void => {
-      signal.removeEventListener("abort", finish);
+      if (listener.onAbort !== undefined) {
+        signal.removeEventListener("abort", listener.onAbort);
+      }
       resolve();
     };
     const timer = setTimeout(finish, intervalMs);
-    signal.addEventListener(
-      "abort",
-      () => {
-        clearTimeout(timer);
-        finish();
-      },
-      { once: true }
-    );
+    listener.onAbort = () => {
+      clearTimeout(timer);
+      finish();
+    };
+    signal.addEventListener("abort", listener.onAbort, { once: true });
   });
 
 export const sleepMs = (intervalMs: number): Promise<void> =>
@@ -194,10 +201,12 @@ export interface PoolWaitProbe {
  * waits instead of hanging the level or leaking the connection.
  */
 const releaseOnSettle = async (
-  reservation: Promise<ReservedSql>
+  reservation: Promise<ReservedSql>,
+  onAcquired: () => void
 ): Promise<void> => {
   try {
     const reserved = await reservation;
+    onAcquired();
     reserved.release();
   } catch {
     // A failed reservation has nothing to release; the wait stands.
@@ -213,17 +222,33 @@ export const createPoolWaitProbe = (): PoolWaitProbe => {
         async () => {
           const started = performance.now();
           const pending = sql.reserve();
-          releasers.push(releaseOnSettle(pending));
+          const index = waits.length;
+          waits.push(Number.NaN);
+          // The settle path writes the TRUE acquisition latency whenever the
+          // reservation lands — past the timeout included — so a saturated
+          // pool shows up as huge waits instead of a clipped 5s sample.
+          releasers.push(
+            releaseOnSettle(pending, () => {
+              waits[index] = Math.round(performance.now() - started);
+            })
+          );
           await Promise.race([pending, sleepMs(RESERVE_TIMEOUT_MS)]);
-          waits.push(Math.round(performance.now() - started));
+          if (Number.isNaN(waits[index])) {
+            waits[index] = Math.round(performance.now() - started);
+          }
         },
         intervalMs,
         signal
       );
-      await Promise.allSettled(releasers);
+      // Bounded drain: a reservation that only settles when consumers release
+      // connections must never block the level's failure artifact.
+      await Promise.race([
+        Promise.allSettled(releasers),
+        sleepMs(RESERVE_TIMEOUT_MS),
+      ]);
     },
     samples: waits,
-    summary: () => summarizeSamples(waits),
+    summary: () => summarizeSamples(waits.filter(Number.isFinite)),
   };
 };
 

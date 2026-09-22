@@ -1,4 +1,6 @@
 import { createHash } from "node:crypto";
+import { readFile } from "node:fs/promises";
+import path from "node:path";
 
 import { SOURCES } from "@ji/application/sources";
 import type { SupportedBronSlug } from "@ji/application/sources";
@@ -103,8 +105,13 @@ export const PROBE_BRONNEN: readonly ProbeBronSpec[] = [
   ),
 ];
 
-/** Slot counts the decision compares; level = concurrent ingest jobs. */
-export const PROBE_LEVELS = [2, 4, 6, 8] as const;
+/**
+ * Slot counts the decision compares; level = concurrent ingest jobs.
+ * Level 1 is the production-shaped baseline: `apps/worker` currently runs a
+ * single `runDurableBronJobConsumer` loop, so a one-slot level measures the
+ * deployed shape directly rather than extrapolating to it.
+ */
+export const PROBE_LEVELS = [1, 2, 4, 6, 8] as const;
 
 /** Path segment appended to a fixture detail URL to mint a unique referentie. */
 export const MINTED_URL_SEGMENT = "/k5-mint-";
@@ -149,17 +156,47 @@ export const resolveMintedDetailUrl = (url: string): string | null => {
   return url.slice(0, match.index);
 };
 
+/** Workspace-rooted fixtures dir, mirroring connectors/src/fixtures/load.ts. */
+const fixturePath = (relativePath: string): string =>
+  path.resolve(
+    import.meta.dir,
+    "..",
+    "..",
+    "fixtures",
+    "connectors",
+    relativePath
+  );
+
 /**
- * Deterministic workload identity: bronnen (slug + sorted fixture URLs) ×
- * items-per-bron. Two levels only compare when their digests match — the
- * digest goes into the results JSON and the report.
+ * Deterministic workload identity: bronnen (slug + fixture URL→content hash)
+ * × items-per-bron. Hashing the fixture BODIES — not just the URL keys —
+ * keeps the digest honest when a committed fixture changes under the same
+ * URL: payload size, rejection behaviour and DB work all change with the
+ * body, so the corpus identity must too. Two levels only compare when their
+ * digests match; the digest goes into the results JSON and the report.
  */
-export const corpusDigest = (itemsPerBron: number): string => {
-  const canonical = PROBE_BRONNEN.map((bronSpec) => ({
-    bronId: bronSpec.bronId,
-    bronSlug: bronSpec.bronSlug,
-    fixtureDetailUrls: [...bronSpec.fixtureDetailUrls].toSorted(),
-  }));
+export const corpusDigest = async (itemsPerBron: number): Promise<string> => {
+  const canonical = await Promise.all(
+    PROBE_BRONNEN.map(async (bronSpec) => ({
+      bronId: bronSpec.bronId,
+      bronSlug: bronSpec.bronSlug,
+      fixtures: await Promise.all(
+        [...bronSpec.fixtureDetailUrls].toSorted().map(async (url) => {
+          const relativePath = bronSpec.config.detailFixtures?.[url];
+          if (relativePath === undefined) {
+            throw new Error(
+              `${bronSpec.bronSlug} fixture URL ${url} has no file`
+            );
+          }
+          const body = await readFile(fixturePath(relativePath));
+          return {
+            contentSha256: createHash("sha256").update(body).digest("hex"),
+            url,
+          };
+        })
+      ),
+    }))
+  );
   const digest = createHash("sha256")
     .update(JSON.stringify({ bronnen: canonical, itemsPerBron }))
     .digest("hex");
@@ -243,6 +280,12 @@ export interface JobTiming {
   readonly durationMs: number;
   /** offer→pipeline-complete freshness signal for this job. */
   readonly freshnessMs: number;
+  /**
+   * Items the pipeline rejected (e.g. Heijmans' committed soft-404 fixture).
+   * Rejections are real pipeline work — fetch → parse → reject record — and
+   * are counted explicitly rather than mislabeled as dedupe.
+   */
+  readonly rejectedRecords: number;
   readonly scrapeRunId: string;
   readonly writtenRecords: number;
 }
@@ -250,6 +293,7 @@ export interface JobTiming {
 export interface LevelJobRollup {
   readonly duration: SampleSummary | null;
   readonly freshness: SampleSummary | null;
+  readonly itemsRejected: number;
   readonly itemsWritten: number;
 }
 
@@ -259,6 +303,10 @@ export const buildLevelJobRollup = (
 ): LevelJobRollup => ({
   duration: summarizeSamples(timings.map((timing) => timing.durationMs)),
   freshness: summarizeSamples(timings.map((timing) => timing.freshnessMs)),
+  itemsRejected: timings.reduce(
+    (total, timing) => total + timing.rejectedRecords,
+    0
+  ),
   itemsWritten: timings.reduce(
     (total, timing) => total + timing.writtenRecords,
     0
