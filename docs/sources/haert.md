@@ -58,3 +58,61 @@ consent- of WAF-poort waargenomen op browser-UA noch op de fixture-UA.
 Fixtures: `tools/fixtures/record.ts`, standaardstrips. Op de detailpagina's
 staan recruiter-contactgegevens in de tekst; e-mail en telefoon zijn
 mechanisch geredigeerd (zie `captureNote` per fixture).
+
+## Durable ingest-pad (CTP-639, bewezen 2026-09-21)
+
+Haert is bewezen op het duurzame ingestpad (`curated.durable_job` +
+`POLLER_DURABLE_BRONNEN`) als onderdeel van de L3c mixed-adapter-cohort
+(CTM + Flinter + Freelancer.nl + Haert). De connector en source-definitie
+zijn ongewijzigd — de migratie is een bewijslast, geen codewijziging.
+
+**Live-probe 2026-09-21:** `https://www.haert.nl/sitemap.xml` → 200,
+~20 KB urlset; 131 `<loc>`-entries waarvan 44 de exacte detailvorm
+`/opdrachten/<slug>-<id>` matchen.
+
+**Resume-contract** (`packages/connectors/src/json-ld/durable-cohort-l3c.spec.ts`,
+5 specs): discovery is één enkele sitemap-pass — `discover()` geeft het hele
+gefilterde corpus terug met `hasMore: false` en een inert `checkpoint: {}`,
+dezelfde vorm als de CTP-630/CTP-637/CTP-638 JSON-LD-cohorten. Er is géén
+pagina-cursor: een duurzame herval op hetzelfde `scrapeRunId` leest de
+sitemap én elke detailpagina opnieuw, en de observatie-replay-sleutel
+(`scrapeRunId + bronReferentie + contentHash`) absorbeert al-persisteerde
+items — exact-één, geen verlies. `listingHashCoversDetail: false` — geen
+`knownHashes`: de sitemap-metadata dekt de detail-JobPosting niet, dus elke
+item kost een detailfetch. Een head-insert wordt al door de herval zelf
+gezien; een delisting valt uit de enumeratie en telt via `complete: true`
+meteen mee in de missed-poll-reconcile.
+
+**Fixture-corpus (eerlijk):** de committed listing-fixture is de echte
+sitemap-opname (131 `<loc>`-entries; 44 detail-URL's na filtering), waarvan
+er 3 een detail-fixture hebben (`hr-adviseur-39565`,
+`projectleider-energietransitie-98858`, `zwemonderwijzer-13184`). De
+integratiespec scope de écht geparse sitemap daarom op de detail-backed
+URL's; elke gepersisteerde payload is een echte opname.
+Heel-corpus-enumeratie is los vastgelegd in de connector-spec.
+
+**End-to-end op de echte pipeline** (fixture-client, `ji_test_iso_*`-Postgres,
+`apps/worker/src/poller/l3c-cohort.integration.spec.ts` — 5 specs per bron,
+groen): offer → `runDurableBronJobConsumer` → `runBronIngestPipeline` →
+observaties, `source_record`s, curated `aanvraag`-rijen en `outbox_event`s;
+herhaalde run → alles `unchanged`, geen duplicaten of extra versies;
+gewijzigde detail-payload → `changed`-observatie → nieuwe `aanvraag_versie`
++ bijgewerkte curated rij; gefaalde sitemap-read → run `failed`
+(`DISCOVER_FAILED`) → herval via `reopenFailed` (fence +1) → volledige
+her-enumeratie; abort mid-item → `failed` (`RAW_STORE_WRITE_FAILED` —
+persistence-abort is nooit benign, CTP-490) → retake exact-één.
+
+**UI-bewijs (geseedde stack):** wegwerp-DB `ji_ctp639_visual_l3c` (door deze
+lane aangemaakt), aanvragen gesaaid via het echte duurzame pad met
+Manticore-drain (`SEARCH_PROJECTOR=worker`), API `localhost:3000` + web
+`localhost:3002` zonder `NEXT_PUBLIC_USE_FIXTURES` (:3001 was door een
+operator-SSH-tunnel bezet): `/jobs?source=haert&archief=1` rendert alle 3
+rijen met Bron-chip `Haert` — 1 `OPEN` actief plus 2 `GESLOTEN` door de
+échte opgenomen `validThrough`-datums. Captures: `/tmp/ctp639-visual/`
+(H.264 MP4 + PNG, geopend en in frame bevestigd).
+
+**Canary en rollback:** `POLLER_DURABLE_BRONNEN` per bron toevoegen, één
+tegelijk, ná de CTP-630/CTP-637/CTP-638-cohorten. Rollback = slug uit de
+vlag halen; in-flight jobs lopen leeg, geen dubbele scheduling (`main.ts`
+returnt voor de inline poll). `HAERT_LIVE` blijft uit — dit bewijs is
+fixture-only. Operator-canary en release-gate blijven open.

@@ -61,3 +61,64 @@ fetch niet overslaan (RJC-357/RJC-401).
 
 `freelancer.nl` is een ander host/product dan `freelance.nl`. CTP-576 Freelance.nl
 Gate0 (robots `Disallow:/` en ToS-risico) is hier niet gebruikt en niet gewijzigd.
+
+## Durable ingest-pad (CTP-639, bewezen 2026-09-21)
+
+Freelancer.nl is bewezen op het duurzame ingestpad (`curated.durable_job` +
+`POLLER_DURABLE_BRONNEN`) als onderdeel van de L3c mixed-adapter-cohort
+(CTM + Flinter + Freelancer.nl + Haert). De connector en source-definitie
+zijn ongewijzigd — de migratie is een bewijslast, geen codewijziging.
+
+**Live-probe 2026-09-21:** `https://freelancer.nl/opdrachten` → 200,
+~110 KB HTML; de listing is cumulatief gepagineerd (`?page=N`, 1-indexed).
+
+**Resume-contract** (`packages/connectors/src/freelancer-nl/durable-cohort-l3c.spec.ts`,
+8 specs): dit is de énige connector in de cohort met een échte pagina-cursor —
+`discover()` commit per pagina
+`{cursor: <JSON-array van geziene bronReferenties>, page: <volgende pagina>}`.
+De seen-set dedupliceert de cumulatieve listing (pagina N bevat pagina 1..N
+ongeveer opnieuw). Daardoor hervat een duurzame retake op een gefaalde run
+MID-LISTING op het gecommitte checkpoint in plaats van heel vooraan — een
+page-2-failure laat `{page:2}` achter en de retake leest pagina 1 nooit
+opnieuw. Eerlijk blind-spot: een head-insert op een al gelezen pagina wordt
+pas door een verse run gezien, niet door de retake (vastgelegd in de spec).
+`listingHashCoversDetail: false` — geen `knownHashes`: de listing-hash ziet
+de detailpagina niet, dus elke item kost een detailfetch en een detail-only-
+wijziging landt alsnog als `changed`. Bovengrens van 20 listingpagina's; de
+cap met meer pagina's resterend markeert de run `truncated`.
+
+**Fixture-corpus (eerlijk):** de committed listing-fixture is de echte
+opname (pagina 1 met 3 detailroutes: `56ca9f6b`, `21cdaffd`, `cfc3ced1`),
+maar alleen `cfc3ced1` heeft een opgenomen detailpagina. De integratiespec
+script daarom een twee-pagina-corpus uit de écht geparse fixture-kaarten:
+pagina 1 `cfc3ced1`, pagina 2 `56ca9f6b` — detail-read via de opgenomen
+`detail-cfc3ced1.json` (dezelfde recorded-body-per-item-vorm als het
+CTP-629-feedcohort voor TenderNed). Elke gepersisteerde payload is een echte
+opname.
+
+**End-to-end op de echte pipeline** (fixture-client, `ji_test_iso_*`-Postgres,
+`apps/worker/src/poller/l3c-cohort.integration.spec.ts` — 5 specs per bron,
+groen): offer → `runDurableBronJobConsumer` → `runBronIngestPipeline` →
+observaties, `source_record`s, curated `aanvraag`-rijen en `outbox_event`s;
+herhaalde run → alles `unchanged`, geen duplicaten of extra versies;
+gewijzigde detail-payload → `changed`-observatie → nieuwe `aanvraag_versie`
++ bijgewerkte curated rij; gefaalde pagina-2-read → run `failed`
+(`DISCOVER_FAILED`) op checkpoint `{page:2}` → herval via `reopenFailed`
+(fence +1) die op pagina 2 verdergaat zonder pagina 1 te herlezen; abort
+mid-item → `failed` (`RAW_STORE_WRITE_FAILED` — persistence-abort is nooit
+benign, CTP-490) → retake vanaf het page-checkpoint, exact-één.
+
+**UI-bewijs (geseedde stack):** wegwerp-DB `ji_ctp639_visual_l3c` (door deze
+lane aangemaakt), aanvragen gesaaid via het echte duurzame pad met
+Manticore-drain (`SEARCH_PROJECTOR=worker`), API `localhost:3000` + web
+`localhost:3002` zonder `NEXT_PUBLIC_USE_FIXTURES` (:3001 was door een
+operator-SSH-tunnel bezet): `/jobs?source=freelancer-nl&archief=1` rendert
+de 2 rijen (`cfc3ced1`, `56ca9f6b`, beide actief) met Bron-chip
+`Freelancer.nl`. Captures: `/tmp/ctp639-visual/` (H.264 MP4 + PNG, geopend
+en in frame bevestigd).
+
+**Canary en rollback:** `POLLER_DURABLE_BRONNEN` per bron toevoegen, één
+tegelijk, ná de CTP-630/CTP-637/CTP-638-cohorten. Rollback = slug uit de
+vlag halen; in-flight jobs lopen leeg, geen dubbele scheduling (`main.ts`
+returnt voor de inline poll). `FREELANCER_NL_LIVE` blijft uit — dit bewijs
+is fixture-only. Operator-canary en release-gate blijven open.

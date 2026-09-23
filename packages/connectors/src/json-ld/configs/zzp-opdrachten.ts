@@ -11,10 +11,16 @@ export const zzpOpdrachtenConfig: JsonLdConnectorConfig = {
       "zzp-opdrachten/detail-woonfraude-specialist-710585.json",
   },
   discovery: {
+    /** CTP-624: ~1805 URLs across the two newest chunks. 100 items per
+     * discover() page keeps one page under ~200s of paced detail fetches and
+     * makes the persisted checkpoint meaningful for abort/durable resume. */
+    batchSize: 100,
     childPattern: /\/job-sitemap(?<chunk>\d+)\.xml$/u,
     kind: "sitemap-index",
     newest: 2,
-    url: "https://www.zzp-opdrachten.nl/sitemap.xml",
+    // Live 2026-09-21: /sitemap.xml now 301s to /sitemap_index.xml; the index
+    // still lists the same job-sitemap children (newest chunks 57 and 58).
+    url: "https://www.zzp-opdrachten.nl/sitemap_index.xml",
   },
   excludePatterns: [
     /^(?!https:\/\/www\.zzp-opdrachten\.nl\/vacatures\/vacature-[^/?#]+\/?$).+$/u,

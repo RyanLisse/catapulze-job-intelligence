@@ -73,3 +73,62 @@ Boven-drempel aanbestedingen die al via TenderNed binnenkomen, zullen dus als du
 | `titel` | ja | `titel`, `beschrijving`-fallback |
 
 Houd `hashCtmListingItem` in sync met `CtmEntry`: een nieuw veld dat niet gehasht wordt maakt de skip onveilig (zie `packages/connectors/src/ctm/ctm.spec.ts`, coverage-test).
+
+## Durable ingest-pad (CTP-639, bewezen 2026-09-21)
+
+CTM is bewezen op het duurzame ingestpad (`curated.durable_job` +
+`POLLER_DURABLE_BRONNEN`) als onderdeel van de L3c mixed-adapter-cohort
+(CTM + Flinter + Freelancer.nl + Haert). De connector en source-definitie
+zijn ongewijzigd — de migratie is een bewijslast, geen codewijziging.
+
+**Live-probe 2026-09-21:**
+`https://eu.eu-supply.com/ctm/rss/Rss.ashx?days=30&b=CTMSOLUTION` → 200,
+~8,7 KB Atom-feed; het `days=30`-venster bevatte 5 `<entry>`-elementen.
+
+**Resume-contract** (`packages/connectors/src/ctm/durable-cohort-l3c.spec.ts`,
+8 specs): discovery is één volledige feed-window-read — `discover()` geeft
+alle entries terug met `hasMore: false` en een gevuld-maar-inert
+`{cursor: <feed updatedAt>}`-checkpoint. Er is géén pagina-cursor en géén
+detailrequest: `fetch()` her-serialiseert de feed-entry, die het volledige
+wijzigingsvector ís. Daarom geldt `listingHashCoversDetail: true` en geeft de
+productie-wiring de `knownHashes`-store wél door: een herhaalde poll op
+ongewijzigde entries schrijft NUL observaties (de skip zit vóór de recorder,
+niet erin), terwijl een gewijzigde entry-hash de skip passeert en als
+`changed` landt. Een duurzame herval op hetzelfde `scrapeRunId` leest het
+hele venster opnieuw; head-inserts in het venster worden door de herval zelf
+gezien en delistings tellen via `complete: true` mee in de
+missed-poll-reconcile.
+
+**Fixture-corpus (eerlijk):** de committed listing-fixture is de echte
+feed-opname met 5 entries (`459469`, `459876`, `459877`, `460057`,
+`460060`). Elke gepersisteerde payload is een echte opname; detail-fixtures
+bestaan niet omdat er géén detailfetch bestaat.
+
+**End-to-end op de echte pipeline** (fixture-client, `ji_test_iso_*`-Postgres,
+`apps/worker/src/poller/l3c-cohort.integration.spec.ts` — 5 specs per bron,
+groen): offer → `runDurableBronJobConsumer` → `runBronIngestPipeline` →
+observaties, `source_record`s, curated `aanvraag`-rijen en `outbox_event`s;
+herhaalde run → nul observaties via de known-hash-skip (run slaagt,
+missed-poll-reconcile telt niets); gewijzigde feed-entry →
+`changed`-observatie → nieuwe `aanvraag_versie` + bijgewerkte curated rij;
+gefaalde feed-read → run `failed` (`DISCOVER_FAILED`) → herval via
+`reopenFailed` (fence +1) → volledige venster-herlezing; abort mid-item →
+`failed` (`RAW_STORE_WRITE_FAILED` — persistence-abort is nooit benign,
+CTP-490) → retake exact-één via de observatie-replay-sleutel
+(`scrapeRunId + bronReferentie + contentHash`).
+
+**UI-bewijs (geseedde stack):** wegwerp-DB `ji_ctp639_visual_l3c` (door deze
+lane aangemaakt), aanvragen gesaaid via het echte duurzame pad met
+Manticore-drain (`SEARCH_PROJECTOR=worker`), API `localhost:3000` + web
+`localhost:3002` zonder `NEXT_PUBLIC_USE_FIXTURES` (:3001 was door een
+operator-SSH-tunnel bezet). `/jobs` toont in actieve scope `8 opdrachten ·
+3 in archief`; `/jobs?source=ctm&archief=1` rendert alle 5 rijen met
+Bron-chip `CTM` — één seed (`459469`) staat bewust op `GESLOTEN`/archief
+door de échte opgenomen sluitingstijd. Captures: `/tmp/ctp639-visual/`
+(H.264 MP4 + PNG, geopend en in frame bevestigd).
+
+**Canary en rollback:** `POLLER_DURABLE_BRONNEN` per bron toevoegen, één
+tegelijk, ná de CTP-630/CTP-637/CTP-638-cohorten. Rollback = slug uit de
+vlag halen; in-flight jobs lopen leeg, geen dubbele scheduling (`main.ts`
+returnt voor de inline poll). `CTM_LIVE` blijft uit — dit bewijs is
+fixture-only. Operator-canary en release-gate blijven open.

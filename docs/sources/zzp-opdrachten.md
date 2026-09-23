@@ -7,7 +7,7 @@ De connector leest de twee nieuwste sitemap-chunks en canonieke opdrachtpagina's
 
 | Doel | URL | Opmerking |
 |---|---|---|
-| Sitemap-index | `GET https://www.zzp-opdrachten.nl/sitemap.xml` | Selecteert de twee hoogste numerieke `job-sitemap<N>.xml` chunks. |
+| Sitemap-index | `GET https://www.zzp-opdrachten.nl/sitemap_index.xml` | Selecteert de twee hoogste numerieke `job-sitemap<N>.xml` chunks. Live-probe 2026-09-21: `/sitemap.xml` antwoordt met een permanente 301 naar `/sitemap_index.xml`; `robots.txt` verwijst ook naar die canonical URL. De fixture (`listing-page-0.json`, opgenomen via `/sitemap.xml`) bevat dezelfde index. |
 | Sitemap-chunks | `GET https://www.zzp-opdrachten.nl/job-sitemap57.xml` en `job-sitemap58.xml` | De nieuwste twee chunks; samen vormen ze het rolling discovery window. |
 | Sample detail | `https://www.zzp-opdrachten.nl/vacatures/vacature-jurist-707983/` | JobPosting JSON-LD, identifier `ZT57670`. |
 
@@ -20,6 +20,37 @@ een recente lastmod heeft maar vacatures uit 2018–2019 bevat. De client recurs
 niet verder dan deze ene indexlaag, zodat het volledige historische archief niet
 wordt ingelezen.
 Alleen de exacte vorm `/vacatures/vacature-<slug>-<id>/` blijft behouden.
+
+## Hervatbare discovery-batches (CTP-624)
+
+De twee chunks bevatten samen ~1805 vacature-URL's. `discover()` leverde die
+voorheen in één pagina (`hasMore: false`, checkpoint `{}`), zodat een abort of
+duurzame retry halverwege de detail-walk alles opnieuw moest enumereren. Met
+`discovery.batchSize: 100` emitteert `discover()` nu maximaal 100 items per
+pagina en checkpoint het runloop per pagina als
+`cursor: "sitemap-index:<fingerprint>:<child>:<offset>"` — positie in het
+geselecteerde corpus (welke chunk, offset daarbinnen) plus een SHA-256-vingerafdruk
+(16 hex) van de geordende child-lijst uit de index. Bij hervatting in een
+vers proces wordt de index opnieuw gelezen: gelijke vingerafdruk → doorgaan op
+de positie; afwijkende vingerafdruk of afwezige/legacy cursor → opnieuw vanaf
+positie 0 (dubbel geziene items worden door de idempotente record-laag
+absorbeerd, en een hervatte run blijft `complete: false, reason: "resumed"`,
+dus er vallen nooit tombstones op een incompleet beeld). `truncated` wordt niet
+voor de vingerafdruk gebruikt; het behoudt zijn vaste betekenis.
+
+Eén volledige walk kost dezelfde requests als voorheen (1× index + 1× per
+geselecteerde chunk; chunks worden per run in-process gecachet). Fairness komt
+uit begrensde pagina's + checkpoint-resume: chunk-reads binnen een `discover()`
+blijven sequentieel onder de gedeelde `CrawlDelayLimiter` van de runloop; er is
+geen connector-interne parallelliteit. `listingHashCoversDetail` blijft `false`:
+alleen de known-hash-short-circuit in `fetch()` slaat ongewijzigde details over.
+
+Restrisico: de vingerafdruk dekt de child-*lijst* van de index, niet de inhoud
+van een chunk. Verandert een chunk-body tussen twee attempts terwijl de index
+gelijk blijft, dan kan de offset iets verschuiven — dubbel wordt geabsorbeerd,
+overgeslagen items missen hooguit één observatie (de run is toch `resumed`,
+dus nooit compleet). Een child-sitemap die tijdens een walk transport-fout
+geeft, faalt de pagina: de retry leest dezelfde positie opnieuw.
 
 ## Veldmapping → canoniek `aanvraag`
 
@@ -46,3 +77,16 @@ bouwprojectmanager `2026-09-16T20:13:08.775Z`, woonfraude `2026-09-16T20:13:25.6
 
 `listingHashCoversDetail: false`: sitemapmetadata bevat alleen URL/lastmod en
 niet de JobPosting-body. Known hashes worden daarom niet doorgegeven.
+
+## Canary en release
+
+De gebatchte discovery activeert pas in productie zodra de duurzame poller de
+bron oppikt: `POLLER_DURABLE_BRONNEN=zzp-opdrachten`. Terugdraaien is het slug
+uit die lijst halen; de connector blijft dan ongebruikt en een eerder
+persisted cursor is afwaarts compatibel — een volgende run zonder checkpoint
+start gewoon bij positie 0.
+
+`packages/connectors` en de worker-ingest zijn manual-lane paths: een release
+die ze raakt autodeployt niet en de `Deploy production`-gate blijft rood tot
+een operator de release handmatig schippt. Dat rode signaal is het werkende
+gate-gedrag, geen defect; deze change claimt dus geen autodeploy.

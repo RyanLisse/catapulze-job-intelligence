@@ -225,15 +225,27 @@ const auditSource = async (source: SourceDefinition): Promise<SourceReport> => {
     listingPayload?: unknown;
   }[] = [];
   let checkpoint: Parameters<typeof connector.discover>[0] = null;
+  // CTP-624: paged connectors (sitemap-index batchSize) emit their corpus over
+  // many pages, so the audit follows hasMore to exhaustion. The bound exists
+  // only to catch a connector that never stops paging — hitting it is an
+  // error, not a silent truncation.
+  const maxDiscoveryPages = 500;
+  let exhausted = false;
   try {
-    for (let page = 0; page < 10; page += 1) {
+    for (let page = 0; page < maxDiscoveryPages; page += 1) {
       // oxlint-disable-next-line no-await-in-loop -- discovery is checkpoint-dependent: each page needs the previous discover() checkpoint.
       const result = await connector.discover(checkpoint);
       items.push(...result.items);
       if (!result.hasMore) {
+        exhausted = true;
         break;
       }
       ({ checkpoint } = result);
+    }
+    if (!exhausted) {
+      report.errors.push(
+        `discover: still hasMore after ${maxDiscoveryPages} pages`
+      );
     }
   } catch (error) {
     // A malformed listing fixture reports as a source error instead of
