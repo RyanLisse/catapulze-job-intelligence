@@ -2,8 +2,24 @@ import { describe, expect, it } from "bun:test";
 
 import { createJsonLdClient } from "./client";
 import { intermediairConfig } from "./configs/intermediair";
+import { createJsonLdConnector } from "./connector";
 
 describe("Intermediair JSON-LD connector", () => {
+  it("keeps single-pass whole-corpus discovery while no batchSize is configured (CTP-624)", async () => {
+    const connector = createJsonLdConnector({
+      bronId: "bron-intermediair-unbatched",
+      client: createJsonLdClient({
+        config: intermediairConfig,
+        liveEnabled: false,
+      }),
+      config: intermediairConfig,
+    });
+    const discovered = await connector.discover(null);
+    expect(discovered.hasMore).toBe(false);
+    expect(discovered.checkpoint).toEqual({});
+    expect(discovered.items).toHaveLength(2480);
+  });
+
   it("discovers exactly the 2480 job-shaped sitemap URLs", async () => {
     const urls = await createJsonLdClient({
       config: intermediairConfig,
