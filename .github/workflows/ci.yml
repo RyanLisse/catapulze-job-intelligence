@@ -249,7 +249,8 @@ jobs:
 
   application-image-smoke:
     needs: changes
-    if: needs.changes.outputs.code == 'true'
+    # Thin main-push: full docker smoke only on PRs; main push keeps verify+build for Deploy.
+    if: github.event_name == 'pull_request' && needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     # Required application-image proof. Four image builds plus disposable
     # services are bounded separately from the host build above.
@@ -302,7 +303,8 @@ jobs:
 
   mcp-edge-smoke:
     needs: changes
-    if: needs.changes.outputs.code == 'true'
+    # Thin main-push: skip on main push (Deploy only needs verify+build).
+    if: github.event_name == 'pull_request' && needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
@@ -337,7 +339,8 @@ jobs:
 
   postgres-restore-drill:
     needs: changes
-    if: needs.changes.outputs.code == 'true'
+    # Thin main-push: restore drill is PR-only; weekly/ops can still run via re-run on a PR.
+    if: github.event_name == 'pull_request' && needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
