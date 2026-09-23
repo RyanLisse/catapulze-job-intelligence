@@ -76,3 +76,17 @@ Bestaande TenderNed-rijen kunnen na deze parserwijziging opnieuw worden afgeleid
 ## Known-hash short-circuit (RJC-357 / RJC-401)
 
 `listingHashCoversDetail: false` — de fetch haalt een detailrespons op en de normaliser leest daaruit velden die de listing-hash niet ziet: `opdrachtBeschrijving` (→ `beschrijving`), `cpvCodes`, `nutsCodes`, `opdrachtAardCode`, `procedureCode` (→ `bronSpecifiek`) en `opdrachtgeverNaam`. Een detail-wijziging zonder listing-wijziging zou bij een skip bevroren raken. De bron-definitie geeft daarom bewust géén `knownHashes`-store door (afgedwongen in `sources.spec.ts`).
+
+## Durable feed-cohort (CTP-629, bewezen 2026-09-20)
+
+TenderNed is bewezen op het duurzame ingestpad (`curated.durable_job` + `POLLER_DURABLE_BRONNEN`). De connector zelf is ongewijzigd — de migratie is een bewijslast, geen codewijziging.
+
+**Live-probe 2026-09-20** (`/private/tmp/w8-evidence/feed-cohort/`): listing `page=0&size=100` → 200, `totalElements: 23121`, `totalPages: 232`; het pollvenster (`publicatieDatumVanaf/Tot`) → 200, `totalElements: 16`, één pagina, `last: true`; detail `publicaties/440750` → 200 met de detailvelden die de listing-hash niet dekt.
+
+**Resume-contract** (`packages/connectors/src/tenderned/durable-cohort.spec.ts`, 4 specs): `checkpoint.page` is 0-geïndexeerd en wordt na elke pagina opgeslagen als `{page: page+1}`; een duurzame herval leest alleen pagina's ná het checkpoint. Een head-insert tussen twee attempts schuift een al geziene record terug op de cursor-pagina — die wordt opnieuw geobserveerd en geabsorbeerd door de observatie-replay-dedupe (`scrapeRunId + bronReferentie + contentHash`), dus exact-één `source_record`/`aanvraag_observation`. **Resterende kloof (eerlijk):** een tussen de attempts verwijderde record vóór de cursor wordt door de hervatte run overgeslagen; die wordt niet getombstoned (een hervatte run is nooit een complete reconciliatie) en wordt door de volgende verse poll vanaf pagina 0 genezen.
+
+**Completeness/`truncated`:** de connector heeft geen paginalimiet; `hasMore` volgt `!listing.last`. `truncated` blijft dus altijd afwezig — de enige eerlijke waarde onder het RJC-397-contract.
+
+**End-to-end op de echte pipeline** (fixture-client, `ji_test_iso_*`-Postgres): offer → `runDurableBronJobConsumer` → `runBronIngestPipeline` → observaties, `source_record`s en curated `aanvraag`-rijen; gefaalde run → herval op hetzelfde `scrapeRunId` (`reopenFailed`, fence +1) → resume vanaf checkpoint; abort mid-item → run `failed` (persistence-abort is nooit "benign", CTP-490) → retake leest de resterende pagina's alsnog — geen verlies, exact-één. Bewijs: `apps/worker/src/poller/feed-cohort.integration.spec.ts` (6 specs, groen), meegecommit als test-only bewijs — `apps/worker` viel buiten de lane-owned paths, dus deze lane raakt daar bewust geen productiecode, alleen deze spec.
+
+**Canary en rollback:** zet `POLLER_DURABLE_BRONNEN=tenderned` (één bron tegelijk); bekijk `curated.durable_job` + `scrape_run`/`bron_health`. Rollback = slug uit de vlag halen; in-flight jobs lopen leeg, er ontstaat geen dubbele scheduling (`main.ts` returnt voor de inline poll). Geen dataverlies geclaimd buiten het bovenstaande bewijs.

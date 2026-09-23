@@ -248,6 +248,72 @@ const parseJsonListingPagesEffect = (
   );
 };
 
+/** `sitemap-index` only: the index document's selected child sitemap URLs in
+ * walk order (highest `chunk` first). CTP-624: exposed so the connector can
+ * page through the corpus without re-reading every child per batch. */
+export const fetchSitemapIndexEffect = (
+  options: JsonLdEffectClientOptions
+): Effect.Effect<string[], ReadIoFault> => {
+  const { config } = options;
+  const { discovery } = config;
+  if (discovery.kind !== "sitemap-index") {
+    return Effect.fail(
+      new ValidationFault({
+        message: `${config.slug} is not a sitemap-index source`,
+      })
+    );
+  }
+  const listingFixturePath =
+    options.listingFixturePath ??
+    config.listingFixturePath ??
+    `${config.slug}/listing-page-0.json`;
+  const indexEffect = resolveLiveEnabled(options)
+    ? fetchLiveTextEffect(options, discovery.url)
+    : loadFixtureTextEffect(
+        listingFixturePath,
+        `Failed to load listing fixture ${listingFixturePath}`
+      );
+  return indexEffect.pipe(
+    Effect.map((raw) =>
+      selectSitemapIndexChildren(raw, discovery.childPattern, discovery.newest)
+    )
+  );
+};
+
+/** `sitemap-index` only: one child sitemap's `<url>` entries in document
+ * order, before cross-child dedupe/excludes (the connector owns corpus shape
+ * so cursor offsets stay well-defined). */
+export const fetchSitemapChildEffect = (
+  options: JsonLdEffectClientOptions,
+  childUrl: string
+): Effect.Effect<JsonLdDiscoveryUrl[], ReadIoFault> => {
+  const { config } = options;
+  if (config.discovery.kind !== "sitemap-index") {
+    return Effect.fail(
+      new ValidationFault({
+        message: `${config.slug} is not a sitemap-index source`,
+      })
+    );
+  }
+  if (resolveLiveEnabled(options)) {
+    return fetchLiveTextEffect(options, childUrl).pipe(
+      Effect.map((raw) => extractSitemapUrls(raw))
+    );
+  }
+  const fixturePath = config.sitemapFixtures?.[childUrl];
+  if (!fixturePath) {
+    return Effect.fail(
+      new ValidationFault({
+        message: `Missing ${config.slug} sitemap fixture for ${childUrl}`,
+      })
+    );
+  }
+  return loadFixtureTextEffect(
+    fixturePath,
+    `Failed to load sitemap fixture ${fixturePath}`
+  ).pipe(Effect.map((raw) => extractSitemapUrls(raw)));
+};
+
 export const fetchListingEffect = (
   options: JsonLdEffectClientOptions
 ): Effect.Effect<JsonLdDiscoveryUrl[], ReadIoFault> => {
@@ -256,6 +322,21 @@ export const fetchListingEffect = (
     options.listingFixturePath ??
     config.listingFixturePath ??
     `${config.slug}/listing-page-0.json`;
+
+  if (config.discovery.kind === "sitemap-index") {
+    return fetchSitemapIndexEffect(options).pipe(
+      Effect.flatMap((childUrls) =>
+        Effect.forEach(
+          childUrls,
+          (childUrl) => fetchSitemapChildEffect(options, childUrl),
+          { concurrency: 1 }
+        )
+      ),
+      Effect.map((chunks) =>
+        applyExcludes(dedupeUrls(chunks.flat()), config.excludePatterns)
+      )
+    );
+  }
 
   let indexEffect: Effect.Effect<string, ReadIoFault>;
   if (resolveLiveEnabled(options)) {
@@ -271,45 +352,8 @@ export const fetchListingEffect = (
       `Failed to load listing fixture ${listingFixturePath}`
     );
   }
-  if (config.discovery.kind !== "sitemap-index") {
-    return indexEffect.pipe(
-      Effect.flatMap((raw) => parseJsonListingPagesEffect(options, raw))
-    );
-  }
-
-  const { discovery } = config;
   return indexEffect.pipe(
-    Effect.map((raw) =>
-      selectSitemapIndexChildren(raw, discovery.childPattern, discovery.newest)
-    ),
-    Effect.flatMap((childUrls) =>
-      Effect.forEach(
-        childUrls,
-        (childUrl) => {
-          if (resolveLiveEnabled(options)) {
-            return fetchLiveTextEffect(options, childUrl).pipe(
-              Effect.map((raw) => extractSitemapUrls(raw))
-            );
-          }
-          const fixturePath = config.sitemapFixtures?.[childUrl];
-          if (!fixturePath) {
-            return Effect.fail(
-              new ValidationFault({
-                message: `Missing ${config.slug} sitemap fixture for ${childUrl}`,
-              })
-            );
-          }
-          return loadFixtureTextEffect(
-            fixturePath,
-            `Failed to load sitemap fixture ${fixturePath}`
-          ).pipe(Effect.map((raw) => extractSitemapUrls(raw)));
-        },
-        { concurrency: 1 }
-      )
-    ),
-    Effect.map((chunks) =>
-      applyExcludes(dedupeUrls(chunks.flat()), config.excludePatterns)
-    )
+    Effect.flatMap((raw) => parseJsonListingPagesEffect(options, raw))
   );
 };
 
@@ -366,6 +410,14 @@ export const createJsonLdEffectClient = (
       }),
     fetchListing: (signal) =>
       runReadIoPromise(fetchListingEffect(options), {
+        signal: requestSignal(signal),
+      }),
+    fetchSitemapChild: (url, signal) =>
+      runReadIoPromise(fetchSitemapChildEffect(options, url), {
+        signal: requestSignal(signal),
+      }),
+    fetchSitemapIndex: (signal) =>
+      runReadIoPromise(fetchSitemapIndexEffect(options), {
         signal: requestSignal(signal),
       }),
   };

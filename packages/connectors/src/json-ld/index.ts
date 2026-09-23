@@ -83,6 +83,8 @@ export {
   createJsonLdEffectClient,
   fetchDetailEffect,
   fetchListingEffect,
+  fetchSitemapChildEffect,
+  fetchSitemapIndexEffect,
   type JsonLdEffectClientOptions,
 } from "./client-effect";
 
