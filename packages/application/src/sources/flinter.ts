@@ -27,7 +27,9 @@ export const flinter = {
     // far less often than the JSON/XHR sources.
     crawlDelayMs: 3000,
     methode: "html",
-    voorwaardenStatus: "te_toetsen",
+    // Operatorbesluit 2026-09-03 (live testimport productie); bewijs in
+    // docs/sources/flinter.md "Voorwaarden" + robots-probe scripts/probe-source-voorwaarden.ts.
+    voorwaardenStatus: "toegestaan",
   },
   slug: "flinter",
 } satisfies SourceDefinition<"flinter">;
