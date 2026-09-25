@@ -1,5 +1,7 @@
 # Linear setup — Job Intelligence
 
+> Historical import pack of 2026-08-27. This directory documents how the Job Intelligence board was created; it is not kept in sync. For current issue state, priorities and statuses, see the live Linear project.
+
 The live Linear workspace is available and DEC-005 is recorded as `RJC-321` (`Done`). This directory remains the reproducible source/import pack for the Job Intelligence board; U10 (`RJC-347`) deliberately remains open.
 
 **Answer to “should we create all slices?”:** yes — as **roadmap containers**. Only **Slice A** is fully issued with acceptance criteria. Slice B/C are placeholder epics; Candidate Intelligence and Company OS are epic stubs with no build children.
