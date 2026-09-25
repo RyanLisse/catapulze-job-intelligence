@@ -42,3 +42,10 @@ hash dekt de detailvelden niet; `listingHashCoversDetail` is daarom false.
 De fixture → connector → normalise → curate-assertie staat niet in deze
 source-test: curatie vereist live Postgres via `createBronRuntimeClient` en
 zou bestanden onder `apps/worker`/infra nodig hebben, buiten deze lane.
+
+## Voorwaarden
+
+- robots.txt: www.hays.nl: HTTP 200, geen Disallow op connectorpaden (/, /vacature-details/), Crawl-delay 10, geprobed 2026-09-25
+- ToS/gebruiksvoorwaarden: niet gevonden
+- Besluit: `te_toetsen`
+- Besluitnemer en datum: open voor Robbie (geen besluit vastgelegd)
