@@ -14,7 +14,6 @@ Bouwdossier voor de eerste Catapulze Job Intelligence-slice: vacatures/aanvragen
 | [`docs/SOURCE_MATRIX.md`](docs/SOURCE_MATRIX.md) | Geverifieerde bronmatrix (DEC-002): ladder-indeling, wat nog geregeld moet worden |
 | [`docs/linear/`](docs/linear/README.md) | Linear roadmap import (Gate 0 + Slice A/B/C/Later). Slice A fully issued; later slices are containers |
 | [`docs/sources/tenderned.md`](docs/sources/tenderned.md) | Ingest-recept TenderNed (eerste nieuwe bron) |
-| [`docs/COSTS.md`](docs/COSTS.md) | Kostenkaart, live geverifieerd; P0 / jaar 1 / jaar 2 |
 | [`docs/REQUIREMENTS_V2.json`](docs/REQUIREMENTS_V2.json) | Requirements v2 (concept 26-08) + v1→v2-veldmapping |
 | [`docs/doelplaat/`](docs/doelplaat/) | Volledige export van de doelarchitectuur-artifact (model-JSON, spec v0.2, documenten, beslissingen) |
 | [`docs/research/`](docs/research/README.md) | Ruwe onderzoeksrapporten met bronnen en benchmarks |
