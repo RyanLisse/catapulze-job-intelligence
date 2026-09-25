@@ -1,4 +1,4 @@
-# Catapulze Job Intelligence
+# RSP Job Intelligence
 
 Bouwdossier voor de eerste Catapulze Job Intelligence-slice: vacatures/aanvragen uit ~23 bronnen verzamelen, normaliseren, ontdubbelen, instant doorzoekbaar maken (Boolean + facets) en na menselijke goedkeuring idempotent exporteren naar Spott.io — agent-native vanaf dag één.
 
